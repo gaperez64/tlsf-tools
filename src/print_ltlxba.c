@@ -49,28 +49,34 @@ static int prec_of(const Node *n) {
 }
 
 // Forward declaration.
-static void emit(FILE *out, const Node *n, int min_prec, bool full);
+static void emit(FILE *out, const Node *n, int min_prec, bool full,
+                 bool finite);
 
 // Print a unary operator `op` applied to `arg`.  Unary operators are
 // right-associative, so the operand is emitted at the operator's own level.
-static void emit_unary(FILE *out, const char *op, const Node *arg, bool full) {
+static void emit_unary(FILE *out, const char *op, const Node *arg, bool full,
+                       bool finite) {
   fprintf(out, "%s", op);
-  emit(out, arg, 5, full);
+  emit(out, arg, 5, full, finite);
 }
 
 // Print a binary operator.  `lassoc` selects left- vs right-associativity.
 static void emit_binary(FILE *out, const Node *n, const char *op, int prec,
-                        bool lassoc, bool full) {
+                        bool lassoc, bool full, bool finite) {
   // left-assoc:  left at `prec`,   right at `prec+1`
   // right-assoc: left at `prec+1`, right at `prec`
   int left_min = lassoc ? prec : prec + 1;
   int right_min = lassoc ? prec + 1 : prec;
-  emit(out, n->lhs, left_min, full);
+  emit(out, n->lhs, left_min, full, finite);
   fprintf(out, "%s", op);
-  emit(out, n->rhs, right_min, full);
+  emit(out, n->rhs, right_min, full, finite);
 }
 
-static void emit(FILE *out, const Node *n, int min_prec, bool full) {
+// `finite` selects finite-word (LTLf) rendering: the strong next X[!] is kept
+// distinct from the weak next X (they coincide on infinite words, so for
+// infinite semantics both print as X).
+static void emit(FILE *out, const Node *n, int min_prec, bool full,
+                 bool finite) {
   assert(n);
 
   int p = prec_of(n);
@@ -85,21 +91,24 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full) {
   case NODE_FALSE: fprintf(out, "false"); break;
   case NODE_AP:    fprintf(out, "%s", n->name); break;
 
-  case NODE_NOT:      emit_unary(out, "!", n->arg, full); break;
-  case NODE_X:        emit_unary(out, "X ", n->arg, full); break;
-  // ltlxba has no portable strong-next symbol; emit X for compatibility.
-  case NODE_X_STRONG: emit_unary(out, "X ", n->arg, full); break;
-  case NODE_F:        emit_unary(out, "F ", n->arg, full); break;
-  case NODE_G:        emit_unary(out, "G ", n->arg, full); break;
+  case NODE_NOT:      emit_unary(out, "!", n->arg, full, finite); break;
+  case NODE_X:        emit_unary(out, "X ", n->arg, full, finite); break;
+  // Strong next: X[!] under finite-word semantics, plain X otherwise (the two
+  // agree on infinite words).
+  case NODE_X_STRONG:
+    emit_unary(out, finite ? "X[!] " : "X ", n->arg, full, finite);
+    break;
+  case NODE_F:        emit_unary(out, "F ", n->arg, full, finite); break;
+  case NODE_G:        emit_unary(out, "G ", n->arg, full, finite); break;
 
-  case NODE_AND:   emit_binary(out, n, " && ",  3, true,  full); break;
-  case NODE_OR:    emit_binary(out, n, " || ",  2, true,  full); break;
-  case NODE_IMPL:  emit_binary(out, n, " -> ",  1, false, full); break;
-  case NODE_EQUIV: emit_binary(out, n, " <-> ", 1, false, full); break;
-  case NODE_U:     emit_binary(out, n, " U ",   4, false, full); break;
-  case NODE_R:     emit_binary(out, n, " R ",   4, false, full); break;
-  case NODE_W:     emit_binary(out, n, " W ",   4, false, full); break;
-  case NODE_M:     emit_binary(out, n, " M ",   4, false, full); break;
+  case NODE_AND:   emit_binary(out, n, " && ",  3, true,  full, finite); break;
+  case NODE_OR:    emit_binary(out, n, " || ",  2, true,  full, finite); break;
+  case NODE_IMPL:  emit_binary(out, n, " -> ",  1, false, full, finite); break;
+  case NODE_EQUIV: emit_binary(out, n, " <-> ", 1, false, full, finite); break;
+  case NODE_U:     emit_binary(out, n, " U ",   4, false, full, finite); break;
+  case NODE_R:     emit_binary(out, n, " R ",   4, false, full, finite); break;
+  case NODE_W:     emit_binary(out, n, " W ",   4, false, full, finite); break;
+  case NODE_M:     emit_binary(out, n, " M ",   4, false, full, finite); break;
 
   default:
     assert(false && "print_ltlxba: unexpected node kind");
@@ -109,12 +118,18 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full) {
     fputc(')', out);
 }
 
+// True when the spec uses finite-word (LTLf) semantics.
+static bool spec_is_finite(const TlsfSpec *spec) {
+  return spec->info.semantics == SEM_MEALY_FINITE ||
+         spec->info.semantics == SEM_MOORE_FINITE;
+}
+
 // ---------------------------------------------------------------------------
 // Public formula entry points
 // ---------------------------------------------------------------------------
 
 void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens) {
-  emit(out, n, 1, full_parens);
+  emit(out, n, 1, full_parens, /*finite=*/false);
 }
 
 void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
@@ -124,7 +139,7 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
     return;
   }
   if (count == 1) {
-    emit(out, formulas[0], 1, full_parens);
+    emit(out, formulas[0], 1, full_parens, /*finite=*/false);
     return;
   }
   // Conjunction (prec 3); wrap when full, otherwise leave bare at top level.
@@ -133,7 +148,7 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
   for (uint32_t i = 0; i < count; i++) {
     if (i > 0)
       fprintf(out, " && ");
-    emit(out, formulas[i], 4, full_parens); // operand of &&
+    emit(out, formulas[i], 4, full_parens, /*finite=*/false); // operand of &&
   }
   if (full_parens)
     fputc(')', out);
@@ -249,6 +264,6 @@ void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
       root = node_impl(a, e, s);
   }
 
-  emit(out, root, 1, full_parens);
+  emit(out, root, 1, full_parens, spec_is_finite(spec));
   fprintf(out, "\n");
 }
