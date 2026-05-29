@@ -225,3 +225,9 @@ test('expand_basic', check,
 test('semantics_sections', check,
   args: [files('test/cases/sections.ltl'),
          tlsf2ltl_exe, files('test/cases/sections.tlsf')])
+
+# Strict semantics: (PRESET & G ASSERT) W !(INITIALLY & G REQUIRE), plus the
+# liveness implication.
+test('semantics_strict', check,
+  args: [files('test/cases/sections.strict.ltl'),
+         tlsf2ltl_exe, '--strict', files('test/cases/sections.tlsf')])

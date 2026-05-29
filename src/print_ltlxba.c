@@ -162,64 +162,92 @@ static Node *and_opt(Arena *a, Node *x, Node *y) {
   return node_and(a, x, y);
 }
 
-// Build the TLSF specification formula (arXiv semantics):
+// Conjunction of the guarantee-section formulas whose class is selected.
+static Node *guarantees_of(Arena *a, const ClassifiedSpec *cs, bool safety,
+                           bool liveness) {
+  if (cs->guarantee_count == 0)
+    return nullptr;
+  Node **gb = ARENA_ALLOC_N(a, Node *, cs->guarantee_count);
+  uint32_t gn = 0;
+  for (uint32_t i = 0; i < cs->guarantee_count; i++) {
+    FormulaClass cls = cs->guarantees[i].cls;
+    if ((cls == FCLASS_SAFETY && safety) ||
+        (cls == FCLASS_LIVENESS && liveness))
+      gb[gn++] = cs->guarantees[i].formula;
+  }
+  return conj_of(a, gb, gn);
+}
+
+// G(conj of ASSERT formulas), or nullptr if there are none.
+static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
+  if (cs->assert_count == 0)
+    return nullptr;
+  Node **ab = ARENA_ALLOC_N(a, Node *, cs->assert_count);
+  for (uint32_t i = 0; i < cs->assert_count; i++)
+    ab[i] = cs->asserts[i].formula;
+  return node_g(a, conj_of(a, ab, cs->assert_count));
+}
+
+// Build the TLSF specification formula and emit it.
 //
+// Standard (non-strict) semantics — the arXiv default:
 //   (INITIALLY ∧ G REQUIRE ∧ ASSUME)  →  (PRESET ∧ G ASSERT ∧ GUARANTEE)
 //
-// Each section is the conjunction of its formulas; empty sections drop out,
-// and a trivial antecedent collapses to just the consequent.  REQUIRE and
-// ASSERT (invariants) are wrapped in G.  The safety/liveness mode selects
-// which guarantees appear, and (for liveness) drops the safety-only system
-// sections PRESET and ASSERT.
+// Strict semantics (--strict) — the system's safety must hold at least until
+// the environment first violates a safety assumption:
+//   ((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)
+// with E = INITIALLY ∧ G REQUIRE ∧ ASSUME.  If there are no safety
+// assumptions, ¬A_safety is false and the weak-until becomes G(PRESET ∧
+// G ASSERT).
+//
+// Each section is the conjunction of its formulas; empty parts drop out and
+// trivial implications collapse.  The safety/liveness mode selects which
+// guarantees appear (and, for liveness, drops the safety-only sections).
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode,
+                       const ClassifiedSpec *cs, PrintMode mode, bool strict,
                        bool full_parens) {
   Arena *a = spec->arena;
   bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
 
-  // Environment antecedent: INITIALLY ∧ G(REQUIRE) ∧ ASSUME.
+  // Environment antecedent E = INITIALLY ∧ G(REQUIRE) ∧ ASSUME.
   Node *e_init = conj_of(a, cs->initially, cs->initially_count);
   Node *e_req = conj_of(a, cs->require, cs->require_count);
   if (e_req)
     e_req = node_g(a, e_req);
-  Node *e_asu = conj_of(a, cs->assume, cs->assume_count);
-  Node *e = and_opt(a, and_opt(a, e_init, e_req), e_asu);
+  Node *a_safety = and_opt(a, e_init, e_req);
+  Node *a_live = conj_of(a, cs->assume, cs->assume_count);
+  Node *e = and_opt(a, a_safety, a_live);
 
-  // System consequent: PRESET ∧ G(ASSERT) ∧ (selected) GUARANTEE.
-  Node *s_pre = want_safety ? conj_of(a, cs->preset, cs->preset_count) : nullptr;
+  // System safety invariants S_safety = PRESET ∧ G(ASSERT).
+  Node *s_pre = conj_of(a, cs->preset, cs->preset_count);
+  Node *s_safety = and_opt(a, s_pre, assert_inv(a, cs));
 
-  Node *s_asr = nullptr;
-  if (want_safety && cs->assert_count > 0) {
-    Node **ab = ARENA_ALLOC_N(a, Node *, cs->assert_count);
-    for (uint32_t i = 0; i < cs->assert_count; i++)
-      ab[i] = cs->asserts[i].formula;
-    s_asr = node_g(a, conj_of(a, ab, cs->assert_count));
-  }
-
-  Node *s_gua = nullptr;
-  if (cs->guarantee_count > 0) {
-    Node **gb = ARENA_ALLOC_N(a, Node *, cs->guarantee_count);
-    uint32_t gn = 0;
-    for (uint32_t i = 0; i < cs->guarantee_count; i++) {
-      FormulaClass cls = cs->guarantees[i].cls;
-      if ((cls == FCLASS_SAFETY && want_safety) ||
-          (cls == FCLASS_LIVENESS && want_liveness))
-        gb[gn++] = cs->guarantees[i].formula;
-    }
-    s_gua = conj_of(a, gb, gn);
-  }
-
-  Node *s = and_opt(a, and_opt(a, s_pre, s_asr), s_gua);
-
-  // Assemble:  no consequent → true;  no antecedent → S;  else E → S.
   Node *root;
-  if (!s)
-    root = node_true(a);
-  else if (!e)
-    root = s;
-  else
-    root = node_impl(a, e, s);
+  if (strict) {
+    // Safety: (S_safety W ¬A_safety), dropped if there is no system safety.
+    Node *safety_part = nullptr;
+    if (want_safety && s_safety)
+      safety_part = a_safety ? node_w(a, s_safety, node_not(a, a_safety))
+                             : node_g(a, s_safety);
+    // Liveness: E → GUARANTEE.
+    Node *g_all = want_liveness ? guarantees_of(a, cs, true, true) : nullptr;
+    Node *live_part = g_all ? (e ? node_impl(a, e, g_all) : g_all) : nullptr;
+
+    root = and_opt(a, safety_part, live_part);
+    if (!root)
+      root = node_true(a);
+  } else {
+    // Non-strict: E → (PRESET ∧ G ASSERT ∧ GUARANTEE).
+    Node *s_gua = guarantees_of(a, cs, want_safety, want_liveness);
+    Node *s = and_opt(a, want_safety ? s_safety : nullptr, s_gua);
+    if (!s)
+      root = node_true(a);
+    else if (!e)
+      root = s;
+    else
+      root = node_impl(a, e, s);
+  }
 
   emit(out, root, 1, full_parens);
   fprintf(out, "\n");

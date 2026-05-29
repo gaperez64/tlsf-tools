@@ -30,8 +30,11 @@
 
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [--safety|--liveness] [--parenthesize] [--param N=V]... "
-          "FILE\n"
+          "Usage: %s [--strict] [--safety|--liveness] [--parenthesize] "
+          "[--param N=V]... FILE\n"
+          "  --strict             use the strict TLSF semantics (system\n"
+          "                       safety must hold until the environment\n"
+          "                       first breaks an assumption)\n"
           "  --safety|--liveness  emit only safety / liveness guarantees\n"
           "  --parenthesize       fully parenthesise the output (default:\n"
           "                       minimal parentheses by operator precedence)\n"
@@ -100,6 +103,7 @@ static int apply_nnf_all(TlsfSpec *spec) {
 int main(int argc, char *argv[]) {
   PrintMode mode = PRINT_ALL;
   bool full_parens = false;
+  bool strict = false;
   const char *input_file = nullptr;
 
   // Temporary override storage (max 64 overrides).
@@ -111,6 +115,8 @@ int main(int argc, char *argv[]) {
       mode = PRINT_SAFETY;
     } else if (strcmp(argv[i], "--liveness") == 0) {
       mode = PRINT_LIVENESS;
+    } else if (strcmp(argv[i], "--strict") == 0) {
+      strict = true;
     } else if (strcmp(argv[i], "--parenthesize") == 0 ||
                strcmp(argv[i], "--parens") == 0) {
       full_parens = true;
@@ -200,7 +206,7 @@ int main(int argc, char *argv[]) {
   }
 
   // --- Emit ---
-  print_ltlxba_spec(stdout, spec, cs, mode, full_parens);
+  print_ltlxba_spec(stdout, spec, cs, mode, strict, full_parens);
 
   spec_free(spec);
   return 0;
