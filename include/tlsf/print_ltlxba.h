@@ -8,19 +8,24 @@
 ///   !φ   &&   ||   ->   <->
 ///   X φ  F φ  G φ  φ U ψ  φ R ψ  φ W ψ  φ M ψ
 ///
-/// Output is fully parenthesised to avoid any ambiguity.
+/// By default output uses the minimal parentheses required by the operator
+/// precedence shared by spot/ltl2ba and the TLSF arXiv papers (tightest
+/// first):  unary (! X F G) > U R W M > && > || > -> <->.  Passing
+/// full_parens=true parenthesises every compound subformula instead.
 
 #include "tlsf/ast.h"
 #include "tlsf/classify.h"
 #include "tlsf/spec.h"
+#include <stdbool.h>
 #include <stdio.h>
 
 /// Print a single formula to `out` in ltlxba format.
-void print_ltlxba_formula(FILE *out, const Node *n);
+void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens);
 
 /// Print a conjunction of all formulas in `list` to `out`.
 /// Prints "true" for an empty list.
-void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count);
+void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
+                       bool full_parens);
 
 /// Print the full combined output (assumptions → guarantees, conjoined)
 /// in the style expected by synthesis front-ends.
@@ -36,6 +41,7 @@ typedef enum PrintMode {
 } PrintMode;
 
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                        const ClassifiedSpec *cs, PrintMode mode);
+                       const ClassifiedSpec *cs, PrintMode mode,
+                       bool full_parens);
 
 #endif // TLSF_PRINT_LTLXBA_H
