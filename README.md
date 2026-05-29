@@ -1,0 +1,85 @@
+# tlsf-tools
+
+Two small, fast, Unix-style command-line tools for working with
+[TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
+Format) specifications, sharing a common C library.
+
+| Tool | Input | Output |
+|---|---|---|
+| `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula in `ltlxba` syntax (for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`, …) |
+| `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
+
+These cover the two transformations most commonly needed in a reactive
+synthesis toolchain, and are intended as a lightweight, dependency-free
+alternative to the relevant parts of
+[`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
+TLSF specification, fully expand it (parameters → definitions → bus unrolling
+→ patterns) and emit either a ground TLSF spec or the equivalent LTL formula.
+
+## Pipeline
+
+```
+TLSF file
+   │  parse            (flex + bison)
+   ▼
+raw AST (may contain definition calls, bus indices, patterns, quantifiers, …)
+   │  expand           (params → defs → buses → patterns)
+   ▼
+ground AST
+   ├── tlsf2tlsf ───► basic TLSF
+   │
+   │  to NNF, then classify each guarantee/assertion as SAFETY or LIVENESS
+   ▼
+   └── tlsf2ltl  ───► ltlxba LTL   (--safety / --liveness / default: all)
+```
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and the AST node
+taxonomy.
+
+## Building
+
+Requires a C23 compiler, [meson](https://mesonbuild.com/),
+[ninja](https://ninja-build.org/), `flex`, and `bison`.
+
+```sh
+meson setup build
+ninja -C build
+# binaries: build/tlsf2ltl  build/tlsf2tlsf
+```
+
+With sanitizers:
+
+```sh
+meson setup build-san -Dsanitize=address,undefined
+ninja -C build-san
+```
+
+## Usage
+
+```sh
+tlsf2tlsf spec.tlsf            # expanded basic TLSF on stdout
+tlsf2ltl  spec.tlsf            # full LTL formula (ltlxba) on stdout
+tlsf2ltl --safety   spec.tlsf  # only the safety part
+tlsf2ltl --liveness spec.tlsf  # only the liveness part
+```
+
+## Checking output against `syfco`
+
+`tlsf2tlsf` aims to produce the same expanded TLSF as `syfco`'s basic-TLSF
+output. The LTL emitted by `tlsf2ltl` is **not** byte-for-byte identical to
+`syfco`/`ltl2ba` output (it is fully parenthesised), but it is semantically
+equivalent. Equivalence can be checked with `ltlfilt` from the
+[spot](https://spot.lre.epita.fr/) toolset:
+
+```sh
+ltlfilt --equivalent-to="$(syfco -f ltlxba spec.tlsf)" \
+        -f "$(tlsf2ltl spec.tlsf)" && echo equivalent
+```
+
+Test specifications can be drawn from the
+[SYNTCOMP benchmarks](https://github.com/SYNTCOMP/benchmarks) (`tlsf` and
+`tlsf-fin` directories).
+
+## License
+
+[MIT](LICENSE).

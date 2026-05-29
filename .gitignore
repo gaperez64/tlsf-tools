@@ -1,0 +1,27 @@
+# Meson / Ninja build directories
+/build/
+/build-*/
+build/
+builddir/
+
+# Generated lexer/parser sources (produced by flex/bison in the build dir)
+tlsf_lex.c
+tlsf_lex.h
+tlsf_parse.c
+tlsf_parse.h
+*.output
+
+# Compiled objects, libraries, executables
+*.o
+*.a
+*.so
+*.dylib
+tlsf2ltl
+tlsf2tlsf
+
+# Editor / OS cruft
+*.swp
+*~
+.DS_Store
+.cache/
+compile_commands.json
