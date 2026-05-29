@@ -125,6 +125,16 @@ typedef struct {
   FormulaList preset;    ///< PRESET
   FormulaList assert_;   ///< ASSERT (a.k.a. INVARIANTS in v1.0)
   FormulaList guarantee; ///< GUARANTEE (a.k.a. GUARANTEES in v1.0)
+
+  // -- Parse-time scratch (capacities for the grow-by-doubling helpers, plus
+  //    "current subsection" pointers threaded through the bison actions) --
+  uint32_t input_cap;
+  uint32_t output_cap;
+  uint16_t param_cap;
+  uint16_t def_cap;
+  uint16_t tag_cap;
+  FormulaList *cur_list;  ///< formula subsection currently being parsed
+  bool cur_is_output;     ///< true while inside an OUTPUTS subsection
 } TlsfSpec;
 
 // ---------------------------------------------------------------------------
@@ -145,5 +155,28 @@ void spec_free(TlsfSpec *s);
 /// Append a formula to a list.  Returns false on OOM.
 [[nodiscard]] bool formula_list_push(TlsfSpec *s, FormulaList *list,
                                      Node *formula);
+
+// ---------------------------------------------------------------------------
+// Signal / parameter / definition / tag helpers (used by the parser actions)
+// ---------------------------------------------------------------------------
+
+/// Append a signal declaration to the inputs (is_output=false) or outputs
+/// (is_output=true) list.  Returns false on OOM.
+[[nodiscard]] bool spec_add_signal(TlsfSpec *s, bool is_output,
+                                   const char *name, bool is_bus,
+                                   uint16_t bus_lo, uint16_t bus_hi);
+
+/// Append a parameter declaration.  Returns false on OOM.
+[[nodiscard]] bool spec_add_param(TlsfSpec *s, const char *name,
+                                  bool has_default, int64_t default_val);
+
+/// Append a definition declaration.  `params` may be nullptr for a nullary
+/// definition.  Returns false on OOM.
+[[nodiscard]] bool spec_add_def(TlsfSpec *s, const char *name,
+                                const char **params, uint16_t param_count,
+                                Node *body);
+
+/// Append an INFO tag string.  Returns false on OOM.
+[[nodiscard]] bool spec_add_tag(TlsfSpec *s, const char *tag);
 
 #endif // TLSF_SPEC_H

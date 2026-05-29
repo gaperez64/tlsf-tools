@@ -51,3 +51,84 @@ bool formula_list_push(TlsfSpec *s, FormulaList *list, Node *formula) {
   list->formulas[list->count++] = formula;
   return true;
 }
+
+#define LIST_INIT_CAP 8u
+
+bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name,
+                     bool is_bus, uint16_t bus_lo, uint16_t bus_hi) {
+  SignalDecl **list = is_output ? &s->outputs : &s->inputs;
+  uint32_t *count   = is_output ? &s->output_count : &s->input_count;
+  uint32_t *cap     = is_output ? &s->output_cap : &s->input_cap;
+
+  if (*count == *cap) {
+    uint32_t new_cap = *cap ? *cap * 2u : LIST_INIT_CAP;
+    SignalDecl *new_arr = ARENA_ALLOC_N(s->arena, SignalDecl, (size_t)new_cap);
+    if (!new_arr)
+      return false;
+    if (*list)
+      memcpy(new_arr, *list, *count * sizeof(SignalDecl));
+    *list = new_arr;
+    *cap = new_cap;
+  }
+  (*list)[*count] = (SignalDecl){
+      .name = name, .bus_lo = bus_lo, .bus_hi = bus_hi, .is_bus = is_bus};
+  (*count)++;
+  return true;
+}
+
+bool spec_add_param(TlsfSpec *s, const char *name, bool has_default,
+                    int64_t default_val) {
+  if (s->param_count == s->param_cap) {
+    uint16_t new_cap = s->param_cap ? (uint16_t)(s->param_cap * 2u)
+                                    : (uint16_t)LIST_INIT_CAP;
+    ParamDecl *new_arr = ARENA_ALLOC_N(s->arena, ParamDecl, (size_t)new_cap);
+    if (!new_arr)
+      return false;
+    if (s->params)
+      memcpy(new_arr, s->params, s->param_count * sizeof(ParamDecl));
+    s->params = new_arr;
+    s->param_cap = new_cap;
+  }
+  s->params[s->param_count++] = (ParamDecl){.name = name,
+                                            .value = default_val,
+                                            .default_val = default_val,
+                                            .has_default = has_default};
+  return true;
+}
+
+bool spec_add_def(TlsfSpec *s, const char *name, const char **params,
+                  uint16_t param_count, Node *body) {
+  if (s->def_count == s->def_cap) {
+    uint16_t new_cap =
+        s->def_cap ? (uint16_t)(s->def_cap * 2u) : (uint16_t)LIST_INIT_CAP;
+    DefDecl *new_arr = ARENA_ALLOC_N(s->arena, DefDecl, (size_t)new_cap);
+    if (!new_arr)
+      return false;
+    if (s->defs)
+      memcpy(new_arr, s->defs, s->def_count * sizeof(DefDecl));
+    s->defs = new_arr;
+    s->def_cap = new_cap;
+  }
+  s->defs[s->def_count++] = (DefDecl){.name = name,
+                                      .params = params,
+                                      .param_count = param_count,
+                                      .body = body};
+  return true;
+}
+
+bool spec_add_tag(TlsfSpec *s, const char *tag) {
+  if (s->info.tag_count == s->tag_cap) {
+    uint16_t new_cap =
+        s->tag_cap ? (uint16_t)(s->tag_cap * 2u) : (uint16_t)LIST_INIT_CAP;
+    const char **new_arr =
+        ARENA_ALLOC_N(s->arena, const char *, (size_t)new_cap);
+    if (!new_arr)
+      return false;
+    if (s->info.tags)
+      memcpy(new_arr, s->info.tags, s->info.tag_count * sizeof(const char *));
+    s->info.tags = new_arr;
+    s->tag_cap = new_cap;
+  }
+  s->info.tags[s->info.tag_count++] = tag;
+  return true;
+}

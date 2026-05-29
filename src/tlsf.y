@@ -21,6 +21,41 @@
   int  yylex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
   void yyerror(YYLTYPE *lloc, yyscan_t scanner, TlsfSpec *spec,
                const char *msg);
+
+  /* Append `item` to a nullptr-terminated Node* array, returning a fresh
+   * array (the arena has no realloc; lists are short so the copy is cheap). */
+  static Node **node_list_append(Arena *a, Node **old, Node *item) {
+    size_t n = 0;
+    while (old && old[n])
+      n++;
+    Node **arr = ARENA_ALLOC_N(a, Node *, n + 2);
+    for (size_t i = 0; i < n; i++)
+      arr[i] = old[i];
+    arr[n] = item;
+    arr[n + 1] = nullptr;
+    return arr;
+  }
+
+  /* Append `s` to a nullptr-terminated const char* array. */
+  static const char **slist_append(Arena *a, const char **old,
+                                   const char *s) {
+    size_t n = 0;
+    while (old && old[n])
+      n++;
+    const char **arr = ARENA_ALLOC_N(a, const char *, n + 2);
+    for (size_t i = 0; i < n; i++)
+      arr[i] = old[i];
+    arr[n] = s;
+    arr[n + 1] = nullptr;
+    return arr;
+  }
+
+  static uint16_t node_list_len(Node **arr) {
+    uint16_t n = 0;
+    while (arr && arr[n])
+      n++;
+    return n;
+  }
 }
 
 /* -------------------------------------------------------------------------
@@ -39,11 +74,12 @@
  * Semantic value union
  * --------------------------------------------------------------------- */
 %union {
-  int64_t     ival;
-  const char *sval;
-  Node       *node;
-  Node      **node_list; /* arena-allocated array, terminated by nullptr */
-  uint32_t    uval;      /* list length scratch */
+  int64_t      ival;
+  const char  *sval;
+  Node        *node;
+  Node       **node_list; /* nullptr-terminated array of nodes */
+  const char **slist;     /* nullptr-terminated array of interned strings */
+  uint32_t     uval;      /* list length scratch */
 }
 
 /* -------------------------------------------------------------------------
@@ -84,6 +120,8 @@
  * --------------------------------------------------------------------- */
 %type <node>      ltl_expr int_expr
 %type <sval>      signal_name
+%type <slist>     ident_list
+%type <node_list> call_arg_list
 
 /* -------------------------------------------------------------------------
  * Operator precedence (lowest → highest)
@@ -125,20 +163,27 @@ info_fields
   | info_fields info_field
   ;
 
+/* TLSF INFO fields are not semicolon-terminated; the bundled smoke test
+ * uses trailing semicolons, so accept them optionally. */
+semi_opt
+  : /* empty */
+  | TOK_SEMI
+  ;
+
 info_field
-  : TOK_TITLE TOK_COLON TOK_STRING TOK_SEMI
+  : TOK_TITLE TOK_COLON TOK_STRING semi_opt
     { spec->info.title = $3; }
 
-  | TOK_DESCRIPTION TOK_COLON TOK_STRING TOK_SEMI
+  | TOK_DESCRIPTION TOK_COLON TOK_STRING semi_opt
     { spec->info.description = $3; }
 
-  | TOK_SEMANTICS TOK_COLON semantics_val TOK_SEMI
+  | TOK_SEMANTICS TOK_COLON semantics_val semi_opt
     {}
 
-  | TOK_TARGET TOK_COLON target_val TOK_SEMI
+  | TOK_TARGET TOK_COLON target_val semi_opt
     {}
 
-  | TOK_TAGS TOK_COLON tag_list TOK_SEMI
+  | TOK_TAGS TOK_COLON tag_list semi_opt
     {}
   ;
 
@@ -157,11 +202,10 @@ target_val
   ;
 
 tag_list
-  : /* empty */
+  : TOK_STRING
+    { if (!spec_add_tag(spec, $1)) YYNOMEM; }
   | tag_list TOK_COMMA TOK_STRING
-    { /* TODO: append $3 to spec->info.tags */ }
-  | TOK_STRING
-    { /* TODO: initialise spec->info.tags with $1 */ }
+    { if (!spec_add_tag(spec, $3)) YYNOMEM; }
   ;
 
 /* =========================================================================
@@ -191,9 +235,9 @@ param_decl
 param_entries
   : /* empty */
   | param_entries TOK_IDENT TOK_SEMI
-    { /* TODO: register parameter $2 with no default */ }
+    { if (!spec_add_param(spec, $2, false, 0)) YYNOMEM; }
   | param_entries TOK_IDENT TOK_ASSIGN TOK_INTEGER TOK_SEMI
-    { /* TODO: register parameter $2 with default $4 */ }
+    { if (!spec_add_param(spec, $2, true, $4)) YYNOMEM; }
   ;
 
 /* DEFINITIONS { name [ ( params ) ] = body ; ... } */
@@ -208,14 +252,21 @@ def_entries
 
 def_entry
   : TOK_IDENT TOK_ASSIGN ltl_expr TOK_SEMI
-    { /* TODO: register nullary definition $1 = $3 */ }
+    { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
   | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN ltl_expr TOK_SEMI
-    { /* TODO: register parameterised definition $1($3) = $6 */ }
+    {
+      uint16_t argc = 0;
+      while ($3 && $3[argc])
+        argc++;
+      if (!spec_add_def(spec, $1, $3, argc, $6)) YYNOMEM;
+    }
   ;
 
 ident_list
   : TOK_IDENT
+    { $$ = slist_append(spec->arena, nullptr, $1); }
   | ident_list TOK_COMMA TOK_IDENT
+    { $$ = slist_append(spec->arena, $1, $3); }
   ;
 
 /* =========================================================================
@@ -247,23 +298,31 @@ main_subsection
  * --------------------------------------------------------------------- */
 
 inputs_subsection
-  : TOK_INPUTS TOK_LBRACE signal_decl_list TOK_RBRACE
+  : TOK_INPUTS TOK_LBRACE
+    { spec->cur_is_output = false; }
+    signal_decl_list TOK_RBRACE
   ;
 
 outputs_subsection
-  : TOK_OUTPUTS TOK_LBRACE signal_decl_list TOK_RBRACE
+  : TOK_OUTPUTS TOK_LBRACE
+    { spec->cur_is_output = true; }
+    signal_decl_list TOK_RBRACE
   ;
 
 signal_decl_list
   : /* empty */
   | signal_decl_list signal_decl TOK_SEMI
+  | signal_decl_list TOK_SEMI            /* stray/empty entry (syfco tolerates) */
   ;
 
 signal_decl
   : signal_name
-    { /* TODO: add scalar signal $1 to appropriate list */ }
+    { if (!spec_add_signal(spec, spec->cur_is_output, $1, false, 0, 0))
+        YYNOMEM; }
   | signal_name TOK_LBRACKET TOK_INTEGER TOK_DOTDOT TOK_INTEGER TOK_RBRACKET
-    { /* TODO: add bus signal $1[$3..$5] */ }
+    { if (!spec_add_signal(spec, spec->cur_is_output, $1, true,
+                           (uint16_t)$3, (uint16_t)$5))
+        YYNOMEM; }
   ;
 
 signal_name
@@ -275,35 +334,41 @@ signal_name
  * --------------------------------------------------------------------- */
 
 initially_subsection
-  : TOK_INITIALLY TOK_LBRACE formula_list[fl] TOK_RBRACE
+  : TOK_INITIALLY TOK_LBRACE
+    { spec->cur_list = &spec->initially; } formula_list TOK_RBRACE
   ;
 
 require_subsection
-  : TOK_REQUIRE TOK_LBRACE formula_list TOK_RBRACE
+  : TOK_REQUIRE TOK_LBRACE
+    { spec->cur_list = &spec->require; } formula_list TOK_RBRACE
   ;
 
 assume_subsection
-  : TOK_ASSUME TOK_LBRACE formula_list TOK_RBRACE
+  : TOK_ASSUME TOK_LBRACE
+    { spec->cur_list = &spec->assume; } formula_list TOK_RBRACE
   ;
 
 /* Formula subsections — sys side */
 
 preset_subsection
-  : TOK_PRESET TOK_LBRACE formula_list TOK_RBRACE
+  : TOK_PRESET TOK_LBRACE
+    { spec->cur_list = &spec->preset; } formula_list TOK_RBRACE
   ;
 
 assert_subsection
-  : TOK_ASSERT TOK_LBRACE formula_list TOK_RBRACE
+  : TOK_ASSERT TOK_LBRACE
+    { spec->cur_list = &spec->assert_; } formula_list TOK_RBRACE
   ;
 
 guarantee_subsection
-  : TOK_GUARANTEE TOK_LBRACE formula_list TOK_RBRACE
+  : TOK_GUARANTEE TOK_LBRACE
+    { spec->cur_list = &spec->guarantee; } formula_list TOK_RBRACE
   ;
 
 formula_list
   : /* empty */
   | formula_list ltl_expr TOK_SEMI
-    { /* TODO: determine subsection and call formula_list_push() */ }
+    { if (!formula_list_push(spec, spec->cur_list, $2)) YYNOMEM; }
   ;
 
 /* =========================================================================
@@ -334,7 +399,14 @@ ltl_expr
 
   /* Definition / function call: name(arg, ...) */
   | TOK_IDENT TOK_LPAREN call_arg_list TOK_RPAREN
-    { /* TODO: build NODE_DEF_CALL */ $$ = nullptr; }
+    {
+      Node *n = ARENA_ALLOC(spec->arena, Node);
+      n->kind      = NODE_DEF_CALL;
+      n->callee    = $1;
+      n->call_args = $3;
+      n->call_argc = node_list_len($3);
+      $$ = n;
+    }
 
   /* Parenthesised expression */
   | TOK_LPAREN ltl_expr TOK_RPAREN
@@ -371,24 +443,16 @@ ltl_expr
     { $$ = node_w(spec->arena, $1, $3); }
   | ltl_expr TOK_STRONG_REL ltl_expr
     { $$ = node_m(spec->arena, $1, $3); }
-
-  /* Quantified expressions (TLSF sets) */
-  | TOK_GLOBALLY TOK_LBRACKET quant_body TOK_RBRACKET ltl_expr
-    { /* TODO: NODE_FORALL */ $$ = nullptr; }
-  | TOK_FINALLY TOK_LBRACKET quant_body TOK_RBRACKET ltl_expr
-    { /* TODO: NODE_EXISTS */ $$ = nullptr; }
   ;
 
 /* Call argument list — zero or more ltl/int expressions */
 call_arg_list
   : /* empty */
-  | call_arg_list TOK_COMMA ltl_expr
+    { $$ = nullptr; }
   | ltl_expr
-  ;
-
-/* Quantifier binding: var : set_expr */
-quant_body
-  : TOK_IDENT TOK_COLON set_expr
+    { $$ = node_list_append(spec->arena, nullptr, $1); }
+  | call_arg_list TOK_COMMA ltl_expr
+    { $$ = node_list_append(spec->arena, $1, $3); }
   ;
 
 /* =========================================================================
@@ -425,24 +489,6 @@ int_expr
   | TOK_MINUS int_expr %prec TOK_UMINUS
     { $$ = ARENA_ALLOC(spec->arena, Node);
       $$->kind = NODE_INT_NEG; $$->arg = $2; }
-  ;
-
-/* =========================================================================
- * Set expression grammar
- * ===================================================================== */
-
-set_expr
-  : TOK_LBRACE int_expr TOK_DOTDOT int_expr TOK_RBRACE
-    { /* range {lo..hi} — TODO */ }
-  | TOK_LBRACE set_elem_list TOK_RBRACE
-    { /* explicit set — TODO */ }
-  | TOK_IDENT
-    { /* set variable — TODO */ }
-  ;
-
-set_elem_list
-  : int_expr
-  | set_elem_list TOK_COMMA int_expr
   ;
 
 %%
