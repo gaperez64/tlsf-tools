@@ -8,6 +8,7 @@ Format) specifications, sharing a common C library.
 |---|---|---|
 | `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula in `ltlxba` syntax (for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`, …) |
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
+| `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
 
 These cover the two transformations most commonly needed in a reactive
 synthesis toolchain, and are intended as a lightweight, dependency-free
@@ -57,11 +58,20 @@ ninja -C build-san
 ## Usage
 
 ```sh
-tlsf2tlsf spec.tlsf            # expanded basic TLSF on stdout
-tlsf2ltl  spec.tlsf            # full LTL formula (ltlxba) on stdout
-tlsf2ltl --safety   spec.tlsf  # only the safety part
-tlsf2ltl --liveness spec.tlsf  # only the liveness part
+tlsf2tlsf spec.tlsf              # expanded basic TLSF on stdout
+tlsf2ltl  spec.tlsf              # LTL formula (ltlxba), minimal parentheses
+tlsf2ltl --parenthesize spec.tlsf  # fully parenthesised LTL
+tlsf2ltl --safety   spec.tlsf    # only the safety part
+tlsf2ltl --liveness spec.tlsf    # only the liveness part
+
+tlsfinfo spec.tlsf               # all metadata
+tlsfinfo -s spec.tlsf            # just the semantics  (-t -d -g -a -p -ins -outs -i)
 ```
+
+By default `tlsf2ltl` prints with the minimal parentheses implied by the
+operator precedence shared by spot/ltl2ba and the TLSF papers (tightest
+first): unary `! X F G` > `U R W M` > `&&` > `||` > `-> <->`. Pass
+`--parenthesize` to fully parenthesise every subformula instead.
 
 ## Checking output against `syfco`
 

@@ -109,6 +109,8 @@ lib_sources = [
   'src/print_tlsf.c',
   flex_out[0],
   bison_out[0],
+  bison_out[1],   # tlsf_parse.h — declare as a source so the generated lexer
+                  # (which #includes it) is compiled only after it exists.
 ]
 
 tlsf_lib = static_library(
@@ -124,7 +126,7 @@ tlsf_lib = static_library(
 
 executable(
   'tlsf2ltl',
-  sources: ['src/main_tlsf2ltl.c'],
+  sources: ['src/main_tlsf2ltl.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -132,7 +134,15 @@ executable(
 
 executable(
   'tlsf2tlsf',
-  sources: ['src/main_tlsf2tlsf.c'],
+  sources: ['src/main_tlsf2tlsf.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
+executable(
+  'tlsfinfo',
+  sources: ['src/main_tlsfinfo.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
