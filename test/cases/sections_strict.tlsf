@@ -1,0 +1,11 @@
+INFO { TITLE: "sections" DESCRIPTION: "all six subsections" SEMANTICS: Mealy,Strict TARGET: Mealy }
+MAIN {
+  INPUTS { a; b; c; }
+  OUTPUTS { x; y; z; }
+  INITIALLY { a; }
+  PRESET { x; }
+  REQUIRE { b; }
+  ASSERT { y; }
+  ASSUME { c; }
+  GUARANTEE { z; }
+}

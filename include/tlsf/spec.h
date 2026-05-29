@@ -38,6 +38,21 @@ typedef enum Target {
   TARGET_MOORE,         ///< synthesise a Moore machine
 } Target;
 
+/// True for the Moore-family semantics (Moore / Strict,Moore / Finite,Moore).
+static inline bool semantics_is_moore(Semantics s) {
+  return s == SEM_MOORE || s == SEM_MOORE_STRICT || s == SEM_MOORE_FINITE;
+}
+
+/// True for the strict-implication semantics.
+static inline bool semantics_is_strict(Semantics s) {
+  return s == SEM_MEALY_STRICT || s == SEM_MOORE_STRICT;
+}
+
+/// True for the finite-word (LTLf) semantics.
+static inline bool semantics_is_finite(Semantics s) {
+  return s == SEM_MEALY_FINITE || s == SEM_MOORE_FINITE;
+}
+
 // ---------------------------------------------------------------------------
 // Signal declarations
 // ---------------------------------------------------------------------------

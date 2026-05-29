@@ -118,12 +118,6 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full,
     fputc(')', out);
 }
 
-// True when the spec uses finite-word (LTLf) semantics.
-static bool spec_is_finite(const TlsfSpec *spec) {
-  return spec->info.semantics == SEM_MEALY_FINITE ||
-         spec->info.semantics == SEM_MOORE_FINITE;
-}
-
 // ---------------------------------------------------------------------------
 // Public formula entry points
 // ---------------------------------------------------------------------------
@@ -218,10 +212,15 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
 // Each section is the conjunction of its formulas; empty parts drop out and
 // trivial implications collapse.  The safety/liveness mode selects which
 // guarantees appear (and, for liveness, drops the safety-only sections).
+//
+// Strict vs. non-strict and finite-word rendering are taken from the spec's
+// SEMANTICS field.
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode, bool strict,
+                       const ClassifiedSpec *cs, PrintMode mode,
                        bool full_parens) {
   Arena *a = spec->arena;
+  bool strict = semantics_is_strict(spec->info.semantics);
+  bool finite = semantics_is_finite(spec->info.semantics);
   bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
 
@@ -264,6 +263,6 @@ void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
       root = node_impl(a, e, s);
   }
 
-  emit(out, root, 1, full_parens, spec_is_finite(spec));
+  emit(out, root, 1, full_parens, finite);
   fprintf(out, "\n");
 }

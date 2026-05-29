@@ -226,8 +226,13 @@ test('semantics_sections', check,
   args: [files('test/cases/sections.ltl'),
          tlsf2ltl_exe, files('test/cases/sections.tlsf')])
 
-# Strict semantics: (PRESET & G ASSERT) W !(INITIALLY & G REQUIRE), plus the
-# liveness implication.
+# Strict semantics (detected from SEMANTICS: Mealy,Strict):
+# (PRESET & G ASSERT) W !(INITIALLY & G REQUIRE), plus the liveness implication.
 test('semantics_strict', check,
   args: [files('test/cases/sections.strict.ltl'),
-         tlsf2ltl_exe, '--strict', files('test/cases/sections.tlsf')])
+         tlsf2ltl_exe, files('test/cases/sections_strict.tlsf')])
+
+# Mealy/Moore conversion when SEMANTICS and TARGET disagree.
+test('semantics_moore_to_mealy', check,
+  args: [files('test/cases/conv_moore_mealy.ltl'),
+         tlsf2ltl_exe, files('test/cases/conv_moore_mealy.tlsf')])

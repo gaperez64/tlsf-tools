@@ -1,0 +1,6 @@
+INFO { TITLE: "conv" DESCRIPTION: "Moore spec, Mealy target" SEMANTICS: Moore TARGET: Mealy }
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE { G (req -> grant); }
+}

@@ -30,15 +30,17 @@
 
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [--strict] [--safety|--liveness] [--parenthesize] "
-          "[--param N=V]... FILE\n"
-          "  --strict             use the strict TLSF semantics (system\n"
-          "                       safety must hold until the environment\n"
-          "                       first breaks an assumption)\n"
+          "Usage: %s [--safety|--liveness] [--parenthesize] [--param N=V]... "
+          "FILE\n"
           "  --safety|--liveness  emit only safety / liveness guarantees\n"
           "  --parenthesize       fully parenthesise the output (default:\n"
           "                       minimal parentheses by operator precedence)\n"
-          "  --param N=V          override a TLSF parameter (repeatable)\n",
+          "  --param N=V          override a TLSF parameter (repeatable)\n"
+          "\n"
+          "The strict/non-strict, Mealy/Moore and finite/infinite semantics\n"
+          "are taken from the spec's SEMANTICS field; when SEMANTICS and\n"
+          "TARGET disagree on Mealy vs Moore the formula is converted to the\n"
+          "target.\n",
           prog);
 }
 
@@ -67,6 +69,76 @@ static bool parse_override(const char *s, ParamOverride *out) {
   out->name = name; // caller frees after expand()
   out->value = (int64_t)val;
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Mealy/Moore adaptation.
+//
+// The SEMANTICS field says which timing the spec is written in; the TARGET
+// says which machine to produce.  When they disagree the formula is converted
+// (TLSF v1.x): Moore->Mealy delays the outputs (o becomes X o), Mealy->Moore
+// delays the inputs (i becomes X i).  Applied to the expanded (scalar) spec.
+// ---------------------------------------------------------------------------
+
+// True if `name` (interned) is one of the listed signals.
+static bool in_signals(const char *name, const SignalDecl *sigs,
+                       uint32_t count) {
+  for (uint32_t i = 0; i < count; i++)
+    if (sigs[i].name == name)
+      return true;
+  return false;
+}
+
+// Wrap every AP whose name is in {sigs} with X.  Compound nodes are rebuilt
+// in place (formulas are not shared after expansion); AP nodes are replaced.
+static Node *wrap_aps(Arena *a, Node *n, const SignalDecl *sigs,
+                      uint32_t count) {
+  switch (n->kind) {
+  case NODE_AP:
+    return in_signals(n->name, sigs, count) ? node_x(a, n) : n;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    n->arg = wrap_aps(a, n->arg, sigs, count);
+    return n;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    n->lhs = wrap_aps(a, n->lhs, sigs, count);
+    n->rhs = wrap_aps(a, n->rhs, sigs, count);
+    return n;
+  default: // true / false
+    return n;
+  }
+}
+
+static void adapt_mealy_moore(TlsfSpec *spec) {
+  bool sem_moore = semantics_is_moore(spec->info.semantics);
+  bool tgt_moore = (spec->info.target == TARGET_MOORE);
+  if (sem_moore == tgt_moore)
+    return; // frames already agree
+
+  // Moore spec -> Mealy target: delay outputs.  Mealy spec -> Moore: inputs.
+  const SignalDecl *sigs = sem_moore ? spec->outputs : spec->inputs;
+  uint32_t count = sem_moore ? spec->output_count : spec->input_count;
+
+#define WRAP_LIST(list)                                                        \
+  for (uint32_t _i = 0; _i < (list).count; _i++)                               \
+  (list).formulas[_i] = wrap_aps(spec->arena, (list).formulas[_i], sigs, count)
+  WRAP_LIST(spec->initially);
+  WRAP_LIST(spec->require);
+  WRAP_LIST(spec->assume);
+  WRAP_LIST(spec->preset);
+  WRAP_LIST(spec->assert_);
+  WRAP_LIST(spec->guarantee);
+#undef WRAP_LIST
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +175,6 @@ static int apply_nnf_all(TlsfSpec *spec) {
 int main(int argc, char *argv[]) {
   PrintMode mode = PRINT_ALL;
   bool full_parens = false;
-  bool strict = false;
   const char *input_file = nullptr;
 
   // Temporary override storage (max 64 overrides).
@@ -115,8 +186,6 @@ int main(int argc, char *argv[]) {
       mode = PRINT_SAFETY;
     } else if (strcmp(argv[i], "--liveness") == 0) {
       mode = PRINT_LIVENESS;
-    } else if (strcmp(argv[i], "--strict") == 0) {
-      strict = true;
     } else if (strcmp(argv[i], "--parenthesize") == 0 ||
                strcmp(argv[i], "--parens") == 0) {
       full_parens = true;
@@ -191,6 +260,9 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
 
+  // --- Mealy/Moore adaptation (after expansion: signals are scalar) ---
+  adapt_mealy_moore(spec);
+
   // --- NNF ---
   if (apply_nnf_all(spec) != 0) {
     spec_free(spec);
@@ -206,7 +278,7 @@ int main(int argc, char *argv[]) {
   }
 
   // --- Emit ---
-  print_ltlxba_spec(stdout, spec, cs, mode, strict, full_parens);
+  print_ltlxba_spec(stdout, spec, cs, mode, full_parens);
 
   spec_free(spec);
   return 0;
