@@ -4,71 +4,313 @@
 #include <stdio.h>
 #include <string.h>
 
-// ---------------------------------------------------------------------------
-// Forward declarations
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Integer-evaluation environment
+//
+// A scope chain mapping interned variable names (parameters and bounded-
+// quantifier variables) to concrete integer values.  Names are interned, so
+// lookups use pointer equality.
+// ===========================================================================
 
-static int resolve_parameters(TlsfSpec *spec,
-                               const ParamOverride *overrides,
-                               size_t n_overrides);
-static int inline_definitions(TlsfSpec *spec);
-static int unroll_buses(TlsfSpec *spec);
-static int instantiate_patterns(TlsfSpec *spec);
+typedef struct Binding {
+  const char *name;
+  int64_t value;
+} Binding;
 
-// Helper: apply a visitor to every formula in the spec.
-typedef Node *(*NodeTransform)(Node *n, void *ctx, Arena *a);
-static void transform_all_formulas(TlsfSpec *spec, NodeTransform fn,
-                                   void *ctx);
+typedef struct Env {
+  Binding b;          // single binding introduced at this level
+  const struct Env *parent;
+} Env;
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
+static bool env_lookup(const Env *env, const char *name, int64_t *out) {
+  for (const Env *e = env; e; e = e->parent) {
+    if (e->b.name == name) {
+      *out = e->b.value;
+      return true;
+    }
+  }
+  return false;
+}
 
-int expand(TlsfSpec *spec, const ParamOverride *overrides,
-           size_t n_overrides) {
-  assert(spec);
+// ===========================================================================
+// Bus-width lookup (for SIZEOF)
+// ===========================================================================
 
-  if (resolve_parameters(spec, overrides, n_overrides) != 0)
-    return -1;
-  if (inline_definitions(spec) != 0)
-    return -1;
-  if (unroll_buses(spec) != 0)
-    return -1;
-  if (instantiate_patterns(spec) != 0)
-    return -1;
+static bool bus_width(const TlsfSpec *spec, const char *name, int64_t *out) {
+  const SignalDecl *lists[2] = {spec->inputs, spec->outputs};
+  uint32_t counts[2] = {spec->input_count, spec->output_count};
+  for (int k = 0; k < 2; k++) {
+    for (uint32_t i = 0; i < counts[k]; i++) {
+      const SignalDecl *s = &lists[k][i];
+      if (s->name == name) {
+        if (!s->is_bus) {
+          *out = 1;
+        } else {
+          *out = (int64_t)s->bus_hi - (int64_t)s->bus_lo + 1;
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
-  // Post-condition: no high-level nodes should remain.
-#ifndef NDEBUG
-  // TODO: add a debug assertion walk that checks node_kind_is_high_level()
-  // returns false for every node in every formula list.
-#endif
+// ===========================================================================
+// Integer expression evaluation
+// ===========================================================================
 
-  // Clear the GLOBAL section — it's no longer meaningful.
-  spec->params = nullptr;
-  spec->param_count = 0;
-  spec->defs = nullptr;
-  spec->def_count = 0;
+static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
+                     int64_t *out) {
+  switch (n->kind) {
+  case NODE_INT:
+    *out = n->ival;
+    return true;
+  case NODE_INT_VAR:
+    if (!env_lookup(env, n->name, out)) {
+      fprintf(stderr, "expand: undefined parameter/variable '%s'\n", n->name);
+      return false;
+    }
+    return true;
+  case NODE_SIZEOF:
+    if (!bus_width(spec, n->sizeof_name, out)) {
+      fprintf(stderr, "expand: SIZEOF of unknown signal '%s'\n",
+              n->sizeof_name);
+      return false;
+    }
+    return true;
+  case NODE_INT_NEG: {
+    int64_t a;
+    if (!eval_int(spec, n->arg, env, &a))
+      return false;
+    *out = -a;
+    return true;
+  }
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD: {
+    int64_t a, b;
+    if (!eval_int(spec, n->lhs, env, &a) || !eval_int(spec, n->rhs, env, &b))
+      return false;
+    if ((n->kind == NODE_INT_DIV || n->kind == NODE_INT_MOD) && b == 0) {
+      fprintf(stderr, "expand: division by zero\n");
+      return false;
+    }
+    switch (n->kind) {
+    case NODE_INT_ADD: *out = a + b; break;
+    case NODE_INT_SUB: *out = a - b; break;
+    case NODE_INT_MUL: *out = a * b; break;
+    case NODE_INT_DIV: *out = a / b; break;
+    default:           *out = a % b; break;
+    }
+    return true;
+  }
+  default:
+    fprintf(stderr, "expand: non-integer expression in numeric context\n");
+    return false;
+  }
+}
 
+// ===========================================================================
+// Formula expansion: a deep copy that resolves parameters, SIZEOF, bus
+// indices, and bounded quantifiers under the current environment.
+//
+// The copy must be fresh because a quantifier body is expanded once per value
+// of the bound variable; mutating in place would alias the shared subtree.
+// ===========================================================================
+
+static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
+                         bool *ok);
+
+// Build the interned name for bus element `bus[idx]` (syfco default: bus_idx).
+static const char *bus_elem_name(TlsfSpec *spec, const char *bus, int64_t idx) {
+  char buf[256];
+  snprintf(buf, sizeof buf, "%s_%lld", bus, (long long)idx);
+  return intern(spec->intern, buf);
+}
+
+// Expand a bounded quantifier into an AND/OR chain over its range.
+static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
+                               bool *ok) {
+  int64_t lo, hi;
+  if (!eval_int(spec, n->qlo, env, &lo) || !eval_int(spec, n->qhi, env, &hi)) {
+    *ok = false;
+    return nullptr;
+  }
+  int64_t start = n->qlo_strict ? lo + 1 : lo;
+  int64_t end = n->qhi_strict ? hi - 1 : hi;
+
+  bool is_all = (n->kind == NODE_FORALL);
+
+  // Empty range: conjunction is true, disjunction is false.
+  if (start > end)
+    return is_all ? node_true(spec->arena) : node_false(spec->arena);
+
+  Node *acc = nullptr;
+  for (int64_t v = start; v <= end; v++) {
+    Env child = {.b = {.name = n->qvar, .value = v}, .parent = env};
+    Node *term = expand_node(spec, n->qbody, &child, ok);
+    if (!*ok)
+      return nullptr;
+    if (!acc)
+      acc = term;
+    else
+      acc = is_all ? node_and(spec->arena, acc, term)
+                   : node_or(spec->arena, acc, term);
+  }
+  return acc;
+}
+
+static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
+                         bool *ok) {
+  if (!*ok || !n)
+    return nullptr;
+  Arena *a = spec->arena;
+
+  switch (n->kind) {
+  // Atoms: immutable, safe to share.
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+    return (Node *)n;
+
+  // Boolean connectives.
+  case NODE_NOT:
+    return node_not(a, expand_node(spec, n->arg, env, ok));
+  case NODE_AND:
+    return node_and(a, expand_node(spec, n->lhs, env, ok),
+                    expand_node(spec, n->rhs, env, ok));
+  case NODE_OR:
+    return node_or(a, expand_node(spec, n->lhs, env, ok),
+                   expand_node(spec, n->rhs, env, ok));
+  case NODE_IMPL:
+    return node_impl(a, expand_node(spec, n->lhs, env, ok),
+                     expand_node(spec, n->rhs, env, ok));
+  case NODE_EQUIV:
+    return node_equiv(a, expand_node(spec, n->lhs, env, ok),
+                      expand_node(spec, n->rhs, env, ok));
+
+  // Temporal operators.
+  case NODE_X:
+    return node_x(a, expand_node(spec, n->arg, env, ok));
+  case NODE_X_STRONG:
+    return node_x_strong(a, expand_node(spec, n->arg, env, ok));
+  case NODE_F:
+    return node_f(a, expand_node(spec, n->arg, env, ok));
+  case NODE_G:
+    return node_g(a, expand_node(spec, n->arg, env, ok));
+  case NODE_U:
+    return node_u(a, expand_node(spec, n->lhs, env, ok),
+                  expand_node(spec, n->rhs, env, ok));
+  case NODE_R:
+    return node_r(a, expand_node(spec, n->lhs, env, ok),
+                  expand_node(spec, n->rhs, env, ok));
+  case NODE_W:
+    return node_w(a, expand_node(spec, n->lhs, env, ok),
+                  expand_node(spec, n->rhs, env, ok));
+  case NODE_M:
+    return node_m(a, expand_node(spec, n->lhs, env, ok),
+                  expand_node(spec, n->rhs, env, ok));
+
+  // Bus index: evaluate the index, produce the scalar AP.
+  case NODE_BUS_INDEX: {
+    int64_t idx;
+    if (!eval_int(spec, n->bus_index, env, &idx)) {
+      *ok = false;
+      return nullptr;
+    }
+    return node_ap(a, bus_elem_name(spec, n->bus_name, idx));
+  }
+
+  // Bounded quantifiers.
+  case NODE_FORALL:
+  case NODE_EXISTS:
+    return expand_quantifier(spec, n, env, ok);
+
+  // Definitions / patterns are not yet expanded.
+  case NODE_DEF_CALL:
+    fprintf(stderr, "expand: definition '%s' not yet supported\n", n->callee);
+    *ok = false;
+    return nullptr;
+  case NODE_PATTERN:
+    fprintf(stderr, "expand: pattern '%s' not yet supported\n", n->callee);
+    *ok = false;
+    return nullptr;
+
+  default:
+    fprintf(stderr, "expand: unexpected node kind %d in formula\n", n->kind);
+    *ok = false;
+    return nullptr;
+  }
+}
+
+// ===========================================================================
+// Parameter environment construction
+// ===========================================================================
+
+// Build a flat chained environment of all parameter bindings.  The Env nodes
+// are arena-allocated and chained; returns the head (or nullptr if no params).
+static Env *build_param_env(TlsfSpec *spec) {
+  Env *head = nullptr;
+  for (uint16_t i = 0; i < spec->param_count; i++) {
+    Env *e = ARENA_ALLOC(spec->arena, Env);
+    e->b.name = spec->params[i].name;
+    e->b.value = spec->params[i].value; // value already holds default/override
+    e->parent = head;
+    head = e;
+  }
+  return head;
+}
+
+// Replace bus declarations with their scalar elements (bus_i), so the
+// expanded spec is in the basic fragment (no buses) and its signal lists
+// match the scalar APs now used in the formulas.
+static int explode_signals(TlsfSpec *spec, bool is_output) {
+  SignalDecl *old = is_output ? spec->outputs : spec->inputs;
+  uint32_t n = is_output ? spec->output_count : spec->input_count;
+
+  if (is_output) {
+    spec->outputs = nullptr;
+    spec->output_count = 0;
+    spec->output_cap = 0;
+  } else {
+    spec->inputs = nullptr;
+    spec->input_count = 0;
+    spec->input_cap = 0;
+  }
+
+  for (uint32_t i = 0; i < n; i++) {
+    const SignalDecl *s = &old[i];
+    if (!s->is_bus) {
+      if (!spec_add_signal(spec, is_output, s->name, false, nullptr, nullptr))
+        return -1;
+      continue;
+    }
+    for (int64_t v = s->bus_lo; v <= (int64_t)s->bus_hi; v++) {
+      const char *nm = bus_elem_name(spec, s->name, v);
+      if (!spec_add_signal(spec, is_output, nm, false, nullptr, nullptr))
+        return -1;
+    }
+  }
   return 0;
 }
 
-// ---------------------------------------------------------------------------
-// Phase 1: Parameter resolution
-//
-// Walk spec->params, apply any overrides, evaluate default expressions.
-// Builds a name→value table that subsequent phases consult.
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Public entry point
+// ===========================================================================
 
-static int resolve_parameters(TlsfSpec *spec,
-                               const ParamOverride *overrides,
-                               size_t n_overrides) {
-  // Apply overrides first.
+int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
+  assert(spec);
+
+  // --- Phase 1: resolve parameter values (apply overrides over defaults). ---
   for (size_t i = 0; i < n_overrides; i++) {
     const char *iname = intern(spec->intern, overrides[i].name);
     bool found = false;
     for (uint16_t j = 0; j < spec->param_count; j++) {
       if (spec->params[j].name == iname) {
         spec->params[j].value = overrides[i].value;
+        spec->params[j].has_default = true;
         found = true;
         break;
       }
@@ -78,235 +320,64 @@ static int resolve_parameters(TlsfSpec *spec,
       return -1;
     }
   }
-
-  // For parameters without an override, use the default value.
-  // Integer expressions in defaults are evaluated here.
   for (uint16_t i = 0; i < spec->param_count; i++) {
-    ParamDecl *p = &spec->params[i];
-    // If no override was applied and spec has a default, use it.
-    // TODO: evaluate default integer expression (currently stored raw).
-    (void)p;
+    if (!spec->params[i].has_default) {
+      fprintf(stderr, "expand: parameter '%s' has no value (use --param)\n",
+              spec->params[i].name);
+      return -1;
+    }
   }
 
-  return 0;
-}
+  Env *env = build_param_env(spec);
 
-// ---------------------------------------------------------------------------
-// Phase 2: Definition inlining
-//
-// For each NODE_DEF_CALL node, substitute the callee's body with actual
-// arguments bound to formal parameters, then recurse.  Cycle detection
-// prevents infinite loops from mutually-recursive definitions.
-// ---------------------------------------------------------------------------
-
-// Inlining context threaded through the recursive transform.
-typedef struct {
-  TlsfSpec *spec;
-  // TODO: add a "currently expanding" set (interned names) for cycle detect.
-  // TODO: add a binding map for the current call's formal→actual params.
-} InlineCtx;
-
-static Node *inline_node(Node *n, void *ctx, Arena *a) {
-  (void)a;
-  InlineCtx *c = ctx;
-  (void)c;
-
-  if (!n)
-    return nullptr;
-
-  switch (n->kind) {
-  case NODE_DEF_CALL:
-    // TODO:
-    //   1. Look up n->callee in spec->defs.
-    //   2. Check for recursive call (cycle detection).
-    //   3. Bind n->call_args[i] → formal params[i].
-    //   4. Recursively transform the body under the new binding.
-    //   5. Return the transformed body (fresh arena-copy).
-    fprintf(stderr, "expand: definition inlining not yet implemented\n");
-    return n;
-
-  case NODE_INT_VAR:
-    // TODO: look up parameter value and return NODE_INT.
-    return n;
-
-  default:
-    return n; // structural recursion handled by transform_all_formulas
-  }
-}
-
-static int inline_definitions(TlsfSpec *spec) {
-  InlineCtx ctx = {.spec = spec};
-  transform_all_formulas(spec, inline_node, &ctx);
-  return 0;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 3: Bus unrolling
-//
-// Replace NODE_BUS_INDEX with the concrete scalar signal name (name_i).
-// Replace quantified set expressions (NODE_FORALL/EXISTS over a range) with
-// explicit conjunctions/disjunctions.
-// ---------------------------------------------------------------------------
-
-typedef struct {
-  TlsfSpec *spec;
-} BusCtx;
-
-static Node *unroll_node(Node *n, void *ctx, Arena *a) {
-  BusCtx *c = ctx;
-  (void)a;
-
-  if (!n)
-    return nullptr;
-
-  switch (n->kind) {
-  case NODE_BUS_INDEX:
-    // TODO:
-    //   1. Evaluate n->bus_index (must be a ground integer after phase 1+2).
-    //   2. Construct interned name "bus_name_<i>".
-    //   3. Return NODE_AP with the constructed name.
-    fprintf(stderr, "expand: bus unrolling not yet implemented\n");
-    return n;
-
-  case NODE_FORALL:
-    // TODO: expand G[x:S] phi  →  phi[x:=s1] ∧ phi[x:=s2] ∧ ...
-    return n;
-
-  case NODE_EXISTS:
-    // TODO: expand F[x:S] phi  →  phi[x:=s1] ∨ phi[x:=s2] ∨ ...
-    return n;
-
-  default:
-    return n;
-  }
-  (void)c;
-}
-
-static int unroll_buses(TlsfSpec *spec) {
-  BusCtx ctx = {.spec = spec};
-  transform_all_formulas(spec, unroll_node, &ctx);
-  return 0;
-}
-
-// ---------------------------------------------------------------------------
-// Phase 4: Pattern instantiation
-//
-// TLSF v1.1 defines several named synthesis patterns (e.g. "or", "and",
-// "mux", "delay", "counter", ...).  NODE_PATTERN nodes are replaced with
-// their LTL expansions.
-// ---------------------------------------------------------------------------
-
-static Node *instantiate_node(Node *n, void *ctx, Arena *a) {
-  (void)ctx;
-  (void)a;
-
-  if (!n || n->kind != NODE_PATTERN)
-    return n;
-
-  // TODO: dispatch on n->callee and produce the pattern's LTL body.
-  fprintf(stderr, "expand: pattern '%s' not yet implemented\n", n->callee);
-  return n;
-}
-
-static int instantiate_patterns(TlsfSpec *spec) {
-  transform_all_formulas(spec, instantiate_node, nullptr);
-  return 0;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: bottom-up structural transform over all formula lists.
-//
-// Applies `fn` to every node bottom-up.  fn may return a replacement node
-// (possibly newly allocated from `a`); returning the same pointer is fine.
-// ---------------------------------------------------------------------------
-
-static Node *transform_node(Node *n, NodeTransform fn, void *ctx, Arena *a) {
-  if (!n)
-    return nullptr;
-
-  // First recurse into children (bottom-up).
-  switch (n->kind) {
-  // Leaf nodes
-  case NODE_TRUE:
-  case NODE_FALSE:
-  case NODE_AP:
-  case NODE_INT:
-  case NODE_INT_VAR:
-    break;
-
-  // Unary
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-  case NODE_INT_NEG:
-    n->arg = transform_node(n->arg, fn, ctx, a);
-    break;
-
-  // Binary
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-  case NODE_INT_ADD:
-  case NODE_INT_SUB:
-  case NODE_INT_MUL:
-  case NODE_INT_DIV:
-  case NODE_INT_MOD:
-    n->lhs = transform_node(n->lhs, fn, ctx, a);
-    n->rhs = transform_node(n->rhs, fn, ctx, a);
-    break;
-
-  // Call nodes: recurse into arguments
-  case NODE_DEF_CALL:
-  case NODE_PATTERN:
-    for (uint16_t i = 0; i < n->call_argc; i++)
-      n->call_args[i] = transform_node(n->call_args[i], fn, ctx, a);
-    break;
-
-  // Bus index: recurse into index expression
-  case NODE_BUS_INDEX:
-    n->bus_index = transform_node(n->bus_index, fn, ctx, a);
-    break;
-
-  // Set / quantifier children
-  case NODE_SET:
-  case NODE_SET_ENUM:
-  case NODE_FORALL:
-  case NODE_EXISTS:
-    for (uint16_t i = 0; i < n->set_size; i++)
-      n->set_elems[i] = transform_node(n->set_elems[i], fn, ctx, a);
-    break;
-
-  case NODE_KIND_COUNT:
-    break;
+  // --- Phase 2: resolve bus declaration bounds (so SIZEOF and the expanded
+  //     INPUTS/OUTPUTS lists are correct). ---
+  SignalDecl *sig_lists[2] = {spec->inputs, spec->outputs};
+  uint32_t sig_counts[2] = {spec->input_count, spec->output_count};
+  for (int k = 0; k < 2; k++) {
+    for (uint32_t i = 0; i < sig_counts[k]; i++) {
+      SignalDecl *s = &sig_lists[k][i];
+      if (!s->is_bus)
+        continue;
+      int64_t lo = s->bus_lo, hi = s->bus_hi;
+      if (s->bus_lo_expr && !eval_int(spec, s->bus_lo_expr, env, &lo))
+        return -1;
+      if (s->bus_hi_expr && !eval_int(spec, s->bus_hi_expr, env, &hi))
+        return -1;
+      s->bus_lo = (uint16_t)lo;
+      s->bus_hi = (uint16_t)hi;
+    }
   }
 
-  // Then apply the transform function to this node.
-  return fn(n, ctx, a);
-}
-
-// Apply a transform to every formula in every subsection.
-#define TRANSFORM_LIST(list)                                                   \
+  // --- Phase 3: expand every formula (params, SIZEOF, bus indices, bounded
+  //     quantifiers). ---
+  bool ok = true;
+#define EXPAND_LIST(list)                                                      \
   do {                                                                         \
-    for (uint32_t _i = 0; _i < (list).count; _i++)                            \
-      (list).formulas[_i] =                                                    \
-          transform_node((list).formulas[_i], fn, ctx, spec->arena);          \
+    for (uint32_t _i = 0; _i < (list).count; _i++) {                           \
+      (list).formulas[_i] = expand_node(spec, (list).formulas[_i], env, &ok);  \
+      if (!ok)                                                                 \
+        return -1;                                                             \
+    }                                                                          \
   } while (0)
 
-static void transform_all_formulas(TlsfSpec *spec, NodeTransform fn,
-                                   void *ctx) {
-  TRANSFORM_LIST(spec->initially);
-  TRANSFORM_LIST(spec->require);
-  TRANSFORM_LIST(spec->assume);
-  TRANSFORM_LIST(spec->preset);
-  TRANSFORM_LIST(spec->assert_);
-  TRANSFORM_LIST(spec->guarantee);
-}
+  EXPAND_LIST(spec->initially);
+  EXPAND_LIST(spec->require);
+  EXPAND_LIST(spec->assume);
+  EXPAND_LIST(spec->preset);
+  EXPAND_LIST(spec->assert_);
+  EXPAND_LIST(spec->guarantee);
+#undef EXPAND_LIST
 
-#undef TRANSFORM_LIST
+  // Explode bus declarations into scalar signals (basic fragment).
+  if (explode_signals(spec, false) != 0 || explode_signals(spec, true) != 0)
+    return -1;
+
+  // Clear the GLOBAL section — it has been expanded away.
+  spec->params = nullptr;
+  spec->param_count = 0;
+  spec->defs = nullptr;
+  spec->def_count = 0;
+
+  return 0;
+}

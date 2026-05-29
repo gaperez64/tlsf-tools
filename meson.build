@@ -203,3 +203,19 @@ test('info_block', check,
 test('ltl_assume_guarantee', check,
   args: [files('test/cases/arbiter_simple.ltl'),
          tlsf2ltl_exe, files('test/arbiter_simple.tlsf')])
+
+# Expansion: parameters, parametric bus ranges, bus indexing, bounded
+# big-operators (&&[..]/||[..]) and SIZEOF.
+test('expand_ltl', check,
+  args: [files('test/cases/expand_demo.ltl'),
+         tlsf2ltl_exe, files('test/cases/expand_demo.tlsf')])
+
+test('expand_ltl_param', check,
+  args: [files('test/cases/expand_demo.n2.ltl'),
+         tlsf2ltl_exe, '--param', 'n=2',
+         files('test/cases/expand_demo.tlsf')])
+
+test('expand_basic', check,
+  args: [files('test/cases/expand_demo.basic.tlsf'),
+         tlsf2tlsf_exe, '--basic',
+         files('test/cases/expand_demo.tlsf')])

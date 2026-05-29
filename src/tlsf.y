@@ -110,6 +110,9 @@
 %token TOK_PLUS TOK_MINUS TOK_STAR TOK_SLASH TOK_PERCENT
 %token TOK_EQ TOK_NEQ TOK_LT TOK_LEQ TOK_GT TOK_GEQ
 
+/* Keyword operators */
+%token TOK_SIZEOF
+
 /* Punctuation */
 %token TOK_LPAREN TOK_RPAREN TOK_LBRACKET TOK_RBRACKET
 %token TOK_LBRACE TOK_RBRACE
@@ -118,7 +121,8 @@
 /* -------------------------------------------------------------------------
  * Type declarations for non-terminals
  * --------------------------------------------------------------------- */
-%type <node>      ltl_expr int_expr
+%type <node>      ltl_expr int_expr bound_spec
+%type <ival>      lt_or_leq
 %type <sval>      signal_name
 %type <slist>     ident_list
 %type <node_list> call_arg_list
@@ -317,11 +321,11 @@ signal_decl_list
 
 signal_decl
   : signal_name
-    { if (!spec_add_signal(spec, spec->cur_is_output, $1, false, 0, 0))
+    { if (!spec_add_signal(spec, spec->cur_is_output, $1, false,
+                           nullptr, nullptr))
         YYNOMEM; }
-  | signal_name TOK_LBRACKET TOK_INTEGER TOK_DOTDOT TOK_INTEGER TOK_RBRACKET
-    { if (!spec_add_signal(spec, spec->cur_is_output, $1, true,
-                           (uint16_t)$3, (uint16_t)$5))
+  | signal_name TOK_LBRACKET int_expr TOK_DOTDOT int_expr TOK_RBRACKET
+    { if (!spec_add_signal(spec, spec->cur_is_output, $1, true, $3, $5))
         YYNOMEM; }
   ;
 
@@ -443,6 +447,32 @@ ltl_expr
     { $$ = node_w(spec->arena, $1, $3); }
   | ltl_expr TOK_STRONG_REL ltl_expr
     { $$ = node_m(spec->arena, $1, $3); }
+
+  /* Bounded big-operators:  &&[lo R v R hi] body  /  ||[lo R v R hi] body */
+  | TOK_AND TOK_LBRACKET bound_spec TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $3->kind = NODE_FORALL; $3->qbody = $5; $$ = $3; }
+  | TOK_OR TOK_LBRACKET bound_spec TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $3->kind = NODE_EXISTS; $3->qbody = $5; $$ = $3; }
+  ;
+
+/* Quantifier bound: lo (<|<=) var (<|<=) hi.  Builds a partial quantifier
+ * node (kind set later by the caller); qbody is filled in afterwards. */
+bound_spec
+  : int_expr lt_or_leq[loS] TOK_IDENT[v] lt_or_leq[hiS] int_expr
+    {
+      Node *n = ARENA_ALLOC(spec->arena, Node);
+      n->qvar = $v;
+      n->qlo = $1;
+      n->qhi = $5;
+      n->qlo_strict = $loS;
+      n->qhi_strict = $hiS;
+      $$ = n;
+    }
+  ;
+
+lt_or_leq
+  : TOK_LT  { $$ = 1; }  /* strict */
+  | TOK_LEQ { $$ = 0; }  /* non-strict */
   ;
 
 /* Call argument list — zero or more ltl/int expressions */
@@ -471,6 +501,9 @@ int_expr
     }
   | TOK_LPAREN int_expr TOK_RPAREN
     { $$ = $2; }
+  | TOK_SIZEOF TOK_IDENT
+    { Node *n = ARENA_ALLOC(spec->arena, Node);
+      n->kind = NODE_SIZEOF; n->sizeof_name = $2; $$ = n; }
   | int_expr TOK_PLUS  int_expr
     { $$ = ARENA_ALLOC(spec->arena, Node);
       $$->kind = NODE_INT_ADD; $$->lhs = $1; $$->rhs = $3; }

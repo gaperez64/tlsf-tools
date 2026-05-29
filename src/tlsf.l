@@ -33,7 +33,7 @@ static int comment_depth = 0;
 ALPHA       [a-zA-Z_]
 ALNUM       [a-zA-Z0-9_]
 DIGIT       [0-9]
-INT         -?{DIGIT}+
+INT         {DIGIT}+
 IDENT       {ALPHA}{ALNUM}*
 WS          [ \t\r\n]+
 STRLIT      \"([^\"\\]|\\.)*\"
@@ -89,6 +89,9 @@ Finite[ \t]*,[ \t]*Moore   { return TOK_FINITE_MOORE; }
   /* --- Boolean / LTL atoms --- */
 "true"              { return TOK_TRUE; }
 "false"             { return TOK_FALSE; }
+
+  /* --- Keyword operators --- */
+"SIZEOF"            { return TOK_SIZEOF; }
 
   /* --- LTL operators (single-char temporal first to avoid prefix match) ---
      X[!] must be matched before X. */

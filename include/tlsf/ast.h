@@ -64,12 +64,13 @@ typedef enum NodeKind {
   NODE_INT_MOD, ///< e % e
   NODE_INT_NEG, ///< -e
   NODE_INT_VAR, ///< integer variable reference (interned name)
+  NODE_SIZEOF,  ///< SIZEOF bus — bus width (hi-lo+1), resolved during expand
 
   // -- Set expressions (pre-expansion) --
   NODE_SET,          ///< { e, e, ... }  — set literal (children = elements)
   NODE_SET_ENUM,     ///< set comprehension: { x : range }
-  NODE_FORALL,       ///< ∀ quantification over a set
-  NODE_EXISTS,       ///< ∃ quantification over a set
+  NODE_FORALL,       ///< bounded big-conjunction  &&[lo <|<= v <|<= hi] body
+  NODE_EXISTS,       ///< bounded big-disjunction   ||[lo <|<= v <|<= hi] body
 
   NODE_KIND_COUNT, ///< sentinel — keep last
 } NodeKind;
@@ -114,7 +115,23 @@ struct Node {
       Node *bus_index;      ///< index expression (integer)
     };
 
-    // NODE_SET / NODE_SET_ENUM / NODE_FORALL / NODE_EXISTS
+    // NODE_SIZEOF: bus name whose width is requested
+    struct {
+      const char *sizeof_name; ///< interned bus name
+    };
+
+    // NODE_FORALL / NODE_EXISTS: bounded quantifier
+    //   &&[ qlo (<|<=) qvar (<|<=) qhi ] qbody
+    struct {
+      const char *qvar; ///< interned bound-variable name
+      Node *qlo;        ///< lower-bound integer expression
+      Node *qhi;        ///< upper-bound integer expression
+      Node *qbody;      ///< quantified formula
+      bool qlo_strict;  ///< true if the lower relation is '<' (else '<=')
+      bool qhi_strict;  ///< true if the upper relation is '<' (else '<=')
+    };
+
+    // NODE_SET / NODE_SET_ENUM
     struct {
       Node **set_elems;  ///< arena-allocated array of child nodes
       uint16_t set_size; ///< element / child count
@@ -164,8 +181,8 @@ static inline bool node_kind_is_temporal(NodeKind k) {
 /// True for pre-expansion nodes that must not appear after expand().
 static inline bool node_kind_is_high_level(NodeKind k) {
   return k == NODE_DEF_CALL || k == NODE_BUS_INDEX || k == NODE_PATTERN ||
-         k == NODE_INT_VAR || k == NODE_SET || k == NODE_SET_ENUM ||
-         k == NODE_FORALL || k == NODE_EXISTS;
+         k == NODE_INT_VAR || k == NODE_SIZEOF || k == NODE_SET ||
+         k == NODE_SET_ENUM || k == NODE_FORALL || k == NODE_EXISTS;
 }
 
 #endif // TLSF_AST_H

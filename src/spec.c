@@ -55,7 +55,7 @@ bool formula_list_push(TlsfSpec *s, FormulaList *list, Node *formula) {
 #define LIST_INIT_CAP 8u
 
 bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name,
-                     bool is_bus, uint16_t bus_lo, uint16_t bus_hi) {
+                     bool is_bus, Node *lo_expr, Node *hi_expr) {
   SignalDecl **list = is_output ? &s->outputs : &s->inputs;
   uint32_t *count   = is_output ? &s->output_count : &s->input_count;
   uint32_t *cap     = is_output ? &s->output_cap : &s->input_cap;
@@ -70,8 +70,14 @@ bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name,
     *list = new_arr;
     *cap = new_cap;
   }
-  (*list)[*count] = (SignalDecl){
-      .name = name, .bus_lo = bus_lo, .bus_hi = bus_hi, .is_bus = is_bus};
+  SignalDecl d = {.name = name, .is_bus = is_bus,
+                  .bus_lo_expr = lo_expr, .bus_hi_expr = hi_expr};
+  // Resolve literal bounds immediately so non-expanding consumers see them.
+  if (lo_expr && lo_expr->kind == NODE_INT)
+    d.bus_lo = (uint16_t)lo_expr->ival;
+  if (hi_expr && hi_expr->kind == NODE_INT)
+    d.bus_hi = (uint16_t)hi_expr->ival;
+  (*list)[*count] = d;
   (*count)++;
   return true;
 }

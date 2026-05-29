@@ -80,10 +80,25 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_INT_NEG:
     fprintf(out, "(- "); print_formula(out, n->arg); fprintf(out, ")"); return;
 
+  case NODE_SIZEOF:
+    fprintf(out, "SIZEOF %s", n->sizeof_name);
+    return;
+
   case NODE_BUS_INDEX:
     fprintf(out, "%s[", n->bus_name);
     print_formula(out, n->bus_index);
     fprintf(out, "]");
+    return;
+
+  case NODE_FORALL:
+  case NODE_EXISTS:
+    fprintf(out, "%s[", n->kind == NODE_FORALL ? "&&" : "||");
+    print_formula(out, n->qlo);
+    fprintf(out, " %s %s %s ", n->qlo_strict ? "<" : "<=", n->qvar,
+            n->qhi_strict ? "<" : "<=");
+    print_formula(out, n->qhi);
+    fprintf(out, "] ");
+    print_formula(out, n->qbody);
     return;
 
   case NODE_DEF_CALL:
@@ -98,6 +113,33 @@ static void print_formula(FILE *out, const Node *n) {
   default:
     assert(false && "print_tlsf: unexpected node kind");
   }
+}
+
+// Print one INPUTS/OUTPUTS subsection.  A bus prints its declared range; when
+// the bounds are parametric expressions (non-expanded re-emission) those are
+// printed faithfully, otherwise the resolved integer bounds are used.
+static void print_signal_list(FILE *out, const char *subsection,
+                              const SignalDecl *sigs, uint32_t count) {
+  fprintf(out, "  %s {\n", subsection);
+  for (uint32_t i = 0; i < count; i++) {
+    const SignalDecl *sd = &sigs[i];
+    if (!sd->is_bus) {
+      fprintf(out, "    %s;\n", sd->name);
+      continue;
+    }
+    fprintf(out, "    %s[", sd->name);
+    if (sd->bus_lo_expr)
+      print_formula(out, sd->bus_lo_expr);
+    else
+      fprintf(out, "%u", sd->bus_lo);
+    fprintf(out, "..");
+    if (sd->bus_hi_expr)
+      print_formula(out, sd->bus_hi_expr);
+    else
+      fprintf(out, "%u", sd->bus_hi);
+    fprintf(out, "];\n");
+  }
+  fprintf(out, "  }\n\n");
 }
 
 static void print_formula_list(FILE *out, const FormulaList *list,
@@ -215,27 +257,8 @@ void print_tlsf(FILE *out, const TlsfSpec *spec, bool include_global) {
   // ---- MAIN block ----
   fprintf(out, "MAIN {\n\n");
 
-  // INPUTS
-  fprintf(out, "  INPUTS {\n");
-  for (uint32_t i = 0; i < spec->input_count; i++) {
-    const SignalDecl *sd = &spec->inputs[i];
-    if (sd->is_bus)
-      fprintf(out, "    %s[%u..%u];\n", sd->name, sd->bus_lo, sd->bus_hi);
-    else
-      fprintf(out, "    %s;\n", sd->name);
-  }
-  fprintf(out, "  }\n\n");
-
-  // OUTPUTS
-  fprintf(out, "  OUTPUTS {\n");
-  for (uint32_t i = 0; i < spec->output_count; i++) {
-    const SignalDecl *sd = &spec->outputs[i];
-    if (sd->is_bus)
-      fprintf(out, "    %s[%u..%u];\n", sd->name, sd->bus_lo, sd->bus_hi);
-    else
-      fprintf(out, "    %s;\n", sd->name);
-  }
-  fprintf(out, "  }\n\n");
+  print_signal_list(out, "INPUTS", spec->inputs, spec->input_count);
+  print_signal_list(out, "OUTPUTS", spec->outputs, spec->output_count);
 
   // Formula subsections
   print_formula_list(out, &spec->initially, "INITIALLY");

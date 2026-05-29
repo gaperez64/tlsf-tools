@@ -44,9 +44,13 @@ typedef enum Target {
 
 typedef struct {
   const char *name; ///< interned signal name
-  uint16_t bus_lo;  ///< bus range low  (0 for scalar signals)
-  uint16_t bus_hi;  ///< bus range high (0 for scalar signals)
+  uint16_t bus_lo;  ///< bus range low  (resolved value; 0 for scalar signals)
+  uint16_t bus_hi;  ///< bus range high (resolved value; 0 for scalar signals)
   bool is_bus;      ///< true if this is a bus declaration
+  // Parametric bounds: when non-null these integer expressions are evaluated
+  // during expand() to fill bus_lo / bus_hi.  Literal ranges leave them null.
+  struct Node *bus_lo_expr;
+  struct Node *bus_hi_expr;
 } SignalDecl;
 
 // ---------------------------------------------------------------------------
@@ -161,10 +165,13 @@ void spec_free(TlsfSpec *s);
 // ---------------------------------------------------------------------------
 
 /// Append a signal declaration to the inputs (is_output=false) or outputs
-/// (is_output=true) list.  Returns false on OOM.
+/// (is_output=true) list.  For a bus, lo_expr/hi_expr are the range-bound
+/// integer expressions (literal NODE_INT bounds are resolved immediately;
+/// parametric bounds are resolved during expand()).  For a scalar pass
+/// is_bus=false and null bounds.  Returns false on OOM.
 [[nodiscard]] bool spec_add_signal(TlsfSpec *s, bool is_output,
                                    const char *name, bool is_bus,
-                                   uint16_t bus_lo, uint16_t bus_hi);
+                                   struct Node *lo_expr, struct Node *hi_expr);
 
 /// Append a parameter declaration.  Returns false on OOM.
 [[nodiscard]] bool spec_add_param(TlsfSpec *s, const char *name,
