@@ -121,7 +121,7 @@
 /* -------------------------------------------------------------------------
  * Type declarations for non-terminals
  * --------------------------------------------------------------------- */
-%type <node>      ltl_expr int_expr bound_spec
+%type <node>      ltl_expr bound_spec
 %type <ival>      lt_or_leq
 %type <sval>      signal_name
 %type <slist>     ident_list
@@ -324,10 +324,10 @@ signal_decl
     { if (!spec_add_signal(spec, spec->cur_is_output, $1, false,
                            nullptr, nullptr))
         YYNOMEM; }
-  | signal_name TOK_LBRACKET int_expr TOK_DOTDOT int_expr TOK_RBRACKET
+  | signal_name TOK_LBRACKET ltl_expr TOK_DOTDOT ltl_expr TOK_RBRACKET
     { if (!spec_add_signal(spec, spec->cur_is_output, $1, true, $3, $5))
         YYNOMEM; }
-  | signal_name TOK_LBRACKET int_expr TOK_RBRACKET
+  | signal_name TOK_LBRACKET ltl_expr TOK_RBRACKET
     { /* width form: name[N] declares indices 0..N-1 */
       Node *lo = node_int(spec->arena, 0);
       Node *hi = ARENA_ALLOC(spec->arena, Node);
@@ -398,8 +398,36 @@ ltl_expr
   | TOK_IDENT
     { $$ = node_ap(spec->arena, $1); }
 
+  /* Integer atoms / arithmetic.  TLSF has a single untyped expression
+     grammar; numeric vs. boolean use is resolved during expansion.  An
+     identifier in integer position is the bare TOK_IDENT (a NODE_AP) looked
+     up as a variable by the evaluator. */
+  | TOK_INTEGER
+    { $$ = node_int(spec->arena, $1); }
+  | TOK_SIZEOF TOK_IDENT
+    { Node *n = ARENA_ALLOC(spec->arena, Node);
+      n->kind = NODE_SIZEOF; n->sizeof_name = $2; $$ = n; }
+  | ltl_expr TOK_PLUS ltl_expr
+    { $$ = ARENA_ALLOC(spec->arena, Node);
+      $$->kind = NODE_INT_ADD; $$->lhs = $1; $$->rhs = $3; }
+  | ltl_expr TOK_MINUS ltl_expr
+    { $$ = ARENA_ALLOC(spec->arena, Node);
+      $$->kind = NODE_INT_SUB; $$->lhs = $1; $$->rhs = $3; }
+  | ltl_expr TOK_STAR ltl_expr
+    { $$ = ARENA_ALLOC(spec->arena, Node);
+      $$->kind = NODE_INT_MUL; $$->lhs = $1; $$->rhs = $3; }
+  | ltl_expr TOK_SLASH ltl_expr
+    { $$ = ARENA_ALLOC(spec->arena, Node);
+      $$->kind = NODE_INT_DIV; $$->lhs = $1; $$->rhs = $3; }
+  | ltl_expr TOK_PERCENT ltl_expr
+    { $$ = ARENA_ALLOC(spec->arena, Node);
+      $$->kind = NODE_INT_MOD; $$->lhs = $1; $$->rhs = $3; }
+  | TOK_MINUS ltl_expr %prec TOK_UMINUS
+    { $$ = ARENA_ALLOC(spec->arena, Node);
+      $$->kind = NODE_INT_NEG; $$->arg = $2; }
+
   /* Bus signal indexing: name[expr] */
-  | TOK_IDENT TOK_LBRACKET int_expr TOK_RBRACKET
+  | TOK_IDENT TOK_LBRACKET ltl_expr TOK_RBRACKET
     {
       Node *n = ARENA_ALLOC(spec->arena, Node);
       n->kind      = NODE_BUS_INDEX;
@@ -465,7 +493,7 @@ ltl_expr
 /* Quantifier bound: lo (<|<=) var (<|<=) hi.  Builds a partial quantifier
  * node (kind set later by the caller); qbody is filled in afterwards. */
 bound_spec
-  : int_expr lt_or_leq[loS] TOK_IDENT[v] lt_or_leq[hiS] int_expr
+  : ltl_expr lt_or_leq[loS] TOK_IDENT[v] lt_or_leq[hiS] ltl_expr
     {
       Node *n = ARENA_ALLOC(spec->arena, Node);
       n->qvar = $v;
@@ -490,45 +518,6 @@ call_arg_list
     { $$ = node_list_append(spec->arena, nullptr, $1); }
   | call_arg_list TOK_COMMA ltl_expr
     { $$ = node_list_append(spec->arena, $1, $3); }
-  ;
-
-/* =========================================================================
- * Integer expression grammar
- * ===================================================================== */
-
-int_expr
-  : TOK_INTEGER
-    { $$ = node_int(spec->arena, $1); }
-  | TOK_IDENT
-    { /* integer variable reference */
-      Node *n = ARENA_ALLOC(spec->arena, Node);
-      n->kind = NODE_INT_VAR;
-      n->name = $1;
-      $$ = n;
-    }
-  | TOK_LPAREN int_expr TOK_RPAREN
-    { $$ = $2; }
-  | TOK_SIZEOF TOK_IDENT
-    { Node *n = ARENA_ALLOC(spec->arena, Node);
-      n->kind = NODE_SIZEOF; n->sizeof_name = $2; $$ = n; }
-  | int_expr TOK_PLUS  int_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_ADD; $$->lhs = $1; $$->rhs = $3; }
-  | int_expr TOK_MINUS int_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_SUB; $$->lhs = $1; $$->rhs = $3; }
-  | int_expr TOK_STAR  int_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_MUL; $$->lhs = $1; $$->rhs = $3; }
-  | int_expr TOK_SLASH int_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_DIV; $$->lhs = $1; $$->rhs = $3; }
-  | int_expr TOK_PERCENT int_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_MOD; $$->lhs = $1; $$->rhs = $3; }
-  | TOK_MINUS int_expr %prec TOK_UMINUS
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_NEG; $$->arg = $2; }
   ;
 
 %%

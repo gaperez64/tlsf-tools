@@ -66,6 +66,7 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
     *out = n->ival;
     return true;
   case NODE_INT_VAR:
+  case NODE_AP: // a bare identifier used in numeric position is a variable
     if (!env_lookup(env, n->name, out)) {
       fprintf(stderr, "expand: undefined parameter/variable '%s'\n", n->name);
       return false;
