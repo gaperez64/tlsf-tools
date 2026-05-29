@@ -12,8 +12,8 @@
 #include "tlsf/print_tlsf.h"
 #include "tlsf/spec.h"
 
-#include "tlsf_lex.h"
 #include "tlsf_parse.h"
+#include "tlsf_lex.h"
 
 #include <stdio.h>
 #include <stdlib.h>

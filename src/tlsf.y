@@ -1,22 +1,32 @@
 %{
 /* tlsf.y — TLSF v1.1/v1.2 parser */
-#include "tlsf/spec.h"
-#include "tlsf/ast.h"
-
 #include <stdio.h>
 #include <stdlib.h>
-
-/* Forward declarations filled in by flex */
-int  yylex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
-void yyerror(YYLTYPE *lloc, yyscan_t scanner, TlsfSpec *spec,
-             const char *msg);
 %}
+
+/* Emitted into the generated header (tlsf_parse.h) and early in the parser
+ * source, before YYSTYPE/YYLTYPE — so the union types and yyscan_t are known
+ * everywhere the header is included. */
+%code requires {
+  #include "tlsf/spec.h"
+  #include "tlsf/ast.h"
+  #ifndef YY_TYPEDEF_YY_SCANNER_T
+  #define YY_TYPEDEF_YY_SCANNER_T
+  typedef void *yyscan_t;
+  #endif
+}
+
+/* Emitted into the parser source after YYSTYPE/YYLTYPE are defined. */
+%code {
+  int  yylex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
+  void yyerror(YYLTYPE *lloc, yyscan_t scanner, TlsfSpec *spec,
+               const char *msg);
+}
 
 /* -------------------------------------------------------------------------
  * Bison options
  * --------------------------------------------------------------------- */
 %define api.pure full
-%define api.token.prefix {TOK_}
 %define parse.error detailed
 %define parse.lac full
 

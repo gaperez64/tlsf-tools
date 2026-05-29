@@ -15,9 +15,10 @@
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/spec.h"
 
-// Flex/bison interface
+// Flex/bison interface (parser header first: it defines YYSTYPE/YYLTYPE and
+// yyscan_t, which the lexer header references).
+#include "tlsf_parse.h" /* yyparse, YYSTYPE, YYLTYPE, yyscan_t */
 #include "tlsf_lex.h"   /* yylex_init, yyset_extra, yylex_destroy */
-#include "tlsf_parse.h" /* yyparse */
 
 #include <stdio.h>
 #include <stdlib.h>
