@@ -1,0 +1,22 @@
+INFO {
+  TITLE:       "param demo"
+  DESCRIPTION: "demo"
+  SEMANTICS:   Mealy
+  TARGET:      Mealy
+}
+GLOBAL {
+  PARAMETERS {
+    n = 2;
+    k;
+  }
+  DEFINITIONS {
+    always_grant = G g;
+  }
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> F g);
+  }
+}

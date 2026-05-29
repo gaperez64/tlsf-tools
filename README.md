@@ -98,6 +98,19 @@ Test specifications can be drawn from the
 [SYNTCOMP benchmarks](https://github.com/SYNTCOMP/benchmarks) (`tlsf` and
 `tlsf-fin` directories).
 
+## Tests
+
+A self-contained golden-output regression suite lives under `test/cases/` (a
+representative spread of SYNTCOMP specs with their expected tool output). It
+needs no external tools, so it runs anywhere:
+
+```sh
+meson test -C build
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) builds with both gcc and clang,
+runs the suite, and runs a valgrind no-leak check on each binary.
+
 ## License
 
 [MIT](LICENSE).

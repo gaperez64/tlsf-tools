@@ -124,7 +124,7 @@ tlsf_lib = static_library(
 # Executables
 # ---------------------------------------------------------------------------
 
-executable(
+tlsf2ltl_exe = executable(
   'tlsf2ltl',
   sources: ['src/main_tlsf2ltl.c', bison_out[1]],
   link_with: tlsf_lib,
@@ -132,7 +132,7 @@ executable(
   install: true,
 )
 
-executable(
+tlsf2tlsf_exe = executable(
   'tlsf2tlsf',
   sources: ['src/main_tlsf2tlsf.c', bison_out[1]],
   link_with: tlsf_lib,
@@ -140,10 +140,66 @@ executable(
   install: true,
 )
 
-executable(
+tlsfinfo_exe = executable(
   'tlsfinfo',
   sources: ['src/main_tlsfinfo.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
 )
+
+# ---------------------------------------------------------------------------
+# Integration / regression tests (golden-output diffs)
+#
+# Self-contained: a representative set of SYNTCOMP TLSF specs lives under
+# test/cases/ with their expected tool output.  No external tools (syfco,
+# spot) are needed, so these run anywhere — including CI.
+# ---------------------------------------------------------------------------
+
+check = files('test/check.sh')
+
+# Cases converted with `tlsf2ltl` (default, minimal parentheses).
+ltl_cases = [
+  'Patterns_Uright_uright02',
+  'Patterns_Uright_uright06',
+  'Patterns_GFand_gfand01',
+  'Patterns_GFand_gfand05',
+  'Random_Lydia_case_03_50_05',
+  'Two-player-Game_Nim_nim_02_System-first_nim_02_02',
+]
+
+foreach c : ltl_cases
+  test('ltl_' + c, check,
+    args: [
+      files('test/cases/' + c + '.ltl'),
+      tlsf2ltl_exe,
+      files('test/cases/' + c + '.tlsf'),
+    ])
+endforeach
+
+# Targeted feature tests.
+test('ltl_full_parens', check,
+  args: [files('test/cases/Patterns_Uright_uright06.full.ltl'),
+         tlsf2ltl_exe, '--parenthesize',
+         files('test/cases/Patterns_Uright_uright06.tlsf')])
+
+test('tlsf_basic_expand', check,
+  args: [files('test/cases/Patterns_Uright_uright06.basic.tlsf'),
+         tlsf2tlsf_exe, '--basic',
+         files('test/cases/Patterns_Uright_uright06.tlsf')])
+
+test('tlsf_param_subst', check,
+  args: [files('test/cases/param_demo.subst.tlsf'),
+         tlsf2tlsf_exe, '--param', 'n=5',
+         files('test/cases/param_demo.tlsf')])
+
+test('info_block', check,
+  args: [files('test/cases/Patterns_Uright_uright06.info'),
+         tlsfinfo_exe, '-i',
+         files('test/cases/Patterns_Uright_uright06.tlsf')])
+
+# Exercises the assumptions -> guarantees implication path (the cases above
+# are guarantee-only).
+test('ltl_assume_guarantee', check,
+  args: [files('test/cases/arbiter_simple.ltl'),
+         tlsf2ltl_exe, files('test/arbiter_simple.tlsf')])

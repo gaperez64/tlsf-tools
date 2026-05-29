@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14 valgrind
+
+      - name: Configure
+        env:
+          CC: gcc-14
+        run: meson setup build
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Run regression tests
+        run: meson test -C build --print-errorlogs
+
+      - name: Memory check (valgrind, no leaks/errors)
+        run: |
+          set -e
+          for args in \
+            "tlsf2ltl test/cases/Patterns_Uright_uright06.tlsf" \
+            "tlsf2ltl --parenthesize test/cases/Random_Lydia_case_03_50_05.tlsf" \
+            "tlsf2tlsf --basic test/cases/Patterns_GFand_gfand05.tlsf" \
+            "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf" \
+            "tlsfinfo test/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.tlsf"; do
+            echo "valgrind: build/$args"
+            valgrind --error-exitcode=1 --leak-check=full \
+                     --errors-for-leak-kinds=definite,indirect \
+                     ./build/$args > /dev/null
+          done
+
+  build-clang:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison clang
+      - name: Build and test (clang)
+        env:
+          CC: clang
+        run: |
+          meson setup build-clang
+          ninja -C build-clang
+          meson test -C build-clang --print-errorlogs
