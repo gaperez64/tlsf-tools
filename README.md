@@ -60,7 +60,6 @@ ninja -C build-san
 ```sh
 tlsf2tlsf spec.tlsf              # expanded basic TLSF on stdout
 tlsf2ltl  spec.tlsf              # the spec's LTL formula (ltlxba), minimal parens
-tlsf2ltl --strict spec.tlsf      # strict semantics (weak-until release)
 tlsf2ltl --parenthesize spec.tlsf  # fully parenthesised LTL
 tlsf2ltl --safety   spec.tlsf    # only the safety part
 tlsf2ltl --liveness spec.tlsf    # only the liveness part
@@ -69,17 +68,23 @@ tlsfinfo spec.tlsf               # all metadata
 tlsfinfo -s spec.tlsf            # just the semantics  (-t -d -g -a -p -ins -outs -i)
 ```
 
-`tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
+`tlsf2ltl` emits the single LTL formula defined by the TLSF semantics. For the
+standard (non-strict) semantics:
 
 ```
 (INITIALLY ∧ G REQUIRE ∧ ASSUME)  →  (PRESET ∧ G ASSERT ∧ GUARANTEE)
 ```
 
 (REQUIRE/ASSERT are invariants, wrapped in `G`; empty sections drop out and a
-trivial antecedent collapses to just the consequent). `--strict` instead emits
-the strict semantics `((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E →
-GUARANTEE)`. Finite-word (`Finite,*`) specs are detected automatically and
-render strong-next as `X[!]`.
+trivial antecedent collapses to just the consequent). All of the following are
+taken from the spec's `SEMANTICS` field — there are no flags for them:
+
+- **Strict** (`Strict,*`): emits `((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G
+  REQUIRE)) ∧ (E → GUARANTEE)`.
+- **Finite-word** (`Finite,*`): renders strong-next as `X[!]`.
+- **Mealy/Moore**: read from `SEMANTICS`; when it disagrees with `TARGET` the
+  formula is converted to the target (Moore→Mealy delays outputs `o ↦ X o`,
+  Mealy→Moore delays inputs `i ↦ X i`).
 
 By default `tlsf2ltl` prints with the minimal parentheses implied by the
 operator precedence shared by spot/ltl2ba and the TLSF papers (tightest
