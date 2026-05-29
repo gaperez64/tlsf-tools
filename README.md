@@ -73,6 +73,14 @@ operator precedence shared by spot/ltl2ba and the TLSF papers (tightest
 first): unary `! X F G` > `U R W M` > `&&` > `||` > `-> <->`. Pass
 `--parenthesize` to fully parenthesise every subformula instead.
 
+> **Note:** the `--safety` / `--liveness` split is **purely syntactic**, not a
+> semantic safety/liveness decomposition. After conversion to negation normal
+> form, a formula is treated as *safety* iff its syntax tree contains no `F`,
+> `U`, or `M` node (and *liveness* otherwise). NNF is applied first so that,
+> e.g., `!(G p)` becomes `F !p` and is correctly classified as liveness. A
+> formula that is semantically a safety property but written with liveness
+> operators will be classified as liveness.
+
 ## Checking output against `syfco`
 
 `tlsf2tlsf` aims to produce the same expanded TLSF as `syfco`'s basic-TLSF
