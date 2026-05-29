@@ -10,6 +10,39 @@ Two Unix-style command-line tools sharing a common library:
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded basic TLSF (no GLOBAL section, flat formula lists) |
 
 Both tools: parse → expand → (nnf + classify for `tlsf2ltl`) → print.
+(`tlsfinfo` parses and reports metadata only — no expansion.)
+
+---
+
+## Implementation status (2026-05)
+
+**Working & tested.** The build is green (gcc + clang), there is a golden-output
+regression suite (`meson test`, wired into GitHub Actions) and the binaries are
+valgrind-clean. Three tools ship: `tlsf2ltl`, `tlsf2tlsf`, `tlsfinfo`.
+
+- Lexer/parser: complete for the core language. All parser actions are filled
+  in (signals, formulas, parameters, definitions, tags, def-calls).
+- `tlsf2ltl`: minimal parentheses by default (spot/ltl2ba precedence),
+  `--parenthesize` for full; `--safety`/`--liveness`; `--param`.
+- `tlsf2tlsf`: default substitutes `--param` values and re-emits faithfully
+  (GLOBAL preserved); `--basic` fully expands to the basic fragment.
+- expand(): parameters, integer-expression evaluation, `SIZEOF`, parametric
+  bus ranges, bus-index unrolling (`r[i]` → `r_i`), and bounded big-operators
+  `&&[lo R v R hi]` / `||[..]`. Bus declarations explode into scalar signals.
+- Coverage vs SYNTCOMP benchmarks: `tlsf-fin` 1717/1717 parse+convert;
+  `tlsf` (parametric) 510/569. Output verified equivalent to the parenthesized
+  source via `ltlfilt` (note: `syfco -f ltlxba` is **not** a reliable spot
+  oracle — it serialises `->` tighter than `&&`).
+
+**Not yet implemented (the remaining 59 `tlsf/` specs need these).**
+
+- Definition inlining: nullary + parameterised, with formal→actual
+  substitution, recursion + cycle detection.
+- Case-definitions (`name(args) = cond : val  cond : val ...`).
+- Integer arguments to definition calls (needs a unified expression grammar so
+  `req(0)` / `req(i+1)` parse — currently call args are LTL-only).
+- TLSF named patterns (Task 4 below).
+- Prime/`@` symbols in identifiers (~10 specs).
 
 ---
 
@@ -68,12 +101,16 @@ tlsf-tools/
 │   ├── print_tlsf.c       ✅ complete
 │   ├── main_tlsf2ltl.c    ✅ complete
 │   ├── main_tlsf2tlsf.c   ✅ complete
-│   ├── tlsf.l             ⚠️  needs fixes (see Task 1)
-│   ├── tlsf.y             ⚠️  skeleton (see Task 2)
-│   └── expand.c           ⚠️  skeleton (see Task 3)
+│   ├── main_tlsfinfo.c    ✅ complete
+│   ├── tlsf.l             ✅ complete
+│   ├── tlsf.y             ✅ core complete (defs/case-defs/int-args pending)
+│   └── expand.c           ◐  params/buses/quantifiers/SIZEOF done;
+│                              defs/case-defs/patterns pending
 │
 └── test/
-    └── arbiter_simple.tlsf  minimal smoke-test spec
+    ├── arbiter_simple.tlsf  minimal smoke-test spec
+    ├── check.sh             golden-output diff runner
+    └── cases/               regression specs + expected output
 ```
 
 ---
