@@ -21,7 +21,13 @@
 
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [--param N=V]... [--output FILE] FILE\n", prog);
+          "Usage: %s [--basic] [--param N=V]... [--output FILE] FILE\n"
+          "  --basic        fully expand to the basic TLSF fragment (no\n"
+          "                 GLOBAL section). Default: substitute parameter\n"
+          "                 values and re-emit the spec unchanged otherwise.\n"
+          "  --param N=V    override parameter N with value V (repeatable)\n"
+          "  --output FILE  write to FILE instead of stdout\n",
+          prog);
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -51,11 +57,14 @@ static bool parse_override(const char *s, ParamOverride *out) {
 int main(int argc, char *argv[]) {
   const char *input_file = nullptr;
   const char *output_file = nullptr;
+  bool to_basic = false;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "--param") == 0) {
+    if (strcmp(argv[i], "--basic") == 0) {
+      to_basic = true;
+    } else if (strcmp(argv[i], "--param") == 0) {
       if (++i >= argc) {
         fprintf(stderr, "tlsf2tlsf: --param requires an argument\n");
         return 1;
@@ -121,9 +130,33 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  if (expand(spec, overrides, n_overrides) != 0) {
-    spec_free(spec);
-    return 1;
+  if (to_basic) {
+    // Full expansion to the basic fragment (drops the GLOBAL section).
+    if (expand(spec, overrides, n_overrides) != 0) {
+      spec_free(spec);
+      return 1;
+    }
+  } else {
+    // Plain parameter substitution: apply overrides to the PARAMETERS values
+    // and re-emit the spec (GLOBAL section preserved), without expanding.
+    for (size_t i = 0; i < n_overrides; i++) {
+      const char *iname = intern(spec->intern, overrides[i].name);
+      bool found = false;
+      for (uint16_t j = 0; j < spec->param_count; j++) {
+        if (spec->params[j].name == iname) {
+          spec->params[j].value = overrides[i].value;
+          spec->params[j].has_default = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        fprintf(stderr, "tlsf2tlsf: unknown parameter '%s'\n",
+                overrides[i].name);
+        spec_free(spec);
+        return 1;
+      }
+    }
   }
 
   for (size_t i = 0; i < n_overrides; i++)
@@ -139,7 +172,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  print_tlsf(out, spec);
+  print_tlsf(out, spec, /*include_global=*/!to_basic);
 
   if (output_file)
     fclose(out);
