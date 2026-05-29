@@ -143,86 +143,84 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
 // Spec-level output
 // ---------------------------------------------------------------------------
 
-// Emit a conjunction of `count` formulas, as it should appear in a position
-// requiring precedence `min_prec`.  Prints "true" for the empty conjunction.
-static void emit_conjunction(FILE *out, const Node *const *parts,
-                             uint32_t count, int min_prec, bool full) {
-  if (count == 0) {
-    fprintf(out, "true");
-    return;
-  }
-  if (count == 1) {
-    emit(out, parts[0], min_prec, full);
-    return;
-  }
-  // The conjunction node has precedence 3; parenthesise if the position binds
-  // tighter than &&, or in full mode.
-  bool paren = full || (3 < min_prec);
-  if (paren)
-    fputc('(', out);
-  for (uint32_t i = 0; i < count; i++) {
-    if (i > 0)
-      fprintf(out, " && ");
-    emit(out, parts[i], 4, full); // operand of &&
-  }
-  if (paren)
-    fputc(')', out);
+// Fold formulas into a conjunction; returns nullptr for the empty set
+// (meaning "absent", so it drops out of the surrounding structure).
+static Node *conj_of(Arena *a, Node *const *xs, uint32_t n) {
+  if (n == 0)
+    return nullptr;
+  Node *acc = xs[0];
+  for (uint32_t i = 1; i < n; i++)
+    acc = node_and(a, acc, xs[i]);
+  return acc;
 }
 
+static Node *and_opt(Arena *a, Node *x, Node *y) {
+  if (!x)
+    return y;
+  if (!y)
+    return x;
+  return node_and(a, x, y);
+}
+
+// Build the TLSF specification formula (arXiv semantics):
+//
+//   (INITIALLY ∧ G REQUIRE ∧ ASSUME)  →  (PRESET ∧ G ASSERT ∧ GUARANTEE)
+//
+// Each section is the conjunction of its formulas; empty sections drop out,
+// and a trivial antecedent collapses to just the consequent.  REQUIRE and
+// ASSERT (invariants) are wrapped in G.  The safety/liveness mode selects
+// which guarantees appear, and (for liveness) drops the safety-only system
+// sections PRESET and ASSERT.
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
                        const ClassifiedSpec *cs, PrintMode mode,
                        bool full_parens) {
-  (void)spec; // reserved for future use (e.g. signal list comments)
+  Arena *a = spec->arena;
+  bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
+  bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
 
-  bool print_safety_g = (mode == PRINT_ALL || mode == PRINT_SAFETY);
-  bool print_liveness_g = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
+  // Environment antecedent: INITIALLY ∧ G(REQUIRE) ∧ ASSUME.
+  Node *e_init = conj_of(a, cs->initially, cs->initially_count);
+  Node *e_req = conj_of(a, cs->require, cs->require_count);
+  if (e_req)
+    e_req = node_g(a, e_req);
+  Node *e_asu = conj_of(a, cs->assume, cs->assume_count);
+  Node *e = and_opt(a, and_opt(a, e_init, e_req), e_asu);
 
-  // --- Collect the selected guarantee formulas into a small array. ---
-  const Node **gbuf = nullptr;
-  uint32_t g_count = 0;
+  // System consequent: PRESET ∧ G(ASSERT) ∧ (selected) GUARANTEE.
+  Node *s_pre = want_safety ? conj_of(a, cs->preset, cs->preset_count) : nullptr;
+
+  Node *s_asr = nullptr;
+  if (want_safety && cs->assert_count > 0) {
+    Node **ab = ARENA_ALLOC_N(a, Node *, cs->assert_count);
+    for (uint32_t i = 0; i < cs->assert_count; i++)
+      ab[i] = cs->asserts[i].formula;
+    s_asr = node_g(a, conj_of(a, ab, cs->assert_count));
+  }
+
+  Node *s_gua = nullptr;
   if (cs->guarantee_count > 0) {
-    gbuf = ARENA_ALLOC_N(spec->arena, const Node *, cs->guarantee_count);
+    Node **gb = ARENA_ALLOC_N(a, Node *, cs->guarantee_count);
+    uint32_t gn = 0;
     for (uint32_t i = 0; i < cs->guarantee_count; i++) {
       FormulaClass cls = cs->guarantees[i].cls;
-      if ((cls == FCLASS_SAFETY && print_safety_g) ||
-          (cls == FCLASS_LIVENESS && print_liveness_g))
-        gbuf[g_count++] = cs->guarantees[i].formula;
+      if ((cls == FCLASS_SAFETY && want_safety) ||
+          (cls == FCLASS_LIVENESS && want_liveness))
+        gb[gn++] = cs->guarantees[i].formula;
     }
+    s_gua = conj_of(a, gb, gn);
   }
 
-  // --- Collect the assumption formulas (initially ∧ require ∧ assume). ---
-  uint32_t a_count = cs->initially_count + cs->require_count + cs->assume_count;
-  const Node **abuf = nullptr;
-  if (a_count > 0) {
-    abuf = ARENA_ALLOC_N(spec->arena, const Node *, a_count);
-    uint32_t k = 0;
-    for (uint32_t i = 0; i < cs->initially_count; i++)
-      abuf[k++] = cs->initially[i];
-    for (uint32_t i = 0; i < cs->require_count; i++)
-      abuf[k++] = cs->require[i];
-    for (uint32_t i = 0; i < cs->assume_count; i++)
-      abuf[k++] = cs->assume[i];
-  }
+  Node *s = and_opt(a, and_opt(a, s_pre, s_asr), s_gua);
 
-  bool need_impl = (a_count > 0) && (g_count > 0);
+  // Assemble:  no consequent → true;  no antecedent → S;  else E → S.
+  Node *root;
+  if (!s)
+    root = node_true(a);
+  else if (!e)
+    root = s;
+  else
+    root = node_impl(a, e, s);
 
-  if (need_impl) {
-    // (assumptions) -> (guarantees).  '->' is right-associative at prec 1:
-    // the left side sits at prec 2, the right side at prec 1.
-    if (full_parens)
-      fputc('(', out);
-    emit_conjunction(out, abuf, a_count, 2, full_parens);
-    fprintf(out, " -> ");
-    emit_conjunction(out, gbuf, g_count, 1, full_parens);
-    if (full_parens)
-      fputc(')', out);
-  } else if (a_count > 0) {
-    // Assumptions only.
-    emit_conjunction(out, abuf, a_count, 1, full_parens);
-  } else {
-    // Guarantees only (or empty → "true").
-    emit_conjunction(out, gbuf, g_count, 1, full_parens);
-  }
-
+  emit(out, root, 1, full_parens);
   fprintf(out, "\n");
 }
