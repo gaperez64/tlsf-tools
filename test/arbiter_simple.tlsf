@@ -1,0 +1,30 @@
+INFO {
+  TITLE:       "Simple counter arbiter";
+  DESCRIPTION: "A minimal TLSF example for parser smoke-testing.";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+MAIN {
+
+  INPUTS {
+    r;         /* request */
+  }
+
+  OUTPUTS {
+    g;         /* grant */
+  }
+
+  ASSUME {
+    /* No consecutive requests without an intervening idle cycle. */
+    G (r -> X (!r));
+  }
+
+  GUARANTEE {
+    /* Every request is eventually granted (liveness). */
+    G (r -> F g);
+    /* Grant only when requested (safety). */
+    G (!r -> !g);
+  }
+
+}

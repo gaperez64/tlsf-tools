@@ -1,0 +1,9 @@
+# tlsf-tools meson options
+
+option(
+  'sanitize',
+  type: 'combo',
+  choices: ['none', 'address', 'undefined', 'address,undefined'],
+  value: 'none',
+  description: 'Enable sanitizers (for development builds)',
+)

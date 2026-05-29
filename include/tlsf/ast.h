@@ -1,0 +1,171 @@
+#ifndef TLSF_AST_H
+#define TLSF_AST_H
+
+/// ast.h — LTL formula AST.
+///
+/// All nodes are arena-allocated.  The tagged union uses a flat layout:
+/// unary nodes use `.arg`, binary nodes use `.lhs`/`.rhs`.
+///
+/// Operator taxonomy (after NNF):
+///   Safety-compatible :  X, G, R (release), W (weak until)
+///   Liveness          :  F, U (until), M (strong release / dual of W)
+///
+/// Pre-expansion nodes (not present after expand()):
+///   NODE_DEF_CALL, NODE_BUS_INDEX, NODE_PATTERN
+
+#include "tlsf/arena.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+// ---------------------------------------------------------------------------
+// Node kind enumeration
+// ---------------------------------------------------------------------------
+
+typedef enum NodeKind {
+  // -- Atoms --
+  NODE_TRUE,  ///< boolean true
+  NODE_FALSE, ///< boolean false
+  NODE_AP,    ///< atomic proposition (interned identifier string)
+
+  // -- Integer atoms (appear in parameter expressions before expansion) --
+  NODE_INT, ///< integer literal
+
+  // -- Boolean connectives --
+  NODE_NOT,   ///< ¬φ
+  NODE_AND,   ///< φ ∧ ψ
+  NODE_OR,    ///< φ ∨ ψ
+  NODE_IMPL,  ///< φ → ψ
+  NODE_EQUIV, ///< φ ↔ ψ
+
+  // -- LTL: safety-compatible (NNF duals of liveness operators) --
+  NODE_X, ///< Xφ  (next)
+  NODE_G, ///< Gφ  (globally)
+  NODE_R, ///< φ R ψ  (release — dual of U)
+  NODE_W, ///< φ W ψ  (weak until — dual of M)
+
+  // -- LTL: liveness --
+  NODE_F, ///< Fφ  (finally / eventually)
+  NODE_U, ///< φ U ψ  (until)
+  NODE_M, ///< φ M ψ  (strong release — dual of W)
+
+  // -- LTLf only (TLSF v1.2) --
+  NODE_X_STRONG, ///< X[!]φ  (strong next — defined only for finite semantics)
+
+  // -- Pre-expansion only: not present after expand() --
+  NODE_DEF_CALL,  ///< identifier([args])  — definition/function call
+  NODE_BUS_INDEX, ///< name[expr]          — bus signal indexing
+  NODE_PATTERN,   ///< pattern(name, args) — high-level pattern instantiation
+
+  // -- Integer expressions (pre-expansion) --
+  NODE_INT_ADD, ///< e + e
+  NODE_INT_SUB, ///< e - e
+  NODE_INT_MUL, ///< e * e
+  NODE_INT_DIV, ///< e / e
+  NODE_INT_MOD, ///< e % e
+  NODE_INT_NEG, ///< -e
+  NODE_INT_VAR, ///< integer variable reference (interned name)
+
+  // -- Set expressions (pre-expansion) --
+  NODE_SET,          ///< { e, e, ... }  — set literal (children = elements)
+  NODE_SET_ENUM,     ///< set comprehension: { x : range }
+  NODE_FORALL,       ///< ∀ quantification over a set
+  NODE_EXISTS,       ///< ∃ quantification over a set
+
+  NODE_KIND_COUNT, ///< sentinel — keep last
+} NodeKind;
+
+// ---------------------------------------------------------------------------
+// Node structure
+// ---------------------------------------------------------------------------
+
+typedef struct Node Node;
+
+struct Node {
+  NodeKind kind;
+
+  union {
+    // NODE_AP, NODE_INT_VAR, NODE_DEF_CALL (callee name before arg list)
+    const char *name; ///< interned string pointer
+
+    // NODE_INT
+    int64_t ival;
+
+    // Unary: NODE_NOT, NODE_X, NODE_X_STRONG, NODE_F, NODE_G, NODE_INT_NEG
+    struct {
+      Node *arg;
+    };
+
+    // Binary LTL / boolean / integer arithmetic
+    struct {
+      Node *lhs;
+      Node *rhs;
+    };
+
+    // NODE_DEF_CALL / NODE_PATTERN: callee + argument list
+    struct {
+      const char *callee; ///< interned function/pattern name
+      Node **call_args;   ///< arena-allocated array of argument nodes
+      uint16_t call_argc; ///< argument count
+    };
+
+    // NODE_BUS_INDEX: signal name + index expression
+    struct {
+      const char *bus_name; ///< interned signal name
+      Node *bus_index;      ///< index expression (integer)
+    };
+
+    // NODE_SET / NODE_SET_ENUM / NODE_FORALL / NODE_EXISTS
+    struct {
+      Node **set_elems;  ///< arena-allocated array of child nodes
+      uint16_t set_size; ///< element / child count
+    };
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Node constructors (all allocate from arena, return nullptr on OOM)
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] Node *node_true(Arena *a);
+[[nodiscard]] Node *node_false(Arena *a);
+[[nodiscard]] Node *node_ap(Arena *a, const char *interned_name);
+[[nodiscard]] Node *node_int(Arena *a, int64_t val);
+
+[[nodiscard]] Node *node_not(Arena *a, Node *arg);
+[[nodiscard]] Node *node_and(Arena *a, Node *lhs, Node *rhs);
+[[nodiscard]] Node *node_or(Arena *a, Node *lhs, Node *rhs);
+[[nodiscard]] Node *node_impl(Arena *a, Node *lhs, Node *rhs);
+[[nodiscard]] Node *node_equiv(Arena *a, Node *lhs, Node *rhs);
+
+[[nodiscard]] Node *node_x(Arena *a, Node *arg);
+[[nodiscard]] Node *node_x_strong(Arena *a, Node *arg);
+[[nodiscard]] Node *node_f(Arena *a, Node *arg);
+[[nodiscard]] Node *node_g(Arena *a, Node *arg);
+[[nodiscard]] Node *node_u(Arena *a, Node *lhs, Node *rhs);
+[[nodiscard]] Node *node_r(Arena *a, Node *lhs, Node *rhs);
+[[nodiscard]] Node *node_w(Arena *a, Node *lhs, Node *rhs);
+[[nodiscard]] Node *node_m(Arena *a, Node *lhs, Node *rhs);
+
+// ---------------------------------------------------------------------------
+// Node predicates
+// ---------------------------------------------------------------------------
+
+/// True for operators that are safety-compatible (no liveness modality).
+static inline bool node_kind_is_safety(NodeKind k) {
+  return k != NODE_F && k != NODE_U && k != NODE_M;
+}
+
+/// True for temporal operators (any LTL modality).
+static inline bool node_kind_is_temporal(NodeKind k) {
+  return k == NODE_X || k == NODE_X_STRONG || k == NODE_F || k == NODE_G ||
+         k == NODE_U || k == NODE_R || k == NODE_W || k == NODE_M;
+}
+
+/// True for pre-expansion nodes that must not appear after expand().
+static inline bool node_kind_is_high_level(NodeKind k) {
+  return k == NODE_DEF_CALL || k == NODE_BUS_INDEX || k == NODE_PATTERN ||
+         k == NODE_INT_VAR || k == NODE_SET || k == NODE_SET_ENUM ||
+         k == NODE_FORALL || k == NODE_EXISTS;
+}
+
+#endif // TLSF_AST_H
