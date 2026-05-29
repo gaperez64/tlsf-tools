@@ -83,6 +83,10 @@ Strict[ \t]*,[ \t]*Mealy   { return TOK_STRICT_MEALY; }
 Strict[ \t]*,[ \t]*Moore   { return TOK_STRICT_MOORE; }
 Finite[ \t]*,[ \t]*Mealy   { return TOK_FINITE_MEALY; }
 Finite[ \t]*,[ \t]*Moore   { return TOK_FINITE_MOORE; }
+Mealy[ \t]*,[ \t]*Strict   { return TOK_STRICT_MEALY; }
+Moore[ \t]*,[ \t]*Strict   { return TOK_STRICT_MOORE; }
+Mealy[ \t]*,[ \t]*Finite   { return TOK_FINITE_MEALY; }
+Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 "Mealy"             { return TOK_MEALY; }
 "Moore"             { return TOK_MOORE; }
 

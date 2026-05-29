@@ -168,6 +168,24 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     return nullptr;
   Arena *a = spec->arena;
 
+// Expand a single child, then bail (returning nullptr) if expansion failed,
+// so node constructors are never called with a null operand.
+#define XUNARY(ctor)                                                           \
+  do {                                                                         \
+    Node *x = expand_node(spec, n->arg, env, ok);                              \
+    if (!*ok)                                                                  \
+      return nullptr;                                                          \
+    return ctor(a, x);                                                         \
+  } while (0)
+#define XBINARY(ctor)                                                          \
+  do {                                                                         \
+    Node *l = expand_node(spec, n->lhs, env, ok);                              \
+    Node *r = expand_node(spec, n->rhs, env, ok);                              \
+    if (!*ok)                                                                  \
+      return nullptr;                                                          \
+    return ctor(a, l, r);                                                      \
+  } while (0)
+
   switch (n->kind) {
   // Atoms: immutable, safe to share.
   case NODE_TRUE:
@@ -176,42 +194,21 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     return (Node *)n;
 
   // Boolean connectives.
-  case NODE_NOT:
-    return node_not(a, expand_node(spec, n->arg, env, ok));
-  case NODE_AND:
-    return node_and(a, expand_node(spec, n->lhs, env, ok),
-                    expand_node(spec, n->rhs, env, ok));
-  case NODE_OR:
-    return node_or(a, expand_node(spec, n->lhs, env, ok),
-                   expand_node(spec, n->rhs, env, ok));
-  case NODE_IMPL:
-    return node_impl(a, expand_node(spec, n->lhs, env, ok),
-                     expand_node(spec, n->rhs, env, ok));
-  case NODE_EQUIV:
-    return node_equiv(a, expand_node(spec, n->lhs, env, ok),
-                      expand_node(spec, n->rhs, env, ok));
+  case NODE_NOT:   XUNARY(node_not);
+  case NODE_AND:   XBINARY(node_and);
+  case NODE_OR:    XBINARY(node_or);
+  case NODE_IMPL:  XBINARY(node_impl);
+  case NODE_EQUIV: XBINARY(node_equiv);
 
   // Temporal operators.
-  case NODE_X:
-    return node_x(a, expand_node(spec, n->arg, env, ok));
-  case NODE_X_STRONG:
-    return node_x_strong(a, expand_node(spec, n->arg, env, ok));
-  case NODE_F:
-    return node_f(a, expand_node(spec, n->arg, env, ok));
-  case NODE_G:
-    return node_g(a, expand_node(spec, n->arg, env, ok));
-  case NODE_U:
-    return node_u(a, expand_node(spec, n->lhs, env, ok),
-                  expand_node(spec, n->rhs, env, ok));
-  case NODE_R:
-    return node_r(a, expand_node(spec, n->lhs, env, ok),
-                  expand_node(spec, n->rhs, env, ok));
-  case NODE_W:
-    return node_w(a, expand_node(spec, n->lhs, env, ok),
-                  expand_node(spec, n->rhs, env, ok));
-  case NODE_M:
-    return node_m(a, expand_node(spec, n->lhs, env, ok),
-                  expand_node(spec, n->rhs, env, ok));
+  case NODE_X:        XUNARY(node_x);
+  case NODE_X_STRONG: XUNARY(node_x_strong);
+  case NODE_F:        XUNARY(node_f);
+  case NODE_G:        XUNARY(node_g);
+  case NODE_U: XBINARY(node_u);
+  case NODE_R: XBINARY(node_r);
+  case NODE_W: XBINARY(node_w);
+  case NODE_M: XBINARY(node_m);
 
   // Bus index: evaluate the index, produce the scalar AP.
   case NODE_BUS_INDEX: {
@@ -243,6 +240,8 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     *ok = false;
     return nullptr;
   }
+#undef XUNARY
+#undef XBINARY
 }
 
 // ===========================================================================

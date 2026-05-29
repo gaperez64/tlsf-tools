@@ -327,6 +327,13 @@ signal_decl
   | signal_name TOK_LBRACKET int_expr TOK_DOTDOT int_expr TOK_RBRACKET
     { if (!spec_add_signal(spec, spec->cur_is_output, $1, true, $3, $5))
         YYNOMEM; }
+  | signal_name TOK_LBRACKET int_expr TOK_RBRACKET
+    { /* width form: name[N] declares indices 0..N-1 */
+      Node *lo = node_int(spec->arena, 0);
+      Node *hi = ARENA_ALLOC(spec->arena, Node);
+      hi->kind = NODE_INT_SUB; hi->lhs = $3; hi->rhs = node_int(spec->arena, 1);
+      if (!spec_add_signal(spec, spec->cur_is_output, $1, true, lo, hi))
+        YYNOMEM; }
   ;
 
 signal_name
