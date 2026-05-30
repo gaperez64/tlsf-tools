@@ -129,11 +129,20 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build
+meson test -C build        # ~0.2s, ~50 cases
+```
+
+Coverage (needs `gcovr`):
+
+```sh
+meson setup build-cov -Db_coverage=true
+meson test -C build-cov
+gcovr --root . --filter 'src/' --print-summary
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) builds with both gcc and clang,
-runs the suite, and runs a valgrind no-leak check on each binary.
+runs the full suite (it is fast), runs a valgrind no-leak check on each
+binary, and reports line coverage.
 
 ## License
 

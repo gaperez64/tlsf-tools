@@ -34,8 +34,11 @@ jobs:
           for args in \
             "tlsf2ltl test/cases/Patterns_Uright_uright06.tlsf" \
             "tlsf2ltl --parenthesize test/cases/Random_Lydia_case_03_50_05.tlsf" \
+            "tlsf2ltl test/cases/operators.tlsf" \
             "tlsf2tlsf --basic test/cases/Patterns_GFand_gfand05.tlsf" \
             "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf" \
+            "tlsf2tlsf test/cases/defs.tlsf" \
+            "tlsfinfo -gr test/cases/gr4_spec.tlsf" \
             "tlsfinfo test/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.tlsf"; do
             echo "valgrind: build/$args"
             valgrind --error-exitcode=1 --leak-check=full \
@@ -59,3 +62,21 @@ jobs:
           meson setup build-clang
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14 gcovr
+      - name: Build with coverage and report
+        env:
+          CC: gcc-14
+        run: |
+          meson setup build-cov -Db_coverage=true
+          meson test -C build-cov --print-errorlogs
+          gcovr --root . --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
+                --print-summary --txt
