@@ -347,6 +347,48 @@ static int classify_invariant(TlsfSpec *sp, const Node *f, const Node **live) {
   return -1;
 }
 
+// Push G through conjunction (G(x ∧ y) = G x ∧ G y) and collapse G(G x)=G x,
+// so compact generalized-Büchi like G(F a ∧ F b) becomes G F a ∧ G F b.
+static Node *gnorm(Arena *a, const Node *n) {
+  switch (n->kind) {
+  case NODE_G: {
+    Node *m = gnorm(a, n->arg);
+    if (m->kind == NODE_AND)
+      return node_and(a, gnorm(a, node_g(a, m->lhs)),
+                      gnorm(a, node_g(a, m->rhs)));
+    if (m->kind == NODE_G)
+      return m;
+    return node_g(a, m);
+  }
+  case NODE_NOT:
+    return node_not(a, gnorm(a, n->arg));
+  case NODE_X:
+    return node_x(a, gnorm(a, n->arg));
+  case NODE_X_STRONG:
+    return node_x_strong(a, gnorm(a, n->arg));
+  case NODE_F:
+    return node_f(a, gnorm(a, n->arg));
+  case NODE_AND:
+    return node_and(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_OR:
+    return node_or(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_IMPL:
+    return node_impl(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_EQUIV:
+    return node_equiv(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_U:
+    return node_u(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_R:
+    return node_r(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_W:
+    return node_w(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_M:
+    return node_m(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  default:
+    return (Node *)n;
+  }
+}
+
 // ===========================================================================
 
 int gr_level(TlsfSpec *spec) {
@@ -375,7 +417,7 @@ int gr_level(TlsfSpec *spec) {
   for (uint32_t _i = 0; _i < (list).count; _i++) {                             \
     const Node *_stack[64];                                                    \
     int _sp = 0;                                                               \
-    _stack[_sp++] = (list).formulas[_i];                                       \
+    _stack[_sp++] = gnorm(spec->arena, (list).formulas[_i]);                   \
     while (_sp > 0) {                                                          \
       const Node *_n = _stack[--_sp];                                          \
       if (_n->kind == NODE_AND) {                                              \
