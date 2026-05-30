@@ -213,13 +213,17 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
 // trivial implications collapse.  The safety/liveness mode selects which
 // guarantees appear (and, for liveness, drops the safety-only sections).
 //
-// Strict vs. non-strict and finite-word rendering are taken from the spec's
-// SEMANTICS field.
+// Finite-word rendering is taken from SEMANTICS.  By default the plain
+// E -> S formula is emitted (strictness is left to the backend, as syfco
+// does).  When `relax` is set, a strict spec is rewritten into the
+// equivalent non-strict standard-LTL formula (the arXiv strict->non-strict
+// translation: the safety weak-until form); on a non-strict spec `relax` is a
+// no-op.
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode,
+                       const ClassifiedSpec *cs, PrintMode mode, bool relax,
                        bool full_parens) {
   Arena *a = spec->arena;
-  bool strict = semantics_is_strict(spec->info.semantics);
+  bool strict = relax && semantics_is_strict(spec->info.semantics);
   bool finite = semantics_is_finite(spec->info.semantics);
   bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
