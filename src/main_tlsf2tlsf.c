@@ -26,6 +26,8 @@ static void usage(const char *prog) {
           "                 GLOBAL section). Default: substitute parameter\n"
           "                 values and re-emit the spec unchanged otherwise.\n"
           "  --param N=V    override parameter N with value V (repeatable)\n"
+          "  -os, --overwrite-semantics V  replace the spec's SEMANTICS\n"
+          "  -ot, --overwrite-target V     replace the spec's TARGET\n"
           "  --output FILE  write to FILE instead of stdout\n",
           prog);
 }
@@ -58,12 +60,28 @@ int main(int argc, char *argv[]) {
   const char *input_file = nullptr;
   const char *output_file = nullptr;
   bool to_basic = false;
+  const char *os_arg = nullptr;
+  const char *ot_arg = nullptr;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--basic") == 0) {
       to_basic = true;
+    } else if (strcmp(argv[i], "--overwrite-semantics") == 0 ||
+               strcmp(argv[i], "-os") == 0) {
+      if (++i >= argc) {
+        fprintf(stderr, "tlsf2tlsf: %s requires an argument\n", argv[i - 1]);
+        return 1;
+      }
+      os_arg = argv[i];
+    } else if (strcmp(argv[i], "--overwrite-target") == 0 ||
+               strcmp(argv[i], "-ot") == 0) {
+      if (++i >= argc) {
+        fprintf(stderr, "tlsf2tlsf: %s requires an argument\n", argv[i - 1]);
+        return 1;
+      }
+      ot_arg = argv[i];
     } else if (strcmp(argv[i], "--param") == 0) {
       if (++i >= argc) {
         fprintf(stderr, "tlsf2tlsf: --param requires an argument\n");
@@ -126,6 +144,19 @@ int main(int argc, char *argv[]) {
   fclose(fp);
 
   if (parse_result != 0) {
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- Apply semantics/target overrides ---
+  if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
+    fprintf(stderr, "tlsf2tlsf: invalid semantics '%s'\n", os_arg);
+    spec_free(spec);
+    return 1;
+  }
+  if (ot_arg && !parse_target(ot_arg, &spec->info.target)) {
+    fprintf(stderr, "tlsf2tlsf: invalid target '%s' (expect Mealy or Moore)\n",
+            ot_arg);
     spec_free(spec);
     return 1;
   }

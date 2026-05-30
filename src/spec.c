@@ -122,6 +122,53 @@ bool spec_add_def(TlsfSpec *s, const char *name, const char **params,
   return true;
 }
 
+bool parse_semantics(const char *s, Semantics *out) {
+  bool mealy = false, moore = false, strict = false, finite = false;
+  char buf[64];
+  size_t n = strlen(s);
+  if (n >= sizeof buf)
+    return false;
+  memcpy(buf, s, n + 1);
+
+  for (char *tok = strtok(buf, ","); tok; tok = strtok(nullptr, ",")) {
+    while (*tok == ' ' || *tok == '\t')
+      tok++;
+    size_t len = strlen(tok);
+    while (len > 0 && (tok[len - 1] == ' ' || tok[len - 1] == '\t'))
+      tok[--len] = '\0';
+    if (strcmp(tok, "Mealy") == 0)
+      mealy = true;
+    else if (strcmp(tok, "Moore") == 0)
+      moore = true;
+    else if (strcmp(tok, "Strict") == 0)
+      strict = true;
+    else if (strcmp(tok, "Finite") == 0)
+      finite = true;
+    else
+      return false;
+  }
+  if (mealy == moore || (strict && finite))
+    return false; // need exactly one base, at most one qualifier
+
+  if (mealy)
+    *out = strict ? SEM_MEALY_STRICT : finite ? SEM_MEALY_FINITE : SEM_MEALY;
+  else
+    *out = strict ? SEM_MOORE_STRICT : finite ? SEM_MOORE_FINITE : SEM_MOORE;
+  return true;
+}
+
+bool parse_target(const char *s, Target *out) {
+  if (strcmp(s, "Mealy") == 0) {
+    *out = TARGET_MEALY;
+    return true;
+  }
+  if (strcmp(s, "Moore") == 0) {
+    *out = TARGET_MOORE;
+    return true;
+  }
+  return false;
+}
+
 bool spec_add_tag(TlsfSpec *s, const char *tag) {
   if (s->info.tag_count == s->tag_cap) {
     uint16_t new_cap =

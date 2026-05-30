@@ -201,4 +201,15 @@ void spec_free(TlsfSpec *s);
 /// Append an INFO tag string.  Returns false on OOM.
 [[nodiscard]] bool spec_add_tag(TlsfSpec *s, const char *tag);
 
+// ---------------------------------------------------------------------------
+// Semantics / target string parsing (for CLI overrides)
+// ---------------------------------------------------------------------------
+
+/// Parse a SEMANTICS value (e.g. "Mealy", "Strict,Moore", "Moore,Finite";
+/// qualifiers may appear in either order).  Returns false if unrecognised.
+[[nodiscard]] bool parse_semantics(const char *s, Semantics *out);
+
+/// Parse a TARGET value ("Mealy" or "Moore").  Returns false if unrecognised.
+[[nodiscard]] bool parse_target(const char *s, Target *out);
+
 #endif // TLSF_SPEC_H

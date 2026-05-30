@@ -40,6 +40,8 @@ static void usage(const char *prog) {
           "  --parenthesize       fully parenthesise the output (default:\n"
           "                       minimal parentheses by operator precedence)\n"
           "  --param N=V          override a TLSF parameter (repeatable)\n"
+          "  -os, --overwrite-semantics V  replace the spec's SEMANTICS\n"
+          "  -ot, --overwrite-target V     replace the spec's TARGET\n"
           "\n"
           "Mealy/Moore and finite/infinite are taken from SEMANTICS; when\n"
           "SEMANTICS and TARGET disagree on Mealy vs Moore the formula is\n"
@@ -179,6 +181,8 @@ int main(int argc, char *argv[]) {
   PrintMode mode = PRINT_ALL;
   bool full_parens = false;
   bool relax = false;
+  const char *os_arg = nullptr;
+  const char *ot_arg = nullptr;
   const char *input_file = nullptr;
 
   // Temporary override storage (max 64 overrides).
@@ -190,6 +194,20 @@ int main(int argc, char *argv[]) {
       mode = PRINT_SAFETY;
     } else if (strcmp(argv[i], "--liveness") == 0) {
       mode = PRINT_LIVENESS;
+    } else if (strcmp(argv[i], "--overwrite-semantics") == 0 ||
+               strcmp(argv[i], "-os") == 0) {
+      if (++i >= argc) {
+        fprintf(stderr, "tlsf2ltl: %s requires an argument\n", argv[i - 1]);
+        return 1;
+      }
+      os_arg = argv[i];
+    } else if (strcmp(argv[i], "--overwrite-target") == 0 ||
+               strcmp(argv[i], "-ot") == 0) {
+      if (++i >= argc) {
+        fprintf(stderr, "tlsf2ltl: %s requires an argument\n", argv[i - 1]);
+        return 1;
+      }
+      ot_arg = argv[i];
     } else if (strcmp(argv[i], "--relax-semantics") == 0 ||
                strcmp(argv[i], "--relax") == 0) {
       relax = true;
@@ -253,6 +271,19 @@ int main(int argc, char *argv[]) {
   fclose(fp);
 
   if (parse_result != 0) {
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- Apply semantics/target overrides ---
+  if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
+    fprintf(stderr, "tlsf2ltl: invalid semantics '%s'\n", os_arg);
+    spec_free(spec);
+    return 1;
+  }
+  if (ot_arg && !parse_target(ot_arg, &spec->info.target)) {
+    fprintf(stderr, "tlsf2ltl: invalid target '%s' (expect Mealy or Moore)\n",
+            ot_arg);
     spec_free(spec);
     return 1;
   }
