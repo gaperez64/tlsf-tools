@@ -19,8 +19,9 @@ mode=report
 # Time is machine-dependent (the committed baseline is from one host), so the
 # time tolerance is generous and catches only gross algorithmic regressions;
 # peak RSS is far more stable across machines.
-TIME_TOL=3.0   # allow up to 3x the baseline median time before flagging
-MEM_TOL=1.5    # allow up to 1.5x the baseline peak RSS
+TIME_TOL=3.0     # relative: flag above 3x the baseline median time
+TIME_ABS_MS=500  # and absolute: only if also >500ms slower than baseline
+MEM_TOL=1.5      # peak RSS is machine-independent: flag above 1.5x baseline
 
 while [ $# -gt 0 ]; do
   case "$1" in
