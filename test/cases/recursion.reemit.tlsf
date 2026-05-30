@@ -1,0 +1,34 @@
+INFO {
+  TITLE:       "rec";
+  DESCRIPTION: "recursive case-def with otherwise";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 3;
+  }
+
+  DEFINITIONS {
+    allhigh(i) = (i < 0) : true  true : (g[i] && allhigh((i - 1)))  false;
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    r;
+  }
+
+  OUTPUTS {
+    g[0..(n - 1)];
+  }
+
+    GUARANTEE {
+      allhigh((n - 1));
+    }
+
+}

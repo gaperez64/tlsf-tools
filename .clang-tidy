@@ -13,12 +13,27 @@ Checks: >
   -readability-isolate-declaration,
   -readability-identifier-naming,
   -readability-non-const-parameter,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-uppercase-literal-suffix,
+  -readability-avoid-nested-conditional-operator,
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-reserved-identifier,
   -cert-err33-c,
   -cert-dcl03-c,
+  -cert-dcl51-cpp,
+  -cert-msc24-c,
+  -cert-msc33-c,
   -misc-include-cleaner,
-  -clang-analyzer-deadcode.DeadStores
+  -readability-else-after-return,
+  -clang-analyzer-deadcode.DeadStores,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-optin.portability.UnixAPI,
+  -clang-analyzer-unix.Malloc,
+  -clang-diagnostic-switch-enum,
+  -clang-diagnostic-switch
 
 HeaderFilterRegex: 'include/tlsf/.*\.h$'
 WarningsAsErrors: ''

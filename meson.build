@@ -294,6 +294,13 @@ test('expand_mutual_exclusion', check,
 test('expand_recursion', check,
   args: [files('test/cases/recursion.ltl'), tlsf2ltl_exe,
          files('test/cases/recursion.tlsf')])
+# Default re-emission of a case-definition (exercises ITE/comparison printing).
+test('reemit_cases', check,
+  args: [files('test/cases/recursion.reemit.tlsf'), tlsf2tlsf_exe,
+         files('test/cases/recursion.tlsf')])
+# A call to an undefined definition must error.
+test('err_undef_def', xfail,
+  args: [tlsf2ltl_exe, files('test/cases/undef_def.tlsf')])
 
 # Exercises the assumptions -> guarantees implication path (the cases above
 # are guarantee-only).

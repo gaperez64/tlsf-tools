@@ -1,0 +1,2 @@
+INFO { TITLE: "u" DESCRIPTION: "calls an undefined definition" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; } GUARANTEE { nope(r); } }
