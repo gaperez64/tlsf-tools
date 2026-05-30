@@ -63,6 +63,22 @@ jobs:
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
 
+  perf-regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14 time
+      - name: Build
+        env:
+          CC: gcc-14
+        run: meson setup build && ninja -C build
+      - name: Time / memory regression check
+        run: bench/bench.sh --check
+
   coverage:
     runs-on: ubuntu-24.04
     steps:

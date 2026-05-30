@@ -144,6 +144,22 @@ GitHub Actions (`.github/workflows/ci.yml`) builds with both gcc and clang,
 runs the full suite (it is fast), runs a valgrind no-leak check on each
 binary, and reports line coverage.
 
+## Benchmarking
+
+`bench/bench.sh` measures wall-clock time (median of N runs) and peak resident
+memory over the specs in `bench/specs/`:
+
+```sh
+bench/bench.sh                 # comparison table: ours vs syfco
+bench/bench.sh --baseline      # record our numbers in bench/baseline.tsv
+bench/bench.sh --check         # fail on a regression vs the recorded baseline
+```
+
+`--check` runs only our tool (no syfco needed) and flags a regression when the
+median time exceeds the baseline by `TIME_TOL` or peak RSS by `MEM_TOL`; CI runs
+it as a guard. For reference, on a ~100 KB spec `tlsf2ltl` is around 20× faster
+and uses roughly 7× less memory than `syfco -f ltlxba`.
+
 ## License
 
 [MIT](LICENSE).
