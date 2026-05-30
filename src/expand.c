@@ -234,11 +234,21 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
       return false;
     }
     switch (n->kind) {
-    case NODE_INT_ADD: *out = a + b; break;
-    case NODE_INT_SUB: *out = a - b; break;
-    case NODE_INT_MUL: *out = a * b; break;
-    case NODE_INT_DIV: *out = a / b; break;
-    default:           *out = a % b; break;
+    case NODE_INT_ADD:
+      *out = a + b;
+      break;
+    case NODE_INT_SUB:
+      *out = a - b;
+      break;
+    case NODE_INT_MUL:
+      *out = a * b;
+      break;
+    case NODE_INT_DIV:
+      *out = a / b;
+      break;
+    default:
+      *out = a % b;
+      break;
     }
     return true;
   }
@@ -272,12 +282,24 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
         !eval_int(spec, n->rhs, env, &b, depth))
       return false;
     switch (n->kind) {
-    case NODE_CMP_EQ: *out = a == b; break;
-    case NODE_CMP_NE: *out = a != b; break;
-    case NODE_CMP_LT: *out = a < b; break;
-    case NODE_CMP_LE: *out = a <= b; break;
-    case NODE_CMP_GT: *out = a > b; break;
-    default:          *out = a >= b; break;
+    case NODE_CMP_EQ:
+      *out = a == b;
+      break;
+    case NODE_CMP_NE:
+      *out = a != b;
+      break;
+    case NODE_CMP_LT:
+      *out = a < b;
+      break;
+    case NODE_CMP_LE:
+      *out = a <= b;
+      break;
+    case NODE_CMP_GT:
+      *out = a > b;
+      break;
+    default:
+      *out = a >= b;
+      break;
     }
     return true;
   }
@@ -297,10 +319,18 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
         !eval_bool(spec, n->rhs, env, &b, depth))
       return false;
     switch (n->kind) {
-    case NODE_AND:  *out = a && b; break;
-    case NODE_OR:   *out = a || b; break;
-    case NODE_IMPL: *out = !a || b; break;
-    default:        *out = a == b; break;
+    case NODE_AND:
+      *out = a && b;
+      break;
+    case NODE_OR:
+      *out = a || b;
+      break;
+    case NODE_IMPL:
+      *out = !a || b;
+      break;
+    default:
+      *out = a == b;
+      break;
     }
     return true;
   }
@@ -408,20 +438,33 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     return (Node *)n;
   }
 
-  case NODE_NOT: XUNARY(node_not);
-  case NODE_AND: XBINARY(node_and);
-  case NODE_OR: XBINARY(node_or);
-  case NODE_IMPL: XBINARY(node_impl);
-  case NODE_EQUIV: XBINARY(node_equiv);
+  case NODE_NOT:
+    XUNARY(node_not);
+  case NODE_AND:
+    XBINARY(node_and);
+  case NODE_OR:
+    XBINARY(node_or);
+  case NODE_IMPL:
+    XBINARY(node_impl);
+  case NODE_EQUIV:
+    XBINARY(node_equiv);
 
-  case NODE_X: XUNARY(node_x);
-  case NODE_X_STRONG: XUNARY(node_x_strong);
-  case NODE_F: XUNARY(node_f);
-  case NODE_G: XUNARY(node_g);
-  case NODE_U: XBINARY(node_u);
-  case NODE_R: XBINARY(node_r);
-  case NODE_W: XBINARY(node_w);
-  case NODE_M: XBINARY(node_m);
+  case NODE_X:
+    XUNARY(node_x);
+  case NODE_X_STRONG:
+    XUNARY(node_x_strong);
+  case NODE_F:
+    XUNARY(node_f);
+  case NODE_G:
+    XUNARY(node_g);
+  case NODE_U:
+    XBINARY(node_u);
+  case NODE_R:
+    XBINARY(node_r);
+  case NODE_W:
+    XBINARY(node_w);
+  case NODE_M:
+    XBINARY(node_m);
 
   case NODE_BUS_INDEX: {
     int64_t idx;

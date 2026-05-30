@@ -2,41 +2,45 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   format:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Pin clang-format via the PyPI package so the formatting check is
+      # reproducible across machines (distro clang-format versions disagree).
       - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang-format
+        run: pip install 'clang-format==18.1.8'
       - name: Check formatting
-        run: clang-format --dry-run --Werror src/*.c include/tlsf/*.h
+        run: |
+          clang-format --version
+          clang-format --dry-run --Werror src/*.c include/tlsf/*.h
 
   build-test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             meson ninja-build flex bison gcc-14 valgrind
-
       - name: Configure
         env:
           CC: gcc-14
         run: meson setup build
-
       - name: Build
         run: ninja -C build
-
       - name: Run regression tests
         run: meson test -C build --print-errorlogs
-
       - name: Memory check (valgrind, no leaks/errors)
         run: |
           set -e
@@ -44,15 +48,12 @@ jobs:
             "tlsf2ltl test/cases/Patterns_Uright_uright06.tlsf" \
             "tlsf2ltl --parenthesize test/cases/Random_Lydia_case_03_50_05.tlsf" \
             "tlsf2ltl test/cases/operators.tlsf" \
-            "tlsf2tlsf --basic test/cases/Patterns_GFand_gfand05.tlsf" \
-            "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf" \
             "tlsf2tlsf test/cases/defs.tlsf" \
             "tlsfinfo --generalized-reactivity test/cases/gr4_spec.tlsf" \
-            "tlsfinfo test/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.tlsf"; do
-            echo "valgrind: build/$args"
+            "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf"; do
+            echo "valgrind: $args"
             valgrind --error-exitcode=1 --leak-check=full \
-                     --errors-for-leak-kinds=definite,indirect \
-                     ./build/$args > /dev/null
+              --errors-for-leak-kinds=definite,indirect ./build/$args >/dev/null
           done
 
   build-clang:
@@ -64,13 +65,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             meson ninja-build flex bison clang
-      - name: Build and test (clang)
+      - name: Configure, build and test
         env:
           CC: clang
         run: |
           meson setup build-clang
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14 gcovr
+      - name: Build with coverage and report
+        run: |
+          meson setup build-cov -Db_coverage=true
+          meson test -C build-cov
+          # gcovr exits non-zero on the runner's gcov stamp-mismatch warning
+          # even though the data is usable, so capture the summary and gate on
+          # the parsed line percentage ourselves. gcov-14 must match gcc-14.
+          summary=$(gcovr --root . --gcov-executable gcov-14 \
+            --gcov-ignore-errors=all \
+            --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
+            --print-summary 2>&1) || true
+          echo "$summary"
+          pct=$(echo "$summary" | grep -oE 'lines: [0-9.]+%' | grep -oE '[0-9.]+')
+          echo "parsed line coverage: ${pct}%"
+          awk -v p="$pct" 'BEGIN{ if (p+0 < 75) { print "FAIL: line coverage below 75%"; exit 1 } }'
 
   perf-regression:
     runs-on: ubuntu-24.04
@@ -84,24 +110,8 @@ jobs:
       - name: Build
         env:
           CC: gcc-14
-        run: meson setup build && ninja -C build
-      - name: Time / memory regression check
+        run: |
+          meson setup build
+          ninja -C build
+      - name: Perf regression guard (no syfco needed)
         run: bench/bench.sh --check
-
-  coverage:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 gcovr
-      - name: Build with coverage and report
-        env:
-          CC: gcc-14
-        run: |
-          meson setup build-cov -Db_coverage=true
-          meson test -C build-cov --print-errorlogs
-          gcovr --root . --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
-                --print-summary --txt

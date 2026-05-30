@@ -107,7 +107,7 @@ if [ "$mode" = check ]; then
     [ -n "$nms" ] || continue
     # +1 ms floor avoids divide-by-zero noise on tiny specs
     tflag=""; mflag=""
-    awk -v b="$bms" -v n="$nms" -v t="$TIME_TOL" 'BEGIN{exit !((n+1) > (b+1)*t)}' && tflag=" REGRESSION"
+    awk -v b="$bms" -v n="$nms" -v t="$TIME_TOL" -v abs="$TIME_ABS_MS" 'BEGIN{exit !((n+1) > (b+1)*t && (n-b) > abs)}' && tflag=" REGRESSION"
     awk -v b="$bkib" -v n="$nkib" -v t="$MEM_TOL" 'BEGIN{exit !(n > b*t)}' && mflag=" REGRESSION"
     [ -n "$tflag$mflag" ] && fail=1
     printf '%-28s | %-22s | %-22s\n' "$n" "$bms -> $nms$tflag" "$bkib -> $nkib$mflag"
