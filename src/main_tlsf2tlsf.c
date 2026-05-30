@@ -8,27 +8,30 @@
 ///   --output FILE       Write output to FILE (default: stdout).
 ///   --help
 
+#include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/print_tlsf.h"
 #include "tlsf/spec.h"
-
-#include "tlsf_parse.h"
-#include "tlsf_lex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define TLSF_VERSION "0.1.0"
+
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [--basic] [--param N=V]... [--output FILE] FILE\n"
-          "  --basic        fully expand to the basic TLSF fragment (no\n"
-          "                 GLOBAL section). Default: substitute parameter\n"
-          "                 values and re-emit the spec unchanged otherwise.\n"
-          "  --param N=V    override parameter N with value V (repeatable)\n"
-          "  -os, --overwrite-semantics V  replace the spec's SEMANTICS\n"
-          "  -ot, --overwrite-target V     replace the spec's TARGET\n"
-          "  --output FILE  write to FILE instead of stdout\n",
+          "Usage: %s [OPTIONS] [FILE]\n"
+          "Reads FILE (or stdin) and writes expanded TLSF.\n"
+          "  --basic                      fully expand to the basic fragment\n"
+          "                               (no GLOBAL section). Default:\n"
+          "                               substitute --param values and "
+          "re-emit.\n"
+          "  --param NAME=VALUE           override a parameter (repeatable)\n"
+          "  --overwrite-semantics VALUE  replace the spec's SEMANTICS\n"
+          "  --overwrite-target VALUE     replace the spec's TARGET\n"
+          "  --output FILE                write to FILE (default: stdout)\n"
+          "  --version, --help\n",
           prog);
 }
 
@@ -65,40 +68,32 @@ int main(int argc, char *argv[]) {
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
+#define NEED_ARG()                                                             \
+  (++i >= argc ? (fprintf(stderr, "tlsf2tlsf: %s requires an argument\n",      \
+                          argv[i - 1]),                                        \
+                  exit(1), nullptr)                                            \
+               : argv[i])
+
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--basic") == 0) {
       to_basic = true;
-    } else if (strcmp(argv[i], "--overwrite-semantics") == 0 ||
-               strcmp(argv[i], "-os") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2tlsf: %s requires an argument\n", argv[i - 1]);
-        return 1;
-      }
-      os_arg = argv[i];
-    } else if (strcmp(argv[i], "--overwrite-target") == 0 ||
-               strcmp(argv[i], "-ot") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2tlsf: %s requires an argument\n", argv[i - 1]);
-        return 1;
-      }
-      ot_arg = argv[i];
+    } else if (strcmp(argv[i], "--overwrite-semantics") == 0) {
+      os_arg = NEED_ARG();
+    } else if (strcmp(argv[i], "--overwrite-target") == 0) {
+      ot_arg = NEED_ARG();
     } else if (strcmp(argv[i], "--param") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2tlsf: --param requires an argument\n");
-        return 1;
-      }
+      const char *a = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsf2tlsf: too many --param overrides\n");
         return 1;
       }
-      if (!parse_override(argv[i], &overrides[n_overrides++]))
+      if (!parse_override(a, &overrides[n_overrides++]))
         return 1;
     } else if (strcmp(argv[i], "--output") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2tlsf: --output requires an argument\n");
-        return 1;
-      }
-      output_file = argv[i];
+      output_file = NEED_ARG();
+    } else if (strcmp(argv[i], "--version") == 0) {
+      printf("tlsf2tlsf %s\n", TLSF_VERSION);
+      return 0;
     } else if (strcmp(argv[i], "--help") == 0) {
       usage(argv[0]);
       return 0;
@@ -114,39 +109,16 @@ int main(int argc, char *argv[]) {
       return 1;
     }
   }
+#undef NEED_ARG
 
-  if (!input_file) {
-    fprintf(stderr, "tlsf2tlsf: no input file\n");
-    usage(argv[0]);
+  FILE *fp = cli_open_input(input_file, "tlsf2tlsf");
+  if (!fp)
     return 1;
-  }
-
-  FILE *fp = fopen(input_file, "r");
-  if (!fp) {
-    perror(input_file);
-    return 1;
-  }
-
-  TlsfSpec *spec = spec_new();
-  if (!spec) {
-    fprintf(stderr, "tlsf2tlsf: out of memory\n");
+  TlsfSpec *spec = cli_parse(fp, "tlsf2tlsf");
+  if (input_file)
     fclose(fp);
+  if (!spec)
     return 1;
-  }
-
-  yyscan_t scanner;
-  yylex_init(&scanner);
-  yyset_extra(spec, scanner);
-  yyset_in(fp, scanner);
-
-  int parse_result = yyparse(scanner, spec);
-  yylex_destroy(scanner);
-  fclose(fp);
-
-  if (parse_result != 0) {
-    spec_free(spec);
-    return 1;
-  }
 
   // --- Apply semantics/target overrides ---
   if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
@@ -193,18 +165,12 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
 
-  FILE *out = stdout;
-  if (output_file) {
-    out = fopen(output_file, "w");
-    if (!out) {
-      perror(output_file);
-      spec_free(spec);
-      return 1;
-    }
+  FILE *out = cli_open_output(output_file, "tlsf2tlsf");
+  if (!out) {
+    spec_free(spec);
+    return 1;
   }
-
   print_tlsf(out, spec, /*include_global=*/!to_basic);
-
   if (output_file)
     fclose(out);
 

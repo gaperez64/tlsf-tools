@@ -38,7 +38,7 @@ jobs:
             "tlsf2tlsf --basic test/cases/Patterns_GFand_gfand05.tlsf" \
             "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf" \
             "tlsf2tlsf test/cases/defs.tlsf" \
-            "tlsfinfo -gr test/cases/gr4_spec.tlsf" \
+            "tlsfinfo --generalized-reactivity test/cases/gr4_spec.tlsf" \
             "tlsfinfo test/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.tlsf"; do
             echo "valgrind: build/$args"
             valgrind --error-exitcode=1 --leak-check=full \

@@ -1,48 +1,42 @@
-/// tlsf2ltl — parse a TLSF spec and emit LTL in ltlxba format.
-///
-/// Usage:
-///   tlsf2ltl [options] FILE
-///
-/// Options:
-///   --safety    Emit only the safety part of the guarantee formulas.
-///   --liveness  Emit only the liveness part of the guarantee formulas.
-///   --param NAME=VALUE  Override a TLSF parameter (may be repeated).
-///   --help
+/// tlsf2ltl — parse a TLSF spec (file or stdin) and emit LTL in ltlxba format.
+/// See --help for the options.
 
 #include "tlsf/classify.h"
+#include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/nnf.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/spec.h"
 
-// Flex/bison interface (parser header first: it defines YYSTYPE/YYLTYPE and
-// yyscan_t, which the lexer header references).
-#include "tlsf_parse.h" /* yyparse, YYSTYPE, YYLTYPE, yyscan_t */
-#include "tlsf_lex.h"   /* yylex_init, yyset_extra, yylex_destroy */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define TLSF_VERSION "0.1.0"
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [--safety|--liveness] [--parenthesize] [--param N=V]... "
-          "FILE\n"
-          "  --safety|--liveness  emit only safety / liveness guarantees\n"
-          "  --parenthesize       fully parenthesise the output (default:\n"
-          "                       minimal parentheses by operator precedence)\n"
-          "  --param N=V          override a TLSF parameter (repeatable)\n"
-          "  -os, --overwrite-semantics V  replace the spec's SEMANTICS\n"
-          "  -ot, --overwrite-target V     replace the spec's TARGET\n"
-          "\n"
-          "Mealy/Moore and finite/infinite are taken from SEMANTICS; when\n"
-          "SEMANTICS and TARGET disagree on Mealy vs Moore the formula is\n"
-          "converted to the target.\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Reads FILE (or stdin) and writes the spec's LTL formula (ltlxba).\n"
+      "  --safety, --liveness         emit only safety / liveness "
+      "guarantees\n"
+      "  --parenthesize               fully parenthesise (default: minimal\n"
+      "                               parentheses by operator precedence)\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --overwrite-semantics VALUE  replace the spec's SEMANTICS\n"
+      "  --overwrite-target VALUE     replace the spec's TARGET\n"
+      "  --output FILE                write to FILE (default: stdout)\n"
+      "  --version, --help\n"
+      "\n"
+      "Mealy/Moore and finite/infinite are taken from SEMANTICS; when\n"
+      "SEMANTICS and TARGET disagree on Mealy vs Moore the formula is\n"
+      "converted to the target.\n",
+      prog);
 }
 
 // Parse a "NAME=VALUE" override string.
@@ -179,44 +173,42 @@ int main(int argc, char *argv[]) {
   const char *os_arg = nullptr;
   const char *ot_arg = nullptr;
   const char *input_file = nullptr;
+  const char *output_file = nullptr;
 
   // Temporary override storage (max 64 overrides).
   ParamOverride overrides[64];
   size_t n_overrides = 0;
+
+#define NEED_ARG()                                                             \
+  (++i >= argc                                                                 \
+       ? (fprintf(stderr, "tlsf2ltl: %s requires an argument\n", argv[i - 1]), \
+          exit(1), nullptr)                                                    \
+       : argv[i])
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--safety") == 0) {
       mode = PRINT_SAFETY;
     } else if (strcmp(argv[i], "--liveness") == 0) {
       mode = PRINT_LIVENESS;
-    } else if (strcmp(argv[i], "--overwrite-semantics") == 0 ||
-               strcmp(argv[i], "-os") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2ltl: %s requires an argument\n", argv[i - 1]);
-        return 1;
-      }
-      os_arg = argv[i];
-    } else if (strcmp(argv[i], "--overwrite-target") == 0 ||
-               strcmp(argv[i], "-ot") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2ltl: %s requires an argument\n", argv[i - 1]);
-        return 1;
-      }
-      ot_arg = argv[i];
-    } else if (strcmp(argv[i], "--parenthesize") == 0 ||
-               strcmp(argv[i], "--parens") == 0) {
+    } else if (strcmp(argv[i], "--overwrite-semantics") == 0) {
+      os_arg = NEED_ARG();
+    } else if (strcmp(argv[i], "--overwrite-target") == 0) {
+      ot_arg = NEED_ARG();
+    } else if (strcmp(argv[i], "--parenthesize") == 0) {
       full_parens = true;
+    } else if (strcmp(argv[i], "--output") == 0) {
+      output_file = NEED_ARG();
     } else if (strcmp(argv[i], "--param") == 0) {
-      if (++i >= argc) {
-        fprintf(stderr, "tlsf2ltl: --param requires an argument\n");
-        return 1;
-      }
+      const char *a = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsf2ltl: too many --param overrides\n");
         return 1;
       }
-      if (!parse_override(argv[i], &overrides[n_overrides++]))
+      if (!parse_override(a, &overrides[n_overrides++]))
         return 1;
+    } else if (strcmp(argv[i], "--version") == 0) {
+      printf("tlsf2ltl %s\n", TLSF_VERSION);
+      return 0;
     } else if (strcmp(argv[i], "--help") == 0) {
       usage(argv[0]);
       return 0;
@@ -232,40 +224,17 @@ int main(int argc, char *argv[]) {
       return 1;
     }
   }
+#undef NEED_ARG
 
-  if (!input_file) {
-    fprintf(stderr, "tlsf2ltl: no input file\n");
-    usage(argv[0]);
+  // --- Parse (FILE or stdin) ---
+  FILE *fp = cli_open_input(input_file, "tlsf2ltl");
+  if (!fp)
     return 1;
-  }
-
-  FILE *fp = fopen(input_file, "r");
-  if (!fp) {
-    perror(input_file);
-    return 1;
-  }
-
-  // --- Parse ---
-  TlsfSpec *spec = spec_new();
-  if (!spec) {
-    fprintf(stderr, "tlsf2ltl: out of memory\n");
+  TlsfSpec *spec = cli_parse(fp, "tlsf2ltl");
+  if (input_file)
     fclose(fp);
+  if (!spec)
     return 1;
-  }
-
-  yyscan_t scanner;
-  yylex_init(&scanner);
-  yyset_extra(spec, scanner);
-  yyset_in(fp, scanner);
-
-  int parse_result = yyparse(scanner, spec);
-  yylex_destroy(scanner);
-  fclose(fp);
-
-  if (parse_result != 0) {
-    spec_free(spec);
-    return 1;
-  }
 
   // --- Apply semantics/target overrides ---
   if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
@@ -308,7 +277,14 @@ int main(int argc, char *argv[]) {
   }
 
   // --- Emit ---
-  print_ltlxba_spec(stdout, spec, cs, mode, full_parens);
+  FILE *out = cli_open_output(output_file, "tlsf2ltl");
+  if (!out) {
+    spec_free(spec);
+    return 1;
+  }
+  print_ltlxba_spec(out, spec, cs, mode, full_parens);
+  if (output_file)
+    fclose(out);
 
   spec_free(spec);
   return 0;

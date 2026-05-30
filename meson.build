@@ -102,6 +102,7 @@ lib_sources = [
   'src/intern.c',
   'src/ast.c',
   'src/spec.c',
+  'src/cli.c',
   'src/expand.c',
   'src/nnf.c',
   'src/classify.c',
@@ -197,26 +198,33 @@ test('tlsf_param_subst', check,
 
 test('info_block', check,
   args: [files('test/cases/Patterns_Uright_uright06.info'),
-         tlsfinfo_exe, '-i',
+         tlsfinfo_exe, '--info',
          files('test/cases/Patterns_Uright_uright06.tlsf')])
 
 # GR(1) recognition.
 foreach c : ['gr0_spec', 'gr1_spec', 'gr2_spec', 'gr4_spec', 'notgr_spec']
   test('gr_' + c, check,
     args: [files('test/cases/' + c + '.gr'),
-           tlsfinfo_exe, '-gr', files('test/cases/' + c + '.tlsf')])
+           tlsfinfo_exe, '--generalized-reactivity', files('test/cases/' + c + '.tlsf')])
 endforeach
 
 # tlsfinfo selection flags.
-foreach sel : [['-t', 'title'], ['-d', 'description'], ['-s', 'semantics'],
-               ['-g', 'target'], ['-a', 'tags'], ['-p', 'params'],
-               ['-ins', 'inputs'], ['-outs', 'outputs'], ['-i', 'info']]
+foreach sel : [['--title', 'title'], ['--description', 'description'],
+               ['--semantics', 'semantics'], ['--target', 'target'],
+               ['--tags', 'tags'], ['--parameters', 'params'],
+               ['--input-signals', 'inputs'], ['--output-signals', 'outputs'],
+               ['--info', 'info']]
   test('info_' + sel[1], check,
     args: [files('test/cases/meta.' + sel[1]),
            tlsfinfo_exe, sel[0], files('test/cases/meta.tlsf')])
 endforeach
 test('info_all', check,
   args: [files('test/cases/meta.all'), tlsfinfo_exe, files('test/cases/meta.tlsf')])
+test('info_check', check,
+  args: [files('test/cases/meta.check'), tlsfinfo_exe, '--check',
+         files('test/cases/meta.tlsf')])
+test('err_check_invalid', xfail,
+  args: [tlsfinfo_exe, '--check', files('test/cases/bad_syntax.tlsf')])
 
 # tlsf2ltl modes: safety / liveness selection and -os/-ot overrides.
 test('ltl_safety', check,
@@ -227,7 +235,7 @@ test('ltl_liveness', check,
          tlsf2ltl_exe, '--liveness', files('test/arbiter_simple.tlsf')])
 test('ltl_os_moore', check,
   args: [files('test/cases/conv_moore_mealy.os.ltl'),
-         tlsf2ltl_exe, '-os', 'Moore', files('test/cases/conv_moore_mealy.tlsf')])
+         tlsf2ltl_exe, '--overwrite-semantics', 'Moore', files('test/cases/conv_moore_mealy.tlsf')])
 
 # Exercises the NNF duals (R/W/M/U, <->, !F, !U).
 test('ltl_operators', check,
@@ -260,12 +268,12 @@ test('err_missing_file', xfail, args: [tlsf2ltl_exe, 'does_not_exist.tlsf'])
 test('err_bad_param',    xfail,
   args: [tlsf2ltl_exe, '--param', 'oops', files('test/cases/meta.tlsf')])
 test('err_bad_semantics', xfail,
-  args: [tlsf2ltl_exe, '-os', 'Bogus', files('test/cases/meta.tlsf')])
+  args: [tlsf2ltl_exe, '--overwrite-semantics', 'Bogus', files('test/cases/meta.tlsf')])
 test('err_parse',        xfail,
   args: [tlsf2ltl_exe, files('test/cases/bad_syntax.tlsf')])
 # -gr on a spec whose expansion is unsupported (a definition call) must fail.
 test('err_gr_expand',    xfail,
-  args: [tlsfinfo_exe, '-gr', files('test/cases/defs.tlsf')])
+  args: [tlsfinfo_exe, '--generalized-reactivity', files('test/cases/defs.tlsf')])
 
 # Exercises the assumptions -> guarantees implication path (the cases above
 # are guarantee-only).
@@ -304,7 +312,7 @@ test('semantics_strict', check,
 # Relax a strict spec by overwriting its semantics to non-strict: plain E -> S.
 test('semantics_relax_via_override', check,
   args: [files('test/cases/sections.ltl'),
-         tlsf2ltl_exe, '-os', 'Mealy',
+         tlsf2ltl_exe, '--overwrite-semantics', 'Mealy',
          files('test/cases/sections_strict.tlsf')])
 
 # Mealy/Moore conversion when SEMANTICS and TARGET disagree.

@@ -1,29 +1,13 @@
-/// tlsfinfo — print metadata from a TLSF specification.
+/// tlsfinfo — print metadata from a TLSF specification (file or stdin).
 ///
-/// Mirrors the information-printing options of syfco.  With no selection flag
-/// it prints the full INFO section followed by the signal and parameter lists.
-///
-/// Usage:
-///   tlsfinfo [SELECTION] FILE
-///
-/// Selection flags (combine freely; default prints everything):
-///   -t,    --title             the title
-///   -d,    --description       the description
-///   -s,    --semantics         the semantics
-///   -g,    --target            the target
-///   -a,    --tags              the tags (comma-separated)
-///   -p,    --parameters        the parameter names (one per line)
-///   -i,    --info              the full INFO section
-///   -ins,  --input-signals     the input signals (comma-separated)
-///   -outs, --output-signals    the output signals (comma-separated)
-///   -v,    --version           version information
+/// Mirrors the information-printing options of syfco (long names only).  With
+/// no selection flag it prints the full INFO section followed by the signal
+/// and parameter lists.  See --help for the options.
 
+#include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
 #include "tlsf/spec.h"
-
-#include "tlsf_parse.h"
-#include "tlsf_lex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -133,44 +117,42 @@ typedef enum {
   SEL_INPUTS,
   SEL_OUTPUTS,
   SEL_GR,
+  SEL_CHECK,
 } Selection;
 
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [SELECTION] FILE\n"
-          "  -t,   --title            the title\n"
-          "  -d,   --description      the description\n"
-          "  -s,   --semantics        the semantics\n"
-          "  -g,   --target           the target\n"
-          "  -a,   --tags             the tags\n"
-          "  -p,   --parameters       the parameter names\n"
-          "  -i,   --info             the full INFO section\n"
-          "  -ins, --input-signals    the input signals\n"
-          "  -outs,--output-signals   the output signals\n"
-          "  -gr,  --generalized-reactivity  whether the spec is in GR(1)\n"
-          "  -v,   --version          version information\n"
+          "Usage: %s [SELECTION] [--output FILE] [FILE]\n"
+          "Reads FILE (or stdin) and prints the requested metadata.\n"
+          "  --title, --description, --semantics, --target, --tags\n"
+          "  --parameters, --info, --input-signals, --output-signals\n"
+          "  --generalized-reactivity   the GR(k) level (or NOT in GR)\n"
+          "  --check                    verify the spec parses (conforms)\n"
+          "  --output FILE              write to FILE (default: stdout)\n"
+          "  --version, --help\n"
           "With no selection flag, prints everything.\n",
           prog);
 }
 
 static Selection parse_selection(const char *arg) {
   struct {
-    const char *s, *l;
+    const char *l;
     Selection sel;
   } opts[] = {
-      {"-t", "--title", SEL_TITLE},
-      {"-d", "--description", SEL_DESCRIPTION},
-      {"-s", "--semantics", SEL_SEMANTICS},
-      {"-g", "--target", SEL_TARGET},
-      {"-a", "--tags", SEL_TAGS},
-      {"-p", "--parameters", SEL_PARAMETERS},
-      {"-i", "--info", SEL_INFO},
-      {"-ins", "--input-signals", SEL_INPUTS},
-      {"-outs", "--output-signals", SEL_OUTPUTS},
-      {"-gr", "--generalized-reactivity", SEL_GR},
+      {"--title", SEL_TITLE},
+      {"--description", SEL_DESCRIPTION},
+      {"--semantics", SEL_SEMANTICS},
+      {"--target", SEL_TARGET},
+      {"--tags", SEL_TAGS},
+      {"--parameters", SEL_PARAMETERS},
+      {"--info", SEL_INFO},
+      {"--input-signals", SEL_INPUTS},
+      {"--output-signals", SEL_OUTPUTS},
+      {"--generalized-reactivity", SEL_GR},
+      {"--check", SEL_CHECK},
   };
   for (size_t i = 0; i < sizeof(opts) / sizeof(opts[0]); i++)
-    if (strcmp(arg, opts[i].s) == 0 || strcmp(arg, opts[i].l) == 0)
+    if (strcmp(arg, opts[i].l) == 0)
       return opts[i].sel;
   return SEL_NONE;
 }
@@ -178,17 +160,22 @@ static Selection parse_selection(const char *arg) {
 int main(int argc, char *argv[]) {
   Selection sel = SEL_NONE;
   const char *input_file = nullptr;
+  const char *output_file = nullptr;
 
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+    if (strcmp(argv[i], "--help") == 0) {
       usage(argv[0]);
       return 0;
-    }
-    if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+    } else if (strcmp(argv[i], "--version") == 0) {
       printf("tlsfinfo %s\n", TLSFINFO_VERSION);
       return 0;
-    }
-    if (argv[i][0] == '-') {
+    } else if (strcmp(argv[i], "--output") == 0) {
+      if (++i >= argc) {
+        fprintf(stderr, "tlsfinfo: --output requires an argument\n");
+        return 1;
+      }
+      output_file = argv[i];
+    } else if (argv[i][0] == '-') {
       Selection s = parse_selection(argv[i]);
       if (s == SEL_NONE) {
         fprintf(stderr, "tlsfinfo: unknown option '%s'\n", argv[i]);
@@ -209,87 +196,77 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (!input_file) {
-    fprintf(stderr, "tlsfinfo: no input file\n");
-    usage(argv[0]);
+  FILE *fp = cli_open_input(input_file, "tlsfinfo");
+  if (!fp)
     return 1;
-  }
-
-  FILE *fp = fopen(input_file, "r");
-  if (!fp) {
-    perror(input_file);
-    return 1;
-  }
-
-  TlsfSpec *spec = spec_new();
-  if (!spec) {
-    fprintf(stderr, "tlsfinfo: out of memory\n");
+  TlsfSpec *spec = cli_parse(fp, "tlsfinfo");
+  if (input_file)
     fclose(fp);
+  if (!spec)
     return 1;
-  }
 
-  yyscan_t scanner;
-  yylex_init(&scanner);
-  yyset_extra(spec, scanner);
-  yyset_in(fp, scanner);
-  int parse_result = yyparse(scanner, spec);
-  yylex_destroy(scanner);
-  fclose(fp);
-
-  if (parse_result != 0) {
+  FILE *out = cli_open_output(output_file, "tlsfinfo");
+  if (!out) {
     spec_free(spec);
     return 1;
   }
 
   // No expansion: tlsfinfo reports the raw specification metadata.
+  int rc = 0;
   switch (sel) {
   case SEL_TITLE:
-    printf("%s\n", spec->info.title ? spec->info.title : "");
+    fprintf(out, "%s\n", spec->info.title ? spec->info.title : "");
     break;
   case SEL_DESCRIPTION:
-    printf("%s\n", spec->info.description ? spec->info.description : "");
+    fprintf(out, "%s\n", spec->info.description ? spec->info.description : "");
     break;
   case SEL_SEMANTICS:
-    printf("%s\n", semantics_str(spec->info.semantics));
+    fprintf(out, "%s\n", semantics_str(spec->info.semantics));
     break;
   case SEL_TARGET:
-    printf("%s\n", target_str(spec->info.target));
+    fprintf(out, "%s\n", target_str(spec->info.target));
     break;
   case SEL_TAGS:
-    print_tags(stdout, spec);
+    print_tags(out, spec);
     break;
   case SEL_PARAMETERS:
-    print_parameters(stdout, spec);
+    print_parameters(out, spec);
     break;
   case SEL_INFO:
-    print_info_block(stdout, spec);
+    print_info_block(out, spec);
     break;
   case SEL_INPUTS:
-    print_signals(stdout, spec->inputs, spec->input_count);
+    print_signals(out, spec->inputs, spec->input_count);
     break;
   case SEL_OUTPUTS:
-    print_signals(stdout, spec->outputs, spec->output_count);
+    print_signals(out, spec->outputs, spec->output_count);
+    break;
+  case SEL_CHECK:
+    // Parsing succeeded, so the spec conforms to the TLSF grammar.
+    fprintf(out, "valid\n");
     break;
   case SEL_GR: {
-    // GR(1) recognition needs the ground spec: expand with default parameters.
+    // GR(k) recognition needs the ground spec: expand with default parameters.
     if (expand(spec, nullptr, 0) != 0) {
-      fprintf(stderr, "tlsfinfo: cannot expand spec for GR(1) check\n");
-      spec_free(spec);
-      return 1;
+      fprintf(stderr, "tlsfinfo: cannot expand spec for the GR(k) check\n");
+      rc = 1;
+      break;
     }
     // GR(k) over the full Boolean-combination-of-GF/FG liveness fragment.
     int level = gr_level(spec);
     if (level < 0)
-      printf("NOT in GR\n");
+      fprintf(out, "NOT in GR\n");
     else
-      printf("IN GR(%d)\n", level);
+      fprintf(out, "IN GR(%d)\n", level);
     break;
   }
   case SEL_NONE:
-    print_all(stdout, spec);
+    print_all(out, spec);
     break;
   }
 
+  if (output_file)
+    fclose(out);
   spec_free(spec);
-  return 0;
+  return rc;
 }
