@@ -279,9 +279,21 @@ test('err_bad_semantics', xfail,
   args: [tlsf2ltl_exe, '--overwrite-semantics', 'Bogus', files('test/cases/meta.tlsf')])
 test('err_parse',        xfail,
   args: [tlsf2ltl_exe, files('test/cases/bad_syntax.tlsf')])
-# -gr on a spec whose expansion is unsupported (a definition call) must fail.
-test('err_gr_expand',    xfail,
-  args: [tlsfinfo_exe, '--generalized-reactivity', files('test/cases/defs.tlsf')])
+# Expansion failure (an unbound parameter) must error.
+test('err_expand',       xfail,
+  args: [tlsf2ltl_exe, files('test/cases/bad_expand.tlsf')])
+
+# Definition expansion: nullary + parameterised definitions, recursive
+# case-definitions (with `otherwise`), integer-returning defs, and SIZEOF.
+test('expand_defs_gr', check,
+  args: [files('test/cases/defs.gr'), tlsfinfo_exe,
+         '--generalized-reactivity', files('test/cases/defs.tlsf')])
+test('expand_mutual_exclusion', check,
+  args: [files('test/cases/mutual_exclusion.ltl'), tlsf2ltl_exe,
+         files('test/cases/mutual_exclusion.tlsf')])
+test('expand_recursion', check,
+  args: [files('test/cases/recursion.ltl'), tlsf2ltl_exe,
+         files('test/cases/recursion.tlsf')])
 
 # Exercises the assumptions -> guarantees implication path (the cases above
 # are guarantee-only).

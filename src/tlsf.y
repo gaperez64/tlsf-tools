@@ -56,6 +56,30 @@
       n++;
     return n;
   }
+
+  static uint16_t node_str_len(const char **arr) {
+    uint16_t n = 0;
+    while (arr && arr[n])
+      n++;
+    return n;
+  }
+
+  static Node *mk_ite(Arena *a, Node *cond, Node *then_, Node *else_) {
+    Node *n = ARENA_ALLOC(a, Node);
+    n->kind = NODE_ITE;
+    n->if_cond = cond;
+    n->if_then = then_;
+    n->if_else = else_;
+    return n;
+  }
+
+  static Node *mk_cmp(Arena *a, int kind, Node *lhs, Node *rhs) {
+    Node *n = ARENA_ALLOC(a, Node);
+    n->kind = (NodeKind)kind;
+    n->lhs = lhs;
+    n->rhs = rhs;
+    return n;
+  }
 }
 
 /* -------------------------------------------------------------------------
@@ -111,7 +135,7 @@
 %token TOK_EQ TOK_NEQ TOK_LT TOK_LEQ TOK_GT TOK_GEQ
 
 /* Keyword operators */
-%token TOK_SIZEOF
+%token TOK_SIZEOF TOK_OTHERWISE
 
 /* Punctuation */
 %token TOK_LPAREN TOK_RPAREN TOK_LBRACKET TOK_RBRACKET
@@ -121,8 +145,8 @@
 /* -------------------------------------------------------------------------
  * Type declarations for non-terminals
  * --------------------------------------------------------------------- */
-%type <node>      ltl_expr bound_spec
-%type <ival>      lt_or_leq
+%type <node>      ltl_expr bound_spec cond cases
+%type <ival>      lt_or_leq cmp_op
 %type <sval>      signal_name
 %type <slist>     ident_list
 %type <node_list> call_arg_list
@@ -257,13 +281,49 @@ def_entries
 def_entry
   : TOK_IDENT TOK_ASSIGN ltl_expr TOK_SEMI
     { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
+  | TOK_IDENT TOK_ASSIGN cases TOK_SEMI
+    { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
   | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN ltl_expr TOK_SEMI
-    {
-      uint16_t argc = 0;
-      while ($3 && $3[argc])
-        argc++;
-      if (!spec_add_def(spec, $1, $3, argc, $6)) YYNOMEM;
-    }
+    { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
+  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI
+    { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
+  ;
+
+/* Definition guard chain:  cond : value  cond : value  ...  (right-nested ITE,
+ * with a `false` default if no guard holds).
+ *
+ * TLSF separates a case's value from the next case's guard only by whitespace,
+ * so `value <next-guard>` are two adjacent expressions.  This is not LALR(1)
+ * conflict-free (it yields a handful of reduce/reduce conflicts on the binary
+ * operators).  The conflicts are benign for well-formed specs: a guard is
+ * `expr CMP expr` or `otherwise`, and a guard can never *begin* with a binary
+ * operator, so bison's default resolution always ends the value at the right
+ * point.  Verified by parsing/expanding the full SYNTCOMP corpus and checking
+ * the result against syfco. */
+cases
+  : cond TOK_COLON ltl_expr
+    { $$ = mk_ite(spec->arena, $1, $3, node_false(spec->arena)); }
+  | cond TOK_COLON ltl_expr cases
+    { $$ = mk_ite(spec->arena, $1, $3, $4); }
+  ;
+
+/* A guard is a comparison between integer expressions.  (TLSF definition
+ * guards in practice are always comparisons, which keeps the value/guard
+ * boundary unambiguous.) */
+cond
+  : ltl_expr cmp_op ltl_expr
+    { $$ = mk_cmp(spec->arena, (int)$2, $1, $3); }
+  | TOK_OTHERWISE
+    { $$ = node_true(spec->arena); } /* catch-all default guard */
+  ;
+
+cmp_op
+  : TOK_EQ  { $$ = NODE_CMP_EQ; }
+  | TOK_NEQ { $$ = NODE_CMP_NE; }
+  | TOK_LT  { $$ = NODE_CMP_LT; }
+  | TOK_LEQ { $$ = NODE_CMP_LE; }
+  | TOK_GT  { $$ = NODE_CMP_GT; }
+  | TOK_GEQ { $$ = NODE_CMP_GE; }
   ;
 
 ident_list

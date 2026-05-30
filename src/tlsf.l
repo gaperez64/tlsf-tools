@@ -98,6 +98,7 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 
   /* --- Keyword operators --- */
 "SIZEOF"            { return TOK_SIZEOF; }
+"otherwise"         { return TOK_OTHERWISE; }
 
   /* --- LTL operators (single-char temporal first to avoid prefix match) ---
      X[!] must be matched before X. */

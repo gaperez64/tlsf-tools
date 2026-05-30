@@ -184,6 +184,29 @@ static void print_formula(FILE *out, const Node *n) {
     fprintf(out, ")");
     return;
 
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE: {
+    static const char *ops[] = {"==", "!=", "<", "<=", ">", ">="};
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " %s ", ops[n->kind - NODE_CMP_EQ]);
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
+  }
+
+  case NODE_ITE:
+    print_formula(out, n->if_cond);
+    fprintf(out, " : ");
+    print_formula(out, n->if_then);
+    fprintf(out, "  ");
+    print_formula(out, n->if_else);
+    return;
+
   default:
     assert(false && "print_tlsf: unexpected node kind");
   }

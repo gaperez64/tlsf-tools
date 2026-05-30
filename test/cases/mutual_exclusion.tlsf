@@ -1,0 +1,16 @@
+INFO { TITLE: "mx" DESCRIPTION: "d" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL {
+  PARAMETERS { n = 2; }
+  DEFINITIONS {
+    none(bus,i,j) = &&[i <= t <= j] !bus[t];
+    m(i,j) = (i + j) / 2;
+    mone(bus,i,j) =
+      i > j : false
+      i == j : true
+      i < j : (none(bus, i, m(i,j)) && mone(bus, m(i,j) + 1, j)) ||
+              (mone(bus, i, m(i,j)) && none(bus, m(i,j) + 1, j));
+  }
+}
+MAIN { INPUTS { x; } OUTPUTS { b[0..n-1]; }
+  GUARANTEE { G (mone(b, 0, (SIZEOF b) - 1)); }
+}

@@ -66,6 +66,17 @@ typedef enum NodeKind {
   NODE_INT_VAR, ///< integer variable reference (interned name)
   NODE_SIZEOF,  ///< SIZEOF bus — bus width (hi-lo+1), resolved during expand
 
+  // -- Comparisons (in definition guards; evaluated to a bool during expand) --
+  NODE_CMP_EQ, ///< e == e
+  NODE_CMP_NE, ///< e != e
+  NODE_CMP_LT, ///< e < e
+  NODE_CMP_LE, ///< e <= e
+  NODE_CMP_GT, ///< e > e
+  NODE_CMP_GE, ///< e >= e
+
+  // -- Definition cases:  cond : value  ...  (right-nested, resolved at expand)
+  NODE_ITE, ///< if cond then if_then else if_else
+
   // -- Set expressions (pre-expansion) --
   NODE_SET,      ///< { e, e, ... }  — set literal (children = elements)
   NODE_SET_ENUM, ///< set comprehension: { x : range }
@@ -118,6 +129,13 @@ struct Node {
     // NODE_SIZEOF: bus name whose width is requested
     struct {
       const char *sizeof_name; ///< interned bus name
+    };
+
+    // NODE_ITE: if-then-else (definition guard chain)
+    struct {
+      Node *if_cond;
+      Node *if_then;
+      Node *if_else;
     };
 
     // NODE_FORALL / NODE_EXISTS: bounded quantifier
@@ -181,7 +199,8 @@ static inline bool node_kind_is_temporal(NodeKind k) {
 /// True for pre-expansion nodes that must not appear after expand().
 static inline bool node_kind_is_high_level(NodeKind k) {
   return k == NODE_DEF_CALL || k == NODE_BUS_INDEX || k == NODE_PATTERN ||
-         k == NODE_INT_VAR || k == NODE_SIZEOF || k == NODE_SET ||
+         k == NODE_INT_VAR || k == NODE_SIZEOF || k == NODE_ITE ||
+         (k >= NODE_CMP_EQ && k <= NODE_CMP_GE) || k == NODE_SET ||
          k == NODE_SET_ENUM || k == NODE_FORALL || k == NODE_EXISTS;
 }
 
