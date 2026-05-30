@@ -1,0 +1,2 @@
+INFO { TITLE: "so"; DESCRIPTION: "SIZEOF of unknown signal"; SEMANTICS: Mealy; TARGET: Mealy; }
+MAIN { INPUTS { r; } OUTPUTS { g; } GUARANTEE { &&[0 <= i <= SIZEOF nope] g; } }

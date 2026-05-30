@@ -1,0 +1,3 @@
+INFO { TITLE: "rec"; DESCRIPTION: "non-terminating recursion"; SEMANTICS: Mealy; TARGET: Mealy; }
+GLOBAL { DEFINITIONS { loop(i) = loop(i); } }
+MAIN { INPUTS { r; } OUTPUTS { g; } GUARANTEE { loop(0); } }
