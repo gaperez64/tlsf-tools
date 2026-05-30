@@ -6,6 +6,15 @@ on:
   pull_request:
 
 jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang-format
+      - name: Check formatting
+        run: clang-format --dry-run --Werror src/*.c include/tlsf/*.h
+
   build-test:
     runs-on: ubuntu-24.04
     steps:

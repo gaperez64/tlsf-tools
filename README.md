@@ -57,17 +57,26 @@ ninja -C build-san
 
 ## Usage
 
-```sh
-tlsf2tlsf spec.tlsf              # expanded basic TLSF on stdout
-tlsf2ltl  spec.tlsf              # the spec's LTL formula (ltlxba), minimal parens
-tlsf2ltl --parenthesize spec.tlsf  # fully parenthesised LTL
-tlsf2ltl --safety   spec.tlsf    # only the safety part
-tlsf2ltl --liveness spec.tlsf    # only the liveness part
-tlsf2ltl -os Mealy spec.tlsf     # overwrite SEMANTICS (also -ot for TARGET)
+All three tools read a `FILE` argument or, if none is given, stdin; they write
+to stdout or to `--output FILE`; and they accept `--version` and `--help`.
+Options use long (`--`) names only.
 
-tlsfinfo spec.tlsf               # all metadata
-tlsfinfo -s   spec.tlsf          # just the semantics  (-t -d -g -a -p -ins -outs -i)
-tlsfinfo -gr  spec.tlsf          # the GR(k) level, or "NOT in GR"
+```sh
+tlsf2tlsf spec.tlsf                 # expanded basic TLSF on stdout
+tlsf2tlsf --basic spec.tlsf         # fully expand to the basic fragment
+cat spec.tlsf | tlsf2ltl            # read from stdin
+tlsf2ltl  spec.tlsf                 # the spec's LTL formula (ltlxba), minimal parens
+tlsf2ltl --parenthesize spec.tlsf   # fully parenthesised LTL
+tlsf2ltl --safety / --liveness spec.tlsf      # only the safety / liveness part
+tlsf2ltl --overwrite-semantics Mealy spec.tlsf  # also --overwrite-target
+tlsf2ltl --output out.ltl spec.tlsf
+
+tlsfinfo spec.tlsf                  # all metadata
+tlsfinfo --semantics spec.tlsf      # one field (--title --description --target
+                                    #   --tags --parameters --input-signals
+                                    #   --output-signals --info)
+tlsfinfo --generalized-reactivity spec.tlsf   # the GR(k) level, or "NOT in GR"
+tlsfinfo --check spec.tlsf          # "valid" if the spec parses, else error
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -140,9 +149,28 @@ meson test -C build-cov
 gcovr --root . --filter 'src/' --print-summary
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) builds with both gcc and clang,
-runs the full suite (it is fast), runs a valgrind no-leak check on each
-binary, and reports line coverage.
+GitHub Actions (`.github/workflows/ci.yml`) checks `clang-format`, builds with
+both gcc and clang, runs the full suite (it is fast), runs a valgrind no-leak
+check on each binary, and reports line coverage.
+
+## Formatting & linting
+
+Code style is [`.clang-format`](.clang-format) (LLVM, 2-space, 80 columns),
+enforced in CI. Static analysis is [`.clang-tidy`](.clang-tidy); run it
+manually before pushing:
+
+```sh
+clang-format -i src/*.c include/tlsf/*.h     # apply formatting
+clang-tidy -p build src/*.c                  # lint
+```
+
+## Limitations
+
+Relative to `syfco`, not yet implemented: TLSF named patterns, the `X[n]`
+n-fold next operator, and output formats other than `ltlxba` and basic TLSF
+(e.g. `smv`, `slugs`, `promela`). Of the SYNTCOMP `tlsf` benchmarks, 547/569
+convert (the rest use those constructs); all 1717 `tlsf-fin` benchmarks
+convert.
 
 ## Benchmarking
 
