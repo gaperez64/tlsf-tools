@@ -18,6 +18,8 @@
 ///   -outs, --output-signals    the output signals (comma-separated)
 ///   -v,    --version           version information
 
+#include "tlsf/expand.h"
+#include "tlsf/gr.h"
 #include "tlsf/spec.h"
 
 #include "tlsf_parse.h"
@@ -124,6 +126,7 @@ typedef enum {
   SEL_INFO,
   SEL_INPUTS,
   SEL_OUTPUTS,
+  SEL_GR,
 } Selection;
 
 static void usage(const char *prog) {
@@ -138,6 +141,7 @@ static void usage(const char *prog) {
           "  -i,   --info             the full INFO section\n"
           "  -ins, --input-signals    the input signals\n"
           "  -outs,--output-signals   the output signals\n"
+          "  -gr,  --generalized-reactivity  whether the spec is in GR(1)\n"
           "  -v,   --version          version information\n"
           "With no selection flag, prints everything.\n",
           prog);
@@ -157,6 +161,7 @@ static Selection parse_selection(const char *arg) {
       {"-i", "--info", SEL_INFO},
       {"-ins", "--input-signals", SEL_INPUTS},
       {"-outs", "--output-signals", SEL_OUTPUTS},
+      {"-gr", "--generalized-reactivity", SEL_GR},
   };
   for (size_t i = 0; i < sizeof(opts) / sizeof(opts[0]); i++)
     if (strcmp(arg, opts[i].s) == 0 || strcmp(arg, opts[i].l) == 0)
@@ -259,6 +264,22 @@ int main(int argc, char *argv[]) {
   case SEL_OUTPUTS:
     print_signals(stdout, spec->outputs, spec->output_count);
     break;
+  case SEL_GR: {
+    // GR(1) recognition needs the ground spec: expand with default parameters.
+    if (expand(spec, nullptr, 0) != 0) {
+      fprintf(stderr, "tlsfinfo: cannot expand spec for GR(1) check\n");
+      spec_free(spec);
+      return 1;
+    }
+    // We recognise the classic GR(1) fragment (and GR(0), safety only).
+    // Higher Rabin/Streett ranks (syfco's GR(2)+) are reported as not GR(1).
+    int level = gr_level(spec);
+    if (level < 0)
+      printf("NOT in GR(1)\n");
+    else
+      printf("IN GR(%d)\n", level);
+    break;
+  }
   case SEL_NONE:
     print_all(stdout, spec);
     break;

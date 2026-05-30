@@ -105,6 +105,7 @@ lib_sources = [
   'src/expand.c',
   'src/nnf.c',
   'src/classify.c',
+  'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
   flex_out[0],
@@ -197,6 +198,13 @@ test('info_block', check,
   args: [files('test/cases/Patterns_Uright_uright06.info'),
          tlsfinfo_exe, '-i',
          files('test/cases/Patterns_Uright_uright06.tlsf')])
+
+# GR(1) recognition.
+foreach c : ['gr1_spec', 'gr0_spec', 'notgr_spec']
+  test('gr_' + c, check,
+    args: [files('test/cases/' + c + '.gr'),
+           tlsfinfo_exe, '-gr', files('test/cases/' + c + '.tlsf')])
+endforeach
 
 # Exercises the assumptions -> guarantees implication path (the cases above
 # are guarantee-only).

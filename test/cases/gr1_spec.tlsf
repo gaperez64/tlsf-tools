@@ -1,0 +1,5 @@
+INFO { TITLE: "gr1" DESCRIPTION: "GR(1)" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; }
+  ASSUME { G F (!r); }
+  GUARANTEE { G (r -> X g); G F g; }
+}

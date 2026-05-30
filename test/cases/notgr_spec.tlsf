@@ -1,0 +1,4 @@
+INFO { TITLE: "ng" DESCRIPTION: "not GR(1)" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; }
+  GUARANTEE { r U g; }
+}
