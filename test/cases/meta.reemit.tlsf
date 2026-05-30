@@ -1,0 +1,33 @@
+INFO {
+  TITLE:       "Meta";
+  DESCRIPTION: "metadata test";
+  SEMANTICS:   Strict,Moore;
+  TARGET:      Moore;
+  TAGS:        "alpha", "beta";
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 4;
+    k = 2;
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    req;
+    hold;
+  }
+
+  OUTPUTS {
+    ack;
+  }
+
+    GUARANTEE {
+      G ((req -> ack));
+    }
+
+}

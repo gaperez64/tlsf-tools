@@ -158,6 +158,7 @@ tlsfinfo_exe = executable(
 # ---------------------------------------------------------------------------
 
 check = files('test/check.sh')
+xfail = files('test/expect_fail.sh')
 
 # Cases converted with `tlsf2ltl` (default, minimal parentheses).
 ltl_cases = [
@@ -205,6 +206,66 @@ foreach c : ['gr0_spec', 'gr1_spec', 'gr2_spec', 'gr4_spec', 'notgr_spec']
     args: [files('test/cases/' + c + '.gr'),
            tlsfinfo_exe, '-gr', files('test/cases/' + c + '.tlsf')])
 endforeach
+
+# tlsfinfo selection flags.
+foreach sel : [['-t', 'title'], ['-d', 'description'], ['-s', 'semantics'],
+               ['-g', 'target'], ['-a', 'tags'], ['-p', 'params'],
+               ['-ins', 'inputs'], ['-outs', 'outputs'], ['-i', 'info']]
+  test('info_' + sel[1], check,
+    args: [files('test/cases/meta.' + sel[1]),
+           tlsfinfo_exe, sel[0], files('test/cases/meta.tlsf')])
+endforeach
+test('info_all', check,
+  args: [files('test/cases/meta.all'), tlsfinfo_exe, files('test/cases/meta.tlsf')])
+
+# tlsf2ltl modes: safety / liveness selection and -os/-ot overrides.
+test('ltl_safety', check,
+  args: [files('test/cases/arbiter_simple.safety.ltl'),
+         tlsf2ltl_exe, '--safety', files('test/arbiter_simple.tlsf')])
+test('ltl_liveness', check,
+  args: [files('test/cases/arbiter_simple.liveness.ltl'),
+         tlsf2ltl_exe, '--liveness', files('test/arbiter_simple.tlsf')])
+test('ltl_os_moore', check,
+  args: [files('test/cases/conv_moore_mealy.os.ltl'),
+         tlsf2ltl_exe, '-os', 'Moore', files('test/cases/conv_moore_mealy.tlsf')])
+
+# Exercises the NNF duals (R/W/M/U, <->, !F, !U).
+test('ltl_operators', check,
+  args: [files('test/cases/operators.ltl'),
+         tlsf2ltl_exe, files('test/cases/operators.tlsf')])
+test('ltl_operators_full', check,
+  args: [files('test/cases/operators.full.ltl'),
+         tlsf2ltl_exe, '--parenthesize', files('test/cases/operators.tlsf')])
+
+# tlsf2tlsf default re-emission: GLOBAL section (parameters, definitions,
+# definition calls), bus-range expressions, big-operators and SIZEOF.
+test('tlsf_reemit', check,
+  args: [files('test/cases/meta.reemit.tlsf'),
+         tlsf2tlsf_exe, files('test/cases/meta.tlsf')])
+test('tlsf_reemit_defs', check,
+  args: [files('test/cases/defs.reemit.tlsf'),
+         tlsf2tlsf_exe, files('test/cases/defs.tlsf')])
+test('tlsf_subst_defs', check,
+  args: [files('test/cases/defs.subst.tlsf'),
+         tlsf2tlsf_exe, '--param', 'n=5', files('test/cases/defs.tlsf')])
+test('tlsf_reemit_quant', check,
+  args: [files('test/cases/expand_demo.reemit.tlsf'),
+         tlsf2tlsf_exe, files('test/cases/expand_demo.tlsf')])
+test('err_tlsf_bad_param', xfail,
+  args: [tlsf2tlsf_exe, '--param', 'nope=1', files('test/cases/defs.tlsf')])
+
+# Error paths: these must exit non-zero.
+test('err_no_input',     xfail, args: [tlsf2ltl_exe])
+test('err_missing_file', xfail, args: [tlsf2ltl_exe, 'does_not_exist.tlsf'])
+test('err_bad_param',    xfail,
+  args: [tlsf2ltl_exe, '--param', 'oops', files('test/cases/meta.tlsf')])
+test('err_bad_semantics', xfail,
+  args: [tlsf2ltl_exe, '-os', 'Bogus', files('test/cases/meta.tlsf')])
+test('err_parse',        xfail,
+  args: [tlsf2ltl_exe, files('test/cases/bad_syntax.tlsf')])
+# -gr on a spec whose expansion is unsupported (a definition call) must fail.
+test('err_gr_expand',    xfail,
+  args: [tlsfinfo_exe, '-gr', files('test/cases/defs.tlsf')])
 
 # Exercises the assumptions -> guarantees implication path (the cases above
 # are guarantee-only).

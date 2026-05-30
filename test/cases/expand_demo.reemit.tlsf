@@ -1,0 +1,35 @@
+INFO {
+  TITLE:       "expand test";
+  DESCRIPTION: "params, buses, bounded quantifiers, SIZEOF";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 3;
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    r[0..(n - 1)];
+  }
+
+  OUTPUTS {
+    g[0..(n - 1)];
+  }
+
+    ASSUME {
+      &&[0 <= i < n] G ((r[i] -> F (!(r[i]))));
+    }
+
+    GUARANTEE {
+      &&[0 <= i < n] G ((r[i] -> F (g[i])));
+      G (||[0 <= i < SIZEOF g] g[i]);
+    }
+
+}

@@ -1,0 +1,8 @@
+Title:         "Meta"
+Description:   "metadata test"
+Semantics:     Strict,Moore
+Target:        Moore
+Tags:          alpha, beta
+Inputs:        req, hold
+Outputs:       ack
+Parameters:    n, k

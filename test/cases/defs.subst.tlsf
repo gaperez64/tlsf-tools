@@ -1,0 +1,36 @@
+INFO {
+  TITLE:       "defs";
+  DESCRIPTION: "definitions";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 5;
+  }
+
+  DEFINITIONS {
+    safe = G ((r -> g));
+    req(s) = G ((s -> X (s)));
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    r;
+  }
+
+  OUTPUTS {
+    g;
+  }
+
+    GUARANTEE {
+      safe;
+      req(r);
+    }
+
+}
