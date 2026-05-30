@@ -271,11 +271,12 @@ int main(int argc, char *argv[]) {
       spec_free(spec);
       return 1;
     }
-    // We recognise the classic GR(1) fragment (and GR(0), safety only).
-    // Higher Rabin/Streett ranks (syfco's GR(2)+) are reported as not GR(1).
+    // Recognises GR(k) for the Streett-pair fragment (init/safety/justice
+    // plus GF->GF / GF<->GF guarantees).  Fully general Rabin formulas
+    // (disjunctions of GF, FG terms, negated GF) are reported as not GR.
     int level = gr_level(spec);
     if (level < 0)
-      printf("NOT in GR(1)\n");
+      printf("NOT in GR\n");
     else
       printf("IN GR(%d)\n", level);
     break;
