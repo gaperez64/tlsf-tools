@@ -87,17 +87,17 @@ tlsfinfo --check spec.tlsf          # "valid" if the spec parses, else error
 
 (REQUIRE/ASSERT are invariants, wrapped in `G`; empty sections drop out and a
 trivial antecedent collapses to just the consequent). The rest is taken from
-the (possibly overwritten — see `-os`/`-ot`) `SEMANTICS`/`TARGET`:
+the (possibly overwritten) `SEMANTICS`/`TARGET`:
 
 - **Strict** (`Strict,*`): emits the safety weak-until form `((PRESET ∧ G
   ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)`. To relax it to the
-  plain `E → S`, overwrite the semantics: `-os Mealy` / `-os Moore`.
+  plain `E → S`, overwrite the semantics: `--overwrite-semantics Mealy`.
 - **Finite-word** (`Finite,*`): renders strong-next as `X[!]`.
 - **Mealy/Moore**: read from `SEMANTICS`; when it disagrees with `TARGET` the
   formula is converted to the target (Moore→Mealy delays outputs `o ↦ X o`,
   Mealy→Moore delays inputs `i ↦ X i`).
 
-`-os`/`--overwrite-semantics` and `-ot`/`--overwrite-target` (on both
+`--overwrite-semantics VALUE` and `--overwrite-target VALUE` (on both
 `tlsf2ltl` and `tlsf2tlsf`) replace the spec's `SEMANTICS`/`TARGET` from the
 CLI.
 
