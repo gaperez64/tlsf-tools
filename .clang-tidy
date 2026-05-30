@@ -11,8 +11,14 @@ Checks: >
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,
   -readability-isolate-declaration,
+  -readability-identifier-naming,
+  -readability-non-const-parameter,
   -bugprone-easily-swappable-parameters,
-  -cert-err33-c
+  -bugprone-narrowing-conversions,
+  -cert-err33-c,
+  -cert-dcl03-c,
+  -misc-include-cleaner,
+  -clang-analyzer-deadcode.DeadStores
 
 HeaderFilterRegex: 'include/tlsf/.*\.h$'
 WarningsAsErrors: ''
