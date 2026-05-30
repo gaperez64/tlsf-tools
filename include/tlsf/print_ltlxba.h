@@ -41,7 +41,7 @@ typedef enum PrintMode {
 } PrintMode;
 
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode, bool relax,
+                       const ClassifiedSpec *cs, PrintMode mode,
                        bool full_parens);
 
 #endif // TLSF_PRINT_LTLXBA_H

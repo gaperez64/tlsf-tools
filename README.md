@@ -60,13 +60,14 @@ ninja -C build-san
 ```sh
 tlsf2tlsf spec.tlsf              # expanded basic TLSF on stdout
 tlsf2ltl  spec.tlsf              # the spec's LTL formula (ltlxba), minimal parens
-tlsf2ltl --relax-semantics spec.tlsf  # non-strict (standard-LTL) formula
 tlsf2ltl --parenthesize spec.tlsf  # fully parenthesised LTL
 tlsf2ltl --safety   spec.tlsf    # only the safety part
 tlsf2ltl --liveness spec.tlsf    # only the liveness part
+tlsf2ltl -os Mealy spec.tlsf     # overwrite SEMANTICS (also -ot for TARGET)
 
 tlsfinfo spec.tlsf               # all metadata
-tlsfinfo -s spec.tlsf            # just the semantics  (-t -d -g -a -p -ins -outs -i)
+tlsfinfo -s   spec.tlsf          # just the semantics  (-t -d -g -a -p -ins -outs -i)
+tlsfinfo -gr  spec.tlsf          # the GR(k) level, or "NOT in GR"
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -76,17 +77,20 @@ tlsfinfo -s spec.tlsf            # just the semantics  (-t -d -g -a -p -ins -out
 ```
 
 (REQUIRE/ASSERT are invariants, wrapped in `G`; empty sections drop out and a
-trivial antecedent collapses to just the consequent). Strictness is left to the
-backend by default. The remaining semantics come from the spec:
+trivial antecedent collapses to just the consequent). The rest is taken from
+the (possibly overwritten — see `-os`/`-ot`) `SEMANTICS`/`TARGET`:
 
-- **`--relax-semantics`** (alias `--relax`): emit a non-strict standard-LTL
-  formula. A no-op on non-strict specs; on a strict (`Strict,*`) spec it applies
-  the strict→non-strict translation `((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G
-  REQUIRE)) ∧ (E → GUARANTEE)`.
-- **Finite-word** (`Finite,*`, from `SEMANTICS`): renders strong-next as `X[!]`.
+- **Strict** (`Strict,*`): emits the safety weak-until form `((PRESET ∧ G
+  ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)`. To relax it to the
+  plain `E → S`, overwrite the semantics: `-os Mealy` / `-os Moore`.
+- **Finite-word** (`Finite,*`): renders strong-next as `X[!]`.
 - **Mealy/Moore**: read from `SEMANTICS`; when it disagrees with `TARGET` the
   formula is converted to the target (Moore→Mealy delays outputs `o ↦ X o`,
   Mealy→Moore delays inputs `i ↦ X i`).
+
+`-os`/`--overwrite-semantics` and `-ot`/`--overwrite-target` (on both
+`tlsf2ltl` and `tlsf2tlsf`) replace the spec's `SEMANTICS`/`TARGET` from the
+CLI.
 
 By default `tlsf2ltl` prints with the minimal parentheses implied by the
 operator precedence shared by spot/ltl2ba and the TLSF papers (tightest

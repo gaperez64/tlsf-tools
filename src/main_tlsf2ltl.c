@@ -30,12 +30,8 @@
 
 static void usage(const char *prog) {
   fprintf(stderr,
-          "Usage: %s [--relax-semantics] [--safety|--liveness] "
-          "[--parenthesize] [--param N=V]... FILE\n"
-          "  --relax-semantics    emit a non-strict (standard-LTL) formula:\n"
-          "                       a no-op on non-strict specs, and the\n"
-          "                       strict->non-strict translation on strict\n"
-          "                       ones (also: --relax)\n"
+          "Usage: %s [--safety|--liveness] [--parenthesize] [--param N=V]... "
+          "FILE\n"
           "  --safety|--liveness  emit only safety / liveness guarantees\n"
           "  --parenthesize       fully parenthesise the output (default:\n"
           "                       minimal parentheses by operator precedence)\n"
@@ -180,7 +176,6 @@ static int apply_nnf_all(TlsfSpec *spec) {
 int main(int argc, char *argv[]) {
   PrintMode mode = PRINT_ALL;
   bool full_parens = false;
-  bool relax = false;
   const char *os_arg = nullptr;
   const char *ot_arg = nullptr;
   const char *input_file = nullptr;
@@ -208,9 +203,6 @@ int main(int argc, char *argv[]) {
         return 1;
       }
       ot_arg = argv[i];
-    } else if (strcmp(argv[i], "--relax-semantics") == 0 ||
-               strcmp(argv[i], "--relax") == 0) {
-      relax = true;
     } else if (strcmp(argv[i], "--parenthesize") == 0 ||
                strcmp(argv[i], "--parens") == 0) {
       full_parens = true;
@@ -316,7 +308,7 @@ int main(int argc, char *argv[]) {
   }
 
   // --- Emit ---
-  print_ltlxba_spec(stdout, spec, cs, mode, relax, full_parens);
+  print_ltlxba_spec(stdout, spec, cs, mode, full_parens);
 
   spec_free(spec);
   return 0;

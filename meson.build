@@ -234,19 +234,17 @@ test('semantics_sections', check,
   args: [files('test/cases/sections.ltl'),
          tlsf2ltl_exe, files('test/cases/sections.tlsf')])
 
-# --relax-semantics on a strict spec applies the strict->non-strict
-# translation: (PRESET & G ASSERT) W !(INITIALLY & G REQUIRE), plus the
-# liveness implication.
-test('semantics_relax_strict', check,
+# A strict (Strict,*) spec emits the strict weak-until form:
+# (PRESET & G ASSERT) W !(INITIALLY & G REQUIRE), plus the liveness implication.
+test('semantics_strict', check,
   args: [files('test/cases/sections.strict.ltl'),
-         tlsf2ltl_exe, '--relax-semantics',
-         files('test/cases/sections_strict.tlsf')])
-
-# Without the flag a strict spec emits the plain E -> S formula (same as the
-# non-strict spec); --relax is idempotent on non-strict specs.
-test('semantics_strict_default', check,
-  args: [files('test/cases/sections.ltl'),
          tlsf2ltl_exe, files('test/cases/sections_strict.tlsf')])
+
+# Relax a strict spec by overwriting its semantics to non-strict: plain E -> S.
+test('semantics_relax_via_override', check,
+  args: [files('test/cases/sections.ltl'),
+         tlsf2ltl_exe, '-os', 'Mealy',
+         files('test/cases/sections_strict.tlsf')])
 
 # Mealy/Moore conversion when SEMANTICS and TARGET disagree.
 test('semantics_moore_to_mealy', check,
