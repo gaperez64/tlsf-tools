@@ -31,7 +31,9 @@ static int comment_depth = 0;
 %x BLOCK_COMMENT
 
 ALPHA       [a-zA-Z_]
-ALNUM       [a-zA-Z0-9_]
+/* Identifiers may contain primes (syfco's default prime symbol) and @, as in
+ * value' or req@i; they still must start with a letter or underscore. */
+ALNUM       [a-zA-Z0-9_'@]
 DIGIT       [0-9]
 INT         {DIGIT}+
 IDENT       {ALPHA}{ALNUM}*

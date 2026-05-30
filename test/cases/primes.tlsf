@@ -1,0 +1,2 @@
+INFO { TITLE: "primes" DESCRIPTION: "primed signal names" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { req'; } OUTPUTS { grant'; } GUARANTEE { G (req' -> grant'); } }

@@ -226,6 +226,14 @@ test('info_check', check,
 test('err_check_invalid', xfail,
   args: [tlsfinfo_exe, '--check', files('test/cases/bad_syntax.tlsf')])
 
+# Primed (and @) identifiers, e.g. req' / grant'.
+test('primes_inputs', check,
+  args: [files('test/cases/primes.inputs'), tlsfinfo_exe, '--input-signals',
+         files('test/cases/primes.tlsf')])
+test('primes_ltl', check,
+  args: [files('test/cases/primes.ltl'), tlsf2ltl_exe,
+         files('test/cases/primes.tlsf')])
+
 # tlsf2ltl modes: safety / liveness selection and -os/-ot overrides.
 test('ltl_safety', check,
   args: [files('test/cases/arbiter_simple.safety.ltl'),
