@@ -317,7 +317,8 @@ static void cnf_of(const Node *n, bool pos, AtomTab *t, Cnf *out) {
 // Fragment classification & liveness collection
 // ===========================================================================
 
-// 0 = no liveness (init/safety), 1 = liveness (set *live), -1 = not in fragment.
+// 0 = no liveness (init/safety), 1 = liveness (set *live), -1 = not in
+// fragment.
 static int classify_general(const Node *n, const Node **live) {
   if (is_prop(n))
     return 0;
@@ -432,7 +433,7 @@ int gr_level(TlsfSpec *spec) {
       else if ((SECKIND) == 1)                                                 \
         COLLECT(_n, is_sys, classify_general(_n, &_l));                        \
       else                                                                     \
-        COLLECT(_n, is_sys, classify_invariant(spec, _n, &_l));               \
+        COLLECT(_n, is_sys, classify_invariant(spec, _n, &_l));                \
     }                                                                          \
   }
 

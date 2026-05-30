@@ -17,8 +17,8 @@ typedef struct ArenaSlab {
 } ArenaSlab;
 
 struct ArenaSlabArena {
-  ArenaSlab *head;      ///< current (most-recently allocated) slab
-  size_t default_slab;  ///< size used when a new slab is needed
+  ArenaSlab *head;     ///< current (most-recently allocated) slab
+  size_t default_slab; ///< size used when a new slab is needed
 };
 
 // ---------------------------------------------------------------------------

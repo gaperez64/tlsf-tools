@@ -39,8 +39,7 @@ bool formula_list_push(TlsfSpec *s, FormulaList *list, Node *formula) {
   if (list->count == list->capacity) {
     uint32_t new_cap =
         list->capacity ? list->capacity * 2u : FORMULA_LIST_INIT_CAP;
-    Node **new_arr =
-        ARENA_ALLOC_N(s->arena, Node *, (size_t)new_cap);
+    Node **new_arr = ARENA_ALLOC_N(s->arena, Node *, (size_t)new_cap);
     if (!new_arr)
       return false;
     if (list->formulas)
@@ -54,11 +53,11 @@ bool formula_list_push(TlsfSpec *s, FormulaList *list, Node *formula) {
 
 #define LIST_INIT_CAP 8u
 
-bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name,
-                     bool is_bus, Node *lo_expr, Node *hi_expr) {
+bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name, bool is_bus,
+                     Node *lo_expr, Node *hi_expr) {
   SignalDecl **list = is_output ? &s->outputs : &s->inputs;
-  uint32_t *count   = is_output ? &s->output_count : &s->input_count;
-  uint32_t *cap     = is_output ? &s->output_cap : &s->input_cap;
+  uint32_t *count = is_output ? &s->output_count : &s->input_count;
+  uint32_t *cap = is_output ? &s->output_cap : &s->input_cap;
 
   if (*count == *cap) {
     uint32_t new_cap = *cap ? *cap * 2u : LIST_INIT_CAP;
@@ -70,8 +69,10 @@ bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name,
     *list = new_arr;
     *cap = new_cap;
   }
-  SignalDecl d = {.name = name, .is_bus = is_bus,
-                  .bus_lo_expr = lo_expr, .bus_hi_expr = hi_expr};
+  SignalDecl d = {.name = name,
+                  .is_bus = is_bus,
+                  .bus_lo_expr = lo_expr,
+                  .bus_hi_expr = hi_expr};
   // Resolve literal bounds immediately so non-expanding consumers see them.
   if (lo_expr && lo_expr->kind == NODE_INT)
     d.bus_lo = (uint16_t)lo_expr->ival;
@@ -85,8 +86,8 @@ bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name,
 bool spec_add_param(TlsfSpec *s, const char *name, bool has_default,
                     int64_t default_val) {
   if (s->param_count == s->param_cap) {
-    uint16_t new_cap = s->param_cap ? (uint16_t)(s->param_cap * 2u)
-                                    : (uint16_t)LIST_INIT_CAP;
+    uint16_t new_cap =
+        s->param_cap ? (uint16_t)(s->param_cap * 2u) : (uint16_t)LIST_INIT_CAP;
     ParamDecl *new_arr = ARENA_ALLOC_N(s->arena, ParamDecl, (size_t)new_cap);
     if (!new_arr)
       return false;
@@ -115,10 +116,8 @@ bool spec_add_def(TlsfSpec *s, const char *name, const char **params,
     s->defs = new_arr;
     s->def_cap = new_cap;
   }
-  s->defs[s->def_count++] = (DefDecl){.name = name,
-                                      .params = params,
-                                      .param_count = param_count,
-                                      .body = body};
+  s->defs[s->def_count++] = (DefDecl){
+      .name = name, .params = params, .param_count = param_count, .body = body};
   return true;
 }
 

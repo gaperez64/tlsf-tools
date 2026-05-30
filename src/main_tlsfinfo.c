@@ -37,12 +37,18 @@
 
 static const char *semantics_str(Semantics s) {
   switch (s) {
-  case SEM_MEALY:        return "Mealy";
-  case SEM_MOORE:        return "Moore";
-  case SEM_MEALY_STRICT: return "Strict,Mealy";
-  case SEM_MOORE_STRICT: return "Strict,Moore";
-  case SEM_MEALY_FINITE: return "Finite,Mealy";
-  case SEM_MOORE_FINITE: return "Finite,Moore";
+  case SEM_MEALY:
+    return "Mealy";
+  case SEM_MOORE:
+    return "Moore";
+  case SEM_MEALY_STRICT:
+    return "Strict,Mealy";
+  case SEM_MOORE_STRICT:
+    return "Strict,Moore";
+  case SEM_MEALY_FINITE:
+    return "Finite,Mealy";
+  case SEM_MOORE_FINITE:
+    return "Finite,Moore";
   }
   return "Mealy";
 }

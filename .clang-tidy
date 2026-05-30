@@ -1,0 +1,18 @@
+# Static analysis for the hand-written sources only. The flex/bison-generated
+# tlsf_lex.* / tlsf_parse.* live in the build dir and are excluded by
+# HeaderFilterRegex (which only matches our own headers).
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  performance-*,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-isolate-declaration,
+  -bugprone-easily-swappable-parameters,
+  -cert-err33-c
+
+HeaderFilterRegex: 'include/tlsf/.*\.h$'
+WarningsAsErrors: ''

@@ -67,10 +67,10 @@ typedef enum NodeKind {
   NODE_SIZEOF,  ///< SIZEOF bus — bus width (hi-lo+1), resolved during expand
 
   // -- Set expressions (pre-expansion) --
-  NODE_SET,          ///< { e, e, ... }  — set literal (children = elements)
-  NODE_SET_ENUM,     ///< set comprehension: { x : range }
-  NODE_FORALL,       ///< bounded big-conjunction  &&[lo <|<= v <|<= hi] body
-  NODE_EXISTS,       ///< bounded big-disjunction   ||[lo <|<= v <|<= hi] body
+  NODE_SET,      ///< { e, e, ... }  — set literal (children = elements)
+  NODE_SET_ENUM, ///< set comprehension: { x : range }
+  NODE_FORALL,   ///< bounded big-conjunction  &&[lo <|<= v <|<= hi] body
+  NODE_EXISTS,   ///< bounded big-disjunction   ||[lo <|<= v <|<= hi] body
 
   NODE_KIND_COUNT, ///< sentinel — keep last
 } NodeKind;

@@ -149,13 +149,13 @@ static void adapt_mealy_moore(TlsfSpec *spec) {
 static int apply_nnf_all(TlsfSpec *spec) {
 #define NNF_LIST(list)                                                         \
   do {                                                                         \
-    for (uint32_t _i = 0; _i < (list).count; _i++) {                          \
-      Node *_n = to_nnf(spec->arena, (list).formulas[_i], true);              \
+    for (uint32_t _i = 0; _i < (list).count; _i++) {                           \
+      Node *_n = to_nnf(spec->arena, (list).formulas[_i], true);               \
       if (!_n) {                                                               \
-        fprintf(stderr, "tlsf2ltl: NNF transform failed (OOM)\n");            \
+        fprintf(stderr, "tlsf2ltl: NNF transform failed (OOM)\n");             \
         return -1;                                                             \
       }                                                                        \
-      (list).formulas[_i] = _n;                                               \
+      (list).formulas[_i] = _n;                                                \
     }                                                                          \
   } while (0)
 

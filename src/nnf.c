@@ -63,13 +63,11 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
     Node *psi_neg = to_nnf(a, n->rhs, false);
     if (polarity) {
       // (¬φ ∨ ψ) ∧ (¬ψ ∨ φ)
-      return node_and(a,
-                      node_or(a, phi_neg, psi_pos),
+      return node_and(a, node_or(a, phi_neg, psi_pos),
                       node_or(a, psi_neg, phi_pos));
     } else {
       // (φ ∧ ¬ψ) ∨ (ψ ∧ ¬φ)
-      return node_or(a,
-                     node_and(a, phi_pos, psi_neg),
+      return node_or(a, node_and(a, phi_pos, psi_neg),
                      node_and(a, psi_pos, phi_neg));
     }
   }

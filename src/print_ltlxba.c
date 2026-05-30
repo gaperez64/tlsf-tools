@@ -87,28 +87,58 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full,
     fputc('(', out);
 
   switch (n->kind) {
-  case NODE_TRUE:  fprintf(out, "true");  break;
-  case NODE_FALSE: fprintf(out, "false"); break;
-  case NODE_AP:    fprintf(out, "%s", n->name); break;
+  case NODE_TRUE:
+    fprintf(out, "true");
+    break;
+  case NODE_FALSE:
+    fprintf(out, "false");
+    break;
+  case NODE_AP:
+    fprintf(out, "%s", n->name);
+    break;
 
-  case NODE_NOT:      emit_unary(out, "!", n->arg, full, finite); break;
-  case NODE_X:        emit_unary(out, "X ", n->arg, full, finite); break;
+  case NODE_NOT:
+    emit_unary(out, "!", n->arg, full, finite);
+    break;
+  case NODE_X:
+    emit_unary(out, "X ", n->arg, full, finite);
+    break;
   // Strong next: X[!] under finite-word semantics, plain X otherwise (the two
   // agree on infinite words).
   case NODE_X_STRONG:
     emit_unary(out, finite ? "X[!] " : "X ", n->arg, full, finite);
     break;
-  case NODE_F:        emit_unary(out, "F ", n->arg, full, finite); break;
-  case NODE_G:        emit_unary(out, "G ", n->arg, full, finite); break;
+  case NODE_F:
+    emit_unary(out, "F ", n->arg, full, finite);
+    break;
+  case NODE_G:
+    emit_unary(out, "G ", n->arg, full, finite);
+    break;
 
-  case NODE_AND:   emit_binary(out, n, " && ",  3, true,  full, finite); break;
-  case NODE_OR:    emit_binary(out, n, " || ",  2, true,  full, finite); break;
-  case NODE_IMPL:  emit_binary(out, n, " -> ",  1, false, full, finite); break;
-  case NODE_EQUIV: emit_binary(out, n, " <-> ", 1, false, full, finite); break;
-  case NODE_U:     emit_binary(out, n, " U ",   4, false, full, finite); break;
-  case NODE_R:     emit_binary(out, n, " R ",   4, false, full, finite); break;
-  case NODE_W:     emit_binary(out, n, " W ",   4, false, full, finite); break;
-  case NODE_M:     emit_binary(out, n, " M ",   4, false, full, finite); break;
+  case NODE_AND:
+    emit_binary(out, n, " && ", 3, true, full, finite);
+    break;
+  case NODE_OR:
+    emit_binary(out, n, " || ", 2, true, full, finite);
+    break;
+  case NODE_IMPL:
+    emit_binary(out, n, " -> ", 1, false, full, finite);
+    break;
+  case NODE_EQUIV:
+    emit_binary(out, n, " <-> ", 1, false, full, finite);
+    break;
+  case NODE_U:
+    emit_binary(out, n, " U ", 4, false, full, finite);
+    break;
+  case NODE_R:
+    emit_binary(out, n, " R ", 4, false, full, finite);
+    break;
+  case NODE_W:
+    emit_binary(out, n, " W ", 4, false, full, finite);
+    break;
+  case NODE_M:
+    emit_binary(out, n, " M ", 4, false, full, finite);
+    break;
 
   default:
     assert(false && "print_ltlxba: unexpected node kind");

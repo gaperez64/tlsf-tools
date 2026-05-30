@@ -27,7 +27,7 @@
 
 /// A single parameter override: name=value pair.
 typedef struct {
-  const char *name;  ///< parameter name (need not be interned)
+  const char *name; ///< parameter name (need not be interned)
   int64_t value;
 } ParamOverride;
 
@@ -37,8 +37,7 @@ typedef struct {
 /// @param overrides  Array of parameter overrides (may be nullptr).
 /// @param n_overrides  Length of overrides array.
 /// @returns 0 on success, -1 on failure.
-[[nodiscard]] int expand(TlsfSpec *spec,
-                          const ParamOverride *overrides,
-                          size_t n_overrides);
+[[nodiscard]] int expand(TlsfSpec *spec, const ParamOverride *overrides,
+                         size_t n_overrides);
 
 #endif // TLSF_EXPAND_H

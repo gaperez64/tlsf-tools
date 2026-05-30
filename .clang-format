@@ -1,0 +1,8 @@
+# LLVM style, matching the existing code (2-space indent, 80 columns).
+BasedOnStyle: LLVM
+Language: Cpp
+ColumnLimit: 80
+IndentWidth: 2
+# The generated parser header must be included before the lexer header, so
+# don't let clang-format reorder includes.
+SortIncludes: false

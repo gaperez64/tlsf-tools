@@ -25,17 +25,17 @@
 // ---------------------------------------------------------------------------
 
 typedef enum Semantics {
-  SEM_MEALY,            ///< standard Mealy semantics
-  SEM_MOORE,            ///< standard Moore semantics
-  SEM_MEALY_STRICT,     ///< strict implication, Mealy
-  SEM_MOORE_STRICT,     ///< strict implication, Moore
-  SEM_MEALY_FINITE,     ///< LTLf, Mealy
-  SEM_MOORE_FINITE,     ///< LTLf, Moore
+  SEM_MEALY,        ///< standard Mealy semantics
+  SEM_MOORE,        ///< standard Moore semantics
+  SEM_MEALY_STRICT, ///< strict implication, Mealy
+  SEM_MOORE_STRICT, ///< strict implication, Moore
+  SEM_MEALY_FINITE, ///< LTLf, Mealy
+  SEM_MOORE_FINITE, ///< LTLf, Moore
 } Semantics;
 
 typedef enum Target {
-  TARGET_MEALY,         ///< synthesise a Mealy machine
-  TARGET_MOORE,         ///< synthesise a Moore machine
+  TARGET_MEALY, ///< synthesise a Mealy machine
+  TARGET_MOORE, ///< synthesise a Moore machine
 } Target;
 
 /// True for the Moore-family semantics (Moore / Strict,Moore / Finite,Moore).
@@ -73,17 +73,17 @@ typedef struct {
 // ---------------------------------------------------------------------------
 
 typedef struct {
-  const char *name;   ///< interned parameter name
-  int64_t value;      ///< resolved integer value (set during expand())
-  int64_t default_val;///< default value from spec
+  const char *name;    ///< interned parameter name
+  int64_t value;       ///< resolved integer value (set during expand())
+  int64_t default_val; ///< default value from spec
   bool has_default;
 } ParamDecl;
 
 typedef struct {
-  const char *name;     ///< interned definition name
-  const char **params;  ///< interned parameter names (may be nullptr)
+  const char *name;    ///< interned definition name
+  const char **params; ///< interned parameter names (may be nullptr)
   uint16_t param_count;
-  Node *body;           ///< formula body (pre-expansion)
+  Node *body; ///< formula body (pre-expansion)
 } DefDecl;
 
 // ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ typedef struct {
 // ---------------------------------------------------------------------------
 
 typedef struct {
-  Node **formulas;   ///< arena-allocated array of formula pointers
+  Node **formulas; ///< arena-allocated array of formula pointers
   uint32_t count;
   uint32_t capacity; ///< allocated slots (internal, not serialised)
 } FormulaList;
@@ -101,11 +101,11 @@ typedef struct {
 // ---------------------------------------------------------------------------
 
 typedef struct {
-  const char *title;       ///< may be nullptr
-  const char *description; ///< may be nullptr
+  const char *title;         ///< may be nullptr
+  const char *description;   ///< may be nullptr
   const char *semantics_str; ///< raw string from spec (for round-trip)
   const char *target_str;
-  const char **tags;       ///< arena-allocated array of interned tag strings
+  const char **tags; ///< arena-allocated array of interned tag strings
   uint16_t tag_count;
   Semantics semantics;
   Target target;
@@ -152,8 +152,8 @@ typedef struct {
   uint16_t param_cap;
   uint16_t def_cap;
   uint16_t tag_cap;
-  FormulaList *cur_list;  ///< formula subsection currently being parsed
-  bool cur_is_output;     ///< true while inside an OUTPUTS subsection
+  FormulaList *cur_list; ///< formula subsection currently being parsed
+  bool cur_is_output;    ///< true while inside an OUTPUTS subsection
 } TlsfSpec;
 
 // ---------------------------------------------------------------------------

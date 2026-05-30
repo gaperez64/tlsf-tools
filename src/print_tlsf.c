@@ -10,75 +10,148 @@
 static void print_formula(FILE *out, const Node *n) {
   assert(n);
   switch (n->kind) {
-  case NODE_TRUE:  fprintf(out, "true");  return;
-  case NODE_FALSE: fprintf(out, "false"); return;
-  case NODE_AP:    fprintf(out, "%s", n->name); return;
+  case NODE_TRUE:
+    fprintf(out, "true");
+    return;
+  case NODE_FALSE:
+    fprintf(out, "false");
+    return;
+  case NODE_AP:
+    fprintf(out, "%s", n->name);
+    return;
 
   case NODE_NOT:
-    fprintf(out, "!("); print_formula(out, n->arg); fprintf(out, ")");
+    fprintf(out, "!(");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
     return;
   case NODE_AND:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " && "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " && ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_OR:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " || "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " || ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_IMPL:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " -> "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " -> ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_EQUIV:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " <-> "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " <-> ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
 
-  case NODE_X:       fprintf(out, "X ("); print_formula(out, n->arg); fprintf(out, ")"); return;
-  case NODE_X_STRONG:fprintf(out, "X[!] ("); print_formula(out, n->arg); fprintf(out, ")"); return;
-  case NODE_F:       fprintf(out, "F ("); print_formula(out, n->arg); fprintf(out, ")"); return;
-  case NODE_G:       fprintf(out, "G ("); print_formula(out, n->arg); fprintf(out, ")"); return;
+  case NODE_X:
+    fprintf(out, "X (");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
+    return;
+  case NODE_X_STRONG:
+    fprintf(out, "X[!] (");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
+    return;
+  case NODE_F:
+    fprintf(out, "F (");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
+    return;
+  case NODE_G:
+    fprintf(out, "G (");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
+    return;
 
   case NODE_U:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " U "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " U ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_R:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " R "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " R ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_W:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " W "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " W ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_M:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " M "); print_formula(out, n->rhs);
-    fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " M ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
 
   // -- High-level nodes (present when the GLOBAL section is preserved, i.e.
   //    when re-emitting without full expansion) --
   case NODE_INT:
-    fprintf(out, "%lld", (long long)n->ival); return;
+    fprintf(out, "%lld", (long long)n->ival);
+    return;
   case NODE_INT_VAR:
-    fprintf(out, "%s", n->name); return;
+    fprintf(out, "%s", n->name);
+    return;
   case NODE_INT_ADD:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " + "); print_formula(out, n->rhs); fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " + ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_INT_SUB:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " - "); print_formula(out, n->rhs); fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " - ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_INT_MUL:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " * "); print_formula(out, n->rhs); fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " * ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_INT_DIV:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " / "); print_formula(out, n->rhs); fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " / ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_INT_MOD:
-    fprintf(out, "("); print_formula(out, n->lhs);
-    fprintf(out, " %% "); print_formula(out, n->rhs); fprintf(out, ")"); return;
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " %% ");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
   case NODE_INT_NEG:
-    fprintf(out, "(- "); print_formula(out, n->arg); fprintf(out, ")"); return;
+    fprintf(out, "(- ");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
+    return;
 
   case NODE_SIZEOF:
     fprintf(out, "SIZEOF %s", n->sizeof_name);
@@ -104,7 +177,8 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_DEF_CALL:
     fprintf(out, "%s(", n->callee);
     for (uint16_t i = 0; i < n->call_argc; i++) {
-      if (i > 0) fprintf(out, ", ");
+      if (i > 0)
+        fprintf(out, ", ");
       print_formula(out, n->call_args[i]);
     }
     fprintf(out, ")");
@@ -143,7 +217,7 @@ static void print_signal_list(FILE *out, const char *subsection,
 }
 
 static void print_formula_list(FILE *out, const FormulaList *list,
-                                const char *subsection) {
+                               const char *subsection) {
   if (list->count == 0)
     return;
   fprintf(out, "    %s {\n", subsection);
@@ -161,12 +235,18 @@ static void print_formula_list(FILE *out, const FormulaList *list,
 
 static const char *semantics_str(Semantics s) {
   switch (s) {
-  case SEM_MEALY:        return "Mealy";
-  case SEM_MOORE:        return "Moore";
-  case SEM_MEALY_STRICT: return "Strict,Mealy";
-  case SEM_MOORE_STRICT: return "Strict,Moore";
-  case SEM_MEALY_FINITE: return "Finite,Mealy";
-  case SEM_MOORE_FINITE: return "Finite,Moore";
+  case SEM_MEALY:
+    return "Mealy";
+  case SEM_MOORE:
+    return "Moore";
+  case SEM_MEALY_STRICT:
+    return "Strict,Mealy";
+  case SEM_MOORE_STRICT:
+    return "Strict,Moore";
+  case SEM_MEALY_FINITE:
+    return "Finite,Mealy";
+  case SEM_MOORE_FINITE:
+    return "Finite,Moore";
   }
   return "Mealy";
 }
@@ -212,7 +292,8 @@ static void print_global(FILE *out, const TlsfSpec *spec) {
       if (d->param_count > 0) {
         fprintf(out, "(");
         for (uint16_t j = 0; j < d->param_count; j++) {
-          if (j > 0) fprintf(out, ", ");
+          if (j > 0)
+            fprintf(out, ", ");
           fprintf(out, "%s", d->params[j]);
         }
         fprintf(out, ")");
@@ -242,7 +323,8 @@ void print_tlsf(FILE *out, const TlsfSpec *spec, bool include_global) {
   if (spec->info.tag_count > 0) {
     fprintf(out, "  TAGS:        ");
     for (uint16_t i = 0; i < spec->info.tag_count; i++) {
-      if (i > 0) fprintf(out, ", ");
+      if (i > 0)
+        fprintf(out, ", ");
       fprintf(out, "\"%s\"", spec->info.tags[i]);
     }
     fprintf(out, ";\n");
@@ -262,10 +344,10 @@ void print_tlsf(FILE *out, const TlsfSpec *spec, bool include_global) {
 
   // Formula subsections
   print_formula_list(out, &spec->initially, "INITIALLY");
-  print_formula_list(out, &spec->preset,    "PRESET");
-  print_formula_list(out, &spec->require,   "REQUIRE");
-  print_formula_list(out, &spec->assert_,   "ASSERT");
-  print_formula_list(out, &spec->assume,    "ASSUME");
+  print_formula_list(out, &spec->preset, "PRESET");
+  print_formula_list(out, &spec->require, "REQUIRE");
+  print_formula_list(out, &spec->assert_, "ASSERT");
+  print_formula_list(out, &spec->assume, "ASSUME");
   print_formula_list(out, &spec->guarantee, "GUARANTEE");
 
   fprintf(out, "}\n");

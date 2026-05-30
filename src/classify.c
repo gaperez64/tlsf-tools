@@ -63,7 +63,7 @@ FormulaClass classify_formula(const Node *n) {
 // ---------------------------------------------------------------------------
 
 static bool fill_classified(TlsfSpec *spec, FormulaList *src,
-                             ClassifiedFormula **out, uint32_t *count) {
+                            ClassifiedFormula **out, uint32_t *count) {
   if (src->count == 0) {
     *out = nullptr;
     *count = 0;
@@ -93,11 +93,10 @@ ClassifiedSpec *classify_spec(TlsfSpec *spec) {
     return nullptr;
 
   if (!fill_classified(spec, &spec->guarantee, &cs->guarantees,
-                        &cs->guarantee_count))
+                       &cs->guarantee_count))
     return nullptr;
 
-  if (!fill_classified(spec, &spec->assert_, &cs->asserts,
-                        &cs->assert_count))
+  if (!fill_classified(spec, &spec->assert_, &cs->asserts, &cs->assert_count))
     return nullptr;
 
   // Environment subsections: just alias the pointer arrays.
