@@ -1,0 +1,4 @@
+INFO { TITLE: "gr4" DESCRIPTION: "GR(4) Rabin" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { a; } OUTPUTS { p; q; r; }
+  GUARANTEE { (F G a) <-> (G F p || (G F q && ! G F r)); }
+}

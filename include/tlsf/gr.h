@@ -22,8 +22,13 @@
 
 #include "tlsf/spec.h"
 
-/// GR fragment level: 0 for GR(0) (safety only), 1 for GR(1) (with justice),
+/// Generalized Reactivity level: 0 for GR(0) (safety only), k >= 1 for GR(k),
 /// or -1 if the spec is not in the GR fragment.
-int gr_level(const TlsfSpec *spec);
+///
+/// k is the number of distinct antecedents in the CNF of the liveness
+/// implication (⋀ assumption GF/FG) -> (⋀ guarantee GF/FG), over the GF
+/// literals (FG x is treated as ¬GF¬x); the antecedent of a clause is the set
+/// of GF literals occurring negatively in it.
+int gr_level(TlsfSpec *spec);
 
 #endif // TLSF_GR_H

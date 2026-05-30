@@ -3,30 +3,24 @@
 // ===========================================================================
 // Generalized Reactivity GR(k) recognition.
 //
-// A spec is in the GR fragment when every section conjunct is one of:
-//   - init      θ : a propositional formula;
-//   - safety    G ρ : G of a transition predicate (Boolean over current and
-//                     single-next signal values);
-//   - justice   G F J : "infinitely often" a Boolean; or
-//   - a Streett pair  (⋀ G F P) -> (⋀ G F Q)  /  (⋀ G F P) <-> (⋀ G F Q)
-//     on the system (guarantee) side.
+// Every section conjunct must be one of: an initial condition (propositional),
+// a safety invariant (G of a transition predicate), or a liveness condition (a
+// Boolean combination of G F / F G literals).  The level k is the number of
+// distinct antecedents in the CNF of the liveness implication
 //
-// The level k is the number of *distinct* effective antecedent sets among the
-// system liveness conjuncts, where the effective antecedent of a conjunct is
-// (the global assumption justices) ∪ (its own G F antecedents); a plain
-// justice has the global assumptions as its antecedent.  k = 0 (GR(0)) when
-// there is no system liveness at all.  Returns -1 outside the fragment.
+//     (⋀ assumption liveness)  ->  (⋀ guarantee liveness)
+//
+// over the GF literals, where F G x is treated as ¬G F ¬x.  The antecedent of
+// a CNF clause is the set of GF literals occurring negatively in it; k counts
+// the distinct antecedent sets.  k = 0 means GR(0) (no liveness).  Returns -1
+// outside the fragment (or if the analysis overflows its fixed limits).
 // ===========================================================================
 
-#define GR_MAX 64
-
-typedef struct {
-  const Node *items[GR_MAX];
-  int count;
-} GFSet;
+#define GR_ATOMS 64
+#define GR_CLAUSES 256
 
 // ---------------------------------------------------------------------------
-// Structural formula equality (atoms are interned, so compared by pointer)
+// Structural equality, propositional / transition tests
 // ---------------------------------------------------------------------------
 
 static bool node_eq(const Node *a, const Node *b) {
@@ -61,10 +55,6 @@ static bool node_eq(const Node *a, const Node *b) {
     return false;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Boolean / transition tests
-// ---------------------------------------------------------------------------
 
 static bool is_prop(const Node *n) {
   switch (n->kind) {
@@ -105,209 +95,350 @@ static bool is_trans(const Node *n) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// GF-set helpers
-// ---------------------------------------------------------------------------
-
-// If n is `G F b`, return b; otherwise nullptr.
-static const Node *as_justice(const Node *n) {
+// G F m or F G m (with m a transition predicate)?
+static bool is_livelit_shape(const Node *n) {
   if (n->kind == NODE_G && n->arg->kind == NODE_F)
-    return n->arg->arg;
-  return nullptr;
-}
-
-static bool gfset_add(GFSet *s, const Node *inner) {
-  for (int i = 0; i < s->count; i++)
-    if (node_eq(s->items[i], inner))
-      return true; // already present
-  if (s->count >= GR_MAX)
-    return false;
-  s->items[s->count++] = inner;
-  return true;
-}
-
-// Collect the inner formulas of a conjunction of justice conditions
-// (G F b1 ∧ G F b2 ∧ ...) into `dst`.  Returns false if any leaf is not a
-// justice condition.
-static bool collect_justice_conj(const Node *n, GFSet *dst) {
-  if (n->kind == NODE_AND)
-    return collect_justice_conj(n->lhs, dst) &&
-           collect_justice_conj(n->rhs, dst);
-  const Node *inner = as_justice(n);
-  if (!inner || !is_trans(inner))
-    return false;
-  return gfset_add(dst, inner);
-}
-
-static bool gfset_eq(const GFSet *a, const GFSet *b) {
-  if (a->count != b->count)
-    return false;
-  for (int i = 0; i < a->count; i++) {
-    bool found = false;
-    for (int j = 0; j < b->count && !found; j++)
-      found = node_eq(a->items[i], b->items[j]);
-    if (!found)
-      return false;
-  }
-  return true;
-}
-
-// ===========================================================================
-// Analysis
-// ===========================================================================
-
-typedef struct {
-  GFSet global;          // assumption justices (A_global)
-  GFSet antecedents[GR_MAX]; // distinct system antecedent sets
-  int n_antecedents;
-  bool overflow;
-} GrCtx;
-
-static void add_antecedent(GrCtx *c, const GFSet *ant) {
-  for (int i = 0; i < c->n_antecedents; i++)
-    if (gfset_eq(&c->antecedents[i], ant))
-      return;
-  if (c->n_antecedents >= GR_MAX) {
-    c->overflow = true;
-    return;
-  }
-  c->antecedents[c->n_antecedents++] = *ant;
-}
-
-// Effective antecedent set = global ∪ extra.
-static GFSet effective(const GrCtx *c, const GFSet *extra) {
-  GFSet s = c->global;
-  if (extra)
-    for (int i = 0; i < extra->count; i++)
-      gfset_add(&s, extra->items[i]);
-  return s;
-}
-
-// Process one assumption-side conjunct (no implicit G).  Adds justices to the
-// global set.  Returns false outside the fragment.
-static bool assume_conjunct(GrCtx *c, const Node *n) {
-  if (is_prop(n))
-    return true; // initial
-  if (n->kind == NODE_G) {
-    const Node *inner = as_justice(n);
-    if (inner && is_trans(inner))
-      return gfset_add(&c->global, inner); // G F b
-    if (is_trans(n->arg))
-      return true; // G ρ safety
-  }
+    return is_trans(n->arg->arg);
+  if (n->kind == NODE_F && n->arg->kind == NODE_G)
+    return is_trans(n->arg->arg);
   return false;
 }
 
-// Process one invariant conjunct (REQUIRE/ASSERT): the formula n stands for
-// G n.  `system` selects whether a justice is a system consequent or a global
-// assumption.
-static bool invariant_conjunct(GrCtx *c, const Node *n, bool system) {
-  if (is_trans(n))
-    return true; // G(transition) safety
-
-  const Node *just = nullptr;
-  if (n->kind == NODE_F && is_trans(n->arg)) {
-    just = n->arg; // G F b  (from F b under the implicit G)
-  } else if (n->kind == NODE_G) {
-    const Node *gj = as_justice(n); // n written as G(F b)
-    if (gj && is_trans(gj))
-      just = gj;
-    else if (is_trans(n->arg))
-      return true; // G(transition) safety
-    else
-      return false;
-  }
-
-  if (!just)
+// A Boolean combination whose leaves are all GF/FG literals (or true/false).
+static bool is_live_combo(const Node *n) {
+  if (is_livelit_shape(n))
+    return true;
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+    return true;
+  case NODE_NOT:
+    return is_live_combo(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return is_live_combo(n->lhs) && is_live_combo(n->rhs);
+  default:
     return false;
-  if (system) {
-    GFSet ant = effective(c, nullptr);
-    add_antecedent(c, &ant);
-  } else {
-    return gfset_add(&c->global, just);
   }
-  return true;
 }
 
-// Process one system (guarantee) conjunct.  Returns false outside fragment.
-static bool guarantee_conjunct(GrCtx *c, const Node *n) {
-  if (is_prop(n))
-    return true; // initial
-  if (n->kind == NODE_G) {
-    const Node *inner = as_justice(n);
-    if (inner && is_trans(inner)) {
-      GFSet ant = effective(c, nullptr); // plain justice
-      add_antecedent(c, &ant);
-      return true;
-    }
-    if (is_trans(n->arg))
-      return true; // safety
-    return false;
+// ---------------------------------------------------------------------------
+// Atom table: each atom is GF(base) or GF(!base)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+  const Node *base;
+  bool ineg; // the atom is GF(!base) when true
+} Atom;
+
+typedef struct {
+  Atom atoms[GR_ATOMS];
+  int n;
+  bool overflow;
+} AtomTab;
+
+static int atom_index(AtomTab *t, const Node *base, bool ineg) {
+  for (int i = 0; i < t->n; i++)
+    if (t->atoms[i].ineg == ineg && node_eq(t->atoms[i].base, base))
+      return i;
+  if (t->n >= GR_ATOMS) {
+    t->overflow = true;
+    return -1;
   }
-  if (n->kind == NODE_IMPL || n->kind == NODE_EQUIV) {
-    GFSet lhs = {0}, rhs = {0};
-    if (!collect_justice_conj(n->lhs, &lhs) ||
-        !collect_justice_conj(n->rhs, &rhs))
+  t->atoms[t->n] = (Atom){base, ineg};
+  return t->n++;
+}
+
+// If n is a GF/FG literal, set *idx to its atom and *lneg to whether the
+// literal is negated (true for F G, which is ¬GF¬).  Returns false otherwise.
+static bool literal(const Node *n, AtomTab *t, int *idx, bool *lneg) {
+  if (n->kind == NODE_G && n->arg->kind == NODE_F) {
+    const Node *m = n->arg->arg; // GF m
+    if (!is_trans(m))
       return false;
-    GFSet a1 = effective(c, &lhs);
-    add_antecedent(c, &a1);
-    if (n->kind == NODE_EQUIV) {
-      GFSet a2 = effective(c, &rhs); // both directions
-      add_antecedent(c, &a2);
-    }
+    if (m->kind == NODE_NOT)
+      *idx = atom_index(t, m->arg, true);
+    else
+      *idx = atom_index(t, m, false);
+    *lneg = false;
+    return true;
+  }
+  if (n->kind == NODE_F && n->arg->kind == NODE_G) {
+    const Node *m = n->arg->arg; // FG m = ¬GF¬m
+    if (!is_trans(m))
+      return false;
+    if (m->kind == NODE_NOT)
+      *idx = atom_index(t, m->arg, false); // GF(¬¬x)=GF x
+    else
+      *idx = atom_index(t, m, true); // GF(¬m)
+    *lneg = true;
     return true;
   }
   return false;
 }
 
 // ---------------------------------------------------------------------------
+// CNF over the atoms, clauses as (positive, negative) bitmasks
+// ---------------------------------------------------------------------------
 
-// Apply `fn` to each conjunct of a formula (flattening top-level ∧).
-static bool each_conjunct(const Node *n, GrCtx *c,
-                          bool (*fn)(GrCtx *, const Node *)) {
-  if (n->kind == NODE_AND)
-    return each_conjunct(n->lhs, c, fn) && each_conjunct(n->rhs, c, fn);
-  return fn(c, n);
+typedef struct {
+  uint64_t pos, neg;
+} Clause;
+
+typedef struct {
+  Clause cl[GR_CLAUSES];
+  int n;
+  bool overflow;
+} Cnf;
+
+static void cnf_true(Cnf *c) {
+  c->n = 0;
+  c->overflow = false;
 }
 
-// Conjunct wrappers (the function-pointer signature is GrCtx*, const Node*).
-static bool require_conjunct(GrCtx *c, const Node *n) {
-  return invariant_conjunct(c, n, /*system=*/false);
-}
-static bool assert_conjunct(GrCtx *c, const Node *n) {
-  return invariant_conjunct(c, n, /*system=*/true);
-}
-static bool initial_conjunct(GrCtx *c, const Node *n) {
-  (void)c;
-  return is_prop(n);
-}
-
-static bool process_list(const FormulaList *l, GrCtx *c,
-                         bool (*fn)(GrCtx *, const Node *)) {
-  for (uint32_t i = 0; i < l->count; i++)
-    if (!each_conjunct(l->formulas[i], c, fn))
-      return false;
-  return true;
+static void cnf_add(Cnf *c, Clause k) {
+  if (k.pos & k.neg)
+    return; // tautology
+  for (int i = 0; i < c->n; i++)
+    if (c->cl[i].pos == k.pos && c->cl[i].neg == k.neg)
+      return; // duplicate
+  if (c->n >= GR_CLAUSES) {
+    c->overflow = true;
+    return;
+  }
+  c->cl[c->n++] = k;
 }
 
-int gr_level(const TlsfSpec *spec) {
-  GrCtx c = {0};
+static void cnf_false(Cnf *c) {
+  cnf_true(c);
+  cnf_add(c, (Clause){0, 0});
+}
 
-  // Pass 1: assumption side — collect the global justices and validate.
-  if (!process_list(&spec->initially, &c, initial_conjunct) ||
-      !process_list(&spec->assume, &c, assume_conjunct) ||
-      !process_list(&spec->require, &c, require_conjunct))
+// dst = a ∧ b
+static void cnf_and(Cnf *dst, const Cnf *a, const Cnf *b) {
+  cnf_true(dst);
+  for (int i = 0; i < a->n; i++)
+    cnf_add(dst, a->cl[i]);
+  for (int i = 0; i < b->n; i++)
+    cnf_add(dst, b->cl[i]);
+  if (a->overflow || b->overflow)
+    dst->overflow = true;
+}
+
+// dst = a ∨ b  (distribution)
+static void cnf_or(Cnf *dst, const Cnf *a, const Cnf *b) {
+  cnf_true(dst);
+  for (int i = 0; i < a->n; i++)
+    for (int j = 0; j < b->n; j++)
+      cnf_add(dst, (Clause){a->cl[i].pos | b->cl[j].pos,
+                            a->cl[i].neg | b->cl[j].neg});
+  if (a->overflow || b->overflow)
+    dst->overflow = true;
+}
+
+// CNF of `n` under polarity `pos` (n is a Boolean combination of GF/FG).
+static void cnf_of(const Node *n, bool pos, AtomTab *t, Cnf *out) {
+  int idx;
+  bool lneg;
+  if (literal(n, t, &idx, &lneg)) {
+    cnf_true(out);
+    if (idx < 0) {
+      out->overflow = true;
+      return;
+    }
+    bool neg = lneg ^ !pos;
+    cnf_add(out, neg ? (Clause){0, 1ull << idx} : (Clause){1ull << idx, 0});
+    return;
+  }
+
+  switch (n->kind) {
+  case NODE_TRUE:
+    pos ? cnf_true(out) : cnf_false(out);
+    return;
+  case NODE_FALSE:
+    pos ? cnf_false(out) : cnf_true(out);
+    return;
+  case NODE_NOT:
+    cnf_of(n->arg, !pos, t, out);
+    return;
+  case NODE_AND: {
+    Cnf l, r;
+    cnf_of(n->lhs, pos, t, &l);
+    cnf_of(n->rhs, pos, t, &r);
+    pos ? cnf_and(out, &l, &r) : cnf_or(out, &l, &r);
+    return;
+  }
+  case NODE_OR: {
+    Cnf l, r;
+    cnf_of(n->lhs, pos, t, &l);
+    cnf_of(n->rhs, pos, t, &r);
+    pos ? cnf_or(out, &l, &r) : cnf_and(out, &l, &r);
+    return;
+  }
+  case NODE_IMPL: { // a -> b  ==  ¬a ∨ b
+    Cnf l, r;
+    cnf_of(n->lhs, !pos, t, &l);
+    cnf_of(n->rhs, pos, t, &r);
+    pos ? cnf_or(out, &l, &r) : cnf_and(out, &l, &r);
+    return;
+  }
+  case NODE_EQUIV: {
+    // pos: (¬a∨b) ∧ (¬b∨a);  neg: (a∧¬b) ∨ (¬a∧b)
+    Cnf a0, a1, b0, b1, c1, c2;
+    if (pos) {
+      cnf_of(n->lhs, false, t, &a0);
+      cnf_of(n->rhs, true, t, &b1);
+      cnf_or(&c1, &a0, &b1);
+      cnf_of(n->rhs, false, t, &b0);
+      cnf_of(n->lhs, true, t, &a1);
+      cnf_or(&c2, &b0, &a1);
+      cnf_and(out, &c1, &c2);
+    } else {
+      cnf_of(n->lhs, true, t, &a1);
+      cnf_of(n->rhs, false, t, &b0);
+      cnf_and(&c1, &a1, &b0);
+      cnf_of(n->lhs, false, t, &a0);
+      cnf_of(n->rhs, true, t, &b1);
+      cnf_and(&c2, &a0, &b1);
+      cnf_or(out, &c1, &c2);
+    }
+    return;
+  }
+  default:
+    cnf_true(out);
+    out->overflow = true;
+    return;
+  }
+}
+
+// ===========================================================================
+// Fragment classification & liveness collection
+// ===========================================================================
+
+// 0 = no liveness (init/safety), 1 = liveness (set *live), -1 = not in fragment.
+static int classify_general(const Node *n, const Node **live) {
+  if (is_prop(n))
+    return 0;
+  if (is_live_combo(n)) {
+    *live = n;
+    return 1;
+  }
+  if (n->kind == NODE_G && is_trans(n->arg))
+    return 0; // safety
+  return -1;
+}
+
+// Invariant section conjunct: the formula f stands for G f.
+static int classify_invariant(TlsfSpec *sp, const Node *f, const Node **live) {
+  if (is_trans(f))
+    return 0; // G(transition) safety
+  if (is_live_combo(f)) {
+    *live = f; // G of a stable liveness combination is the combination
+    return 1;
+  }
+  if (f->kind == NODE_F && is_trans(f->arg)) {
+    *live = node_g(sp->arena, (Node *)f); // G F b
+    return 1;
+  }
+  if (f->kind == NODE_G)
+    return classify_invariant(sp, f->arg, live); // G(G m) = G m
+  return -1;
+}
+
+// ===========================================================================
+
+int gr_level(TlsfSpec *spec) {
+  const Node *env_live[GR_CLAUSES];
+  const Node *sys_live[GR_CLAUSES];
+  int n_env = 0, n_sys = 0;
+
+#define COLLECT(formula, is_sys, classify_call)                                \
+  do {                                                                         \
+    const Node *_l = nullptr;                                                  \
+    int _r = (classify_call);                                                  \
+    if (_r < 0)                                                                \
+      return -1;                                                               \
+    if (_r == 1) {                                                             \
+      if ((is_sys) ? n_sys >= GR_CLAUSES : n_env >= GR_CLAUSES)                \
+        return -1;                                                             \
+      if (is_sys)                                                              \
+        sys_live[n_sys++] = _l;                                                \
+      else                                                                     \
+        env_live[n_env++] = _l;                                                \
+    }                                                                          \
+  } while (0)
+
+  // Flatten each section's formulas into conjuncts and classify them.
+#define WALK(list, is_sys, SECKIND)                                            \
+  for (uint32_t _i = 0; _i < (list).count; _i++) {                             \
+    const Node *_stack[64];                                                    \
+    int _sp = 0;                                                               \
+    _stack[_sp++] = (list).formulas[_i];                                       \
+    while (_sp > 0) {                                                          \
+      const Node *_n = _stack[--_sp];                                          \
+      if (_n->kind == NODE_AND) {                                              \
+        if (_sp + 2 > 64)                                                      \
+          return -1;                                                           \
+        _stack[_sp++] = _n->lhs;                                               \
+        _stack[_sp++] = _n->rhs;                                               \
+        continue;                                                              \
+      }                                                                        \
+      if ((SECKIND) == 0)                                                      \
+        COLLECT(_n, is_sys, is_prop(_n) ? 0 : -1);                             \
+      else if ((SECKIND) == 1)                                                 \
+        COLLECT(_n, is_sys, classify_general(_n, &_l));                        \
+      else                                                                     \
+        COLLECT(_n, is_sys, classify_invariant(spec, _n, &_l));               \
+    }                                                                          \
+  }
+
+  WALK(spec->initially, false, 0);
+  WALK(spec->preset, true, 0);
+  WALK(spec->require, false, 2);
+  WALK(spec->assert_, true, 2);
+  WALK(spec->assume, false, 1);
+  WALK(spec->guarantee, true, 1);
+#undef WALK
+#undef COLLECT
+
+  // Build CNF of  (⋀ env_live) -> (⋀ sys_live).
+  AtomTab t = {0};
+  Cnf cnf_b;
+  cnf_true(&cnf_b);
+  for (int i = 0; i < n_sys; i++) {
+    Cnf tmp, acc;
+    cnf_of(sys_live[i], true, &t, &tmp);
+    cnf_and(&acc, &cnf_b, &tmp);
+    cnf_b = acc;
+  }
+
+  Cnf cnf_not_a;
+  cnf_false(&cnf_not_a); // ¬(empty conjunction) = false
+  for (int i = 0; i < n_env; i++) {
+    Cnf tmp, acc;
+    cnf_of(env_live[i], false, &t, &tmp);
+    cnf_or(&acc, &cnf_not_a, &tmp);
+    cnf_not_a = acc;
+  }
+
+  Cnf result;
+  cnf_or(&result, &cnf_not_a, &cnf_b);
+
+  if (t.overflow || cnf_b.overflow || cnf_not_a.overflow || result.overflow)
     return -1;
 
-  // Pass 2: system side — validate and collect distinct antecedent sets.
-  if (!process_list(&spec->preset, &c, initial_conjunct) ||
-      !process_list(&spec->guarantee, &c, guarantee_conjunct) ||
-      !process_list(&spec->assert_, &c, assert_conjunct))
-    return -1;
-
-  if (c.overflow)
-    return -1; // too complex for our fixed-size analysis
-
-  // k = number of distinct system antecedent sets; 0 means GR(0).
-  return c.n_antecedents;
+  // k = number of distinct antecedents (negative-literal masks).
+  uint64_t seen[GR_CLAUSES];
+  int k = 0;
+  for (int i = 0; i < result.n; i++) {
+    uint64_t a = result.cl[i].neg;
+    bool found = false;
+    for (int j = 0; j < k && !found; j++)
+      found = seen[j] == a;
+    if (!found)
+      seen[k++] = a;
+  }
+  return k;
 }

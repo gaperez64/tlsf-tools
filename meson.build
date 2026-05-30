@@ -200,7 +200,7 @@ test('info_block', check,
          files('test/cases/Patterns_Uright_uright06.tlsf')])
 
 # GR(1) recognition.
-foreach c : ['gr0_spec', 'gr1_spec', 'gr2_spec', 'notgr_spec']
+foreach c : ['gr0_spec', 'gr1_spec', 'gr2_spec', 'gr4_spec', 'notgr_spec']
   test('gr_' + c, check,
     args: [files('test/cases/' + c + '.gr'),
            tlsfinfo_exe, '-gr', files('test/cases/' + c + '.tlsf')])

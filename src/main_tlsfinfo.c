@@ -271,9 +271,7 @@ int main(int argc, char *argv[]) {
       spec_free(spec);
       return 1;
     }
-    // Recognises GR(k) for the Streett-pair fragment (init/safety/justice
-    // plus GF->GF / GF<->GF guarantees).  Fully general Rabin formulas
-    // (disjunctions of GF, FG terms, negated GF) are reported as not GR.
+    // GR(k) over the full Boolean-combination-of-GF/FG liveness fragment.
     int level = gr_level(spec);
     if (level < 0)
       printf("NOT in GR\n");
