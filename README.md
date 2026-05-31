@@ -164,11 +164,21 @@ clang-tidy -p build src/*.c                  # lint
 
 ## Limitations
 
-Relative to `syfco`, not yet implemented: TLSF named patterns, the `X[n]`
-n-fold next operator, and output formats other than `ltlxba` and basic TLSF
-(e.g. `smv`, `slugs`, `promela`). Of the SYNTCOMP `tlsf` benchmarks, 547/569
-convert (the rest use those constructs); all 1717 `tlsf-fin` benchmarks
-convert.
+Relative to `syfco`, not yet implemented: TLSF named patterns and output
+formats other than `ltlxba` and basic TLSF (e.g. `smv`, `slugs`, `promela`).
+Of the SYNTCOMP `tlsf` benchmarks, 560/569 convert (the rest use those
+constructs); all 1717 `tlsf-fin` benchmarks convert.
+
+### Known issue: grammar conflicts (to fix)
+
+The bison grammar currently reports **1 shift/reduce and 10 reduce/reduce
+conflicts**. They stem from TLSF's separator-less case-definition syntax
+(`cond : value   cond : value   …` with no delimiter between arms), which is
+not LALR(1) without restructuring. They are *benign in practice* — the full
+SYNTCOMP corpus parses correctly and the def-heavy specs match `syfco` — but
+the grammar should be reworked (e.g. an explicit arm terminator or a GLR
+parser) to eliminate them rather than relying on bison's default
+shift/first-rule resolution. Tracked as future work.
 
 ## Benchmarking
 
