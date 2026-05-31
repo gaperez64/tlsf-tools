@@ -1,1 +1,1 @@
-G (!req || X grant)
+G (req -> X grant)

@@ -1,1 +1,1 @@
-G (!req' || grant')
+G (req' -> grant')
