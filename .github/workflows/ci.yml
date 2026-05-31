@@ -81,16 +81,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 gcovr
+            meson ninja-build flex bison gcc gcovr
       - name: Build with coverage and report
         run: |
+          # Build and measure with the runner's default gcc and its matching
+          # gcov; mixing the default gcc with gcov-14 makes gcov exit 3 and
+          # crashes gcovr. Gate on the parsed line percentage.
           meson setup build-cov -Db_coverage=true
           meson test -C build-cov
-          # gcovr exits non-zero on the runner's gcov stamp-mismatch warning
-          # even though the data is usable, so capture the summary and gate on
-          # the parsed line percentage ourselves. gcov-14 must match gcc-14.
-          summary=$(gcovr --root . --gcov-executable gcov-14 \
-            --gcov-ignore-errors=all \
+          summary=$(gcovr --root . \
             --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
             --print-summary 2>&1) || true
           echo "$summary"
