@@ -207,6 +207,14 @@ static void print_formula(FILE *out, const Node *n) {
     print_formula(out, n->if_else);
     return;
 
+  case NODE_NEXT_N:
+    fprintf(out, "X[");
+    print_formula(out, n->lhs);
+    fprintf(out, "] (");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
+
   default:
     assert(false && "print_tlsf: unexpected node kind");
   }

@@ -526,6 +526,8 @@ ltl_expr
   /* Unary temporal */
   | TOK_NEXT ltl_expr
     { $$ = node_x(spec->arena, $2); }
+  | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
+    { $$ = node_next_n(spec->arena, $3, $5); }
   | TOK_SNEXT ltl_expr
     { $$ = node_x_strong(spec->arena, $2); }
   | TOK_FINALLY ltl_expr

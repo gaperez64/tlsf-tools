@@ -136,6 +136,15 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
   case NODE_INT_DIV:
   case NODE_INT_MOD:
   case NODE_INT_VAR:
+  case NODE_SIZEOF:
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_ITE:
+  case NODE_NEXT_N:
   case NODE_DEF_CALL:
   case NODE_BUS_INDEX:
   case NODE_PATTERN:
