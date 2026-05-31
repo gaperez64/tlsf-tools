@@ -1,6 +1,6 @@
 # tlsf-tools
 
-Two small, fast, Unix-style command-line tools for working with
+Three small, fast, Unix-style command-line tools for working with
 [TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
 Format) specifications, sharing a common C library.
 
@@ -10,12 +10,12 @@ Format) specifications, sharing a common C library.
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
 | `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
 
-These cover the two transformations most commonly needed in a reactive
-synthesis toolchain, and are intended as a lightweight, dependency-free
-alternative to the relevant parts of
+These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
-TLSF specification, fully expand it (parameters → definitions → bus unrolling
-→ patterns) and emit either a ground TLSF spec or the equivalent LTL formula.
+TLSF specification, fully expand it (parameters, definitions — including
+recursive case-definitions — bus unrolling, bounded `&&[..]`/`||[..]`
+operators and `SIZEOF`) and emit either a ground TLSF spec or the equivalent
+LTL formula.
 
 ## Pipeline
 
@@ -23,8 +23,8 @@ TLSF specification, fully expand it (parameters → definitions → bus unrollin
 TLSF file
    │  parse            (flex + bison)
    ▼
-raw AST (may contain definition calls, bus indices, patterns, quantifiers, …)
-   │  expand           (params → defs → buses → patterns)
+raw AST (definition calls, bus indices, bounded quantifiers, case guards, …)
+   │  expand           (params → defs → buses → quantifiers)
    ▼
 ground AST
    ├── tlsf2tlsf ───► basic TLSF
@@ -34,8 +34,6 @@ ground AST
    └── tlsf2ltl  ───► ltlxba LTL   (--safety / --liveness / default: all)
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and the AST node
-taxonomy.
 
 ## Building
 
