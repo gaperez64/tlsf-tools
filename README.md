@@ -166,7 +166,7 @@ clang-tidy -p build src/*.c                  # lint
 
 Relative to `syfco`, not yet implemented: TLSF named patterns and output
 formats other than `ltlxba` and basic TLSF (e.g. `smv`, `slugs`, `promela`).
-Of the SYNTCOMP `tlsf` benchmarks, 560/569 convert (the rest use those
+Of the SYNTCOMP `tlsf` benchmarks, 556/569 convert (the rest use those
 constructs); all 1717 `tlsf-fin` benchmarks convert.
 
 ### Known issue: grammar conflicts (to fix)
