@@ -294,6 +294,10 @@ test('expand_mutual_exclusion', check,
 test('expand_recursion', check,
   args: [files('test/cases/recursion.ltl'), tlsf2ltl_exe,
          files('test/cases/recursion.tlsf')])
+# X[n] n-fold next operator expands to nested X.
+test('next_n', check,
+  args: [files('test/cases/next_n.ltl'), tlsf2ltl_exe,
+         files('test/cases/next_n.tlsf')])
 # Default re-emission of a case-definition (exercises ITE/comparison printing).
 test('reemit_cases', check,
   args: [files('test/cases/recursion.reemit.tlsf'), tlsf2tlsf_exe,

@@ -79,6 +79,9 @@ Node *node_x(Arena *a, Node *arg) { return node_unary(a, NODE_X, arg); }
 Node *node_x_strong(Arena *a, Node *arg) {
   return node_unary(a, NODE_X_STRONG, arg);
 }
+Node *node_next_n(Arena *a, Node *count, Node *body) {
+  return node_binary(a, NODE_NEXT_N, count, body);
+}
 Node *node_f(Arena *a, Node *arg) { return node_unary(a, NODE_F, arg); }
 Node *node_g(Arena *a, Node *arg) { return node_unary(a, NODE_G, arg); }
 Node *node_u(Arena *a, Node *lhs, Node *rhs) {

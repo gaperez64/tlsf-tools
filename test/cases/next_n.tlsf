@@ -1,0 +1,11 @@
+INFO {
+  TITLE: "x"
+  DESCRIPTION: "x"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE { G (r -> X[2] g); }
+}

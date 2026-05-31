@@ -5,7 +5,10 @@
 #include <string.h>
 
 // Guard against non-terminating (mis-written) recursive definitions.
-#define MAX_DEPTH 100000
+// Bounds definition/expression recursion. Kept well below the depth at which a
+// runaway self-reference would overflow the C stack, while far exceeding any
+// nesting a real specification needs.
+#define MAX_DEPTH 2000
 
 // ===========================================================================
 // Integer-evaluation environment
@@ -478,6 +481,26 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
   case NODE_FORALL:
   case NODE_EXISTS:
     return expand_quantifier(spec, n, env, ok, depth);
+
+  case NODE_NEXT_N: {
+    // X[count] body  ==  count-fold application of X to the expanded body.
+    int64_t count;
+    if (!eval_int(spec, n->lhs, env, &count, depth)) {
+      *ok = false;
+      return nullptr;
+    }
+    if (count < 0) {
+      fprintf(stderr, "expand: negative count in X[...]\n");
+      *ok = false;
+      return nullptr;
+    }
+    Node *body = expand_node(spec, n->rhs, env, ok, depth);
+    if (!*ok)
+      return nullptr;
+    for (int64_t i = 0; i < count; i++)
+      body = node_x(a, body);
+    return body;
+  }
 
   // Definition guard: evaluate the condition, expand the chosen branch.
   case NODE_ITE: {
