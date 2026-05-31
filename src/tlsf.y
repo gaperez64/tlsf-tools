@@ -85,9 +85,25 @@
 /* -------------------------------------------------------------------------
  * Bison options
  * --------------------------------------------------------------------- */
-%define api.pure full
+%define api.pure
 %define parse.error detailed
-%define parse.lac full
+
+/* TLSF case-definitions (`cond : value  cond : value  ...`) have no separator
+ * between a case's value and the next case's guard, so the value `ltl_expr` is
+ * juxtaposed against the next guard's `ltl_expr`.  The language is unambiguous
+ * — a guard always contains a comparison operator (or is `otherwise`) and a
+ * value never does — but proving which it is can require scanning past a whole
+ * value expression to reach the comparison, i.e. unbounded lookahead.  LALR(1)
+ * cannot do that, so a deterministic grammar would mis-resolve
+ *     v - w      (value `v-w`)   vs   v   followed by guard `-w CMP ...`
+ * and the `(` of a call vs. a parenthesised next guard.  A GLR parser explores
+ * both and keeps the one that yields a valid parse, which is exactly correct
+ * here.  The two conflict points (1 shift/reduce on TOK_LPAREN, 10
+ * reduce/reduce on the binary-vs-unary `-` boundary) are asserted below so the
+ * build stays clean and bison errors out if the grammar ever drifts. */
+%glr-parser
+%expect 1
+%expect-rr 10
 
 %param  { yyscan_t scanner }
 %parse-param { TlsfSpec *spec }
