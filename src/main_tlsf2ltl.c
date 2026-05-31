@@ -263,7 +263,12 @@ int main(int argc, char *argv[]) {
   adapt_mealy_moore(spec);
 
   // --- NNF ---
-  if (apply_nnf_all(spec) != 0) {
+  // NNF is only needed to classify formulas correctly for the --safety /
+  // --liveness split (the syntactic F/U/M test must see negations pushed to
+  // the leaves, so that e.g. !(G p) is recognised as the liveness F !p).  The
+  // default full-formula output emits every guarantee regardless of class, so
+  // we skip NNF there and print the formula as written.
+  if (mode != PRINT_ALL && apply_nnf_all(spec) != 0) {
     spec_free(spec);
     return 1;
   }
