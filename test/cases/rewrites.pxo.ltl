@@ -1,0 +1,1 @@
+G (a && b) && F (a || b) && X (a && b) && X (c || d) && (G a && G b) && (F a || F b) && X (a && b) && X (c || d)

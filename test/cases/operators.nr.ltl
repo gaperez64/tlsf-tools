@@ -1,0 +1,1 @@
+!(b W (a && b)) -> a W b && a M b && a U b && (a <-> b) && !F a && !(a U b)

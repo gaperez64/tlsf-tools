@@ -1,0 +1,24 @@
+INFO {
+  TITLE: "simplify"
+  DESCRIPTION: "rewrite coverage"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { c; d; }
+  GUARANTEE {
+    a && true;
+    c || false;
+    G (G a);
+    F (F b);
+    !(!c);
+    true U a;
+    false R b;
+    a W false;
+    false W b;
+    a M true;
+    true M b;
+    a <-> a;
+  }
+}

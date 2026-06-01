@@ -1,0 +1,20 @@
+INFO {
+  TITLE: "rewrites"
+  DESCRIPTION: "rewrite coverage"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { c; d; }
+  GUARANTEE {
+    G (a && b);
+    F (a || b);
+    X (a && b);
+    X (c || d);
+    (G a) && (G b);
+    (F a) || (F b);
+    (X a) && (X b);
+    (X c) || (X d);
+  }
+}

@@ -208,6 +208,43 @@ test('ltl_no_derived', check,
          tlsf2ltl_exe, '--no-derived',
          files('test/cases/operators.tlsf')])
 
+test('ltl_no_release', check,
+  args: [files('test/cases/operators.nr.ltl'),
+         tlsf2ltl_exe, '--no-release',
+         files('test/cases/operators.tlsf')])
+
+# Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
+# collapse-to-true cases exercise every simplify_weak_local rule.
+test('ltl_simplify_weak', check,
+  args: [files('test/cases/simplify_demo.s0.ltl'),
+         tlsf2ltl_exe, '--weak-simplify',
+         files('test/cases/simplify_demo.tlsf')])
+
+test('ltl_simplify_strong', check,
+  args: [files('test/cases/simplify_demo.s1.ltl'),
+         tlsf2ltl_exe, '--strong-simplify',
+         files('test/cases/simplify_demo.tlsf')])
+
+test('ltl_simplify_false', check,
+  args: [files('test/cases/collapse_demo.s0.ltl'),
+         tlsf2ltl_exe, '--weak-simplify',
+         files('test/cases/collapse_demo.tlsf')])
+
+test('ltl_simplify_true', check,
+  args: [files('test/cases/truths_demo.s0.ltl'),
+         tlsf2ltl_exe, '--weak-simplify',
+         files('test/cases/truths_demo.tlsf')])
+
+# Push-inwards and pull-outwards rewrites.
+foreach rw : [['push-globally-in', 'pgi'], ['push-finally-in', 'pfi'],
+              ['push-next-in', 'pxi'], ['pull-globally-out', 'pgo'],
+              ['pull-finally-out', 'pfo'], ['pull-next-out', 'pxo']]
+  test('ltl_' + rw[1], check,
+    args: [files('test/cases/rewrites.' + rw[1] + '.ltl'),
+           tlsf2ltl_exe, '--' + rw[0],
+           files('test/cases/rewrites.tlsf')])
+endforeach
+
 test('tlsf_basic_expand', check,
   args: [files('test/cases/Patterns_Uright_uright06.basic.tlsf'),
          tlsf2tlsf_exe, '--basic',
