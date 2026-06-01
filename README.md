@@ -84,12 +84,14 @@ tlsfinfo --check spec.tlsf          # "valid" if the spec parses, else error
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
 
 ```
-(INITIALLY ∧ G REQUIRE ∧ ASSUME)  →  (PRESET ∧ G ASSERT ∧ GUARANTEE)
+INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE) ) )
 ```
 
-(REQUIRE/ASSERT are invariants, wrapped in `G`; empty sections drop out and a
-trivial antecedent collapses to just the consequent). The rest is taken from
-the (possibly overwritten) `SEMANTICS`/`TARGET`:
+(REQUIRE/ASSERT are invariants, wrapped in `G`; empty sections drop out.
+`INITIALLY` is the outer guard and `PRESET` sits *outside* the
+assumption→guarantee implication — matching `syfco`, so the system's initial
+obligations hold even when the environment violates an assumption.) The rest
+is taken from the (possibly overwritten) `SEMANTICS`/`TARGET`:
 
 - **Strict** (`Strict,*`): emits the safety weak-until form `((PRESET ∧ G
   ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)`. To relax it to the

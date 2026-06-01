@@ -1,1 +1,1 @@
-a && G b && c -> x && G y && z
+a -> x && (G b && c -> G y && z)

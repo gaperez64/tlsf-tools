@@ -353,8 +353,8 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
 
 // Build the TLSF specification formula.
 //
-// Standard (non-strict) semantics — the arXiv default:
-//   (INITIALLY ∧ G REQUIRE ∧ ASSUME)  →  (PRESET ∧ G ASSERT ∧ GUARANTEE)
+// Standard (non-strict) semantics — the TLSF default (matches syfco):
+//   INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE) ) )
 //
 // Strict semantics — the system's safety must hold at least until the
 // environment first violates a safety assumption:
@@ -405,15 +405,25 @@ Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
     if (!root)
       root = node_true(a);
   } else {
-    // Non-strict: E → (PRESET ∧ G ASSERT ∧ GUARANTEE).
-    Node *s_gua = guarantees_of(a, cs, want_safety, want_liveness);
-    Node *s = and_opt(a, want_safety ? s_safety : nullptr, s_gua);
-    if (!s)
-      root = node_true(a);
-    else if (!e)
-      root = s;
+    // Non-strict (the TLSF section semantics, as implemented by syfco):
+    //   INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE)
+    //   ) )
+    // INITIALLY is the outer guard and PRESET sits *outside* the
+    // assumption→guarantee implication, so the system's PRESET/initial
+    // obligations stand even on inputs where the environment violates an
+    // assumption.  (Lumping INITIALLY into the antecedent and PRESET into the
+    // consequent — `(I ∧ G R ∧ As) → (P ∧ G A ∧ Gu)` — drops that obligation
+    // and is *not* equivalent.)
+    Node *env = and_opt(a, e_req, a_live); // G REQUIRE ∧ ASSUME (no INITIALLY)
+    Node *g_assert = want_safety ? assert_inv(a, cs) : nullptr; // G ASSERT
+    Node *g_gua = guarantees_of(a, cs, want_safety, want_liveness);
+    Node *sys = and_opt(a, g_assert, g_gua); // G ASSERT ∧ GUARANTEE
+    Node *inner = sys ? (env ? node_impl(a, env, sys) : sys) : nullptr;
+    Node *body = and_opt(a, want_safety ? s_pre : nullptr, inner); // PRESET ∧ …
+    if (e_init)
+      root = body ? node_impl(a, e_init, body) : node_true(a);
     else
-      root = node_impl(a, e, s);
+      root = body ? body : node_true(a);
   }
   return root;
 }

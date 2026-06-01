@@ -351,7 +351,7 @@ test('expand_basic', check,
          files('test/cases/expand_demo.tlsf')])
 
 # Full six-section TLSF semantics:
-# (INITIALLY & G REQUIRE & ASSUME) -> (PRESET & G ASSERT & GUARANTEE)
+# INITIALLY -> (PRESET & ((G REQUIRE & ASSUME) -> (G ASSERT & GUARANTEE)))
 test('semantics_sections', check,
   args: [files('test/cases/sections.ltl'),
          tlsf2ltl_exe, files('test/cases/sections.tlsf')])
