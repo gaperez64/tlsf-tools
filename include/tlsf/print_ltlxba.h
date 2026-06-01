@@ -19,18 +19,18 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-/// Print a single formula to `out` in ltlxba format.
-void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens);
+/// Output dialect for LTL formulas.  All three share the same precedence and
+/// parenthesisation logic; they differ only in operator spelling.
+///   LTL_FMT_LTLXBA : ltl2ba / spot ASCII (default)
+///   LTL_FMT_LTL    : pure-LTL ASCII, matching `syfco -f ltl`
+///   LTL_FMT_LATEX  : LaTeX math (e.g. \land, \mathsf{G}, ...)
+typedef enum LtlFormat {
+  LTL_FMT_LTLXBA,
+  LTL_FMT_LTL,
+  LTL_FMT_LATEX,
+} LtlFormat;
 
-/// Print a conjunction of all formulas in `list` to `out`.
-/// Prints "true" for an empty list.
-void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
-                       bool full_parens);
-
-/// Print the full combined output (assumptions → guarantees, conjoined)
-/// in the style expected by synthesis front-ends.
-///
-/// Mode selects which formulas to emit:
+/// Mode selects which guarantees the assembled spec formula includes:
 ///   PRINT_ALL      : all formulas conjoined (default)
 ///   PRINT_SAFETY   : safety guarantees only
 ///   PRINT_LIVENESS : liveness guarantees only
@@ -40,6 +40,31 @@ typedef enum PrintMode {
   PRINT_LIVENESS,
 } PrintMode;
 
+/// Print a single formula to `out` in ltlxba format.
+void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens);
+
+/// Print a conjunction of all formulas in `list` to `out`.
+/// Prints "true" for an empty list.
+void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
+                       bool full_parens);
+
+/// Assemble the single LTL formula defined by the (classified) spec, applying
+/// the strict / non-strict, safety/liveness and finite-word structure.  The
+/// returned node is allocated in `spec->arena`; never nullptr (an empty spec
+/// yields node_true).  This is the formula that downstream transforms and
+/// printers operate on.
+[[nodiscard]] Node *build_spec_formula(const TlsfSpec *spec,
+                                       const ClassifiedSpec *cs,
+                                       PrintMode mode);
+
+/// Print a single (already-assembled) formula in the given dialect, followed by
+/// a newline.  `full_parens` fully parenthesises; `finite` selects finite-word
+/// rendering of the strong next (X[!]).
+void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
+               bool finite);
+
+/// Convenience: assemble the spec formula (ltlxba dialect) and print it.
+/// Retained for callers that do not apply transforms.
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
                        const ClassifiedSpec *cs, PrintMode mode,
                        bool full_parens);

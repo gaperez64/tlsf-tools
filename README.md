@@ -6,7 +6,7 @@ Format) specifications, sharing a common C library.
 
 | Tool | Input | Output |
 |---|---|---|
-| `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula in `ltlxba` syntax (for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`, …) |
+| `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula — `ltlxba` (default, for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`), `ltl`, or `latex`; with optional simplification/rewrites |
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
 | `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
 
@@ -29,9 +29,10 @@ raw AST (definition calls, bus indices, bounded quantifiers, case guards, …)
 ground AST
    ├── tlsf2tlsf ───► basic TLSF
    │
-   │  to NNF, then classify each guarantee/assertion as SAFETY or LIVENESS
+   │  build the single spec formula → optional transforms (simplify, NNF,
+   │  push/pull, operator replacement) → print in the chosen dialect
    ▼
-   └── tlsf2ltl  ───► ltlxba LTL   (--safety / --liveness / default: all)
+   └── tlsf2ltl  ───► LTL  (ltlxba / ltl / latex;  --safety / --liveness / all)
 ```
 
 
@@ -65,6 +66,9 @@ tlsf2tlsf --basic spec.tlsf         # fully expand to the basic fragment
 cat spec.tlsf | tlsf2ltl            # read from stdin
 tlsf2ltl  spec.tlsf                 # the spec's LTL formula (ltlxba), minimal parens
 tlsf2ltl --parenthesize spec.tlsf   # fully parenthesised LTL
+tlsf2ltl --format ltl spec.tlsf     # pure-LTL ASCII (like syfco -f ltl)
+tlsf2ltl --format latex spec.tlsf   # LaTeX math output
+tlsf2ltl --strong-simplify spec.tlsf            # simplify (syfco -s1)
 tlsf2ltl --safety / --liveness spec.tlsf      # only the safety / liveness part
 tlsf2ltl --overwrite-semantics Mealy spec.tlsf  # also --overwrite-target
 tlsf2ltl --output out.ltl spec.tlsf
@@ -103,6 +107,37 @@ By default `tlsf2ltl` prints with the minimal parentheses implied by the
 operator precedence shared by spot/ltl2ba and the TLSF papers (tightest
 first): unary `! X F G` > `U R W M` > `&&` > `||` > `-> <->`. Pass
 `--parenthesize` to fully parenthesise every subformula instead.
+
+### Output dialects (`--format`)
+
+`tlsf2ltl --format VALUE` selects the operator spelling (precedence and
+parenthesisation are identical across all three):
+
+- `ltlxba` *(default)* — ltl2ba / spot ASCII.
+- `ltl` — pure-LTL ASCII matching `syfco -f ltl` (keeps `W`/`R`/`M`).
+- `latex` — LaTeX math (`\land`, `\lor`, `\rightarrow`, `\mathsf{G}`,
+  `\mathbin{\mathsf{U}}`, …; atoms wrapped in `\mathit{…}`). Drop the output
+  into a `$…$` (or `\[ … \]`) math context. syfco has no LaTeX output.
+
+### Formula transformations
+
+These are equivalence-preserving rewrites of the emitted formula, off by
+default, mirroring the corresponding `syfco` flags:
+
+- `--weak-simplify` (`-s0`) — constant folding and redundancy removal.
+- `--strong-simplify` (`-s1`) — `-s0` + NNF + `--no-weak-until --no-release
+  --pull-globally-out --pull-finally-out --pull-next-out`.
+- `--nnf` — negation normal form.
+- `--no-weak-until` / `--no-release` / `--no-finally` / `--no-globally` —
+  replace that operator by its definition (`a W b ⇒ (a U b) ∨ G a`, etc.);
+  `--no-derived` = `--no-weak-until --no-finally --no-globally`.
+- `--push-globally-in` / `--push-finally-in` / `--push-next-in` and the
+  inverse `--pull-globally-out` / `--pull-finally-out` / `--pull-next-out` —
+  distribute / factor a modality over `&&` / `||`.
+
+Every transform preserves meaning, so the result is `ltlfilt --equivalent-to`
+the untransformed formula (and to `syfco -s1` where the spec is in syfco's
+fragment).
 
 > **Note:** the `--safety` / `--liveness` split is **purely syntactic**, not a
 > semantic safety/liveness decomposition. After conversion to negation normal
@@ -164,21 +199,13 @@ clang-tidy -p build src/*.c                  # lint
 
 ## Limitations
 
-Relative to `syfco`, not yet implemented: TLSF named patterns and output
-formats other than `ltlxba` and basic TLSF (e.g. `smv`, `slugs`, `promela`).
-Of the SYNTCOMP `tlsf` benchmarks, 556/569 convert (the rest use those
-constructs); all 1717 `tlsf-fin` benchmarks convert.
-
-### Known issue: grammar conflicts (to fix)
-
-The bison grammar currently reports **1 shift/reduce and 10 reduce/reduce
-conflicts**. They stem from TLSF's separator-less case-definition syntax
-(`cond : value   cond : value   …` with no delimiter between arms), which is
-not LALR(1) without restructuring. They are *benign in practice* — the full
-SYNTCOMP corpus parses correctly and the def-heavy specs match `syfco` — but
-the grammar should be reworked (e.g. an explicit arm terminator or a GLR
-parser) to eliminate them rather than relying on bison's default
-shift/first-rule resolution. Tracked as future work.
+Relative to `syfco`, not yet implemented: TLSF named patterns, the structured
+synthesis output formats (`smv`, `slugs`/`slugsin`, `promela`, `wring`, …),
+partition (`.part`) files, and config files (`-r`/`-w`). `tlsf2ltl` does emit
+the `ltlxba`, `ltl` and `latex` LTL dialects and the `-s0`/`-s1`/push/pull/
+operator-replacement transformations; `tlsf2tlsf` emits basic/full TLSF. Of the
+SYNTCOMP `tlsf` benchmarks, 556/569 convert (the rest use named patterns); all
+1717 `tlsf-fin` benchmarks convert.
 
 ## Benchmarking
 

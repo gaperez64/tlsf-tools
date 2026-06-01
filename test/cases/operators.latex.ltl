@@ -1,0 +1,1 @@
+\lnot (\mathit{a} \mathbin{\mathsf{R}} \mathit{b}) \rightarrow \mathit{a} \mathbin{\mathsf{W}} \mathit{b} \land \mathit{a} \mathbin{\mathsf{M}} \mathit{b} \land \mathit{a} \mathbin{\mathsf{U}} \mathit{b} \land (\mathit{a} \leftrightarrow \mathit{b}) \land \lnot \mathsf{F} \mathit{a} \land \lnot (\mathit{a} \mathbin{\mathsf{U}} \mathit{b})

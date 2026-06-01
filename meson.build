@@ -105,6 +105,7 @@ lib_sources = [
   'src/cli.c',
   'src/expand.c',
   'src/nnf.c',
+  'src/rewrite.c',
   'src/classify.c',
   'src/gr.c',
   'src/print_ltlxba.c',
@@ -185,6 +186,27 @@ test('ltl_full_parens', check,
   args: [files('test/cases/Patterns_Uright_uright06.full.ltl'),
          tlsf2ltl_exe, '--parenthesize',
          files('test/cases/Patterns_Uright_uright06.tlsf')])
+
+# Output dialects (--format) and formula transformations.
+test('ltl_format_ltl', check,
+  args: [files('test/cases/operators.ltlfmt.ltl'),
+         tlsf2ltl_exe, '--format', 'ltl',
+         files('test/cases/operators.tlsf')])
+
+test('ltl_format_latex', check,
+  args: [files('test/cases/operators.latex.ltl'),
+         tlsf2ltl_exe, '--format', 'latex',
+         files('test/cases/operators.tlsf')])
+
+test('ltl_strong_simplify', check,
+  args: [files('test/cases/operators.s1.ltl'),
+         tlsf2ltl_exe, '--strong-simplify',
+         files('test/cases/operators.tlsf')])
+
+test('ltl_no_derived', check,
+  args: [files('test/cases/operators.nd.ltl'),
+         tlsf2ltl_exe, '--no-derived',
+         files('test/cases/operators.tlsf')])
 
 test('tlsf_basic_expand', check,
   args: [files('test/cases/Patterns_Uright_uright06.basic.tlsf'),

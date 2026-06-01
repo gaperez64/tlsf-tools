@@ -1,0 +1,1 @@
+b U (a && b) || G b || (a U b || G a) && a M b && a U b && ((!a || b) && (!b || a)) && G !a && (!b U (!a && !b) || G !b)

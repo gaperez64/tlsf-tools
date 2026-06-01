@@ -6,6 +6,7 @@
 #include "tlsf/expand.h"
 #include "tlsf/nnf.h"
 #include "tlsf/print_ltlxba.h"
+#include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 
 #include <stdio.h>
@@ -22,7 +23,9 @@ static void usage(const char *prog) {
   fprintf(
       stderr,
       "Usage: %s [OPTIONS] [FILE]\n"
-      "Reads FILE (or stdin) and writes the spec's LTL formula (ltlxba).\n"
+      "Reads FILE (or stdin) and writes the spec's LTL formula.\n"
+      "  --format VALUE               output dialect: ltlxba (default), ltl,\n"
+      "                               or latex\n"
       "  --safety, --liveness         emit only safety / liveness "
       "guarantees\n"
       "  --parenthesize               fully parenthesise (default: minimal\n"
@@ -32,6 +35,25 @@ static void usage(const char *prog) {
       "  --overwrite-target VALUE     replace the spec's TARGET\n"
       "  --output FILE                write to FILE (default: stdout)\n"
       "  --version, --help\n"
+      "\n"
+      "Formula transformations (equivalence-preserving, off by default):\n"
+      "  --weak-simplify              constant folding / redundancy (syfco "
+      "-s0)\n"
+      "  --strong-simplify            -s0 + NNF + replace/pull set (syfco "
+      "-s1)\n"
+      "  --nnf                        convert to negation normal form\n"
+      "  --no-weak-until              a W b => (a U b) || G a\n"
+      "  --no-release                 a R b => b W (a && b)\n"
+      "  --no-finally                 F a => true U a\n"
+      "  --no-globally                G a => false R a\n"
+      "  --no-derived                 --no-weak-until --no-finally "
+      "--no-globally\n"
+      "  --push-globally-in           G(a && b) => G a && G b\n"
+      "  --push-finally-in            F(a || b) => F a || F b\n"
+      "  --push-next-in               X(a && b) => X a && X b (and ||)\n"
+      "  --pull-globally-out          G a && G b => G(a && b)\n"
+      "  --pull-finally-out           F a || F b => F(a || b)\n"
+      "  --pull-next-out              X a && X b => X(a && b) (and ||)\n"
       "\n"
       "Mealy/Moore and finite/infinite are taken from SEMANTICS; when\n"
       "SEMANTICS and TARGET disagree on Mealy vs Moore the formula is\n"
@@ -170,6 +192,8 @@ static int apply_nnf_all(TlsfSpec *spec) {
 int main(int argc, char *argv[]) {
   PrintMode mode = PRINT_ALL;
   bool full_parens = false;
+  LtlFormat fmt = LTL_FMT_LTLXBA;
+  unsigned rw_flags = RW_NONE;
   const char *os_arg = nullptr;
   const char *ot_arg = nullptr;
   const char *input_file = nullptr;
@@ -196,6 +220,47 @@ int main(int argc, char *argv[]) {
       ot_arg = NEED_ARG();
     } else if (strcmp(argv[i], "--parenthesize") == 0) {
       full_parens = true;
+    } else if (strcmp(argv[i], "--format") == 0) {
+      const char *v = NEED_ARG();
+      if (strcmp(v, "ltlxba") == 0)
+        fmt = LTL_FMT_LTLXBA;
+      else if (strcmp(v, "ltl") == 0)
+        fmt = LTL_FMT_LTL;
+      else if (strcmp(v, "latex") == 0)
+        fmt = LTL_FMT_LATEX;
+      else {
+        fprintf(stderr,
+                "tlsf2ltl: unknown format '%s' (ltlxba, ltl, or latex)\n", v);
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--weak-simplify") == 0) {
+      rw_flags |= RW_SIMPLIFY_WEAK;
+    } else if (strcmp(argv[i], "--strong-simplify") == 0) {
+      rw_flags |= RW_STRONG_SIMPLIFY;
+    } else if (strcmp(argv[i], "--nnf") == 0) {
+      rw_flags |= RW_NNF;
+    } else if (strcmp(argv[i], "--no-weak-until") == 0) {
+      rw_flags |= RW_NO_WEAK_UNTIL;
+    } else if (strcmp(argv[i], "--no-release") == 0) {
+      rw_flags |= RW_NO_RELEASE;
+    } else if (strcmp(argv[i], "--no-finally") == 0) {
+      rw_flags |= RW_NO_FINALLY;
+    } else if (strcmp(argv[i], "--no-globally") == 0) {
+      rw_flags |= RW_NO_GLOBALLY;
+    } else if (strcmp(argv[i], "--no-derived") == 0) {
+      rw_flags |= RW_NO_DERIVED;
+    } else if (strcmp(argv[i], "--push-globally-in") == 0) {
+      rw_flags |= RW_PUSH_G_IN;
+    } else if (strcmp(argv[i], "--push-finally-in") == 0) {
+      rw_flags |= RW_PUSH_F_IN;
+    } else if (strcmp(argv[i], "--push-next-in") == 0) {
+      rw_flags |= RW_PUSH_X_IN;
+    } else if (strcmp(argv[i], "--pull-globally-out") == 0) {
+      rw_flags |= RW_PULL_G_OUT;
+    } else if (strcmp(argv[i], "--pull-finally-out") == 0) {
+      rw_flags |= RW_PULL_F_OUT;
+    } else if (strcmp(argv[i], "--pull-next-out") == 0) {
+      rw_flags |= RW_PULL_X_OUT;
     } else if (strcmp(argv[i], "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(argv[i], "--param") == 0) {
@@ -281,13 +346,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  // --- Build the single spec formula, then apply any requested transforms ---
+  Node *root = build_spec_formula(spec, cs, mode);
+  root = apply_rewrites(spec->arena, root, rw_flags);
+  if (!root) {
+    fprintf(stderr, "tlsf2ltl: transform failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
+
   // --- Emit ---
   FILE *out = cli_open_output(output_file, "tlsf2ltl");
   if (!out) {
     spec_free(spec);
     return 1;
   }
-  print_ltlxba_spec(out, spec, cs, mode, full_parens);
+  print_ltl(out, root, fmt, full_parens,
+            semantics_is_finite(spec->info.semantics));
   if (output_file)
     fclose(out);
 

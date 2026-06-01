@@ -19,6 +19,9 @@
 // In the precedence-aware (default) mode a subformula is parenthesised only
 // when its operator binds more loosely than the position it sits in.  In full
 // mode every compound subformula is parenthesised.
+//
+// The precedence and parenthesisation logic is dialect-independent; only the
+// operator spellings differ (see LtlSyntax below).
 // ---------------------------------------------------------------------------
 
 #define PREC_ATOM 100
@@ -48,35 +51,148 @@ static int prec_of(const Node *n) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dialect spelling tables
+// ---------------------------------------------------------------------------
+
+typedef struct LtlSyntax {
+  const char *t_true, *t_false;
+  // Unary (spelling includes any required trailing separator).
+  const char *op_not, *op_x, *op_xstrong_inf, *op_xstrong_fin, *op_f, *op_g;
+  // Binary boolean / temporal (spelling includes surrounding spaces).
+  const char *op_and, *op_or, *op_impl, *op_equiv;
+  const char *op_u, *op_r, *op_w, *op_m;
+  // Atom renderer (handles any escaping the dialect needs).
+  void (*emit_atom)(FILE *out, const char *name);
+} LtlSyntax;
+
+static void atom_plain(FILE *out, const char *name) {
+  fprintf(out, "%s", name);
+}
+
+// LaTeX math: wrap in \mathit{} and escape underscores; primes pass through.
+static void atom_latex(FILE *out, const char *name) {
+  fputs("\\mathit{", out);
+  for (const char *p = name; *p; p++) {
+    if (*p == '_')
+      fputs("\\_", out);
+    else
+      fputc(*p, out);
+  }
+  fputc('}', out);
+}
+
+// ltl2ba / spot ASCII (the historical default).
+static const LtlSyntax SYNTAX_LTLXBA = {
+    .t_true = "true",
+    .t_false = "false",
+    .op_not = "!",
+    .op_x = "X ",
+    .op_xstrong_inf = "X ",
+    .op_xstrong_fin = "X[!] ",
+    .op_f = "F ",
+    .op_g = "G ",
+    .op_and = " && ",
+    .op_or = " || ",
+    .op_impl = " -> ",
+    .op_equiv = " <-> ",
+    .op_u = " U ",
+    .op_r = " R ",
+    .op_w = " W ",
+    .op_m = " M ",
+    .emit_atom = atom_plain,
+};
+
+// Pure-LTL ASCII, matching `syfco -f ltl` (keeps W/R/M unrewritten).
+// Currently identical to ltlxba; kept distinct so the two can diverge (e.g.
+// should ltlxba ever rewrite W for classic ltl2ba).
+static const LtlSyntax SYNTAX_LTL = {
+    .t_true = "true",
+    .t_false = "false",
+    .op_not = "!",
+    .op_x = "X ",
+    .op_xstrong_inf = "X ",
+    .op_xstrong_fin = "X[!] ",
+    .op_f = "F ",
+    .op_g = "G ",
+    .op_and = " && ",
+    .op_or = " || ",
+    .op_impl = " -> ",
+    .op_equiv = " <-> ",
+    .op_u = " U ",
+    .op_r = " R ",
+    .op_w = " W ",
+    .op_m = " M ",
+    .emit_atom = atom_plain,
+};
+
+// LaTeX math symbols.
+static const LtlSyntax SYNTAX_LATEX = {
+    .t_true = "\\top",
+    .t_false = "\\bot",
+    .op_not = "\\lnot ",
+    .op_x = "\\mathsf{X} ",
+    .op_xstrong_inf = "\\mathsf{X} ",
+    .op_xstrong_fin = "\\mathsf{X}_{!} ",
+    .op_f = "\\mathsf{F} ",
+    .op_g = "\\mathsf{G} ",
+    .op_and = " \\land ",
+    .op_or = " \\lor ",
+    .op_impl = " \\rightarrow ",
+    .op_equiv = " \\leftrightarrow ",
+    .op_u = " \\mathbin{\\mathsf{U}} ",
+    .op_r = " \\mathbin{\\mathsf{R}} ",
+    .op_w = " \\mathbin{\\mathsf{W}} ",
+    .op_m = " \\mathbin{\\mathsf{M}} ",
+    .emit_atom = atom_latex,
+};
+
+static const LtlSyntax *syntax_for(LtlFormat fmt) {
+  switch (fmt) {
+  case LTL_FMT_LTL:
+    return &SYNTAX_LTL;
+  case LTL_FMT_LATEX:
+    return &SYNTAX_LATEX;
+  case LTL_FMT_LTLXBA:
+  default:
+    return &SYNTAX_LTLXBA;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Emitter
+// ---------------------------------------------------------------------------
+
 // Forward declaration.
-static void emit(FILE *out, const Node *n, int min_prec, bool full,
-                 bool finite);
+static void emit(FILE *out, const Node *n, int min_prec, bool full, bool finite,
+                 const LtlSyntax *s);
 
 // Print a unary operator `op` applied to `arg`.  Unary operators are
 // right-associative, so the operand is emitted at the operator's own level.
 static void emit_unary(FILE *out, const char *op, const Node *arg, bool full,
-                       bool finite) {
+                       bool finite, const LtlSyntax *s) {
   fprintf(out, "%s", op);
-  emit(out, arg, 5, full, finite);
+  emit(out, arg, 5, full, finite, s);
 }
 
 // Print a binary operator.  `lassoc` selects left- vs right-associativity.
 static void emit_binary(FILE *out, const Node *n, const char *op, int prec,
-                        bool lassoc, bool full, bool finite) {
+                        bool lassoc, bool full, bool finite,
+                        const LtlSyntax *s) {
   // left-assoc:  left at `prec`,   right at `prec+1`
   // right-assoc: left at `prec+1`, right at `prec`
   int left_min = lassoc ? prec : prec + 1;
   int right_min = lassoc ? prec + 1 : prec;
-  emit(out, n->lhs, left_min, full, finite);
+  emit(out, n->lhs, left_min, full, finite, s);
   fprintf(out, "%s", op);
-  emit(out, n->rhs, right_min, full, finite);
+  emit(out, n->rhs, right_min, full, finite, s);
 }
 
 // `finite` selects finite-word (LTLf) rendering: the strong next X[!] is kept
 // distinct from the weak next X (they coincide on infinite words, so for
 // infinite semantics both print as X).
-static void emit(FILE *out, const Node *n, int min_prec, bool full,
-                 bool finite) {
+static void emit(FILE *out, const Node *n, int min_prec, bool full, bool finite,
+                 const LtlSyntax *s) {
   assert(n);
 
   int p = prec_of(n);
@@ -88,56 +204,57 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full,
 
   switch (n->kind) {
   case NODE_TRUE:
-    fprintf(out, "true");
+    fprintf(out, "%s", s->t_true);
     break;
   case NODE_FALSE:
-    fprintf(out, "false");
+    fprintf(out, "%s", s->t_false);
     break;
   case NODE_AP:
-    fprintf(out, "%s", n->name);
+    s->emit_atom(out, n->name);
     break;
 
   case NODE_NOT:
-    emit_unary(out, "!", n->arg, full, finite);
+    emit_unary(out, s->op_not, n->arg, full, finite, s);
     break;
   case NODE_X:
-    emit_unary(out, "X ", n->arg, full, finite);
+    emit_unary(out, s->op_x, n->arg, full, finite, s);
     break;
   // Strong next: X[!] under finite-word semantics, plain X otherwise (the two
   // agree on infinite words).
   case NODE_X_STRONG:
-    emit_unary(out, finite ? "X[!] " : "X ", n->arg, full, finite);
+    emit_unary(out, finite ? s->op_xstrong_fin : s->op_xstrong_inf, n->arg,
+               full, finite, s);
     break;
   case NODE_F:
-    emit_unary(out, "F ", n->arg, full, finite);
+    emit_unary(out, s->op_f, n->arg, full, finite, s);
     break;
   case NODE_G:
-    emit_unary(out, "G ", n->arg, full, finite);
+    emit_unary(out, s->op_g, n->arg, full, finite, s);
     break;
 
   case NODE_AND:
-    emit_binary(out, n, " && ", 3, true, full, finite);
+    emit_binary(out, n, s->op_and, 3, true, full, finite, s);
     break;
   case NODE_OR:
-    emit_binary(out, n, " || ", 2, true, full, finite);
+    emit_binary(out, n, s->op_or, 2, true, full, finite, s);
     break;
   case NODE_IMPL:
-    emit_binary(out, n, " -> ", 1, false, full, finite);
+    emit_binary(out, n, s->op_impl, 1, false, full, finite, s);
     break;
   case NODE_EQUIV:
-    emit_binary(out, n, " <-> ", 1, false, full, finite);
+    emit_binary(out, n, s->op_equiv, 1, false, full, finite, s);
     break;
   case NODE_U:
-    emit_binary(out, n, " U ", 4, false, full, finite);
+    emit_binary(out, n, s->op_u, 4, false, full, finite, s);
     break;
   case NODE_R:
-    emit_binary(out, n, " R ", 4, false, full, finite);
+    emit_binary(out, n, s->op_r, 4, false, full, finite, s);
     break;
   case NODE_W:
-    emit_binary(out, n, " W ", 4, false, full, finite);
+    emit_binary(out, n, s->op_w, 4, false, full, finite, s);
     break;
   case NODE_M:
-    emit_binary(out, n, " M ", 4, false, full, finite);
+    emit_binary(out, n, s->op_m, 4, false, full, finite, s);
     break;
 
   default:
@@ -153,7 +270,7 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full,
 // ---------------------------------------------------------------------------
 
 void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens) {
-  emit(out, n, 1, full_parens, /*finite=*/false);
+  emit(out, n, 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
 }
 
 void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
@@ -163,7 +280,7 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
     return;
   }
   if (count == 1) {
-    emit(out, formulas[0], 1, full_parens, /*finite=*/false);
+    emit(out, formulas[0], 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
     return;
   }
   // Conjunction (prec 3); wrap when full, otherwise leave bare at top level.
@@ -172,14 +289,21 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
   for (uint32_t i = 0; i < count; i++) {
     if (i > 0)
       fprintf(out, " && ");
-    emit(out, formulas[i], 4, full_parens, /*finite=*/false); // operand of &&
+    // operand of &&
+    emit(out, formulas[i], 4, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
   }
   if (full_parens)
     fputc(')', out);
 }
 
+void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
+               bool finite) {
+  emit(out, root, 1, full_parens, finite, syntax_for(fmt));
+  fprintf(out, "\n");
+}
+
 // ---------------------------------------------------------------------------
-// Spec-level output
+// Spec-level formula assembly
 // ---------------------------------------------------------------------------
 
 // Fold formulas into a conjunction; returns nullptr for the empty set
@@ -227,13 +351,13 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
   return node_g(a, conj_of(a, ab, cs->assert_count));
 }
 
-// Build the TLSF specification formula and emit it.
+// Build the TLSF specification formula.
 //
 // Standard (non-strict) semantics — the arXiv default:
 //   (INITIALLY ∧ G REQUIRE ∧ ASSUME)  →  (PRESET ∧ G ASSERT ∧ GUARANTEE)
 //
-// Strict semantics (--strict) — the system's safety must hold at least until
-// the environment first violates a safety assumption:
+// Strict semantics — the system's safety must hold at least until the
+// environment first violates a safety assumption:
 //   ((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)
 // with E = INITIALLY ∧ G REQUIRE ∧ ASSUME.  If there are no safety
 // assumptions, ¬A_safety is false and the weak-until becomes G(PRESET ∧
@@ -243,16 +367,13 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
 // trivial implications collapse.  The safety/liveness mode selects which
 // guarantees appear (and, for liveness, drops the safety-only sections).
 //
-// Strict vs. non-strict and finite-word rendering follow the (possibly
-// overridden) SEMANTICS field.  A strict spec is emitted as the safety
-// weak-until form; to relax it to the plain E -> S formula, overwrite the
-// semantics to a non-strict one (-os Mealy / -os Moore).
-void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode,
-                       bool full_parens) {
+// Strict-vs-non-strict follows the (possibly overridden) SEMANTICS field.  A
+// strict spec is emitted as the safety weak-until form; to relax it to the
+// plain E -> S formula, overwrite the semantics to a non-strict one.
+Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
+                         PrintMode mode) {
   Arena *a = spec->arena;
   bool strict = semantics_is_strict(spec->info.semantics);
-  bool finite = semantics_is_finite(spec->info.semantics);
   bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
 
@@ -294,7 +415,13 @@ void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
     else
       root = node_impl(a, e, s);
   }
+  return root;
+}
 
-  emit(out, root, 1, full_parens, finite);
-  fprintf(out, "\n");
+void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
+                       const ClassifiedSpec *cs, PrintMode mode,
+                       bool full_parens) {
+  Node *root = build_spec_formula(spec, cs, mode);
+  bool finite = semantics_is_finite(spec->info.semantics);
+  print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite);
 }
