@@ -232,6 +232,11 @@ test('tlsf_ranges_reemit', check,
   args: [files('test/cases/ranges.reemit.tlsf'),
          tlsf2tlsf_exe, files('test/cases/ranges.tlsf')])
 
+# 'M' (strong-release keyword) reused as a parameter name and atom.
+test('ltl_ident_m', check,
+  args: [files('test/cases/ident_m.ltl'),
+         tlsf2ltl_exe, files('test/cases/ident_m.tlsf')])
+
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

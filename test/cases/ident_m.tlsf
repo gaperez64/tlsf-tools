@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "ident_m"
+  DESCRIPTION: "M (strong-release keyword) reused as a parameter/atom"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL {
+  PARAMETERS { M = 2; }
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g[M]; }
+  GUARANTEE {
+    G (r -> g[M - 1]);
+  }
+}

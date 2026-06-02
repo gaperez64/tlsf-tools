@@ -292,6 +292,11 @@ param_item
     { if (!spec_add_param(spec, $1, false, 0)) YYNOMEM; }
   | TOK_IDENT TOK_ASSIGN TOK_INTEGER
     { if (!spec_add_param(spec, $1, true, $3)) YYNOMEM; }
+  /* 'M' reused as a parameter name (see the atom rule above). */
+  | TOK_STRONG_REL
+    { if (!spec_add_param(spec, intern(spec->intern, "M"), false, 0)) YYNOMEM; }
+  | TOK_STRONG_REL TOK_ASSIGN TOK_INTEGER
+    { if (!spec_add_param(spec, intern(spec->intern, "M"), true, $3)) YYNOMEM; }
   ;
 
 /* DEFINITIONS { name [ ( params ) ] = body ; ... } */
@@ -497,6 +502,10 @@ ltl_expr
     { $$ = node_false(spec->arena); }
   | TOK_IDENT
     { $$ = node_ap(spec->arena, $1); }
+  /* 'M' (strong release) doubles as a common identifier (e.g. a parameter
+     named M); it is infix-only, so accepting it as an atom is unambiguous. */
+  | TOK_STRONG_REL
+    { $$ = node_ap(spec->arena, intern(spec->intern, "M")); }
 
   /* Integer atoms / arithmetic.  TLSF has a single untyped expression
      grammar; numeric vs. boolean use is resolved during expansion.  An
