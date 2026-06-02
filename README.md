@@ -9,7 +9,8 @@ Format) specifications, sharing a common C library.
 | `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula — `ltlxba` (default, for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`), `ltl`, or `latex`; with optional simplification/rewrites |
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
 | `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
-| `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates — `text`/`json`/`dot`/`tsv` |
+| `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates + WL features — `text`/`gsnf`/`dot`/`tsv` |
+| `tlsfwl`    | TLSF 1.1/1.2 specs | Weisfeiler-Lehman features / similarity matrix for clustering & retrieval |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -45,7 +46,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# binaries: build/tlsf2ltl  build/tlsf2tlsf  build/tlsfinfo  build/tlsfgraph
+# binaries: build/tlsf2ltl build/tlsf2tlsf build/tlsfinfo build/tlsfgraph build/tlsfwl
 ```
 
 With sanitizers:
@@ -57,9 +58,9 @@ ninja -C build-san
 
 ## Usage
 
-All three tools read a `FILE` argument or, if none is given, stdin; they write
-to stdout or to `--output FILE`; and they accept `--version` and `--help`.
-Options use long (`--`) names only.
+The tools read a `FILE` argument (`tlsfwl` takes several) or, if none is given,
+stdin; they write to stdout or to `--output FILE`; and they accept `--version`
+and `--help`. Options use long (`--`) names only.
 
 ```sh
 tlsf2tlsf spec.tlsf                 # expanded basic TLSF on stdout
@@ -83,8 +84,12 @@ tlsfinfo --check spec.tlsf          # "valid" if the spec parses, else error
 
 tlsfgraph spec.tlsf                 # text summary of the synthesis graph
 tlsfgraph --templates spec.tlsf     # + template candidates (response/mutex/…)
-tlsfgraph --format json spec.tlsf   # machine-readable GSNF graph
+tlsfgraph --format gsnf spec.tlsf   # machine-readable GSNF (line format)
 tlsfgraph --format dot spec.tlsf    # Graphviz DOT
+tlsfgraph --wl 3 spec.tlsf          # + Weisfeiler-Lehman features (depth 3)
+
+tlsfwl --matrix a.tlsf b.tlsf c.tlsf   # all-pairs WL similarity matrix
+tlsfwl --nearest 3 *.tlsf              # top-3 nearest spec per spec
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -176,19 +181,41 @@ candidates* are recognized over those constraints:
 
 ```sh
 tlsfgraph --templates spec.tlsf            # text summary + candidate counts
-tlsfgraph --format json --templates spec.tlsf > spec.gsnf.json
+tlsfgraph --format gsnf --templates spec.tlsf > spec.gsnf
 tlsfgraph --format dot spec.tlsf | dot -Tsvg > spec.svg
 tlsfgraph --guarantees --liveness --format tsv spec.tlsf   # filtered table
 ```
 
+The machine-readable `gsnf` format is **DIMACS-style**: `c` comment lines, a
+`p gsnf …` header, then one tagged record per line (`i`/`o` signals,
+`n` constraints, `k` candidates, `f` formulas, `e` edges, `t` template blocks).
+It is trivial to parse with `fgets`/`strtok` — no JSON.
+
 Output is **candidate-only**: `tlsfgraph` never rewrites, removes, certifies,
 or solves anything — a recognized candidate is a starting point for analysis,
-not a proof. It is the first slice of a larger proposed
-analysis/normalization/synthesis layer; later milestones (Weisfeiler-Lehman
-features and `tlsfwl` clustering, certified templates and CSNF via
-`tlsftemplates`, residual export, controller composition) are not yet
-implemented and the corresponding flags (`--wl`, `--norm-depth`, …) report a
-clear "not implemented" error. `--graph formula|quotient` is likewise reserved.
+not a proof.
+
+### Weisfeiler-Lehman features (`--wl`, `tlsfwl`)
+
+`tlsfgraph --wl N` appends a WL color-refinement histogram (a structural
+fingerprint of the synthesis graph) as `v <count> <key>` lines;
+`--wl-labels basic|synthesis|template` chooses the labelling. `tlsfwl` compares
+specs by these features:
+
+```sh
+tlsfwl --matrix --wl 3 specs/*.tlsf        # all-pairs cosine similarity
+tlsfwl --compare ref.tlsf cand/*.tlsf      # each candidate vs a reference
+tlsfwl --nearest 5 --kernel jaccard *.tlsf # top-5 nearest spec per spec
+```
+
+WL is a *similarity heuristic, never a proof* — it suggests; templates verify.
+
+`tlsfgraph`/`tlsfwl` are the implemented slice of a larger proposed
+analysis/normalization/synthesis layer. Later milestones (certified templates
+and CSNF via `tlsftemplates`, residual export, controller composition) are not
+yet implemented and the corresponding flags (`--norm-depth`, `tlsfwl
+--from-gsnf`, …) report a clear "not implemented" error; `--graph
+formula|quotient` is likewise reserved.
 
 ## Checking output against `syfco`
 
@@ -214,7 +241,7 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~90 cases
+meson test -C build        # ~0.2s, ~95 cases
 ```
 
 Coverage (needs `gcovr`):

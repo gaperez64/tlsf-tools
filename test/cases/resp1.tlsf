@@ -1,0 +1,3 @@
+INFO{TITLE:"r" DESCRIPTION:"r" SEMANTICS:Mealy TARGET:Mealy}
+MAIN{INPUTS{req;} OUTPUTS{grant;}
+GUARANTEE{ G (req -> F grant); }}

@@ -16,6 +16,7 @@ project(
 # ---------------------------------------------------------------------------
 
 cc = meson.get_compiler('c')
+m_dep = cc.find_library('m', required: false)  # WL kernels (sqrt)
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
@@ -110,8 +111,8 @@ lib_sources = [
   'src/apset.c',
   'src/cover.c',
   'src/recognize.c',
-  'src/json.c',
   'src/graph.c',
+  'src/wl.c',
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
@@ -125,6 +126,7 @@ tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: inc,
+  dependencies: m_dep,
   pic: false,
 )
 
@@ -159,6 +161,14 @@ tlsfinfo_exe = executable(
 tlsfgraph_exe = executable(
   'tlsfgraph',
   sources: ['src/main_tlsfgraph.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
+tlsfwl_exe = executable(
+  'tlsfwl',
+  sources: ['src/main_tlsfwl.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -260,13 +270,14 @@ test('tlsf_enum_basic', check,
   args: [files('test/cases/enum_demo.basic.tlsf'),
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
 
-# tlsfgraph: GSNF text/json/dot/tsv + template candidates (arbiter pattern).
+# tlsfgraph: GSNF text/gsnf/dot/tsv + template candidates (arbiter pattern).
+check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
 test('graph_text', check,
   args: [files('test/cases/arbiter2.graph.txt'),
          tlsfgraph_exe, '--templates', files('test/cases/arbiter2.tlsf')])
-test('graph_json', check,
-  args: [files('test/cases/arbiter2.graph.json'),
-         tlsfgraph_exe, '--format', 'json', '--pretty', '--templates',
+test('graph_gsnf', check,
+  args: [files('test/cases/arbiter2.graph.gsnf'),
+         tlsfgraph_exe, '--format', 'gsnf', '--templates',
          files('test/cases/arbiter2.tlsf')])
 test('graph_tsv', check,
   args: [files('test/cases/arbiter2.graph.tsv'),
@@ -280,14 +291,39 @@ test('graph_filter', check,
          tlsfgraph_exe, '--format', 'tsv', '--guarantees', '--liveness',
          files('test/cases/arbiter2.tlsf')])
 test('graph_constraint_kind', check,
-  args: [files('test/cases/arbiter2.graph.cons.json'),
-         tlsfgraph_exe, '--format', 'json', '--pretty', '--graph', 'constraint',
+  args: [files('test/cases/arbiter2.graph.cons.gsnf'),
+         tlsfgraph_exe, '--format', 'gsnf', '--graph', 'constraint',
          files('test/cases/arbiter2.tlsf')])
+
+# WL features (M4): tlsfgraph --wl and the tlsfwl comparison tool.
+test('graph_wl', check_wl,
+  args: [files('test/cases/arbiter2.graph.wl'),
+         tlsfgraph_exe, '--wl', '2', files('test/cases/arbiter2.tlsf')])
+test('wl_matrix', check_wl,
+  args: [files('test/cases/wl_matrix.txt'),
+         tlsfwl_exe, '--matrix', files('test/cases/arbiter2.tlsf'),
+         files('test/cases/resp1.tlsf')])
+test('wl_compare', check_wl,
+  args: [files('test/cases/wl_compare.txt'),
+         tlsfwl_exe, '--compare', files('test/cases/resp1.tlsf'),
+         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
+test('wl_nearest', check,   # output is index-only, no paths to normalize
+  args: [files('test/cases/wl_nearest.txt'),
+         tlsfwl_exe, '--nearest', '1', '--kernel', 'jaccard',
+         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf'),
+         files('test/cases/arbiter2.tlsf')])
+test('graph_wl_template', check_wl,
+  args: [files('test/cases/arbiter2.graph.wltmpl'),
+         tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
+         'template', files('test/cases/arbiter2.tlsf')])
+
 # Reserved (later-milestone) flags must error, not be silently ignored.
-test('graph_wl_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--wl', '3', files('test/cases/arbiter2.tlsf')])
+test('graph_norm_unimplemented', xfail,
+  args: [tlsfgraph_exe, '--norm-depth', '3', files('test/cases/arbiter2.tlsf')])
 test('graph_quotient_unimplemented', xfail,
   args: [tlsfgraph_exe, '--graph', 'quotient', files('test/cases/arbiter2.tlsf')])
+test('wl_from_gsnf_unimplemented', xfail,
+  args: [tlsfwl_exe, '--from-gsnf', files('test/cases/arbiter2.tlsf')])
 
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.

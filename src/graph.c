@@ -1,7 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/graph.h"
 
-#include "tlsf/json.h"
 #include "tlsf/print_ltlxba.h"
 
 #include <stdlib.h>
@@ -120,174 +119,83 @@ static void emit_text(FILE *out, ConstraintCover *cov, const GraphOpts *o) {
 }
 
 // ---------------------------------------------------------------------------
-// JSON (GSNF)
+// GSNF line format (DIMACS-style: one tagged record per line, see README)
 // ---------------------------------------------------------------------------
 
-static void json_ap_array(JsonWriter *w, const ApTable *t, uint8_t flag) {
-  json_arr_begin(w);
-  for (uint32_t i = 0; i < t->count; i++)
-    if (ap_table_flags(t, i) & flag)
-      json_str(w, ap_table_name(t, i));
-  json_arr_end(w);
-}
+static void emit_gsnf(FILE *out, ConstraintCover *cov, const GraphOpts *o) {
+  uint32_t nin = 0, nout = 0, nsel = 0;
+  for (uint32_t i = 0; i < cov->aps.count; i++) {
+    uint8_t f = ap_table_flags(&cov->aps, i);
+    nin += (f & AP_FLAG_INPUT) != 0;
+    nout += (f & AP_FLAG_OUTPUT) != 0;
+  }
+  for (uint32_t i = 0; i < cov->count; i++)
+    if (sel(o, i))
+      nsel++;
 
-static void json_set_names(JsonWriter *w, const ApTable *t, const ApSet *s) {
-  json_arr_begin(w);
-  for (uint32_t i = 0; i < t->count; i++)
-    if (apset_test(s, i))
-      json_str(w, ap_table_name(t, i));
-  json_arr_end(w);
-}
+  fprintf(out, "c GSNF (candidate-only structural view)\n");
+  fprintf(out, "p gsnf %u %u %u\n", nin, nout, nsel);
+  fprintf(out, "m semantics %s\n", sem_name(cov->spec->info.semantics));
+  fprintf(out, "m target %s\n", tgt_name(cov->spec->info.target));
+  for (uint32_t i = 0; i < cov->aps.count; i++)
+    if (ap_table_flags(&cov->aps, i) & AP_FLAG_INPUT)
+      fprintf(out, "i %s\n", ap_table_name(&cov->aps, i));
+  for (uint32_t i = 0; i < cov->aps.count; i++)
+    if (ap_table_flags(&cov->aps, i) & AP_FLAG_OUTPUT)
+      fprintf(out, "o %s\n", ap_table_name(&cov->aps, i));
 
-static void emit_json(FILE *out, ConstraintCover *cov, const GraphOpts *o) {
-  JsonWriter w;
-  json_init(&w, out, o->pretty);
-  json_obj_begin(&w);
-  json_key(&w, "format");
-  json_str(&w, "GSNF");
-  json_key(&w, "version");
-  json_int(&w, 1);
-  json_key(&w, "semantics");
-  json_str(&w, sem_name(cov->spec->info.semantics));
-  json_key(&w, "target");
-  json_str(&w, tgt_name(cov->spec->info.target));
-  json_key(&w, "inputs");
-  json_ap_array(&w, &cov->aps, AP_FLAG_INPUT);
-  json_key(&w, "outputs");
-  json_ap_array(&w, &cov->aps, AP_FLAG_OUTPUT);
-
-  // Constraints.
-  json_key(&w, "constraints");
-  json_arr_begin(&w);
+  // Constraint nodes, their candidates and formulas.
   for (uint32_t i = 0; i < cov->count; i++) {
     if (!sel(o, i))
       continue;
     Constraint *c = &cov->items[i];
     if (o->candidates_only && c->candidate_count == 0)
       continue;
-    char idbuf[24];
-    snprintf(idbuf, sizeof idbuf, "c%u", c->id);
-    json_obj_begin(&w);
-    json_key(&w, "id");
-    json_str(&w, idbuf);
-    json_key(&w, "role");
-    json_str(&w, role_name(c->role));
-    json_key(&w, "class");
-    json_str(&w, c->is_safety ? "syntactic_safety" : "syntactic_liveness");
-    json_key(&w, "formula");
-    char *fs = formula_str(c->formula);
-    json_str(&w, fs ? fs : "");
-    free(fs);
-    json_key(&w, "inputs");
-    json_set_names(&w, &cov->aps, &c->inputs);
-    json_key(&w, "outputs");
-    json_set_names(&w, &cov->aps, &c->outputs);
-    if (o->templates) {
-      json_key(&w, "template_candidates");
-      json_arr_begin(&w);
+    fprintf(out, "n c%u %s %s\n", c->id, role_name(c->role),
+            c->is_safety ? "safety" : "liveness");
+    if (o->templates)
       for (uint16_t k = 0; k < c->candidate_count; k++)
-        if (!o->only_template || !strcmp(o->only_template, c->candidates[k]))
-          json_str(&w, c->candidates[k]);
-      json_arr_end(&w);
-    }
-    json_obj_end(&w);
+        if (!o->only_template ||
+            strcmp(o->only_template, c->candidates[k]) == 0)
+          fprintf(out, "k c%u %s\n", c->id, c->candidates[k]);
+    char *fs = formula_str(c->formula);
+    fprintf(out, "f c%u %s\n", c->id, fs ? fs : "");
+    free(fs);
   }
-  json_arr_end(&w);
 
-  // Edges (synthesis graph: AP ownership + response/mutex; constraint graph
-  // omits per-AP occurrence edges).
-  json_key(&w, "edges");
-  json_arr_begin(&w);
+  // Edges: occurs_in (synthesis only) + response/mutex.
   for (uint32_t i = 0; i < cov->count; i++) {
     if (!sel(o, i))
       continue;
     Constraint *c = &cov->items[i];
-    char src[24];
-    snprintf(src, sizeof src, "c%u", c->id);
-    if (o->kind == GK_SYNTHESIS) {
-      for (uint32_t a = 0; a < cov->aps.count; a++) {
-        bool in = apset_test(&c->inputs, a), ou = apset_test(&c->outputs, a);
-        if (!in && !ou)
-          continue;
-        json_obj_begin(&w);
-        json_key(&w, "src");
-        json_str(&w, src);
-        json_key(&w, "dst");
-        json_str(&w, ap_table_name(&cov->aps, a));
-        json_key(&w, "type");
-        json_str(&w, "occurs_in");
-        json_obj_end(&w);
-      }
-    }
-    if (c->resp_guard >= 0) {
-      json_obj_begin(&w);
-      json_key(&w, "src");
-      json_str(&w, src);
-      json_key(&w, "dst");
-      json_str(&w, ap_table_name(&cov->aps, (uint32_t)c->resp_guard));
-      json_key(&w, "type");
-      json_str(&w, "response_guard");
-      json_obj_end(&w);
-    }
-    if (c->resp_target >= 0) {
-      json_obj_begin(&w);
-      json_key(&w, "src");
-      json_str(&w, src);
-      json_key(&w, "dst");
-      json_str(&w, ap_table_name(&cov->aps, (uint32_t)c->resp_target));
-      json_key(&w, "type");
-      json_str(&w, "response_target");
-      json_obj_end(&w);
-    }
-    if (c->has_mutex) {
-      for (uint32_t a = 0; a < cov->aps.count; a++) {
-        if (!apset_test(&c->mutex_members, a))
-          continue;
-        json_obj_begin(&w);
-        json_key(&w, "src");
-        json_str(&w, src);
-        json_key(&w, "dst");
-        json_str(&w, ap_table_name(&cov->aps, a));
-        json_key(&w, "type");
-        json_str(&w, "mutex_member");
-        json_obj_end(&w);
-      }
-    }
+    if (o->kind == GK_SYNTHESIS)
+      for (uint32_t a = 0; a < cov->aps.count; a++)
+        if (apset_test(&c->inputs, a) || apset_test(&c->outputs, a))
+          fprintf(out, "e c%u %s occurs_in\n", c->id,
+                  ap_table_name(&cov->aps, a));
+    if (c->resp_guard >= 0)
+      fprintf(out, "e c%u %s response_guard\n", c->id,
+              ap_table_name(&cov->aps, (uint32_t)c->resp_guard));
+    if (c->resp_target >= 0)
+      fprintf(out, "e c%u %s response_target\n", c->id,
+              ap_table_name(&cov->aps, (uint32_t)c->resp_target));
+    if (c->has_mutex)
+      for (uint32_t a = 0; a < cov->aps.count; a++)
+        if (apset_test(&c->mutex_members, a))
+          fprintf(out, "e c%u %s mutex_member\n", c->id,
+                  ap_table_name(&cov->aps, a));
   }
-  json_arr_end(&w);
 
-  // Template blocks.
-  json_key(&w, "template_blocks");
-  json_arr_begin(&w);
+  // Template blocks: tag, then the member constraint ids.
   for (uint32_t b = 0; b < cov->block_count; b++) {
     if (o->only_template &&
         strcmp(o->only_template, cov->blocks[b].template_name) != 0)
       continue;
-    char idbuf[24];
-    snprintf(idbuf, sizeof idbuf, "tb%u", b);
-    json_obj_begin(&w);
-    json_key(&w, "id");
-    json_str(&w, idbuf);
-    json_key(&w, "template");
-    json_str(&w, cov->blocks[b].template_name);
-    json_key(&w, "constraints");
-    json_arr_begin(&w);
-    for (uint32_t k = 0; k < cov->blocks[b].count; k++) {
-      char cb[24];
-      snprintf(cb, sizeof cb, "c%u", cov->blocks[b].constraint_ids[k]);
-      json_str(&w, cb);
-    }
-    json_arr_end(&w);
-    json_key(&w, "status");
-    json_str(&w, "candidate");
-    json_obj_end(&w);
+    fprintf(out, "t %s", cov->blocks[b].template_name);
+    for (uint32_t k = 0; k < cov->blocks[b].count; k++)
+      fprintf(out, " c%u", cov->blocks[b].constraint_ids[k]);
+    fprintf(out, "\n");
   }
-  json_arr_end(&w);
-
-  json_key(&w, "wl");
-  json_null(&w);
-  json_obj_end(&w);
-  fputc('\n', out);
 }
 
 // ---------------------------------------------------------------------------
@@ -353,8 +261,8 @@ int graph_emit(FILE *out, ConstraintCover *cov, GraphFormat fmt,
   case GFMT_TEXT:
     emit_text(out, cov, o);
     return 0;
-  case GFMT_JSON:
-    emit_json(out, cov, o);
+  case GFMT_GSNF:
+    emit_gsnf(out, cov, o);
     return 0;
   case GFMT_DOT:
     emit_dot(out, cov, o);

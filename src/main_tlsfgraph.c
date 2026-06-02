@@ -9,6 +9,7 @@
 #include "tlsf/graph.h"
 #include "tlsf/recognize.h"
 #include "tlsf/spec.h"
+#include "tlsf/wl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,27 +18,31 @@
 #define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Builds the synthesis graph (GSNF) of a TLSF spec (FILE or stdin).\n"
-          "  --format text|json|dot|tsv   output format (default text)\n"
-          "  --graph synthesis|constraint complete graph kind (default "
-          "synthesis;\n"
-          "                               formula/quotient not yet "
-          "implemented)\n"
-          "  --pretty                     pretty-print JSON\n"
-          "  --templates                  include template-candidate info\n"
-          "  --template NAME              restrict to one template\n"
-          "  --template-candidates-only   emit only candidate blocks\n"
-          "  --roles LIST                 comma-separated TLSF roles to keep\n"
-          "  --assumptions / --guarantees keep only that side\n"
-          "  --safety / --liveness        keep only that syntactic class\n"
-          "  --overwrite-semantics VALUE  replace SEMANTICS\n"
-          "  --overwrite-target VALUE     replace TARGET\n"
-          "  --param NAME=VALUE           override a parameter (repeatable)\n"
-          "  --output FILE                write to FILE (default stdout)\n"
-          "  --version, --help\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Builds the synthesis graph (GSNF) of a TLSF spec (FILE or stdin).\n"
+      "  --format text|gsnf|dot|tsv   output format (default text); gsnf is\n"
+      "                               the DIMACS-style line format\n"
+      "  --graph synthesis|constraint complete graph kind (default "
+      "synthesis;\n"
+      "                               formula/quotient not yet "
+      "implemented)\n"
+      "  --wl N                       append WL features of depth N\n"
+      "  --wl-labels basic|synthesis|template   WL label scheme (default "
+      "synthesis)\n"
+      "  --templates                  include template-candidate info\n"
+      "  --template NAME              restrict to one template\n"
+      "  --template-candidates-only   emit only candidate blocks\n"
+      "  --roles LIST                 comma-separated TLSF roles to keep\n"
+      "  --assumptions / --guarantees keep only that side\n"
+      "  --safety / --liveness        keep only that syntactic class\n"
+      "  --overwrite-semantics VALUE  replace SEMANTICS\n"
+      "  --overwrite-target VALUE     replace TARGET\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --output FILE                write to FILE (default stdout)\n"
+      "  --version, --help\n",
+      prog);
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -84,6 +89,8 @@ int main(int argc, char *argv[]) {
   unsigned role_mask = 0; // 0 = all roles
   bool want_assume = false, want_guar = false;
   bool want_safety = false, want_live = false;
+  int wl_rounds = -1; // < 0 = no WL
+  WlLabels wl_labels = WL_SYNTHESIS;
 
   ParamOverride overrides[64];
   size_t n_overrides = 0;
@@ -100,8 +107,8 @@ int main(int argc, char *argv[]) {
       const char *v = NEED_ARG();
       if (!strcmp(v, "text"))
         fmt = GFMT_TEXT;
-      else if (!strcmp(v, "json"))
-        fmt = GFMT_JSON;
+      else if (!strcmp(v, "gsnf"))
+        fmt = GFMT_GSNF;
       else if (!strcmp(v, "dot"))
         fmt = GFMT_DOT;
       else if (!strcmp(v, "tsv"))
@@ -124,10 +131,24 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsfgraph: unknown graph kind '%s'\n", v);
         return 1;
       }
-    } else if (strcmp(a, "--pretty") == 0) {
-      o.pretty = true;
-    } else if (strcmp(a, "--compact") == 0) {
-      o.pretty = false;
+    } else if (strcmp(a, "--wl") == 0) {
+      wl_rounds = (int)strtol(NEED_ARG(), nullptr, 10);
+      if (wl_rounds < 0) {
+        fprintf(stderr, "tlsfgraph: --wl N must be >= 0\n");
+        return 1;
+      }
+    } else if (strcmp(a, "--wl-labels") == 0) {
+      const char *v = NEED_ARG();
+      if (!strcmp(v, "basic"))
+        wl_labels = WL_BASIC;
+      else if (!strcmp(v, "synthesis"))
+        wl_labels = WL_SYNTHESIS;
+      else if (!strcmp(v, "template"))
+        wl_labels = WL_TEMPLATE;
+      else {
+        fprintf(stderr, "tlsfgraph: unknown --wl-labels '%s'\n", v);
+        return 1;
+      }
     } else if (strcmp(a, "--templates") == 0) {
       o.templates = true;
     } else if (strcmp(a, "--template") == 0) {
@@ -176,14 +197,12 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
       return 0;
-    } else if (!strcmp(a, "--wl") || !strcmp(a, "--wl-labels") ||
-               !strcmp(a, "--wl-json") || !strcmp(a, "--no-wl-retrieval") ||
-               !strcmp(a, "--norm-depth") || !strcmp(a, "--passes") ||
-               !strcmp(a, "--pass-schedule") ||
+    } else if (!strcmp(a, "--no-wl-retrieval") || !strcmp(a, "--norm-depth") ||
+               !strcmp(a, "--passes") || !strcmp(a, "--pass-schedule") ||
                !strcmp(a, "--stop-on-stable")) {
       fprintf(stderr,
-              "tlsfgraph: %s is not implemented yet (WL is milestone 4, "
-              "normalization passes are tlsfnorm)\n",
+              "tlsfgraph: %s is not implemented yet (normalization passes are "
+              "tlsfnorm, milestone later)\n",
               a);
       return 2;
     } else if (a[0] != '-') {
@@ -266,6 +285,19 @@ int main(int argc, char *argv[]) {
   int rc = graph_emit(out, cov, fmt, &o);
   if (rc != 0)
     fprintf(stderr, "tlsfgraph: --graph kind not implemented yet\n");
+
+  // WL features, appended after the graph (or emitted standalone for text).
+  if (rc == 0 && wl_rounds >= 0) {
+    WlFeatures *wf = wl_compute(cov, wl_rounds, wl_labels);
+    if (!wf) {
+      fprintf(stderr, "tlsfgraph: out of memory computing WL features\n");
+      rc = 1;
+    } else {
+      wl_features_emit(out, wf, input_file ? input_file : "<stdin>");
+      wl_features_free(wf);
+    }
+  }
+
   if (output_file)
     fclose(out);
   free(selected);

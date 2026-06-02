@@ -9,7 +9,7 @@
 #include "tlsf/cover.h"
 #include <stdio.h>
 
-typedef enum { GFMT_TEXT, GFMT_JSON, GFMT_DOT, GFMT_TSV } GraphFormat;
+typedef enum { GFMT_TEXT, GFMT_GSNF, GFMT_DOT, GFMT_TSV } GraphFormat;
 
 typedef enum {
   GK_SYNTHESIS,  ///< constraints + AP ownership + dependency/template edges
@@ -23,7 +23,6 @@ typedef struct {
   bool templates;            ///< include template-candidate info
   bool candidates_only;      ///< emit only template-candidate blocks
   const char *only_template; ///< restrict to one template name (or nullptr)
-  bool pretty;               ///< pretty-print JSON
   const bool *selected;      ///< length cov->count; nullptr ⇒ all constraints
 } GraphOpts;
 

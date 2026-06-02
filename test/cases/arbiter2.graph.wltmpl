@@ -1,0 +1,37 @@
+c GSNF (candidate-only structural view)
+p gsnf 2 2 3
+m semantics Mealy
+m target Mealy
+i req0
+i req1
+o grant0
+o grant1
+n c0 GUARANTEE liveness
+f c0 G (req0 -> F grant0)
+n c1 GUARANTEE liveness
+f c1 G (req1 -> F grant1)
+n c2 GUARANTEE safety
+f c2 G !(grant0 && grant1)
+e c0 req0 occurs_in
+e c0 grant0 occurs_in
+e c0 req0 response_guard
+e c0 grant0 response_target
+e c1 req1 occurs_in
+e c1 grant1 occurs_in
+e c1 req1 response_guard
+e c1 grant1 response_target
+e c2 grant0 occurs_in
+e c2 grant1 occurs_in
+e c2 grant0 mutex_member
+e c2 grant1 mutex_member
+t arbiter_candidate c0 c1 c2
+c WL features for arbiter2.tlsf
+p wl 1 template
+v 2 0:AP:input
+v 2 0:AP:output
+v 2 0:GUARANTEE:liveness:response
+v 1 0:GUARANTEE:safety:mutex
+v 2 1:150126242b2c0bb3
+v 2 1:3d752a780db6df87
+v 1 1:b1bfe689b9ae4f6b
+v 2 1:eff7482c754d55d6
