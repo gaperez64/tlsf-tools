@@ -86,6 +86,25 @@ typedef struct {
   Node *body; ///< formula body (pre-expansion)
 } DefDecl;
 
+/// An `enum` label and its bit pattern (MSB-first binary string, kept verbatim
+/// so the width is preserved).  `bus == LABEL` expands to a positional match of
+/// the bus bits against this pattern.
+typedef struct {
+  const char *name; ///< interned label name
+  const char *bits; ///< interned bit string, e.g. "01"
+} EnumLabel;
+
+/// An `enum` type name and the bit width of its labels.  A signal declared with
+/// the type (`hburst HBURST;`) becomes a bus of this width, and carries the
+/// implicit invariant that it always holds one of the type's labels.
+/// `label_start`/`label_count` index into TlsfSpec.enum_labels.
+typedef struct {
+  const char *name; ///< interned enum type name
+  uint32_t width;   ///< number of bits (label string length)
+  uint16_t label_start;
+  uint16_t label_count;
+} EnumType;
+
 // ---------------------------------------------------------------------------
 // Formula lists (one per subsection)
 // ---------------------------------------------------------------------------
@@ -127,6 +146,10 @@ typedef struct {
   uint16_t param_count;
   DefDecl *defs;
   uint16_t def_count;
+  EnumLabel *enum_labels;
+  uint16_t enum_label_count;
+  EnumType *enum_types;
+  uint16_t enum_type_count;
 
   // MAIN section: signal declarations
   SignalDecl *inputs;
@@ -151,6 +174,8 @@ typedef struct {
   uint32_t output_cap;
   uint16_t param_cap;
   uint16_t def_cap;
+  uint16_t enum_label_cap;
+  uint16_t enum_type_cap;
   uint16_t tag_cap;
   FormulaList *cur_list; ///< formula subsection currently being parsed
   bool cur_is_output;    ///< true while inside an OUTPUTS subsection
@@ -197,6 +222,24 @@ void spec_free(TlsfSpec *s);
 [[nodiscard]] bool spec_add_def(TlsfSpec *s, const char *name,
                                 const char **params, uint16_t param_count,
                                 Node *body);
+
+/// Append an enum label and its bit pattern.  Returns false on OOM.
+[[nodiscard]] bool spec_add_enum_label(TlsfSpec *s, const char *name,
+                                       const char *bits);
+
+/// Look up an enum label by interned name; returns its bit string or nullptr.
+[[nodiscard]] const char *spec_find_enum_label(const TlsfSpec *s,
+                                               const char *name);
+
+/// Register an enum type (width and the [start,start+count) range of its labels
+/// in `enum_labels`).  Returns false on OOM.
+[[nodiscard]] bool spec_add_enum_type(TlsfSpec *s, const char *name,
+                                      uint32_t width, uint16_t label_start,
+                                      uint16_t label_count);
+
+/// Look up an enum type by interned name; returns nullptr if not a type.
+[[nodiscard]] const EnumType *spec_find_enum_type(const TlsfSpec *s,
+                                                  const char *name);
 
 /// Append an INFO tag string.  Returns false on OOM.
 [[nodiscard]] bool spec_add_tag(TlsfSpec *s, const char *tag);

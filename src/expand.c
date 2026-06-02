@@ -479,6 +479,49 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
   case NODE_M:
     XBINARY(node_m);
 
+  // Formula-level (in)equality.  `bus == LABEL` (LABEL an enum label) becomes a
+  // positional bit match against the label's pattern; otherwise it is a plain
+  // integer comparison that folds to a constant.
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE: {
+    const char *bits = nullptr;
+    const Node *bus = nullptr;
+    if (n->rhs->kind == NODE_AP)
+      bits = spec_find_enum_label(spec, n->rhs->name);
+    if (bits) {
+      bus = n->lhs;
+    } else if (n->lhs->kind == NODE_AP) {
+      bits = spec_find_enum_label(spec, n->lhs->name);
+      bus = n->rhs;
+    }
+
+    if (bits) {
+      if (bus->kind != NODE_AP) {
+        fprintf(stderr, "expand: enum label compared against a non-signal\n");
+        *ok = false;
+        return nullptr;
+      }
+      // match = AND_i (bits[i]=='1' ? bus_i : !bus_i)
+      Node *acc = nullptr;
+      for (size_t i = 0; bits[i]; i++) {
+        Node *elem = node_ap(a, bus_elem_name(spec, bus->name, (int64_t)i));
+        Node *term = bits[i] == '1' ? elem : node_not(a, elem);
+        acc = acc ? node_and(a, acc, term) : term;
+      }
+      if (!acc)
+        acc = node_true(a);
+      return n->kind == NODE_CMP_NE ? node_not(a, acc) : acc;
+    }
+
+    // Plain integer comparison in formula position: fold to a constant.
+    bool b;
+    if (!eval_bool(spec, n, env, &b, depth)) {
+      *ok = false;
+      return nullptr;
+    }
+    return b ? node_true(a) : node_false(a);
+  }
+
   case NODE_BUS_INDEX: {
     int64_t idx;
     if (!eval_int(spec, n->bus_index, env, &idx, depth)) {

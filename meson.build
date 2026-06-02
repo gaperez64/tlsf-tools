@@ -237,6 +237,16 @@ test('ltl_ident_m', check,
   args: [files('test/cases/ident_m.ltl'),
          tlsf2ltl_exe, files('test/cases/ident_m.tlsf')])
 
+# enum definitions: typed-bus declaration, bus == LABEL bit match, and the
+# implicit validity invariant.
+test('ltl_enum', check,
+  args: [files('test/cases/enum_demo.ltl'),
+         tlsf2ltl_exe, files('test/cases/enum_demo.tlsf')])
+
+test('tlsf_enum_basic', check,
+  args: [files('test/cases/enum_demo.basic.tlsf'),
+         tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
+
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

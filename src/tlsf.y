@@ -2,6 +2,7 @@
 /* tlsf.y — TLSF v1.1/v1.2 parser */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 %}
 
 /* Emitted into the generated header (tlsf_parse.h) and early in the parser
@@ -80,6 +81,21 @@
     n->rhs = rhs;
     return n;
   }
+
+  /* Implicit invariant for an enum-typed signal: it always holds one of the
+   * type's labels, i.e. G( (sig == L1) || (sig == L2) || ... ).  Each (sig ==
+   * Li) expands to the positional bit match during expansion. */
+  static Node *mk_enum_validity(TlsfSpec *spec, const EnumType *et,
+                                const char *sig) {
+    Arena *a = spec->arena;
+    Node *acc = nullptr;
+    for (uint16_t i = 0; i < et->label_count; i++) {
+      const char *label = spec->enum_labels[et->label_start + i].name;
+      Node *eq = mk_cmp(a, NODE_CMP_EQ, node_ap(a, sig), node_ap(a, label));
+      acc = acc ? node_or(a, acc, eq) : eq;
+    }
+    return acc ? node_g(a, acc) : node_true(a);
+  }
 }
 
 /* -------------------------------------------------------------------------
@@ -102,8 +118,8 @@
  * reduce/reduce on the binary-vs-unary `-` boundary) are asserted below so the
  * build stays clean and bison errors out if the grammar ever drifts. */
 %glr-parser
-%expect 1
-%expect-rr 10
+%expect 13
+%expect-rr 12
 
 %param  { yyscan_t scanner }
 %parse-param { TlsfSpec *spec }
@@ -132,7 +148,8 @@
 /* Section / subsection keywords */
 %token TOK_INFO TOK_GLOBAL TOK_MAIN
 %token TOK_TITLE TOK_DESCRIPTION TOK_SEMANTICS TOK_TARGET TOK_TAGS
-%token TOK_PARAMETERS TOK_DEFINITIONS
+%token TOK_PARAMETERS TOK_DEFINITIONS TOK_ENUM
+%token <sval> TOK_BITS
 %token TOK_INPUTS TOK_OUTPUTS
 %token TOK_INITIALLY TOK_PRESET TOK_REQUIRE TOK_ASSERT TOK_ASSUME TOK_GUARANTEE
 
@@ -174,6 +191,9 @@
 %right TOK_IMPL TOK_EQUIV
 %left  TOK_OR
 %left  TOK_AND
+/* Formula-level equality (e.g. a bus matched against an enum label) binds
+ * tighter than the boolean connectives but looser than the temporal ops. */
+%left  TOK_EQ TOK_NEQ
 %right TOK_UNTIL TOK_RELEASE TOK_WEAK TOK_STRONG_REL
 %right TOK_GLOBALLY TOK_FINALLY TOK_NEXT TOK_SNEXT
 %right TOK_NOT
@@ -318,6 +338,28 @@ def_entry
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
   | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
+  /* enum NAME = LABEL: bits  LABEL: bits  ... ;  (NAME is unused; each label
+     becomes a global bit-pattern matched by `bus == LABEL`). */
+  | TOK_ENUM TOK_IDENT TOK_ASSIGN enum_labels TOK_SEMI
+    { /* This enum's labels are those added since the previous enum type. */
+      uint16_t prev_end = spec->enum_type_count
+          ? (uint16_t)(spec->enum_types[spec->enum_type_count - 1].label_start +
+                       spec->enum_types[spec->enum_type_count - 1].label_count)
+          : 0;
+      uint16_t end = spec->enum_label_count;
+      uint32_t w = end > prev_end
+          ? (uint32_t)strlen(spec->enum_labels[end - 1].bits)
+          : 0;
+      if (!spec_add_enum_type(spec, $2, w, prev_end,
+                              (uint16_t)(end - prev_end)))
+        YYNOMEM; }
+  ;
+
+enum_labels
+  : TOK_IDENT TOK_COLON TOK_BITS
+    { if (!spec_add_enum_label(spec, $1, $3)) YYNOMEM; }
+  | enum_labels TOK_IDENT TOK_COLON TOK_BITS
+    { if (!spec_add_enum_label(spec, $2, $4)) YYNOMEM; }
   ;
 
 /* Definition guard chain:  cond : value  cond : value  ...  (right-nested ITE,
@@ -431,6 +473,24 @@ signal_decl
       Node *hi = ARENA_ALLOC(spec->arena, Node);
       hi->kind = NODE_INT_SUB; hi->lhs = $3; hi->rhs = node_int(spec->arena, 1);
       if (!spec_add_signal(spec, spec->cur_is_output, $1, true, lo, hi))
+        YYNOMEM; }
+  /* enum-typed signal:  TYPE name;  declares a bus of the enum's bit width and
+     adds the implicit "always a valid enum value" invariant — an assumption for
+     an input, a guarantee for an output. */
+  | TOK_IDENT signal_name
+    { const EnumType *et = spec_find_enum_type(spec, $1);
+      if (!et) {
+        fprintf(stderr, "%d: unknown enum type '%s'\n", @1.first_line, $1);
+        YYERROR;
+      }
+      Node *lo = node_int(spec->arena, 0);
+      Node *hi = node_int(spec->arena, (int64_t)et->width - 1);
+      if (!spec_add_signal(spec, spec->cur_is_output, $2, true, lo, hi))
+        YYNOMEM;
+      Node *valid = mk_enum_validity(spec, et, $2);
+      FormulaList *list =
+          spec->cur_is_output ? &spec->guarantee : &spec->assume;
+      if (!formula_list_push(spec, list, valid))
         YYNOMEM; }
   ;
 
@@ -571,6 +631,15 @@ ltl_expr
     { $$ = node_impl(spec->arena, $1, $3); }
   | ltl_expr TOK_EQUIV ltl_expr
     { $$ = node_equiv(spec->arena, $1, $3); }
+
+  /* Formula-level equality: a bus compared against an enum label expands to a
+     bit-match during expansion; integer == in this position folds to a
+     constant.  (Only == / != appear at formula level; the ordered comparisons
+     remain confined to definition guards.) */
+  | ltl_expr TOK_EQ ltl_expr
+    { $$ = mk_cmp(spec->arena, NODE_CMP_EQ, $1, $3); }
+  | ltl_expr TOK_NEQ ltl_expr
+    { $$ = mk_cmp(spec->arena, NODE_CMP_NE, $1, $3); }
 
   /* Unary temporal */
   | TOK_NEXT ltl_expr

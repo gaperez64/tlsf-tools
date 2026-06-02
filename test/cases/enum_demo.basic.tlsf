@@ -1,0 +1,25 @@
+INFO {
+  TITLE:       "e";
+  DESCRIPTION: "e";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+MAIN {
+
+  INPUTS {
+    go;
+  }
+
+  OUTPUTS {
+    st[0..1];
+  }
+
+    GUARANTEE {
+      G ((((st == A) || (st == B)) || (st == C)));
+      G ((go -> (st == A)));
+      G (((st == B) -> go));
+      G (!((st == C)));
+    }
+
+}

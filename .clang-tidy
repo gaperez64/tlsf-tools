@@ -29,6 +29,7 @@ Checks: >
   -misc-include-cleaner,
   -readability-else-after-return,
   -clang-analyzer-deadcode.DeadStores,
+  -clang-analyzer-optin.performance.Padding,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -clang-analyzer-optin.portability.UnixAPI,
   -clang-analyzer-unix.Malloc,

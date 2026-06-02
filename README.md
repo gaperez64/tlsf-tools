@@ -14,8 +14,8 @@ These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
 TLSF specification, fully expand it (parameters, definitions — including
 recursive case-definitions — bus unrolling, bounded `&&[..]`/`||[..]`
-operators, indexed `X[n]` and bounded `G[i:j]`/`F[i:j]`, and `SIZEOF`) and emit
-either a ground TLSF spec or the equivalent LTL formula.
+operators, indexed `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, and
+`SIZEOF`) and emit either a ground TLSF spec or the equivalent LTL formula.
 
 ## Pipeline
 
@@ -211,12 +211,12 @@ files, and config files (`-r`/`-w`). `tlsf2ltl` does emit the `ltlxba`, `ltl`
 and `latex` LTL dialects and the `-s0`/`-s1`/push/pull/operator-replacement
 transformations; `tlsf2tlsf` emits basic/full TLSF.
 
-Two TLSF source constructs are also not yet parsed: `enum` type definitions,
-and single-letter temporal-operator keywords (`X G F U R W M`) reused as
-identifiers (e.g. a parameter named `M`). Of the SYNTCOMP `tlsf` benchmarks,
-2518/2545 convert; the 27 that don't use exactly those two constructs (16
-operator-name, 11 `enum`); `tlsf-fin` is 2444/2487 (the 43 remaining are all
-operator-name identifiers).
+The full TLSF surface is parsed, including `enum` type definitions (a typed
+signal `mode S;` becomes a bus of the enum's bit width, `S == LABEL` expands to
+the positional bit match, and each enum-typed signal carries the implicit
+"always a valid value" invariant) and the temporal-operator letter `M` reused
+as an identifier. All **2545** SYNTCOMP `tlsf` and **2487** `tlsf-fin`
+benchmarks convert.
 
 ## Benchmarking
 

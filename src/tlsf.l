@@ -29,6 +29,10 @@ static int comment_depth = 0;
 %option extra-type="TlsfSpec *"
 
 %x BLOCK_COMMENT
+/* Exclusive state for an `enum NAME = LABEL: bits ...;` body, where the bit
+ * strings must be captured verbatim (a leading-zero/width-bearing binary
+ * literal like 01 or 10 would otherwise be lexed as a decimal integer). */
+%x ENUM
 
 ALPHA       [a-zA-Z_]
 /* Identifiers may contain primes (syfco's default prime symbol) and @, as in
@@ -65,6 +69,18 @@ STRLIT      \"([^\"\\]|\\.)*\"
 "TAGS"              { return TOK_TAGS; }
 "PARAMETERS"        { return TOK_PARAMETERS; }
 "DEFINITIONS"       { return TOK_DEFINITIONS; }
+"enum"              { BEGIN(ENUM); return TOK_ENUM; }
+
+  /* --- enum body:  NAME = LABEL: bits  LABEL: bits  ... ;  --- */
+<ENUM>{WS}          { /* skip */ }
+<ENUM>"//"[^\n]*    { /* line comment */ }
+<ENUM>"="           { return TOK_ASSIGN; }
+<ENUM>":"           { return TOK_COLON; }
+<ENUM>";"           { BEGIN(INITIAL); return TOK_SEMI; }
+<ENUM>[01]+         { yylval->sval = intern(yyextra->intern, yytext);
+                      return TOK_BITS; }
+<ENUM>{IDENT}       { yylval->sval = intern(yyextra->intern, yytext);
+                      return TOK_IDENT; }
 "INPUTS"            { return TOK_INPUTS; }
 "OUTPUTS"           { return TOK_OUTPUTS; }
 "INITIALLY"         { return TOK_INITIALLY; }

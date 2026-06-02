@@ -121,6 +121,57 @@ bool spec_add_def(TlsfSpec *s, const char *name, const char **params,
   return true;
 }
 
+bool spec_add_enum_label(TlsfSpec *s, const char *name, const char *bits) {
+  if (s->enum_label_count == s->enum_label_cap) {
+    uint16_t new_cap = s->enum_label_cap ? (uint16_t)(s->enum_label_cap * 2u)
+                                         : (uint16_t)LIST_INIT_CAP;
+    EnumLabel *new_arr = ARENA_ALLOC_N(s->arena, EnumLabel, (size_t)new_cap);
+    if (!new_arr)
+      return false;
+    if (s->enum_labels)
+      memcpy(new_arr, s->enum_labels, s->enum_label_count * sizeof(EnumLabel));
+    s->enum_labels = new_arr;
+    s->enum_label_cap = new_cap;
+  }
+  s->enum_labels[s->enum_label_count++] =
+      (EnumLabel){.name = name, .bits = bits};
+  return true;
+}
+
+const char *spec_find_enum_label(const TlsfSpec *s, const char *name) {
+  for (uint16_t i = 0; i < s->enum_label_count; i++)
+    if (s->enum_labels[i].name == name)
+      return s->enum_labels[i].bits;
+  return nullptr;
+}
+
+bool spec_add_enum_type(TlsfSpec *s, const char *name, uint32_t width,
+                        uint16_t label_start, uint16_t label_count) {
+  if (s->enum_type_count == s->enum_type_cap) {
+    uint16_t new_cap = s->enum_type_cap ? (uint16_t)(s->enum_type_cap * 2u)
+                                        : (uint16_t)LIST_INIT_CAP;
+    EnumType *new_arr = ARENA_ALLOC_N(s->arena, EnumType, (size_t)new_cap);
+    if (!new_arr)
+      return false;
+    if (s->enum_types)
+      memcpy(new_arr, s->enum_types, s->enum_type_count * sizeof(EnumType));
+    s->enum_types = new_arr;
+    s->enum_type_cap = new_cap;
+  }
+  s->enum_types[s->enum_type_count++] = (EnumType){.name = name,
+                                                   .width = width,
+                                                   .label_start = label_start,
+                                                   .label_count = label_count};
+  return true;
+}
+
+const EnumType *spec_find_enum_type(const TlsfSpec *s, const char *name) {
+  for (uint16_t i = 0; i < s->enum_type_count; i++)
+    if (s->enum_types[i].name == name)
+      return &s->enum_types[i];
+  return nullptr;
+}
+
 bool parse_semantics(const char *s, Semantics *out) {
   bool mealy = false, moore = false, strict = false, finite = false;
   char buf[64];
