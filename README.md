@@ -208,16 +208,7 @@ clang-tidy -p build src/*.c                  # lint
 
 Relative to `syfco`, not yet implemented: the structured synthesis output
 formats (`smv`, `slugs`/`slugsin`, `promela`, `wring`, …), partition (`.part`)
-files, and config files (`-r`/`-w`). `tlsf2ltl` does emit the `ltlxba`, `ltl`
-and `latex` LTL dialects and the `-s0`/`-s1`/push/pull/operator-replacement
-transformations; `tlsf2tlsf` emits basic/full TLSF.
-
-The full TLSF surface is parsed, including `enum` type definitions (a typed
-signal `mode S;` becomes a bus of the enum's bit width, `S == LABEL` expands to
-the positional bit match, and each enum-typed signal carries the implicit
-"always a valid value" invariant) and the temporal-operator letter `M` reused
-as an identifier. All **2545** SYNTCOMP `tlsf` and **2487** `tlsf-fin`
-benchmarks convert.
+files, and config files (`-r`/`-w`).
 
 ## Benchmarking
 
@@ -234,7 +225,3 @@ bench/bench.sh --check         # fail on a regression vs the recorded baseline
 median time exceeds the baseline by `TIME_TOL` or peak RSS by `MEM_TOL`; CI runs
 it as a guard. For reference, on a ~100 KB spec `tlsf2ltl` is around 20× faster
 and uses roughly 7× less memory than `syfco -f ltlxba`.
-
-## License
-
-[MIT](LICENSE).
