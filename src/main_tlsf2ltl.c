@@ -44,6 +44,7 @@ static void usage(const char *prog) {
       "  --nnf                        convert to negation normal form\n"
       "  --no-weak-until              a W b => (a U b) || G a\n"
       "  --no-release                 a R b => b W (a && b)\n"
+      "  --no-strong-release          a M b => b U (a && b)\n"
       "  --no-finally                 F a => true U a\n"
       "  --no-globally                G a => false R a\n"
       "  --no-derived                 --no-weak-until --no-finally "
@@ -243,6 +244,8 @@ int main(int argc, char *argv[]) {
       rw_flags |= RW_NO_WEAK_UNTIL;
     } else if (strcmp(argv[i], "--no-release") == 0) {
       rw_flags |= RW_NO_RELEASE;
+    } else if (strcmp(argv[i], "--no-strong-release") == 0) {
+      rw_flags |= RW_NO_STRONG_RELEASE;
     } else if (strcmp(argv[i], "--no-finally") == 0) {
       rw_flags |= RW_NO_FINALLY;
     } else if (strcmp(argv[i], "--no-globally") == 0) {
@@ -348,6 +351,15 @@ int main(int argc, char *argv[]) {
 
   // --- Build the single spec formula, then apply any requested transforms ---
   Node *root = build_spec_formula(spec, cs, mode);
+
+  // Finite-word (ltlxba-fin) output: ltl2ba-fin has no
+  // weak-until/strong-release operators, so eliminate them with the LTLf-valid
+  // identities (a W b = (a U b) || G a, a M b = b U (a && b)).  Strong vs weak
+  // next is still distinguished as X[!] vs X by the printer's `finite` flag.
+  bool finite = semantics_is_finite(spec->info.semantics);
+  if (finite)
+    rw_flags |= RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE;
+
   root = apply_rewrites(spec->arena, root, rw_flags);
   if (!root) {
     fprintf(stderr, "tlsf2ltl: transform failed (OOM)\n");
@@ -361,8 +373,7 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  print_ltl(out, root, fmt, full_parens,
-            semantics_is_finite(spec->info.semantics));
+  print_ltl(out, root, fmt, full_parens, finite);
   if (output_file)
     fclose(out);
 

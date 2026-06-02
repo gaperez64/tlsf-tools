@@ -80,6 +80,11 @@ typedef enum NodeKind {
   // -- Indexed next:  X[count] body  — count-fold next, resolved at expand
   NODE_NEXT_N, ///< lhs = count expression, rhs = body
 
+  // -- Bounded temporal:  G[lo:hi] body / F[lo:hi] body  (resolved at expand
+  //    into a conjunction/disjunction of X^k body for k in [lo,hi]).
+  NODE_G_RANGE, ///< qlo = lo, qhi = hi, qbody = body
+  NODE_F_RANGE, ///< qlo = lo, qhi = hi, qbody = body
+
   // -- Set expressions (pre-expansion) --
   NODE_SET,      ///< { e, e, ... }  — set literal (children = elements)
   NODE_SET_ENUM, ///< set comprehension: { x : range }
@@ -178,6 +183,8 @@ struct Node {
 [[nodiscard]] Node *node_x(Arena *a, Node *arg);
 [[nodiscard]] Node *node_x_strong(Arena *a, Node *arg);
 [[nodiscard]] Node *node_next_n(Arena *a, Node *count, Node *body);
+[[nodiscard]] Node *node_g_range(Arena *a, Node *lo, Node *hi, Node *body);
+[[nodiscard]] Node *node_f_range(Arena *a, Node *lo, Node *hi, Node *body);
 [[nodiscard]] Node *node_f(Arena *a, Node *arg);
 [[nodiscard]] Node *node_g(Arena *a, Node *arg);
 [[nodiscard]] Node *node_u(Arena *a, Node *lhs, Node *rhs);
@@ -204,9 +211,9 @@ static inline bool node_kind_is_temporal(NodeKind k) {
 static inline bool node_kind_is_high_level(NodeKind k) {
   return k == NODE_DEF_CALL || k == NODE_BUS_INDEX || k == NODE_PATTERN ||
          k == NODE_INT_VAR || k == NODE_SIZEOF || k == NODE_ITE ||
-         k == NODE_NEXT_N || (k >= NODE_CMP_EQ && k <= NODE_CMP_GE) ||
-         k == NODE_SET || k == NODE_SET_ENUM || k == NODE_FORALL ||
-         k == NODE_EXISTS;
+         k == NODE_NEXT_N || k == NODE_G_RANGE || k == NODE_F_RANGE ||
+         (k >= NODE_CMP_EQ && k <= NODE_CMP_GE) || k == NODE_SET ||
+         k == NODE_SET_ENUM || k == NODE_FORALL || k == NODE_EXISTS;
 }
 
 #endif // TLSF_AST_H

@@ -213,6 +213,25 @@ test('ltl_no_release', check,
          tlsf2ltl_exe, '--no-release',
          files('test/cases/operators.tlsf')])
 
+test('ltl_no_strong_release', check,
+  args: [files('test/cases/operators.nsr.ltl'),
+         tlsf2ltl_exe, '--no-strong-release',
+         files('test/cases/operators.tlsf')])
+
+# Finite (ltlxba-fin): W/M auto-eliminated, weak X vs strong X[!] preserved.
+test('ltl_finite_wm', check,
+  args: [files('test/cases/finite_wm.ltl'),
+         tlsf2ltl_exe, files('test/cases/finite_wm.tlsf')])
+
+# Bounded temporal operators G[i:j] / F[i:j].
+test('ltl_ranges', check,
+  args: [files('test/cases/ranges.ltl'),
+         tlsf2ltl_exe, files('test/cases/ranges.tlsf')])
+
+test('tlsf_ranges_reemit', check,
+  args: [files('test/cases/ranges.reemit.tlsf'),
+         tlsf2tlsf_exe, files('test/cases/ranges.tlsf')])
+
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

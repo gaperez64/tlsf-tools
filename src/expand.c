@@ -123,6 +123,16 @@ static Node *subst(Arena *a, const Node *n, const char *const *formals,
     m->qhi_strict = n->qhi_strict;
     return m;
   }
+  case NODE_G_RANGE:
+  case NODE_F_RANGE: {
+    // Bounded temporal: only the bounds and body are used (no qvar/strict).
+    Node *m = ARENA_ALLOC(a, Node);
+    m->kind = n->kind;
+    m->qlo = subst(a, n->qlo, formals, actuals, nf);
+    m->qhi = subst(a, n->qhi, formals, actuals, nf);
+    m->qbody = subst(a, n->qbody, formals, actuals, nf);
+    return m;
+  }
   case NODE_NOT:
   case NODE_X:
   case NODE_X_STRONG:
@@ -500,6 +510,40 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     for (int64_t i = 0; i < count; i++)
       body = node_x(a, body);
     return body;
+  }
+
+  case NODE_G_RANGE:
+  case NODE_F_RANGE: {
+    // G[lo:hi] b == AND_{k=lo..hi} X^k b ;  F[lo:hi] b == OR_{k=lo..hi} X^k b.
+    int64_t lo, hi;
+    if (!eval_int(spec, n->qlo, env, &lo, depth) ||
+        !eval_int(spec, n->qhi, env, &hi, depth)) {
+      *ok = false;
+      return nullptr;
+    }
+    if (lo < 0 || hi < 0) {
+      fprintf(stderr, "expand: negative bound in G[..]/F[..]\n");
+      *ok = false;
+      return nullptr;
+    }
+    bool conj = (n->kind == NODE_G_RANGE);
+    Node *acc = nullptr;
+    for (int64_t k = lo; k <= hi; k++) {
+      // Expand the body afresh each step: the copies must not alias (later
+      // passes such as the Mealy/Moore signal wrap mutate nodes in place).
+      Node *body = expand_node(spec, n->qbody, env, ok, depth);
+      if (!*ok)
+        return nullptr;
+      for (int64_t i = 0; i < k; i++)
+        body = node_x(a, body);
+      acc =
+          acc ? (conj ? node_and(a, acc, body) : node_or(a, acc, body)) : body;
+    }
+    // Empty range (lo > hi): empty conjunction is true, empty disjunction
+    // false.
+    if (!acc)
+      acc = conj ? node_true(a) : node_false(a);
+    return acc;
   }
 
   // Definition guard: evaluate the condition, expand the chosen branch.

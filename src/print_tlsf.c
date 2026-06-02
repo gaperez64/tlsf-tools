@@ -215,6 +215,17 @@ static void print_formula(FILE *out, const Node *n) {
     fprintf(out, ")");
     return;
 
+  case NODE_G_RANGE:
+  case NODE_F_RANGE:
+    fprintf(out, "%c[", n->kind == NODE_G_RANGE ? 'G' : 'F');
+    print_formula(out, n->qlo);
+    fprintf(out, ":");
+    print_formula(out, n->qhi);
+    fprintf(out, "] (");
+    print_formula(out, n->qbody);
+    fprintf(out, ")");
+    return;
+
   default:
     assert(false && "print_tlsf: unexpected node kind");
   }

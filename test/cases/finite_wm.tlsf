@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "finite_wm"
+  DESCRIPTION: "coverage"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    g W r;
+    g M r;
+    X[!] g;
+    X g
+  }
+}

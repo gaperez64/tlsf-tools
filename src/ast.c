@@ -82,6 +82,27 @@ Node *node_x_strong(Arena *a, Node *arg) {
 Node *node_next_n(Arena *a, Node *count, Node *body) {
   return node_binary(a, NODE_NEXT_N, count, body);
 }
+
+// Bounded temporal operators G[lo:hi] / F[lo:hi]; store bounds and body in the
+// quantifier field group (qvar / qlo_strict / qhi_strict are unused here).
+static Node *node_range(Arena *a, NodeKind k, Node *lo, Node *hi, Node *body) {
+  assert(lo && hi && body);
+  Node *n = node_new(a, k);
+  if (n) {
+    n->qlo = lo;
+    n->qhi = hi;
+    n->qbody = body;
+  }
+  return n;
+}
+
+Node *node_g_range(Arena *a, Node *lo, Node *hi, Node *body) {
+  return node_range(a, NODE_G_RANGE, lo, hi, body);
+}
+
+Node *node_f_range(Arena *a, Node *lo, Node *hi, Node *body) {
+  return node_range(a, NODE_F_RANGE, lo, hi, body);
+}
 Node *node_f(Arena *a, Node *arg) { return node_unary(a, NODE_F, arg); }
 Node *node_g(Arena *a, Node *arg) { return node_unary(a, NODE_G, arg); }
 Node *node_u(Arena *a, Node *lhs, Node *rhs) {

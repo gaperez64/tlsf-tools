@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "ranges"
+  DESCRIPTION: "coverage"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { p; }
+  GUARANTEE {
+    G[1:2] p;
+    F[0:2] r
+  }
+}

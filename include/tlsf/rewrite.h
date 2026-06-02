@@ -12,6 +12,7 @@
 /// Operator replacement:
 ///   RW_NO_WEAK_UNTIL : a W b => (a U b) || G a
 ///   RW_NO_RELEASE    : a R b => b W (a && b)
+///   RW_NO_STRONG_RELEASE : a M b => b U (a && b)
 ///   RW_NO_FINALLY    : F a   => true U a
 ///   RW_NO_GLOBALLY   : G a   => false R a
 /// Push inwards:
@@ -48,6 +49,7 @@ typedef enum RewriteFlags {
   RW_PULL_F_OUT = 1u << 9,
   RW_PULL_X_OUT = 1u << 10,
   RW_SIMPLIFY_WEAK = 1u << 11,
+  RW_NO_STRONG_RELEASE = 1u << 12,
 
   /// `syfco -nd`: replace weak-until, finally and globally.
   RW_NO_DERIVED = RW_NO_WEAK_UNTIL | RW_NO_FINALLY | RW_NO_GLOBALLY,

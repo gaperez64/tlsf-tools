@@ -278,10 +278,20 @@ param_decl
 
 param_entries
   : /* empty */
-  | param_entries TOK_IDENT TOK_SEMI
-    { if (!spec_add_param(spec, $2, false, 0)) YYNOMEM; }
-  | param_entries TOK_IDENT TOK_ASSIGN TOK_INTEGER TOK_SEMI
-    { if (!spec_add_param(spec, $2, true, $4)) YYNOMEM; }
+  | param_items
+  ;
+
+param_items
+  : param_item
+  | param_items TOK_SEMI param_item
+  | param_items TOK_SEMI               /* trailing / stray ';' */
+  ;
+
+param_item
+  : TOK_IDENT
+    { if (!spec_add_param(spec, $1, false, 0)) YYNOMEM; }
+  | TOK_IDENT TOK_ASSIGN TOK_INTEGER
+    { if (!spec_add_param(spec, $1, true, $3)) YYNOMEM; }
   ;
 
 /* DEFINITIONS { name [ ( params ) ] = body ; ... } */
@@ -389,10 +399,17 @@ outputs_subsection
     signal_decl_list TOK_RBRACE
   ;
 
+/* Separator-style list: ';' separates entries and a trailing ';' is optional
+ * (TLSF lets the final entry omit it).  Empty lists are allowed. */
 signal_decl_list
   : /* empty */
-  | signal_decl_list signal_decl TOK_SEMI
-  | signal_decl_list TOK_SEMI            /* stray/empty entry (syfco tolerates) */
+  | signal_decl_items
+  ;
+
+signal_decl_items
+  : signal_decl
+  | signal_decl_items TOK_SEMI signal_decl
+  | signal_decl_items TOK_SEMI            /* trailing / stray ';' */
   ;
 
 signal_decl
@@ -454,8 +471,15 @@ guarantee_subsection
 
 formula_list
   : /* empty */
-  | formula_list ltl_expr TOK_SEMI
-    { if (!formula_list_push(spec, spec->cur_list, $2)) YYNOMEM; }
+  | formula_items
+  ;
+
+formula_items
+  : ltl_expr
+    { if (!formula_list_push(spec, spec->cur_list, $1)) YYNOMEM; }
+  | formula_items TOK_SEMI ltl_expr
+    { if (!formula_list_push(spec, spec->cur_list, $3)) YYNOMEM; }
+  | formula_items TOK_SEMI            /* trailing / stray ';' */
   ;
 
 /* =========================================================================
@@ -548,8 +572,14 @@ ltl_expr
     { $$ = node_x_strong(spec->arena, $2); }
   | TOK_FINALLY ltl_expr
     { $$ = node_f(spec->arena, $2); }
+  | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
+    %prec TOK_FINALLY
+    { $$ = node_f_range(spec->arena, $3, $5, $7); }
   | TOK_GLOBALLY ltl_expr
     { $$ = node_g(spec->arena, $2); }
+  | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
+    %prec TOK_GLOBALLY
+    { $$ = node_g_range(spec->arena, $3, $5, $7); }
 
   /* Binary temporal */
   | ltl_expr TOK_UNTIL ltl_expr

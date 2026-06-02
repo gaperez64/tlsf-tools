@@ -191,6 +191,8 @@ static Node *apply_local(Arena *a, Node *n, unsigned flags) {
     return node_or(a, node_u(a, n->lhs, n->rhs), node_g(a, n->lhs));
   if ((flags & RW_NO_RELEASE) && n->kind == NODE_R)
     return node_w(a, n->rhs, node_and(a, n->lhs, n->rhs));
+  if ((flags & RW_NO_STRONG_RELEASE) && n->kind == NODE_M)
+    return node_u(a, n->rhs, node_and(a, n->lhs, n->rhs));
   if ((flags & RW_NO_FINALLY) && n->kind == NODE_F)
     return node_u(a, node_true(a), n->arg);
   if ((flags & RW_NO_GLOBALLY) && n->kind == NODE_G)
