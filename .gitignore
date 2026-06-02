@@ -25,3 +25,7 @@ tlsf2tlsf
 .DS_Store
 .cache/
 compile_commands.json
+
+# Python bytecode (scripts/)
+__pycache__/
+*.pyc
