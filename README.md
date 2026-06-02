@@ -11,6 +11,7 @@ Format) specifications, sharing a common C library.
 | `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
 | `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates + WL features — `text`/`gsnf`/`dot`/`tsv` |
 | `tlsfwl`    | TLSF 1.1/1.2 specs | Weisfeiler-Lehman features / similarity matrix for clustering & retrieval |
+| `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -46,7 +47,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# binaries: build/tlsf2ltl build/tlsf2tlsf build/tlsfinfo build/tlsfgraph build/tlsfwl
+# binaries: build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates}
 ```
 
 With sanitizers:
@@ -90,6 +91,9 @@ tlsfgraph --wl 3 spec.tlsf          # + Weisfeiler-Lehman features (depth 3)
 
 tlsfwl --matrix a.tlsf b.tlsf c.tlsf   # all-pairs WL similarity matrix
 tlsfwl --nearest 3 *.tlsf              # top-3 nearest spec per spec
+
+tlsftemplates spec.tlsf                # candidate template blocks
+tlsftemplates --certify --solve --format csnf spec.tlsf   # certified CSNF
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -210,12 +214,40 @@ tlsfwl --nearest 5 --kernel jaccard *.tlsf # top-5 nearest spec per spec
 
 WL is a *similarity heuristic, never a proof* — it suggests; templates verify.
 
-`tlsfgraph`/`tlsfwl` are the implemented slice of a larger proposed
-analysis/normalization/synthesis layer. Later milestones (certified templates
-and CSNF via `tlsftemplates`, residual export, controller composition) are not
-yet implemented and the corresponding flags (`--norm-depth`, `tlsfwl
---from-gsnf`, …) report a clear "not implemented" error; `--graph
-formula|quotient` is likewise reserved.
+### Templates & CSNF (`tlsftemplates`)
+
+`tlsftemplates` moves recognized candidates to a **Certified Strategy Normal
+Form (CSNF)**, honouring the soundness ladder *candidate → checked → certified
+→ solved*: a block is `solved` only after a sound (conservative, syntactic)
+side condition passes and a controller/decoder + certificate is produced.
+
+```sh
+tlsftemplates spec.tlsf                          # list candidate blocks
+tlsftemplates --certify --solve --format csnf spec.tlsf > spec.csnf
+```
+
+Four templates are certified this milestone:
+
+- **definition** `G(o<->θ)` → decoder `o := θ` (iff `o` is a Mealy output not
+  occurring in `θ`); cert `definition_decoder`.
+- **round-robin** (`GF o_i` ×k + grant mutex) → one-hot finite cycle (iff the
+  `o_i` occur in no other constraint); cert `round_robin_scheduler`.
+- **guarded-next-assignment** `G(α->X o)` / `G(β->X¬o)` → `o' := ⋁α` (iff the
+  force-true/false guards are provably exclusive); cert
+  `guarded_assignment_consistency`.
+- **mutex** `G atMostOne(…)` → *certified* safety invariant (`mutex_safety`),
+  not solved on its own.
+
+Anything not provably sound stays `candidate`; nothing is removed (residual
+export is the next milestone). CSNF is the same DIMACS-style line format as
+GSNF (`b`/`bc`/`dec`/`nsf`/`cyc`/`cert`/`cl`/`do`/`r` records).
+
+`tlsfgraph`/`tlsfwl`/`tlsftemplates` are the implemented slice of a larger
+proposed analysis/normalization/synthesis layer. Later milestones (residual
+export, controller composition, normalization passes) are not yet implemented
+and the corresponding flags (`--norm-depth`, `--from-gsnf`,
+`--side-conditions sat|bdd`, …) report a clear "not implemented" error;
+`--graph formula|quotient` is likewise reserved.
 
 ## Checking output against `syfco`
 
@@ -241,7 +273,7 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~95 cases
+meson test -C build        # ~0.2s, ~100 cases
 ```
 
 Coverage (needs `gcovr`):

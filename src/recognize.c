@@ -35,10 +35,14 @@ static void match_response(ConstraintCover *cov, Constraint *c) {
   c->resp_target = ap_idx(cov, cons->arg);
 }
 
-// G F x
+// G F x  (records the target output when x is a plain output AP)
 static void match_recurrence(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind == NODE_G && c->formula->arg->kind == NODE_F)
-    constraint_add_candidate(cov, c, "pure-recurrence");
+  if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_F)
+    return;
+  constraint_add_candidate(cov, c, "pure-recurrence");
+  const Node *x = c->formula->arg->arg;
+  if (is_output(cov, x))
+    c->rec_output = ap_idx(cov, x);
 }
 
 // F G x
@@ -108,20 +112,23 @@ static void match_mutex(ConstraintCover *cov, Constraint *c) {
 }
 
 // ---------------------------------------------------------------------------
-// Block grouping: responses whose grant targets sit under a common mutex form
-// an arbiter candidate.
+// Block grouping over a common mutex:
+//   responses    whose grant target is a mutex member  -> arbiter_candidate
+//   recurrences  whose target output is a mutex member -> round_robin_candidate
 // ---------------------------------------------------------------------------
 
-static void build_arbiter_blocks(ConstraintCover *cov) {
-  // Upper bound: one block per mutex constraint.
-  uint32_t cap = 0;
+// Members of constraint `mx`'s mutex whose `field` (resp_target / rec_output)
+// matches; appends the matching constraint ids and finally the mutex id.
+static void build_blocks(ConstraintCover *cov) {
+  // Upper bound: two blocks (arbiter + round-robin) per mutex constraint.
+  uint32_t nmutex = 0;
   for (uint32_t i = 0; i < cov->count; i++)
     if (cov->items[i].has_mutex)
-      cap++;
-  if (cap == 0)
+      nmutex++;
+  if (nmutex == 0)
     return;
 
-  cov->blocks = ARENA_ALLOC_N(cov->arena, TemplateBlock, cap);
+  cov->blocks = ARENA_ALLOC_N(cov->arena, TemplateBlock, (size_t)2 * nmutex);
   cov->block_count = 0;
 
   for (uint32_t m = 0; m < cov->count; m++) {
@@ -129,22 +136,35 @@ static void build_arbiter_blocks(ConstraintCover *cov) {
     if (!mx->has_mutex)
       continue;
 
-    // Responses whose grant target is one of the mutex members.
-    uint32_t *ids = ARENA_ALLOC_N(cov->arena, uint32_t, cov->count);
-    uint32_t n = 0;
-    for (uint32_t r = 0; r < cov->count; r++) {
-      Constraint *rc = &cov->items[r];
-      if (rc->resp_target >= 0 &&
-          apset_test(&mx->mutex_members, (uint32_t)rc->resp_target))
-        ids[n++] = rc->id;
+    // Arbiter: responses targeting a mutex member.
+    uint32_t *aids = ARENA_ALLOC_N(cov->arena, uint32_t, cov->count);
+    uint32_t an = 0;
+    for (uint32_t r = 0; r < cov->count; r++)
+      if (cov->items[r].resp_target >= 0 &&
+          apset_test(&mx->mutex_members, (uint32_t)cov->items[r].resp_target))
+        aids[an++] = cov->items[r].id;
+    if (an >= 2) {
+      aids[an++] = mx->id;
+      cov->blocks[cov->block_count++] =
+          (TemplateBlock){.template_name = "arbiter_candidate",
+                          .constraint_ids = aids,
+                          .count = an};
     }
-    if (n < 2)
-      continue; // not arbiter-shaped
-    ids[n++] = mx->id;
-    cov->blocks[cov->block_count++] =
-        (TemplateBlock){.template_name = "arbiter_candidate",
-                        .constraint_ids = ids,
-                        .count = n};
+
+    // Round-robin: recurrences whose target output is a mutex member.
+    uint32_t *rids = ARENA_ALLOC_N(cov->arena, uint32_t, cov->count);
+    uint32_t rn = 0;
+    for (uint32_t r = 0; r < cov->count; r++)
+      if (cov->items[r].rec_output >= 0 &&
+          apset_test(&mx->mutex_members, (uint32_t)cov->items[r].rec_output))
+        rids[rn++] = cov->items[r].id;
+    if (rn >= 2) {
+      rids[rn++] = mx->id;
+      cov->blocks[cov->block_count++] =
+          (TemplateBlock){.template_name = "round_robin_candidate",
+                          .constraint_ids = rids,
+                          .count = rn};
+    }
   }
 }
 
@@ -158,5 +178,5 @@ void recognize_all(ConstraintCover *cov) {
     match_definition(cov, c);
     match_mutex(cov, c);
   }
-  build_arbiter_blocks(cov);
+  build_blocks(cov);
 }

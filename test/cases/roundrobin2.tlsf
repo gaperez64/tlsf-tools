@@ -1,0 +1,8 @@
+INFO {
+  TITLE: "roundrobin2"
+  DESCRIPTION: "two recurrences + grant mutex"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN { INPUTS { x; } OUTPUTS { g0; g1; }
+  GUARANTEE { G F g0; G F g1; G (!(g0 && g1)); } }

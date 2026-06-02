@@ -113,6 +113,7 @@ lib_sources = [
   'src/recognize.c',
   'src/graph.c',
   'src/wl.c',
+  'src/templates.c',
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
@@ -169,6 +170,14 @@ tlsfgraph_exe = executable(
 tlsfwl_exe = executable(
   'tlsfwl',
   sources: ['src/main_tlsfwl.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
+tlsftemplates_exe = executable(
+  'tlsftemplates',
+  sources: ['src/main_tlsftemplates.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -316,6 +325,29 @@ test('graph_wl_template', check_wl,
   args: [files('test/cases/arbiter2.graph.wltmpl'),
          tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
          'template', files('test/cases/arbiter2.tlsf')])
+
+# tlsftemplates (M5): certify CSNF for the four templates + soundness declines.
+test('tmpl_definition', check_wl,
+  args: [files('test/cases/def_demo.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/def_demo.tlsf')])
+test('tmpl_round_robin', check_wl,
+  args: [files('test/cases/roundrobin2.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/roundrobin2.tlsf')])
+test('tmpl_guarded_next', check_wl,
+  args: [files('test/cases/gnext_demo.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/gnext_demo.tlsf')])
+test('tmpl_guarded_next_declined', check_wl,
+  args: [files('test/cases/gnext_unsafe.csnf'), tlsftemplates_exe,
+         '--certify', '--format', 'csnf',
+         files('test/cases/gnext_unsafe.tlsf')])
+test('tmpl_sat_unimplemented', xfail,
+  args: [tlsftemplates_exe, '--side-conditions', 'sat',
+         files('test/cases/def_demo.tlsf')])
+test('tmpl_from_gsnf_unimplemented', xfail,
+  args: [tlsftemplates_exe, '--from-gsnf', files('test/cases/def_demo.tlsf')])
 
 # Reserved (later-milestone) flags must error, not be silently ignored.
 test('graph_norm_unimplemented', xfail,

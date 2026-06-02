@@ -48,6 +48,7 @@ typedef struct {
   int32_t resp_guard;  ///< request AP index (response)
   int32_t resp_target; ///< grant AP index (response)
   int32_t def_output;  ///< defined output AP index (definition)
+  int32_t rec_output;  ///< recurrence target output AP index (G F o)
   ApSet mutex_members; ///< output AP indices in a mutex
   bool has_mutex;
 } Constraint;

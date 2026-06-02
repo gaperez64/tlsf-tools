@@ -1,0 +1,8 @@
+INFO {
+  TITLE: "gnext_demo"
+  DESCRIPTION: "guarded next, exclusive guards"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN { INPUTS { req; } OUTPUTS { o; }
+  GUARANTEE { G (req -> X o); G (!req -> X !o); } }
