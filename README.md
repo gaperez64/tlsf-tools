@@ -1,6 +1,6 @@
 # tlsf-tools
 
-Three small, fast, Unix-style command-line tools for working with
+Small, fast, Unix-style command-line tools for working with
 [TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
 Format) specifications, sharing a common C library.
 
@@ -9,6 +9,7 @@ Format) specifications, sharing a common C library.
 | `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula — `ltlxba` (default, for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`), `ltl`, or `latex`; with optional simplification/rewrites |
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
 | `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
+| `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates — `text`/`json`/`dot`/`tsv` |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -44,7 +45,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# binaries: build/tlsf2ltl  build/tlsf2tlsf  build/tlsfinfo
+# binaries: build/tlsf2ltl  build/tlsf2tlsf  build/tlsfinfo  build/tlsfgraph
 ```
 
 With sanitizers:
@@ -79,6 +80,11 @@ tlsfinfo --semantics spec.tlsf      # one field (--title --description --target
                                     #   --output-signals --info)
 tlsfinfo --generalized-reactivity spec.tlsf   # the GR(k) level, or "NOT in GR"
 tlsfinfo --check spec.tlsf          # "valid" if the spec parses, else error
+
+tlsfgraph spec.tlsf                 # text summary of the synthesis graph
+tlsfgraph --templates spec.tlsf     # + template candidates (response/mutex/…)
+tlsfgraph --format json spec.tlsf   # machine-readable GSNF graph
+tlsfgraph --format dot spec.tlsf    # Graphviz DOT
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -153,6 +159,37 @@ fragment).
 > formula that is semantically a safety property but written with liveness
 > operators will be classified as liveness.
 
+## Synthesis graph (`tlsfgraph`)
+
+`tlsfgraph` works on TLSF *structure* — the expanded constraint cover, before
+flattening to one LTL formula — and exposes synthesis-relevant structure as a
+**Graph Structural Normal Form (GSNF)**. Each section formula becomes a
+constraint that keeps its role (INITIALLY/PRESET/REQUIRE/ASSERT/ASSUME/
+GUARANTEE), assumption/guarantee side, invariant wrapping, syntactic
+safety/liveness class, and input/output support; syntactic *template
+candidates* are recognized over those constraints:
+
+- `response` `G(r -> F g)`, `mutex` `G(!(a && b) …)`, `pure-recurrence` `G F x`,
+  `persistence` `F G x`, `guarded-next-assignment` `G(α -> X o)`,
+  `definition` `G(o <-> θ)`; and a multi-constraint `arbiter_candidate` block
+  (responses + a grant mutex).
+
+```sh
+tlsfgraph --templates spec.tlsf            # text summary + candidate counts
+tlsfgraph --format json --templates spec.tlsf > spec.gsnf.json
+tlsfgraph --format dot spec.tlsf | dot -Tsvg > spec.svg
+tlsfgraph --guarantees --liveness --format tsv spec.tlsf   # filtered table
+```
+
+Output is **candidate-only**: `tlsfgraph` never rewrites, removes, certifies,
+or solves anything — a recognized candidate is a starting point for analysis,
+not a proof. It is the first slice of a larger proposed
+analysis/normalization/synthesis layer; later milestones (Weisfeiler-Lehman
+features and `tlsfwl` clustering, certified templates and CSNF via
+`tlsftemplates`, residual export, controller composition) are not yet
+implemented and the corresponding flags (`--wl`, `--norm-depth`, …) report a
+clear "not implemented" error. `--graph formula|quotient` is likewise reserved.
+
 ## Checking output against `syfco`
 
 `tlsf2tlsf` aims to produce the same expanded TLSF as `syfco`'s basic-TLSF
@@ -177,7 +214,7 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~80 cases
+meson test -C build        # ~0.2s, ~90 cases
 ```
 
 Coverage (needs `gcovr`):

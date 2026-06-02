@@ -107,6 +107,11 @@ lib_sources = [
   'src/nnf.c',
   'src/rewrite.c',
   'src/classify.c',
+  'src/apset.c',
+  'src/cover.c',
+  'src/recognize.c',
+  'src/json.c',
+  'src/graph.c',
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
@@ -146,6 +151,14 @@ tlsf2tlsf_exe = executable(
 tlsfinfo_exe = executable(
   'tlsfinfo',
   sources: ['src/main_tlsfinfo.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
+tlsfgraph_exe = executable(
+  'tlsfgraph',
+  sources: ['src/main_tlsfgraph.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -246,6 +259,35 @@ test('ltl_enum', check,
 test('tlsf_enum_basic', check,
   args: [files('test/cases/enum_demo.basic.tlsf'),
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
+
+# tlsfgraph: GSNF text/json/dot/tsv + template candidates (arbiter pattern).
+test('graph_text', check,
+  args: [files('test/cases/arbiter2.graph.txt'),
+         tlsfgraph_exe, '--templates', files('test/cases/arbiter2.tlsf')])
+test('graph_json', check,
+  args: [files('test/cases/arbiter2.graph.json'),
+         tlsfgraph_exe, '--format', 'json', '--pretty', '--templates',
+         files('test/cases/arbiter2.tlsf')])
+test('graph_tsv', check,
+  args: [files('test/cases/arbiter2.graph.tsv'),
+         tlsfgraph_exe, '--format', 'tsv', '--templates',
+         files('test/cases/arbiter2.tlsf')])
+test('graph_dot', check,
+  args: [files('test/cases/arbiter2.graph.dot'),
+         tlsfgraph_exe, '--format', 'dot', files('test/cases/arbiter2.tlsf')])
+test('graph_filter', check,
+  args: [files('test/cases/arbiter2.graph.live.tsv'),
+         tlsfgraph_exe, '--format', 'tsv', '--guarantees', '--liveness',
+         files('test/cases/arbiter2.tlsf')])
+test('graph_constraint_kind', check,
+  args: [files('test/cases/arbiter2.graph.cons.json'),
+         tlsfgraph_exe, '--format', 'json', '--pretty', '--graph', 'constraint',
+         files('test/cases/arbiter2.tlsf')])
+# Reserved (later-milestone) flags must error, not be silently ignored.
+test('graph_wl_unimplemented', xfail,
+  args: [tlsfgraph_exe, '--wl', '3', files('test/cases/arbiter2.tlsf')])
+test('graph_quotient_unimplemented', xfail,
+  args: [tlsfgraph_exe, '--graph', 'quotient', files('test/cases/arbiter2.tlsf')])
 
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.

@@ -1,0 +1,95 @@
+{
+  "format": "GSNF",
+  "version": 1,
+  "semantics": "Mealy",
+  "target": "Mealy",
+  "inputs": [
+    "req0",
+    "req1"
+  ],
+  "outputs": [
+    "grant0",
+    "grant1"
+  ],
+  "constraints": [
+    {
+      "id": "c0",
+      "role": "GUARANTEE",
+      "class": "syntactic_liveness",
+      "formula": "G (req0 -> F grant0)",
+      "inputs": [
+        "req0"
+      ],
+      "outputs": [
+        "grant0"
+      ]
+    },
+    {
+      "id": "c1",
+      "role": "GUARANTEE",
+      "class": "syntactic_liveness",
+      "formula": "G (req1 -> F grant1)",
+      "inputs": [
+        "req1"
+      ],
+      "outputs": [
+        "grant1"
+      ]
+    },
+    {
+      "id": "c2",
+      "role": "GUARANTEE",
+      "class": "syntactic_safety",
+      "formula": "G !(grant0 && grant1)",
+      "inputs": [],
+      "outputs": [
+        "grant0",
+        "grant1"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "src": "c0",
+      "dst": "req0",
+      "type": "response_guard"
+    },
+    {
+      "src": "c0",
+      "dst": "grant0",
+      "type": "response_target"
+    },
+    {
+      "src": "c1",
+      "dst": "req1",
+      "type": "response_guard"
+    },
+    {
+      "src": "c1",
+      "dst": "grant1",
+      "type": "response_target"
+    },
+    {
+      "src": "c2",
+      "dst": "grant0",
+      "type": "mutex_member"
+    },
+    {
+      "src": "c2",
+      "dst": "grant1",
+      "type": "mutex_member"
+    }
+  ],
+  "template_blocks": [
+    {
+      "id": "tb0",
+      "template": "arbiter_candidate",
+      "constraints": [
+        "c0",
+        "c1",
+        "c2"
+      ],
+      "status": "candidate"
+    }
+  ],
+  "wl": null}

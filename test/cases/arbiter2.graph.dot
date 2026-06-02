@@ -1,0 +1,18 @@
+digraph GSNF {
+  rankdir=LR;
+  c0 [shape=box,label="c0\nGUARANTEE\nliveness"];
+  c1 [shape=box,label="c1\nGUARANTEE\nliveness"];
+  c2 [shape=box,label="c2\nGUARANTEE\nsafety"];
+  "req0" [shape=ellipse];
+  "req1" [shape=ellipse];
+  "grant0" [shape=ellipse];
+  "grant1" [shape=ellipse];
+  c0 -> "req0" [label="occurs_in"];
+  c0 -> "grant0" [label="occurs_in"];
+  c0 -> "grant0" [label="response_target"];
+  c1 -> "req1" [label="occurs_in"];
+  c1 -> "grant1" [label="occurs_in"];
+  c1 -> "grant1" [label="response_target"];
+  c2 -> "grant0" [label="occurs_in"];
+  c2 -> "grant1" [label="occurs_in"];
+}
