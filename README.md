@@ -12,6 +12,7 @@ Format) specifications, sharing a common C library.
 | `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates + WL features — `text`/`gsnf`/`dot`/`tsv` |
 | `tlsfwl`    | TLSF 1.1/1.2 specs | Weisfeiler-Lehman features / similarity matrix for clustering & retrieval |
 | `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
+| `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -47,7 +48,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# binaries: build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates}
+# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph}
 ```
 
 With sanitizers:
@@ -94,6 +95,8 @@ tlsfwl --nearest 3 *.tlsf              # top-3 nearest spec per spec
 
 tlsftemplates spec.tlsf                # candidate template blocks
 tlsftemplates --certify --solve --format csnf spec.tlsf   # certified CSNF
+
+tlsfbenchgraph --input-dir specs/ --summary   # per-spec metrics TSV + totals
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -242,12 +245,31 @@ Anything not provably sound stays `candidate`; nothing is removed (residual
 export is the next milestone). CSNF is the same DIMACS-style line format as
 GSNF (`b`/`bc`/`dec`/`nsf`/`cyc`/`cert`/`cl`/`do`/`r` records).
 
-`tlsfgraph`/`tlsfwl`/`tlsftemplates` are the implemented slice of a larger
-proposed analysis/normalization/synthesis layer. Later milestones (residual
-export, controller composition, normalization passes) are not yet implemented
-and the corresponding flags (`--norm-depth`, `--from-gsnf`,
-`--side-conditions sat|bdd`, …) report a clear "not implemented" error;
-`--graph formula|quotient` is likewise reserved.
+### Corpus statistics (`tlsfbenchgraph`)
+
+`tlsfbenchgraph` runs the whole pipeline over a corpus and emits one TSV row of
+form/template-shape metrics per spec (inputs/outputs, syntactic safety/liveness,
+per-shape candidate counts, certified/solved blocks, dependent outputs, residual
+constraints, largest output component, raw/normalised formula size, and —with
+`--wl N`— the WL stabilisation depth), plus an aggregate `--summary`.
+
+```sh
+tlsfbenchgraph --input-dir benchmarks/tlsf --summary > tlsf.metrics.tsv
+```
+
+Over the SYNTCOMP corpus (all specs parse; ~5 s for the 2545 `tlsf` set) the
+shape distribution is, e.g.: the real-time `tlsf` set is recurrence-dominated
+(`GF` in ~800 specs) with scattered response/persistence/guarded-next, while the
+finite-word `tlsf-fin` set has **no** recurrence/response/mutex and is instead
+definition/guarded-next shaped — the kind of structural insight this layer is
+meant to expose.
+
+`tlsfgraph`/`tlsfwl`/`tlsftemplates`/`tlsfbenchgraph` are the implemented slice
+of a larger proposed analysis/normalization/synthesis layer. Later milestones
+(residual export, controller composition, normalization passes) are not yet
+implemented and the corresponding flags (`--norm-depth`, `--from-gsnf`,
+`--side-conditions sat|bdd`, `tlsfbenchgraph --jobs/--timeout`, …) report a clear
+"not implemented" error; `--graph formula|quotient` is likewise reserved.
 
 ## Checking output against `syfco`
 
@@ -273,7 +295,7 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~100 cases
+meson test -C build        # ~0.2s, ~105 cases
 ```
 
 Coverage (needs `gcovr`):

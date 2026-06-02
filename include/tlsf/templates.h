@@ -41,6 +41,12 @@ void csnf_free(Csnf *c);
 void csnf_emit_text(FILE *out, const Csnf *c, bool solve);
 void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve);
 
+/// Tally block statuses and derived counts (any out-pointer may be nullptr).
+/// `dependent` counts SOLVED definition decoders; `residual` counts
+/// constraints not in any SOLVED block.
+void csnf_counts(const Csnf *c, uint32_t *solved, uint32_t *certified,
+                 uint32_t *candidate, uint32_t *residual, uint32_t *dependent);
+
 /// The eight template names recognized so far (for --list-templates).
 extern const char *const TEMPLATE_NAMES[];
 extern const int TEMPLATE_NAMES_COUNT;

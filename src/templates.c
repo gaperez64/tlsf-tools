@@ -425,6 +425,32 @@ static void count_status(const Csnf *c, uint32_t *sol, uint32_t *cert,
     }
 }
 
+void csnf_counts(const Csnf *c, uint32_t *solved, uint32_t *certified,
+                 uint32_t *candidate, uint32_t *residual, uint32_t *dependent) {
+  uint32_t sol, ce, ca;
+  count_status(c, &sol, &ce, &ca);
+  if (solved)
+    *solved = sol;
+  if (certified)
+    *certified = ce;
+  if (candidate)
+    *candidate = ca;
+  if (residual) {
+    uint32_t r = 0;
+    for (uint32_t i = 0; i < c->nconstraints; i++)
+      if (!c->solved[i])
+        r++;
+    *residual = r;
+  }
+  if (dependent) {
+    uint32_t d = 0;
+    for (uint32_t i = 0; i < c->nblocks; i++)
+      if (c->blocks[i].status == CSNF_SOLVED && c->blocks[i].dec_output >= 0)
+        d++;
+    *dependent = d;
+  }
+}
+
 void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
   ConstraintCover *cov = c->cov;
   uint32_t sol, cert, cand, resid = 0;

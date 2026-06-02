@@ -183,6 +183,14 @@ tlsftemplates_exe = executable(
   install: true,
 )
 
+tlsfbenchgraph_exe = executable(
+  'tlsfbenchgraph',
+  sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
 #
@@ -348,6 +356,16 @@ test('tmpl_sat_unimplemented', xfail,
          files('test/cases/def_demo.tlsf')])
 test('tmpl_from_gsnf_unimplemented', xfail,
   args: [tlsftemplates_exe, '--from-gsnf', files('test/cases/def_demo.tlsf')])
+
+# tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
+# golden is path-independent).
+test('benchgraph_tsv', check,
+  args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe, '--wl', '4',
+         '--summary', files('test/cases/arbiter2.tlsf'),
+         files('test/cases/def_demo.tlsf'),
+         files('test/cases/roundrobin2.tlsf')])
+test('benchgraph_jobs_unimplemented', xfail,
+  args: [tlsfbenchgraph_exe, '--jobs', '4', files('test/cases/def_demo.tlsf')])
 
 # Reserved (later-milestone) flags must error, not be silently ignored.
 test('graph_norm_unimplemented', xfail,

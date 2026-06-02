@@ -40,4 +40,10 @@ void wl_features_emit(FILE *out, const WlFeatures *f, const char *source);
 /// weighted-Jaccard are in [0,1]; dot is the raw inner product).
 double wl_kernel(const WlFeatures *a, const WlFeatures *b, Kernel k);
 
+/// First refinement round (1..maxdepth) at which the number of distinct node
+/// colors stops increasing (the WL partition has stabilised); `maxdepth` if it
+/// never plateaus within the bound, 0 for an empty graph.
+[[nodiscard]] int wl_stabilization_depth(const ConstraintCover *cov,
+                                         WlLabels labels, int maxdepth);
+
 #endif // TLSF_WL_H

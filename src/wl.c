@@ -154,31 +154,17 @@ static int cstr_cmp(const void *a, const void *b) {
 }
 
 // ---------------------------------------------------------------------------
-// WL computation
+// Graph materialization and one refinement step (shared by wl_compute and
+// wl_stabilization_depth)
 // ---------------------------------------------------------------------------
 
-WlFeatures *wl_compute(const ConstraintCover *cov, int rounds,
-                       WlLabels labels) {
-  WlFeatures *f = calloc(1, sizeof *f);
-  if (!f)
+// Build the typed adjacency over N = #constraints + #APs nodes (same edges the
+// GSNF emitter derives).  Caller frees with wl_free_adj.
+static Adj *wl_build_adj(const ConstraintCover *cov, uint32_t *Nout) {
+  uint32_t K = cov->count, A = cov->aps.count, N = K + A;
+  *Nout = N;
+  if (N == 0)
     return nullptr;
-  f->depth = rounds;
-  f->labels = labels;
-
-  uint32_t K = cov->count;
-  uint32_t A = cov->aps.count;
-  uint32_t N = K + A;
-
-  Hist hist;
-  hist_init(&hist);
-
-  if (N == 0) {
-    f->entries = nullptr;
-    f->count = 0;
-    return f;
-  }
-
-  // Build typed adjacency from the cover (same edges as the GSNF emitter).
   Adj *adj = calloc(N, sizeof(Adj));
   for (uint32_t i = 0; i < K; i++) {
     const Constraint *c = &cov->items[i];
@@ -194,6 +180,94 @@ WlFeatures *wl_compute(const ConstraintCover *cov, int rounds,
         if (apset_test(&c->mutex_members, a))
           add_edge(adj, i, K + a, "mutex_member");
   }
+  return adj;
+}
+
+static void wl_free_adj(Adj *adj, uint32_t N) {
+  for (uint32_t v = 0; v < N; v++) {
+    free(adj[v].nbr);
+    free(adj[v].type);
+  }
+  free(adj);
+}
+
+// One WL refinement: new color(v) = hex(fnv1a(color(v) ‖ sorted neighbour
+// "type|color")).  Returns a fresh N-array of malloc'd colors (caller frees the
+// strings + array); does not touch `cur`.
+static char **wl_refine_one(Adj *adj, uint32_t N, char **cur) {
+  char **next = malloc(N * sizeof(char *));
+  for (uint32_t v = 0; v < N; v++) {
+    uint32_t d = adj[v].n;
+    char **tup = malloc((d ? d : 1) * sizeof(char *));
+    for (uint32_t e = 0; e < d; e++) {
+      const char *ty = adj[v].type[e];
+      const char *nc = cur[adj[v].nbr[e]];
+      size_t L = strlen(ty) + 1 + strlen(nc) + 1;
+      char *s = malloc(L);
+      snprintf(s, L, "%s|%s", ty, nc);
+      tup[e] = s;
+    }
+    qsort(tup, d, sizeof(char *), cstr_cmp);
+
+    char *buf;
+    size_t sz;
+    FILE *ms = open_memstream(&buf, &sz);
+    fputs(cur[v], ms);
+    fputc('\x1f', ms);
+    for (uint32_t e = 0; e < d; e++) {
+      fputs(tup[e], ms);
+      fputc('\x1e', ms);
+    }
+    fclose(ms);
+    uint64_t h = fnv1a(buf, sz);
+    free(buf);
+    for (uint32_t e = 0; e < d; e++)
+      free(tup[e]);
+    free(tup);
+
+    char *color = malloc(17);
+    snprintf(color, 17, "%016llx", (unsigned long long)h);
+    next[v] = color;
+  }
+  return next;
+}
+
+// Number of distinct color strings among cur[0..N-1].
+static uint32_t distinct_colors(char **cur, uint32_t N) {
+  char **tmp = malloc(N * sizeof(char *));
+  memcpy(tmp, cur, N * sizeof(char *));
+  qsort(tmp, N, sizeof(char *), cstr_cmp);
+  uint32_t n = N ? 1 : 0;
+  for (uint32_t i = 1; i < N; i++)
+    if (strcmp(tmp[i], tmp[i - 1]) != 0)
+      n++;
+  free(tmp);
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// WL computation
+// ---------------------------------------------------------------------------
+
+WlFeatures *wl_compute(const ConstraintCover *cov, int rounds,
+                       WlLabels labels) {
+  WlFeatures *f = calloc(1, sizeof *f);
+  if (!f)
+    return nullptr;
+  f->depth = rounds;
+  f->labels = labels;
+
+  uint32_t K = cov->count;
+  uint32_t N;
+  Hist hist;
+  hist_init(&hist);
+
+  Adj *adj = wl_build_adj(cov, &N);
+  if (N == 0) {
+    f->entries = nullptr;
+    f->count = 0;
+    return f;
+  }
 
   // Round 0: base colors.
   char **cur = malloc(N * sizeof(char *));
@@ -206,44 +280,10 @@ WlFeatures *wl_compute(const ConstraintCover *cov, int rounds,
 
   // Refinement rounds.
   for (int r = 1; r <= rounds; r++) {
-    char **next = malloc(N * sizeof(char *));
+    char **next = wl_refine_one(adj, N, cur);
     for (uint32_t v = 0; v < N; v++) {
-      // neighbour tuples "type|color", sorted for canonicality
-      uint32_t d = adj[v].n;
-      char **tup = malloc((d ? d : 1) * sizeof(char *));
-      for (uint32_t e = 0; e < d; e++) {
-        const char *ty = adj[v].type[e];
-        const char *nc = cur[adj[v].nbr[e]];
-        size_t L = strlen(ty) + 1 + strlen(nc) + 1;
-        char *s = malloc(L);
-        snprintf(s, L, "%s|%s", ty, nc);
-        tup[e] = s;
-      }
-      qsort(tup, d, sizeof(char *), cstr_cmp);
-
-      // hash own color + sorted neighbour multiset
-      char *buf;
-      size_t sz;
-      FILE *ms = open_memstream(&buf, &sz);
-      fputs(cur[v], ms);
-      fputc('\x1f', ms);
-      for (uint32_t e = 0; e < d; e++) {
-        fputs(tup[e], ms);
-        fputc('\x1e', ms);
-      }
-      fclose(ms);
-      uint64_t h = fnv1a(buf, sz);
-      free(buf);
-      for (uint32_t e = 0; e < d; e++)
-        free(tup[e]);
-      free(tup);
-
-      char *color = malloc(17);
-      snprintf(color, 17, "%016llx", (unsigned long long)h);
-      next[v] = color;
-
       char key[64];
-      snprintf(key, sizeof key, "%d:%s", r, color);
+      snprintf(key, sizeof key, "%d:%s", r, next[v]);
       hist_add(&hist, key);
     }
     for (uint32_t v = 0; v < N; v++)
@@ -255,11 +295,7 @@ WlFeatures *wl_compute(const ConstraintCover *cov, int rounds,
   for (uint32_t v = 0; v < N; v++)
     free(cur[v]);
   free(cur);
-  for (uint32_t v = 0; v < N; v++) {
-    free(adj[v].nbr);
-    free(adj[v].type);
-  }
-  free(adj);
+  wl_free_adj(adj, N);
 
   // Move the histogram into a sorted entry array (transfers key ownership).
   f->entries = malloc((hist.count ? hist.count : 1) * sizeof(WlEntry));
@@ -332,4 +368,38 @@ double wl_kernel(const WlFeatures *a, const WlFeatures *b, Kernel k) {
     return uni > 0 ? inter / uni : 0.0;
   }
   return 0.0;
+}
+
+int wl_stabilization_depth(const ConstraintCover *cov, WlLabels labels,
+                           int maxdepth) {
+  uint32_t K = cov->count, N;
+  Adj *adj = wl_build_adj(cov, &N);
+  if (N == 0)
+    return 0;
+
+  char **cur = malloc(N * sizeof(char *));
+  for (uint32_t v = 0; v < N; v++)
+    cur[v] = base_color(cov, v, K, labels);
+  uint32_t prev = distinct_colors(cur, N);
+
+  int stab = maxdepth;
+  for (int r = 1; r <= maxdepth; r++) {
+    char **next = wl_refine_one(adj, N, cur);
+    uint32_t d = distinct_colors(next, N);
+    for (uint32_t v = 0; v < N; v++)
+      free(cur[v]);
+    free(cur);
+    cur = next;
+    if (d == prev) { // no further refinement
+      stab = r;
+      break;
+    }
+    prev = d;
+  }
+
+  for (uint32_t v = 0; v < N; v++)
+    free(cur[v]);
+  free(cur);
+  wl_free_adj(adj, N);
+  return stab;
 }
