@@ -44,7 +44,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# binaries: build/tlsf2ltl  build/tlsf2tlsf
+# binaries: build/tlsf2ltl  build/tlsf2tlsf  build/tlsfinfo
 ```
 
 With sanitizers:
@@ -157,9 +157,9 @@ fragment).
 
 `tlsf2tlsf` aims to produce the same expanded TLSF as `syfco`'s basic-TLSF
 output. The LTL emitted by `tlsf2ltl` is **not** byte-for-byte identical to
-`syfco`/`ltl2ba` output (it is fully parenthesised), but it is semantically
-equivalent. Equivalence can be checked with `ltlfilt` from the
-[spot](https://spot.lre.epita.fr/) toolset:
+`syfco`/`ltl2ba` output (parenthesisation and the section-combining structure
+differ), but it is semantically equivalent. Equivalence can be checked with
+`ltlfilt` from the [spot](https://spot.lre.epita.fr/) toolset:
 
 ```sh
 ltlfilt --equivalent-to="$(syfco -f ltlxba spec.tlsf)" \
@@ -177,7 +177,7 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~50 cases
+meson test -C build        # ~0.2s, ~80 cases
 ```
 
 Coverage (needs `gcovr`):
@@ -190,7 +190,8 @@ gcovr --root . --filter 'src/' --print-summary
 
 GitHub Actions (`.github/workflows/ci.yml`) checks `clang-format`, builds with
 both gcc and clang, runs the full suite (it is fast), runs a valgrind no-leak
-check on each binary, and reports line coverage.
+check on each binary, gates line coverage at 75%, and runs a
+performance-regression guard (`bench/bench.sh --check`).
 
 ## Formatting & linting
 
