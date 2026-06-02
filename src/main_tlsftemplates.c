@@ -25,6 +25,7 @@ static void usage(const char *prog) {
           "blocks\n"
           "  --solve                      include controller/decoder "
           "artifacts\n"
+          "  --split                      split constraints at top-level &&\n"
           "  --template NAME              restrict to one certifiable "
           "template\n"
           "  --templates LIST             comma-separated certifiable "
@@ -80,7 +81,7 @@ static unsigned tpl_bit(const char *s) {
 }
 
 int main(int argc, char *argv[]) {
-  bool certify = false, solve = false, csnf = false;
+  bool certify = false, solve = false, csnf = false, split = false;
   unsigned want = TPL_ALL;
   const char *input_file = nullptr, *output_file = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;
@@ -99,6 +100,8 @@ int main(int argc, char *argv[]) {
       certify = false;
     } else if (strcmp(a, "--certify") == 0) {
       certify = true;
+    } else if (strcmp(a, "--split") == 0) {
+      split = true;
     } else if (strcmp(a, "--solve") == 0) {
       solve = true;
       certify = true;
@@ -214,7 +217,7 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
 
-  ConstraintCover *cov = cover_build(spec);
+  ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
     fprintf(stderr, "tlsftemplates: out of memory\n");
     spec_free(spec);

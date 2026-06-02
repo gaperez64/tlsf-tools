@@ -191,6 +191,14 @@ tlsfbenchgraph_exe = executable(
   install: true,
 )
 
+tlsfnorm_exe = executable(
+  'tlsfnorm',
+  sources: ['src/main_tlsfnorm.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
 #
@@ -366,6 +374,23 @@ test('benchgraph_tsv', check,
          files('test/cases/roundrobin2.tlsf')])
 test('benchgraph_jobs_unimplemented', xfail,
   args: [tlsfbenchgraph_exe, '--jobs', '4', files('test/cases/def_demo.tlsf')])
+
+# Constraint decomposition: cover --split exposes shapes inside a single
+# conjunctive formula; tlsfnorm re-emits the split spec.
+test('graph_split_off', check,
+  args: [files('test/cases/arbiter1formula.graph.txt'),
+         tlsfgraph_exe, '--templates', files('test/cases/arbiter1formula.tlsf')])
+test('graph_split_on', check,
+  args: [files('test/cases/arbiter1formula.split.txt'),
+         tlsfgraph_exe, '--split', '--templates',
+         files('test/cases/arbiter1formula.tlsf')])
+test('norm_split', check,
+  args: [files('test/cases/arbiter1formula.norm.tlsf'),
+         tlsfnorm_exe, '--passes', 'split',
+         files('test/cases/arbiter1formula.tlsf')])
+test('norm_macro_unimplemented', xfail,
+  args: [tlsfnorm_exe, '--passes', 'macro',
+         files('test/cases/arbiter1formula.tlsf')])
 
 # Reserved (later-milestone) flags must error, not be silently ignored.
 test('graph_norm_unimplemented', xfail,

@@ -34,13 +34,15 @@ SHAPES = [
 ]
 
 
-def run_benchgraph(benchgraph, corpus_dir, wl):
+def run_benchgraph(benchgraph, corpus_dir, wl, split=False):
     """Run tlsfbenchgraph on a corpus dir; return list of row dicts."""
     with tempfile.TemporaryDirectory() as td:
         tsv = os.path.join(td, "m.tsv")
         cmd = [benchgraph, "--input-dir", corpus_dir, "--output", tsv]
         if wl:
             cmd += ["--wl", str(wl)]
+        if split:
+            cmd += ["--split"]
         subprocess.run(cmd, check=True)
         rows = []
         with open(tsv) as f:
@@ -170,6 +172,27 @@ def plot_reduction(aggs, out):
     plt.close(fig)
 
 
+def plot_split_effect(aggs_raw, aggs_split, out):
+    """Per corpus: # specs exhibiting each shape, raw vs decomposed."""
+    n = len(aggs_raw)
+    fig, axes = plt.subplots(1, n, figsize=(6 * n, 4.2), squeeze=False)
+    x = range(len(SHAPES))
+    for j, (raw, sp) in enumerate(zip(aggs_raw, aggs_split)):
+        ax = axes[0][j]
+        ax.bar([xi - 0.2 for xi in x], [raw[f"{s}_specs"] for s in SHAPES],
+               0.4, label="raw")
+        ax.bar([xi + 0.2 for xi in x], [sp[f"{s}_specs"] for s in SHAPES],
+               0.4, label="--split")
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(SHAPES, rotation=20, ha="right")
+        ax.set_ylabel("# specs with the shape")
+        ax.set_title(f"{raw['label']}: decomposition effect")
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "split_effect.png"), dpi=120)
+    plt.close(fig)
+
+
 def plot_wl(aggs, out):
     if not any(a["wl_stab"] for a in aggs):
         return False
@@ -191,7 +214,8 @@ def plot_wl(aggs, out):
 
 # --------------------------------------------------------------------------
 
-def stats_markdown(aggs, wl_ok):
+def stats_markdown(aggs_raw, aggs, wl_ok):
+    # `aggs` are the decomposed (--split) aggregates used for the primary tables.
     def fmt(xs):
         return f"{median(xs):.0f} / {mean(xs):.1f} / {max(xs)}" if xs else "-"
 
@@ -228,6 +252,18 @@ def stats_markdown(aggs, wl_ok):
         lines.append("|---|---|")
         for a in aggs:
             lines.append(f"| `{a['label']}` | {fmt(a['wl_stab'])} |")
+
+    # Decomposition effect: raw vs --split.
+    lines.append("")
+    lines.append("Effect of `--split` (specs with the shape: raw → decomposed):")
+    lines.append("")
+    lines.append("| corpus | constraints (total) | " + " | ".join(SHAPES) + " |")
+    lines.append("|---|--:|" + "--:|" * len(SHAPES))
+    for raw, sp in zip(aggs_raw, aggs):
+        craw, csp = sum(raw["constraints"]), sum(sp["constraints"])
+        cells = [f"{raw[f'{s}_specs']}→{sp[f'{s}_specs']}" for s in SHAPES]
+        lines.append(f"| `{sp['label']}` | {craw}→{csp} | " + " | ".join(cells)
+                     + " |")
     return "\n".join(lines)
 
 
@@ -240,23 +276,28 @@ def main():
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
-    aggs = []
+    aggs_raw, aggs_split = [], []
     for spec in args.corpora:
         d, _, label = spec.partition(":")
         label = label or os.path.basename(os.path.normpath(d))
-        print(f"running benchgraph on {d} ({label}) ...", file=sys.stderr)
-        rows = run_benchgraph(args.benchgraph, d, args.wl)
-        aggs.append(aggregate(label, rows))
+        print(f"running benchgraph on {d} ({label}) raw + --split ...",
+              file=sys.stderr)
+        aggs_raw.append(aggregate(label, run_benchgraph(args.benchgraph, d,
+                                                        args.wl, False)))
+        aggs_split.append(aggregate(label, run_benchgraph(args.benchgraph, d,
+                                                          args.wl, True)))
 
-    plot_shape_prevalence(aggs, args.out)
-    plot_constraints_hist(aggs, args.out)
-    plot_coverage(aggs, args.out)
-    plot_reduction(aggs, args.out)
-    wl_ok = plot_wl(aggs, args.out)
+    # Primary tables/plots use the decomposed (--split) view.
+    plot_shape_prevalence(aggs_split, args.out)
+    plot_constraints_hist(aggs_split, args.out)
+    plot_coverage(aggs_split, args.out)
+    plot_reduction(aggs_split, args.out)
+    plot_split_effect(aggs_raw, aggs_split, args.out)
+    wl_ok = plot_wl(aggs_split, args.out)
     print(f"plots written to {args.out}/", file=sys.stderr)
 
     # Markdown stats to stdout (paste into BENCHGRAPH.md).
-    print(stats_markdown(aggs, wl_ok))
+    print(stats_markdown(aggs_raw, aggs_split, wl_ok))
 
 
 if __name__ == "__main__":

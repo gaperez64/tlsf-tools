@@ -66,13 +66,15 @@ typedef struct {
   ApTable aps;
   Constraint *items;
   uint32_t count;
+  uint32_t cap; ///< allocated `items` slots (grow-by-doubling)
   TemplateBlock *blocks;
   uint32_t block_count;
 } ConstraintCover;
 
-/// Build the constraint cover from an already-expanded spec.  Returns nullptr
-/// on OOM.  Allocates from `spec->arena`.
-[[nodiscard]] ConstraintCover *cover_build(TlsfSpec *spec);
+/// Build the constraint cover from an already-expanded spec.  When `split` is
+/// true each section formula is decomposed into its top-level conjuncts (one
+/// constraint each, equivalence-preserving).  Returns nullptr on OOM.
+[[nodiscard]] ConstraintCover *cover_build(TlsfSpec *spec, bool split);
 
 /// Append a candidate template name to a constraint (used by recognize.c).
 void constraint_add_candidate(ConstraintCover *cov, Constraint *c,

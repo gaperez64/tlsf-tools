@@ -31,6 +31,7 @@ static void usage(const char *prog) {
       "  --wl N                       append WL features of depth N\n"
       "  --wl-labels basic|synthesis|template   WL label scheme (default "
       "synthesis)\n"
+      "  --split                      split constraints at top-level &&\n"
       "  --templates                  include template-candidate info\n"
       "  --template NAME              restrict to one template\n"
       "  --template-candidates-only   emit only candidate blocks\n"
@@ -91,6 +92,7 @@ int main(int argc, char *argv[]) {
   bool want_safety = false, want_live = false;
   int wl_rounds = -1; // < 0 = no WL
   WlLabels wl_labels = WL_SYNTHESIS;
+  bool split = false;
 
   ParamOverride overrides[64];
   size_t n_overrides = 0;
@@ -149,6 +151,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsfgraph: unknown --wl-labels '%s'\n", v);
         return 1;
       }
+    } else if (strcmp(a, "--split") == 0) {
+      split = true;
     } else if (strcmp(a, "--templates") == 0) {
       o.templates = true;
     } else if (strcmp(a, "--template") == 0) {
@@ -246,7 +250,7 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
 
-  ConstraintCover *cov = cover_build(spec);
+  ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
     fprintf(stderr, "tlsfgraph: out of memory building constraint cover\n");
     spec_free(spec);

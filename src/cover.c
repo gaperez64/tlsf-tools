@@ -2,6 +2,7 @@
 
 #include "tlsf/classify.h"
 #include "tlsf/nnf.h"
+#include "tlsf/rewrite.h"
 
 #include <assert.h>
 
@@ -126,7 +127,37 @@ void constraint_add_candidate(ConstraintCover *cov, Constraint *c,
   c->candidates[c->candidate_count++] = name;
 }
 
-ConstraintCover *cover_build(TlsfSpec *spec) {
+// Append one constraint (formula already grounded); grows cov->items.
+static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
+                           Node *formula) {
+  Arena *a = cov->arena;
+  if (cov->count == cov->cap) {
+    uint32_t nc = cov->cap ? cov->cap * 2 : 16;
+    Constraint *arr = ARENA_ALLOC_N(a, Constraint, nc);
+    for (uint32_t i = 0; i < cov->count; i++)
+      arr[i] = cov->items[i];
+    cov->items = arr;
+    cov->cap = nc;
+  }
+  Constraint *c = &cov->items[cov->count];
+  *c = (Constraint){0};
+  c->id = cov->count;
+  c->role = d->role;
+  c->assumption_side = d->assumption;
+  c->guarantee_side = !d->assumption;
+  c->invariant_wrapped = d->invariant;
+  c->formula = formula;
+  c->nnf = to_nnf(a, formula, true);
+  if (!c->nnf)
+    return false;
+  c->is_safety = classify_formula(c->nnf) == FCLASS_SAFETY;
+  c->resp_guard = c->resp_target = c->def_output = c->rec_output = -1;
+  intern_aps(&cov->aps, c->nnf);
+  cov->count++;
+  return true;
+}
+
+ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
   Arena *a = spec->arena;
   ConstraintCover *cov = ARENA_ALLOC(a, ConstraintCover);
   if (!cov)
@@ -154,32 +185,25 @@ ConstraintCover *cover_build(TlsfSpec *spec) {
   };
   uint32_t nsec = sizeof secs / sizeof secs[0];
 
-  uint32_t total = 0;
-  for (uint32_t s = 0; s < nsec; s++)
-    total += secs[s].list->count;
-
-  cov->items = total ? ARENA_ALLOC_N(a, Constraint, total) : nullptr;
+  cov->items = nullptr;
   cov->count = 0;
+  cov->cap = 0;
 
-  // First sweep: roles, NNF, classification, intern all APs.
+  // First sweep: one constraint per section formula (or per conjunct when
+  // `split`); roles, NNF, classification, intern all APs.
   for (uint32_t s = 0; s < nsec; s++) {
     SectionDesc *d = &secs[s];
     for (uint32_t i = 0; i < d->list->count; i++) {
-      Constraint *c = &cov->items[cov->count];
-      *c = (Constraint){0};
-      c->id = cov->count;
-      c->role = d->role;
-      c->assumption_side = d->assumption;
-      c->guarantee_side = !d->assumption;
-      c->invariant_wrapped = d->invariant;
-      c->formula = d->list->formulas[i];
-      c->nnf = to_nnf(a, c->formula, true);
-      if (!c->nnf)
+      Node *f = d->list->formulas[i];
+      if (split) {
+        Node **parts;
+        uint32_t np = rewrite_decompose(a, f, &parts);
+        for (uint32_t p = 0; p < np; p++)
+          if (!add_constraint(cov, d, parts[p]))
+            return nullptr;
+      } else if (!add_constraint(cov, d, f)) {
         return nullptr;
-      c->is_safety = classify_formula(c->nnf) == FCLASS_SAFETY;
-      c->resp_guard = c->resp_target = c->def_output = c->rec_output = -1;
-      intern_aps(&cov->aps, c->nnf);
-      cov->count++;
+      }
     }
   }
 

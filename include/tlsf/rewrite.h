@@ -65,4 +65,10 @@ typedef enum RewriteFlags {
 /// If `flags == RW_NONE` the input is returned unchanged.
 [[nodiscard]] Node *apply_rewrites(Arena *a, Node *root, unsigned flags);
 
+/// Equivalence-preserving decomposition: push G/X inward over `&&`
+/// (G(a&&b)=Ga&&Gb, X(a&&b)=Xa&&Xb) to a fixpoint, then split at the top-level
+/// `&&`.  Writes an arena array of the conjuncts to `*out` and returns the
+/// count (>= 1).  The conjunction of the results is equivalent to `f`.
+[[nodiscard]] uint32_t rewrite_decompose(Arena *a, Node *f, Node ***out);
+
 #endif // TLSF_REWRITE_H

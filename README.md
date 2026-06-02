@@ -13,6 +13,7 @@ Format) specifications, sharing a common C library.
 | `tlsfwl`    | TLSF 1.1/1.2 specs | Weisfeiler-Lehman features / similarity matrix for clustering & retrieval |
 | `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
 | `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
+| `tlsfnorm`  | TLSF 1.1/1.2 spec | Local normalization (split / nnf / boolean passes), re-emitted as TLSF |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -48,7 +49,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph}
+# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph,tlsfnorm}
 ```
 
 With sanitizers:
@@ -97,6 +98,9 @@ tlsftemplates spec.tlsf                # candidate template blocks
 tlsftemplates --certify --solve --format csnf spec.tlsf   # certified CSNF
 
 tlsfbenchgraph --input-dir specs/ --summary   # per-spec metrics TSV + totals
+
+tlsfnorm --passes split spec.tlsf      # split conjunctive constraints, re-emit
+tlsfgraph --split --templates spec.tlsf   # analyse with decomposition on
 ```
 
 `tlsf2ltl` emits the single LTL formula defined by the TLSF semantics:
@@ -245,6 +249,28 @@ Anything not provably sound stays `candidate`; nothing is removed (residual
 export is the next milestone). CSNF is the same DIMACS-style line format as
 GSNF (`b`/`bc`/`dec`/`nsf`/`cyc`/`cert`/`cl`/`do`/`r` records).
 
+### Constraint decomposition (`--split`, `tlsfnorm`)
+
+Most specs write several obligations as one conjunctive clause (e.g. `GUARANTEE
+{ G(r0->Fg0) && G(r1->Fg1) && G!(g0&&g1); }` is *one* constraint), which
+whole-formula matching can't see. The `--split` option (on `tlsfgraph`,
+`tlsftemplates`, `tlsfwl`, `tlsfbenchgraph`) decomposes each constraint into its
+top-level `&&` conjuncts — distributing `G`/`X` over `&&` along the spine only,
+so it is equivalence-preserving and leaves `F`/`U`/… intact. `tlsfnorm` exposes
+the same transform as a spec-rewriter:
+
+```sh
+tlsfnorm --passes split spec.tlsf      # re-emit with conjunctions split out
+tlsfnorm --passes nnf,boolean spec.tlsf
+```
+
+`tlsfnorm` applies `split` / `nnf` / `boolean` (= `-s0`) passes per section and
+re-emits TLSF; `--format trace` reports the per-pass formula-count changes.
+Decomposition is what makes the corpus shape statistics meaningful — see
+[`BENCHGRAPH.md`](BENCHGRAPH.md) (e.g. `tlsf-fin` mutex 0 → 230 specs once
+split). The remaining `tlsfnorm` passes (`macro`/`response`/`expose-*`) are
+reserved and error clearly.
+
 ### Corpus statistics (`tlsfbenchgraph`)
 
 `tlsfbenchgraph` runs the whole pipeline over a corpus and emits one TSV row of
@@ -298,7 +324,7 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~105 cases
+meson test -C build        # ~0.2s, ~110 cases
 ```
 
 Coverage (needs `gcovr`):

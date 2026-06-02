@@ -1,137 +1,150 @@
 # SYNTCOMP form / template-shape statistics
 
 Aggregate structural statistics of the [SYNTCOMP](https://github.com/SYNTCOMP/benchmarks)
-benchmark corpus, computed with `tlsfbenchgraph` and summarised here. Two sets:
+benchmark corpus, computed with `tlsfbenchgraph`. Two sets:
 
-- **`tlsf`** — the real-time / infinite-word benchmarks (2545 specs).
-- **`tlsf-fin`** — the finite-word (LTLf) benchmarks (2487 specs).
+- **`tlsf`** — real-time / infinite-word benchmarks (2545 specs).
+- **`tlsf-fin`** — finite-word (LTLf) benchmarks (2487 specs).
 
-Every spec in both sets parses, expands, and is analysed (0 failures). All
-numbers below come from the synthesis-graph layer (`tlsfgraph` cover +
-recognizers, `tlsftemplates` certification, `tlsfwl` WL refinement); they are
-*syntactic* — a constraint is counted under a shape only if it matches that
-shape's exact pattern, so the per-shape counts are **lower bounds** on how many
-specs are "really" of that form.
+Every spec in both sets parses, expands and is analysed (0 failures). Numbers
+come from the synthesis-graph layer (`tlsfgraph` cover + recognizers,
+`tlsftemplates` certification, `tlsfwl` WL refinement). They are *syntactic* —
+a constraint is counted under a shape only if it matches that shape's exact
+pattern, so per-shape counts are **lower bounds**.
 
-Regenerate everything (plots + the tables below) with:
+**Primary tables use `--split`** (constraint decomposition): each section
+formula is split into its top-level `&&` conjuncts (distributing `G`/`X` over
+`&&` along the spine — equivalence-preserving), so structure conjoined into one
+clause is visible to the recognizers. A dedicated section below quantifies the
+effect of decomposition (it is large).
+
+Regenerate everything (plots + the tables below):
 
 ```sh
-ninja -C build                                   # build tlsfbenchgraph
+ninja -C build
 python3 scripts/benchgraph_plots.py \
     --benchgraph build/tlsfbenchgraph --out docs/benchgraph --wl 6 \
     /path/to/benchmarks/tlsf:tlsf \
     /path/to/benchmarks/tlsf-fin:tlsf-fin
 ```
 
-(The script needs `matplotlib`; it runs `tlsfbenchgraph` itself, writes the
-PNGs under `docs/benchgraph/`, and prints the markdown tables to stdout. The
-per-spec TSVs are written to a temp dir and discarded.)
+(The script needs `matplotlib`; it runs `tlsfbenchgraph` itself — once per
+corpus *with* and *without* `--split` — writes the PNGs under
+`docs/benchgraph/`, and prints these markdown tables. TSVs go to a temp dir and
+are discarded.)
 
 ---
 
-## Corpus overview
+## Corpus overview (decomposed)
 
 | corpus | specs | parsed | constraints (med/mean/max) | inputs (med) | outputs (med) |
 |---|--:|--:|---|--:|--:|
-| `tlsf` | 2545 | 2545 | 4 / 13.2 / 576 | 8 | 3 |
-| `tlsf-fin` | 2487 | 2487 | 1 / 1.2 / 13 | 12 | 10 |
+| `tlsf` | 2545 | 2545 | 13 / 35.7 / 5154 | 8 | 3 |
+| `tlsf-fin` | 2487 | 2487 | 7 / 13.8 / 162 | 12 | 10 |
 
 ![Constraint-count distribution](docs/benchgraph/constraints_hist.png)
 
-The two sets are shaped very differently. `tlsf` specs have a small median
-size (4 constraints) but a long heavy tail (up to 576 — the encoded
-`sweap`/`box` families). `tlsf-fin` specs are almost all a **single** formula
-(median 1, mean 1.2): they read like compiled/encoded sequential problems
-rather than hand-written multi-clause reactive specs.
+`tlsf` has a small-but-long-tailed size profile; `tlsf-fin` specs are written as
+one or a few large conjunctive formulas (see the decomposition blow-up below).
 
-## Template-shape prevalence
+## Template-shape prevalence (decomposed)
 
 | corpus | response | mutex | recurrence | persistence | guarded_next | definition |
 |---|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 44 (114) | 4 (4) | 796 (1499) | 46 (54) | 30 (54) | 16 (16) |
-| `tlsf-fin` | 0 (0) | 0 (0) | 0 (0) | 0 (0) | 43 (86) | 43 (43) |
+| `tlsf` | 431 (2551) | 12 (14) | 876 (1882) | 46 (54) | 48 (129) | 92 (331) |
+| `tlsf-fin` | 141 (544) | 230 (655) | 0 (0) | 0 (0) | 43 (86) | 43 (43) |
 
 _Cells: number of specs exhibiting the shape, and (total candidate count)._
 
 ![Template-shape prevalence](docs/benchgraph/shape_prevalence.png)
 
-- **`tlsf` is recurrence-dominated.** A `GF` recurrence appears in **796 / 2545
-  (≈31 %)** specs — by far the most common recognised shape — with 1499 total
-  recurrences. `response` (`G(r → F g)`), `persistence`, and
-  `guarded-next` are present but scattered (≈1–2 % of specs each); explicit
-  `mutex` is almost absent (4 specs) — grant-exclusivity is usually encoded
-  differently than the literal `G !(a && b)` our recognizer matches.
-- **`tlsf-fin` has a disjoint profile: zero** recurrence / response / mutex /
-  persistence. The only recognised shapes are **guarded-next-assignment (43)**
-  and **definition (43)** — consistent with finite-word problems being
-  next-state / decoder oriented and `GF` being meaningless on finite traces.
+- **`tlsf` is recurrence-dominated** — a `GF` recurrence in **876 / 2545 (≈34 %)**
+  specs — but once conjunctions are split, **response** is the second most
+  common shape (431 specs), and **definition** (92) and **guarded-next** (48)
+  are non-trivial.
+- **`tlsf-fin` still has no recurrence/persistence** (`GF`/`FG` are meaningless
+  on finite traces) but, after decomposition, it is clearly **arbitration-
+  shaped**: **mutex in 230 specs and response in 141** — both completely
+  invisible without splitting (see next section).
 
-## Safety / liveness and template-solvable coverage
+## Safety / liveness and template-solvable coverage (decomposed)
 
 | corpus | safety | liveness | solved blocks | certified | specs with a solved block | norm/raw size (med/mean) |
 |---|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 23958 | 9555 | 70 | 4 | 30 | 1.13 / 1.39 |
-| `tlsf-fin` | 686 | 2365 | 129 | 0 | 43 | 0.99 / 0.91 |
+| `tlsf` | 64305 | 26550 | 458 | 14 | 124 | 1.14 / 1.41 |
+| `tlsf-fin` | 26408 | 7944 | 129 | 655 | 43 | 0.99 / 0.91 |
 
 _safety/liveness are **per-constraint** totals (syntactic classification)._
 
 ![Template-solvable coverage](docs/benchgraph/coverage.png)
 
-- `tlsf` constraints are ~71 % syntactic-safety; `tlsf-fin` is the inverse
-  (~77 % liveness — but since those specs are ≈1 constraint each, that just says
-  most finite-word specs are a single liveness formula).
-- **Template-solvable coverage is small and quantifies the headroom.** Only
-  **30 / 2545** `tlsf` and **43 / 2487** `tlsf-fin` specs contain at least one
-  block the current four certified templates (definition, round-robin,
-  guarded-next, mutex) can fully *solve*. The point of the soundness ladder is
-  that this number is trustworthy: everything else is honestly left residual
-  for real synthesis. It is also the obvious place to grow the template library.
+Decomposition roughly **4×'s** the template-solvable `tlsf` specs (30 → 124 have
+a fully SOLVED block) and turns the revealed `tlsf-fin` mutexes into 655
+`mutex_safety` certificates. Coverage is still a small, sound floor — the
+obvious place to grow the template library.
+
+## Effect of constraint decomposition (`--split`)
+
+| corpus | constraints (total) | response | mutex | recurrence | persistence | guarded_next | definition |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| `tlsf` | 33513 → 90855 | 44→431 | 4→12 | 796→876 | 46→46 | 30→48 | 16→92 |
+| `tlsf-fin` | 3051 → 34352 | 0→141 | 0→230 | 0→0 | 0→0 | 43→43 | 43→43 |
+
+_(specs exhibiting the shape: raw → decomposed)_
+
+![Decomposition effect](docs/benchgraph/split_effect.png)
+
+This is the headline: most specs write several obligations as **one conjunctive
+clause**, so whole-formula matching badly under-counts structure. Splitting
+(equivalence-preserving) multiplies the visible constraints (tlsf ≈2.7×,
+tlsf-fin ≈11×) and uncovers shapes that were entirely hidden —
+**`tlsf-fin` mutex 0 → 230, response 0 → 141**; **`tlsf` response 44 → 431**.
+Counts that don't reference `&&`-conjoined siblings (recurrence, persistence)
+are essentially unchanged, as expected.
+
+## Weisfeiler-Lehman stabilisation depth (decomposed)
+
+| corpus | WL stabilisation depth (med/mean/max) |
+|---|---|
+| `tlsf` | 3 / 2.7 / 6 |
+| `tlsf-fin` | 3 / 3.0 / 6 |
+
+![WL stabilisation depth](docs/benchgraph/wl_stab.png)
+
+Even decomposed, the graphs are **shallow**: WL refinement reaches a fixed point
+in a median of 3 rounds (≤6 anywhere), so low-depth fingerprints suffice for
+clustering/retrieval.
 
 ## Normalisation (formula size under `--strong-simplify`)
 
 ![Formula size under strong-simplify](docs/benchgraph/reduction.png)
 
-`--strong-simplify` is a *normal form*, not a size minimiser: it eliminates
-`W`/`R` (which expand) and applies NNF. On `tlsf` it tends to **grow** formulas
-(median 1.13×, mean 1.39×), driven by the `W`/`R`-heavy specs; on `tlsf-fin` it
-is roughly neutral (median 0.99×). This is worth keeping in mind before using
-it as a pre-pass — it normalises operator set and polarity, it does not shrink.
-
-## Weisfeiler-Lehman stabilisation depth
-
-| corpus | WL stabilisation depth (med/mean/max) |
-|---|---|
-| `tlsf` | 2 / 1.9 / 5 |
-| `tlsf-fin` | 1 / 1.2 / 3 |
-
-![WL stabilisation depth](docs/benchgraph/wl_stab.png)
-
-The synthesis graphs are structurally **shallow**: WL colour refinement reaches
-a fixed point in a median of 2 rounds (`tlsf`) / 1 round (`tlsf-fin`), never
-more than 5. So cheap, low-depth WL fingerprints already separate the
-structurally distinct neighbourhoods — good news for clustering/retrieval
-(`tlsfwl`): there is no need for deep refinement.
+`--strong-simplify` is a *normal form*, not a minimiser (it eliminates `W`/`R`
+and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
+`tlsf-fin` it is roughly neutral (median ×0.99).
 
 ---
 
 ## Key takeaways
 
-1. **The two corpora are structurally distinct.** Real-time `tlsf` is
-   recurrence-heavy and multi-clause with a long size tail; finite-word
-   `tlsf-fin` is single-formula, next-state/decoder oriented, with **no**
-   recurrence/response/mutex at all.
-2. **Recurrence is the dominant hand-written pattern** in `tlsf` (~31 % of
-   specs); literal mutex is essentially never written out.
-3. **The certified-template library currently solves a small slice** (≈1–2 % of
-   specs have a fully solved block) — an honest, sound floor and a clear target
-   for more templates.
-4. **`--strong-simplify` normalises but can enlarge** (median ×1.13 on `tlsf`).
-5. **Structure is shallow** — WL stabilises by depth ≤5 everywhere.
+1. **Most obligations are conjoined into one clause.** Whole-formula matching
+   under-counts; decomposition multiplies visible constraints (≈2.7× / ≈11×)
+   and is what makes the shape statistics meaningful.
+2. **`tlsf` is recurrence-dominated** (~34 % of specs) with responses pervasive
+   once split (431 specs).
+3. **`tlsf-fin` is arbitration-shaped, hidden in single formulas** — mutex
+   (230) and response (141) only appear after `--split`; no recurrence at all.
+4. **Decomposition ~4×'s template-solvable `tlsf` coverage** (30 → 124 specs).
+5. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
+   formulas (it normalises, it does not shrink).
 
 ## Caveats
 
-- Recognizers are *syntactic*: equivalent constraints written in another shape
-  are not counted, so per-shape numbers are lower bounds.
+- Recognizers are *syntactic*; per-shape numbers are lower bounds even after
+  decomposition.
+- `--split` distributes `G`/`X` over `&&` only along the spine (never inside
+  `F`/`U`/…), so it is equivalence-preserving and does not perturb
+  recurrence/persistence counts.
 - The certified set is the four M5 templates; "solved" excludes anything needing
   real game solving.
 - Numbers reflect the current benchmark snapshot under `~/GIT-repos/benchmarks`.

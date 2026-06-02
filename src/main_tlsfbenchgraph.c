@@ -26,6 +26,7 @@ static void usage(const char *prog) {
           "  --input-dir DIR    recursively add every *.tlsf under DIR\n"
           "  --file-list FILE   add the paths listed in FILE (one per line)\n"
           "  --wl N             also report WL stabilisation depth (<=N)\n"
+          "  --split            split constraints at top-level &&\n"
           "  --summary          append an aggregate summary\n"
           "  --output FILE      write to FILE (default stdout)\n"
           "  --version, --help\n",
@@ -139,7 +140,7 @@ typedef struct {
   int wl_stab;
 } Metrics;
 
-static Metrics measure(const char *path, int wl_depth) {
+static Metrics measure(const char *path, int wl_depth, bool split) {
   Metrics m = {0};
   m.wl_stab = -1;
   FILE *fp = cli_open_input(path, "tlsfbenchgraph");
@@ -153,7 +154,7 @@ static Metrics measure(const char *path, int wl_depth) {
     spec_free(spec);
     return m;
   }
-  ConstraintCover *cov = cover_build(spec);
+  ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
     spec_free(spec);
     return m;
@@ -215,7 +216,7 @@ static const char *basename_of(const char *p) {
 
 int main(int argc, char *argv[]) {
   int wl_depth = 0;
-  bool summary = false;
+  bool summary = false, split = false;
   const char *output_file = nullptr;
 
 #define NEED_ARG()                                                             \
@@ -245,6 +246,8 @@ int main(int argc, char *argv[]) {
       fclose(fl);
     } else if (strcmp(a, "--wl") == 0) {
       wl_depth = (int)strtol(NEED_ARG(), nullptr, 10);
+    } else if (strcmp(a, "--split") == 0) {
+      split = true;
     } else if (strcmp(a, "--summary") == 0) {
       summary = true;
     } else if (strcmp(a, "--output") == 0) {
@@ -303,7 +306,7 @@ int main(int argc, char *argv[]) {
            with_rec = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
-    Metrics m = measure(g_files[i], wl_depth);
+    Metrics m = measure(g_files[i], wl_depth, split);
     const char *fn = basename_of(g_files[i]);
     if (!m.ok) {
       nfail++;

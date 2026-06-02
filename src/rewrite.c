@@ -312,3 +312,50 @@ Node *apply_rewrites(Arena *a, Node *root, unsigned flags) {
   }
   return root;
 }
+
+static void decomp_push(Arena *a, Node ***out, uint32_t *cap, uint32_t *cnt,
+                        Node *n) {
+  if (*cnt == *cap) {
+    uint32_t nc = *cap ? *cap * 2 : 8;
+    Node **arr = ARENA_ALLOC_N(a, Node *, nc);
+    for (uint32_t i = 0; i < *cnt; i++)
+      arr[i] = (*out)[i];
+    *out = arr;
+    *cap = nc;
+  }
+  (*out)[(*cnt)++] = n;
+}
+
+// Surgical, equivalence-preserving decomposition: split at top-level `&&`, and
+// distribute `G`/`X` over `&&` *only along the spine* — `G(a&&b)`→`Ga,Gb`,
+// `X(a&&b)`→`Xa,Xb` — never descending into F/U/R/W/M (so e.g. `F G(a&&b)` is
+// left intact rather than reshaped to `F(Ga&&Gb)`).
+static void decomp_append(Arena *a, Node *f, Node ***out, uint32_t *cap,
+                          uint32_t *cnt) {
+  if (f->kind == NODE_AND) {
+    decomp_append(a, f->lhs, out, cap, cnt);
+    decomp_append(a, f->rhs, out, cap, cnt);
+    return;
+  }
+  if (f->kind == NODE_G || f->kind == NODE_X || f->kind == NODE_X_STRONG) {
+    Node **sub = nullptr;
+    uint32_t scap = 0, scnt = 0;
+    decomp_append(a, f->arg, &sub, &scap, &scnt);
+    for (uint32_t i = 0; i < scnt; i++) {
+      Node *w = f->kind == NODE_G   ? node_g(a, sub[i])
+                : f->kind == NODE_X ? node_x(a, sub[i])
+                                    : node_x_strong(a, sub[i]);
+      decomp_push(a, out, cap, cnt, w);
+    }
+    return;
+  }
+  decomp_push(a, out, cap, cnt, f);
+}
+
+uint32_t rewrite_decompose(Arena *a, Node *f, Node ***out) {
+  Node **arr = nullptr;
+  uint32_t cap = 0, cnt = 0;
+  decomp_append(a, f, &arr, &cap, &cnt);
+  *out = arr;
+  return cnt;
+}

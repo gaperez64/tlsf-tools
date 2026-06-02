@@ -24,6 +24,7 @@ static void usage(const char *prog) {
           "synthesis)\n"
           "  --kernel dot|cosine|jaccard  similarity kernel (default cosine)\n"
           "  --matrix                     all-pairs similarity matrix\n"
+          "  --split                      split constraints at top-level &&\n"
           "  --compare FILE               similarity of each input to FILE\n"
           "  --nearest K                  top-K nearest inputs per input\n"
           "  --output FILE                write to FILE (default stdout)\n"
@@ -37,7 +38,8 @@ static const char *kernel_name(Kernel k) {
 
 // Parse + expand + build WL features for one TLSF file.  Returns nullptr on
 // failure (message already printed).  The spec is freed here; features persist.
-static WlFeatures *load(const char *path, int rounds, WlLabels labels) {
+static WlFeatures *load(const char *path, int rounds, WlLabels labels,
+                        bool split) {
   FILE *fp = cli_open_input(path, "tlsfwl");
   if (!fp)
     return nullptr;
@@ -50,7 +52,7 @@ static WlFeatures *load(const char *path, int rounds, WlLabels labels) {
     spec_free(spec);
     return nullptr;
   }
-  ConstraintCover *cov = cover_build(spec);
+  ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
     spec_free(spec);
     return nullptr;
@@ -66,6 +68,7 @@ int main(int argc, char *argv[]) {
   WlLabels labels = WL_SYNTHESIS;
   Kernel kernel = KERNEL_COSINE;
   bool matrix = false;
+  bool split = false;
   int nearest = 0;
   const char *compare_file = nullptr, *output_file = nullptr;
   const char **files = malloc((size_t)argc * sizeof(char *));
@@ -112,6 +115,8 @@ int main(int argc, char *argv[]) {
         free(files);
         return 1;
       }
+    } else if (strcmp(a, "--split") == 0) {
+      split = true;
     } else if (strcmp(a, "--matrix") == 0) {
       matrix = true;
     } else if (strcmp(a, "--compare") == 0) {
@@ -155,7 +160,7 @@ int main(int argc, char *argv[]) {
   int rc = 0;
   WlFeatures **feats = calloc(nfiles, sizeof(WlFeatures *));
   for (size_t i = 0; i < nfiles; i++) {
-    feats[i] = load(files[i], rounds, labels);
+    feats[i] = load(files[i], rounds, labels, split);
     if (!feats[i])
       rc = 1;
   }
@@ -165,7 +170,7 @@ int main(int argc, char *argv[]) {
     rc = 1;
 
   if (rc == 0 && compare_file) {
-    WlFeatures *ref = load(compare_file, rounds, labels);
+    WlFeatures *ref = load(compare_file, rounds, labels, split);
     if (!ref) {
       rc = 1;
     } else {
