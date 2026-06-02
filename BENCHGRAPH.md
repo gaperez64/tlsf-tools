@@ -145,6 +145,3 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
 - `--split` distributes `G`/`X` over `&&` only along the spine (never inside
   `F`/`U`/…), so it is equivalence-preserving and does not perturb
   recurrence/persistence counts.
-- The certified set is the four M5 templates; "solved" excludes anything needing
-  real game solving.
-- Numbers reflect the current benchmark snapshot under `~/GIT-repos/benchmarks`.
