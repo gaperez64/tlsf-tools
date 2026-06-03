@@ -136,6 +136,7 @@ typedef struct {
   uint32_t inputs, outputs, constraints, safety, liveness;
   uint32_t response, mutex, recurrence, persistence, gnext, definition;
   uint32_t tcands, solved, certified, dependent, residual, comp;
+  uint32_t conflicts, fully_solved;
   uint32_t size_raw, size_norm;
   int wl_stab;
 } Metrics;
@@ -199,6 +200,12 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
   if (csnf) {
     csnf_counts(csnf, &m.solved, &m.certified, nullptr, &m.residual,
                 &m.dependent);
+    CsnfComposition *comp = csnf_compose(csnf);
+    if (comp) {
+      m.conflicts = comp->nconflicts;
+      m.fully_solved = comp->fully_solved ? 1 : 0;
+      csnf_composition_free(comp);
+    }
     csnf_free(csnf);
   }
   m.comp = largest_output_component(cov);
@@ -297,13 +304,13 @@ int main(int argc, char *argv[]) {
                "guarded_next\tdefinition\ttemplate_candidates\tsolved_blocks\t"
                "certified_blocks\tdependent_outputs\tresidual_constraints\t"
                "largest_output_component\tformula_size_raw\tformula_size_norm\t"
-               "wl_stab_depth\n");
+               "wl_stab_depth\tfully_solved\tconflicts\n");
 
   // Aggregates.
   uint32_t nok = 0, nfail = 0;
   uint64_t tot[16] = {0};
   uint32_t with_solved = 0, with_resp = 0, with_mutex = 0, with_def = 0,
-           with_rec = 0;
+           with_rec = 0, fully = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
     Metrics m = measure(g_files[i], wl_depth, split);
@@ -312,7 +319,7 @@ int main(int argc, char *argv[]) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
@@ -324,11 +331,12 @@ int main(int argc, char *argv[]) {
       snprintf(wl, sizeof wl, "-");
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%s\n",
+            "\t%u\t%u\t%u\t%u\t%s\t%u\t%u\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
             m.response, m.mutex, m.recurrence, m.persistence, m.gnext,
             m.definition, m.tcands, m.solved, m.certified, m.dependent,
-            m.residual, m.comp, m.size_raw, m.size_norm, wl);
+            m.residual, m.comp, m.size_raw, m.size_norm, wl, m.fully_solved,
+            m.conflicts);
 
     tot[0] += m.response;
     tot[1] += m.mutex;
@@ -339,6 +347,7 @@ int main(int argc, char *argv[]) {
     tot[6] += m.solved;
     tot[7] += m.certified;
     with_solved += m.solved > 0;
+    fully += m.fully_solved;
     with_resp += m.response > 0;
     with_mutex += m.mutex > 0;
     with_def += m.definition > 0;
@@ -360,6 +369,7 @@ int main(int argc, char *argv[]) {
             "# specs with >=1: response=%u mutex=%u recurrence=%u "
             "definition=%u solved=%u\n",
             with_resp, with_mutex, with_rec, with_def, with_solved);
+    fprintf(out, "# specs fully solved (sound composition): %u\n", fully);
   }
 
   if (output_file)

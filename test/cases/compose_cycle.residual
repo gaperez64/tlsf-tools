@@ -1,0 +1,4 @@
+c composition: residual=2 conflicts=2
+c ins=a,b
+c outs=o1,o2
+G (o1 <-> a && o2) && G (o2 <-> b && o1)

@@ -199,6 +199,14 @@ tlsfnorm_exe = executable(
   install: true,
 )
 
+tlsfresidual_exe = executable(
+  'tlsfresidual',
+  sources: ['src/main_tlsfresidual.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
 #
@@ -373,6 +381,20 @@ test('tmpl_arbiter', check_wl,
   args: [files('test/cases/arbiter2.csnf'), tlsftemplates_exe,
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/arbiter2.tlsf')])
+# Composition soundness: tlsftemplates --check (whole-spec verdict) and
+# tlsfresidual (leftover LTL after the accepted blocks).
+foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
+                'compose_partial']
+  test('check_' + name, check_wl,
+    args: [files('test/cases/' + name + '.check'), tlsftemplates_exe,
+           '--check', '--format', 'csnf', files('test/cases/' + name + '.tlsf')])
+endforeach
+foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
+                'compose_cycle', 'compose_partial']
+  test('residual_' + name, check,
+    args: [files('test/cases/' + name + '.residual'), tlsfresidual_exe,
+           files('test/cases/' + name + '.tlsf')])
+endforeach
 test('tmpl_sat_unimplemented', xfail,
   args: [tlsftemplates_exe, '--side-conditions', 'sat',
          files('test/cases/def_demo.tlsf')])

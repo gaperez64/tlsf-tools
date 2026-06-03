@@ -26,6 +26,8 @@ static void usage(const char *prog) {
           "  --solve                      include controller/decoder "
           "artifacts\n"
           "  --split                      split constraints at top-level &&\n"
+          "  --check                      report whole-spec composition "
+          "soundness\n"
           "  --template NAME              restrict to one certifiable "
           "template\n"
           "  --templates LIST             comma-separated certifiable "
@@ -92,8 +94,40 @@ static unsigned tpl_bit(const char *s) {
   return 0;
 }
 
+static const char *conflict_kind(ConflictKind k) {
+  switch (k) {
+  case CONFLICT_DUP_OUTPUT:
+    return "dup-output";
+  case CONFLICT_SHARED_OUTPUT:
+    return "shared-output";
+  case CONFLICT_DECODER_CYCLE:
+  default:
+    return "decoder-cycle";
+  }
+}
+
+// Print the whole-spec composition verdict: whether the locally-SOLVED blocks
+// compose into a sound decomposition, and which were ejected.
+static void print_composition(FILE *out, ConstraintCover *cov,
+                              const CsnfComposition *comp) {
+  if (comp->fully_solved) {
+    fprintf(out, "composition: fully-solved\n");
+    return;
+  }
+  fprintf(out, "composition: residual=%u conflicts=%u accepted=%u\n",
+          comp->nresidual, comp->nconflicts, comp->naccepted);
+  for (uint32_t i = 0; i < comp->nconflicts; i++) {
+    const Conflict *c = &comp->conflicts[i];
+    fprintf(out, "x %s %s block %u\n", conflict_kind(c->kind),
+            c->output >= 0 ? ap_table_name(&cov->aps, (uint32_t)c->output)
+                           : "?",
+            c->block);
+  }
+}
+
 int main(int argc, char *argv[]) {
-  bool certify = false, solve = false, csnf = false, split = false;
+  bool certify = false, solve = false, csnf = false, split = false,
+       check = false;
   unsigned want = TPL_ALL;
   const char *input_file = nullptr, *output_file = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;
@@ -114,6 +148,9 @@ int main(int argc, char *argv[]) {
       certify = true;
     } else if (strcmp(a, "--split") == 0) {
       split = true;
+    } else if (strcmp(a, "--check") == 0) {
+      check = true;
+      certify = true;
     } else if (strcmp(a, "--solve") == 0) {
       solve = true;
       certify = true;
@@ -253,10 +290,22 @@ int main(int argc, char *argv[]) {
     csnf_emit_lines(out, model, input_file ? input_file : "<stdin>", solve);
   else
     csnf_emit_text(out, model, solve);
+
+  int rc = 0;
+  if (check) {
+    CsnfComposition *comp = csnf_compose(model);
+    if (!comp) {
+      fprintf(stderr, "tlsftemplates: out of memory\n");
+      rc = 1;
+    } else {
+      print_composition(out, cov, comp);
+      csnf_composition_free(comp);
+    }
+  }
   if (output_file)
     fclose(out);
 
   csnf_free(model);
   spec_free(spec);
-  return 0;
+  return rc;
 }

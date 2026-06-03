@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "compose_partial"
+  DESCRIPTION: "response on g is solved; a non-causal definition of h is residual"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; c; }
+  OUTPUTS { g; h; }
+  GUARANTEE {
+    G (r -> F g);
+    G (h <-> X c);
+  }
+}

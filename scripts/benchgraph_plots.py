@@ -81,6 +81,10 @@ def aggregate(label, rows):
         "solved_total": sum(col_int(parsed, "solved_blocks")),
         "certified_total": sum(col_int(parsed, "certified_blocks")),
         "specs_with_solved": sum(1 for r in parsed if int(r["solved_blocks"]) > 0),
+        "specs_fully_solved": sum(1 for r in parsed
+                                  if int(r.get("fully_solved", 0)) > 0),
+        "specs_conflict": sum(1 for r in parsed
+                              if int(r.get("conflicts", 0)) > 0),
         "wl_stab": col_int(parsed, "wl_stab_depth"),
         "comp": col_int(parsed, "largest_output_component"),
     }
@@ -139,17 +143,26 @@ def plot_constraints_hist(aggs, out):
 
 
 def plot_coverage(aggs, out):
-    fig, ax = plt.subplots(figsize=(7, 4.2))
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
     labels = [a["label"] for a in aggs]
+    x = range(len(aggs))
     solved_pct = [100.0 * a["specs_with_solved"] / a["parsed"] for a in aggs]
-    ax.bar(labels, solved_pct, color="#4c72b0")
+    fully_pct = [100.0 * a["specs_fully_solved"] / a["parsed"] for a in aggs]
+    ax.bar([xi - 0.2 for xi in x], solved_pct, 0.4, color="#4c72b0",
+           label="≥1 SOLVED block")
+    ax.bar([xi + 0.2 for xi in x], fully_pct, 0.4, color="#55a868",
+           label="fully solved (sound composition)")
     for i, a in enumerate(aggs):
-        ax.text(i, solved_pct[i],
-                f" {a['specs_with_solved']}/{a['parsed']}\n {a['solved_total']} blocks",
-                va="bottom", ha="center", fontsize=9)
-    ax.set_ylabel("% of specs with ≥1 SOLVED block")
-    ax.set_title("Template-solvable coverage (certified template library)")
+        ax.text(i - 0.2, solved_pct[i], f"{a['specs_with_solved']}",
+                va="bottom", ha="center", fontsize=8)
+        ax.text(i + 0.2, fully_pct[i], f"{a['specs_fully_solved']}",
+                va="bottom", ha="center", fontsize=8)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("% of specs")
+    ax.set_title("Template-solvable coverage: ≥1 block vs fully solved")
     ax.set_ylim(0, max(solved_pct + [1]) * 1.4)
+    ax.legend()
     fig.tight_layout()
     fig.savefig(os.path.join(out, "coverage.png"), dpi=120)
     plt.close(fig)
@@ -237,15 +250,15 @@ def stats_markdown(aggs_raw, aggs, wl_ok):
     lines.append("_(cells: # specs with the shape, and total candidate count)_")
     lines.append("")
     lines.append("| corpus | safety | liveness | solved blocks | certified | "
-                 "specs with a solved block | norm/raw size (med/mean) |")
-    lines.append("|---|--:|--:|--:|--:|--:|--:|")
+                 "specs ≥1 solved | specs fully solved | norm/raw size (med/mean) |")
+    lines.append("|---|--:|--:|--:|--:|--:|--:|--:|")
     for a in aggs:
         rr = a["reduction_ratios"]
         ratio = f"{median(rr):.2f} / {mean(rr):.2f}" if rr else "-"
         lines.append(
             f"| `{a['label']}` | {a['safety']} | {a['liveness']} | "
             f"{a['solved_total']} | {a['certified_total']} | "
-            f"{a['specs_with_solved']} | {ratio} |")
+            f"{a['specs_with_solved']} | {a['specs_fully_solved']} | {ratio} |")
     if wl_ok:
         lines.append("")
         lines.append("| corpus | WL stabilisation depth (med/mean/max) |")

@@ -69,12 +69,14 @@ _Cells: number of specs exhibiting the shape, and (total candidate count)._
 
 ## Safety / liveness and template-solvable coverage (decomposed)
 
-| corpus | safety | liveness | solved blocks | certified | specs with a solved block | norm/raw size (med/mean) |
-|---|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 64305 | 26550 | 291 | 14 | 114 | 1.14 / 1.41 |
-| `tlsf-fin` | 26408 | 7944 | 297 | 426 | 81 | 0.99 / 0.91 |
+| corpus | safety | liveness | solved blocks | certified | specs ≥1 solved | specs fully solved | norm/raw size (med/mean) |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| `tlsf` | 64305 | 26550 | 291 | 14 | 114 | 0 | 1.14 / 1.41 |
+| `tlsf-fin` | 26408 | 7944 | 297 | 426 | 81 | 0 | 0.99 / 0.91 |
 
-_safety/liveness are **per-constraint** totals (syntactic classification)._
+_safety/liveness are **per-constraint** totals (syntactic classification);
+"fully solved" = the whole spec is a sound template decomposition (residual
+empty after composition, `tlsfresidual`/`tlsftemplates --check`)._
 
 ![Template-solvable coverage](docs/benchgraph/coverage.png)
 
@@ -97,6 +99,35 @@ definition decoders are now required to be **causal** (`θ` has no `X`). A
 `G(o <-> X a)` would ask `o` to predict a future input, so it is not a sound
 combinational decoder — ≈168 such non-causal "decoders" are now correctly
 declined. Every remaining certificate is sound.
+
+## Per-block vs whole-spec: composition (`tlsfresidual`)
+
+"Specs with ≥1 solved block" (114 / 81) is a **floor**, not a solved-spec count:
+each block is certified *locally*. Demanding a **sound whole-spec decomposition**
+(`csnf_compose`: no output driven twice, every kept output free of the residual,
+decoders acyclic) collapses the picture:
+
+| corpus | ≥1 solved block | with a composition conflict | **fully solved** | mean constraint reduction |
+|---|--:|--:|--:|--:|
+| `tlsf` | 114 | 113 | **0** | ~1.0 % |
+| `tlsf-fin` | 81 | 43 | **0** | ~0.7 % |
+
+**No spec is fully solved by templates alone.** Every real spec carries
+constraints outside the library — all `ASSUME` assumptions (never a system
+block) plus non-template guarantees — so the residual is never empty. Worse,
+under sound composition the conservative free-output rule **ejects almost every
+locally-solved decoder** (definition/guarded-next outputs are typically
+referenced elsewhere): 113 of the 114 `tlsf` specs with a solved block hit a
+conflict, and the net reduction is only ≈1 % of constraints.
+
+The honest reading: template certification is a **sound preprocessing floor**,
+not a synthesizer. Its value is identifying and discharging the few cleanly
+decoupled obligations; the bulk (~99 %) is the **residual**, which `tlsfresidual`
+emits as one LTL formula for a real synthesizer (`ltlsynt`/`strix`). Stitching
+the certified controllers back onto a residual strategy is the next milestone
+(`tlsfcompose`). The free-output ejection is conservative (a decoder whose
+output is merely *read* elsewhere is still sound), so a smarter composition
+could keep more — an avenue, not an unsoundness.
 
 ## Effect of constraint decomposition (`--split`)
 
@@ -152,7 +183,12 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
 4. **Decomposition ~3.7×'s template-solvable `tlsf` coverage** (31 → 114 specs);
    the expanded library (free-liveness, reaction, delayed-def, fair arbiter)
    *solves* `tlsf-fin` arbitration (129 → 297 blocks, 43 → 81 specs).
-5. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
+5. **Per-block "solved" ≫ whole-spec solved.** Under *sound composition* **no
+   spec is fully solved by templates** (residual always non-empty: assumptions +
+   non-template guarantees), and conservative composition ejects almost every
+   locally-solved decoder (≈1 % net constraint reduction). Templates are a sound
+   preprocessing floor; the residual goes to a real synthesizer (`tlsfresidual`).
+6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
 
 ## Caveats

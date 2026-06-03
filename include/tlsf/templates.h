@@ -42,6 +42,44 @@ enum {
                                       bool certify);
 void csnf_free(Csnf *c);
 
+// ---------------------------------------------------------------------------
+// Composition: turn the per-block local certificates into a sound whole-spec
+// decomposition.  Each certifier is local; two SOLVED blocks could in principle
+// drive the same output, or a decoder could read an output another block (or a
+// residual constraint) constrains.  csnf_compose keeps a maximal subset of
+// SOLVED blocks whose owned outputs are conflict-free, globally free w.r.t. the
+// residual, and acyclic across combinational decoders; the rest fall back into
+// the residual.  Sound: the accepted controllers compose with each other and
+// with any controller for the residual.
+// ---------------------------------------------------------------------------
+
+typedef enum {
+  CONFLICT_DUP_OUTPUT,    ///< two accepted blocks drive the same output
+  CONFLICT_SHARED_OUTPUT, ///< an accepted output is constrained in the residual
+  CONFLICT_DECODER_CYCLE, ///< combinational decoders form a dependency cycle
+} ConflictKind;
+
+typedef struct {
+  ConflictKind kind;
+  int32_t output; ///< AP index of the offending output
+  uint32_t block; ///< the ejected block
+} Conflict;
+
+typedef struct {
+  bool fully_solved;         ///< residual empty after composition
+  uint32_t naccepted;        ///< SOLVED blocks kept in the decomposition
+  uint32_t nresidual;        ///< constraints left in the residual
+  bool *accepted_block;      ///< per block: kept (length = block count)
+  bool *residual_constraint; ///< per constraint: in the residual
+  Conflict *conflicts;
+  uint32_t nconflicts;
+} CsnfComposition;
+
+/// Compute a sound composition of the certified model.  Returns a malloc-backed
+/// result; free with csnf_composition_free.  nullptr on OOM.
+[[nodiscard]] CsnfComposition *csnf_compose(const Csnf *c);
+void csnf_composition_free(CsnfComposition *r);
+
 /// Emit the model: `text` is human-readable, `csnf` is the DIMACS-style line
 /// format (see README).
 void csnf_emit_text(FILE *out, const Csnf *c, bool solve);

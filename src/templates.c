@@ -817,6 +817,179 @@ void csnf_counts(const Csnf *c, uint32_t *solved, uint32_t *certified,
   }
 }
 
+// ---------------------------------------------------------------------------
+// Composition
+// ---------------------------------------------------------------------------
+
+// Does SOLVED block `b` drive output AP index `o`?
+static bool block_writes(const Block *b, int32_t o) {
+  if (o < 0)
+    return false;
+  if (b->dec_output == o || b->nsf_output == o || b->asg_output == o ||
+      b->reg_output == o || b->one_output == o || b->hold_output == o ||
+      b->resp_output == o)
+    return true;
+  for (uint32_t i = 0; i < b->cyc_n; i++)
+    if (b->cyc_outputs[i] == o)
+      return true;
+  for (uint32_t i = 0; i < b->arb_n; i++)
+    if (b->arb_outputs[i] == o)
+      return true;
+  return false;
+}
+
+// True if combinational decoder block `b`'s defining formula reads output `p`.
+static bool decoder_reads(const Csnf *c, const Block *b, uint32_t p) {
+  const char *name = ap_table_name(&c->cov->aps, p);
+  if (b->dec_output >= 0 && b->dec_theta)
+    return occurs_in(b->dec_theta, name);
+  if (b->asg_output >= 0)
+    for (uint32_t g = 0; g < b->asg_nguards; g++)
+      if (occurs_in(b->asg_guards[g], name))
+        return true;
+  return false;
+}
+
+// DFS over the combinational-decoder dependency graph (definition + reaction);
+// returns a block on a cycle to eject, or -1 if acyclic.  Next-state decoders
+// (guarded-next, delayed-definition) are registers and never close a
+// combinational cycle, so they are excluded.
+static int32_t comb_owner(const Csnf *c, const bool *accepted, uint32_t o) {
+  for (uint32_t b = 0; b < c->nblocks; b++) {
+    if (!accepted[b])
+      continue;
+    const Block *bl = &c->blocks[b];
+    if ((bl->dec_output == (int32_t)o && bl->dec_theta) ||
+        bl->asg_output == (int32_t)o)
+      return (int32_t)b;
+  }
+  return -1;
+}
+
+static bool cycle_dfs(const Csnf *c, const bool *accepted, uint32_t o,
+                      uint8_t *color, int32_t *hit) {
+  color[o] = 1; // gray
+  int32_t b = comb_owner(c, accepted, o);
+  const Block *bl = &c->blocks[b];
+  for (uint32_t p = 0; p < c->cov->aps.count; p++) {
+    if (comb_owner(c, accepted, p) < 0 || !decoder_reads(c, bl, p))
+      continue;
+    if (color[p] == 1) {
+      *hit = (int32_t)p;
+      return true;
+    }
+    if (color[p] == 0 && cycle_dfs(c, accepted, p, color, hit))
+      return true;
+  }
+  color[o] = 2; // black
+  return false;
+}
+
+static int32_t find_decoder_cycle_block(const Csnf *c, const bool *accepted) {
+  uint32_t A = c->cov->aps.count;
+  uint8_t *color = calloc(A ? A : 1, 1);
+  int32_t eject = -1;
+  for (uint32_t o = 0; o < A && eject < 0; o++) {
+    if (color[o] != 0 || comb_owner(c, accepted, o) < 0)
+      continue;
+    int32_t hit = -1;
+    if (cycle_dfs(c, accepted, o, color, &hit))
+      eject = comb_owner(c, accepted, (uint32_t)hit);
+  }
+  free(color);
+  return eject;
+}
+
+CsnfComposition *csnf_compose(const Csnf *c) {
+  CsnfComposition *r = calloc(1, sizeof *r);
+  if (!r)
+    return nullptr;
+  ConstraintCover *cov = c->cov;
+  uint32_t A = cov->aps.count, B = c->nblocks, N = c->nconstraints;
+  r->accepted_block = calloc(B ? B : 1, sizeof(bool));
+  r->residual_constraint = calloc(N ? N : 1, sizeof(bool));
+  r->conflicts = calloc(B + 1, sizeof(Conflict));
+  if (!r->accepted_block || !r->residual_constraint || !r->conflicts) {
+    csnf_composition_free(r);
+    return nullptr;
+  }
+  for (uint32_t b = 0; b < B; b++)
+    r->accepted_block[b] = c->blocks[b].status == CSNF_SOLVED;
+
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    // residual = constraints in no accepted block.
+    for (uint32_t i = 0; i < N; i++)
+      r->residual_constraint[i] = true;
+    for (uint32_t b = 0; b < B; b++)
+      if (r->accepted_block[b])
+        for (uint32_t k = 0; k < c->blocks[b].ncids; k++)
+          r->residual_constraint[c->blocks[b].cids[k]] = false;
+
+    // Conditions 1 (no duplicate driver) and 2 (output free of the residual).
+    for (uint32_t b = 0; b < B && !changed; b++) {
+      if (!r->accepted_block[b])
+        continue;
+      for (uint32_t o = 0; o < A && !changed; o++) {
+        if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) ||
+            !block_writes(&c->blocks[b], (int32_t)o))
+          continue;
+        bool dup = false;
+        for (uint32_t b2 = 0; b2 < B; b2++)
+          if (b2 != b && r->accepted_block[b2] &&
+              block_writes(&c->blocks[b2], (int32_t)o)) {
+            dup = true;
+            break;
+          }
+        bool shared = false;
+        for (uint32_t i = 0; i < N; i++)
+          if (r->residual_constraint[i] &&
+              apset_test(&cov->items[i].outputs, o)) {
+            shared = true;
+            break;
+          }
+        if (dup || shared) {
+          r->accepted_block[b] = false;
+          r->conflicts[r->nconflicts++] =
+              (Conflict){dup ? CONFLICT_DUP_OUTPUT : CONFLICT_SHARED_OUTPUT,
+                         (int32_t)o, b};
+          changed = true;
+        }
+      }
+    }
+    if (changed)
+      continue;
+
+    // Condition 3: break one combinational-decoder cycle, then re-stabilise.
+    int32_t cyc = find_decoder_cycle_block(c, r->accepted_block);
+    if (cyc >= 0) {
+      r->accepted_block[cyc] = false;
+      r->conflicts[r->nconflicts++] = (Conflict){
+          CONFLICT_DECODER_CYCLE, c->blocks[cyc].dec_output, (uint32_t)cyc};
+      changed = true;
+    }
+  }
+
+  for (uint32_t b = 0; b < B; b++)
+    if (r->accepted_block[b])
+      r->naccepted++;
+  for (uint32_t i = 0; i < N; i++)
+    if (r->residual_constraint[i])
+      r->nresidual++;
+  r->fully_solved = r->nresidual == 0;
+  return r;
+}
+
+void csnf_composition_free(CsnfComposition *r) {
+  if (!r)
+    return;
+  free(r->accepted_block);
+  free(r->residual_constraint);
+  free(r->conflicts);
+  free(r);
+}
+
 void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
   ConstraintCover *cov = c->cov;
   uint32_t sol, cert, cand, resid = 0;

@@ -1,0 +1,12 @@
+c CSNF for compose_conflict.tlsf
+p csnf 1 0 0 1
+m semantics Mealy
+b 0 solved definition
+bc 0 c0
+dec 0 o a
+cert 0 definition_decoder
+cl 0 G (o <-> a)
+do o
+r c1
+composition: residual=2 conflicts=1 accepted=0
+x shared-output o block 0

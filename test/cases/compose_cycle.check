@@ -1,0 +1,18 @@
+c CSNF for compose_cycle.tlsf
+p csnf 2 0 0 0
+m semantics Mealy
+b 0 solved definition
+bc 0 c0
+dec 0 o1 a && o2
+cert 0 definition_decoder
+cl 0 G (o1 <-> a && o2)
+b 1 solved definition
+bc 1 c1
+dec 1 o2 b && o1
+cert 1 definition_decoder
+cl 1 G (o2 <-> b && o1)
+do o1
+do o2
+composition: residual=2 conflicts=2 accepted=0
+x decoder-cycle o1 block 0
+x shared-output o2 block 1

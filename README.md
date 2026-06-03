@@ -14,6 +14,7 @@ Format) specifications, sharing a common C library.
 | `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
 | `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
 | `tlsfnorm`  | TLSF 1.1/1.2 spec | Local normalization (split / nnf / boolean passes), re-emitted as TLSF |
+| `tlsfresidual` | TLSF 1.1/1.2 spec | The residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`) |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -49,7 +50,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph,tlsfnorm}
+# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph,tlsfnorm,tlsfresidual}
 ```
 
 With sanitizers:
@@ -296,6 +297,32 @@ Decomposition is what makes the corpus shape statistics meaningful — see
 [`BENCHGRAPH.md`](BENCHGRAPH.md) (e.g. `tlsf-fin` mutex 0 → 230 specs once
 split). The remaining `tlsfnorm` passes (`macro`/`response`/`expose-*`) are
 reserved and error clearly.
+
+### Residual & composition soundness (`tlsfresidual`, `--check`)
+
+Certification is **per-block and local**: each block is SOLVED on its own. Two
+locally-solved blocks could still clash when combined — drive the same output,
+read an output another block (or a leftover constraint) constrains, or form a
+decoder cycle. `csnf_compose` keeps the maximal subset of SOLVED blocks that
+**compose soundly**: no output is driven twice, every kept output is free of the
+residual, and the combinational decoders are acyclic; whatever is ejected falls
+back into the residual. So "≥1 solved block" (a floor) is distinct from **fully
+solved** = the whole spec is a sound template decomposition (residual empty).
+
+```sh
+tlsftemplates --check spec.tlsf      # CSNF + a whole-spec composition verdict
+tlsfresidual spec.tlsf               # the leftover, as one LTL formula
+```
+
+`tlsfresidual` emits the residual obligations as a single LTL formula (ltlxba by
+default, `--format ltl`), with `c ins=…` / `c outs=…` hints, ready for a real
+synthesizer — `ltlsynt --ins=… --outs=… -f "$(tlsfresidual spec.tlsf | tail -1)"`.
+A `fully-solved` spec yields `true`. The accepted certified controllers together
+with a controller for this residual realise the original spec; the conservative
+free-output check means the residual is a sound (possibly over-approximate)
+remainder, never an unsound shortcut. (Reading a pre-built GSNF/CSNF line file —
+`--from-gsnf`/`--from-csnf` — and stitching a composed controller with
+`tlsfcompose` are the next milestones.)
 
 ### Corpus statistics (`tlsfbenchgraph`)
 

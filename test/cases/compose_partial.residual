@@ -1,0 +1,4 @@
+c composition: residual=1 conflicts=0
+c ins=c
+c outs=h
+G (h <-> X c)
