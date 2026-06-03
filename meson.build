@@ -426,7 +426,13 @@ foreach name : ['def_demo', 'inv_skolem', 'reaction_ok']
     args: [files('test/cases/' + name + '.aag'), tlsfcompose_exe, '--aiger',
            files('test/cases/' + name + '.tlsf')])
 endforeach
-# --aiger cluster path needs ltlsynt: only run where it is available.
+# --aiger reader/merge path with a fake ltlsynt stub (deterministic, no real
+# ltlsynt): exercises run_ltlsynt + aig_read_aag + aig_merge in CI.
+test('aiger_merge', check,
+  args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
+         '--ltlsynt', files('test/fake_ltlsynt.sh'),
+         files('test/cases/compose_demo.tlsf')])
+# --aiger cluster path needs real ltlsynt: only run where it is available.
 if ltlsynt.found()
   test('aiger_cluster', tlsfcompose_exe,
     args: ['--aiger', files('test/cases/compose_demo.tlsf')])
