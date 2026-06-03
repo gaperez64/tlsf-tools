@@ -16,6 +16,7 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,17 +24,20 @@
 #define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Emit the residual LTL of a spec after template certification.\n"
-          "  --split                      decompose constraints first\n"
-          "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
-          "  --overwrite-semantics VALUE  replace SEMANTICS\n"
-          "  --overwrite-target VALUE     replace TARGET\n"
-          "  --param NAME=VALUE           override a parameter (repeatable)\n"
-          "  --output FILE                write to FILE (default stdout)\n"
-          "  --version, --help\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Emit the residual LTL of a spec after template certification.\n"
+      "  --split                      decompose constraints first\n"
+      "  --single                     emit the whole residual as one formula\n"
+      "  --output-dir DIR             write one residual.<k>.ltl per cluster\n"
+      "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
+      "  --overwrite-semantics VALUE  replace SEMANTICS\n"
+      "  --overwrite-target VALUE     replace TARGET\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --output FILE                write to FILE (default stdout)\n"
+      "  --version, --help\n",
+      prog);
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -137,10 +141,45 @@ static void print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
   }
 }
 
+static uint32_t uf_find(uint32_t *p, uint32_t x) {
+  while (p[x] != x) {
+    p[x] = p[p[x]];
+    x = p[x];
+  }
+  return x;
+}
+
+// Rebuild the spec's section lists from the residual constraints belonging to
+// cluster `kk` (or all residual when `all`), always including the global
+// environment (key == UINT32_MAX), and assemble the cluster's LTL formula.
+// `seen` (length aps.count) is filled with the APs the formula mentions.
+static Node *build_cluster(TlsfSpec *spec, ConstraintCover *cov,
+                           const Node **rf, const uint32_t *key, uint32_t kk,
+                           bool all, uint32_t n, bool *seen) {
+  spec->initially.count = spec->require.count = spec->assume.count = 0;
+  spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
+  memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
+  for (uint32_t i = 0; i < n; i++) {
+    if (!rf[i] || !(all || key[i] == kk || key[i] == UINT32_MAX))
+      continue;
+    collect_aps(rf[i], cov, seen);
+    (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
+                            (Node *)rf[i]);
+  }
+  ClassifiedSpec *cs = classify_spec(spec);
+  if (!cs)
+    return nullptr;
+  Node *root = build_spec_formula(spec, cs, PRINT_ALL);
+  if (semantics_is_finite(spec->info.semantics))
+    root = apply_rewrites(spec->arena, root,
+                          RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
+  return root;
+}
+
 int main(int argc, char *argv[]) {
-  bool split = false;
+  bool split = false, single = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
-  const char *input_file = nullptr, *output_file = nullptr;
+  const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
@@ -155,6 +194,10 @@ int main(int argc, char *argv[]) {
     const char *a = argv[i];
     if (strcmp(a, "--split") == 0) {
       split = true;
+    } else if (strcmp(a, "--single") == 0) {
+      single = true;
+    } else if (strcmp(a, "--output-dir") == 0) {
+      out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
       const char *v = NEED_ARG();
       if (!strcmp(v, "ltlxba"))
@@ -251,22 +294,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Rebuild the spec's section lists from the residual constraints, with every
-  // solved combinational output substituted away (o := value).  The residual is
-  // then self-contained over a smaller alphabet.
-  bool *seen = calloc(cov->aps.count ? cov->aps.count : 1, sizeof(bool));
-  spec->initially.count = spec->require.count = spec->assume.count = 0;
-  spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
-  for (uint32_t i = 0; i < cov->count; i++) {
-    if (!comp->residual_constraint[i])
-      continue;
-    const Node *f = apply_elims(spec->arena, cov->items[i].formula, comp, cov);
-    collect_aps(f, cov, seen);
-    (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
-                            (Node *)f);
-  }
+  uint32_t A = cov->aps.count, N = cov->count, tot = N;
+  int rc = 0;
 
-  uint32_t tot = cov->count;
   if (comp->fully_solved)
     fprintf(out, "c composition: fully-solved\n");
   else
@@ -276,34 +306,140 @@ int main(int argc, char *argv[]) {
             comp->nresidual, tot,
             tot ? 100.0 * (double)comp->neliminated / (double)tot : 0.0,
             comp->nowned_outputs, comp->nconflicts);
-  fprintf(out, "c ins=");
-  print_signals(out, cov, seen, AP_FLAG_INPUT);
-  fprintf(out, "\nc outs=");
-  print_signals(out, cov, seen, AP_FLAG_OUTPUT);
-  fprintf(out, "\n");
-  free(seen);
 
-  ClassifiedSpec *cs = classify_spec(spec);
-  if (!cs) {
-    fprintf(stderr, "tlsfresidual: classification failed (OOM)\n");
-    if (output_file)
-      fclose(out);
-    csnf_composition_free(comp);
-    csnf_free(csnf);
-    spec_free(spec);
-    return 1;
+  // Substitute solved combinational outputs out of every residual constraint.
+  const Node **rf = calloc(N ? N : 1, sizeof(Node *));
+  for (uint32_t i = 0; i < N; i++)
+    if (comp->residual_constraint[i])
+      rf[i] = apply_elims(spec->arena, cov->items[i].formula, comp, cov);
+
+  bool *seen = calloc(A ? A : 1, sizeof(bool));
+
+  if (single) {
+    Node *root =
+        build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true, N, seen);
+    if (!root) {
+      rc = 1;
+    } else {
+      fprintf(out, "c outs=");
+      print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+      fprintf(out, "\nc ins=");
+      print_signals(out, cov, seen, AP_FLAG_INPUT);
+      fprintf(out, "\n");
+      print_ltl(out, root, fmt, /*full_parens=*/false,
+                semantics_is_finite(spec->info.semantics));
+    }
+  } else {
+    // Cluster residual constraints by shared output (output-disjoint
+    // decomposition: E -> AND Gi == AND (E -> Gi)).  Pure-input environment
+    // constraints have no output and are replicated into every cluster.
+    uint32_t *parent = malloc((A ? A : 1) * sizeof(uint32_t));
+    for (uint32_t a = 0; a < A; a++)
+      parent[a] = a;
+    for (uint32_t i = 0; i < N; i++) {
+      if (!rf[i])
+        continue;
+      memset(seen, 0, A);
+      collect_aps(rf[i], cov, seen);
+      int64_t first = -1;
+      for (uint32_t a = 0; a < A; a++) {
+        if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+          continue;
+        if (first < 0)
+          first = (int64_t)a;
+        else {
+          uint32_t ra = uf_find(parent, a),
+                   rb = uf_find(parent, (uint32_t)first);
+          if (ra != rb)
+            parent[ra] = rb;
+        }
+      }
+    }
+    // Per-constraint cluster key: its output component, or a sentinel for an
+    // input-only system obligation, or UINT32_MAX for global environment.
+    uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
+    for (uint32_t i = 0; i < N; i++) {
+      key[i] = UINT32_MAX;
+      if (!rf[i])
+        continue;
+      memset(seen, 0, A);
+      collect_aps(rf[i], cov, seen);
+      int64_t first = -1;
+      for (uint32_t a = 0; a < A; a++)
+        if (seen[a] && (ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT)) {
+          first = (int64_t)a;
+          break;
+        }
+      if (first >= 0)
+        key[i] = uf_find(parent, (uint32_t)first);
+      else if (!cov->items[i].assumption_side)
+        key[i] = A; // input-only system obligation: its own cluster
+    }
+    // Distinct, non-global cluster keys.
+    uint32_t *keys = malloc((N + 1) * sizeof(uint32_t));
+    uint32_t K = 0;
+    for (uint32_t i = 0; i < N; i++) {
+      if (key[i] == UINT32_MAX)
+        continue;
+      bool dup = false;
+      for (uint32_t j = 0; j < K; j++)
+        if (keys[j] == key[i])
+          dup = true;
+      if (!dup)
+        keys[K++] = key[i];
+    }
+
+    fprintf(out, "c clusters %u\n", K);
+    for (uint32_t k = 0; k < K && rc == 0; k++) {
+      Node *root = build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+      if (!root) {
+        rc = 1;
+        break;
+      }
+      bool finite = semantics_is_finite(spec->info.semantics);
+      if (out_dir) {
+        char path[4096];
+        snprintf(path, sizeof path, "%s/residual.%u.ltl", out_dir, k);
+        FILE *cf = fopen(path, "w");
+        if (!cf) {
+          fprintf(stderr, "tlsfresidual: cannot write %s\n", path);
+          rc = 1;
+          break;
+        }
+        fprintf(cf, "c outs=");
+        print_signals(cf, cov, seen, AP_FLAG_OUTPUT);
+        fprintf(cf, "\nc ins=");
+        print_signals(cf, cov, seen, AP_FLAG_INPUT);
+        fprintf(cf, "\n");
+        print_ltl(cf, root, fmt, false, finite);
+        fclose(cf);
+        fprintf(out, "c cluster %u file=residual.%u.ltl outs=", k, k);
+        print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+        fprintf(out, " ins=");
+        print_signals(out, cov, seen, AP_FLAG_INPUT);
+        fprintf(out, "\n");
+      } else {
+        fprintf(out, "c cluster %u outs=", k);
+        print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+        fprintf(out, " ins=");
+        print_signals(out, cov, seen, AP_FLAG_INPUT);
+        fprintf(out, "\n");
+        print_ltl(out, root, fmt, false, finite);
+      }
+    }
+    free(parent);
+    free(key);
+    free(keys);
   }
-  Node *root = build_spec_formula(spec, cs, PRINT_ALL);
-  bool finite = semantics_is_finite(spec->info.semantics);
-  if (finite)
-    root = apply_rewrites(spec->arena, root,
-                          RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
-  print_ltl(out, root, fmt, /*full_parens=*/false, finite);
 
+  free(seen);
+  free(rf);
+  if (rc)
+    fprintf(stderr, "tlsfresidual: classification failed (OOM)\n");
   if (output_file)
     fclose(out);
   csnf_composition_free(comp);
   csnf_free(csnf);
   spec_free(spec);
-  return 0;
+  return rc;
 }

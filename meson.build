@@ -392,11 +392,15 @@ foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
 endforeach
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
-                'server_merge', 'arbiter_nomutex']
+                'server_merge', 'arbiter_nomutex', 'cluster_split',
+                'cluster_assume']
   test('residual_' + name, check,
     args: [files('test/cases/' + name + '.residual'), tlsfresidual_exe,
            files('test/cases/' + name + '.tlsf')])
 endforeach
+test('residual_single', check,
+  args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
+         '--single', files('test/cases/cluster_split.tlsf')])
 test('tmpl_sat_unimplemented', xfail,
   args: [tlsftemplates_exe, '--side-conditions', 'sat',
          files('test/cases/def_demo.tlsf')])

@@ -314,14 +314,21 @@ Certification is **per-block and local**; the controllers are **composable**.
 
 ```sh
 tlsftemplates --check spec.tlsf      # CSNF + a whole-spec composition verdict
-tlsfresidual spec.tlsf               # the reduced leftover, as one LTL formula
+tlsfresidual spec.tlsf               # reduced leftover, clustered by output
+tlsfresidual --output-dir out/ spec.tlsf   # one residual.<k>.ltl per cluster
+tlsfresidual --single spec.tlsf      # the whole residual as one formula
 ```
 
 `tlsfresidual` substitutes away the solved combinational outputs and emits the
-residual obligations as a single LTL formula (ltlxba by default, `--format ltl`)
-over a *smaller* alphabet, with `c ins=…` / `c outs=…` hints — ready for a real
-synthesizer: `ltlsynt --ins=… --outs=… -f "$(tlsfresidual spec.tlsf | tail -1)"`.
-The accepted controllers plus a controller for this residual realise the spec.
+residual over a *smaller* alphabet. It then **clusters** the residual into
+independent sub-problems by **shared output** — `E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)` when
+the output sets are disjoint — so a synthesizer makes several small,
+parallelisable calls instead of one giant one. The default stream lists
+`c clusters N` then, per cluster, `c cluster k outs=… ins=…` and its formula;
+`--output-dir` writes one `residual.k.ltl` per cluster, each ready for its own
+call: `ltlsynt --ins=… --outs=… -F out/residual.k.ltl`. Pure-input assumptions
+are replicated into every cluster's antecedent (sound); the accepted controllers
+plus a controller per cluster realise the whole spec.
 
 **Honest caveat (see [`BENCHGRAPH.md`](BENCHGRAPH.md)):** composability is the
 *soundness* fix, not a *coverage* fix. Over the SYNTCOMP corpus only ~0.4–0.6 %
