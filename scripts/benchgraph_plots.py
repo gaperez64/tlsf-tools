@@ -18,6 +18,7 @@ base name).  Requires matplotlib; everything else is stdlib.
 """
 import argparse
 import os
+import resource
 import subprocess
 import sys
 import tempfile
@@ -34,8 +35,18 @@ SHAPES = [
 ]
 
 
-def run_benchgraph(benchgraph, corpus_dir, wl, split=False):
-    """Run tlsfbenchgraph on a corpus dir; return list of row dicts."""
+def run_benchgraph(benchgraph, corpus_dir, wl, split=False, mem_mb=3000,
+                   timeout=1800):
+    """Run tlsfbenchgraph on a corpus dir; return list of row dicts.
+
+    The child is bounded so a pathological spec cannot OOM the machine or hang:
+    RLIMIT_AS caps address space at `mem_mb`, and `timeout` caps wall-clock.
+    Hitting either is fatal (clear message) rather than an OS kill.
+    """
+    def _limit():
+        lim = mem_mb * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (lim, lim))
+
     with tempfile.TemporaryDirectory() as td:
         tsv = os.path.join(td, "m.tsv")
         cmd = [benchgraph, "--input-dir", corpus_dir, "--output", tsv]
@@ -43,7 +54,14 @@ def run_benchgraph(benchgraph, corpus_dir, wl, split=False):
             cmd += ["--wl", str(wl)]
         if split:
             cmd += ["--split"]
-        subprocess.run(cmd, check=True)
+        try:
+            subprocess.run(cmd, check=True, timeout=timeout, preexec_fn=_limit)
+        except subprocess.TimeoutExpired:
+            sys.exit(f"tlsfbenchgraph on {corpus_dir} exceeded {timeout}s "
+                     f"(raise --timeout)")
+        except subprocess.CalledProcessError as e:
+            sys.exit(f"tlsfbenchgraph on {corpus_dir} failed (rc={e.returncode}; "
+                     f"likely the {mem_mb} MB --mem-mb cap — raise it)")
         rows = []
         with open(tsv) as f:
             header = f.readline().rstrip("\n").split("\t")
@@ -292,20 +310,26 @@ def main():
     ap.add_argument("--benchgraph", default="build/tlsfbenchgraph")
     ap.add_argument("--out", default="docs/benchgraph")
     ap.add_argument("--wl", type=int, default=6)
+    ap.add_argument("--mem-mb", type=int, default=3000,
+                    help="address-space cap per tlsfbenchgraph run (MB)")
+    ap.add_argument("--timeout", type=int, default=1800,
+                    help="wall-clock cap per tlsfbenchgraph run (seconds)")
     ap.add_argument("corpora", nargs="+", help="DIR[:LABEL] ...")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+
+    def bench(d, split):
+        return aggregate(label, run_benchgraph(args.benchgraph, d, args.wl,
+                                               split, args.mem_mb, args.timeout))
 
     aggs_raw, aggs_split = [], []
     for spec in args.corpora:
         d, _, label = spec.partition(":")
         label = label or os.path.basename(os.path.normpath(d))
-        print(f"running benchgraph on {d} ({label}) raw + --split ...",
-              file=sys.stderr)
-        aggs_raw.append(aggregate(label, run_benchgraph(args.benchgraph, d,
-                                                        args.wl, False)))
-        aggs_split.append(aggregate(label, run_benchgraph(args.benchgraph, d,
-                                                          args.wl, True)))
+        print(f"running benchgraph on {d} ({label}) raw + --split "
+              f"(<= {args.mem_mb} MB, {args.timeout}s) ...", file=sys.stderr)
+        aggs_raw.append(bench(d, False))
+        aggs_split.append(bench(d, True))
 
     # Primary tables/plots use the decomposed (--split) view.
     plot_shape_prevalence(aggs_split, args.out)

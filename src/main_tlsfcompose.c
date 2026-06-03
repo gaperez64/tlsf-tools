@@ -288,12 +288,13 @@ int main(int argc, char *argv[]) {
   bool finite = semantics_is_finite(spec->info.semantics);
   int rc = 0;
 
-  // Synthesis residual = every constraint with the combinational controllers
-  // substituted in, weak-simplified; constraints that fold to `true` are
-  // discharged by a controller.  (Liveness templates / registers are kept here
-  // for ltlsynt rather than emitted as controllers.)
+  // Synthesis residual = every constraint NOT discharged by a combinational
+  // controller (those liveness templates / registers / genuine leftovers go to
+  // ltlsynt), with the combinational controllers substituted in.
   const Node **rf = calloc(N ? N : 1, sizeof(Node *));
   for (uint32_t i = 0; i < N; i++) {
+    if (comp->elim_constraint[i])
+      continue; // discharged by a combinational controller
     const Node *f =
         residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
     f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);

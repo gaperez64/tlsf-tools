@@ -84,9 +84,10 @@ typedef struct {
   Conflict *conflicts;
   uint32_t nconflicts;
   // Residual reduction (composable certification):
-  Elim *elim;              ///< combinational outputs eliminated by substitution
-  uint32_t nelim;          ///< == eliminated combinational outputs
-  uint32_t neliminated;    ///< constraints discharged (not in the residual)
+  Elim *elim;            ///< combinational outputs eliminated by substitution
+  uint32_t nelim;        ///< == eliminated combinational outputs
+  bool *elim_constraint; ///< per constraint: discharged by a combinational ctrl
+  uint32_t neliminated;  ///< constraints discharged (not in the residual)
   uint32_t nowned_outputs; ///< outputs determined by a sound controller
 } CsnfComposition;
 

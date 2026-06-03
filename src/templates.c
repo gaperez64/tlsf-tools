@@ -1189,14 +1189,14 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   r->residual_constraint = calloc(N ? N : 1, sizeof(bool));
   r->conflicts = calloc(B + 1, sizeof(Conflict));
   r->elim = calloc(A ? A : 1, sizeof(Elim));
+  r->elim_constraint = calloc(N ? N : 1, sizeof(bool));
   int32_t *provider = malloc((A ? A : 1) * sizeof(int32_t));
   bool *elim_excluded = calloc(B ? B : 1, sizeof(bool));
-  bool *eliminated = calloc(N ? N : 1, sizeof(bool));
+  bool *eliminated = r->elim_constraint;
   if (!r->accepted_block || !r->residual_constraint || !r->conflicts ||
-      !r->elim || !provider || !elim_excluded || !eliminated) {
+      !r->elim || !eliminated || !provider || !elim_excluded) {
     free(provider);
     free(elim_excluded);
-    free(eliminated);
     csnf_composition_free(r);
     return nullptr;
   }
@@ -1320,7 +1320,6 @@ CsnfComposition *csnf_compose(const Csnf *c) {
 
   free(provider);
   free(elim_excluded);
-  free(eliminated);
   r->fully_solved = r->nresidual == 0;
   return r;
 }
@@ -1332,6 +1331,7 @@ void csnf_composition_free(CsnfComposition *r) {
   free(r->residual_constraint);
   free(r->conflicts);
   free(r->elim);
+  free(r->elim_constraint);
   free(r);
 }
 
