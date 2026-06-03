@@ -1,0 +1,8 @@
+c CSNF for persist_free.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved persistence
+bc 0 c0
+hold 0 o
+cert 0 persistence_latch
+cl 0 F G o

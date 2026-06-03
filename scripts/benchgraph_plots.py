@@ -148,7 +148,7 @@ def plot_coverage(aggs, out):
                 f" {a['specs_with_solved']}/{a['parsed']}\n {a['solved_total']} blocks",
                 va="bottom", ha="center", fontsize=9)
     ax.set_ylabel("% of specs with ≥1 SOLVED block")
-    ax.set_title("Template-solvable coverage (current 4 certified templates)")
+    ax.set_title("Template-solvable coverage (certified template library)")
     ax.set_ylim(0, max(solved_pct + [1]) * 1.4)
     fig.tight_layout()
     fig.savefig(os.path.join(out, "coverage.png"), dpi=120)

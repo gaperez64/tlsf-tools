@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "reach_blocked"
+  DESCRIPTION: "F o but o is also constrained elsewhere (not free -> residual)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    F o;
+    G (o -> a);
+  }
+}

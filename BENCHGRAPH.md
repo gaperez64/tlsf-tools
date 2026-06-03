@@ -71,17 +71,32 @@ _Cells: number of specs exhibiting the shape, and (total candidate count)._
 
 | corpus | safety | liveness | solved blocks | certified | specs with a solved block | norm/raw size (med/mean) |
 |---|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 64305 | 26550 | 458 | 14 | 124 | 1.14 / 1.41 |
-| `tlsf-fin` | 26408 | 7944 | 129 | 655 | 43 | 0.99 / 0.91 |
+| `tlsf` | 64305 | 26550 | 291 | 14 | 114 | 1.14 / 1.41 |
+| `tlsf-fin` | 26408 | 7944 | 297 | 426 | 81 | 0.99 / 0.91 |
 
 _safety/liveness are **per-constraint** totals (syntactic classification)._
 
 ![Template-solvable coverage](docs/benchgraph/coverage.png)
 
-Decomposition roughly **4×'s** the template-solvable `tlsf` specs (30 → 124 have
-a fully SOLVED block) and turns the revealed `tlsf-fin` mutexes into 655
-`mutex_safety` certificates. Coverage is still a small, sound floor — the
-obvious place to grow the template library.
+The certified template library now spans the Manna–Pnueli safety–progress
+hierarchy ([spot's classes](https://spot.lre.epita.fr/hierarchy.html)): **safety**
+(definition / delayed-definition / guarded-next / reaction / mutex),
+**guarantee** (`F o`), **persistence** (`FG o`) and **recurrence** (response /
+round-robin / arbiter). All but the decoders are gated by a conservative
+**free-output** side condition (the target output occurs in no constraint
+outside the block), which keeps the constant/scheduler controllers sound.
+
+Decomposition roughly **3.7×'s** the template-solvable `tlsf` specs (31 → 114
+have a SOLVED block). On `tlsf-fin` the revealed arbitration now *solves*
+(arbiter + response) instead of only certifying mutexes: solved blocks
+**129 → 297** (43 → 81 specs), and the absorbed mutexes drop standalone
+`mutex_safety` certificates from **655 → 426**.
+
+The `tlsf` solved count is *lower* than a previous run (458) by design:
+definition decoders are now required to be **causal** (`θ` has no `X`). A
+`G(o <-> X a)` would ask `o` to predict a future input, so it is not a sound
+combinational decoder — ≈168 such non-causal "decoders" are now correctly
+declined. Every remaining certificate is sound.
 
 ## Effect of constraint decomposition (`--split`)
 
@@ -134,7 +149,9 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
    once split (431 specs).
 3. **`tlsf-fin` is arbitration-shaped, hidden in single formulas** — mutex
    (230) and response (141) only appear after `--split`; no recurrence at all.
-4. **Decomposition ~4×'s template-solvable `tlsf` coverage** (30 → 124 specs).
+4. **Decomposition ~3.7×'s template-solvable `tlsf` coverage** (31 → 114 specs);
+   the expanded library (free-liveness, reaction, delayed-def, fair arbiter)
+   *solves* `tlsf-fin` arbitration (129 → 297 blocks, 43 → 81 specs).
 5. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
 
@@ -145,3 +162,10 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
 - `--split` distributes `G`/`X` over `&&` only along the spine (never inside
   `F`/`U`/…), so it is equivalence-preserving and does not perturb
   recurrence/persistence counts.
+- Side conditions are *sound but conservative*: the free-output check declines
+  solvable blocks whose output is merely *read* elsewhere, so solved counts are
+  a floor.
+- Definition decoders intentionally do **not** require a free output (a decoder
+  fixes `o` to its defined value, so reads are fine); a separate constraint that
+  *forces* `o` to a different value would still make the pair unrealizable —
+  detecting that needs the residual/side-condition solving of a later milestone.

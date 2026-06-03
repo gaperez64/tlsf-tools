@@ -29,6 +29,12 @@ enum {
   TPL_ROUND_ROBIN = 1u << 1,
   TPL_GUARDED_NEXT = 1u << 2,
   TPL_MUTEX = 1u << 3,
+  TPL_ARBITER = 1u << 4,
+  TPL_RESPONSE = 1u << 5,
+  TPL_PERSISTENCE = 1u << 6,
+  TPL_REACHABILITY = 1u << 7,
+  TPL_REACTION = 1u << 8,
+  TPL_DELAYED_DEF = 1u << 9,
   TPL_ALL = 0,
 };
 
@@ -47,7 +53,7 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve);
 void csnf_counts(const Csnf *c, uint32_t *solved, uint32_t *certified,
                  uint32_t *candidate, uint32_t *residual, uint32_t *dependent);
 
-/// The eight template names recognized so far (for --list-templates).
+/// The template names recognized so far (for --list-templates).
 extern const char *const TEMPLATE_NAMES[];
 extern const int TEMPLATE_NAMES_COUNT;
 

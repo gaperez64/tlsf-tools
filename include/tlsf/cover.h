@@ -45,10 +45,14 @@ typedef struct {
   uint16_t candidate_cap;
 
   // Recognizer-extracted roles (-1 / empty when not applicable).
-  int32_t resp_guard;  ///< request AP index (response)
-  int32_t resp_target; ///< grant AP index (response)
-  int32_t def_output;  ///< defined output AP index (definition)
-  int32_t rec_output;  ///< recurrence target output AP index (G F o)
+  int32_t resp_guard;   ///< request AP index (response)
+  int32_t resp_target;  ///< grant AP index (response)
+  int32_t def_output;   ///< defined output AP index (definition)
+  int32_t rec_output;   ///< recurrence target output AP index (G F o)
+  int32_t reach_output; ///< reachability target output AP index (F o)
+  int32_t pers_output;  ///< persistence target output AP index (F G o)
+  int32_t
+      ddef_output; ///< delayed-definition output AP index (G(X o <-> theta))
   ApSet mutex_members; ///< output AP indices in a mutex
   bool has_mutex;
 } Constraint;

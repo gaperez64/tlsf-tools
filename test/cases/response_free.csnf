@@ -1,0 +1,8 @@
+c CSNF for response_free.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved response
+bc 0 c0
+resp 0 g r
+cert 0 response_controller
+cl 0 G (r -> F g)

@@ -77,6 +77,18 @@ static unsigned tpl_bit(const char *s) {
     return TPL_GUARDED_NEXT;
   if (!strcmp(s, "mutex"))
     return TPL_MUTEX;
+  if (!strcmp(s, "arbiter"))
+    return TPL_ARBITER;
+  if (!strcmp(s, "response"))
+    return TPL_RESPONSE;
+  if (!strcmp(s, "persistence"))
+    return TPL_PERSISTENCE;
+  if (!strcmp(s, "reachability"))
+    return TPL_REACHABILITY;
+  if (!strcmp(s, "reaction"))
+    return TPL_REACTION;
+  if (!strcmp(s, "delayed-definition"))
+    return TPL_DELAYED_DEF;
   return 0;
 }
 

@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "persist_free"
+  DESCRIPTION: "persistence F G o with o a free output (solved latch)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    F G o;
+  }
+}

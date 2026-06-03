@@ -9,8 +9,10 @@
 ///
 /// Recognized single-constraint shapes: response `G(r -> F g)`, mutex
 /// `G(!(a && b) ...)`, pure-recurrence `G F x`, persistence `F G x`,
-/// guarded-next-assignment `G(alpha -> X o)`, definition `G(o <-> theta)`.
-/// Multi-constraint block: responses + a grant mutex ⇒ `arbiter_candidate`.
+/// reachability `F g`, guarded-next-assignment `G(alpha -> X o)`, reaction
+/// `G(alpha -> o)`, definition `G(o <-> theta)`, delayed-definition
+/// `G(X o <-> theta)`.  Multi-constraint block: responses + a grant mutex ⇒
+/// `arbiter_candidate`.
 
 #include "tlsf/cover.h"
 

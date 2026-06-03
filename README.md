@@ -186,9 +186,10 @@ safety/liveness class, and input/output support; syntactic *template
 candidates* are recognized over those constraints:
 
 - `response` `G(r -> F g)`, `mutex` `G(!(a && b) …)`, `pure-recurrence` `G F x`,
-  `persistence` `F G x`, `guarded-next-assignment` `G(α -> X o)`,
-  `definition` `G(o <-> θ)`; and a multi-constraint `arbiter_candidate` block
-  (responses + a grant mutex).
+  `persistence` `F G x`, `reachability` `F g`, `guarded-next-assignment`
+  `G(α -> X o)`, `reaction` `G(α -> o)`, `definition` `G(o <-> θ)`,
+  `delayed-definition` `G(X o <-> θ)`; and a multi-constraint `arbiter_candidate`
+  block (responses + a grant mutex).
 
 ```sh
 tlsfgraph --templates spec.tlsf            # text summary + candidate counts
@@ -233,21 +234,46 @@ tlsftemplates spec.tlsf                          # list candidate blocks
 tlsftemplates --certify --solve --format csnf spec.tlsf > spec.csnf
 ```
 
-Four templates are certified this milestone:
+The certified template library spans the Manna–Pnueli safety–progress hierarchy
+(the classes [spot](https://spot.lre.epita.fr/hierarchy.html) draws), targeting
+shapes with a known controller or where the side condition makes synthesis
+syntactic. Most are gated by a **free-output** condition — the target output
+occurs in no constraint outside the block, so a local controller can't violate
+anything else.
 
-- **definition** `G(o<->θ)` → decoder `o := θ` (iff `o` is a Mealy output not
-  occurring in `θ`); cert `definition_decoder`.
-- **round-robin** (`GF o_i` ×k + grant mutex) → one-hot finite cycle (iff the
-  `o_i` occur in no other constraint); cert `round_robin_scheduler`.
-- **guarded-next-assignment** `G(α->X o)` / `G(β->X¬o)` → `o' := ⋁α` (iff the
-  force-true/false guards are provably exclusive); cert
-  `guarded_assignment_consistency`.
+*Safety:*
+
+- **definition** `G(o<->θ)` → decoder `o := θ` (Mealy, `θ` combinational and
+  `o`-free, `o` free outside the block); cert `definition_decoder`.
+- **delayed-definition** `G(X o<->θ)` → register `o' := θ` (causal `θ`, `o`
+  free); cert `delayed_definition_register`.
+- **guarded-next-assignment** `G(α->X o)` / `G(β->X¬o)` → `o' := ⋁α` (guards
+  provably exclusive); cert `guarded_assignment_consistency`.
+- **reaction** `G(α->o)` / `G(β->¬o)` → combinational `o := ⋁α` (Mealy, guards
+  exclusive, `o` free); cert `reaction_consistency`.
 - **mutex** `G atMostOne(…)` → *certified* safety invariant (`mutex_safety`),
   not solved on its own.
 
-Anything not provably sound stays `candidate`; nothing is removed (residual
-export is the next milestone). CSNF is the same DIMACS-style line format as
-GSNF (`b`/`bc`/`dec`/`nsf`/`cyc`/`cert`/`cl`/`do`/`r` records).
+*Guarantee / Persistence (free liveness output → constant `o := true`):*
+
+- **reachability** `F o` → cert `reachability_oneshot`.
+- **persistence** `F G o` → cert `persistence_latch`.
+
+*Recurrence:*
+
+- **response** `G(r -> F g)` (independent, `g` free) → grant controller; cert
+  `response_controller`.
+- **round-robin** (`GF o_i` ×k + grant mutex) → one-hot finite cycle (the `o_i`
+  free outside the block); cert `round_robin_scheduler`.
+- **arbiter** (≥2 responses + grant mutex, requests are inputs, grants free) →
+  fair round-robin scheduler over the grants; cert `fair_arbiter`.
+
+Reactivity / GR(1) (boolean combinations of recurrence and persistence) is out
+of scope — it needs a real game solver, not a syntactic certificate. Anything
+not provably sound stays `candidate`; nothing is removed (residual export is the
+next milestone). CSNF is the same DIMACS-style line format as GSNF
+(`b`/`bc`/`dec`/`nsf`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
+records).
 
 ### Constraint decomposition (`--split`, `tlsfnorm`)
 
@@ -288,9 +314,10 @@ Aggregate statistics, plots and insights over the whole SYNTCOMP corpus are in
 
 Over the SYNTCOMP corpus (all specs parse; ~5 s for the 2545 `tlsf` set) the
 shape distribution is, e.g.: the real-time `tlsf` set is recurrence-dominated
-(`GF` in ~800 specs) with scattered response/persistence/guarded-next, while the
-finite-word `tlsf-fin` set has **no** recurrence/response/mutex and is instead
-definition/guarded-next shaped — the kind of structural insight this layer is
+(`GF` in ~876 specs) with response pervasive once constraints are split (431
+specs), while the finite-word `tlsf-fin` set has **no** recurrence/persistence
+and is instead **arbitration-shaped** — mutex (230 specs) and response (141),
+both invisible without `--split` — the kind of structural insight this layer is
 meant to expose.
 
 `tlsfgraph`/`tlsfwl`/`tlsftemplates`/`tlsfbenchgraph` are the implemented slice

@@ -359,6 +359,20 @@ test('tmpl_guarded_next_declined', check_wl,
   args: [files('test/cases/gnext_unsafe.csnf'), tlsftemplates_exe,
          '--certify', '--format', 'csnf',
          files('test/cases/gnext_unsafe.tlsf')])
+# Template-coverage expansion: free-liveness family, reaction, delayed-def,
+# fair arbiter — each with a solved and a declined (non-free / non-exclusive) case.
+foreach name : ['reach_free', 'reach_blocked', 'persist_free', 'reaction_ok',
+                'reaction_unsafe', 'ddef_demo', 'response_free',
+                'response_blocked']
+  test('tmpl_' + name, check_wl,
+    args: [files('test/cases/' + name + '.csnf'), tlsftemplates_exe,
+           '--certify', '--solve', '--format', 'csnf',
+           files('test/cases/' + name + '.tlsf')])
+endforeach
+test('tmpl_arbiter', check_wl,
+  args: [files('test/cases/arbiter2.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/arbiter2.tlsf')])
 test('tmpl_sat_unimplemented', xfail,
   args: [tlsftemplates_exe, '--side-conditions', 'sat',
          files('test/cases/def_demo.tlsf')])

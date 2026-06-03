@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "reaction_ok"
+  DESCRIPTION: "immediate reaction with exclusive guards (solved o := a)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (a -> o);
+    G (!a -> !o);
+  }
+}

@@ -45,10 +45,58 @@ static void match_recurrence(ConstraintCover *cov, Constraint *c) {
     c->rec_output = ap_idx(cov, x);
 }
 
-// F G x
+// F G x  (records the target output when x is a plain output AP)
 static void match_persistence(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind == NODE_F && c->formula->arg->kind == NODE_G)
-    constraint_add_candidate(cov, c, "persistence");
+  if (c->formula->kind != NODE_F || c->formula->arg->kind != NODE_G)
+    return;
+  constraint_add_candidate(cov, c, "persistence");
+  const Node *x = c->formula->arg->arg;
+  if (is_output(cov, x))
+    c->pers_output = ap_idx(cov, x);
+}
+
+// F g  (one-shot reachability of an output)
+static void match_reachability(ConstraintCover *cov, Constraint *c) {
+  if (c->formula->kind != NODE_F)
+    return;
+  const Node *g = c->formula->arg;
+  if (!is_output(cov, g))
+    return;
+  constraint_add_candidate(cov, c, "reachability");
+  c->reach_output = ap_idx(cov, g);
+}
+
+// G(alpha -> o) / G(alpha -> !o)  (immediate reaction; o an output literal,
+// consequent neither F nor X — those are response/guarded-next).
+static void match_reaction(ConstraintCover *cov, Constraint *c) {
+  if (c->formula->kind != NODE_G)
+    return;
+  const Node *body = c->formula->arg;
+  if (body->kind != NODE_IMPL)
+    return;
+  const Node *o = body->rhs;
+  if (o->kind == NODE_NOT)
+    o = o->arg;
+  if (o->kind != NODE_AP || !is_output(cov, o))
+    return;
+  constraint_add_candidate(cov, c, "reaction");
+}
+
+// G(X o <-> theta) / G(theta <-> X o)  (delayed definition / register), o
+// output
+static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
+  if (c->formula->kind != NODE_G)
+    return;
+  const Node *body = c->formula->arg;
+  if (body->kind != NODE_EQUIV)
+    return;
+  const Node *xside = body->lhs->kind == NODE_X   ? body->lhs
+                      : body->rhs->kind == NODE_X ? body->rhs
+                                                  : nullptr;
+  if (!xside || !is_output(cov, xside->arg))
+    return;
+  constraint_add_candidate(cov, c, "delayed-definition");
+  c->ddef_output = ap_idx(cov, xside->arg);
 }
 
 // G(alpha -> X o) / G(alpha -> X !o)
@@ -174,8 +222,11 @@ void recognize_all(ConstraintCover *cov) {
     match_response(cov, c);
     match_recurrence(cov, c);
     match_persistence(cov, c);
+    match_reachability(cov, c);
     match_guarded_next(cov, c);
     match_definition(cov, c);
+    match_delayed_definition(cov, c);
+    match_reaction(cov, c);
     match_mutex(cov, c);
   }
   build_blocks(cov);

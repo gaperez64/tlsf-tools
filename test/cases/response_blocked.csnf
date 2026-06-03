@@ -1,0 +1,11 @@
+c CSNF for response_blocked.tlsf
+p csnf 0 0 2 2
+m semantics Mealy
+b 0 candidate response
+bc 0 c0
+cl 0 G (r -> F g)
+b 1 candidate response
+bc 1 c1
+cl 1 G (s -> F g)
+r c0
+r c1
