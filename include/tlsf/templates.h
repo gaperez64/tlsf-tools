@@ -65,6 +65,15 @@ typedef struct {
   uint32_t block; ///< the ejected block
 } Conflict;
 
+/// A solved combinational output and the value its controller assigns it
+/// (`o := value`): definition θ, reaction ⋁guards, reachability/persistence
+/// `true`.  Substituting `value` for `o` in the residual eliminates `o`
+/// soundly.
+typedef struct {
+  int32_t output;    ///< AP index of the eliminated output
+  const Node *value; ///< its combinational value (in the cover arena)
+} Elim;
+
 typedef struct {
   bool fully_solved;         ///< residual empty after composition
   uint32_t naccepted;        ///< SOLVED blocks kept in the decomposition
@@ -73,7 +82,18 @@ typedef struct {
   bool *residual_constraint; ///< per constraint: in the residual
   Conflict *conflicts;
   uint32_t nconflicts;
+  // Residual reduction (composable certification):
+  Elim *elim;              ///< combinational outputs eliminated by substitution
+  uint32_t nelim;          ///< == eliminated combinational outputs
+  uint32_t neliminated;    ///< constraints discharged (not in the residual)
+  uint32_t nowned_outputs; ///< outputs determined by a sound controller
 } CsnfComposition;
+
+/// Substitute `value` for every leaf occurrence of the AP named `name` in `n`,
+/// returning a (possibly new) node in `a`.  Used to eliminate solved
+/// combinational outputs from the residual.
+[[nodiscard]] const Node *node_subst(Arena *a, const Node *n, const char *name,
+                                     const Node *value);
 
 /// Compute a sound composition of the certified model.  Returns a malloc-backed
 /// result; free with csnf_composition_free.  nullptr on OOM.

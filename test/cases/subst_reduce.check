@@ -1,4 +1,4 @@
-c CSNF for compose_conflict.tlsf
+c CSNF for subst_reduce.tlsf
 p csnf 1 0 0 1
 m semantics Mealy
 b 0 solved definition

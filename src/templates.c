@@ -107,6 +107,50 @@ static bool occurs_in(const Node *n, const char *name) {
   }
 }
 
+const Node *node_subst(Arena *a, const Node *n, const char *name,
+                       const Node *value) {
+  switch (n->kind) {
+  case NODE_AP:
+    return strcmp(n->name, name) == 0 ? value : n;
+  case NODE_NOT:
+    return node_not(a, (Node *)node_subst(a, n->arg, name, value));
+  case NODE_X:
+    return node_x(a, (Node *)node_subst(a, n->arg, name, value));
+  case NODE_X_STRONG:
+    return node_x_strong(a, (Node *)node_subst(a, n->arg, name, value));
+  case NODE_F:
+    return node_f(a, (Node *)node_subst(a, n->arg, name, value));
+  case NODE_G:
+    return node_g(a, (Node *)node_subst(a, n->arg, name, value));
+  case NODE_AND:
+    return node_and(a, (Node *)node_subst(a, n->lhs, name, value),
+                    (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_OR:
+    return node_or(a, (Node *)node_subst(a, n->lhs, name, value),
+                   (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_IMPL:
+    return node_impl(a, (Node *)node_subst(a, n->lhs, name, value),
+                     (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_EQUIV:
+    return node_equiv(a, (Node *)node_subst(a, n->lhs, name, value),
+                      (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_U:
+    return node_u(a, (Node *)node_subst(a, n->lhs, name, value),
+                  (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_R:
+    return node_r(a, (Node *)node_subst(a, n->lhs, name, value),
+                  (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_W:
+    return node_w(a, (Node *)node_subst(a, n->lhs, name, value),
+                  (Node *)node_subst(a, n->rhs, name, value));
+  case NODE_M:
+    return node_m(a, (Node *)node_subst(a, n->lhs, name, value),
+                  (Node *)node_subst(a, n->rhs, name, value));
+  default:
+    return n;
+  }
+}
+
 // Collect the top-level conjunctive literals of a guard into pos/neg sets.
 static void guard_literals(ConstraintCover *cov, const Node *n, ApSet *pos,
                            ApSet *neg) {
@@ -502,34 +546,54 @@ static void certify_arbiter(Csnf *c, unsigned want, bool certify) {
   }
 }
 
-// Independent response G(r -> F g): when g is a free controllable output the
-// constant controller g := true satisfies it without affecting anything else.
+// Fair server: all responses G(rₖ -> F g) targeting the same grant g are served
+// by one composable, interleavable controller (a fair scheduler over the
+// pending requests) rather than the monopolizing g := true.  Grouping responses
+// on a shared g into ONE block means the block drives g once -- no
+// self-collision
+// -- so two requests to the same resource compose instead of conflicting.
 static void certify_response(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_RESPONSE))
     return;
   ConstraintCover *cov = c->cov;
-  for (uint32_t i = 0; i < cov->count; i++) {
-    Constraint *cc = &cov->items[i];
-    if (c->claimed[i] || !has_cand(cc, "response") || cc->resp_target < 0)
+  uint32_t A = cov->aps.count;
+  for (uint32_t o = 0; o < A; o++) {
+    if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT))
       continue;
-    uint32_t o = (uint32_t)cc->resp_target;
-    bool is_out = ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT;
+    uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
+    uint32_t nid = 0;
+    for (uint32_t i = 0; i < cov->count; i++)
+      if (!c->claimed[i] && has_cand(&cov->items[i], "response") &&
+          cov->items[i].resp_target == (int32_t)o)
+        ids[nid++] = i;
+    if (nid == 0) {
+      free(ids);
+      continue;
+    }
     Block *blk = new_block(c);
-    if (!blk)
+    if (!blk) {
+      free(ids);
       return;
-    blk->name = "response";
-    blk->cids = malloc(sizeof(uint32_t));
-    blk->cids[0] = i;
-    blk->ncids = 1;
+    }
+    blk->name = "server";
+    blk->cids = malloc(nid * sizeof(uint32_t));
+    memcpy(blk->cids, ids, nid * sizeof(uint32_t));
+    blk->ncids = nid;
     blk->resp_output = (int32_t)o;
-    if (certify && is_out && output_is_free(cov, &i, 1, o)) {
+    // A fair server owns g (no closed-form value to substitute), so it composes
+    // only when g is otherwise free; merging the requests on g first means a
+    // shared resource is one server, not a self-collision.
+    if (certify && output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
-      blk->cert = "response_controller";
-      c->solved[i] = true;
+      blk->cert = nid > 1 ? "fair_server" : "response_controller";
+      for (uint32_t k = 0; k < nid; k++)
+        c->solved[ids[k]] = true;
     } else {
       blk->status = CSNF_CANDIDATE;
     }
-    c->claimed[i] = true;
+    for (uint32_t k = 0; k < nid; k++)
+      c->claimed[ids[k]] = true;
+    free(ids);
   }
 }
 
@@ -551,7 +615,7 @@ static void certify_persistence(Csnf *c, unsigned want, bool certify) {
     blk->cids[0] = i;
     blk->ncids = 1;
     blk->hold_output = (int32_t)o;
-    if (certify && output_is_free(cov, &i, 1, o)) {
+    if (certify) {
       blk->status = CSNF_SOLVED;
       blk->cert = "persistence_latch";
       c->solved[i] = true;
@@ -580,7 +644,7 @@ static void certify_reachability(Csnf *c, unsigned want, bool certify) {
     blk->cids[0] = i;
     blk->ncids = 1;
     blk->one_output = (int32_t)o;
-    if (certify && output_is_free(cov, &i, 1, o)) {
+    if (certify) {
       blk->status = CSNF_SOLVED;
       blk->cert = "reachability_oneshot";
       c->solved[i] = true;
@@ -644,8 +708,6 @@ static void certify_reaction(Csnf *c, unsigned want, bool certify) {
             exclusive = false;
         }
     }
-    bool free_o = !certify || output_is_free(cov, ids, nid, o);
-
     Block *blk = new_block(c);
     if (!blk) {
       free(ids);
@@ -658,7 +720,7 @@ static void certify_reaction(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->cids, ids, nid * sizeof(uint32_t));
     blk->ncids = nid;
     blk->asg_output = (int32_t)o;
-    if (certify && exclusive && free_o && !moore) {
+    if (certify && exclusive && !moore) {
       blk->status = CSNF_SOLVED;
       blk->cert = "reaction_consistency";
       blk->asg_guards = malloc((nt ? nt : 1) * sizeof(Node *));
@@ -838,6 +900,27 @@ static bool block_writes(const Block *b, int32_t o) {
   return false;
 }
 
+// If SOLVED block `b` assigns output `o` a *combinational* value (a function of
+// the current step), return that value node; else nullptr.  These outputs can
+// be eliminated from the residual by substitution.  Registers (guarded-next,
+// delayed-definition) and servers (response/round-robin/arbiter) are not.
+static const Node *block_comb_value(const Csnf *c, const Block *b, int32_t o) {
+  Arena *a = c->cov->arena;
+  if (b->dec_output == o && b->dec_theta)
+    return b->dec_theta; // definition o := theta
+  if (b->one_output == o || b->hold_output == o)
+    return node_true(a); // reachability / persistence o := true
+  if (b->asg_output == o) {
+    if (b->asg_nguards == 0)
+      return node_false(a);
+    Node *acc = (Node *)b->asg_guards[0];
+    for (uint32_t g = 1; g < b->asg_nguards; g++)
+      acc = node_or(a, acc, (Node *)b->asg_guards[g]);
+    return acc; // reaction o := OR(true-guards)
+  }
+  return nullptr;
+}
+
 // True if combinational decoder block `b`'s defining formula reads output `p`.
 static bool decoder_reads(const Csnf *c, const Block *b, uint32_t p) {
   const char *name = ap_table_name(&c->cov->aps, p);
@@ -900,6 +983,14 @@ static int32_t find_decoder_cycle_block(const Csnf *c, const bool *accepted) {
   return eject;
 }
 
+// Does SOLVED block `b` assign a combinational value to some output?
+static bool block_is_comb(const Csnf *c, const Block *b) {
+  for (uint32_t o = 0; o < c->cov->aps.count; o++)
+    if (block_comb_value(c, b, (int32_t)o))
+      return true;
+  return false;
+}
+
 CsnfComposition *csnf_compose(const Csnf *c) {
   CsnfComposition *r = calloc(1, sizeof *r);
   if (!r)
@@ -909,27 +1000,84 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   r->accepted_block = calloc(B ? B : 1, sizeof(bool));
   r->residual_constraint = calloc(N ? N : 1, sizeof(bool));
   r->conflicts = calloc(B + 1, sizeof(Conflict));
-  if (!r->accepted_block || !r->residual_constraint || !r->conflicts) {
+  r->elim = calloc(A ? A : 1, sizeof(Elim));
+  int32_t *provider = malloc((A ? A : 1) * sizeof(int32_t));
+  bool *elim_excluded = calloc(B ? B : 1, sizeof(bool));
+  bool *eliminated = calloc(N ? N : 1, sizeof(bool));
+  if (!r->accepted_block || !r->residual_constraint || !r->conflicts ||
+      !r->elim || !provider || !elim_excluded || !eliminated) {
+    free(provider);
+    free(elim_excluded);
+    free(eliminated);
     csnf_composition_free(r);
     return nullptr;
   }
   for (uint32_t b = 0; b < B; b++)
     r->accepted_block[b] = c->blocks[b].status == CSNF_SOLVED;
 
+  // Phase A: eliminate combinational outputs by substitution.  First break any
+  // combinational-decoder cycle by excluding one provider (it stays residual).
+  for (;;) {
+    bool *cyc_set = calloc(B ? B : 1, sizeof(bool));
+    for (uint32_t b = 0; b < B; b++)
+      cyc_set[b] = r->accepted_block[b] && !elim_excluded[b];
+    int32_t cyc = find_decoder_cycle_block(c, cyc_set);
+    free(cyc_set);
+    if (cyc < 0)
+      break;
+    elim_excluded[cyc] = true;
+    r->conflicts[r->nconflicts++] = (Conflict){
+        CONFLICT_DECODER_CYCLE, c->blocks[cyc].dec_output, (uint32_t)cyc};
+  }
+  for (uint32_t o = 0; o < A; o++)
+    provider[o] = -1;
+  for (uint32_t b = 0; b < B; b++) {
+    if (!r->accepted_block[b] || elim_excluded[b])
+      continue;
+    for (uint32_t o = 0; o < A; o++)
+      if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) && provider[o] < 0 &&
+          block_comb_value(c, &c->blocks[b], (int32_t)o))
+        provider[o] = (int32_t)b;
+  }
+  for (uint32_t o = 0; o < A; o++) {
+    if (provider[o] < 0)
+      continue;
+    const Block *pb = &c->blocks[provider[o]];
+    r->elim[r->nelim++] =
+        (Elim){(int32_t)o, block_comb_value(c, pb, (int32_t)o)};
+    for (uint32_t k = 0; k < pb->ncids; k++)
+      eliminated[pb->cids[k]] = true;
+  }
+
+  // A combinational block is accepted only as the chosen provider; a duplicate
+  // or cycle-excluded combinational block is not (its constraint stays
+  // residual, to be substituted there).
+  for (uint32_t b = 0; b < B; b++) {
+    if (!r->accepted_block[b] || !block_is_comb(c, &c->blocks[b]))
+      continue;
+    bool is_provider = false;
+    for (uint32_t o = 0; o < A; o++)
+      if (provider[o] == (int32_t)b)
+        is_provider = true;
+    if (!is_provider)
+      r->accepted_block[b] = false;
+  }
+
+  // Phase B: ownership fixpoint for the remaining (non-combinational) blocks --
+  // servers/registers.  Eject one whose output is driven twice or constrained
+  // in the residual.  Combinational providers are eliminated, never ejected.
   bool changed = true;
   while (changed) {
     changed = false;
-    // residual = constraints in no accepted block.
     for (uint32_t i = 0; i < N; i++)
-      r->residual_constraint[i] = true;
+      r->residual_constraint[i] = !eliminated[i];
     for (uint32_t b = 0; b < B; b++)
       if (r->accepted_block[b])
         for (uint32_t k = 0; k < c->blocks[b].ncids; k++)
           r->residual_constraint[c->blocks[b].cids[k]] = false;
 
-    // Conditions 1 (no duplicate driver) and 2 (output free of the residual).
     for (uint32_t b = 0; b < B && !changed; b++) {
-      if (!r->accepted_block[b])
+      if (!r->accepted_block[b] || block_is_comb(c, &c->blocks[b]))
         continue;
       for (uint32_t o = 0; o < A && !changed; o++) {
         if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) ||
@@ -958,17 +1106,6 @@ CsnfComposition *csnf_compose(const Csnf *c) {
         }
       }
     }
-    if (changed)
-      continue;
-
-    // Condition 3: break one combinational-decoder cycle, then re-stabilise.
-    int32_t cyc = find_decoder_cycle_block(c, r->accepted_block);
-    if (cyc >= 0) {
-      r->accepted_block[cyc] = false;
-      r->conflicts[r->nconflicts++] = (Conflict){
-          CONFLICT_DECODER_CYCLE, c->blocks[cyc].dec_output, (uint32_t)cyc};
-      changed = true;
-    }
   }
 
   for (uint32_t b = 0; b < B; b++)
@@ -977,6 +1114,25 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   for (uint32_t i = 0; i < N; i++)
     if (r->residual_constraint[i])
       r->nresidual++;
+  r->neliminated = N - r->nresidual;
+
+  bool *owned = calloc(A ? A : 1, sizeof(bool));
+  for (uint32_t k = 0; k < r->nelim; k++)
+    owned[r->elim[k].output] = true;
+  for (uint32_t b = 0; b < B; b++)
+    if (r->accepted_block[b])
+      for (uint32_t o = 0; o < A; o++)
+        if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) &&
+            block_writes(&c->blocks[b], (int32_t)o))
+          owned[o] = true;
+  for (uint32_t o = 0; o < A; o++)
+    if (owned[o])
+      r->nowned_outputs++;
+  free(owned);
+
+  free(provider);
+  free(elim_excluded);
+  free(eliminated);
   r->fully_solved = r->nresidual == 0;
   return r;
 }
@@ -987,6 +1143,7 @@ void csnf_composition_free(CsnfComposition *r) {
   free(r->accepted_block);
   free(r->residual_constraint);
   free(r->conflicts);
+  free(r->elim);
   free(r);
 }
 

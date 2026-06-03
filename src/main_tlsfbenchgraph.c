@@ -137,6 +137,7 @@ typedef struct {
   uint32_t response, mutex, recurrence, persistence, gnext, definition;
   uint32_t tcands, solved, certified, dependent, residual, comp;
   uint32_t conflicts, fully_solved;
+  uint32_t elim_constraints, owned_outputs;
   uint32_t size_raw, size_norm;
   int wl_stab;
 } Metrics;
@@ -204,6 +205,8 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
     if (comp) {
       m.conflicts = comp->nconflicts;
       m.fully_solved = comp->fully_solved ? 1 : 0;
+      m.elim_constraints = comp->neliminated;
+      m.owned_outputs = comp->nowned_outputs;
       csnf_composition_free(comp);
     }
     csnf_free(csnf);
@@ -304,7 +307,8 @@ int main(int argc, char *argv[]) {
                "guarded_next\tdefinition\ttemplate_candidates\tsolved_blocks\t"
                "certified_blocks\tdependent_outputs\tresidual_constraints\t"
                "largest_output_component\tformula_size_raw\tformula_size_norm\t"
-               "wl_stab_depth\tfully_solved\tconflicts\n");
+               "wl_stab_depth\tfully_solved\tconflicts\t"
+               "eliminated_constraints\towned_outputs\n");
 
   // Aggregates.
   uint32_t nok = 0, nfail = 0;
@@ -319,7 +323,7 @@ int main(int argc, char *argv[]) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
@@ -331,12 +335,12 @@ int main(int argc, char *argv[]) {
       snprintf(wl, sizeof wl, "-");
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%s\t%u\t%u\n",
+            "\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
             m.response, m.mutex, m.recurrence, m.persistence, m.gnext,
             m.definition, m.tcands, m.solved, m.certified, m.dependent,
             m.residual, m.comp, m.size_raw, m.size_norm, wl, m.fully_solved,
-            m.conflicts);
+            m.conflicts, m.elim_constraints, m.owned_outputs);
 
     tot[0] += m.response;
     tot[1] += m.mutex;
@@ -348,6 +352,10 @@ int main(int argc, char *argv[]) {
     tot[7] += m.certified;
     with_solved += m.solved > 0;
     fully += m.fully_solved;
+    tot[8] += m.constraints;
+    tot[9] += m.elim_constraints;
+    tot[10] += m.owned_outputs;
+    tot[11] += m.outputs;
     with_resp += m.response > 0;
     with_mutex += m.mutex > 0;
     with_def += m.definition > 0;
@@ -370,6 +378,13 @@ int main(int argc, char *argv[]) {
             "definition=%u solved=%u\n",
             with_resp, with_mutex, with_rec, with_def, with_solved);
     fprintf(out, "# specs fully solved (sound composition): %u\n", fully);
+    fprintf(out,
+            "# residual reduction: %llu/%llu constraints eliminated (%.1f%%), "
+            "%llu/%llu outputs owned (%.1f%%)\n",
+            (unsigned long long)tot[9], (unsigned long long)tot[8],
+            tot[8] ? 100.0 * (double)tot[9] / (double)tot[8] : 0.0,
+            (unsigned long long)tot[10], (unsigned long long)tot[11],
+            tot[11] ? 100.0 * (double)tot[10] / (double)tot[11] : 0.0);
   }
 
   if (output_file)

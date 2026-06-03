@@ -300,29 +300,35 @@ reserved and error clearly.
 
 ### Residual & composition soundness (`tlsfresidual`, `--check`)
 
-Certification is **per-block and local**: each block is SOLVED on its own. Two
-locally-solved blocks could still clash when combined — drive the same output,
-read an output another block (or a leftover constraint) constrains, or form a
-decoder cycle. `csnf_compose` keeps the maximal subset of SOLVED blocks that
-**compose soundly**: no output is driven twice, every kept output is free of the
-residual, and the combinational decoders are acyclic; whatever is ejected falls
-back into the residual. So "≥1 solved block" (a floor) is distinct from **fully
-solved** = the whole spec is a sound template decomposition (residual empty).
+Certification is **per-block and local**; the controllers are **composable**.
+`csnf_compose` produces a sound whole-spec decomposition by two means:
+
+- **Substitution** — a combinational output (`o:=θ`, `o:=true`, `o:=⋁guards`) is
+  *eliminated from the residual* by rewriting `o` to its value. An output merely
+  *read* elsewhere costs nothing; a constraint that forces `o` the other way
+  becomes an unrealizable residual (surfaced, not mis-certified).
+- **Fair servers** — responses on a shared grant `g` are merged into one
+  interleavable server instead of the monopolizing `g:=true`, so requests to one
+  resource compose rather than collide. Liveness-owned outputs (servers,
+  registers) keep a conservative free-output rule.
 
 ```sh
 tlsftemplates --check spec.tlsf      # CSNF + a whole-spec composition verdict
-tlsfresidual spec.tlsf               # the leftover, as one LTL formula
+tlsfresidual spec.tlsf               # the reduced leftover, as one LTL formula
 ```
 
-`tlsfresidual` emits the residual obligations as a single LTL formula (ltlxba by
-default, `--format ltl`), with `c ins=…` / `c outs=…` hints, ready for a real
-synthesizer — `ltlsynt --ins=… --outs=… -f "$(tlsfresidual spec.tlsf | tail -1)"`.
-A `fully-solved` spec yields `true`. The accepted certified controllers together
-with a controller for this residual realise the original spec; the conservative
-free-output check means the residual is a sound (possibly over-approximate)
-remainder, never an unsound shortcut. (Reading a pre-built GSNF/CSNF line file —
-`--from-gsnf`/`--from-csnf` — and stitching a composed controller with
-`tlsfcompose` are the next milestones.)
+`tlsfresidual` substitutes away the solved combinational outputs and emits the
+residual obligations as a single LTL formula (ltlxba by default, `--format ltl`)
+over a *smaller* alphabet, with `c ins=…` / `c outs=…` hints — ready for a real
+synthesizer: `ltlsynt --ins=… --outs=… -f "$(tlsfresidual spec.tlsf | tail -1)"`.
+The accepted controllers plus a controller for this residual realise the spec.
+
+**Honest caveat (see [`BENCHGRAPH.md`](BENCHGRAPH.md)):** composability is the
+*soundness* fix, not a *coverage* fix. Over the SYNTCOMP corpus only ~0.4–0.6 %
+of constraints are eliminated and no spec is fully solved — real specs are mostly
+non-template safety constraints plus assumptions. Broadening the library and
+solving safety sub-games (and `tlsfcompose` / the `--from-gsnf` reader) are the
+next milestones.
 
 ### Corpus statistics (`tlsfbenchgraph`)
 

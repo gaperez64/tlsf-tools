@@ -85,6 +85,10 @@ def aggregate(label, rows):
                                   if int(r.get("fully_solved", 0)) > 0),
         "specs_conflict": sum(1 for r in parsed
                               if int(r.get("conflicts", 0)) > 0),
+        "constraints_total": sum(col_int(parsed, "constraints")),
+        "elim_total": sum(col_int(parsed, "eliminated_constraints")),
+        "outputs_total": sum(col_int(parsed, "outputs")),
+        "owned_total": sum(col_int(parsed, "owned_outputs")),
         "wl_stab": col_int(parsed, "wl_stab_depth"),
         "comp": col_int(parsed, "largest_output_component"),
     }
@@ -146,22 +150,24 @@ def plot_coverage(aggs, out):
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
     labels = [a["label"] for a in aggs]
     x = range(len(aggs))
-    solved_pct = [100.0 * a["specs_with_solved"] / a["parsed"] for a in aggs]
-    fully_pct = [100.0 * a["specs_fully_solved"] / a["parsed"] for a in aggs]
-    ax.bar([xi - 0.2 for xi in x], solved_pct, 0.4, color="#4c72b0",
-           label="≥1 SOLVED block")
-    ax.bar([xi + 0.2 for xi in x], fully_pct, 0.4, color="#55a868",
-           label="fully solved (sound composition)")
-    for i, a in enumerate(aggs):
-        ax.text(i - 0.2, solved_pct[i], f"{a['specs_with_solved']}",
+    elim_pct = [100.0 * a["elim_total"] / a["constraints_total"]
+                if a["constraints_total"] else 0.0 for a in aggs]
+    owned_pct = [100.0 * a["owned_total"] / a["outputs_total"]
+                 if a["outputs_total"] else 0.0 for a in aggs]
+    ax.bar([xi - 0.2 for xi in x], elim_pct, 0.4, color="#4c72b0",
+           label="constraints eliminated")
+    ax.bar([xi + 0.2 for xi in x], owned_pct, 0.4, color="#55a868",
+           label="outputs owned")
+    for i in x:
+        ax.text(i - 0.2, elim_pct[i], f"{elim_pct[i]:.0f}%",
                 va="bottom", ha="center", fontsize=8)
-        ax.text(i + 0.2, fully_pct[i], f"{a['specs_fully_solved']}",
+        ax.text(i + 0.2, owned_pct[i], f"{owned_pct[i]:.0f}%",
                 va="bottom", ha="center", fontsize=8)
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels)
-    ax.set_ylabel("% of specs")
-    ax.set_title("Template-solvable coverage: ≥1 block vs fully solved")
-    ax.set_ylim(0, max(solved_pct + [1]) * 1.4)
+    ax.set_ylabel("% (composable certification)")
+    ax.set_title("Residual reduction: constraints eliminated & outputs owned")
+    ax.set_ylim(0, max(elim_pct + owned_pct + [1]) * 1.4)
     ax.legend()
     fig.tight_layout()
     fig.savefig(os.path.join(out, "coverage.png"), dpi=120)
@@ -249,16 +255,17 @@ def stats_markdown(aggs_raw, aggs, wl_ok):
     lines.append("")
     lines.append("_(cells: # specs with the shape, and total candidate count)_")
     lines.append("")
-    lines.append("| corpus | safety | liveness | solved blocks | certified | "
-                 "specs ≥1 solved | specs fully solved | norm/raw size (med/mean) |")
-    lines.append("|---|--:|--:|--:|--:|--:|--:|--:|")
+    lines.append("| corpus | solved blocks | certified | specs ≥1 solved | "
+                 "specs fully solved | constraints eliminated | outputs owned |")
+    lines.append("|---|--:|--:|--:|--:|--:|--:|")
     for a in aggs:
-        rr = a["reduction_ratios"]
-        ratio = f"{median(rr):.2f} / {mean(rr):.2f}" if rr else "-"
+        ct, et = a["constraints_total"], a["elim_total"]
+        ot, wt = a["outputs_total"], a["owned_total"]
+        ep = f"{100.0 * et / ct:.1f}% ({et}/{ct})" if ct else "-"
+        op = f"{100.0 * wt / ot:.1f}% ({wt}/{ot})" if ot else "-"
         lines.append(
-            f"| `{a['label']}` | {a['safety']} | {a['liveness']} | "
-            f"{a['solved_total']} | {a['certified_total']} | "
-            f"{a['specs_with_solved']} | {a['specs_fully_solved']} | {ratio} |")
+            f"| `{a['label']}` | {a['solved_total']} | {a['certified_total']} | "
+            f"{a['specs_with_solved']} | {a['specs_fully_solved']} | {ep} | {op} |")
     if wl_ok:
         lines.append("")
         lines.append("| corpus | WL stabilisation depth (med/mean/max) |")

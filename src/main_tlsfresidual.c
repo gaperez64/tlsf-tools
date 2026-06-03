@@ -79,25 +79,62 @@ static FormulaList *role_list(TlsfSpec *spec, Role role) {
   }
 }
 
-// Print a comma-separated list of residual signal names with the given flag.
-static void print_signals(FILE *out, ConstraintCover *cov, const bool *residual,
-                          uint32_t n, uint8_t flag) {
-  bool *seen = calloc(cov->aps.count ? cov->aps.count : 1, sizeof(bool));
-  bool first = true;
-  for (uint32_t i = 0; i < n; i++) {
-    if (!residual[i])
-      continue;
-    const ApSet *s =
-        flag == AP_FLAG_INPUT ? &cov->items[i].inputs : &cov->items[i].outputs;
-    for (uint32_t a = 0; a < cov->aps.count; a++) {
-      if (seen[a] || !apset_test(s, a))
-        continue;
-      seen[a] = true;
-      fprintf(out, "%s%s", first ? "" : ",", ap_table_name(&cov->aps, a));
-      first = false;
-    }
+// Apply every eliminated-output substitution to `n` (the elimination set is
+// acyclic, so nelim+1 passes reach a fixpoint with all eliminated outputs
+// gone).
+static const Node *apply_elims(Arena *a, const Node *n,
+                               const CsnfComposition *comp,
+                               ConstraintCover *cov) {
+  for (uint32_t pass = 0; pass <= comp->nelim; pass++)
+    for (uint32_t k = 0; k < comp->nelim; k++)
+      n = node_subst(a, n,
+                     ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output),
+                     comp->elim[k].value);
+  return n;
+}
+
+// Mark every AP occurring in `n` in `seen`.
+static void collect_aps(const Node *n, ConstraintCover *cov, bool *seen) {
+  switch (n->kind) {
+  case NODE_AP: {
+    int32_t i = ap_table_find(&cov->aps, n->name);
+    if (i >= 0)
+      seen[i] = true;
+    return;
   }
-  free(seen);
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    collect_aps(n->arg, cov, seen);
+    return;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    collect_aps(n->lhs, cov, seen);
+    collect_aps(n->rhs, cov, seen);
+    return;
+  default:
+    return;
+  }
+}
+
+// Print the residual signals (in `seen`) carrying `flag`, comma-separated.
+static void print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
+                          uint8_t flag) {
+  bool first = true;
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & flag))
+      continue;
+    fprintf(out, "%s%s", first ? "" : ",", ap_table_name(&cov->aps, a));
+    first = false;
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -214,27 +251,37 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Rebuild the spec's section lists from the residual constraints only (the
-  // accepted blocks' outputs are globally free, so the residual never refers to
-  // them -- it is self-contained).
+  // Rebuild the spec's section lists from the residual constraints, with every
+  // solved combinational output substituted away (o := value).  The residual is
+  // then self-contained over a smaller alphabet.
+  bool *seen = calloc(cov->aps.count ? cov->aps.count : 1, sizeof(bool));
   spec->initially.count = spec->require.count = spec->assume.count = 0;
   spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
-  for (uint32_t i = 0; i < cov->count; i++)
-    if (comp->residual_constraint[i])
-      (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
-                              cov->items[i].formula);
+  for (uint32_t i = 0; i < cov->count; i++) {
+    if (!comp->residual_constraint[i])
+      continue;
+    const Node *f = apply_elims(spec->arena, cov->items[i].formula, comp, cov);
+    collect_aps(f, cov, seen);
+    (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
+                            (Node *)f);
+  }
 
+  uint32_t tot = cov->count;
   if (comp->fully_solved)
     fprintf(out, "c composition: fully-solved\n");
   else
-    fprintf(out, "c composition: residual=%u conflicts=%u\n", comp->nresidual,
-            comp->nconflicts);
+    fprintf(out,
+            "c composition: residual=%u/%u constraints (%.0f%% eliminated), "
+            "outputs owned=%u, conflicts=%u\n",
+            comp->nresidual, tot,
+            tot ? 100.0 * (double)comp->neliminated / (double)tot : 0.0,
+            comp->nowned_outputs, comp->nconflicts);
   fprintf(out, "c ins=");
-  print_signals(out, cov, comp->residual_constraint, cov->count, AP_FLAG_INPUT);
+  print_signals(out, cov, seen, AP_FLAG_INPUT);
   fprintf(out, "\nc outs=");
-  print_signals(out, cov, comp->residual_constraint, cov->count,
-                AP_FLAG_OUTPUT);
+  print_signals(out, cov, seen, AP_FLAG_OUTPUT);
   fprintf(out, "\n");
+  free(seen);
 
   ClassifiedSpec *cs = classify_spec(spec);
   if (!cs) {

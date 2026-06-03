@@ -69,65 +69,57 @@ _Cells: number of specs exhibiting the shape, and (total candidate count)._
 
 ## Safety / liveness and template-solvable coverage (decomposed)
 
-| corpus | safety | liveness | solved blocks | certified | specs ≥1 solved | specs fully solved | norm/raw size (med/mean) |
-|---|--:|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 64305 | 26550 | 291 | 14 | 114 | 0 | 1.14 / 1.41 |
-| `tlsf-fin` | 26408 | 7944 | 297 | 426 | 81 | 0 | 0.99 / 0.91 |
+| corpus | solved blocks | certified | specs ≥1 solved | specs fully solved | constraints eliminated | outputs owned |
+|---|--:|--:|--:|--:|--:|--:|
+| `tlsf` | 443 | 14 | 147 | 0 | 0.4 % (326/90855) | 2.2 % (316/14463) |
+| `tlsf-fin` | 305 | 426 | 89 | 0 | 0.6 % (219/34352) | 0.2 % (219/132149) |
 
-_safety/liveness are **per-constraint** totals (syntactic classification);
-"fully solved" = the whole spec is a sound template decomposition (residual
-empty after composition, `tlsfresidual`/`tlsftemplates --check`)._
+_"constraints eliminated" / "outputs owned" are the **residual reduction**:
+constraints discharged and outputs determined by a sound composable controller
+(`tlsfresidual` / `tlsftemplates --check`)._
 
-![Template-solvable coverage](docs/benchgraph/coverage.png)
+![Residual reduction](docs/benchgraph/coverage.png)
 
-The certified template library now spans the Manna–Pnueli safety–progress
-hierarchy ([spot's classes](https://spot.lre.epita.fr/hierarchy.html)): **safety**
+The certified template library spans the Manna–Pnueli safety–progress hierarchy
+([spot's classes](https://spot.lre.epita.fr/hierarchy.html)): **safety**
 (definition / delayed-definition / guarded-next / reaction / mutex),
 **guarantee** (`F o`), **persistence** (`FG o`) and **recurrence** (response /
-round-robin / arbiter). All but the decoders are gated by a conservative
-**free-output** side condition (the target output occurs in no constraint
-outside the block), which keeps the constant/scheduler controllers sound.
+round-robin / arbiter). The controllers are now **composable**: combinational
+decoders (`o:=θ`, `o:=true`, `o:=⋁guards`) are *eliminated from the residual by
+substitution*, and responses on a shared grant are merged into one **fair
+server** rather than the monopolizing `o:=true`.
 
-Decomposition roughly **3.7×'s** the template-solvable `tlsf` specs (31 → 114
-have a SOLVED block). On `tlsf-fin` the revealed arbitration now *solves*
-(arbiter + response) instead of only certifying mutexes: solved blocks
-**129 → 297** (43 → 81 specs), and the absorbed mutexes drop standalone
-`mutex_safety` certificates from **655 → 426**.
+## Composable certification & residual reduction (`tlsfresidual`)
 
-The `tlsf` solved count is *lower* than a previous run (458) by design:
-definition decoders are now required to be **causal** (`θ` has no `X`). A
-`G(o <-> X a)` would ask `o` to predict a future input, so it is not a sound
-combinational decoder — ≈168 such non-causal "decoders" are now correctly
-declined. Every remaining certificate is sound.
+Each block is certified *locally*; "specs with ≥1 solved block" (147 / 89) is a
+floor, not a solved-spec count. The real measure is how much of the problem a
+**sound whole-spec decomposition** removes before handing off to a synthesizer:
 
-## Per-block vs whole-spec: composition (`tlsfresidual`)
-
-"Specs with ≥1 solved block" (114 / 81) is a **floor**, not a solved-spec count:
-each block is certified *locally*. Demanding a **sound whole-spec decomposition**
-(`csnf_compose`: no output driven twice, every kept output free of the residual,
-decoders acyclic) collapses the picture:
-
-| corpus | ≥1 solved block | with a composition conflict | **fully solved** | mean constraint reduction |
+| corpus | fully solved | constraints eliminated | outputs owned | specs with a residual conflict |
 |---|--:|--:|--:|--:|
-| `tlsf` | 114 | 113 | **0** | ~1.0 % |
-| `tlsf-fin` | 81 | 43 | **0** | ~0.7 % |
+| `tlsf` | **0** | 0.4 % | 2.2 % | 48 |
+| `tlsf-fin` | **0** | 0.6 % | 0.2 % | 43 |
 
-**No spec is fully solved by templates alone.** Every real spec carries
-constraints outside the library — all `ASSUME` assumptions (never a system
-block) plus non-template guarantees — so the residual is never empty. Worse,
-under sound composition the conservative free-output rule **ejects almost every
-locally-solved decoder** (definition/guarded-next outputs are typically
-referenced elsewhere): 113 of the 114 `tlsf` specs with a solved block hit a
-conflict, and the net reduction is only ≈1 % of constraints.
+Two honest findings:
 
-The honest reading: template certification is a **sound preprocessing floor**,
-not a synthesizer. Its value is identifying and discharging the few cleanly
-decoupled obligations; the bulk (~99 %) is the **residual**, which `tlsfresidual`
-emits as one LTL formula for a real synthesizer (`ltlsynt`/`strix`). Stitching
-the certified controllers back onto a residual strategy is the next milestone
-(`tlsfcompose`). The free-output ejection is conservative (a decoder whose
-output is merely *read* elsewhere is still sound), so a smarter composition
-could keep more — an avenue, not an unsoundness.
+1. **Composability was the soundness fix, not a coverage fix.** Substitution
+   eliminates every combinational decoder *exactly* (an output merely *read*
+   elsewhere is rewritten, not ejected), and fair-server merging turns
+   same-resource requests into one block instead of a self-collision. This
+   removed the M6a ejection pathology — `tlsf` composition conflicts dropped
+   **113 → 48**, and those that remain are *genuine* (decoder cycles, real value
+   clashes such as `G(o<->a) ∧ G!o`, which surface as an unrealizable residual).
+2. **But the headline barely moves: ~0.4–0.6 % of constraints are eliminated and
+   no spec is fully solved.** Real specs are dominated by plain safety
+   constraints no template matches, plus `ASSUME` assumptions that always belong
+   to the residual. Templates discharge the few cleanly decoupled obligations
+   (mostly definitions); the bulk (~99 %) is the residual.
+
+So the answer to "what raises the statistics" is: **composition was necessary
+but not sufficient** — the ceiling is now template-library *breadth* and genuine
+safety/liveness solving, not the controllers' composability. `tlsfresidual`
+hands the (still large) residual to `ltlsynt`/`strix`; broadening the library or
+solving safety sub-games is the lever for the next milestone.
 
 ## Effect of constraint decomposition (`--split`)
 
@@ -183,11 +175,14 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
 4. **Decomposition ~3.7×'s template-solvable `tlsf` coverage** (31 → 114 specs);
    the expanded library (free-liveness, reaction, delayed-def, fair arbiter)
    *solves* `tlsf-fin` arbitration (129 → 297 blocks, 43 → 81 specs).
-5. **Per-block "solved" ≫ whole-spec solved.** Under *sound composition* **no
-   spec is fully solved by templates** (residual always non-empty: assumptions +
-   non-template guarantees), and conservative composition ejects almost every
-   locally-solved decoder (≈1 % net constraint reduction). Templates are a sound
-   preprocessing floor; the residual goes to a real synthesizer (`tlsfresidual`).
+5. **Composable certification is sound but coverage-bound.** Substitution
+   eliminates combinational decoders exactly and fair servers merge shared
+   requests, removing the old ejection pathology (`tlsf` conflicts 113 → 48).
+   Yet **no spec is fully solved** and only **~0.4–0.6 % of constraints** are
+   eliminated — real specs are dominated by non-template safety constraints and
+   `ASSUME` assumptions. Composition was the soundness fix; **template breadth /
+   sub-game solving** is the lever for coverage. The residual goes to a real
+   synthesizer (`tlsfresidual`).
 6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
 
@@ -198,10 +193,12 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
 - `--split` distributes `G`/`X` over `&&` only along the spine (never inside
   `F`/`U`/…), so it is equivalence-preserving and does not perturb
   recurrence/persistence counts.
-- Side conditions are *sound but conservative*: the free-output check declines
-  solvable blocks whose output is merely *read* elsewhere, so solved counts are
-  a floor.
-- Definition decoders intentionally do **not** require a free output (a decoder
-  fixes `o` to its defined value, so reads are fine); a separate constraint that
-  *forces* `o` to a different value would still make the pair unrealizable —
-  detecting that needs the residual/side-condition solving of a later milestone.
+- Combinational outputs (definition/reaction/reachability/persistence) are
+  **eliminated by substitution** (`o:=value` rewritten into the residual), so an
+  output merely *read* elsewhere costs nothing; a constraint that genuinely
+  *forces* `o` the other way becomes an unrealizable residual (surfaced, not
+  mis-certified).
+- Liveness-owned outputs (fair servers, registers) have no closed form, so they
+  keep a conservative **free-output** rule: they reduce the residual only when
+  the output is otherwise unreferenced. This is where coverage is left on the
+  table — a shared grant read by other constraints stays in the residual.

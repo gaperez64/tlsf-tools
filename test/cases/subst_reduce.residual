@@ -1,4 +1,4 @@
 c composition: residual=1/2 constraints (50% eliminated), outputs owned=1, conflicts=0
-c ins=a
+c ins=a,q
 c outs=
-G !a
+G (a -> q)

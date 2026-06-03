@@ -13,6 +13,5 @@ cert 1 definition_decoder
 cl 1 G (o2 <-> b && o1)
 do o1
 do o2
-composition: residual=2 conflicts=2 accepted=0
+composition: residual=1 conflicts=1 accepted=1
 x decoder-cycle o1 block 0
-x shared-output o2 block 1

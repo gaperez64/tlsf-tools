@@ -1,4 +1,4 @@
-c composition: residual=2 conflicts=2
+c composition: residual=1/2 constraints (50% eliminated), outputs owned=1, conflicts=1
 c ins=a,b
-c outs=o1,o2
-G (o1 <-> a && o2) && G (o2 <-> b && o1)
+c outs=o1
+G (o1 <-> a && (b && o1))

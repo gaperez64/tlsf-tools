@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "subst_reduce"
+  DESCRIPTION: "definition o:=a read by another constraint; o eliminated by substitution"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; q; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (o <-> a);
+    G (o -> q);
+  }
+}

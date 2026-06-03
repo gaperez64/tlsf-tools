@@ -1,0 +1,11 @@
+c CSNF for server_merge.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved server
+bc 0 c0
+bc 0 c1
+resp 0 g r1
+cert 0 fair_server
+cl 0 G (r1 -> F g)
+cl 0 G (r2 -> F g)
+composition: fully-solved

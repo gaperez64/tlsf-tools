@@ -384,13 +384,15 @@ test('tmpl_arbiter', check_wl,
 # Composition soundness: tlsftemplates --check (whole-spec verdict) and
 # tlsfresidual (leftover LTL after the accepted blocks).
 foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
-                'compose_partial']
+                'compose_partial', 'subst_reduce', 'server_merge',
+                'arbiter_nomutex']
   test('check_' + name, check_wl,
     args: [files('test/cases/' + name + '.check'), tlsftemplates_exe,
            '--check', '--format', 'csnf', files('test/cases/' + name + '.tlsf')])
 endforeach
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
-                'compose_cycle', 'compose_partial']
+                'compose_cycle', 'compose_partial', 'subst_reduce',
+                'server_merge', 'arbiter_nomutex']
   test('residual_' + name, check,
     args: [files('test/cases/' + name + '.residual'), tlsfresidual_exe,
            files('test/cases/' + name + '.tlsf')])

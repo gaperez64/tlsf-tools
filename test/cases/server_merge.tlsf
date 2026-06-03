@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "server_merge"
+  DESCRIPTION: "two requests to one grant g served by one fair server"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r1; r2; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r1 -> F g);
+    G (r2 -> F g);
+  }
+}
