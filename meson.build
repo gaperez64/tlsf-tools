@@ -49,6 +49,9 @@ endif
 
 flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
+# Optional: only used to test `tlsfcompose --aiger`'s cluster path; CI skips
+# those tests when ltlsynt is absent.
+ltlsynt = find_program('ltlsynt', required: false)
 
 # ---------------------------------------------------------------------------
 # Codegen: flex → tlsf_lex.c + tlsf_lex.h
@@ -115,6 +118,7 @@ lib_sources = [
   'src/wl.c',
   'src/templates.c',
   'src/residual.c',
+  'src/aiger.c',
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
@@ -416,6 +420,19 @@ foreach name : ['compose_demo', 'cluster_split']
     args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
            files('test/cases/' + name + '.tlsf')])
 endforeach
+# --aiger combinational path (no cluster -> no ltlsynt): golden-testable in CI.
+foreach name : ['def_demo', 'inv_skolem', 'reaction_ok']
+  test('aiger_' + name, check,
+    args: [files('test/cases/' + name + '.aag'), tlsfcompose_exe, '--aiger',
+           files('test/cases/' + name + '.tlsf')])
+endforeach
+# --aiger cluster path needs ltlsynt: only run where it is available.
+if ltlsynt.found()
+  test('aiger_cluster', tlsfcompose_exe,
+    args: ['--aiger', files('test/cases/compose_demo.tlsf')])
+  test('aiger_unrealizable', xfail,
+    args: [tlsfcompose_exe, '--aiger', files('test/cases/inv_decline.tlsf')])
+endif
 test('tmpl_sat_unimplemented', xfail,
   args: [tlsftemplates_exe, '--side-conditions', 'sat',
          files('test/cases/def_demo.tlsf')])

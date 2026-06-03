@@ -354,14 +354,24 @@ spec as independent **residual clusters** (one LTL job each), and — with
 tlsfcompose spec.tlsf                      # plan on stdout (controllers + clusters)
 tlsfcompose --output-dir out/ spec.tlsf    # controllers.txt, cluster.<k>.ltl, compose.sh
 sh out/compose.sh                          # runs ltlsynt per cluster -> overall verdict
+tlsfcompose --aiger spec.tlsf > ctrl.aag   # one merged controller circuit (needs ltlsynt)
 ```
+
+`--aiger` closes the loop into a single controller: it encodes the combinational
+controllers directly as and-inverter gates, runs `ltlsynt` on each residual
+cluster (the safety+liveness game backend) for its strategy, and **merges** them
+— shared inputs, output-disjoint clusters — into one AIGER (`aag`) over the
+spec's full interface (`UNREALIZABLE` if any cluster is). `ltlsynt` is invoked
+only for `--aiger`; the default plan and a fully-combinational `--aiger` need no
+external tool. Pick the binary with `--ltlsynt PATH` or `$LTLSYNT`.
 
 The spec is **realizable iff every cluster is** (the combinational controllers
 are exact), so the per-cluster `ltlsynt` results compose into a verdict and a
-full strategy = the emitted controllers ⊕ one controller per cluster. Liveness
-templates (fair server/arbiter) are routed to `ltlsynt` via the residual rather
-than hand-encoded as circuits; a single merged AIGER and a safety-game backend
-are the next milestones.
+full strategy = the emitted controllers ⊕ one controller per cluster (`--aiger`
+merges them into one circuit). Liveness templates (fair server/arbiter) are
+routed to `ltlsynt` via the residual rather than hand-encoded as circuits; a
+self-contained safety-game backend (to avoid the `ltlsynt` dependency) and the
+`--from-gsnf`/`--from-csnf` line reader are the remaining roadmap items.
 
 ### Corpus statistics (`tlsfbenchgraph`)
 

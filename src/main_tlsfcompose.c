@@ -11,6 +11,8 @@
 ///
 /// tlsfcompose never spawns a process: the ltlsynt calls live in compose.sh.
 
+#define _POSIX_C_SOURCE 200809L
+#include "tlsf/aiger.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
@@ -21,29 +23,103 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+extern char **environ;
 
 #define TLSF_VERSION "0.1.0"
 
+// Render a (Boolean/LTL) node to a heap string in the ltlxba/ltl dialect, with
+// any trailing newline stripped (for ltlsynt --formula=).
+static char *ltl_string(const Node *n, LtlFormat fmt, bool finite) {
+  char *buf = nullptr;
+  size_t sz = 0;
+  FILE *ms = open_memstream(&buf, &sz);
+  if (!ms)
+    return nullptr;
+  print_ltl(ms, n, fmt, /*full_parens=*/false, finite);
+  fclose(ms);
+  if (sz && buf[sz - 1] == '\n')
+    buf[sz - 1] = '\0';
+  return buf;
+}
+
+// Synthesize one cluster with ltlsynt --aiger; returns its strategy AIG (caller
+// frees), nullptr on failure (and sets *unreal=1 if ltlsynt said UNREALIZABLE).
+static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
+                        const char *ltl, int *unreal) {
+  *unreal = 0;
+  FILE *cap = tmpfile();
+  if (!cap)
+    return nullptr;
+  char *ai = malloc(strlen(ins) + 8), *ao = malloc(strlen(outs) + 9),
+       *af = malloc(strlen(ltl) + 12);
+  if (!ai || !ao || !af) {
+    free(ai);
+    free(ao);
+    free(af);
+    fclose(cap);
+    return nullptr;
+  }
+  sprintf(ai, "--ins=%s", ins);
+  sprintf(ao, "--outs=%s", outs);
+  sprintf(af, "--formula=%s", ltl);
+  char *argv[] = {(char *)prog, ai, ao, af, (char *)"--aiger", nullptr};
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_adddup2(&fa, fileno(cap), 1);
+  pid_t pid;
+  int rc = posix_spawnp(&pid, prog, &fa, nullptr, argv, environ);
+  posix_spawn_file_actions_destroy(&fa);
+  free(ai);
+  free(ao);
+  free(af);
+  if (rc != 0) {
+    fclose(cap);
+    return nullptr; // ltlsynt not found / not executable
+  }
+  int status;
+  waitpid(pid, &status, 0);
+  char line[64];
+  fseek(cap, 0, SEEK_SET);
+  if (fgets(line, sizeof line, cap) && strncmp(line, "UNREALIZABLE", 12) == 0) {
+    *unreal = 1;
+    fclose(cap);
+    return nullptr;
+  }
+  fseek(cap, 0, SEEK_SET); // aig_read_aag skips a leading REALIZABLE line
+  Aig *g = aig_read_aag(cap);
+  fclose(cap);
+  return g;
+}
+
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Decomposed-synthesis plan: certified controllers + residual "
-          "clusters.\n"
-          "  --split                      decompose constraints first\n"
-          "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
-          "  --output-dir DIR             write controllers.txt, cluster.<k>"
-          ".ltl, compose.sh\n"
-          "  --overwrite-semantics VALUE  replace SEMANTICS\n"
-          "  --overwrite-target VALUE     replace TARGET\n"
-          "  --param NAME=VALUE           override a parameter (repeatable)\n"
-          "  --output FILE                write the plan to FILE (default "
-          "stdout)\n"
-          "  --version, --help\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Decomposed-synthesis plan: certified controllers + residual "
+      "clusters.\n"
+      "  --split                      decompose constraints first\n"
+      "  --aiger                      emit one merged controller (AIGER aag)"
+      " via ltlsynt\n"
+      "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
+      "$LTLSYNT or PATH)\n"
+      "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
+      "  --output-dir DIR             write controllers.txt, cluster.<k>"
+      ".ltl, compose.sh\n"
+      "  --overwrite-semantics VALUE  replace SEMANTICS\n"
+      "  --overwrite-target VALUE     replace TARGET\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --output FILE                write the plan to FILE (default "
+      "stdout)\n"
+      "  --version, --help\n",
+      prog);
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -90,10 +166,10 @@ static void compose_sh_header(FILE *sh) {
 }
 
 int main(int argc, char *argv[]) {
-  bool split = false;
+  bool split = false, aiger = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
-  const char *os_arg = nullptr, *ot_arg = nullptr;
+  const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -107,6 +183,10 @@ int main(int argc, char *argv[]) {
     const char *a = argv[i];
     if (strcmp(a, "--split") == 0) {
       split = true;
+    } else if (strcmp(a, "--aiger") == 0) {
+      aiger = true;
+    } else if (strcmp(a, "--ltlsynt") == 0) {
+      ltlsynt_path = NEED_ARG();
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -224,6 +304,90 @@ int main(int argc, char *argv[]) {
   uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
   uint32_t *keys = nullptr;
   uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
+  bool *seen = calloc(A ? A : 1, sizeof(bool));
+
+  // --aiger: synthesize each cluster with ltlsynt and merge with the
+  // combinational controllers into one AIGER controller over the full
+  // interface.
+  if (aiger) {
+    const char *env = getenv("LTLSYNT");
+    const char *prog = ltlsynt_path    ? ltlsynt_path
+                       : (env && *env) ? env
+                                       : "ltlsynt";
+    Aig *g = aig_new();
+    for (uint32_t o = 0; o < A; o++) // all spec inputs
+      if (ap_table_flags(&cov->aps, o) & AP_FLAG_INPUT)
+        (void)aig_input(g, ap_table_name(&cov->aps, o));
+
+    // Clusters first (so a decoder reading a synthesized output resolves).
+    for (uint32_t k = 0; k < K && rc == 0; k++) {
+      Node *root =
+          residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+      if (!root) {
+        rc = 1;
+        break;
+      }
+      char *ltl = ltl_string(root, fmt, finite);
+      // Build ins/outs CSV via memstreams.
+      char *ins = nullptr, *outs = nullptr;
+      size_t isz = 0, osz = 0;
+      FILE *fi = open_memstream(&ins, &isz), *fo = open_memstream(&outs, &osz);
+      residual_print_signals(fi, cov, seen, AP_FLAG_INPUT);
+      residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
+      fclose(fi);
+      fclose(fo);
+      int unreal = 0;
+      Aig *sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, &unreal) : nullptr;
+      free(ltl);
+      free(ins);
+      free(outs);
+      if (unreal) {
+        fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE\n", k);
+        rc = 1;
+      } else if (!sub) {
+        fprintf(stderr,
+                "tlsfcompose: ltlsynt failed or not found (set --ltlsynt)\n");
+        rc = 1;
+      } else if (!aig_merge(g, sub)) {
+        fprintf(stderr, "tlsfcompose: AIGER merge failed for cluster %u\n", k);
+        rc = 1;
+      }
+      aig_free(sub);
+    }
+    // Combinational controllers: ground their values, compile, drive outputs.
+    for (uint32_t k = 0; k < comp->nelim && rc == 0; k++) {
+      const Node *v =
+          residual_apply_elims(spec->arena, comp->elim[k].value, comp, cov);
+      uint32_t lit = aig_compile(g, v);
+      if (lit == UINT32_MAX) {
+        fprintf(stderr, "tlsfcompose: cannot encode controller for %s\n",
+                ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output));
+        rc = 1;
+        break;
+      }
+      aig_set_output(
+          g, ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output), lit);
+    }
+    // Any unconstrained output: drive to false.
+    for (uint32_t o = 0; o < A && rc == 0; o++)
+      if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) &&
+          aig_lookup(g, ap_table_name(&cov->aps, o)) == UINT32_MAX)
+        aig_set_output(g, ap_table_name(&cov->aps, o), AIG_FALSE);
+
+    if (rc == 0)
+      aig_write_aag(out, g);
+    aig_free(g);
+    free(seen);
+    free(rf);
+    free(key);
+    free(keys);
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return rc;
+  }
 
   fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim, K);
 
@@ -262,7 +426,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  bool *seen = calloc(A ? A : 1, sizeof(bool));
   for (uint32_t k = 0; k < K && rc == 0; k++) {
     Node *root =
         residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
