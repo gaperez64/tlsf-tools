@@ -7,12 +7,11 @@
 /// controllers plus a controller for this residual realise the whole spec.
 
 #include "tlsf/cli.h"
-#include "tlsf/classify.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/recognize.h"
-#include "tlsf/rewrite.h"
+#include "tlsf/residual.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
@@ -62,118 +61,6 @@ static bool parse_override(const char *s, ParamOverride *out) {
   out->name = name;
   out->value = (int64_t)val;
   return true;
-}
-
-// Map a constraint Role to its destination section list in the spec.
-static FormulaList *role_list(TlsfSpec *spec, Role role) {
-  switch (role) {
-  case TLSF_ROLE_INITIALLY:
-    return &spec->initially;
-  case TLSF_ROLE_PRESET:
-    return &spec->preset;
-  case TLSF_ROLE_REQUIRE:
-    return &spec->require;
-  case TLSF_ROLE_ASSERT:
-    return &spec->assert_;
-  case TLSF_ROLE_ASSUME:
-    return &spec->assume;
-  case TLSF_ROLE_GUARANTEE:
-  default:
-    return &spec->guarantee;
-  }
-}
-
-// Apply every eliminated-output substitution to `n` (the elimination set is
-// acyclic, so nelim+1 passes reach a fixpoint with all eliminated outputs
-// gone).
-static const Node *apply_elims(Arena *a, const Node *n,
-                               const CsnfComposition *comp,
-                               ConstraintCover *cov) {
-  for (uint32_t pass = 0; pass <= comp->nelim; pass++)
-    for (uint32_t k = 0; k < comp->nelim; k++)
-      n = node_subst(a, n,
-                     ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output),
-                     comp->elim[k].value);
-  return n;
-}
-
-// Mark every AP occurring in `n` in `seen`.
-static void collect_aps(const Node *n, ConstraintCover *cov, bool *seen) {
-  switch (n->kind) {
-  case NODE_AP: {
-    int32_t i = ap_table_find(&cov->aps, n->name);
-    if (i >= 0)
-      seen[i] = true;
-    return;
-  }
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    collect_aps(n->arg, cov, seen);
-    return;
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    collect_aps(n->lhs, cov, seen);
-    collect_aps(n->rhs, cov, seen);
-    return;
-  default:
-    return;
-  }
-}
-
-// Print the residual signals (in `seen`) carrying `flag`, comma-separated.
-static void print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
-                          uint8_t flag) {
-  bool first = true;
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & flag))
-      continue;
-    fprintf(out, "%s%s", first ? "" : ",", ap_table_name(&cov->aps, a));
-    first = false;
-  }
-}
-
-static uint32_t uf_find(uint32_t *p, uint32_t x) {
-  while (p[x] != x) {
-    p[x] = p[p[x]];
-    x = p[x];
-  }
-  return x;
-}
-
-// Rebuild the spec's section lists from the residual constraints belonging to
-// cluster `kk` (or all residual when `all`), always including the global
-// environment (key == UINT32_MAX), and assemble the cluster's LTL formula.
-// `seen` (length aps.count) is filled with the APs the formula mentions.
-static Node *build_cluster(TlsfSpec *spec, ConstraintCover *cov,
-                           const Node **rf, const uint32_t *key, uint32_t kk,
-                           bool all, uint32_t n, bool *seen) {
-  spec->initially.count = spec->require.count = spec->assume.count = 0;
-  spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
-  memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
-  for (uint32_t i = 0; i < n; i++) {
-    if (!rf[i] || !(all || key[i] == kk || key[i] == UINT32_MAX))
-      continue;
-    collect_aps(rf[i], cov, seen);
-    (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
-                            (Node *)rf[i]);
-  }
-  ClassifiedSpec *cs = classify_spec(spec);
-  if (!cs)
-    return nullptr;
-  Node *root = build_spec_formula(spec, cs, PRINT_ALL);
-  if (semantics_is_finite(spec->info.semantics))
-    root = apply_rewrites(spec->arena, root,
-                          RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
-  return root;
 }
 
 int main(int argc, char *argv[]) {
@@ -311,92 +198,40 @@ int main(int argc, char *argv[]) {
   const Node **rf = calloc(N ? N : 1, sizeof(Node *));
   for (uint32_t i = 0; i < N; i++)
     if (comp->residual_constraint[i])
-      rf[i] = apply_elims(spec->arena, cov->items[i].formula, comp, cov);
+      rf[i] =
+          residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
 
   bool *seen = calloc(A ? A : 1, sizeof(bool));
+  bool finite = semantics_is_finite(spec->info.semantics);
 
   if (single) {
-    Node *root =
-        build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true, N, seen);
+    Node *root = residual_build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true,
+                                        N, seen);
     if (!root) {
       rc = 1;
     } else {
       fprintf(out, "c outs=");
-      print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+      residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
       fprintf(out, "\nc ins=");
-      print_signals(out, cov, seen, AP_FLAG_INPUT);
+      residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
-      print_ltl(out, root, fmt, /*full_parens=*/false,
-                semantics_is_finite(spec->info.semantics));
+      print_ltl(out, root, fmt, /*full_parens=*/false, finite);
     }
   } else {
     // Cluster residual constraints by shared output (output-disjoint
-    // decomposition: E -> AND Gi == AND (E -> Gi)).  Pure-input environment
-    // constraints have no output and are replicated into every cluster.
-    uint32_t *parent = malloc((A ? A : 1) * sizeof(uint32_t));
-    for (uint32_t a = 0; a < A; a++)
-      parent[a] = a;
-    for (uint32_t i = 0; i < N; i++) {
-      if (!rf[i])
-        continue;
-      memset(seen, 0, A);
-      collect_aps(rf[i], cov, seen);
-      int64_t first = -1;
-      for (uint32_t a = 0; a < A; a++) {
-        if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
-          continue;
-        if (first < 0)
-          first = (int64_t)a;
-        else {
-          uint32_t ra = uf_find(parent, a),
-                   rb = uf_find(parent, (uint32_t)first);
-          if (ra != rb)
-            parent[ra] = rb;
-        }
-      }
-    }
-    // Per-constraint cluster key: its output component, or a sentinel for an
-    // input-only system obligation, or UINT32_MAX for global environment.
+    // decomposition: E -> AND Gi == AND (E -> Gi)).
     uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
-    for (uint32_t i = 0; i < N; i++) {
-      key[i] = UINT32_MAX;
-      if (!rf[i])
-        continue;
-      memset(seen, 0, A);
-      collect_aps(rf[i], cov, seen);
-      int64_t first = -1;
-      for (uint32_t a = 0; a < A; a++)
-        if (seen[a] && (ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT)) {
-          first = (int64_t)a;
-          break;
-        }
-      if (first >= 0)
-        key[i] = uf_find(parent, (uint32_t)first);
-      else if (!cov->items[i].assumption_side)
-        key[i] = A; // input-only system obligation: its own cluster
-    }
-    // Distinct, non-global cluster keys.
-    uint32_t *keys = malloc((N + 1) * sizeof(uint32_t));
-    uint32_t K = 0;
-    for (uint32_t i = 0; i < N; i++) {
-      if (key[i] == UINT32_MAX)
-        continue;
-      bool dup = false;
-      for (uint32_t j = 0; j < K; j++)
-        if (keys[j] == key[i])
-          dup = true;
-      if (!dup)
-        keys[K++] = key[i];
-    }
+    uint32_t *keys = nullptr;
+    uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
 
     fprintf(out, "c clusters %u\n", K);
     for (uint32_t k = 0; k < K && rc == 0; k++) {
-      Node *root = build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+      Node *root =
+          residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
       if (!root) {
         rc = 1;
         break;
       }
-      bool finite = semantics_is_finite(spec->info.semantics);
       if (out_dir) {
         char path[4096];
         snprintf(path, sizeof path, "%s/residual.%u.ltl", out_dir, k);
@@ -407,27 +242,26 @@ int main(int argc, char *argv[]) {
           break;
         }
         fprintf(cf, "c outs=");
-        print_signals(cf, cov, seen, AP_FLAG_OUTPUT);
+        residual_print_signals(cf, cov, seen, AP_FLAG_OUTPUT);
         fprintf(cf, "\nc ins=");
-        print_signals(cf, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals(cf, cov, seen, AP_FLAG_INPUT);
         fprintf(cf, "\n");
         print_ltl(cf, root, fmt, false, finite);
         fclose(cf);
         fprintf(out, "c cluster %u file=residual.%u.ltl outs=", k, k);
-        print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+        residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
         fprintf(out, " ins=");
-        print_signals(out, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
         fprintf(out, "\n");
       } else {
         fprintf(out, "c cluster %u outs=", k);
-        print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+        residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
         fprintf(out, " ins=");
-        print_signals(out, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
         fprintf(out, "\n");
         print_ltl(out, root, fmt, false, finite);
       }
     }
-    free(parent);
     free(key);
     free(keys);
   }

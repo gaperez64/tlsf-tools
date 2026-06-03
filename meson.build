@@ -114,6 +114,7 @@ lib_sources = [
   'src/graph.c',
   'src/wl.c',
   'src/templates.c',
+  'src/residual.c',
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
@@ -202,6 +203,14 @@ tlsfnorm_exe = executable(
 tlsfresidual_exe = executable(
   'tlsfresidual',
   sources: ['src/main_tlsfresidual.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
+tlsfcompose_exe = executable(
+  'tlsfcompose',
+  sources: ['src/main_tlsfcompose.c', bison_out[1]],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -402,6 +411,11 @@ endforeach
 test('residual_single', check,
   args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
          '--single', files('test/cases/cluster_split.tlsf')])
+foreach name : ['compose_demo', 'cluster_split']
+  test('compose_' + name, check,
+    args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
+           files('test/cases/' + name + '.tlsf')])
+endforeach
 test('tmpl_sat_unimplemented', xfail,
   args: [tlsftemplates_exe, '--side-conditions', 'sat',
          files('test/cases/def_demo.tlsf')])

@@ -15,6 +15,7 @@ Format) specifications, sharing a common C library.
 | `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
 | `tlsfnorm`  | TLSF 1.1/1.2 spec | Local normalization (split / nnf / boolean passes), re-emitted as TLSF |
 | `tlsfresidual` | TLSF 1.1/1.2 spec | The residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`) |
+| `tlsfcompose` | TLSF 1.1/1.2 spec | Decomposed-synthesis plan: certified controllers + residual clusters + a `compose.sh` driver |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -50,7 +51,7 @@ Requires a C23 compiler, [meson](https://mesonbuild.com/),
 ```sh
 meson setup build
 ninja -C build
-# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph,tlsfnorm,tlsfresidual}
+# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,tlsfbenchgraph,tlsfnorm,tlsfresidual,tlsfcompose}
 ```
 
 With sanitizers:
@@ -338,9 +339,29 @@ plus a controller per cluster realise the whole spec.
 **Honest caveat (see [`BENCHGRAPH.md`](BENCHGRAPH.md)):** composability is the
 *soundness* fix, not a *coverage* fix. Over the SYNTCOMP corpus only ~0.4–0.6 %
 of constraints are eliminated and no spec is fully solved — real specs are mostly
-non-template safety constraints plus assumptions. Broadening the library and
-solving safety sub-games (and `tlsfcompose` / the `--from-gsnf` reader) are the
-next milestones.
+non-template safety constraints plus assumptions. A genuine safety-game backend
+(not more syntactic templates) is the open coverage lever.
+
+### Decomposed synthesis (`tlsfcompose`)
+
+`tlsfcompose` turns the decomposition into a runnable synthesis plan, while
+staying fully self-contained (it never spawns a process). It emits the certified
+**combinational controllers** as exact assignments (`o := θ`), the rest of the
+spec as independent **residual clusters** (one LTL job each), and — with
+`--output-dir` — a generated **`compose.sh`** that runs `ltlsynt` per cluster:
+
+```sh
+tlsfcompose spec.tlsf                      # plan on stdout (controllers + clusters)
+tlsfcompose --output-dir out/ spec.tlsf    # controllers.txt, cluster.<k>.ltl, compose.sh
+sh out/compose.sh                          # runs ltlsynt per cluster -> overall verdict
+```
+
+The spec is **realizable iff every cluster is** (the combinational controllers
+are exact), so the per-cluster `ltlsynt` results compose into a verdict and a
+full strategy = the emitted controllers ⊕ one controller per cluster. Liveness
+templates (fair server/arbiter) are routed to `ltlsynt` via the residual rather
+than hand-encoded as circuits; a single merged AIGER and a safety-game backend
+are the next milestones.
 
 ### Corpus statistics (`tlsfbenchgraph`)
 
