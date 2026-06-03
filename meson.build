@@ -388,6 +388,18 @@ test('norm_split', check,
   args: [files('test/cases/arbiter1formula.norm.tlsf'),
          tlsfnorm_exe, '--passes', 'split',
          files('test/cases/arbiter1formula.tlsf')])
+test('norm_nnf_boolean', check,
+  args: [files('test/cases/arbiter1formula.nnfbool.tlsf'),
+         tlsfnorm_exe, '--passes', 'nnf,boolean',
+         files('test/cases/arbiter1formula.tlsf')])
+test('norm_trace', check,
+  args: [files('test/cases/arbiter1formula.trace.txt'),
+         tlsfnorm_exe, '--passes', 'split', '--format', 'trace',
+         files('test/cases/arbiter1formula.tlsf')])
+test('norm_param', check,
+  args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
+         tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
+         files('test/cases/mutual_exclusion.tlsf')])
 test('norm_macro_unimplemented', xfail,
   args: [tlsfnorm_exe, '--passes', 'macro',
          files('test/cases/arbiter1formula.tlsf')])

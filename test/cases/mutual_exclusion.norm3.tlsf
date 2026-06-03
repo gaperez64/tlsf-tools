@@ -1,0 +1,24 @@
+INFO {
+  TITLE:       "mx";
+  DESCRIPTION: "d";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+MAIN {
+
+  INPUTS {
+    x;
+  }
+
+  OUTPUTS {
+    b_0;
+    b_1;
+    b_2;
+  }
+
+    GUARANTEE {
+      G ((((!(b_0) && !(b_1)) && true) || (((!(b_0) && true) || (true && !(b_1))) && !(b_2))));
+    }
+
+}
