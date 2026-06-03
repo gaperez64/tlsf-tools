@@ -11,4 +11,3 @@ bc 1 c1
 cl 1 G !o
 do o
 r c1
-composition: residual=1 conflicts=0 accepted=1

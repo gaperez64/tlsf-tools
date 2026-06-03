@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "inv_valid"
+  DESCRIPTION: "G(a || !a) is a tautology over inputs -> discharged"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (a || !a);
+  }
+}

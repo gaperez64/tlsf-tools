@@ -254,6 +254,11 @@ anything else.
   exclusive, `o` free); cert `reaction_consistency`.
 - **mutex** `G atMostOne(…)` → *certified* safety invariant (`mutex_safety`),
   not solved on its own.
+- **safety-invariant** `G(B)`, `B` temporal-free — the general stateless case:
+  a memoryless Skolem `o := ¬B[o:=⊥]` (single- and multi-output) when its
+  outputs are free and `∀inputs∃outputs.B` (a bounded propositional check); cert
+  `safety_invariant`. (Real specs are mostly *stateful* safety, so this is a
+  small slice — genuine safety-game solving is the open lever.)
 
 *Guarantee / Persistence (free liveness output → constant `o := true`):*
 

@@ -1,7 +1,7 @@
 file	parse_status	inputs	outputs	constraints	safety	liveness	response	mutex	recurrence	persistence	guarded_next	definition	template_candidates	solved_blocks	certified_blocks	dependent_outputs	residual_constraints	largest_output_component	formula_size_raw	formula_size_norm	wl_stab_depth	fully_solved	conflicts	eliminated_constraints	owned_outputs
-arbiter2.tlsf	ok	2	2	3	1	2	2	1	0	0	0	0	3	1	0	0	0	2	15	18	1	1	0	3	2
-def_demo.tlsf	ok	2	1	1	1	0	0	0	0	0	0	1	1	1	0	1	0	1	6	15	1	1	0	1	1
-roundrobin2.tlsf	ok	1	2	3	1	2	0	1	2	0	0	0	3	1	0	0	0	2	11	12	1	1	0	3	2
+arbiter2.tlsf	ok	2	2	3	1	2	2	1	0	0	0	0	4	1	0	0	0	2	15	18	1	1	0	3	2
+def_demo.tlsf	ok	2	1	1	1	0	0	0	0	0	0	1	2	1	0	1	0	1	6	15	1	1	0	1	1
+roundrobin2.tlsf	ok	1	2	3	1	2	0	1	2	0	0	0	4	1	0	0	0	2	11	12	1	1	0	3	2
 # summary: 3 parsed, 0 failed (of 3)
 # total candidates: response=2 mutex=2 recurrence=2 persistence=0 guarded_next=0 definition=1
 # total blocks: solved=3 certified=0

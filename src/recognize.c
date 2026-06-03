@@ -132,6 +132,39 @@ static void match_definition(ConstraintCover *cov, Constraint *c) {
   }
 }
 
+// True if `n` mentions any temporal operator (so it is not purely Boolean).
+static bool has_temporal(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return true;
+  case NODE_NOT:
+    return has_temporal(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return has_temporal(n->lhs) || has_temporal(n->rhs);
+  default:
+    return false;
+  }
+}
+
+// G(B) with B a temporal-free Boolean body: a stateless safety invariant.
+static void match_invariant(ConstraintCover *cov, Constraint *c) {
+  if (c->formula->kind != NODE_G)
+    return;
+  if (has_temporal(c->formula->arg))
+    return;
+  constraint_add_candidate(cov, c, "safety-invariant");
+}
+
 // Collect a mutex written as a conjunction of !(x && y) leaves.
 static bool mutex_leaves(ConstraintCover *cov, Constraint *c, const Node *n) {
   if (n->kind == NODE_AND)
@@ -228,6 +261,7 @@ void recognize_all(ConstraintCover *cov) {
     match_delayed_definition(cov, c);
     match_reaction(cov, c);
     match_mutex(cov, c);
+    match_invariant(cov, c);
   }
   build_blocks(cov);
 }

@@ -2,6 +2,7 @@
 #include "tlsf/templates.h"
 
 #include "tlsf/print_ltlxba.h"
+#include "tlsf/rewrite.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -16,8 +17,9 @@ const char *const TEMPLATE_NAMES[] = {"definition",
                                       "response",
                                       "arbiter",
                                       "persistence",
-                                      "reachability"};
-const int TEMPLATE_NAMES_COUNT = 11;
+                                      "reachability",
+                                      "safety-invariant"};
+const int TEMPLATE_NAMES_COUNT = 12;
 
 // ---------------------------------------------------------------------------
 // CSNF model
@@ -48,6 +50,9 @@ typedef struct {
   uint32_t asg_nguards;
   int32_t reg_output; // delayed-definition register output (-1 none)
   const Node *reg_theta;
+  int32_t *inv_outputs;    // safety-invariant Skolem'd outputs
+  const Node **inv_values; // their inputs-only Skolem values (o := inv_value)
+  uint32_t inv_n;
 } Block;
 
 struct Csnf {
@@ -774,6 +779,181 @@ static void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stateless safety invariant: G(B), B temporal-free.  When the outputs in B are
+// free, a memoryless Skolem controller realises it iff forall inputs exists
+// outputs B; the outputs are then eliminated from the residual by substitution.
+// ---------------------------------------------------------------------------
+
+// Evaluate a temporal-free Boolean node under `val` (indexed by AP index).
+static bool eval_bool(ConstraintCover *cov, const Node *n, const bool *val) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_FALSE:
+    return false;
+  case NODE_AP: {
+    int32_t i = ap_table_find(&cov->aps, n->name);
+    return i >= 0 && val[i];
+  }
+  case NODE_NOT:
+    return !eval_bool(cov, n->arg, val);
+  case NODE_AND:
+    return eval_bool(cov, n->lhs, val) && eval_bool(cov, n->rhs, val);
+  case NODE_OR:
+    return eval_bool(cov, n->lhs, val) || eval_bool(cov, n->rhs, val);
+  case NODE_IMPL:
+    return !eval_bool(cov, n->lhs, val) || eval_bool(cov, n->rhs, val);
+  case NODE_EQUIV:
+    return eval_bool(cov, n->lhs, val) == eval_bool(cov, n->rhs, val);
+  default:
+    return false; // temporal-free guaranteed by the recognizer
+  }
+}
+
+// True if `B` holds for every assignment of `vars` (a bounded tautology test).
+static bool is_taut(ConstraintCover *cov, const Node *B, const uint32_t *vars,
+                    uint32_t nv) {
+  bool *val = calloc(cov->aps.count ? cov->aps.count : 1, sizeof(bool));
+  if (!val)
+    return false;
+  bool taut = true;
+  for (uint64_t m = 0; m < (1ull << nv) && taut; m++) {
+    for (uint32_t b = 0; b < nv; b++)
+      val[vars[b]] = (m >> b) & 1;
+    if (!eval_bool(cov, B, val))
+      taut = false;
+  }
+  free(val);
+  return taut;
+}
+
+// forall input assignment, exists output assignment making B true.
+static bool forall_exists(ConstraintCover *cov, const Node *B,
+                          const uint32_t *ins, uint32_t ni,
+                          const uint32_t *outs, uint32_t no) {
+  bool *val = calloc(cov->aps.count ? cov->aps.count : 1, sizeof(bool));
+  if (!val)
+    return false;
+  bool ok = true;
+  for (uint64_t im = 0; im < (1ull << ni) && ok; im++) {
+    for (uint32_t b = 0; b < ni; b++)
+      val[ins[b]] = (im >> b) & 1;
+    bool exists = false;
+    for (uint64_t om = 0; om < (1ull << no) && !exists; om++) {
+      for (uint32_t b = 0; b < no; b++)
+        val[outs[b]] = (om >> b) & 1;
+      if (eval_bool(cov, B, val))
+        exists = true;
+    }
+    if (!exists)
+      ok = false;
+  }
+  free(val);
+  return ok;
+}
+
+// exists (outputs q[0..nq)) B == OR over their 2^nq settings of B with them
+// fixed; result is a node over the remaining variables.
+static const Node *exists_outputs(Csnf *c, const Node *B, const uint32_t *q,
+                                  uint32_t nq) {
+  Arena *a = c->cov->arena;
+  const Node *acc = nullptr;
+  for (uint64_t m = 0; m < (1ull << nq); m++) {
+    const Node *t = B;
+    for (uint32_t b = 0; b < nq; b++)
+      t = node_subst(a, t, ap_table_name(&c->cov->aps, q[b]),
+                     ((m >> b) & 1) ? node_true(a) : node_false(a));
+    acc = acc ? node_or(a, (Node *)acc, (Node *)t) : t;
+  }
+  return acc ? acc : node_false(a);
+}
+
+// Sequential Skolem: fills vals[j] = an inputs-only node for output outs[j],
+// such that o_j := vals[j] satisfies B given forall_exists.  outs is sorted.
+static void skolem_values(Csnf *c, const Node *B, const uint32_t *outs,
+                          uint32_t no, const Node **vals) {
+  Arena *a = c->cov->arena;
+  for (uint32_t j = 0; j < no; j++) {
+    const Node *ej = exists_outputs(c, B, outs + j + 1, no - 1 - j);
+    const char *oname = ap_table_name(&c->cov->aps, outs[j]);
+    const Node *v =
+        node_not(a, (Node *)node_subst(a, ej, oname, node_false(a)));
+    for (uint32_t p = 0; p < j; p++) // ground the earlier outputs
+      v = node_subst(a, v, ap_table_name(&c->cov->aps, outs[p]), vals[p]);
+    vals[j] = apply_rewrites(a, (Node *)v, RW_SIMPLIFY_WEAK);
+  }
+}
+
+static void certify_invariant(Csnf *c, unsigned want, bool certify) {
+  if (want && !(want & TPL_INVARIANT))
+    return;
+  ConstraintCover *cov = c->cov;
+  uint32_t A = cov->aps.count;
+  bool moore = semantics_is_moore(cov->spec->info.semantics);
+  for (uint32_t i = 0; i < cov->count; i++) {
+    Constraint *cc = &cov->items[i];
+    if (c->claimed[i] || !has_cand(cc, "safety-invariant"))
+      continue;
+    const Node *B = cc->formula->arg; // G(B)
+    uint32_t outs[8];
+    uint32_t ins[64];
+    uint32_t no = 0, ni = 0;
+    bool too_many = false;
+    for (uint32_t a = 0; a < A; a++) {
+      if (apset_test(&cc->outputs, a)) {
+        if (no < 8)
+          outs[no++] = a;
+        else
+          too_many = true;
+      }
+      if (apset_test(&cc->inputs, a)) {
+        if (ni < 64)
+          ins[ni++] = a;
+        else
+          too_many = true;
+      }
+    }
+    bool freeo = true;
+    for (uint32_t j = 0; j < no && freeo; j++)
+      freeo = output_is_free(cov, &i, 1, outs[j]);
+
+    Block *blk = new_block(c);
+    if (!blk)
+      return;
+    blk->name = "safety-invariant";
+    blk->cids = malloc(sizeof(uint32_t));
+    blk->cids[0] = i;
+    blk->ncids = 1;
+    bool solved = false;
+    if (certify && !moore && freeo && !too_many && no <= 4 && ni + no <= 18) {
+      if (no == 0) {
+        if (is_taut(cov, B, ins, ni)) {
+          blk->status = CSNF_SOLVED;
+          blk->cert = "invariant_valid";
+          solved = true;
+        }
+      } else if (forall_exists(cov, B, ins, ni, outs, no)) {
+        const Node **vals = malloc(no * sizeof(Node *));
+        skolem_values(c, B, outs, no, vals);
+        blk->inv_outputs = malloc(no * sizeof(int32_t));
+        for (uint32_t j = 0; j < no; j++)
+          blk->inv_outputs[j] = (int32_t)outs[j];
+        blk->inv_values = vals;
+        blk->inv_n = no;
+        blk->status = CSNF_SOLVED;
+        blk->cert = "safety_invariant";
+        solved = true;
+      }
+    }
+    if (solved)
+      c->solved[i] = true;
+    else
+      blk->status = CSNF_CANDIDATE;
+    c->claimed[i] = true;
+  }
+}
+
 Csnf *templates_certify(ConstraintCover *cov, unsigned want, bool certify) {
   Csnf *c = calloc(1, sizeof *c);
   if (!c)
@@ -796,6 +976,9 @@ Csnf *templates_certify(ConstraintCover *cov, unsigned want, bool certify) {
   certify_persistence(c, want, certify);
   certify_reachability(c, want, certify);
   certify_mutex(c, want, certify);
+  // Generic stateless safety invariant: least specific, so it only grabs
+  // propositional leftovers no named template (incl. mutex) claimed.
+  certify_invariant(c, want, certify);
   return c;
 }
 
@@ -808,6 +991,8 @@ void csnf_free(Csnf *c) {
     free(c->blocks[i].nsf_guards);
     free(c->blocks[i].arb_outputs);
     free(c->blocks[i].asg_guards);
+    free(c->blocks[i].inv_outputs);
+    free(c->blocks[i].inv_values);
   }
   free(c->blocks);
   free(c->solved);
@@ -918,6 +1103,9 @@ static const Node *block_comb_value(const Csnf *c, const Block *b, int32_t o) {
       acc = node_or(a, acc, (Node *)b->asg_guards[g]);
     return acc; // reaction o := OR(true-guards)
   }
+  for (uint32_t k = 0; k < b->inv_n; k++)
+    if (b->inv_outputs[k] == o)
+      return b->inv_values[k]; // safety-invariant Skolem
   return nullptr;
 }
 
@@ -1227,6 +1415,13 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
                 ap_table_name(&cov->aps, (uint32_t)b->reg_output),
                 th ? th : "");
         free(th);
+      }
+      for (uint32_t k = 0; k < b->inv_n; k++) {
+        char *v = formula_str(b->inv_values[k]);
+        fprintf(out, "inv %u %s %s\n", i,
+                ap_table_name(&cov->aps, (uint32_t)b->inv_outputs[k]),
+                v ? v : "");
+        free(v);
       }
     }
     if (b->cert)

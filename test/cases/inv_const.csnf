@@ -1,0 +1,13 @@
+c CSNF for inv_const.tlsf
+p csnf 2 0 0 0
+m semantics Mealy
+b 0 solved safety-invariant
+bc 0 c0
+inv 0 o true
+cert 0 safety_invariant
+cl 0 G o
+b 1 solved safety-invariant
+bc 1 c1
+inv 1 o2 false
+cert 1 safety_invariant
+cl 1 G !o2

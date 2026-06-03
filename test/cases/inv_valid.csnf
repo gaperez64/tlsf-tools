@@ -1,0 +1,7 @@
+c CSNF for inv_valid.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved safety-invariant
+bc 0 c0
+cert 0 invariant_valid
+cl 0 G (a || !a)

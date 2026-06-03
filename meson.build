@@ -371,7 +371,8 @@ test('tmpl_guarded_next_declined', check_wl,
 # fair arbiter — each with a solved and a declined (non-free / non-exclusive) case.
 foreach name : ['reach_free', 'reach_blocked', 'persist_free', 'reaction_ok',
                 'reaction_unsafe', 'ddef_demo', 'response_free',
-                'response_blocked']
+                'response_blocked', 'inv_const', 'inv_skolem', 'inv_multi',
+                'inv_decline', 'inv_valid']
   test('tmpl_' + name, check_wl,
     args: [files('test/cases/' + name + '.csnf'), tlsftemplates_exe,
            '--certify', '--solve', '--format', 'csnf',
@@ -393,7 +394,7 @@ endforeach
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
                 'server_merge', 'arbiter_nomutex', 'cluster_split',
-                'cluster_assume']
+                'cluster_assume', 'inv_skolem', 'inv_multi', 'inv_decline']
   test('residual_' + name, check,
     args: [files('test/cases/' + name + '.residual'), tlsfresidual_exe,
            files('test/cases/' + name + '.tlsf')])

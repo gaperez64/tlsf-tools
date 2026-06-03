@@ -1,0 +1,4 @@
+c composition: residual=1/1 constraints (0% eliminated), outputs owned=0, conflicts=0
+c clusters 1
+c cluster 0 outs=o ins=a
+G (o && a)

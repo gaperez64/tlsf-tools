@@ -91,6 +91,8 @@ static unsigned tpl_bit(const char *s) {
     return TPL_REACTION;
   if (!strcmp(s, "delayed-definition"))
     return TPL_DELAYED_DEF;
+  if (!strcmp(s, "safety-invariant"))
+    return TPL_INVARIANT;
   return 0;
 }
 

@@ -14,6 +14,7 @@ k c1 response
 f c1 G (req1 -> F grant1)
 n c2 GUARANTEE safety
 k c2 mutex
+k c2 safety-invariant
 f c2 G !(grant0 && grant1)
 e c0 req0 occurs_in
 e c0 grant0 occurs_in

@@ -71,7 +71,7 @@ _Cells: number of specs exhibiting the shape, and (total candidate count)._
 
 | corpus | solved blocks | certified | specs ≥1 solved | specs fully solved | constraints eliminated | outputs owned |
 |---|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 443 | 14 | 147 | 0 | 0.4 % (326/90855) | 2.2 % (316/14463) |
+| `tlsf` | 500 | 14 | 200 | 0 | 0.4 % (383/90855) | 2.2 % (316/14463) |
 | `tlsf-fin` | 305 | 426 | 89 | 0 | 0.6 % (219/34352) | 0.2 % (219/132149) |
 
 _"constraints eliminated" / "outputs owned" are the **residual reduction**:
@@ -82,16 +82,26 @@ constraints discharged and outputs determined by a sound composable controller
 
 The certified template library spans the Manna–Pnueli safety–progress hierarchy
 ([spot's classes](https://spot.lre.epita.fr/hierarchy.html)): **safety**
-(definition / delayed-definition / guarded-next / reaction / mutex),
-**guarantee** (`F o`), **persistence** (`FG o`) and **recurrence** (response /
-round-robin / arbiter). The controllers are now **composable**: combinational
-decoders (`o:=θ`, `o:=true`, `o:=⋁guards`) are *eliminated from the residual by
+(definition / delayed-definition / guarded-next / reaction / mutex / a general
+stateless **safety-invariant** `G(B)`), **guarantee** (`F o`), **persistence**
+(`FG o`) and **recurrence** (response / round-robin / arbiter). The controllers
+are **composable**: combinational decoders (`o:=θ`, `o:=true`, `o:=⋁guards`, and
+the invariant Skolem `o:=¬B[o:=⊥]`) are *eliminated from the residual by
 substitution*, and responses on a shared grant are merged into one **fair
 server** rather than the monopolizing `o:=true`.
 
+The stateless safety-invariant `G(B)` (B temporal-free) is solved by a
+memoryless Skolem controller when its outputs are free and `∀inputs∃outputs.B`
+(a bounded propositional check); single- and multi-output. It is the most
+general safety template, but on the corpus it barely moves the needle (`tlsf`
+constraints eliminated 326→383, `tlsf-fin` +0): almost all real safety either
+couples outputs read elsewhere or is **stateful** (mentions `X`), which a
+*stateless* invariant cannot claim. Confirms that the coverage lever is genuine
+**safety-game solving**, not more syntactic templates.
+
 ## Composable certification & residual reduction (`tlsfresidual`)
 
-Each block is certified *locally*; "specs with ≥1 solved block" (147 / 89) is a
+Each block is certified *locally*; "specs with ≥1 solved block" (200 / 89) is a
 floor, not a solved-spec count. The real measure is how much of the problem a
 **sound whole-spec decomposition** removes before handing off to a synthesizer:
 
@@ -116,10 +126,12 @@ Two honest findings:
    (mostly definitions); the bulk (~99 %) is the residual.
 
 So the answer to "what raises the statistics" is: **composition was necessary
-but not sufficient** — the ceiling is now template-library *breadth* and genuine
-safety/liveness solving, not the controllers' composability. `tlsfresidual`
-hands the (still large) residual to `ltlsynt`/`strix`; broadening the library or
-solving safety sub-games is the lever for the next milestone.
+but not sufficient**, and **more syntactic templates are not the lever either** —
+the general stateless safety-invariant added essentially nothing, because real
+safety is stateful (`X`) or output-coupled. The remaining lever is genuine
+**safety-game solving** (a fixpoint over a symbolic arena), not pattern matching.
+`tlsfresidual` hands the (still large, now clustered) residual to
+`ltlsynt`/`strix`; a real safety-game backend is the next milestone.
 
 ## Effect of constraint decomposition (`--split`)
 
@@ -180,9 +192,10 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
    requests, removing the old ejection pathology (`tlsf` conflicts 113 → 48).
    Yet **no spec is fully solved** and only **~0.4–0.6 % of constraints** are
    eliminated — real specs are dominated by non-template safety constraints and
-   `ASSUME` assumptions. Composition was the soundness fix; **template breadth /
-   sub-game solving** is the lever for coverage. The residual goes to a real
-   synthesizer (`tlsfresidual`).
+   `ASSUME` assumptions. Adding a general stateless safety-invariant template
+   (single+multi-output Skolem) changed almost nothing, confirming the remaining
+   lever is genuine **safety-game solving** (stateful), not more syntactic
+   templates. The residual goes to a real synthesizer (`tlsfresidual`).
 6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
 

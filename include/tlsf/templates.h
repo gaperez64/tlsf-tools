@@ -35,6 +35,7 @@ enum {
   TPL_REACHABILITY = 1u << 7,
   TPL_REACTION = 1u << 8,
   TPL_DELAYED_DEF = 1u << 9,
+  TPL_INVARIANT = 1u << 10,
   TPL_ALL = 0,
 };
 

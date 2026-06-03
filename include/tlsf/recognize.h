@@ -11,8 +11,8 @@
 /// `G(!(a && b) ...)`, pure-recurrence `G F x`, persistence `F G x`,
 /// reachability `F g`, guarded-next-assignment `G(alpha -> X o)`, reaction
 /// `G(alpha -> o)`, definition `G(o <-> theta)`, delayed-definition
-/// `G(X o <-> theta)`.  Multi-constraint block: responses + a grant mutex ⇒
-/// `arbiter_candidate`.
+/// `G(X o <-> theta)`, safety-invariant `G(B)` with `B` temporal-free.
+/// Multi-constraint block: responses + a grant mutex ⇒ `arbiter_candidate`.
 
 #include "tlsf/cover.h"
 

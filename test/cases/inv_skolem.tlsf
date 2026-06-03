@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "inv_skolem"
+  DESCRIPTION: "single-output stateless invariant G(o || a) -> o := !a"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (o || a);
+  }
+}

@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "inv_multi"
+  DESCRIPTION: "two free outputs in one stateless safety invariant"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o1; o2; }
+  GUARANTEE {
+    G ((o1 || a) && (o2 || !o1));
+  }
+}

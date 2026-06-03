@@ -1,9 +1,12 @@
 c CSNF for reach_blocked.tlsf
-p csnf 1 0 0 1
+p csnf 1 0 1 1
 m semantics Mealy
 b 0 solved reachability
 bc 0 c0
 one 0 o
 cert 0 reachability_oneshot
 cl 0 F o
+b 1 candidate safety-invariant
+bc 1 c1
+cl 1 G (o -> a)
 r c1

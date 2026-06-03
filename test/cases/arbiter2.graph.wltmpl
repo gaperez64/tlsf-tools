@@ -30,8 +30,8 @@ p wl 1 template
 v 2 0:AP:input
 v 2 0:AP:output
 v 2 0:GUARANTEE:liveness:response
-v 1 0:GUARANTEE:safety:mutex
-v 2 1:150126242b2c0bb3
+v 1 0:GUARANTEE:safety:mutex:safety-invariant
+v 1 1:3c2b941e05a170c0
 v 2 1:3d752a780db6df87
-v 1 1:b1bfe689b9ae4f6b
+v 2 1:96599823027850b5
 v 2 1:eff7482c754d55d6
