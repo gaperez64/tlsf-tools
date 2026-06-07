@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "aiger_unclassified_atom"
+  DESCRIPTION: "residual cluster with an unclassified enum-style atom"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE {
+    G (BURST4 -> X (grant && req));
+  }
+}

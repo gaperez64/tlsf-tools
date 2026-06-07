@@ -320,8 +320,8 @@ int main(int argc, char *argv[]) {
                        : (env && *env) ? env
                                        : "ltlsynt";
     Aig *g = aig_new();
-    for (uint32_t o = 0; o < A; o++) // all spec inputs
-      if (ap_table_flags(&cov->aps, o) & AP_FLAG_INPUT)
+    for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
+      if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
         (void)aig_input(g, ap_table_name(&cov->aps, o));
 
     // Clusters first (so a decoder reading a synthesized output resolves).

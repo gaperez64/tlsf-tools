@@ -76,11 +76,18 @@ void residual_collect_aps(const Node *n, ConstraintCover *cov, bool *seen) {
   }
 }
 
+bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag) {
+  uint8_t f = ap_table_flags(&cov->aps, idx);
+  if (f & flag)
+    return true;
+  return flag == AP_FLAG_INPUT && f == 0;
+}
+
 void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
                             uint8_t flag) {
   bool first = true;
   for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & flag))
+    if (!seen[a] || !residual_signal_matches(cov, a, flag))
       continue;
     fprintf(out, "%s%s", first ? "" : ",", ap_table_name(&cov->aps, a));
     first = false;

@@ -503,6 +503,9 @@ foreach name : ['compose_demo', 'cluster_split']
     args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
            files('test/cases/' + name + '.tlsf')])
 endforeach
+test('compose_aiger_unclassified_atom', check,
+  args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
+         files('test/cases/aiger_unclassified_atom.tlsf')])
 # --aiger combinational path (no cluster -> no ltlsynt): golden-testable in CI.
 foreach name : ['def_demo', 'inv_skolem', 'reaction_ok']
   test('aiger_' + name, check,
@@ -515,6 +518,10 @@ test('aiger_merge', check,
   args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
          '--ltlsynt', files('test/fake_ltlsynt.sh'),
          files('test/cases/compose_demo.tlsf')])
+test('aiger_unclassified_atom', check,
+  args: [files('test/cases/aiger_unclassified_atom.aag'), tlsfcompose_exe,
+         '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
+         files('test/cases/aiger_unclassified_atom.tlsf')])
 # --aiger cluster path needs real ltlsynt: only run where it is available.
 if ltlsynt.found()
   test('aiger_cluster', tlsfcompose_exe,
