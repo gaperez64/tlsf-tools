@@ -16,6 +16,19 @@ static bool is_next_kind(NodeKind k) {
   return k == NODE_X || k == NODE_X_STRONG;
 }
 
+static const Node *next_chain_target(const Node *n, uint32_t *steps,
+                                     bool *strong) {
+  *steps = 0;
+  *strong = false;
+  while (is_next_kind(n->kind)) {
+    if (n->kind == NODE_X_STRONG)
+      *strong = true;
+    (*steps)++;
+    n = n->arg;
+  }
+  return n;
+}
+
 // G(r -> F g)  or  G(!r || F g)
 static void match_response(ConstraintCover *cov, Constraint *c) {
   if (c->formula->kind != NODE_G)
@@ -83,6 +96,27 @@ static void match_reaction(ConstraintCover *cov, Constraint *c) {
   if (o->kind != NODE_AP || !is_output(cov, o))
     return;
   constraint_add_candidate(cov, c, "reaction");
+}
+
+// G(alpha -> X^k o), k >= 2.  The k=1 case is handled by guarded-next.
+static void match_fixed_delay_response(ConstraintCover *cov, Constraint *c) {
+  if (c->formula->kind != NODE_G)
+    return;
+  const Node *body = c->formula->arg;
+  if (body->kind != NODE_IMPL &&
+      !(body->kind == NODE_OR && body->lhs->kind == NODE_NOT))
+    return;
+  const Node *cons = body->rhs;
+
+  uint32_t steps;
+  bool strong;
+  const Node *target = next_chain_target(cons, &steps, &strong);
+  (void)strong;
+  if (steps < 2 || !is_output(cov, target))
+    return;
+  constraint_add_candidate(cov, c, "fixed-delay-response");
+  c->fdelay_output = ap_idx(cov, target);
+  c->fdelay_steps = steps;
 }
 
 // G(X o <-> theta) / G(theta <-> X o)  (also X[!]); delayed definition /
@@ -282,6 +316,7 @@ void recognize_all(ConstraintCover *cov) {
     match_recurrence(cov, c);
     match_persistence(cov, c);
     match_reachability(cov, c);
+    match_fixed_delay_response(cov, c);
     match_toggle_register(cov, c);
     match_guarded_next(cov, c);
     match_definition(cov, c);

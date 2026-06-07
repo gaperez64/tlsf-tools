@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "fdelay_demo"
+  DESCRIPTION: "fixed-delay response"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; s; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> X[2] g);
+    G (s -> X[3] g);
+  }
+}

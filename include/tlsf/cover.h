@@ -54,8 +54,10 @@ typedef struct {
   int32_t
       ddef_output; ///< delayed-definition output AP index (G(X o <-> theta))
   int32_t
-      toggle_output;   ///< toggle-register output AP index (G(t -> (X o<->!o)))
-  ApSet mutex_members; ///< output AP indices in a mutex
+      toggle_output; ///< toggle-register output AP index (G(t -> (X o<->!o)))
+  int32_t fdelay_output; ///< fixed-delay response output AP index (G(r->X^k o))
+  uint32_t fdelay_steps; ///< fixed-delay response delay k (0 when absent)
+  ApSet mutex_members;   ///< output AP indices in a mutex
   bool has_mutex;
 } Constraint;
 

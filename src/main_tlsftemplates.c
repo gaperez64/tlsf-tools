@@ -81,6 +81,8 @@ static unsigned tpl_bit(const char *s) {
     return TPL_SET_RESET;
   if (!strcmp(s, "toggle-register"))
     return TPL_TOGGLE;
+  if (!strcmp(s, "fixed-delay-response"))
+    return TPL_FIXED_DELAY;
   if (!strcmp(s, "mutex"))
     return TPL_MUTEX;
   if (!strcmp(s, "arbiter"))

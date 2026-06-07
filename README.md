@@ -256,6 +256,8 @@ anything else.
   cert `set_reset_register`.
 - **toggle-register** `G(t -> (X o <-> ¬o))` groups → stateful register
   `o' := o xor (⋁t)`; cert `toggle_register`.
+- **fixed-delay-response** `G(α -> X^k o)`, `k >= 2` groups → delay-line
+  register for `o`; cert `fixed_delay_response`.
 - **reaction** `G(α->o)` / `G(β->¬o)` → combinational `o := ⋁α` (Mealy, guards
   exclusive, `o` free); cert `reaction_consistency`.
 - **mutex** `G atMostOne(…)` → *certified* safety invariant (`mutex_safety`),
@@ -284,7 +286,7 @@ Reactivity / GR(1) (boolean combinations of recurrence and persistence) is out
 of scope — it needs a real game solver, not a syntactic certificate. Anything
 not provably sound stays `candidate`; nothing is removed (residual export is the
 next milestone). CSNF is the same DIMACS-style line format as GSNF
-(`b`/`bc`/`dec`/`nsf`/`srset`/`srreset`/`tog`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
+(`b`/`bc`/`dec`/`nsf`/`srset`/`srreset`/`tog`/`fdresp`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
 records).
 
 ### Constraint decomposition (`--split`, `tlsfnorm`)

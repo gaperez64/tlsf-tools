@@ -447,6 +447,18 @@ test('tmpl_toggle_strong_finite_declined', check_wl,
   args: [files('test/cases/toggle_strong_fin.csnf'), tlsftemplates_exe,
          '--certify', '--format', 'csnf',
          files('test/cases/toggle_strong_fin.tlsf')])
+test('tmpl_fixed_delay', check_wl,
+  args: [files('test/cases/fdelay_demo.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/fdelay_demo.tlsf')])
+test('tmpl_fixed_delay_declined', check_wl,
+  args: [files('test/cases/fdelay_blocked.csnf'), tlsftemplates_exe,
+         '--certify', '--format', 'csnf',
+         files('test/cases/fdelay_blocked.tlsf')])
+test('tmpl_fixed_delay_strong_finite_declined', check_wl,
+  args: [files('test/cases/fdelay_strong_fin.csnf'), tlsftemplates_exe,
+         '--certify', '--format', 'csnf',
+         files('test/cases/fdelay_strong_fin.tlsf')])
 test('tmpl_delayed_def_strong_finite_declined', check_wl,
   args: [files('test/cases/ddef_strong_fin.csnf'), tlsftemplates_exe,
          '--certify', '--format', 'csnf',

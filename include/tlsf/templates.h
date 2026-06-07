@@ -38,6 +38,7 @@ enum {
   TPL_INVARIANT = 1u << 10,
   TPL_SET_RESET = 1u << 11,
   TPL_TOGGLE = 1u << 12,
+  TPL_FIXED_DELAY = 1u << 13,
   TPL_ALL = 0,
 };
 

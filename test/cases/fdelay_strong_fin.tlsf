@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "fdelay_strong_fin"
+  DESCRIPTION: "finite strong-next fixed-delay response stays candidate"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> X X[!] g);
+  }
+}

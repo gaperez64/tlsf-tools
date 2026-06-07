@@ -1,0 +1,11 @@
+c CSNF for fdelay_demo.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved fixed-delay-response
+bc 0 c0
+bc 0 c1
+fdresp 0 g 2 r
+fdresp 0 g 3 s
+cert 0 fixed_delay_response
+cl 0 G (r -> X X g)
+cl 0 G (s -> X X X g)

@@ -153,6 +153,8 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   c->is_safety = classify_formula(c->nnf) == FCLASS_SAFETY;
   c->resp_guard = c->resp_target = c->def_output = c->rec_output = -1;
   c->reach_output = c->pers_output = c->ddef_output = c->toggle_output = -1;
+  c->fdelay_output = -1;
+  c->fdelay_steps = 0;
   intern_aps(&cov->aps, c->nnf);
   cov->count++;
   return true;

@@ -12,6 +12,7 @@ const char *const TEMPLATE_NAMES[] = {"definition",
                                       "guarded-next-assignment",
                                       "set-reset-register",
                                       "toggle-register",
+                                      "fixed-delay-response",
                                       "reaction",
                                       "mutex",
                                       "pure-recurrence",
@@ -21,7 +22,7 @@ const char *const TEMPLATE_NAMES[] = {"definition",
                                       "persistence",
                                       "reachability",
                                       "safety-invariant"};
-const int TEMPLATE_NAMES_COUNT = 14;
+const int TEMPLATE_NAMES_COUNT = 15;
 
 // ---------------------------------------------------------------------------
 // CSNF model
@@ -47,6 +48,10 @@ typedef struct {
   int32_t tog_output; // toggle register output (-1 none)
   const Node **tog_guards;
   uint32_t tog_nguards;
+  int32_t fdelay_output; // fixed-delay response output (-1 none)
+  const Node **fdelay_guards;
+  uint32_t *fdelay_steps;
+  uint32_t fdelay_n;
   int32_t *cyc_outputs; // round-robin one-hot cycle outputs
   uint32_t cyc_n;
   // free-liveness family (controller is the constant out := true):
@@ -88,6 +93,7 @@ static Block *new_block(Csnf *c) {
                .nsf_output = -1,
                .sr_output = -1,
                .tog_output = -1,
+               .fdelay_output = -1,
                .one_output = -1,
                .hold_output = -1,
                .resp_output = -1,
@@ -215,6 +221,19 @@ static bool is_next_kind(NodeKind k) {
   return k == NODE_X || k == NODE_X_STRONG;
 }
 
+static const Node *next_chain_target(const Node *n, uint32_t *steps,
+                                     bool *strong) {
+  *steps = 0;
+  *strong = false;
+  while (is_next_kind(n->kind)) {
+    if (n->kind == NODE_X_STRONG)
+      *strong = true;
+    (*steps)++;
+    n = n->arg;
+  }
+  return n;
+}
+
 // Parse G(alpha -> X o) / G(alpha -> X !o) (also X[!]); returns guard, output
 // index, sign, and whether the next operator is strong.
 static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
@@ -268,6 +287,35 @@ static bool parse_toggle(ConstraintCover *cov, const Constraint *c,
   if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
     return false;
   *trigger = body->lhs;
+  *out = i;
+  return true;
+}
+
+// Parse G(alpha -> X^k o), k >= 2.  The k=1 case is the guarded-next template.
+static bool parse_fixed_delay_response(ConstraintCover *cov,
+                                       const Constraint *c, const Node **guard,
+                                       int32_t *out, uint32_t *steps,
+                                       bool *strong) {
+  if (c->formula->kind != NODE_G)
+    return false;
+  const Node *body = c->formula->arg;
+  const Node *cons = nullptr;
+  if (body->kind == NODE_IMPL) {
+    *guard = body->lhs;
+    cons = body->rhs;
+  } else if (body->kind == NODE_OR && body->lhs->kind == NODE_NOT) {
+    *guard = body->lhs->arg;
+    cons = body->rhs;
+  } else {
+    return false;
+  }
+
+  const Node *target = next_chain_target(cons, steps, strong);
+  if (*steps < 2 || target->kind != NODE_AP)
+    return false;
+  int32_t i = ap_table_find(&cov->aps, target->name);
+  if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
+    return false;
   *out = i;
   return true;
 }
@@ -596,6 +644,82 @@ static void certify_toggle_register(Csnf *c, unsigned want, bool certify) {
       c->claimed[ids[k]] = true;
     free(ids);
     free(triggers);
+  }
+}
+
+static void certify_fixed_delay_response(Csnf *c, unsigned want, bool certify) {
+  if (want && !(want & TPL_FIXED_DELAY))
+    return;
+  ConstraintCover *cov = c->cov;
+  uint32_t A = cov->aps.count;
+
+  for (uint32_t o = 0; o < A; o++) {
+    if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT))
+      continue;
+
+    uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
+    const Node **guards = malloc(cov->count * sizeof(Node *));
+    uint32_t *steps = malloc(cov->count * sizeof(uint32_t));
+    uint32_t nid = 0, nd = 0;
+    bool strong_next_sound = true;
+
+    for (uint32_t i = 0; i < cov->count; i++) {
+      if (c->claimed[i] || !has_cand(&cov->items[i], "fixed-delay-response"))
+        continue;
+      const Node *guard;
+      int32_t out;
+      uint32_t delay;
+      bool strong;
+      if (!parse_fixed_delay_response(cov, &cov->items[i], &guard, &out, &delay,
+                                      &strong) ||
+          (uint32_t)out != o)
+        continue;
+      ids[nid++] = i;
+      guards[nd] = guard;
+      steps[nd++] = delay;
+      if (strong && semantics_is_finite(cov->spec->info.semantics))
+        strong_next_sound = false;
+    }
+
+    if (nid == 0) {
+      free(ids);
+      free(guards);
+      free(steps);
+      continue;
+    }
+
+    Block *blk = new_block(c);
+    if (!blk) {
+      free(ids);
+      free(guards);
+      free(steps);
+      return;
+    }
+    blk->name = "fixed-delay-response";
+    blk->cids = malloc(nid * sizeof(uint32_t));
+    memcpy(blk->cids, ids, nid * sizeof(uint32_t));
+    blk->ncids = nid;
+    blk->fdelay_output = (int32_t)o;
+    blk->fdelay_guards = malloc(nd * sizeof(Node *));
+    blk->fdelay_steps = malloc(nd * sizeof(uint32_t));
+    memcpy(blk->fdelay_guards, guards, nd * sizeof(Node *));
+    memcpy(blk->fdelay_steps, steps, nd * sizeof(uint32_t));
+    blk->fdelay_n = nd;
+
+    if (certify && strong_next_sound && output_is_free(cov, ids, nid, o)) {
+      blk->status = CSNF_SOLVED;
+      blk->cert = "fixed_delay_response";
+      for (uint32_t k = 0; k < nid; k++)
+        c->solved[ids[k]] = true;
+    } else {
+      blk->status = CSNF_CANDIDATE;
+    }
+
+    for (uint32_t k = 0; k < nid; k++)
+      c->claimed[ids[k]] = true;
+    free(ids);
+    free(guards);
+    free(steps);
   }
 }
 
@@ -1187,6 +1311,7 @@ Csnf *templates_certify(ConstraintCover *cov, unsigned want, bool certify) {
   certify_delayed_definition(c, want, certify);
   certify_set_reset_register(c, want, certify);
   certify_toggle_register(c, want, certify);
+  certify_fixed_delay_response(c, want, certify);
   certify_guarded_next(c, want, certify);
   certify_reaction(c, want, certify);
   certify_response(c, want, certify);
@@ -1209,6 +1334,8 @@ void csnf_free(Csnf *c) {
     free(c->blocks[i].sr_set_guards);
     free(c->blocks[i].sr_reset_guards);
     free(c->blocks[i].tog_guards);
+    free(c->blocks[i].fdelay_guards);
+    free(c->blocks[i].fdelay_steps);
     free(c->blocks[i].arb_outputs);
     free(c->blocks[i].asg_guards);
     free(c->blocks[i].inv_outputs);
@@ -1296,8 +1423,9 @@ static bool block_writes(const Block *b, int32_t o) {
   if (o < 0)
     return false;
   if (b->dec_output == o || b->nsf_output == o || b->sr_output == o ||
-      b->tog_output == o || b->asg_output == o || b->reg_output == o ||
-      b->one_output == o || b->hold_output == o || b->resp_output == o)
+      b->tog_output == o || b->fdelay_output == o || b->asg_output == o ||
+      b->reg_output == o || b->one_output == o || b->hold_output == o ||
+      b->resp_output == o)
     return true;
   for (uint32_t i = 0; i < b->cyc_n; i++)
     if (b->cyc_outputs[i] == o)
@@ -1311,8 +1439,8 @@ static bool block_writes(const Block *b, int32_t o) {
 // If SOLVED block `b` assigns output `o` a *combinational* value (a function of
 // the current step), return that value node; else nullptr.  These outputs can
 // be eliminated from the residual by substitution.  Registers (guarded-next,
-// set-reset, toggle, delayed-definition) and servers (response/round-robin/
-// arbiter) are not.
+// set-reset, toggle, fixed-delay, delayed-definition) and servers
+// (response/round-robin/arbiter) are not.
 static const Node *block_comb_value(const Csnf *c, const Block *b, int32_t o) {
   Arena *a = c->cov->arena;
   if (b->dec_output == o && b->dec_theta)
@@ -1347,8 +1475,8 @@ static bool decoder_reads(const Csnf *c, const Block *b, uint32_t p) {
 
 // DFS over the combinational-decoder dependency graph (definition + reaction);
 // returns a block on a cycle to eject, or -1 if acyclic.  Next-state decoders
-// (guarded-next, set-reset, toggle, delayed-definition) are registers and never
-// close a combinational cycle, so they are excluded.
+// (guarded-next, set-reset, toggle, fixed-delay, delayed-definition) are
+// registers and never close a combinational cycle, so they are excluded.
 static int32_t comb_owner(const Csnf *c, const bool *accepted, uint32_t o) {
   for (uint32_t b = 0; b < c->nblocks; b++) {
     if (!accepted[b])
@@ -1613,6 +1741,16 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
         for (uint32_t g = 0; g < b->tog_nguards; g++) {
           char *gs = formula_str(c, b->tog_guards[g]);
           fprintf(out, "tog %u %s %s\n", i, oname, gs ? gs : "");
+          free(gs);
+        }
+      }
+      if (b->fdelay_output >= 0) {
+        const char *oname =
+            ap_table_name(&cov->aps, (uint32_t)b->fdelay_output);
+        for (uint32_t g = 0; g < b->fdelay_n; g++) {
+          char *gs = formula_str(c, b->fdelay_guards[g]);
+          fprintf(out, "fdresp %u %s %u %s\n", i, oname, b->fdelay_steps[g],
+                  gs ? gs : "");
           free(gs);
         }
       }
