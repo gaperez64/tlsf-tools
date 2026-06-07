@@ -285,6 +285,7 @@ static Node *rw_pass(Arena *a, Node *n, unsigned flags) {
     assert(false && "rewrite: unexpected high-level node");
     return n;
   }
+  node_copy_bounded(t, n);
   return apply_local(a, t, flags);
 }
 

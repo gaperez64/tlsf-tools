@@ -18,6 +18,7 @@
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
+#include "tlsf/gr.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
@@ -137,6 +138,25 @@ static bool abssynthe_body_supported(const Node *n) {
   }
 }
 
+static bool abssynthe_initial_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+    return true;
+  case NODE_NOT:
+    return abssynthe_initial_supported(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return abssynthe_initial_supported(n->lhs) &&
+           abssynthe_initial_supported(n->rhs);
+  default:
+    return false;
+  }
+}
+
 static bool abssynthe_global_supported(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
@@ -148,6 +168,20 @@ static bool abssynthe_global_supported(const Node *n) {
            abssynthe_global_supported(n->rhs);
   default:
     return false;
+  }
+}
+
+static bool abssynthe_safety_condition_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_AND:
+    return abssynthe_safety_condition_supported(n->lhs) &&
+           abssynthe_safety_condition_supported(n->rhs);
+  case NODE_G:
+    return abssynthe_body_supported(n->arg);
+  default:
+    return abssynthe_initial_supported(n);
   }
 }
 
@@ -167,6 +201,24 @@ static uint32_t abssynthe_x_depth(const Node *n) {
   }
   default:
     return 0;
+  }
+}
+
+static uint32_t abssynthe_safety_condition_x_depth(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return 0;
+  case NODE_AND: {
+    uint32_t a = abssynthe_safety_condition_x_depth(n->lhs);
+    uint32_t b = abssynthe_safety_condition_x_depth(n->rhs);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return a > b ? a : b;
+  }
+  case NODE_G:
+    return abssynthe_x_depth(n->arg);
+  default:
+    return abssynthe_initial_supported(n) ? 0 : UINT32_MAX;
   }
 }
 
@@ -194,6 +246,109 @@ static bool abssynthe_eligible(const Node *root, bool finite) {
            abssynthe_global_x_depth(root->lhs) == 0 &&
            abssynthe_global_supported(root->rhs);
   return abssynthe_global_supported(root);
+}
+
+static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
+                                          const Node **env) {
+  if (root->kind != NODE_W || root->rhs->kind != NODE_NOT)
+    return false;
+  if (!abssynthe_safety_condition_supported(root->lhs) ||
+      !abssynthe_safety_condition_supported(root->rhs->arg))
+    return false;
+  *sys = root->lhs;
+  *env = root->rhs->arg;
+  return true;
+}
+
+typedef struct {
+  int gr_level;
+  bool has_liveness;
+  bool has_weak_until;
+  bool has_release;
+  bool has_strong_next;
+  bool has_high_level;
+} ClusterShape;
+
+static void cluster_shape_visit(const Node *n, ClusterShape *shape) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+  case NODE_INT:
+    return;
+  case NODE_X_STRONG:
+    shape->has_strong_next = true;
+    [[fallthrough]];
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_G:
+    cluster_shape_visit(n->arg, shape);
+    return;
+  case NODE_F:
+    shape->has_liveness = true;
+    cluster_shape_visit(n->arg, shape);
+    return;
+  case NODE_W:
+    shape->has_weak_until = true;
+    break;
+  case NODE_R:
+    shape->has_release = true;
+    break;
+  case NODE_U:
+  case NODE_M:
+    shape->has_liveness = true;
+    break;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    break;
+  default:
+    if (node_kind_is_high_level(n->kind))
+      shape->has_high_level = true;
+    return;
+  }
+  cluster_shape_visit(n->lhs, shape);
+  cluster_shape_visit(n->rhs, shape);
+}
+
+static ClusterShape cluster_shape(TlsfSpec *spec, const Node *root) {
+  ClusterShape shape = {.gr_level = gr_level(spec)};
+  cluster_shape_visit(root, &shape);
+  return shape;
+}
+
+static const char *cluster_ltlsynt_reason(const ClusterShape *shape,
+                                          bool finite, bool abs_configured,
+                                          char *buf, size_t buf_sz) {
+  if (finite) {
+    snprintf(buf, buf_sz, "finite semantics are not supported by AbsSynthe");
+  } else if (shape->gr_level >= 0 && shape->has_liveness) {
+    snprintf(buf, buf_sz,
+             "GR(%d) residual with liveness; no GR backend is available "
+             "without ltlsynt",
+             shape->gr_level);
+  } else if (shape->has_liveness) {
+    snprintf(buf, buf_sz,
+             "liveness temporal operators are not "
+             "AbsSynthe-eligible");
+  } else if (shape->has_weak_until) {
+    snprintf(buf, buf_sz,
+             "weak-until safety release is not AbsSynthe-eligible");
+  } else if (shape->has_release) {
+    snprintf(buf, buf_sz, "release safety shape is not AbsSynthe-eligible");
+  } else if (shape->has_strong_next) {
+    snprintf(buf, buf_sz, "finite-only strong-next is not AbsSynthe-eligible");
+  } else if (shape->has_high_level) {
+    snprintf(buf, buf_sz,
+             "unexpanded high-level operators are not backend-eligible");
+  } else if (!abs_configured) {
+    snprintf(buf, buf_sz,
+             "no AbsSynthe backend configured for this safety cluster");
+  } else {
+    snprintf(buf, buf_sz, "unsupported temporal shape");
+  }
+  return buf;
 }
 
 typedef struct {
@@ -292,6 +447,48 @@ static uint32_t abssynthe_compile_assumption_window(AbssyntheCompile *ctx,
   return ok;
 }
 
+static uint32_t abssynthe_compile_safety_initial(AbssyntheCompile *ctx,
+                                                 const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_G:
+    return AIG_TRUE;
+  case NODE_AND: {
+    uint32_t a = abssynthe_compile_safety_initial(ctx, n->lhs);
+    uint32_t b = abssynthe_compile_safety_initial(ctx, n->rhs);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return aig_and(ctx->g, a, b);
+  }
+  default:
+    return abssynthe_compile_at_lag(ctx, n, 0);
+  }
+}
+
+static uint32_t abssynthe_compile_safety_global_at_lag(AbssyntheCompile *ctx,
+                                                       const Node *n,
+                                                       uint32_t lag) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return AIG_TRUE;
+  case NODE_G:
+    return abssynthe_compile_at_lag(ctx, n->arg, lag);
+  case NODE_AND: {
+    uint32_t a = abssynthe_compile_safety_global_at_lag(ctx, n->lhs, lag);
+    uint32_t b = abssynthe_compile_safety_global_at_lag(ctx, n->rhs, lag);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return aig_and(ctx->g, a, b);
+  }
+  default:
+    return AIG_TRUE;
+  }
+}
+
+static uint32_t guarded_current_ok(Aig *g, uint32_t guard, uint32_t ok) {
+  return aig_or(g, aig_not(guard), ok);
+}
+
 static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
                                  const Node *root) {
   Aig *g = aig_new();
@@ -383,6 +580,93 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   return g;
 }
 
+static Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov,
+                                               const bool *seen,
+                                               const Node *sys,
+                                               const Node *env) {
+  Aig *g = aig_new();
+  if (!g)
+    return nullptr;
+
+  uint32_t env_depth = abssynthe_safety_condition_x_depth(env);
+  uint32_t sys_depth = abssynthe_safety_condition_x_depth(sys);
+  if (env_depth == UINT32_MAX || sys_depth == UINT32_MAX) {
+    aig_free(g);
+    return nullptr;
+  }
+  uint32_t A = cov->aps.count;
+  uint32_t depth = env_depth > sys_depth ? env_depth : sys_depth;
+  uint32_t hist_count = (depth + 1) * (A ? A : 1);
+  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
+  if (!hist) {
+    aig_free(g);
+    return nullptr;
+  }
+  memset(hist, 0xff, hist_count * sizeof(uint32_t));
+  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
+      continue;
+    hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
+  }
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+      continue;
+    char *cname = controllable_name(ap_table_name(&cov->aps, a));
+    if (!cname) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    hist_set(&ctx, 0, a, aig_input(g, cname));
+    free(cname);
+  }
+  for (uint32_t d = 1; d <= depth; d++) {
+    for (uint32_t a = 0; a < A; a++) {
+      uint32_t prev = hist_lit(&ctx, d - 1, a);
+      if (prev != UINT32_MAX)
+        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
+    }
+  }
+
+  uint32_t valid = AIG_TRUE;
+  for (uint32_t d = 0; d < depth; d++)
+    valid = aig_latch(g, valid, AIG_FALSE);
+  uint32_t past_first = aig_latch(g, AIG_TRUE, AIG_FALSE);
+  uint32_t first = aig_not(past_first);
+
+  uint32_t env_init_ok = abssynthe_compile_safety_initial(&ctx, env);
+  uint32_t sys_init_ok = abssynthe_compile_safety_initial(&ctx, sys);
+  uint32_t env_global_ok =
+      abssynthe_compile_safety_global_at_lag(&ctx, env, depth);
+  uint32_t sys_global_ok =
+      abssynthe_compile_safety_global_at_lag(&ctx, sys, depth);
+  if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX ||
+      env_global_ok == UINT32_MAX || sys_global_ok == UINT32_MAX) {
+    free(hist);
+    aig_free(g);
+    return nullptr;
+  }
+
+  uint32_t env_ok = aig_and(g, guarded_current_ok(g, first, env_init_ok),
+                            guarded_current_ok(g, valid, env_global_ok));
+  uint32_t sys_ok = aig_and(g, guarded_current_ok(g, first, sys_init_ok),
+                            guarded_current_ok(g, valid, sys_global_ok));
+  uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
+  uint32_t violated_next = aig_or(g, violated, aig_not(env_ok));
+  if (!aig_set_latch_next(g, violated, violated_next)) {
+    free(hist);
+    aig_free(g);
+    return nullptr;
+  }
+  uint32_t bad =
+      aig_and(g, aig_not(violated), aig_and(g, env_ok, aig_not(sys_ok)));
+  aig_set_output(g, "bad", bad);
+  free(hist);
+  return g;
+}
+
 static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
                                            const bool *seen) {
   aig_remove_output(g, "bad");
@@ -406,13 +690,12 @@ static void cleanup_abssynthe_tmp(const char *dir, const char *game,
     rmdir(dir);
 }
 
-// Synthesize one safety cluster with AbsSynthe.  The first backend slice
-// accepts strategy AAGs that expose each controllable as an output named either
+// Synthesize one safety game with AbsSynthe.  The backend slice accepts
+// strategy AAGs that expose each controllable as an output named either
 // `<name>` or `controllable_<name>`.
-static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
-                          const bool *seen, const Node *root, int *unreal) {
+static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
+                               const bool *seen, Aig *game, int *unreal) {
   *unreal = 0;
-  Aig *game = build_abssynthe_game(cov, seen, root);
   if (!game)
     return nullptr;
 
@@ -483,6 +766,20 @@ static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
   }
   cleanup_abssynthe_tmp(dir, game_path, strat_path);
   return strategy;
+}
+
+static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
+                          const bool *seen, const Node *root, int *unreal) {
+  return run_abssynthe_game(prog, cov, seen,
+                            build_abssynthe_game(cov, seen, root), unreal);
+}
+
+static Aig *run_abssynthe_strict_safety(const char *prog, ConstraintCover *cov,
+                                        const bool *seen, const Node *sys,
+                                        const Node *env, int *unreal) {
+  return run_abssynthe_game(
+      prog, cov, seen, build_abssynthe_strict_safety_game(cov, seen, sys, env),
+      unreal);
 }
 
 static void usage(const char *prog) {
@@ -729,10 +1026,22 @@ int main(int argc, char *argv[]) {
         rc = 1;
         break;
       }
+      ClusterShape shape = cluster_shape(spec, root);
       int unreal = 0;
       Aig *sub = nullptr;
-      if (abs_prog && abssynthe_eligible(root, finite)) {
+      const Node *strict_sys = nullptr, *strict_env = nullptr;
+      bool use_abs_direct = abs_prog && abssynthe_eligible(root, finite);
+      bool use_abs_strict =
+          abs_prog && !finite && !use_abs_direct && shape.gr_level == 0 &&
+          !shape.has_liveness &&
+          abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
+      bool use_abs = use_abs_direct || use_abs_strict;
+      const char *backend = use_abs ? "AbsSynthe" : "ltlsynt fallback";
+      if (use_abs_direct) {
         sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
+      } else if (use_abs_strict) {
+        sub = run_abssynthe_strict_safety(abs_prog, cov, seen, strict_sys,
+                                          strict_env, &unreal);
       } else {
         char *ltl = ltl_string(root, fmt, finite);
         // Build ins/outs CSV via memstreams.
@@ -750,11 +1059,19 @@ int main(int argc, char *argv[]) {
         free(outs);
       }
       if (unreal) {
-        fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE\n", k);
+        fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
+                backend);
         rc = 1;
       } else if (!sub) {
+        char reason[192];
+        const char *detail =
+            use_abs ? "AbsSynthe returned no usable strategy"
+                    : cluster_ltlsynt_reason(&shape, finite, abs_prog != NULL,
+                                             reason, sizeof reason);
         fprintf(stderr,
-                "tlsfcompose: synthesis backend failed for cluster %u\n", k);
+                "tlsfcompose: synthesis backend failed for cluster %u (%s: "
+                "%s)\n",
+                k, backend, detail);
         rc = 1;
       } else if (!aig_merge(g, sub)) {
         fprintf(stderr, "tlsfcompose: AIGER merge failed for cluster %u\n", k);

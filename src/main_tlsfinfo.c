@@ -9,6 +9,7 @@
 #include "tlsf/gr.h"
 #include "tlsf/spec.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,6 +102,77 @@ static void print_all(FILE *out, const TlsfSpec *s) {
   }
 }
 
+static void print_bounded_node(FILE *out, const Node *n, uint32_t *count) {
+  if (n->bounded.origin != BOUNDED_NONE) {
+    const char *op = "?";
+    switch (n->bounded.origin) {
+    case BOUNDED_NEXT:
+      op = "X";
+      break;
+    case BOUNDED_G_RANGE:
+      op = "G";
+      break;
+    case BOUNDED_F_RANGE:
+      op = "F";
+      break;
+    default:
+      break;
+    }
+    if (n->bounded.origin == BOUNDED_NEXT)
+      fprintf(out, "%s[%" PRId64 "]\n", op, n->bounded.lo);
+    else
+      fprintf(out, "%s[%" PRId64 ":%" PRId64 "]\n", op, n->bounded.lo,
+              n->bounded.hi);
+    (*count)++;
+  }
+
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+  case NODE_INT:
+    return;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    print_bounded_node(out, n->arg, count);
+    return;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    print_bounded_node(out, n->lhs, count);
+    print_bounded_node(out, n->rhs, count);
+    return;
+  default:
+    return;
+  }
+}
+
+static void print_bounded_list(FILE *out, const FormulaList *list,
+                               uint32_t *count) {
+  for (uint32_t i = 0; i < list->count; i++)
+    print_bounded_node(out, list->formulas[i], count);
+}
+
+static void print_bounded_temporal(FILE *out, const TlsfSpec *s) {
+  uint32_t count = 0;
+  print_bounded_list(out, &s->initially, &count);
+  print_bounded_list(out, &s->require, &count);
+  print_bounded_list(out, &s->assume, &count);
+  print_bounded_list(out, &s->preset, &count);
+  print_bounded_list(out, &s->assert_, &count);
+  print_bounded_list(out, &s->guarantee, &count);
+  if (count == 0)
+    fprintf(out, "none\n");
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -117,6 +189,7 @@ typedef enum {
   SEL_INPUTS,
   SEL_OUTPUTS,
   SEL_GR,
+  SEL_BOUNDED_TEMPORAL,
   SEL_CHECK,
 } Selection;
 
@@ -127,6 +200,8 @@ static void usage(const char *prog) {
           "  --title, --description, --semantics, --target, --tags\n"
           "  --parameters, --info, --input-signals, --output-signals\n"
           "  --generalized-reactivity   the GR(k) level (or NOT in GR)\n"
+          "  --bounded-temporal         expanded X[k]/G[lo:hi]/F[lo:hi] "
+          "origins\n"
           "  --check                    verify the spec parses (conforms)\n"
           "  --output FILE              write to FILE (default: stdout)\n"
           "  --version, --help\n"
@@ -149,6 +224,7 @@ static Selection parse_selection(const char *arg) {
       {"--input-signals", SEL_INPUTS},
       {"--output-signals", SEL_OUTPUTS},
       {"--generalized-reactivity", SEL_GR},
+      {"--bounded-temporal", SEL_BOUNDED_TEMPORAL},
       {"--check", SEL_CHECK},
   };
   for (size_t i = 0; i < sizeof(opts) / sizeof(opts[0]); i++)
@@ -260,6 +336,15 @@ int main(int argc, char *argv[]) {
       fprintf(out, "IN GR(%d)\n", level);
     break;
   }
+  case SEL_BOUNDED_TEMPORAL:
+    if (expand(spec, nullptr, 0) != 0) {
+      fprintf(stderr,
+              "tlsfinfo: cannot expand spec for bounded-temporal metadata\n");
+      rc = 1;
+      break;
+    }
+    print_bounded_temporal(out, spec);
+    break;
   case SEL_NONE:
     print_all(out, spec);
     break;

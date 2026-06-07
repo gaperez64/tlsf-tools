@@ -136,48 +136,66 @@ static bool occurs_in(const Node *n, const char *name) {
   }
 }
 
+static const Node *copy_subst_meta(Arena *a, const Node *src, Node *dst,
+                                   const char *name, const Node *value) {
+  if (dst) {
+    node_copy_bounded(dst, src);
+    if (src->bounded.origin != BOUNDED_NONE && src->bounded.body)
+      dst->bounded.body =
+          src->bounded.body == src
+              ? dst
+              : (Node *)node_subst(a, src->bounded.body, name, value);
+  }
+  return dst;
+}
+
 const Node *node_subst(Arena *a, const Node *n, const char *name,
                        const Node *value) {
+#define SUB_META(expr) copy_subst_meta(a, n, (expr), name, value)
+
   switch (n->kind) {
   case NODE_AP:
     return strcmp(n->name, name) == 0 ? value : n;
   case NODE_NOT:
-    return node_not(a, (Node *)node_subst(a, n->arg, name, value));
+    return SUB_META(node_not(a, (Node *)node_subst(a, n->arg, name, value)));
   case NODE_X:
-    return node_x(a, (Node *)node_subst(a, n->arg, name, value));
+    return SUB_META(node_x(a, (Node *)node_subst(a, n->arg, name, value)));
   case NODE_X_STRONG:
-    return node_x_strong(a, (Node *)node_subst(a, n->arg, name, value));
+    return SUB_META(
+        node_x_strong(a, (Node *)node_subst(a, n->arg, name, value)));
   case NODE_F:
-    return node_f(a, (Node *)node_subst(a, n->arg, name, value));
+    return SUB_META(node_f(a, (Node *)node_subst(a, n->arg, name, value)));
   case NODE_G:
-    return node_g(a, (Node *)node_subst(a, n->arg, name, value));
+    return SUB_META(node_g(a, (Node *)node_subst(a, n->arg, name, value)));
   case NODE_AND:
-    return node_and(a, (Node *)node_subst(a, n->lhs, name, value),
-                    (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_and(a, (Node *)node_subst(a, n->lhs, name, value),
+                             (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_OR:
-    return node_or(a, (Node *)node_subst(a, n->lhs, name, value),
-                   (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_or(a, (Node *)node_subst(a, n->lhs, name, value),
+                            (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_IMPL:
-    return node_impl(a, (Node *)node_subst(a, n->lhs, name, value),
-                     (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_impl(a, (Node *)node_subst(a, n->lhs, name, value),
+                              (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_EQUIV:
-    return node_equiv(a, (Node *)node_subst(a, n->lhs, name, value),
-                      (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_equiv(a, (Node *)node_subst(a, n->lhs, name, value),
+                               (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_U:
-    return node_u(a, (Node *)node_subst(a, n->lhs, name, value),
-                  (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_u(a, (Node *)node_subst(a, n->lhs, name, value),
+                           (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_R:
-    return node_r(a, (Node *)node_subst(a, n->lhs, name, value),
-                  (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_r(a, (Node *)node_subst(a, n->lhs, name, value),
+                           (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_W:
-    return node_w(a, (Node *)node_subst(a, n->lhs, name, value),
-                  (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_w(a, (Node *)node_subst(a, n->lhs, name, value),
+                           (Node *)node_subst(a, n->rhs, name, value)));
   case NODE_M:
-    return node_m(a, (Node *)node_subst(a, n->lhs, name, value),
-                  (Node *)node_subst(a, n->rhs, name, value));
+    return SUB_META(node_m(a, (Node *)node_subst(a, n->lhs, name, value),
+                           (Node *)node_subst(a, n->rhs, name, value)));
   default:
     return n;
   }
+
+#undef SUB_META
 }
 
 // Collect the top-level conjunctive literals of a guard into pos/neg sets.

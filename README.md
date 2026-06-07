@@ -8,7 +8,7 @@ Format) specifications, sharing a common C library.
 |---|---|---|
 | `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula — `ltlxba` (default, for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`), `ltl`, or `latex`; with optional simplification/rewrites |
 | `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
-| `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals) |
+| `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, description, semantics, target, tags, parameters, signals, GR level, bounded temporal origins) |
 | `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates + WL features — `text`/`gsnf`/`dot`/`tsv` |
 | `tlsfwl`    | TLSF 1.1/1.2 specs | Weisfeiler-Lehman features / similarity matrix for clustering & retrieval |
 | `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
@@ -129,6 +129,7 @@ tlsfinfo --semantics spec.tlsf      # one field (--title --description --target
                                     #   --tags --parameters --input-signals
                                     #   --output-signals --info)
 tlsfinfo --generalized-reactivity spec.tlsf   # the GR(k) level, or "NOT in GR"
+tlsfinfo --bounded-temporal spec.tlsf          # expanded X[k]/G[i:j]/F[i:j] origins
 tlsfinfo --check spec.tlsf          # "valid" if the spec parses, else error
 
 tlsfgraph spec.tlsf                 # text summary of the synthesis graph

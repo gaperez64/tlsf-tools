@@ -133,8 +133,9 @@ So the answer to "what raises the statistics" is: **composition was necessary
 but not sufficient**, and **more syntactic templates are not the main lever**.
 The general stateless safety-invariant added essentially nothing, because real
 safety is stateful (`X`) or output-coupled.  The useful lever is a real backend
-for residual games: AbsSynthe now covers the non-finite safety slice, while
-liveness / weak-until / GR(1)-style residuals still need a separate path.
+for residual games: AbsSynthe now covers the non-finite safety slice, including
+strict safety wrappers of the form `S W !A`, while GR(1)-style liveness
+residuals still need a separate path.
 
 ## Self-contained AIGER synthesis without `ltlsynt`
 
@@ -158,10 +159,11 @@ units with real AbsSynthe controllers.
 
 The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
 illustrates the shape: `small_Lights2_f1477cc5_2.tlsf` is solved by the safety
-backend and `small_ltl2dba22.tlsf` by the global-recurrence template, but the
-four robot benchmarks leave residuals containing liveness / weak-until
-structure. Raising the no-`ltlsynt` full-spec count further needs GR(1)-style
-handling, not another stateless template.
+backend and `small_ltl2dba22.tlsf` by the global-recurrence template.  The four
+robot benchmarks now advance past their strict-safety cluster with AbsSynthe,
+but still stop at a GR(1) liveness cluster when `ltlsynt` is disabled. Raising
+the no-`ltlsynt` full-spec count further needs GR(1)-style handling, not
+another stateless template.
 
 ## Effect of constraint decomposition (`--split`)
 

@@ -291,6 +291,7 @@ tlsfcompose_exe = executable(
 
 check = files('test/check.sh')
 xfail = files('test/expect_fail.sh')
+check_fail_stderr = files('test/check_fail_stderr.sh')
 
 # Cases converted with `tlsf2ltl` (default, minimal parentheses).
 ltl_cases = [
@@ -548,6 +549,15 @@ test('aiger_abssynthe_assume_safety', check,
   args: [files('test/cases/cluster_assume.abssynthe.aag'), tlsfcompose_exe,
          '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
          files('test/cases/cluster_assume.tlsf')])
+test('aiger_abssynthe_strict_safety', check,
+  args: [files('test/cases/strict_safety.abssynthe.aag'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+         '--ltlsynt', '/bin/false',
+         files('test/cases/strict_safety.tlsf')])
+test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
+  args: [files('test/cases/compose_gr1_disabled.err'), tlsfcompose_exe,
+         '--aiger', '--ltlsynt', '/bin/false',
+         files('test/cases/gr1_spec.tlsf')])
 if abssynthe_local.found()
   test('aiger_abssynthe_real_assume_delay', check,
     args: [files('test/cases/assume_delay_real.abssynthe.aag'),
@@ -705,6 +715,13 @@ test('info_block', check,
   args: [files('test/cases/Patterns_Uright_uright06.info'),
          tlsfinfo_exe, '--info',
          files('test/cases/Patterns_Uright_uright06.tlsf')])
+
+foreach c : ['next_n', 'ranges']
+  test('info_bounded_' + c, check,
+    args: [files('test/cases/' + c + '.bounded'),
+           tlsfinfo_exe, '--bounded-temporal',
+           files('test/cases/' + c + '.tlsf')])
+endforeach
 
 # GR(1) recognition.
 foreach c : ['gr0_spec', 'gr1_spec', 'gr2_spec', 'gr4_spec', 'notgr_spec']
