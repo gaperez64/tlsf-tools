@@ -478,7 +478,8 @@ test('tmpl_delayed_def_strong_finite_declined', check_wl,
 foreach name : ['reach_free', 'reach_blocked', 'persist_free', 'reaction_ok',
                 'reaction_multi', 'reaction_unsafe', 'ddef_demo',
                 'response_free', 'response_blocked', 'inv_const',
-                'inv_skolem', 'inv_multi', 'inv_decline', 'inv_valid']
+                'inv_skolem', 'inv_multi', 'inv_decline', 'inv_valid',
+                'dbuchi_switch', 'dbuchi_switch_finite']
   test('tmpl_' + name, check_wl,
     args: [files('test/cases/' + name + '.csnf'), tlsftemplates_exe,
            '--certify', '--solve', '--format', 'csnf',
@@ -516,10 +517,11 @@ endforeach
 test('compose_aiger_unclassified_atom', check,
   args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
          files('test/cases/aiger_unclassified_atom.tlsf')])
-# --aiger combinational path (no cluster -> no ltlsynt): golden-testable in CI.
-foreach name : ['def_demo', 'inv_skolem', 'reaction_ok']
+# --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
+foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
   test('aiger_' + name, check,
     args: [files('test/cases/' + name + '.aag'), tlsfcompose_exe, '--aiger',
+           '--ltlsynt', '/bin/false',
            files('test/cases/' + name + '.tlsf')])
 endforeach
 # --aiger reader/merge path with a fake ltlsynt stub (deterministic, no real
@@ -603,6 +605,12 @@ if python3.found() and spot_python_found
            '--compose', tlsfcompose_path,
            '--tlsf2ltl', tlsf2ltl_path,
            '--tlsf', files('test/cases/reaction_ok.tlsf')])
+  test('verify_aiger_dbuchi_switch', python3,
+    args: [files('scripts/verify_aiger_ltl.py'),
+           '--compose', tlsfcompose_path,
+           '--ltlsynt', '/bin/false',
+           '--tlsf2ltl', tlsf2ltl_path,
+           '--tlsf', files('test/cases/dbuchi_switch.tlsf')])
   if abssynthe_local.found()
     test('verify_aiger_abssynthe_real_assume_delay', python3,
       args: [files('scripts/verify_aiger_ltl.py'),

@@ -1,0 +1,8 @@
+c CSNF for dbuchi_switch.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved global-recurrence-switch
+bc 0 c0
+dbuchi 0 acc p
+cert 0 global_recurrence_switch
+cl 0 G p <-> G F acc

@@ -16,6 +16,54 @@ static bool is_next_kind(NodeKind k) {
   return k == NODE_X || k == NODE_X_STRONG;
 }
 
+// True if `n` mentions any temporal operator (so it is not purely Boolean).
+static bool has_temporal(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return true;
+  case NODE_NOT:
+    return has_temporal(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return has_temporal(n->lhs) || has_temporal(n->rhs);
+  default:
+    return false;
+  }
+}
+
+static bool has_output_ref(ConstraintCover *cov, const Node *n) {
+  switch (n->kind) {
+  case NODE_AP:
+    return is_output(cov, n);
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return has_output_ref(cov, n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return has_output_ref(cov, n->lhs) || has_output_ref(cov, n->rhs);
+  default:
+    return false;
+  }
+}
+
 static const Node *next_chain_target(const Node *n, uint32_t *steps,
                                      bool *strong) {
   *steps = 0;
@@ -119,6 +167,34 @@ static void match_fixed_delay_response(ConstraintCover *cov, Constraint *c) {
   c->fdelay_steps = steps;
 }
 
+static bool recurrence_side(ConstraintCover *cov, const Node *n) {
+  return n->kind == NODE_G && n->arg->kind == NODE_F &&
+         is_output(cov, n->arg->arg);
+}
+
+static const Node *global_guard_side(const Node *n) {
+  return n->kind == NODE_G ? n->arg : nullptr;
+}
+
+// G(phi) <-> G F o: a one-bit controller can output o until phi first fails.
+static void match_global_recurrence_switch(ConstraintCover *cov,
+                                           Constraint *c) {
+  if (c->formula->kind != NODE_EQUIV)
+    return;
+  const Node *rec = nullptr;
+  const Node *guard = nullptr;
+  if (recurrence_side(cov, c->formula->lhs)) {
+    rec = c->formula->lhs;
+    guard = global_guard_side(c->formula->rhs);
+  } else if (recurrence_side(cov, c->formula->rhs)) {
+    rec = c->formula->rhs;
+    guard = global_guard_side(c->formula->lhs);
+  }
+  if (!rec || !guard || has_temporal(guard) || has_output_ref(cov, guard))
+    return;
+  constraint_add_candidate(cov, c, "global-recurrence-switch");
+}
+
 // G(X o <-> theta) / G(theta <-> X o)  (also X[!]); delayed definition /
 // register, o output.
 static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
@@ -189,30 +265,6 @@ static void match_definition(ConstraintCover *cov, Constraint *c) {
   } else if (is_output(cov, body->rhs)) {
     constraint_add_candidate(cov, c, "definition");
     c->def_output = ap_idx(cov, body->rhs);
-  }
-}
-
-// True if `n` mentions any temporal operator (so it is not purely Boolean).
-static bool has_temporal(const Node *n) {
-  switch (n->kind) {
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return true;
-  case NODE_NOT:
-    return has_temporal(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    return has_temporal(n->lhs) || has_temporal(n->rhs);
-  default:
-    return false;
   }
 }
 
@@ -317,6 +369,7 @@ void recognize_all(ConstraintCover *cov) {
     match_persistence(cov, c);
     match_reachability(cov, c);
     match_fixed_delay_response(cov, c);
+    match_global_recurrence_switch(cov, c);
     match_toggle_register(cov, c);
     match_guarded_next(cov, c);
     match_definition(cov, c);

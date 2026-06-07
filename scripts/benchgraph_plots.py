@@ -30,8 +30,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 SHAPES = [
-    "response", "mutex", "recurrence", "persistence", "guarded_next",
-    "definition",
+    "response", "mutex", "recurrence", "persistence", "global_recurrence",
+    "guarded_next", "definition",
 ]
 
 

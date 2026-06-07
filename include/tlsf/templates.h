@@ -13,6 +13,7 @@
 #include "tlsf/cover.h"
 #include <stdio.h>
 
+typedef struct Aig Aig;
 typedef enum {
   CSNF_CANDIDATE, ///< recognized, not certified
   CSNF_CERTIFIED, ///< side condition checked + certificate (e.g. mutex safety)
@@ -39,6 +40,7 @@ enum {
   TPL_SET_RESET = 1u << 11,
   TPL_TOGGLE = 1u << 12,
   TPL_FIXED_DELAY = 1u << 13,
+  TPL_GLOBAL_RECURRENCE = 1u << 14,
   TPL_ALL = 0,
 };
 
@@ -104,6 +106,12 @@ typedef struct {
 /// result; free with csnf_composition_free.  nullptr on OOM.
 [[nodiscard]] CsnfComposition *csnf_compose(const Csnf *c);
 void csnf_composition_free(CsnfComposition *r);
+
+/// Direct local AIGER controllers for solved stateful/liveness templates that
+/// do not have a combinational substitution value.
+bool csnf_constraint_has_local_aiger(const Csnf *c, const CsnfComposition *r,
+                                     uint32_t constraint_id);
+bool csnf_emit_local_aiger(const Csnf *c, const CsnfComposition *r, Aig *g);
 
 /// Emit the model: `text` is human-readable, `csnf` is the DIMACS-style line
 /// format (see README).

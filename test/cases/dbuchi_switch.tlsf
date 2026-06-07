@@ -1,0 +1,20 @@
+INFO {
+  TITLE:       "dbuchi_switch"
+  DESCRIPTION: "global input condition equivalent to recurring output"
+  SEMANTICS:   Mealy
+  TARGET:      Mealy
+}
+
+MAIN {
+  INPUTS {
+    p;
+  }
+
+  OUTPUTS {
+    acc;
+  }
+
+  GUARANTEES {
+    G p <-> G F acc;
+  }
+}

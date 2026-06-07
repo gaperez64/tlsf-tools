@@ -29,6 +29,7 @@ BENCH_COLUMNS = [
     "mutex",
     "recurrence",
     "persistence",
+    "global_recurrence",
     "guarded_next",
     "definition",
     "template_candidates",

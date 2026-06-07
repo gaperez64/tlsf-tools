@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "dbuchi_switch_finite"
+  DESCRIPTION: "global recurrence switch is not certified on finite traces"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+
+MAIN {
+  INPUTS { p; }
+  OUTPUTS { acc; }
+  GUARANTEES {
+    G p <-> G F acc;
+  }
+}

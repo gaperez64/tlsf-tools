@@ -145,7 +145,8 @@ static uint32_t largest_output_component(ConstraintCover *cov) {
 typedef struct {
   bool ok;
   uint32_t inputs, outputs, constraints, safety, liveness;
-  uint32_t response, mutex, recurrence, persistence, gnext, definition;
+  uint32_t response, mutex, recurrence, persistence, global_rec, gnext,
+      definition;
   uint32_t tcands, solved, certified, dependent, residual, comp;
   uint32_t conflicts, fully_solved;
   uint32_t elim_constraints, owned_outputs;
@@ -198,6 +199,8 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
         m.recurrence++;
       else if (!strcmp(n, "persistence"))
         m.persistence++;
+      else if (!strcmp(n, "global-recurrence-switch"))
+        m.global_rec++;
       else if (!strcmp(n, "guarded-next-assignment"))
         m.gnext++;
       else if (!strcmp(n, "definition"))
@@ -313,13 +316,15 @@ int main(int argc, char *argv[]) {
   if (!out)
     return 1;
 
-  fprintf(out, "file\tparse_status\tinputs\toutputs\tconstraints\tsafety\t"
-               "liveness\tresponse\tmutex\trecurrence\tpersistence\t"
-               "guarded_next\tdefinition\ttemplate_candidates\tsolved_blocks\t"
-               "certified_blocks\tdependent_outputs\tresidual_constraints\t"
-               "largest_output_component\tformula_size_raw\tformula_size_norm\t"
-               "wl_stab_depth\tfully_solved\tconflicts\t"
-               "eliminated_constraints\towned_outputs\n");
+  fprintf(out,
+          "file\tparse_status\tinputs\toutputs\tconstraints\tsafety\t"
+          "liveness\tresponse\tmutex\trecurrence\tpersistence\t"
+          "global_recurrence\tguarded_next\tdefinition\t"
+          "template_candidates\tsolved_blocks\tcertified_blocks\t"
+          "dependent_outputs\tresidual_constraints\tlargest_output_component"
+          "\tformula_size_raw\tformula_size_norm\twl_stab_depth\t"
+          "fully_solved\tconflicts\t"
+          "eliminated_constraints\towned_outputs\n");
 
   // Aggregates.
   uint32_t nok = 0, nfail = 0;
@@ -334,7 +339,7 @@ int main(int argc, char *argv[]) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
@@ -346,10 +351,10 @@ int main(int argc, char *argv[]) {
       snprintf(wl, sizeof wl, "-");
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\n",
+            "\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
-            m.response, m.mutex, m.recurrence, m.persistence, m.gnext,
-            m.definition, m.tcands, m.solved, m.certified, m.dependent,
+            m.response, m.mutex, m.recurrence, m.persistence, m.global_rec,
+            m.gnext, m.definition, m.tcands, m.solved, m.certified, m.dependent,
             m.residual, m.comp, m.size_raw, m.size_norm, wl, m.fully_solved,
             m.conflicts, m.elim_constraints, m.owned_outputs);
 
@@ -359,6 +364,7 @@ int main(int argc, char *argv[]) {
     tot[3] += m.persistence;
     tot[4] += m.gnext;
     tot[5] += m.definition;
+    tot[12] += m.global_rec;
     tot[6] += m.solved;
     tot[7] += m.certified;
     with_solved += m.solved > 0;
@@ -378,10 +384,12 @@ int main(int argc, char *argv[]) {
             g_nfiles);
     fprintf(out,
             "# total candidates: response=%llu mutex=%llu recurrence=%llu "
-            "persistence=%llu guarded_next=%llu definition=%llu\n",
+            "persistence=%llu global_recurrence=%llu guarded_next=%llu "
+            "definition=%llu\n",
             (unsigned long long)tot[0], (unsigned long long)tot[1],
             (unsigned long long)tot[2], (unsigned long long)tot[3],
-            (unsigned long long)tot[4], (unsigned long long)tot[5]);
+            (unsigned long long)tot[12], (unsigned long long)tot[4],
+            (unsigned long long)tot[5]);
     fprintf(out, "# total blocks: solved=%llu certified=%llu\n",
             (unsigned long long)tot[6], (unsigned long long)tot[7]);
     fprintf(out,

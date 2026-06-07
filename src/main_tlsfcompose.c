@@ -690,6 +690,8 @@ int main(int argc, char *argv[]) {
   for (uint32_t i = 0; i < N; i++) {
     if (comp->elim_constraint[i])
       continue; // discharged by a combinational controller
+    if (aiger && csnf_constraint_has_local_aiger(csnf, comp, i))
+      continue; // discharged by a direct local AIGER controller
     const Node *f =
         residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
     f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);
@@ -773,6 +775,10 @@ int main(int argc, char *argv[]) {
       }
       aig_set_output(
           g, ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output), lit);
+    }
+    if (rc == 0 && !csnf_emit_local_aiger(csnf, comp, g)) {
+      fprintf(stderr, "tlsfcompose: cannot encode local template controller\n");
+      rc = 1;
     }
     // Any unconstrained output: drive to false.
     for (uint32_t o = 0; o < A && rc == 0; o++)

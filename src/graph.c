@@ -1,3 +1,4 @@
+// NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/graph.h"
 
@@ -11,8 +12,9 @@ static const char *KNOWN_TEMPLATES[] = {"response",
                                         "pure-recurrence",
                                         "persistence",
                                         "guarded-next-assignment",
+                                        "global-recurrence-switch",
                                         "definition"};
-enum { N_KNOWN = 6 };
+enum { N_KNOWN = 7 };
 
 static bool sel(const GraphOpts *o, uint32_t i) {
   return !o->selected || o->selected[i];

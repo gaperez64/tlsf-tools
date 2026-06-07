@@ -14,8 +14,8 @@ Format) specifications, sharing a common C library.
 | `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
 | `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
 | `tlsfnorm`  | TLSF 1.1/1.2 spec | Local normalization (split / nnf / boolean passes), re-emitted as TLSF |
-| `tlsfresidual` | TLSF 1.1/1.2 spec | The residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`) |
-| `tlsfcompose` | TLSF 1.1/1.2 spec | Decomposed-synthesis plan: certified controllers + residual clusters + a `compose.sh` driver |
+| `tlsfresidual` | TLSF 1.1/1.2 spec | The residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`, or safety clusters for AbsSynthe) |
+| `tlsfcompose` | TLSF 1.1/1.2 spec | Decomposed-synthesis plan or merged AIGER: certified controllers + residual clusters + optional AbsSynthe/`ltlsynt` backends |
 
 These are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised
@@ -23,6 +23,39 @@ TLSF specification, fully expand it (parameters, definitions — including
 recursive case-definitions — bus unrolling, bounded `&&[..]`/`||[..]`
 operators, indexed `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, and
 `SIZEOF`) and emit either a ground TLSF spec or the equivalent LTL formula.
+
+## Recommended preprocessing pipeline
+
+For synthesis, prefer decomposing the TLSF structure before handing residual LTL
+to `ltlsynt`, `strix`, or another backend. The useful path is:
+
+```sh
+# 1. Optional inspection: expose the expanded basic spec.
+tlsf2tlsf --basic spec.tlsf > spec.basic.tlsf
+
+# 2. Split top-level conjunctions, certify local controllers, and inspect the
+#    sound composition verdict.
+tlsftemplates --split --check --format csnf spec.tlsf
+
+# 3. Emit independent residual clusters after exact template substitution.
+tlsfresidual --split --output-dir residuals spec.tlsf
+
+# 4. Feed each residual.<k>.ltl to the backend named by its header comments
+#    (`c ins=...`, `c outs=...`).
+ltlsynt --ins='...' --outs='...' -F residuals/residual.0.ltl
+```
+
+For a generated driver instead of manual backend calls:
+
+```sh
+tlsfcompose --split --output-dir out spec.tlsf
+sh out/compose.sh
+```
+
+For one merged controller circuit, use `tlsfcompose --aiger`. With AbsSynthe
+available, eligible non-finite safety residuals are handled before falling back
+to `ltlsynt`; `--ltlsynt /bin/false` is a useful way to measure the
+self-contained slice.
 
 ## Pipeline
 
@@ -60,6 +93,17 @@ With sanitizers:
 meson setup build-san -Dsanitize=address,undefined
 ninja -C build-san
 ```
+
+Optional safety backend:
+
+```sh
+meson compile -C build abssynthe-submodule
+meson compile -C build abssynthe-build
+```
+
+When `external/AbsSynthe/binary/abssynthe` exists, Meson enables the optional
+real-AbsSynthe regression tests and `tlsfcompose --aiger --abssynthe PATH` can
+synthesize eligible non-finite safety residual clusters without `ltlsynt`.
 
 ## Usage
 
@@ -276,6 +320,9 @@ anything else.
 
 *Recurrence:*
 
+- **global-recurrence-switch** `G(φ) <-> G F o`, where `φ` is temporal-free and
+  output-free (infinite semantics only) → one-bit deterministic-Buchi
+  controller; cert `global_recurrence_switch`.
 - **response** `G(r -> F g)` (independent, `g` free) → grant controller; cert
   `response_controller`.
 - **round-robin** (`GF o_i` ×k + grant mutex) → one-hot finite cycle (the `o_i`
@@ -287,7 +334,7 @@ Reactivity / GR(1) (boolean combinations of recurrence and persistence) is out
 of scope — it needs a real game solver, not a syntactic certificate. Anything
 not provably sound stays `candidate`; nothing is removed (residual export is the
 next milestone). CSNF is the same DIMACS-style line format as GSNF
-(`b`/`bc`/`dec`/`nsf`/`srset`/`srreset`/`tog`/`fdresp`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
+(`b`/`bc`/`dec`/`nsf`/`srset`/`srreset`/`tog`/`fdresp`/`dbuchi`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
 records).
 
 ### Constraint decomposition (`--split`, `tlsfnorm`)
@@ -345,41 +392,55 @@ are replicated into every cluster's antecedent (sound); the accepted controllers
 plus a controller per cluster realise the whole spec.
 
 **Honest caveat (see [`BENCHGRAPH.md`](BENCHGRAPH.md)):** composability is the
-*soundness* fix, not a *coverage* fix. Over the SYNTCOMP corpus only ~0.4–0.6 %
-of constraints are eliminated and no spec is fully solved — real specs are mostly
-non-template safety constraints plus assumptions. A genuine safety-game backend
-(not more syntactic templates) is the open coverage lever.
+*soundness* fix, not a template-coverage fix. Template-only composition now
+fully solves 2 SYNTCOMP `tlsf` specs and eliminates only ~0.4–0.6 % of
+constraints. With the AbsSynthe safety backend enabled, however,
+`tlsfcompose --aiger --ltlsynt /bin/false` currently emits full controllers for
+125 / 2545 `tlsf` specs and classifies 7 more as unrealizable. The remaining
+gap is dominated by liveness / weak-until / GR(1)-style residuals.
 
 ### Decomposed synthesis (`tlsfcompose`)
 
-`tlsfcompose` turns the decomposition into a runnable synthesis plan, while
-staying fully self-contained (it never spawns a process). It emits the certified
-**combinational controllers** as exact assignments (`o := θ`), the rest of the
-spec as independent **residual clusters** (one LTL job each), and — with
-`--output-dir` — a generated **`compose.sh`** that runs `ltlsynt` per cluster:
+`tlsfcompose` turns the decomposition into a runnable synthesis plan. In its
+default text/output-dir mode it stays self-contained and does not spawn
+processes: it emits the certified **combinational controllers** as exact
+assignments (`o := θ`), the rest of the spec as independent **residual
+clusters** (one LTL job each), and — with `--output-dir` — a generated
+**`compose.sh`** that runs `ltlsynt` per cluster:
 
 ```sh
 tlsfcompose spec.tlsf                      # plan on stdout (controllers + clusters)
 tlsfcompose --output-dir out/ spec.tlsf    # controllers.txt, cluster.<k>.ltl, compose.sh
 sh out/compose.sh                          # runs ltlsynt per cluster -> overall verdict
-tlsfcompose --aiger spec.tlsf > ctrl.aag   # one merged controller circuit (needs ltlsynt)
+tlsfcompose --aiger spec.tlsf > ctrl.aag   # one merged controller circuit
+tlsfcompose --aiger --abssynthe external/AbsSynthe/binary/abssynthe \
+            --ltlsynt /bin/false spec.tlsf > ctrl.aag
 ```
 
-`--aiger` closes the loop into a single controller: it encodes the combinational
-controllers directly as and-inverter gates, runs `ltlsynt` on each residual
-cluster (the safety+liveness game backend) for its strategy, and **merges** them
-— shared inputs, output-disjoint clusters — into one AIGER (`aag`) over the
-spec's full interface (`UNREALIZABLE` if any cluster is). `ltlsynt` is invoked
-only for `--aiger`; the default plan and a fully-combinational `--aiger` need no
-external tool. Pick the binary with `--ltlsynt PATH` or `$LTLSYNT`.
+`--aiger` closes the loop into a single controller. It encodes certified
+controllers directly as and-inverter gates, routes eligible non-finite safety
+clusters (`G`/`X`/Boolean, including safety assumptions) to AbsSynthe when
+`--abssynthe PATH` or `$ABSSYNTHE` is set, routes anything else to `ltlsynt`,
+and **merges** the output-disjoint strategies into one AIGER (`aag`) over the
+spec's full interface (`UNREALIZABLE` if any exact residual cluster is
+unrealizable). Use `--ltlsynt /bin/false` to assert that no fallback call is
+allowed.
 
 The spec is **realizable iff every cluster is** (the combinational controllers
 are exact), so the per-cluster `ltlsynt` results compose into a verdict and a
-full strategy = the emitted controllers ⊕ one controller per cluster (`--aiger`
-merges them into one circuit). Liveness templates (fair server/arbiter) are
-routed to `ltlsynt` via the residual rather than hand-encoded as circuits; a
-self-contained safety-game backend (to avoid the `ltlsynt` dependency) and the
-`--from-gsnf`/`--from-csnf` line reader are the remaining roadmap items.
+full strategy = the emitted controllers ⊕ one controller per cluster. AbsSynthe
+now covers the self-contained safety-game slice; liveness templates
+(fair server/arbiter) and GR(1)-style residuals still require a liveness backend
+rather than hand-encoded circuits. The `--from-gsnf`/`--from-csnf` line reader
+is still reserved.
+
+Generated AIGER controllers can be checked against the original spec with Spot's
+Python bindings:
+
+```sh
+python3 scripts/verify_aiger_ltl.py --compose build/tlsfcompose \
+  --tlsf2ltl build/tlsf2ltl --tlsf spec.tlsf
+```
 
 ### Corpus statistics (`tlsfbenchgraph`)
 
@@ -400,16 +461,17 @@ Over the SYNTCOMP corpus (all specs parse; ~5 s for the 2545 `tlsf` set) the
 shape distribution is, e.g.: the real-time `tlsf` set is recurrence-dominated
 (`GF` in ~876 specs) with response pervasive once constraints are split (431
 specs), while the finite-word `tlsf-fin` set has **no** recurrence/persistence
-and is instead **arbitration-shaped** — mutex (230 specs) and response (141),
-both invisible without `--split` — the kind of structural insight this layer is
-meant to expose.
+and is instead **arbitration- and guarded-next-shaped** — mutex (230 specs),
+response (141), and guarded-next (292), much of it invisible without `--split`.
+Current no-`ltlsynt` AIGER synthesis on the `tlsf` corpus solves 125 specs with
+templates+AbsSynthe; template-only full-spec solving is 2.
 
-`tlsfgraph`/`tlsfwl`/`tlsftemplates`/`tlsfbenchgraph` are the implemented slice
-of a larger proposed analysis/normalization/synthesis layer. Later milestones
-(residual export, controller composition, normalization passes) are not yet
-implemented and the corresponding flags (`--norm-depth`, `--from-gsnf`,
-`--side-conditions sat|bdd`, `tlsfbenchgraph --jobs/--timeout`, …) report a clear
-"not implemented" error; `--graph formula|quotient` is likewise reserved.
+`tlsfgraph`/`tlsfwl`/`tlsftemplates`/`tlsfbenchgraph`/`tlsfresidual`/
+`tlsfcompose` are the implemented slice of a larger
+analysis/normalization/synthesis layer. Remaining reserved flags such as
+`--norm-depth`, `--from-gsnf`, `--from-csnf`, `--side-conditions sat|bdd`,
+`tlsfbenchgraph --jobs/--timeout`, and `--graph formula|quotient` report a clear
+"not implemented" error.
 
 ## Checking output against `syfco`
 
@@ -438,12 +500,12 @@ needs no external tools, so it runs anywhere:
 meson test -C build        # fast regression suite
 ```
 
-Coverage (uses the default compiler's matching `gcov`):
+Coverage (uses `gcovr` with the default compiler's matching `gcov`):
 
 ```sh
 meson setup build-cov -Db_coverage=true
 meson test -C build-cov
-python3 scripts/gcov_summary.py --build-dir build-cov --threshold 75 --show-files
+gcovr --root . --filter 'src/' --exclude '.*tlsf_(lex|parse).*' --print-summary
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) checks `clang-format`, builds with

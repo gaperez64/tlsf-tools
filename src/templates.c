@@ -1,6 +1,8 @@
+// NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/templates.h"
 
+#include "tlsf/aiger.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/rewrite.h"
 
@@ -13,6 +15,7 @@ const char *const TEMPLATE_NAMES[] = {"definition",
                                       "set-reset-register",
                                       "toggle-register",
                                       "fixed-delay-response",
+                                      "global-recurrence-switch",
                                       "reaction",
                                       "mutex",
                                       "pure-recurrence",
@@ -22,7 +25,7 @@ const char *const TEMPLATE_NAMES[] = {"definition",
                                       "persistence",
                                       "reachability",
                                       "safety-invariant"};
-const int TEMPLATE_NAMES_COUNT = 15;
+const int TEMPLATE_NAMES_COUNT = 16;
 
 // ---------------------------------------------------------------------------
 // CSNF model
@@ -52,6 +55,8 @@ typedef struct {
   const Node **fdelay_guards;
   uint32_t *fdelay_steps;
   uint32_t fdelay_n;
+  int32_t db_output; // deterministic-Buchi switch output (-1 none)
+  const Node *db_guard;
   int32_t *cyc_outputs; // round-robin one-hot cycle outputs
   uint32_t cyc_n;
   // free-liveness family (controller is the constant out := true):
@@ -94,6 +99,7 @@ static Block *new_block(Csnf *c) {
                .sr_output = -1,
                .tog_output = -1,
                .fdelay_output = -1,
+               .db_output = -1,
                .one_output = -1,
                .hold_output = -1,
                .resp_output = -1,
@@ -369,6 +375,55 @@ static bool has_next(const Node *n) {
   }
 }
 
+static bool has_temporal(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return true;
+  case NODE_NOT:
+    return has_temporal(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return has_temporal(n->lhs) || has_temporal(n->rhs);
+  default:
+    return false;
+  }
+}
+
+static bool has_output_ref(ConstraintCover *cov, const Node *n) {
+  switch (n->kind) {
+  case NODE_AP: {
+    int32_t i = ap_table_find(&cov->aps, n->name);
+    return i >= 0 && (ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT);
+  }
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return has_output_ref(cov, n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return has_output_ref(cov, n->lhs) || has_output_ref(cov, n->rhs);
+  default:
+    return false;
+  }
+}
+
 // Parse G(alpha -> o) / G(alpha -> !o); returns guard, output index, sign.
 static bool parse_reaction(ConstraintCover *cov, const Constraint *c,
                            const Node **alpha, int32_t *out, bool *neg) {
@@ -387,6 +442,40 @@ static bool parse_reaction(ConstraintCover *cov, const Constraint *c,
   if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
     return false;
   *alpha = body->lhs;
+  *out = i;
+  return true;
+}
+
+static bool parse_global_recurrence_switch(ConstraintCover *cov,
+                                           const Constraint *c,
+                                           const Node **guard, int32_t *out) {
+  if (c->formula->kind != NODE_EQUIV)
+    return false;
+  const Node *lhs = c->formula->lhs;
+  const Node *rhs = c->formula->rhs;
+  const Node *rec = nullptr;
+  const Node *gside = nullptr;
+  if (lhs->kind == NODE_G && lhs->arg->kind == NODE_F) {
+    rec = lhs;
+    gside = rhs;
+  } else if (rhs->kind == NODE_G && rhs->arg->kind == NODE_F) {
+    rec = rhs;
+    gside = lhs;
+  } else {
+    return false;
+  }
+  if (gside->kind != NODE_G)
+    return false;
+  const Node *target = rec->arg->arg;
+  if (target->kind != NODE_AP)
+    return false;
+  int32_t i = ap_table_find(&cov->aps, target->name);
+  if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
+    return false;
+  const Node *body = gside->arg;
+  if (has_temporal(body) || has_output_ref(cov, body))
+    return false;
+  *guard = body;
   *out = i;
   return true;
 }
@@ -720,6 +809,40 @@ static void certify_fixed_delay_response(Csnf *c, unsigned want, bool certify) {
     free(ids);
     free(guards);
     free(steps);
+  }
+}
+
+static void certify_global_recurrence_switch(Csnf *c, unsigned want,
+                                             bool certify) {
+  if (want && !(want & TPL_GLOBAL_RECURRENCE))
+    return;
+  ConstraintCover *cov = c->cov;
+  for (uint32_t i = 0; i < cov->count; i++) {
+    Constraint *cc = &cov->items[i];
+    if (c->claimed[i] || !has_cand(cc, "global-recurrence-switch"))
+      continue;
+    const Node *guard;
+    int32_t out;
+    if (!parse_global_recurrence_switch(cov, cc, &guard, &out))
+      continue;
+    Block *blk = new_block(c);
+    if (!blk)
+      return;
+    blk->name = "global-recurrence-switch";
+    blk->cids = malloc(sizeof(uint32_t));
+    blk->cids[0] = i;
+    blk->ncids = 1;
+    blk->db_output = out;
+    blk->db_guard = guard;
+    if (certify && !semantics_is_finite(cov->spec->info.semantics) &&
+        output_is_free(cov, &i, 1, (uint32_t)out)) {
+      blk->status = CSNF_SOLVED;
+      blk->cert = "global_recurrence_switch";
+      c->solved[i] = true;
+    } else {
+      blk->status = CSNF_CANDIDATE;
+    }
+    c->claimed[i] = true;
   }
 }
 
@@ -1301,6 +1424,7 @@ Csnf *templates_certify(ConstraintCover *cov, unsigned want, bool certify) {
   certify_set_reset_register(c, want, certify);
   certify_toggle_register(c, want, certify);
   certify_fixed_delay_response(c, want, certify);
+  certify_global_recurrence_switch(c, want, certify);
   certify_guarded_next(c, want, certify);
   certify_reaction(c, want, certify);
   certify_response(c, want, certify);
@@ -1413,8 +1537,8 @@ static bool block_writes(const Block *b, int32_t o) {
     return false;
   if (b->dec_output == o || b->nsf_output == o || b->sr_output == o ||
       b->tog_output == o || b->fdelay_output == o || b->asg_output == o ||
-      b->reg_output == o || b->one_output == o || b->hold_output == o ||
-      b->resp_output == o)
+      b->db_output == o || b->reg_output == o || b->one_output == o ||
+      b->hold_output == o || b->resp_output == o)
     return true;
   for (uint32_t i = 0; i < b->cyc_n; i++)
     if (b->cyc_outputs[i] == o)
@@ -1665,6 +1789,41 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   return r;
 }
 
+static bool accepted_direct_aiger_block(const Csnf *c, const CsnfComposition *r,
+                                        uint32_t b) {
+  return b < c->nblocks && r->accepted_block[b] && c->blocks[b].db_output >= 0;
+}
+
+bool csnf_constraint_has_local_aiger(const Csnf *c, const CsnfComposition *r,
+                                     uint32_t constraint_id) {
+  for (uint32_t b = 0; b < c->nblocks; b++) {
+    if (!accepted_direct_aiger_block(c, r, b))
+      continue;
+    for (uint32_t k = 0; k < c->blocks[b].ncids; k++)
+      if (c->blocks[b].cids[k] == constraint_id)
+        return true;
+  }
+  return false;
+}
+
+bool csnf_emit_local_aiger(const Csnf *c, const CsnfComposition *r, Aig *g) {
+  for (uint32_t b = 0; b < c->nblocks; b++) {
+    if (!accepted_direct_aiger_block(c, r, b))
+      continue;
+    const Block *blk = &c->blocks[b];
+    uint32_t guard = aig_compile(g, blk->db_guard);
+    if (guard == UINT32_MAX)
+      return false;
+    uint32_t failed = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    uint32_t next = aig_or(g, failed, aig_not(guard));
+    if (!aig_set_latch_next(g, failed, next))
+      return false;
+    aig_set_output(g, ap_table_name(&c->cov->aps, (uint32_t)blk->db_output),
+                   aig_not(failed));
+  }
+  return true;
+}
+
 void csnf_composition_free(CsnfComposition *r) {
   if (!r)
     return;
@@ -1742,6 +1901,12 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
                   gs ? gs : "");
           free(gs);
         }
+      }
+      if (b->db_output >= 0 && b->db_guard) {
+        char *gs = formula_str(c, b->db_guard);
+        fprintf(out, "dbuchi %u %s %s\n", i,
+                ap_table_name(&cov->aps, (uint32_t)b->db_output), gs ? gs : "");
+        free(gs);
       }
       if (b->cyc_n > 0 && b->status == CSNF_SOLVED) {
         fprintf(out, "cyc %u %u", i, b->cyc_n);
@@ -1846,6 +2011,12 @@ void csnf_emit_text(FILE *out, const Csnf *c, bool solve) {
         fprintf(out, " %s",
                 ap_table_name(&cov->aps, (uint32_t)b->cyc_outputs[k]));
       fprintf(out, "\n");
+    }
+    if (b->db_output >= 0 && b->status == CSNF_SOLVED) {
+      char *gs = formula_str(c, b->db_guard);
+      fprintf(out, "      deterministic Buchi: %s while G(%s) holds\n",
+              ap_table_name(&cov->aps, (uint32_t)b->db_output), gs ? gs : "");
+      free(gs);
     }
   }
 }
