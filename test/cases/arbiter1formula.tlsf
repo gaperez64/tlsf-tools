@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "arbiter1formula"
+  DESCRIPTION: "arbiter written as a single conjunctive GUARANTEE"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req0; req1; }
+  OUTPUTS { grant0; grant1; }
+  GUARANTEE {
+    G (req0 -> F grant0) && G (req1 -> F grant1) && G (!(grant0 && grant1));
+  }
+}

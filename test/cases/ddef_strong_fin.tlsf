@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "ddef_strong_fin"
+  DESCRIPTION: "finite strong-next delayed definition stays candidate"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (X[!] o <-> a);
+  }
+}

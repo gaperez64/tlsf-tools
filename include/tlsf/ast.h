@@ -100,6 +100,20 @@ typedef enum NodeKind {
 
 typedef struct Node Node;
 
+typedef enum BoundedTemporalOrigin {
+  BOUNDED_NONE,
+  BOUNDED_NEXT,
+  BOUNDED_G_RANGE,
+  BOUNDED_F_RANGE,
+} BoundedTemporalOrigin;
+
+typedef struct {
+  BoundedTemporalOrigin origin;
+  int64_t lo;
+  int64_t hi;
+  Node *body;
+} BoundedTemporalMeta;
+
 struct Node {
   NodeKind kind;
 
@@ -163,6 +177,10 @@ struct Node {
       uint16_t set_size; ///< element / child count
     };
   };
+
+  // Expansion metadata for compact backends: the node is still ordinary LTL,
+  // but it remembers that it came from X[k], G[lo:hi], or F[lo:hi].
+  BoundedTemporalMeta bounded;
 };
 
 // ---------------------------------------------------------------------------
@@ -191,6 +209,10 @@ struct Node {
 [[nodiscard]] Node *node_r(Arena *a, Node *lhs, Node *rhs);
 [[nodiscard]] Node *node_w(Arena *a, Node *lhs, Node *rhs);
 [[nodiscard]] Node *node_m(Arena *a, Node *lhs, Node *rhs);
+
+void node_set_bounded(Node *n, BoundedTemporalOrigin origin, int64_t lo,
+                      int64_t hi, Node *body);
+void node_copy_bounded(Node *dst, const Node *src);
 
 // ---------------------------------------------------------------------------
 // Node predicates

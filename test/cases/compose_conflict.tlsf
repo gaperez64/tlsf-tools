@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "compose_conflict"
+  DESCRIPTION: "definition decoder for o, but o is re-constrained -> ejected"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (o <-> a);
+    G (!o);
+  }
+}

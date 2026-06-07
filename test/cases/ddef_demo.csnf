@@ -1,0 +1,8 @@
+c CSNF for ddef_demo.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved delayed-definition
+bc 0 c0
+reg 0 o a
+cert 0 delayed_definition_register
+cl 0 G (X o <-> a)

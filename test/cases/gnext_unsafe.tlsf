@@ -1,0 +1,8 @@
+INFO {
+  TITLE: "gnext_unsafe"
+  DESCRIPTION: "guarded next, non-exclusive guards"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN { INPUTS { a; b; } OUTPUTS { o; }
+  GUARANTEE { G (a -> X o); G (b -> X !o); } }

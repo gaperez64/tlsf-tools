@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "gnext_strong_fin"
+  DESCRIPTION: "finite strong-next guarded assignment stays candidate"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (req -> X[!] o);
+    G (!req -> X[!] !o);
+  }
+}

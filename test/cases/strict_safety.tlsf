@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "strict_safety"
+  DESCRIPTION: "strict safety assumptions factor through AbsSynthe"
+  SEMANTICS: Mealy,Strict
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { x; }
+  INITIALLY { a; }
+  PRESET { !x; }
+  REQUIRE { a -> X a; }
+  ASSERT { !x -> X !x; }
+}

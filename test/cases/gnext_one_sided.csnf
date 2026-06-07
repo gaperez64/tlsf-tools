@@ -1,0 +1,8 @@
+c CSNF for gnext_one_sided.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved guarded-next-assignment
+bc 0 c0
+nsf 0 o req
+cert 0 guarded_assignment_consistency
+cl 0 G (req -> X o)

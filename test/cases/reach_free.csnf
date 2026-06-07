@@ -1,0 +1,8 @@
+c CSNF for reach_free.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved reachability
+bc 0 c0
+one 0 o
+cert 0 reachability_oneshot
+cl 0 F o

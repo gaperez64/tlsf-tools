@@ -1,0 +1,12 @@
+c CSNF for arbiter2.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved arbiter
+bc 0 c0
+bc 0 c1
+bc 0 c2
+arb 0 2 grant0 grant1
+cert 0 fair_arbiter
+cl 0 G (req0 -> F grant0)
+cl 0 G (req1 -> F grant1)
+cl 0 G !(grant0 && grant1)

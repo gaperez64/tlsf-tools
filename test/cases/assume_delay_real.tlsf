@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "assume_delay_real"
+  DESCRIPTION: "real AbsSynthe smoke: assumption releases future-input delay"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { x; }
+  ASSUME { G a; }
+  GUARANTEE {
+    G (x <-> X a);
+  }
+}

@@ -1,0 +1,9 @@
+c CSNF for def_demo.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved definition
+bc 0 c0
+dec 0 done a && b
+cert 0 definition_decoder
+cl 0 G (done <-> a && b)
+do done

@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "reaction_unsafe"
+  DESCRIPTION: "reaction with non-exclusive guards a,b (not solved -> residual)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (a -> o);
+    G (b -> !o);
+  }
+}

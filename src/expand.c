@@ -547,11 +547,13 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
       *ok = false;
       return nullptr;
     }
-    Node *body = expand_node(spec, n->rhs, env, ok, depth);
+    Node *expanded_body = expand_node(spec, n->rhs, env, ok, depth);
     if (!*ok)
       return nullptr;
+    Node *body = expanded_body;
     for (int64_t i = 0; i < count; i++)
       body = node_x(a, body);
+    node_set_bounded(body, BOUNDED_NEXT, count, count, expanded_body);
     return body;
   }
 
@@ -571,12 +573,15 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     }
     bool conj = (n->kind == NODE_G_RANGE);
     Node *acc = nullptr;
+    Node *meta_body = nullptr;
     for (int64_t k = lo; k <= hi; k++) {
       // Expand the body afresh each step: the copies must not alias (later
       // passes such as the Mealy/Moore signal wrap mutate nodes in place).
       Node *body = expand_node(spec, n->qbody, env, ok, depth);
       if (!*ok)
         return nullptr;
+      if (!meta_body)
+        meta_body = body;
       for (int64_t i = 0; i < k; i++)
         body = node_x(a, body);
       acc =
@@ -586,6 +591,8 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     // false.
     if (!acc)
       acc = conj ? node_true(a) : node_false(a);
+    node_set_bounded(acc, conj ? BOUNDED_G_RANGE : BOUNDED_F_RANGE, lo, hi,
+                     meta_body);
     return acc;
   }
 

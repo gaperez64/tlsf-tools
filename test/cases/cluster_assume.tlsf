@@ -1,0 +1,15 @@
+INFO {
+  TITLE: "cluster_assume"
+  DESCRIPTION: "pure-input assumption replicated into each output cluster"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { x; y; }
+  ASSUME { G a; }
+  GUARANTEE {
+    G (x <-> X a);
+    G (y <-> X b);
+  }
+}

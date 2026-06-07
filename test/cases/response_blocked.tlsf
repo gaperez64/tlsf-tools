@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "response_blocked"
+  DESCRIPTION: "two responses share grant g; conservative free-output check declines both"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; s; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> F g);
+    G (s -> F g);
+  }
+}

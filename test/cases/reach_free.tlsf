@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "reach_free"
+  DESCRIPTION: "reachability F o with o a free output (solved one-shot)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    F o;
+  }
+}

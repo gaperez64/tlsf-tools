@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "compose_demo"
+  DESCRIPTION: "a combinational decoder (controller) + a liveness remainder (cluster)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; r; }
+  OUTPUTS { o; g; }
+  GUARANTEE {
+    G (o <-> (a && b));
+    G (r -> F g);
+  }
+}

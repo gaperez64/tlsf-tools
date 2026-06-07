@@ -1,0 +1,11 @@
+c CSNF for gnext_demo.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved set-reset-register
+bc 0 c0
+bc 0 c1
+srset 0 o req
+srreset 0 o !req
+cert 0 set_reset_register
+cl 0 G (req -> X o)
+cl 0 G (!req -> X !o)

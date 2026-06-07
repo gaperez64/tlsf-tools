@@ -1,0 +1,13 @@
+c CSNF for compose_partial.tlsf
+p csnf 1 0 1 1
+m semantics Mealy
+b 0 candidate definition
+bc 0 c1
+dec 0 h X c
+cl 0 G (h <-> X c)
+b 1 solved server
+bc 1 c0
+resp 1 g r
+cert 1 response_controller
+cl 1 G (r -> F g)
+r c1

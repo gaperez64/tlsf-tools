@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "ddef_demo"
+  DESCRIPTION: "delayed definition G(X o <-> a): a one-step register o' := a"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (X o <-> a);
+  }
+}

@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "cluster_split"
+  DESCRIPTION: "two residual obligations on disjoint outputs -> two clusters"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { x; y; }
+  GUARANTEE {
+    G (x <-> X a);
+    G (y <-> X b);
+  }
+}

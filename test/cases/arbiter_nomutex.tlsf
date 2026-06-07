@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "arbiter_nomutex"
+  DESCRIPTION: "two responses on distinct free grants, no written mutex"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r0; r1; }
+  OUTPUTS { g0; g1; }
+  GUARANTEE {
+    G (r0 -> F g0);
+    G (r1 -> F g1);
+  }
+}

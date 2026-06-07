@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "reaction_multi"
+  DESCRIPTION: "multi-guard immediate reaction"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; c; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (a -> o);
+    G (b -> o);
+    G ((!a && !b && c) -> !o);
+    G ((!a && !b && !c) -> !o);
+  }
+}

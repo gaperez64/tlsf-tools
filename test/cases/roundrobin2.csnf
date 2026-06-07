@@ -1,0 +1,12 @@
+c CSNF for roundrobin2.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved round-robin
+bc 0 c0
+bc 0 c1
+bc 0 c2
+cyc 0 2 g0 g1
+cert 0 round_robin_scheduler
+cl 0 G F g0
+cl 0 G F g1
+cl 0 G !(g0 && g1)

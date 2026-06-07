@@ -1,0 +1,8 @@
+c CSNF for inv_skolem.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved safety-invariant
+bc 0 c0
+inv 0 o !a
+cert 0 safety_invariant
+cl 0 G (o || a)

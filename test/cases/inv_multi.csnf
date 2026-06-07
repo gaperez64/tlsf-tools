@@ -1,0 +1,9 @@
+c CSNF for inv_multi.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved safety-invariant
+bc 0 c0
+inv 0 o1 !a
+inv 0 o2 !((!a || a) && a)
+cert 0 safety_invariant
+cl 0 G ((o1 || a) && (o2 || !o1))

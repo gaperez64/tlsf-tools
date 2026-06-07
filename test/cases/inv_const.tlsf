@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "inv_const"
+  DESCRIPTION: "constant outputs via the safety-invariant template"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; o2; }
+  GUARANTEE {
+    G (o);
+    G (!o2);
+  }
+}

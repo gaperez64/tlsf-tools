@@ -1,0 +1,14 @@
+c CSNF for reaction_multi.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved reaction
+bc 0 c0
+bc 0 c1
+bc 0 c2
+bc 0 c3
+asg 0 o a | b
+cert 0 reaction_consistency
+cl 0 G (a -> o)
+cl 0 G (b -> o)
+cl 0 G (!a && !b && c -> !o)
+cl 0 G (!a && !b && !c -> !o)

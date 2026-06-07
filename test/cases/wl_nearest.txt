@@ -1,0 +1,4 @@
+p wlnearest 3 jaccard
+n 0 2 1.0000
+n 1 0 0.2500
+n 2 0 1.0000

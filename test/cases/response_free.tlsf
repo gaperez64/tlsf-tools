@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "response_free"
+  DESCRIPTION: "single response G(r -> F g), g a free output (solved controller)"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> F g);
+  }
+}

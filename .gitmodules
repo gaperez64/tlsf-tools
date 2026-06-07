@@ -1,0 +1,4 @@
+[submodule "external/AbsSynthe"]
+	path = external/AbsSynthe
+	url = https://github.com/gaperez64/AbsSynthe.git
+	branch = native-dev-par

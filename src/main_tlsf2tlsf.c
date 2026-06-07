@@ -132,6 +132,10 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+  if (!spec_validate_semantics(spec, "tlsf2tlsf")) {
+    spec_free(spec);
+    return 1;
+  }
 
   if (to_basic) {
     // Full expansion to the basic fragment (drops the GLOBAL section).

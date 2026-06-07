@@ -647,7 +647,14 @@ ltl_expr
   | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
     { $$ = node_next_n(spec->arena, $3, $5); }
   | TOK_SNEXT ltl_expr
-    { $$ = node_x_strong(spec->arena, $2); }
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr,
+                "%d:%d: parse error: X[!] is only valid under finite "
+                "semantics\n",
+                @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_x_strong(spec->arena, $2); }
   | TOK_FINALLY ltl_expr
     { $$ = node_f(spec->arena, $2); }
   | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr

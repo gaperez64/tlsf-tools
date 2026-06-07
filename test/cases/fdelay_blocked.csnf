@@ -1,0 +1,11 @@
+c CSNF for fdelay_blocked.tlsf
+p csnf 0 0 2 2
+m semantics Mealy
+b 0 candidate fixed-delay-response
+bc 0 c0
+cl 0 G (r -> X X g)
+b 1 candidate safety-invariant
+bc 1 c1
+cl 1 G !g
+r c0
+r c1

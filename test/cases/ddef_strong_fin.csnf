@@ -1,0 +1,7 @@
+c CSNF for ddef_strong_fin.tlsf
+p csnf 0 0 1 1
+m semantics Mealy
+b 0 candidate delayed-definition
+bc 0 c0
+cl 0 G (X[!] o <-> a)
+r c0

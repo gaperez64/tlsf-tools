@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "inv_decline"
+  DESCRIPTION: "G(o && a) is not stateless-realizable (a may be false) -> residual"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (o && a);
+  }
+}

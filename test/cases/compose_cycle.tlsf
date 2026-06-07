@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "compose_cycle"
+  DESCRIPTION: "two definition decoders that read each other -> dependency cycle"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { o1; o2; }
+  GUARANTEE {
+    G (o1 <-> (a && o2));
+    G (o2 <-> (b && o1));
+  }
+}

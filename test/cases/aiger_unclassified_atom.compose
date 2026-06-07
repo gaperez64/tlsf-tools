@@ -1,0 +1,4 @@
+c compose: controllers=0 clusters=1
+c cluster 0 outs=grant ins=req,BURST4
+G (BURST4 -> X (grant && req))
+c realizable iff every cluster is realizable (controllers are exact)

@@ -117,3 +117,19 @@ Node *node_w(Arena *a, Node *lhs, Node *rhs) {
 Node *node_m(Arena *a, Node *lhs, Node *rhs) {
   return node_binary(a, NODE_M, lhs, rhs);
 }
+
+void node_set_bounded(Node *n, BoundedTemporalOrigin origin, int64_t lo,
+                      int64_t hi, Node *body) {
+  assert(n);
+  n->bounded = (BoundedTemporalMeta){
+      .origin = origin,
+      .lo = lo,
+      .hi = hi,
+      .body = body,
+  };
+}
+
+void node_copy_bounded(Node *dst, const Node *src) {
+  assert(dst && src);
+  dst->bounded = src->bounded;
+}

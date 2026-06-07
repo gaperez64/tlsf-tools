@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "fdelay_blocked"
+  DESCRIPTION: "fixed-delay response whose target output is constrained elsewhere"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> X[2] g);
+    G (!g);
+  }
+}

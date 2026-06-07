@@ -1,0 +1,12 @@
+semantics: Mealy
+target: Mealy
+inputs: 2
+outputs: 2
+constraints: 3
+syntactic safety: 1
+syntactic liveness: 2
+template candidates:
+  response: 2
+  mutex: 1
+template blocks:
+  arbiter_candidate: 3 constraints

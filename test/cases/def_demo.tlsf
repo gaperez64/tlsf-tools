@@ -1,0 +1,8 @@
+INFO {
+  TITLE: "def_demo"
+  DESCRIPTION: "definition: done <-> a && b"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN { INPUTS { a; b; } OUTPUTS { done; }
+  GUARANTEE { G (done <-> (a && b)); } }

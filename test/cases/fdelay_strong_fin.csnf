@@ -1,0 +1,7 @@
+c CSNF for fdelay_strong_fin.tlsf
+p csnf 0 0 1 1
+m semantics Mealy
+b 0 candidate fixed-delay-response
+bc 0 c0
+cl 0 G (r -> X X[!] g)
+r c0

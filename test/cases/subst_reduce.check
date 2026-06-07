@@ -1,0 +1,14 @@
+c CSNF for subst_reduce.tlsf
+p csnf 1 0 1 1
+m semantics Mealy
+b 0 solved definition
+bc 0 c0
+dec 0 o a
+cert 0 definition_decoder
+cl 0 G (o <-> a)
+b 1 candidate safety-invariant
+bc 1 c1
+cl 1 G (o -> q)
+do o
+r c1
+composition: residual=1 conflicts=0 accepted=1

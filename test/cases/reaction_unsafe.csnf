@@ -1,0 +1,10 @@
+c CSNF for reaction_unsafe.tlsf
+p csnf 0 0 1 2
+m semantics Mealy
+b 0 candidate reaction
+bc 0 c0
+bc 0 c1
+cl 0 G (a -> o)
+cl 0 G (b -> !o)
+r c0
+r c1
