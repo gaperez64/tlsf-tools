@@ -249,8 +249,13 @@ anything else.
   `o`-free, `o` free outside the block); cert `definition_decoder`.
 - **delayed-definition** `G(X o<->θ)` → register `o' := θ` (causal `θ`, `o`
   free); cert `delayed_definition_register`.
-- **guarded-next-assignment** `G(α->X o)` / `G(β->X¬o)` → `o' := ⋁α` (guards
-  provably exclusive); cert `guarded_assignment_consistency`.
+- **guarded-next-assignment** one-sided `G(α->X o)` or `G(β->X¬o)` groups →
+  `o' := ⋁α`; cert `guarded_assignment_consistency`.
+- **set-reset-register** mixed `G(α->X o)` + `G(β->X¬o)` groups → stateful
+  register `o' := set ∨ (o ∧ ¬reset)` (set/reset guards provably exclusive);
+  cert `set_reset_register`.
+- **toggle-register** `G(t -> (X o <-> ¬o))` groups → stateful register
+  `o' := o xor (⋁t)`; cert `toggle_register`.
 - **reaction** `G(α->o)` / `G(β->¬o)` → combinational `o := ⋁α` (Mealy, guards
   exclusive, `o` free); cert `reaction_consistency`.
 - **mutex** `G atMostOne(…)` → *certified* safety invariant (`mutex_safety`),
@@ -279,7 +284,7 @@ Reactivity / GR(1) (boolean combinations of recurrence and persistence) is out
 of scope — it needs a real game solver, not a syntactic certificate. Anything
 not provably sound stays `candidate`; nothing is removed (residual export is the
 next milestone). CSNF is the same DIMACS-style line format as GSNF
-(`b`/`bc`/`dec`/`nsf`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
+(`b`/`bc`/`dec`/`nsf`/`srset`/`srreset`/`tog`/`cyc`/`arb`/`one`/`hold`/`resp`/`asg`/`reg`/`cert`/`cl`/`do`/`r`
 records).
 
 ### Constraint decomposition (`--split`, `tlsfnorm`)

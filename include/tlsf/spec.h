@@ -255,4 +255,8 @@ void spec_free(TlsfSpec *s);
 /// Parse a TARGET value ("Mealy" or "Moore").  Returns false if unrecognised.
 [[nodiscard]] bool parse_target(const char *s, Target *out);
 
+/// Validate semantics-dependent syntax.  Prints a diagnostic prefixed with
+/// `prog` and returns false on invalid combinations.
+[[nodiscard]] bool spec_validate_semantics(const TlsfSpec *s, const char *prog);
+
 #endif // TLSF_SPEC_H

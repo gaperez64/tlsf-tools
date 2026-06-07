@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "gnext_one_sided"
+  DESCRIPTION: "one-sided guarded next assignment"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (req -> X o);
+  }
+}

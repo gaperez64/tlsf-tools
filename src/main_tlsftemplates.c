@@ -77,6 +77,10 @@ static unsigned tpl_bit(const char *s) {
     return TPL_ROUND_ROBIN;
   if (!strcmp(s, "guarded-next-assignment"))
     return TPL_GUARDED_NEXT;
+  if (!strcmp(s, "set-reset-register"))
+    return TPL_SET_RESET;
+  if (!strcmp(s, "toggle-register"))
+    return TPL_TOGGLE;
   if (!strcmp(s, "mutex"))
     return TPL_MUTEX;
   if (!strcmp(s, "arbiter"))
@@ -258,6 +262,10 @@ int main(int argc, char *argv[]) {
   }
   if (ot_arg && !parse_target(ot_arg, &spec->info.target)) {
     fprintf(stderr, "tlsftemplates: invalid target '%s'\n", ot_arg);
+    spec_free(spec);
+    return 1;
+  }
+  if (!spec_validate_semantics(spec, "tlsftemplates")) {
     spec_free(spec);
     return 1;
   }

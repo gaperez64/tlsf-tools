@@ -10,6 +10,8 @@
 const char *const TEMPLATE_NAMES[] = {"definition",
                                       "delayed-definition",
                                       "guarded-next-assignment",
+                                      "set-reset-register",
+                                      "toggle-register",
                                       "reaction",
                                       "mutex",
                                       "pure-recurrence",
@@ -19,7 +21,7 @@ const char *const TEMPLATE_NAMES[] = {"definition",
                                       "persistence",
                                       "reachability",
                                       "safety-invariant"};
-const int TEMPLATE_NAMES_COUNT = 12;
+const int TEMPLATE_NAMES_COUNT = 14;
 
 // ---------------------------------------------------------------------------
 // CSNF model
@@ -37,6 +39,14 @@ typedef struct {
   int32_t nsf_output; // guarded-next assigned output (-1 none)
   const Node **nsf_guards;
   uint32_t nsf_nguards;
+  int32_t sr_output; // set-reset register output (-1 none)
+  const Node **sr_set_guards;
+  uint32_t sr_nsets;
+  const Node **sr_reset_guards;
+  uint32_t sr_nresets;
+  int32_t tog_output; // toggle register output (-1 none)
+  const Node **tog_guards;
+  uint32_t tog_nguards;
   int32_t *cyc_outputs; // round-robin one-hot cycle outputs
   uint32_t cyc_n;
   // free-liveness family (controller is the constant out := true):
@@ -76,6 +86,8 @@ static Block *new_block(Csnf *c) {
   Block *b = &c->blocks[c->nblocks++];
   *b = (Block){.dec_output = -1,
                .nsf_output = -1,
+               .sr_output = -1,
+               .tog_output = -1,
                .one_output = -1,
                .hold_output = -1,
                .resp_output = -1,
@@ -180,14 +192,40 @@ static bool sets_intersect(const ApSet *a, const ApSet *b) {
   return false;
 }
 
-// Parse G(alpha -> X o) / G(alpha -> X !o); returns guard, output index, sign.
+static bool guard_pairs_exclusive(ConstraintCover *cov, const Node **pos,
+                                  uint32_t npos, const Node **neg,
+                                  uint32_t nneg) {
+  uint32_t A = cov->aps.count;
+  for (uint32_t a = 0; a < npos; a++)
+    for (uint32_t b = 0; b < nneg; b++) {
+      ApSet ap, an, bp, bn;
+      apset_init(&ap, cov->arena, A);
+      apset_init(&an, cov->arena, A);
+      apset_init(&bp, cov->arena, A);
+      apset_init(&bn, cov->arena, A);
+      guard_literals(cov, pos[a], &ap, &an);
+      guard_literals(cov, neg[b], &bp, &bn);
+      if (!sets_intersect(&ap, &bn) && !sets_intersect(&an, &bp))
+        return false;
+    }
+  return true;
+}
+
+static bool is_next_kind(NodeKind k) {
+  return k == NODE_X || k == NODE_X_STRONG;
+}
+
+// Parse G(alpha -> X o) / G(alpha -> X !o) (also X[!]); returns guard, output
+// index, sign, and whether the next operator is strong.
 static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
-                               const Node **alpha, int32_t *out, bool *neg) {
+                               const Node **alpha, int32_t *out, bool *neg,
+                               bool *strong) {
   if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_IMPL)
     return false;
   const Node *body = c->formula->arg;
-  if (body->rhs->kind != NODE_X)
+  if (!is_next_kind(body->rhs->kind))
     return false;
+  *strong = body->rhs->kind == NODE_X_STRONG;
   const Node *t = body->rhs->arg;
   *neg = false;
   if (t->kind == NODE_NOT) {
@@ -200,6 +238,36 @@ static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
   if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
     return false;
   *alpha = body->lhs;
+  *out = i;
+  return true;
+}
+
+// Parse G(t -> (X o <-> !o)) / G(t -> (!o <-> X o)); returns trigger, output
+// index, and whether the next operator is strong.
+static bool parse_toggle(ConstraintCover *cov, const Constraint *c,
+                         const Node **trigger, int32_t *out, bool *strong) {
+  if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_IMPL)
+    return false;
+  const Node *body = c->formula->arg;
+  if (body->rhs->kind != NODE_EQUIV)
+    return false;
+  const Node *eq = body->rhs;
+  const Node *lhs = eq->lhs;
+  const Node *rhs = eq->rhs;
+  if (!is_next_kind(lhs->kind)) {
+    const Node *tmp = lhs;
+    lhs = rhs;
+    rhs = tmp;
+  }
+  if (!is_next_kind(lhs->kind) || lhs->arg->kind != NODE_AP ||
+      rhs->kind != NODE_NOT || rhs->arg->kind != NODE_AP ||
+      lhs->arg->name != rhs->arg->name)
+    return false;
+  *strong = lhs->kind == NODE_X_STRONG;
+  int32_t i = ap_table_find(&cov->aps, lhs->arg->name);
+  if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
+    return false;
+  *trigger = body->lhs;
   *out = i;
   return true;
 }
@@ -382,6 +450,155 @@ static void certify_definition(Csnf *c, unsigned want, bool certify) {
   }
 }
 
+static void certify_set_reset_register(Csnf *c, unsigned want, bool certify) {
+  if (want && !(want & TPL_SET_RESET))
+    return;
+  ConstraintCover *cov = c->cov;
+  uint32_t A = cov->aps.count;
+
+  for (uint32_t o = 0; o < A; o++) {
+    if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT))
+      continue;
+
+    uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
+    const Node **sets = malloc(cov->count * sizeof(Node *));
+    const Node **resets = malloc(cov->count * sizeof(Node *));
+    uint32_t nid = 0, ns = 0, nr = 0;
+    bool strong_next_sound = true;
+
+    for (uint32_t i = 0; i < cov->count; i++) {
+      if (c->claimed[i] || !has_cand(&cov->items[i], "guarded-next-assignment"))
+        continue;
+      const Node *alpha;
+      int32_t out;
+      bool neg, strong;
+      if (!parse_guarded_next(cov, &cov->items[i], &alpha, &out, &neg,
+                              &strong) ||
+          (uint32_t)out != o)
+        continue;
+      ids[nid++] = i;
+      if (neg)
+        resets[nr++] = alpha;
+      else
+        sets[ns++] = alpha;
+      if (strong && semantics_is_finite(cov->spec->info.semantics))
+        strong_next_sound = false;
+    }
+
+    if (ns == 0 || nr == 0) {
+      free(ids);
+      free(sets);
+      free(resets);
+      continue;
+    }
+
+    bool exclusive = true;
+    if (certify)
+      exclusive = guard_pairs_exclusive(cov, sets, ns, resets, nr);
+
+    Block *blk = new_block(c);
+    if (!blk) {
+      free(ids);
+      free(sets);
+      free(resets);
+      return;
+    }
+    blk->name = "set-reset-register";
+    blk->cids = malloc(nid * sizeof(uint32_t));
+    memcpy(blk->cids, ids, nid * sizeof(uint32_t));
+    blk->ncids = nid;
+    blk->sr_output = (int32_t)o;
+    blk->sr_set_guards = malloc(ns * sizeof(Node *));
+    blk->sr_reset_guards = malloc(nr * sizeof(Node *));
+    memcpy(blk->sr_set_guards, sets, ns * sizeof(Node *));
+    memcpy(blk->sr_reset_guards, resets, nr * sizeof(Node *));
+    blk->sr_nsets = ns;
+    blk->sr_nresets = nr;
+
+    if (certify && exclusive && strong_next_sound) {
+      blk->status = CSNF_SOLVED;
+      blk->cert = "set_reset_register";
+      for (uint32_t k = 0; k < nid; k++)
+        c->solved[ids[k]] = true;
+    } else {
+      blk->status = CSNF_CANDIDATE;
+    }
+
+    for (uint32_t k = 0; k < nid; k++)
+      c->claimed[ids[k]] = true;
+    free(ids);
+    free(sets);
+    free(resets);
+  }
+}
+
+static void certify_toggle_register(Csnf *c, unsigned want, bool certify) {
+  if (want && !(want & TPL_TOGGLE))
+    return;
+  ConstraintCover *cov = c->cov;
+  uint32_t A = cov->aps.count;
+
+  for (uint32_t o = 0; o < A; o++) {
+    if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT))
+      continue;
+
+    uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
+    const Node **triggers = malloc(cov->count * sizeof(Node *));
+    uint32_t nid = 0, nt = 0;
+    bool strong_next_sound = true;
+
+    for (uint32_t i = 0; i < cov->count; i++) {
+      if (c->claimed[i] || !has_cand(&cov->items[i], "toggle-register"))
+        continue;
+      const Node *trigger;
+      int32_t out;
+      bool strong;
+      if (!parse_toggle(cov, &cov->items[i], &trigger, &out, &strong) ||
+          (uint32_t)out != o)
+        continue;
+      ids[nid++] = i;
+      triggers[nt++] = trigger;
+      if (strong && semantics_is_finite(cov->spec->info.semantics))
+        strong_next_sound = false;
+    }
+
+    if (nid == 0) {
+      free(ids);
+      free(triggers);
+      continue;
+    }
+
+    Block *blk = new_block(c);
+    if (!blk) {
+      free(ids);
+      free(triggers);
+      return;
+    }
+    blk->name = "toggle-register";
+    blk->cids = malloc(nid * sizeof(uint32_t));
+    memcpy(blk->cids, ids, nid * sizeof(uint32_t));
+    blk->ncids = nid;
+    blk->tog_output = (int32_t)o;
+    blk->tog_guards = malloc(nt * sizeof(Node *));
+    memcpy(blk->tog_guards, triggers, nt * sizeof(Node *));
+    blk->tog_nguards = nt;
+
+    if (certify && strong_next_sound) {
+      blk->status = CSNF_SOLVED;
+      blk->cert = "toggle_register";
+      for (uint32_t k = 0; k < nid; k++)
+        c->solved[ids[k]] = true;
+    } else {
+      blk->status = CSNF_CANDIDATE;
+    }
+
+    for (uint32_t k = 0; k < nid; k++)
+      c->claimed[ids[k]] = true;
+    free(ids);
+    free(triggers);
+  }
+}
+
 static void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_GUARDED_NEXT))
     return;
@@ -397,13 +614,15 @@ static void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
     const Node **trues = malloc(cov->count * sizeof(Node *));
     const Node **falses = malloc(cov->count * sizeof(Node *));
     uint32_t nid = 0, nt = 0, nf = 0;
+    bool strong_next_sound = true;
     for (uint32_t i = 0; i < cov->count; i++) {
       if (c->claimed[i] || !has_cand(&cov->items[i], "guarded-next-assignment"))
         continue;
       const Node *alpha;
       int32_t out;
-      bool neg;
-      if (!parse_guarded_next(cov, &cov->items[i], &alpha, &out, &neg) ||
+      bool neg, strong;
+      if (!parse_guarded_next(cov, &cov->items[i], &alpha, &out, &neg,
+                              &strong) ||
           (uint32_t)out != o)
         continue;
       ids[nid++] = i;
@@ -411,6 +630,8 @@ static void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
         falses[nf++] = alpha;
       else
         trues[nt++] = alpha;
+      if (strong && semantics_is_finite(cov->spec->info.semantics))
+        strong_next_sound = false;
     }
     if (nid == 0) {
       free(ids);
@@ -423,20 +644,8 @@ static void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
     // literal (sufficient for the assignment o' := OR(true-guards) to be
     // consistent).  Trivially satisfied when there are no force-false guards.
     bool exclusive = true;
-    if (certify) {
-      for (uint32_t a = 0; a < nt && exclusive; a++)
-        for (uint32_t b = 0; b < nf && exclusive; b++) {
-          ApSet ap, an, bp, bn;
-          apset_init(&ap, cov->arena, A);
-          apset_init(&an, cov->arena, A);
-          apset_init(&bp, cov->arena, A);
-          apset_init(&bn, cov->arena, A);
-          guard_literals(cov, trues[a], &ap, &an);
-          guard_literals(cov, falses[b], &bp, &bn);
-          if (!sets_intersect(&ap, &bn) && !sets_intersect(&an, &bp))
-            exclusive = false;
-        }
-    }
+    if (certify)
+      exclusive = guard_pairs_exclusive(cov, trues, nt, falses, nf);
 
     Block *blk = new_block(c);
     if (!blk) {
@@ -450,7 +659,7 @@ static void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->cids, ids, nid * sizeof(uint32_t));
     blk->ncids = nid;
     blk->nsf_output = (int32_t)o;
-    if (certify && exclusive) {
+    if (certify && exclusive && strong_next_sound) {
       blk->status = CSNF_SOLVED;
       blk->cert = "guarded_assignment_consistency";
       blk->nsf_guards = malloc((nt ? nt : 1) * sizeof(Node *));
@@ -744,9 +953,11 @@ static void certify_reaction(Csnf *c, unsigned want, bool certify) {
   }
 }
 
-// Delayed definition G(X o <-> theta): a register o' := theta.  theta is over
-// the current step (it may reference o — a sequential, not combinational,
-// dependency), so it must be causal (no X) and o free outside the block.
+// Delayed definition G(X o <-> theta) (also X[!]): a register o' := theta.
+// theta is over the current step (it may reference o — a sequential, not
+// combinational, dependency), so it must be causal (no X) and o free outside
+// the block.  Under finite semantics, X[!] candidates are recognized but not
+// solved by this closed-form register template.
 static void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_DELAYED_DEF))
     return;
@@ -757,7 +968,9 @@ static void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
         cc->ddef_output < 0)
       continue;
     const Node *eq = cc->formula->arg; // G(<eq>)
-    const Node *theta = eq->lhs->kind == NODE_X ? eq->rhs : eq->lhs;
+    bool strong =
+        eq->lhs->kind == NODE_X_STRONG || eq->rhs->kind == NODE_X_STRONG;
+    const Node *theta = is_next_kind(eq->lhs->kind) ? eq->rhs : eq->lhs;
     uint32_t o = (uint32_t)cc->ddef_output;
     Block *blk = new_block(c);
     if (!blk)
@@ -768,7 +981,9 @@ static void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
     blk->ncids = 1;
     blk->reg_output = (int32_t)o;
     blk->reg_theta = theta;
-    if (certify && !has_next(theta) && output_is_free(cov, &i, 1, o)) {
+    if (certify &&
+        (!strong || !semantics_is_finite(cov->spec->info.semantics)) &&
+        !has_next(theta) && output_is_free(cov, &i, 1, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "delayed_definition_register";
       c->solved[i] = true;
@@ -970,6 +1185,8 @@ Csnf *templates_certify(ConstraintCover *cov, unsigned want, bool certify) {
   certify_arbiter(c, want, certify);
   certify_definition(c, want, certify);
   certify_delayed_definition(c, want, certify);
+  certify_set_reset_register(c, want, certify);
+  certify_toggle_register(c, want, certify);
   certify_guarded_next(c, want, certify);
   certify_reaction(c, want, certify);
   certify_response(c, want, certify);
@@ -989,6 +1206,9 @@ void csnf_free(Csnf *c) {
     free(c->blocks[i].cids);
     free(c->blocks[i].cyc_outputs);
     free(c->blocks[i].nsf_guards);
+    free(c->blocks[i].sr_set_guards);
+    free(c->blocks[i].sr_reset_guards);
+    free(c->blocks[i].tog_guards);
     free(c->blocks[i].arb_outputs);
     free(c->blocks[i].asg_guards);
     free(c->blocks[i].inv_outputs);
@@ -1010,14 +1230,17 @@ static const char *status_name(CsnfStatus s) {
                                : "candidate";
 }
 
-static char *formula_str(const Node *n) {
+static char *formula_str(const Csnf *c, const Node *n) {
   char *buf = nullptr;
   size_t sz = 0;
   FILE *ms = open_memstream(&buf, &sz);
   if (!ms)
     return nullptr;
-  print_ltlxba_formula(ms, n, false);
+  print_ltl(ms, n, LTL_FMT_LTLXBA, false,
+            semantics_is_finite(c->cov->spec->info.semantics));
   fclose(ms);
+  if (sz && buf[sz - 1] == '\n')
+    buf[sz - 1] = '\0';
   return buf;
 }
 
@@ -1072,9 +1295,9 @@ void csnf_counts(const Csnf *c, uint32_t *solved, uint32_t *certified,
 static bool block_writes(const Block *b, int32_t o) {
   if (o < 0)
     return false;
-  if (b->dec_output == o || b->nsf_output == o || b->asg_output == o ||
-      b->reg_output == o || b->one_output == o || b->hold_output == o ||
-      b->resp_output == o)
+  if (b->dec_output == o || b->nsf_output == o || b->sr_output == o ||
+      b->tog_output == o || b->asg_output == o || b->reg_output == o ||
+      b->one_output == o || b->hold_output == o || b->resp_output == o)
     return true;
   for (uint32_t i = 0; i < b->cyc_n; i++)
     if (b->cyc_outputs[i] == o)
@@ -1088,7 +1311,8 @@ static bool block_writes(const Block *b, int32_t o) {
 // If SOLVED block `b` assigns output `o` a *combinational* value (a function of
 // the current step), return that value node; else nullptr.  These outputs can
 // be eliminated from the residual by substitution.  Registers (guarded-next,
-// delayed-definition) and servers (response/round-robin/arbiter) are not.
+// set-reset, toggle, delayed-definition) and servers (response/round-robin/
+// arbiter) are not.
 static const Node *block_comb_value(const Csnf *c, const Block *b, int32_t o) {
   Arena *a = c->cov->arena;
   if (b->dec_output == o && b->dec_theta)
@@ -1123,8 +1347,8 @@ static bool decoder_reads(const Csnf *c, const Block *b, uint32_t p) {
 
 // DFS over the combinational-decoder dependency graph (definition + reaction);
 // returns a block on a cycle to eject, or -1 if acyclic.  Next-state decoders
-// (guarded-next, delayed-definition) are registers and never close a
-// combinational cycle, so they are excluded.
+// (guarded-next, set-reset, toggle, delayed-definition) are registers and never
+// close a combinational cycle, so they are excluded.
 static int32_t comb_owner(const Csnf *c, const bool *accepted, uint32_t o) {
   for (uint32_t b = 0; b < c->nblocks; b++) {
     if (!accepted[b])
@@ -1355,7 +1579,7 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
       fprintf(out, "bc %u c%u\n", i, b->cids[k]);
     if (solve || b->status == CSNF_SOLVED) {
       if (b->dec_output >= 0 && b->dec_theta) {
-        char *th = formula_str(b->dec_theta);
+        char *th = formula_str(c, b->dec_theta);
         fprintf(out, "dec %u %s %s\n", i,
                 ap_table_name(&cov->aps, (uint32_t)b->dec_output),
                 th ? th : "");
@@ -1365,11 +1589,32 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
         fprintf(out, "nsf %u %s", i,
                 ap_table_name(&cov->aps, (uint32_t)b->nsf_output));
         for (uint32_t g = 0; g < b->nsf_nguards; g++) {
-          char *gs = formula_str(b->nsf_guards[g]);
+          char *gs = formula_str(c, b->nsf_guards[g]);
           fprintf(out, " %s%s", g ? "| " : "", gs ? gs : "");
           free(gs);
         }
         fprintf(out, "\n");
+      }
+      if (b->sr_output >= 0) {
+        const char *oname = ap_table_name(&cov->aps, (uint32_t)b->sr_output);
+        for (uint32_t g = 0; g < b->sr_nsets; g++) {
+          char *gs = formula_str(c, b->sr_set_guards[g]);
+          fprintf(out, "srset %u %s %s\n", i, oname, gs ? gs : "");
+          free(gs);
+        }
+        for (uint32_t g = 0; g < b->sr_nresets; g++) {
+          char *gs = formula_str(c, b->sr_reset_guards[g]);
+          fprintf(out, "srreset %u %s %s\n", i, oname, gs ? gs : "");
+          free(gs);
+        }
+      }
+      if (b->tog_output >= 0) {
+        const char *oname = ap_table_name(&cov->aps, (uint32_t)b->tog_output);
+        for (uint32_t g = 0; g < b->tog_nguards; g++) {
+          char *gs = formula_str(c, b->tog_guards[g]);
+          fprintf(out, "tog %u %s %s\n", i, oname, gs ? gs : "");
+          free(gs);
+        }
       }
       if (b->cyc_n > 0 && b->status == CSNF_SOLVED) {
         fprintf(out, "cyc %u %u", i, b->cyc_n);
@@ -1403,21 +1648,21 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
         fprintf(out, "asg %u %s", i,
                 ap_table_name(&cov->aps, (uint32_t)b->asg_output));
         for (uint32_t g = 0; g < b->asg_nguards; g++) {
-          char *gs = formula_str(b->asg_guards[g]);
+          char *gs = formula_str(c, b->asg_guards[g]);
           fprintf(out, " %s%s", g ? "| " : "", gs ? gs : "");
           free(gs);
         }
         fprintf(out, "\n");
       }
       if (b->reg_output >= 0 && b->reg_theta) {
-        char *th = formula_str(b->reg_theta);
+        char *th = formula_str(c, b->reg_theta);
         fprintf(out, "reg %u %s %s\n", i,
                 ap_table_name(&cov->aps, (uint32_t)b->reg_output),
                 th ? th : "");
         free(th);
       }
       for (uint32_t k = 0; k < b->inv_n; k++) {
-        char *v = formula_str(b->inv_values[k]);
+        char *v = formula_str(c, b->inv_values[k]);
         fprintf(out, "inv %u %s %s\n", i,
                 ap_table_name(&cov->aps, (uint32_t)b->inv_outputs[k]),
                 v ? v : "");
@@ -1428,7 +1673,7 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
       fprintf(out, "cert %u %s\n", i, b->cert);
     // Claims = the member constraints' formulas.
     for (uint32_t k = 0; k < b->ncids; k++) {
-      char *cl = formula_str(cov->items[b->cids[k]].formula);
+      char *cl = formula_str(c, cov->items[b->cids[k]].formula);
       fprintf(out, "cl %u %s\n", i, cl ? cl : "");
       free(cl);
     }
@@ -1463,7 +1708,7 @@ void csnf_emit_text(FILE *out, const Csnf *c, bool solve) {
             b->name, b->ncids, b->ncids == 1 ? "" : "s",
             b->cert ? "  cert=" : "", b->cert ? b->cert : "");
     if (b->dec_output >= 0 && b->status == CSNF_SOLVED) {
-      char *th = formula_str(b->dec_theta);
+      char *th = formula_str(c, b->dec_theta);
       fprintf(out, "      decoder: %s := %s\n",
               ap_table_name(&cov->aps, (uint32_t)b->dec_output), th ? th : "");
       free(th);

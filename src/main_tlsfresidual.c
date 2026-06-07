@@ -148,6 +148,10 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+  if (!spec_validate_semantics(spec, "tlsfresidual")) {
+    spec_free(spec);
+    return 1;
+  }
   if (expand(spec, overrides, n_overrides) != 0) {
     spec_free(spec);
     return 1;

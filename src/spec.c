@@ -1,5 +1,6 @@
 #include "tlsf/spec.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -217,6 +218,97 @@ bool parse_target(const char *s, Target *out) {
     return true;
   }
   return false;
+}
+
+static bool node_has_strong_next(const Node *n) {
+  if (!n)
+    return false;
+  switch (n->kind) {
+  case NODE_X_STRONG:
+    return true;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_F:
+  case NODE_G:
+  case NODE_INT_NEG:
+    return node_has_strong_next(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD:
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_NEXT_N:
+    return node_has_strong_next(n->lhs) || node_has_strong_next(n->rhs);
+  case NODE_DEF_CALL:
+  case NODE_PATTERN:
+    for (uint16_t i = 0; i < n->call_argc; i++)
+      if (node_has_strong_next(n->call_args[i]))
+        return true;
+    return false;
+  case NODE_BUS_INDEX:
+    return node_has_strong_next(n->bus_index);
+  case NODE_ITE:
+    return node_has_strong_next(n->if_cond) ||
+           node_has_strong_next(n->if_then) || node_has_strong_next(n->if_else);
+  case NODE_FORALL:
+  case NODE_EXISTS:
+  case NODE_G_RANGE:
+  case NODE_F_RANGE:
+    return node_has_strong_next(n->qlo) || node_has_strong_next(n->qhi) ||
+           node_has_strong_next(n->qbody);
+  case NODE_SET:
+  case NODE_SET_ENUM:
+    for (uint16_t i = 0; i < n->set_size; i++)
+      if (node_has_strong_next(n->set_elems[i]))
+        return true;
+    return false;
+  default:
+    return false;
+  }
+}
+
+static bool formula_list_has_strong_next(const FormulaList *list) {
+  for (uint32_t i = 0; i < list->count; i++)
+    if (node_has_strong_next(list->formulas[i]))
+      return true;
+  return false;
+}
+
+bool spec_validate_semantics(const TlsfSpec *s, const char *prog) {
+  if (semantics_is_finite(s->info.semantics))
+    return true;
+
+  for (uint16_t i = 0; i < s->def_count; i++)
+    if (node_has_strong_next(s->defs[i].body)) {
+      fprintf(stderr, "%s: X[!] is only valid under finite semantics\n", prog);
+      return false;
+    }
+
+  if (formula_list_has_strong_next(&s->initially) ||
+      formula_list_has_strong_next(&s->require) ||
+      formula_list_has_strong_next(&s->assume) ||
+      formula_list_has_strong_next(&s->preset) ||
+      formula_list_has_strong_next(&s->assert_) ||
+      formula_list_has_strong_next(&s->guarantee)) {
+    fprintf(stderr, "%s: X[!] is only valid under finite semantics\n", prog);
+    return false;
+  }
+
+  return true;
 }
 
 bool spec_add_tag(TlsfSpec *s, const char *tag) {

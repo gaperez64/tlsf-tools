@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "toggle_demo"
+  DESCRIPTION: "toggle register"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { t; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (t -> (X o <-> !o));
+  }
+}

@@ -1,10 +1,10 @@
-c CSNF for gnext_unsafe.tlsf
+c CSNF for gnext_strong_fin.tlsf
 p csnf 0 0 1 2
 m semantics Mealy
 b 0 candidate set-reset-register
 bc 0 c0
 bc 0 c1
-cl 0 G (a -> X o)
-cl 0 G (b -> X !o)
+cl 0 G (req -> X[!] o)
+cl 0 G (!req -> X[!] !o)
 r c0
 r c1

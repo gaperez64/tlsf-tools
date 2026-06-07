@@ -1,0 +1,8 @@
+c CSNF for toggle_demo.tlsf
+p csnf 1 0 0 0
+m semantics Mealy
+b 0 solved toggle-register
+bc 0 c0
+tog 0 o t
+cert 0 toggle_register
+cl 0 G (t -> X o <-> !o)

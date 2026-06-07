@@ -12,6 +12,9 @@ static bool is_output(ConstraintCover *cov, const Node *n) {
   int32_t i = ap_idx(cov, n);
   return i >= 0 && (ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT);
 }
+static bool is_next_kind(NodeKind k) {
+  return k == NODE_X || k == NODE_X_STRONG;
+}
 
 // G(r -> F g)  or  G(!r || F g)
 static void match_response(ConstraintCover *cov, Constraint *c) {
@@ -82,24 +85,24 @@ static void match_reaction(ConstraintCover *cov, Constraint *c) {
   constraint_add_candidate(cov, c, "reaction");
 }
 
-// G(X o <-> theta) / G(theta <-> X o)  (delayed definition / register), o
-// output
+// G(X o <-> theta) / G(theta <-> X o)  (also X[!]); delayed definition /
+// register, o output.
 static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
   if (c->formula->kind != NODE_G)
     return;
   const Node *body = c->formula->arg;
   if (body->kind != NODE_EQUIV)
     return;
-  const Node *xside = body->lhs->kind == NODE_X   ? body->lhs
-                      : body->rhs->kind == NODE_X ? body->rhs
-                                                  : nullptr;
+  const Node *xside = is_next_kind(body->lhs->kind)   ? body->lhs
+                      : is_next_kind(body->rhs->kind) ? body->rhs
+                                                      : nullptr;
   if (!xside || !is_output(cov, xside->arg))
     return;
   constraint_add_candidate(cov, c, "delayed-definition");
   c->ddef_output = ap_idx(cov, xside->arg);
 }
 
-// G(alpha -> X o) / G(alpha -> X !o)
+// G(alpha -> X o) / G(alpha -> X !o)  (also X[!])
 static void match_guarded_next(ConstraintCover *cov, Constraint *c) {
   if (c->formula->kind != NODE_G)
     return;
@@ -107,13 +110,36 @@ static void match_guarded_next(ConstraintCover *cov, Constraint *c) {
   if (body->kind != NODE_IMPL)
     return;
   const Node *cons = body->rhs;
-  if (cons->kind != NODE_X)
+  if (!is_next_kind(cons->kind))
     return;
   const Node *o = cons->arg;
   if (o->kind == NODE_NOT)
     o = o->arg;
   if (is_output(cov, o))
     constraint_add_candidate(cov, c, "guarded-next-assignment");
+}
+
+// G(t -> (X o <-> !o)) / G(t -> (!o <-> X o))
+static void match_toggle_register(ConstraintCover *cov, Constraint *c) {
+  if (c->formula->kind != NODE_G)
+    return;
+  const Node *body = c->formula->arg;
+  if (body->kind != NODE_IMPL || body->rhs->kind != NODE_EQUIV)
+    return;
+  const Node *eq = body->rhs;
+  const Node *lhs = eq->lhs;
+  const Node *rhs = eq->rhs;
+  if (!is_next_kind(lhs->kind)) {
+    const Node *tmp = lhs;
+    lhs = rhs;
+    rhs = tmp;
+  }
+  if (!is_next_kind(lhs->kind) || lhs->arg->kind != NODE_AP ||
+      rhs->kind != NODE_NOT || rhs->arg->kind != NODE_AP ||
+      lhs->arg->name != rhs->arg->name || !is_output(cov, lhs->arg))
+    return;
+  constraint_add_candidate(cov, c, "toggle-register");
+  c->toggle_output = ap_idx(cov, lhs->arg);
 }
 
 // G(o <-> theta), o an output
@@ -256,6 +282,7 @@ void recognize_all(ConstraintCover *cov) {
     match_recurrence(cov, c);
     match_persistence(cov, c);
     match_reachability(cov, c);
+    match_toggle_register(cov, c);
     match_guarded_next(cov, c);
     match_definition(cov, c);
     match_delayed_definition(cov, c);

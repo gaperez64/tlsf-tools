@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "toggle_strong_fin"
+  DESCRIPTION: "finite strong-next toggle register stays candidate"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { t; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (t -> (X[!] o <-> !o));
+  }
+}

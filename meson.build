@@ -10,6 +10,8 @@ project(
   ],
 )
 
+fs = import('fs')
+
 # ---------------------------------------------------------------------------
 # Compiler: force C23 via -std=c23 (meson's c_std enum doesn't map 'c23'
 # until meson 1.3+, but clang 16+ and gcc 14+ accept it directly).
@@ -52,6 +54,55 @@ bison = find_program('bison', required: true)
 # Optional: only used to test `tlsfcompose --aiger`'s cluster path; CI skips
 # those tests when ltlsynt is absent.
 ltlsynt = find_program('ltlsynt', required: false)
+git = find_program('git', required: false)
+bash = find_program('bash', required: false)
+
+# Optional safety backend dependency.  AbsSynthe is vendored as a submodule so
+# CI and offline builds can stay self-contained after the initial checkout.
+abssynthe_dir = join_paths(meson.project_source_root(), 'external', 'AbsSynthe')
+abssynthe_build_sh = join_paths(abssynthe_dir, 'build.sh')
+abssynthe_bin = join_paths(abssynthe_dir, 'binary', 'abssynthe')
+abssynthe_submodule_ready = fs.exists(abssynthe_build_sh)
+abssynthe_local = find_program(abssynthe_bin, required: false)
+abssynthe_system = find_program('abssynthe', required: false)
+
+if git.found()
+  run_target(
+    'abssynthe-submodule',
+    command: [
+      git,
+      'submodule',
+      'update',
+      '--init',
+      '--recursive',
+      'external/AbsSynthe',
+    ],
+  )
+endif
+
+if abssynthe_submodule_ready
+  message('AbsSynthe submodule found at external/AbsSynthe')
+  if bash.found()
+    run_target('abssynthe-build', command: [bash, abssynthe_build_sh])
+  endif
+else
+  warning(
+    'AbsSynthe submodule is not initialized. Run `meson compile -C build ' +
+    'abssynthe-submodule` or `git submodule update --init --recursive ' +
+    'external/AbsSynthe` before using the AbsSynthe backend.',
+  )
+endif
+
+if abssynthe_local.found()
+  message('AbsSynthe binary found at ' + abssynthe_bin)
+elif abssynthe_system.found()
+  message('AbsSynthe binary found in PATH')
+elif abssynthe_submodule_ready
+  warning(
+    'AbsSynthe submodule is present but binary/abssynthe is missing. Run ' +
+    '`meson compile -C build abssynthe-build`.',
+  )
+endif
 
 # ---------------------------------------------------------------------------
 # Codegen: flex → tlsf_lex.c + tlsf_lex.h
@@ -363,7 +414,7 @@ test('graph_wl_template', check_wl,
          tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
          'template', files('test/cases/arbiter2.tlsf')])
 
-# tlsftemplates (M5): certify CSNF for the four templates + soundness declines.
+# tlsftemplates (M5): certify CSNF for template blocks + soundness declines.
 test('tmpl_definition', check_wl,
   args: [files('test/cases/def_demo.csnf'), tlsftemplates_exe,
          '--certify', '--solve', '--format', 'csnf',
@@ -373,13 +424,33 @@ test('tmpl_round_robin', check_wl,
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/roundrobin2.tlsf')])
 test('tmpl_guarded_next', check_wl,
+  args: [files('test/cases/gnext_one_sided.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/gnext_one_sided.tlsf')])
+test('tmpl_set_reset', check_wl,
   args: [files('test/cases/gnext_demo.csnf'), tlsftemplates_exe,
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/gnext_demo.tlsf')])
-test('tmpl_guarded_next_declined', check_wl,
+test('tmpl_set_reset_declined', check_wl,
   args: [files('test/cases/gnext_unsafe.csnf'), tlsftemplates_exe,
          '--certify', '--format', 'csnf',
          files('test/cases/gnext_unsafe.tlsf')])
+test('tmpl_set_reset_strong_finite_declined', check_wl,
+  args: [files('test/cases/gnext_strong_fin.csnf'), tlsftemplates_exe,
+         '--certify', '--format', 'csnf',
+         files('test/cases/gnext_strong_fin.tlsf')])
+test('tmpl_toggle', check_wl,
+  args: [files('test/cases/toggle_demo.csnf'), tlsftemplates_exe,
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/toggle_demo.tlsf')])
+test('tmpl_toggle_strong_finite_declined', check_wl,
+  args: [files('test/cases/toggle_strong_fin.csnf'), tlsftemplates_exe,
+         '--certify', '--format', 'csnf',
+         files('test/cases/toggle_strong_fin.tlsf')])
+test('tmpl_delayed_def_strong_finite_declined', check_wl,
+  args: [files('test/cases/ddef_strong_fin.csnf'), tlsftemplates_exe,
+         '--certify', '--format', 'csnf',
+         files('test/cases/ddef_strong_fin.tlsf')])
 # Template-coverage expansion: free-liveness family, reaction, delayed-def,
 # fair arbiter — each with a solved and a declined (non-free / non-exclusive) case.
 foreach name : ['reach_free', 'reach_blocked', 'persist_free', 'reaction_ok',
@@ -617,6 +688,11 @@ test('err_bad_semantics', xfail,
   args: [tlsf2ltl_exe, '--overwrite-semantics', 'Bogus', files('test/cases/meta.tlsf')])
 test('err_parse',        xfail,
   args: [tlsf2ltl_exe, files('test/cases/bad_syntax.tlsf')])
+test('err_strong_next_infinite', xfail,
+  args: [tlsf2ltl_exe, files('test/cases/strong_next_infinite.tlsf')])
+test('err_strong_next_overwrite', xfail,
+  args: [tlsf2ltl_exe, '--overwrite-semantics', 'Mealy',
+         files('test/cases/gnext_strong_fin.tlsf')])
 # Expansion failure (an unbound parameter) must error.
 test('err_expand',       xfail,
   args: [tlsf2ltl_exe, files('test/cases/bad_expand.tlsf')])

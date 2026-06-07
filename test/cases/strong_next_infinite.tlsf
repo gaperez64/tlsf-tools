@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "strong_next_infinite"
+  DESCRIPTION: "X[!] is rejected outside finite semantics"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> X[!] g);
+  }
+}
