@@ -994,8 +994,9 @@ static void certify_reachability(Csnf *c, unsigned want, bool certify) {
 }
 
 // Immediate reaction G(a -> o) / G(b -> !o): combinational assignment
-// o := OR(true-guards), sound (Mealy) when every (true, false) guard pair is
-// provably exclusive and o is free outside the block.
+// o := OR(true-guards), sound in Mealy semantics when every (true, false) guard
+// pair is provably exclusive.  The assigned output is eliminated by
+// substitution during composition, so other constraints may still read it.
 static void certify_reaction(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_REACTION))
     return;
@@ -1032,20 +1033,8 @@ static void certify_reaction(Csnf *c, unsigned want, bool certify) {
     }
 
     bool exclusive = true;
-    if (certify) {
-      for (uint32_t a = 0; a < nt && exclusive; a++)
-        for (uint32_t b = 0; b < nf && exclusive; b++) {
-          ApSet ap, an, bp, bn;
-          apset_init(&ap, cov->arena, A);
-          apset_init(&an, cov->arena, A);
-          apset_init(&bp, cov->arena, A);
-          apset_init(&bn, cov->arena, A);
-          guard_literals(cov, trues[a], &ap, &an);
-          guard_literals(cov, falses[b], &bp, &bn);
-          if (!sets_intersect(&ap, &bn) && !sets_intersect(&an, &bp))
-            exclusive = false;
-        }
-    }
+    if (certify)
+      exclusive = guard_pairs_exclusive(cov, trues, nt, falses, nf);
     Block *blk = new_block(c);
     if (!blk) {
       free(ids);

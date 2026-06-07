@@ -466,9 +466,9 @@ test('tmpl_delayed_def_strong_finite_declined', check_wl,
 # Template-coverage expansion: free-liveness family, reaction, delayed-def,
 # fair arbiter — each with a solved and a declined (non-free / non-exclusive) case.
 foreach name : ['reach_free', 'reach_blocked', 'persist_free', 'reaction_ok',
-                'reaction_unsafe', 'ddef_demo', 'response_free',
-                'response_blocked', 'inv_const', 'inv_skolem', 'inv_multi',
-                'inv_decline', 'inv_valid']
+                'reaction_multi', 'reaction_unsafe', 'ddef_demo',
+                'response_free', 'response_blocked', 'inv_const',
+                'inv_skolem', 'inv_multi', 'inv_decline', 'inv_valid']
   test('tmpl_' + name, check_wl,
     args: [files('test/cases/' + name + '.csnf'), tlsftemplates_exe,
            '--certify', '--solve', '--format', 'csnf',

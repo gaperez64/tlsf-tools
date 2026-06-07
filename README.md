@@ -258,8 +258,9 @@ anything else.
   `o' := o xor (⋁t)`; cert `toggle_register`.
 - **fixed-delay-response** `G(α -> X^k o)`, `k >= 2` groups → delay-line
   register for `o`; cert `fixed_delay_response`.
-- **reaction** `G(α->o)` / `G(β->¬o)` → combinational `o := ⋁α` (Mealy, guards
-  exclusive, `o` free); cert `reaction_consistency`.
+- **reaction** `G(α_i->o)` / `G(β_i->¬o)` groups → combinational `o := ⋁α_i`
+  (Mealy, positive/negative guard pairs exclusive; substituted into the
+  residual); cert `reaction_consistency`.
 - **mutex** `G atMostOne(…)` → *certified* safety invariant (`mutex_safety`),
   not solved on its own.
 - **safety-invariant** `G(B)`, `B` temporal-free — the general stateless case:
