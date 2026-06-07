@@ -537,6 +537,17 @@ test('aiger_abssynthe_assume_safety', check,
   args: [files('test/cases/cluster_assume.abssynthe.aag'), tlsfcompose_exe,
          '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
          files('test/cases/cluster_assume.tlsf')])
+if abssynthe_local.found()
+  test('aiger_abssynthe_real_assume_delay', check,
+    args: [files('test/cases/assume_delay_real.abssynthe.aag'),
+           tlsfcompose_exe,
+           '--aiger', '--abssynthe', abssynthe_local,
+           files('test/cases/assume_delay_real.tlsf')])
+  test('aiger_abssynthe_real_assume_unrealizable', xfail,
+    args: [tlsfcompose_exe,
+           '--aiger', '--abssynthe', abssynthe_local,
+           files('test/cases/cluster_assume.tlsf')])
+endif
 # --aiger cluster path needs real ltlsynt: only run where it is available.
 if ltlsynt.found()
   test('aiger_cluster', tlsfcompose_exe,

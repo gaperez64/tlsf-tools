@@ -151,15 +151,6 @@ static bool abssynthe_global_supported(const Node *n) {
   }
 }
 
-static bool abssynthe_eligible(const Node *root, bool finite) {
-  if (finite)
-    return false;
-  if (root->kind == NODE_IMPL)
-    return abssynthe_global_supported(root->lhs) &&
-           abssynthe_global_supported(root->rhs);
-  return abssynthe_global_supported(root);
-}
-
 static uint32_t abssynthe_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_X:
@@ -193,6 +184,16 @@ static uint32_t abssynthe_global_x_depth(const Node *n) {
   default:
     return UINT32_MAX;
   }
+}
+
+static bool abssynthe_eligible(const Node *root, bool finite) {
+  if (finite)
+    return false;
+  if (root->kind == NODE_IMPL)
+    return abssynthe_global_supported(root->lhs) &&
+           abssynthe_global_x_depth(root->lhs) == 0 &&
+           abssynthe_global_supported(root->rhs);
+  return abssynthe_global_supported(root);
 }
 
 typedef struct {
@@ -278,6 +279,19 @@ static uint32_t abssynthe_compile_global_at_lag(AbssyntheCompile *ctx,
   }
 }
 
+static uint32_t abssynthe_compile_assumption_window(AbssyntheCompile *ctx,
+                                                    const Node *assume,
+                                                    uint32_t depth) {
+  uint32_t ok = AIG_TRUE;
+  for (uint32_t lag = 0; lag <= depth; lag++) {
+    uint32_t at_lag = abssynthe_compile_global_at_lag(ctx, assume, lag);
+    if (at_lag == UINT32_MAX)
+      return UINT32_MAX;
+    ok = aig_and(ctx->g, ok, at_lag);
+  }
+  return ok;
+}
+
 static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
                                  const Node *root) {
   Aig *g = aig_new();
@@ -347,14 +361,22 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
       aig_free(g);
       return nullptr;
     }
-    uint32_t alive = aig_latch(g, AIG_FALSE, AIG_TRUE);
-    uint32_t alive_next = aig_and(g, alive, aig_or(g, aig_not(valid), ass_ok));
-    if (!aig_set_latch_next(g, alive, alive_next)) {
+    uint32_t ass_window_ok =
+        abssynthe_compile_assumption_window(&ctx, assume, depth);
+    if (ass_window_ok == UINT32_MAX) {
       free(hist);
       aig_free(g);
       return nullptr;
     }
-    bad = aig_and(g, bad, aig_and(g, alive, ass_ok));
+    uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    uint32_t violated_next =
+        aig_or(g, violated, aig_and(g, valid, aig_not(ass_ok)));
+    if (!aig_set_latch_next(g, violated, violated_next)) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
   }
   aig_set_output(g, "bad", bad);
   free(hist);
