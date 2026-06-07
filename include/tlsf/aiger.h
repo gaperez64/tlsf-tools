@@ -33,6 +33,9 @@ uint32_t aig_input(Aig *g, const char *name);
 /// current-state positive literal.
 uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset);
 
+/// Update the next-state function of an existing latch literal.
+bool aig_set_latch_next(Aig *g, uint32_t latch_lit, uint32_t next);
+
 static inline uint32_t aig_not(uint32_t lit) { return lit ^ 1u; }
 uint32_t aig_and(Aig *g, uint32_t a, uint32_t b);
 uint32_t aig_or(Aig *g, uint32_t a, uint32_t b);
@@ -45,6 +48,10 @@ bool aig_has_output(const Aig *g, const char *name);
 
 /// Drive output `name` with `lit`; registers `name` as available too.
 void aig_set_output(Aig *g, const char *name, uint32_t lit);
+
+/// Remove every output named `name`.  Registered lookup signals are left
+/// intact.
+void aig_remove_output(Aig *g, const char *name);
 
 /// For every output whose name starts with `prefix`, strip the prefix and
 /// register the stripped name as an available signal.  This is useful for

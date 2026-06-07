@@ -137,8 +137,27 @@ static bool abssynthe_body_supported(const Node *n) {
   }
 }
 
+static bool abssynthe_global_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_G:
+    return abssynthe_body_supported(n->arg);
+  case NODE_AND:
+    return abssynthe_global_supported(n->lhs) &&
+           abssynthe_global_supported(n->rhs);
+  default:
+    return false;
+  }
+}
+
 static bool abssynthe_eligible(const Node *root, bool finite) {
-  return !finite && root->kind == NODE_G && abssynthe_body_supported(root->arg);
+  if (finite)
+    return false;
+  if (root->kind == NODE_IMPL)
+    return abssynthe_global_supported(root->lhs) &&
+           abssynthe_global_supported(root->rhs);
+  return abssynthe_global_supported(root);
 }
 
 static uint32_t abssynthe_x_depth(const Node *n) {
@@ -157,6 +176,22 @@ static uint32_t abssynthe_x_depth(const Node *n) {
   }
   default:
     return 0;
+  }
+}
+
+static uint32_t abssynthe_global_x_depth(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return 0;
+  case NODE_G:
+    return abssynthe_x_depth(n->arg);
+  case NODE_AND: {
+    uint32_t a = abssynthe_global_x_depth(n->lhs);
+    uint32_t b = abssynthe_global_x_depth(n->rhs);
+    return a > b ? a : b;
+  }
+  default:
+    return UINT32_MAX;
   }
 }
 
@@ -224,13 +259,43 @@ static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
   }
 }
 
+static uint32_t abssynthe_compile_global_at_lag(AbssyntheCompile *ctx,
+                                                const Node *n, uint32_t lag) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return AIG_TRUE;
+  case NODE_G:
+    return abssynthe_compile_at_lag(ctx, n->arg, lag);
+  case NODE_AND: {
+    uint32_t a = abssynthe_compile_global_at_lag(ctx, n->lhs, lag);
+    uint32_t b = abssynthe_compile_global_at_lag(ctx, n->rhs, lag);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return aig_and(ctx->g, a, b);
+  }
+  default:
+    return UINT32_MAX;
+  }
+}
+
 static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
                                  const Node *root) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
+  const Node *assume = nullptr, *guarantee = root;
+  if (root->kind == NODE_IMPL) {
+    assume = root->lhs;
+    guarantee = root->rhs;
+  }
+  uint32_t ass_depth = assume ? abssynthe_global_x_depth(assume) : 0;
+  uint32_t gua_depth = abssynthe_global_x_depth(guarantee);
+  if (ass_depth == UINT32_MAX || gua_depth == UINT32_MAX) {
+    aig_free(g);
+    return nullptr;
+  }
   uint32_t A = cov->aps.count;
-  uint32_t depth = abssynthe_x_depth(root->arg);
+  uint32_t depth = ass_depth > gua_depth ? ass_depth : gua_depth;
   uint32_t hist_count = (depth + 1) * (A ? A : 1);
   uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
   if (!hist) {
@@ -268,13 +333,29 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   for (uint32_t d = 0; d < depth; d++)
     valid = aig_latch(g, valid, AIG_FALSE);
 
-  uint32_t ok = abssynthe_compile_at_lag(&ctx, root->arg, depth);
-  if (ok == UINT32_MAX) {
+  uint32_t gua_ok = abssynthe_compile_global_at_lag(&ctx, guarantee, depth);
+  if (gua_ok == UINT32_MAX) {
     free(hist);
     aig_free(g);
     return nullptr;
   }
-  uint32_t bad = aig_and(g, valid, aig_not(ok));
+  uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
+  if (assume) {
+    uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
+    if (ass_ok == UINT32_MAX) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    uint32_t alive = aig_latch(g, AIG_FALSE, AIG_TRUE);
+    uint32_t alive_next = aig_and(g, alive, aig_or(g, aig_not(valid), ass_ok));
+    if (!aig_set_latch_next(g, alive, alive_next)) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    bad = aig_and(g, bad, aig_and(g, alive, ass_ok));
+  }
   aig_set_output(g, "bad", bad);
   free(hist);
   return g;
@@ -282,6 +363,7 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
 
 static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
                                            const bool *seen) {
+  aig_remove_output(g, "bad");
   aig_strip_output_prefix(g, ABSSYNTHE_CONTROLLABLE_PREFIX);
   for (uint32_t a = 0; a < cov->aps.count; a++) {
     if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))

@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -101,6 +102,19 @@ uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset) {
   return var * 2;
 }
 
+bool aig_set_latch_next(Aig *g, uint32_t latch_lit, uint32_t next) {
+  if (latch_lit < 2 || (latch_lit & 1u))
+    return false;
+  uint32_t var = latch_lit / 2;
+  for (uint32_t i = 0; i < g->nlat; i++) {
+    if (g->lat[i].var != var)
+      continue;
+    g->lat[i].next = next;
+    return true;
+  }
+  return false;
+}
+
 uint32_t aig_and(Aig *g, uint32_t a, uint32_t b) {
   if (a == AIG_FALSE || b == AIG_FALSE)
     return AIG_FALSE;
@@ -131,6 +145,20 @@ void aig_set_output(Aig *g, const char *name, uint32_t lit) {
   g->outs[g->nout].lit = lit;
   g->nout++;
   reg_sig(g, name, lit);
+}
+
+void aig_remove_output(Aig *g, const char *name) {
+  uint32_t w = 0;
+  for (uint32_t r = 0; r < g->nout; r++) {
+    if (strcmp(g->outs[r].name, name) == 0) {
+      free(g->outs[r].name);
+      continue;
+    }
+    if (w != r)
+      g->outs[w] = g->outs[r];
+    w++;
+  }
+  g->nout = w;
 }
 
 void aig_strip_output_prefix(Aig *g, const char *prefix) {
@@ -200,6 +228,34 @@ static uint32_t parse_uints(const char *s, uint32_t *out, uint32_t max) {
   return n;
 }
 
+static bool parse_controllable_gate_comment(const char *line, uint32_t *lit,
+                                            char *name, size_t name_cap) {
+  const char prefix[] = "controllable-gate";
+  const size_t prefix_len = sizeof prefix - 1;
+  if (strncmp(line, prefix, prefix_len) != 0)
+    return false;
+  line += prefix_len;
+  if (!isspace((unsigned char)*line))
+    return false;
+  while (isspace((unsigned char)*line))
+    line++;
+  char *end;
+  unsigned long parsed = strtoul(line, &end, 10);
+  if (end == line || parsed > UINT32_MAX)
+    return false;
+  if (!isspace((unsigned char)*end))
+    return false;
+  while (isspace((unsigned char)*end))
+    end++;
+  size_t name_len = strcspn(end, " \t\r\n");
+  if (name_len == 0 || name_len >= name_cap)
+    return false;
+  memcpy(name, end, name_len);
+  name[name_len] = '\0';
+  *lit = (uint32_t)parsed;
+  return true;
+}
+
 Aig *aig_read_aag(FILE *in) {
   char line[8192];
   // Skip a leading REALIZABLE/UNREALIZABLE verdict line if present.
@@ -251,10 +307,20 @@ Aig *aig_read_aag(FILE *in) {
   }
   // Symbol table: i<k> name / o<k> name / l<k> name (others ignored).
   char **onames = O ? calloc(O, sizeof(char *)) : nullptr;
+  bool in_comments = false;
   while (fgets(line, sizeof line, in)) {
+    if (in_comments) {
+      uint32_t lit;
+      char name[4096];
+      if (parse_controllable_gate_comment(line, &lit, name, sizeof name))
+        aig_set_output(g, name, lit);
+      continue;
+    }
     char kind = line[0];
-    if (kind == 'c')
-      break; // comment section
+    if (kind == 'c') {
+      in_comments = true;
+      continue;
+    }
     if (kind != 'i' && kind != 'o' && kind != 'l')
       continue;
     char *end;

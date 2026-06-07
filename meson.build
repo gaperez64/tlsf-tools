@@ -528,10 +528,15 @@ test('aiger_abssynthe_safety', check,
          '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
          files('test/cases/inv_decline.tlsf')])
 test('aiger_abssynthe_next_safety', check,
-  args: [files('test/cases/aiger_unclassified_atom.aag'), tlsfcompose_exe,
+  args: [files('test/cases/aiger_unclassified_atom.abssynthe.aag'),
+         tlsfcompose_exe,
          '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
          '--ltlsynt', files('test/fake_ltlsynt.sh'),
          files('test/cases/aiger_unclassified_atom.tlsf')])
+test('aiger_abssynthe_assume_safety', check,
+  args: [files('test/cases/cluster_assume.abssynthe.aag'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+         files('test/cases/cluster_assume.tlsf')])
 # --aiger cluster path needs real ltlsynt: only run where it is available.
 if ltlsynt.found()
   test('aiger_cluster', tlsfcompose_exe,
