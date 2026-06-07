@@ -56,6 +56,7 @@ bison = find_program('bison', required: true)
 ltlsynt = find_program('ltlsynt', required: false)
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
+python3 = find_program('python3', required: false)
 
 # Optional safety backend dependency.  AbsSynthe is vendored as a submodule so
 # CI and offline builds can stay self-contained after the initial checkout.
@@ -544,6 +545,14 @@ test('benchgraph_tsv', check,
          files('test/cases/roundrobin2.tlsf')])
 test('benchgraph_jobs_unimplemented', xfail,
   args: [tlsfbenchgraph_exe, '--jobs', '4', files('test/cases/def_demo.tlsf')])
+if python3.found()
+  test('bounded_corpus_harness', check,
+    args: [files('test/cases/bounded_corpus.tsv'),
+           files('scripts/bounded_corpus.py'), '--benchgraph', tlsfbenchgraph_exe,
+           '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
+           files('test/cases/def_demo.tlsf'),
+           files('test/cases/reaction_ok.tlsf')])
+endif
 
 # Constraint decomposition: cover --split exposes shapes inside a single
 # conjunctive formula; tlsfnorm re-emits the split spec.

@@ -2,6 +2,7 @@
 /// specs and emit per-spec metrics (TSV) describing their form/template shapes,
 /// plus an optional aggregate summary.  A research/benchmarking driver: it
 /// reuses cover/recognize/certify(/WL) and adds no new analysis.
+// NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
@@ -41,9 +42,19 @@ static size_t g_nfiles, g_cap;
 static void add_file(const char *path) {
   if (g_nfiles == g_cap) {
     g_cap = g_cap ? g_cap * 2 : 64;
-    g_files = realloc(g_files, g_cap * sizeof(char *));
+    const char **next = realloc(g_files, g_cap * sizeof(char *));
+    if (!next) {
+      perror("tlsfbenchgraph: realloc");
+      exit(1);
+    }
+    g_files = next;
   }
-  g_files[g_nfiles++] = strdup(path);
+  char *copy = strdup(path);
+  if (!copy) {
+    perror("tlsfbenchgraph: strdup");
+    exit(1);
+  }
+  g_files[g_nfiles++] = copy;
 }
 
 static int nftw_cb(const char *path, const struct stat *sb, int type,

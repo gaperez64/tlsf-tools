@@ -1,0 +1,3 @@
+process_status	returncode	file	parse_status	inputs	outputs	constraints	safety	liveness	response	mutex	recurrence	persistence	guarded_next	definition	template_candidates	solved_blocks	certified_blocks	dependent_outputs	residual_constraints	largest_output_component	formula_size_raw	formula_size_norm	wl_stab_depth	fully_solved	conflicts	eliminated_constraints	owned_outputs
+ok	0	def_demo.tlsf	ok	2	1	1	1	0	0	0	0	0	0	1	2	1	0	1	0	1	6	15	1	1	0	1	1
+ok	0	reaction_ok.tlsf	ok	1	1	2	2	0	0	0	0	0	0	0	4	1	0	0	0	1	10	10	1	1	0	2	1
