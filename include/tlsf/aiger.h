@@ -29,6 +29,10 @@ void aig_free(Aig *g);
 /// it as an available signal for `aig_compile`/`aig_merge` lookups.
 uint32_t aig_input(Aig *g, const char *name);
 
+/// Add a latch with next-state function `next` and reset value 0/1; returns its
+/// current-state positive literal.
+uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset);
+
 static inline uint32_t aig_not(uint32_t lit) { return lit ^ 1u; }
 uint32_t aig_and(Aig *g, uint32_t a, uint32_t b);
 uint32_t aig_or(Aig *g, uint32_t a, uint32_t b);

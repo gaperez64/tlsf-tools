@@ -94,6 +94,13 @@ uint32_t aig_input(Aig *g, const char *name) {
   return lit;
 }
 
+uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset) {
+  uint32_t var = ++g->nextvar;
+  GROW(g->lat, g->lat_cap, g->nlat);
+  g->lat[g->nlat++] = (Latch){var, next, reset};
+  return var * 2;
+}
+
 uint32_t aig_and(Aig *g, uint32_t a, uint32_t b) {
   if (a == AIG_FALSE || b == AIG_FALSE)
     return AIG_FALSE;

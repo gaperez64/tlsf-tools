@@ -117,70 +117,106 @@ static char *controllable_name(const char *name) {
   return out;
 }
 
-static bool abssynthe_bool_supported(const Node *n) {
+static bool abssynthe_body_supported(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
   case NODE_AP:
     return true;
   case NODE_NOT:
-    return abssynthe_bool_supported(n->arg);
+  case NODE_X:
+  case NODE_X_STRONG:
+    return abssynthe_body_supported(n->arg);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV:
-    return abssynthe_bool_supported(n->lhs) && abssynthe_bool_supported(n->rhs);
+    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
   default:
     return false;
   }
 }
 
 static bool abssynthe_eligible(const Node *root, bool finite) {
-  return !finite && root->kind == NODE_G && abssynthe_bool_supported(root->arg);
+  return !finite && root->kind == NODE_G && abssynthe_body_supported(root->arg);
 }
 
-static uint32_t abssynthe_compile_bool(Aig *g, ConstraintCover *cov,
-                                       const Node *n) {
+static uint32_t abssynthe_x_depth(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+    return 1 + abssynthe_x_depth(n->arg);
+  case NODE_NOT:
+    return abssynthe_x_depth(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV: {
+    uint32_t a = abssynthe_x_depth(n->lhs), b = abssynthe_x_depth(n->rhs);
+    return a > b ? a : b;
+  }
+  default:
+    return 0;
+  }
+}
+
+typedef struct {
+  Aig *g;
+  ConstraintCover *cov;
+  uint32_t *hist; // (max_lag + 1) x AP table; UINT32_MAX = unavailable
+  uint32_t ap_count;
+} AbssyntheCompile;
+
+static uint32_t hist_lit(const AbssyntheCompile *ctx, uint32_t lag,
+                         uint32_t ap) {
+  return ctx->hist[(lag * ctx->ap_count) + ap];
+}
+
+static void hist_set(AbssyntheCompile *ctx, uint32_t lag, uint32_t ap,
+                     uint32_t lit) {
+  ctx->hist[(lag * ctx->ap_count) + ap] = lit;
+}
+
+static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
+                                         uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
     return AIG_TRUE;
   case NODE_FALSE:
     return AIG_FALSE;
   case NODE_AP: {
-    const char *name = n->name;
-    int32_t idx = ap_table_find(&cov->aps, name);
-    if (idx >= 0 &&
-        (ap_table_flags(&cov->aps, (uint32_t)idx) & AP_FLAG_OUTPUT)) {
-      char *cname = controllable_name(name);
-      if (!cname)
-        return UINT32_MAX;
-      uint32_t lit = aig_lookup(g, cname);
-      free(cname);
-      return lit;
-    }
-    return aig_lookup(g, name);
+    int32_t idx = ap_table_find(&ctx->cov->aps, n->name);
+    if (idx < 0)
+      return UINT32_MAX;
+    return hist_lit(ctx, lag, (uint32_t)idx);
   }
   case NODE_NOT: {
-    uint32_t a = abssynthe_compile_bool(g, cov, n->arg);
+    uint32_t a = abssynthe_compile_at_lag(ctx, n->arg, lag);
     return a == UINT32_MAX ? a : aig_not(a);
   }
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (lag == 0)
+      return UINT32_MAX;
+    return abssynthe_compile_at_lag(ctx, n->arg, lag - 1);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV: {
-    uint32_t a = abssynthe_compile_bool(g, cov, n->lhs);
-    uint32_t b = abssynthe_compile_bool(g, cov, n->rhs);
+    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, lag);
+    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, lag);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     switch (n->kind) {
     case NODE_AND:
-      return aig_and(g, a, b);
+      return aig_and(ctx->g, a, b);
     case NODE_OR:
-      return aig_or(g, a, b);
+      return aig_or(ctx->g, a, b);
     case NODE_IMPL:
-      return aig_or(g, aig_not(a), b);
+      return aig_or(ctx->g, aig_not(a), b);
     default:
-      return aig_and(g, aig_or(g, aig_not(a), b), aig_or(g, a, aig_not(b)));
+      return aig_and(ctx->g, aig_or(ctx->g, aig_not(a), b),
+                     aig_or(ctx->g, a, aig_not(b)));
     }
   }
   default:
@@ -193,28 +229,54 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   Aig *g = aig_new();
   if (!g)
     return nullptr;
+  uint32_t A = cov->aps.count;
+  uint32_t depth = abssynthe_x_depth(root->arg);
+  uint32_t hist_count = (depth + 1) * (A ? A : 1);
+  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
+  if (!hist) {
+    aig_free(g);
+    return nullptr;
+  }
+  memset(hist, 0xff, hist_count * sizeof(uint32_t));
+  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+
   for (uint32_t a = 0; a < cov->aps.count; a++) {
     if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
       continue;
-    (void)aig_input(g, ap_table_name(&cov->aps, a));
+    hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
   }
   for (uint32_t a = 0; a < cov->aps.count; a++) {
     if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
       continue;
     char *cname = controllable_name(ap_table_name(&cov->aps, a));
     if (!cname) {
+      free(hist);
       aig_free(g);
       return nullptr;
     }
-    (void)aig_input(g, cname);
+    hist_set(&ctx, 0, a, aig_input(g, cname));
     free(cname);
   }
-  uint32_t ok = abssynthe_compile_bool(g, cov, root->arg);
+  for (uint32_t d = 1; d <= depth; d++) {
+    for (uint32_t a = 0; a < A; a++) {
+      uint32_t prev = hist_lit(&ctx, d - 1, a);
+      if (prev != UINT32_MAX)
+        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
+    }
+  }
+  uint32_t valid = AIG_TRUE;
+  for (uint32_t d = 0; d < depth; d++)
+    valid = aig_latch(g, valid, AIG_FALSE);
+
+  uint32_t ok = abssynthe_compile_at_lag(&ctx, root->arg, depth);
   if (ok == UINT32_MAX) {
+    free(hist);
     aig_free(g);
     return nullptr;
   }
-  aig_set_output(g, "bad", aig_not(ok));
+  uint32_t bad = aig_and(g, valid, aig_not(ok));
+  aig_set_output(g, "bad", bad);
+  free(hist);
   return g;
 }
 
