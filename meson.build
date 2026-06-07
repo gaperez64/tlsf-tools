@@ -577,6 +577,14 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
+  test('bounded_synthesis_harness', python3,
+    args: [files('scripts/bounded_synthesis.py'),
+           '--compose', tlsfcompose_exe,
+           '--abssynthe', files('test/fake_abssynthe.sh'),
+           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           '--mem-mb', '512', '--timeout', '5', '--quiet',
+           files('test/cases/assume_delay_real.tlsf'),
+           files('test/cases/inv_valid.tlsf')])
 endif
 
 # Constraint decomposition: cover --split exposes shapes inside a single
