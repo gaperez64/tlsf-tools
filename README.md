@@ -435,15 +435,15 @@ representative spread of SYNTCOMP specs with their expected tool output). It
 needs no external tools, so it runs anywhere:
 
 ```sh
-meson test -C build        # ~0.2s, ~110 cases
+meson test -C build        # fast regression suite
 ```
 
-Coverage (needs `gcovr`):
+Coverage (uses the default compiler's matching `gcov`):
 
 ```sh
 meson setup build-cov -Db_coverage=true
 meson test -C build-cov
-gcovr --root . --filter 'src/' --print-summary
+python3 scripts/gcov_summary.py --build-dir build-cov --threshold 75 --show-files
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) checks `clang-format`, builds with

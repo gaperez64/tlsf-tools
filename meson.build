@@ -57,6 +57,15 @@ ltlsynt = find_program('ltlsynt', required: false)
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
 python3 = find_program('python3', required: false)
+spot_python_found = false
+if python3.found()
+  spot_python_found = run_command(
+    python3,
+    '-c',
+    'import spot',
+    check: false,
+  ).returncode() == 0
+endif
 
 # Optional safety backend dependency.  AbsSynthe is vendored as a submodule so
 # CI and offline builds can stay self-contained after the initial checkout.
@@ -541,11 +550,11 @@ if abssynthe_local.found()
   test('aiger_abssynthe_real_assume_delay', check,
     args: [files('test/cases/assume_delay_real.abssynthe.aag'),
            tlsfcompose_exe,
-           '--aiger', '--abssynthe', abssynthe_local,
+           '--aiger', '--abssynthe', abssynthe_bin,
            files('test/cases/assume_delay_real.tlsf')])
   test('aiger_abssynthe_real_assume_unrealizable', xfail,
     args: [tlsfcompose_exe,
-           '--aiger', '--abssynthe', abssynthe_local,
+           '--aiger', '--abssynthe', abssynthe_bin,
            files('test/cases/cluster_assume.tlsf')])
 endif
 # --aiger cluster path needs real ltlsynt: only run where it is available.
@@ -585,6 +594,24 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--quiet',
            files('test/cases/assume_delay_real.tlsf'),
            files('test/cases/inv_valid.tlsf')])
+endif
+if python3.found() and spot_python_found
+  tlsfcompose_path = join_paths(meson.current_build_dir(), 'tlsfcompose')
+  tlsf2ltl_path = join_paths(meson.current_build_dir(), 'tlsf2ltl')
+  test('verify_aiger_reaction_ok', python3,
+    args: [files('scripts/verify_aiger_ltl.py'),
+           '--compose', tlsfcompose_path,
+           '--tlsf2ltl', tlsf2ltl_path,
+           '--tlsf', files('test/cases/reaction_ok.tlsf')])
+  if abssynthe_local.found()
+    test('verify_aiger_abssynthe_real_assume_delay', python3,
+      args: [files('scripts/verify_aiger_ltl.py'),
+             '--compose', tlsfcompose_path,
+             '--abssynthe', abssynthe_bin,
+             '--ltlsynt', '/bin/false',
+             '--tlsf2ltl', tlsf2ltl_path,
+             '--tlsf', files('test/cases/assume_delay_real.tlsf')])
+  endif
 endif
 
 # Constraint decomposition: cover --split exposes shapes inside a single

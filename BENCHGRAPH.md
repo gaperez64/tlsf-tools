@@ -52,7 +52,7 @@ one or a few large conjunctive formulas (see the decomposition blow-up below).
 | corpus | response | mutex | recurrence | persistence | guarded_next | definition |
 |---|--:|--:|--:|--:|--:|--:|
 | `tlsf` | 431 (2551) | 12 (14) | 876 (1882) | 46 (54) | 48 (129) | 92 (331) |
-| `tlsf-fin` | 141 (544) | 230 (655) | 0 (0) | 0 (0) | 43 (86) | 43 (43) |
+| `tlsf-fin` | 141 (544) | 230 (655) | 0 (0) | 0 (0) | 292 (601) | 43 (43) |
 
 _Cells: number of specs exhibiting the shape, and (total candidate count)._
 
@@ -63,9 +63,10 @@ _Cells: number of specs exhibiting the shape, and (total candidate count)._
   common shape (431 specs), and **definition** (92) and **guarded-next** (48)
   are non-trivial.
 - **`tlsf-fin` still has no recurrence/persistence** (`GF`/`FG` are meaningless
-  on finite traces) but, after decomposition, it is clearly **arbitration-
-  shaped**: **mutex in 230 specs and response in 141** — both completely
-  invisible without splitting (see next section).
+  on finite traces) but, after decomposition, it is clearly **arbitration- and
+  guarded-next-shaped**: **mutex in 230 specs, response in 141, and
+  guarded-next in 292** — much of this is invisible without splitting (see next
+  section).
 
 ## Safety / liveness and template-solvable coverage (decomposed)
 
@@ -126,19 +127,45 @@ Two honest findings:
    (mostly definitions); the bulk (~99 %) is the residual.
 
 So the answer to "what raises the statistics" is: **composition was necessary
-but not sufficient**, and **more syntactic templates are not the lever either** —
-the general stateless safety-invariant added essentially nothing, because real
-safety is stateful (`X`) or output-coupled. The remaining lever is genuine
-**safety-game solving** (a fixpoint over a symbolic arena), not pattern matching.
-`tlsfresidual` hands the (still large, now clustered) residual to
-`ltlsynt`/`strix`; a real safety-game backend is the next milestone.
+but not sufficient**, and **more syntactic templates are not the main lever**.
+The general stateless safety-invariant added essentially nothing, because real
+safety is stateful (`X`) or output-coupled.  The useful lever is a real backend
+for residual games: AbsSynthe now covers the non-finite safety slice, while
+liveness / weak-until / GR(1)-style residuals still need a separate path.
+
+## Self-contained AIGER synthesis without `ltlsynt`
+
+`tlsfcompose --aiger` routes eligible non-finite safety residual clusters to
+AbsSynthe.  The measurements below deliberately pass `--ltlsynt /bin/false`, so
+every successful run is handled by certified templates plus AbsSynthe only.
+
+| corpus | full controllers | unrealizable | timeout | still needs `ltlsynt` / liveness backend |
+|---|--:|--:|--:|--:|
+| `tlsf` | 123 / 2545 (4.8 %) | 7 | 1 | 2414 |
+| `tlsf-fin` | 0 / 2487 (0.0 %) | 0 | 0 | 2487 |
+
+For `tlsf`, `tlsfcompose --split` produces 316 certified controller outputs and
+4661 residual clusters.  The fake AbsSynthe backend says 131 whole specs are
+syntactically eligible without `ltlsynt`, covering 1483 residual clusters.  Real
+AbsSynthe, run only on those eligible specs with a 10s/spec timeout, emits
+controllers for 123 specs; those successful specs account for 1439 residual
+clusters.  In composition-unit terms, coverage rises from **316 / 4977
+(6.3 %)** template-owned units to **1755 / 4977 (35.3 %)** units with real
+AbsSynthe controllers.
+
+The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
+illustrates the shape: the four robot benchmarks and `small_ltl2dba22.tlsf`
+leave residuals containing liveness / weak-until structure, so disabling
+`ltlsynt` leaves no eligible backend.  Raising the no-`ltlsynt` full-spec count
+needs deterministic-Buchi / GR(1)-style handling, not another stateless
+template.
 
 ## Effect of constraint decomposition (`--split`)
 
 | corpus | constraints (total) | response | mutex | recurrence | persistence | guarded_next | definition |
 |---|--:|--:|--:|--:|--:|--:|--:|
 | `tlsf` | 33513 → 90855 | 44→431 | 4→12 | 796→876 | 46→46 | 30→48 | 16→92 |
-| `tlsf-fin` | 3051 → 34352 | 0→141 | 0→230 | 0→0 | 0→0 | 43→43 | 43→43 |
+| `tlsf-fin` | 3051 → 34352 | 0→141 | 0→230 | 0→0 | 0→0 | 43→292 | 43→43 |
 
 _(specs exhibiting the shape: raw → decomposed)_
 
@@ -148,7 +175,8 @@ This is the headline: most specs write several obligations as **one conjunctive
 clause**, so whole-formula matching badly under-counts structure. Splitting
 (equivalence-preserving) multiplies the visible constraints (tlsf ≈2.7×,
 tlsf-fin ≈11×) and uncovers shapes that were entirely hidden —
-**`tlsf-fin` mutex 0 → 230, response 0 → 141**; **`tlsf` response 44 → 431**.
+**`tlsf-fin` mutex 0 → 230, response 0 → 141, guarded-next 43 → 292**;
+**`tlsf` response 44 → 431**.
 Counts that don't reference `&&`-conjoined siblings (recurrence, persistence)
 are essentially unchanged, as expected.
 
@@ -182,20 +210,20 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
    and is what makes the shape statistics meaningful.
 2. **`tlsf` is recurrence-dominated** (~34 % of specs) with responses pervasive
    once split (431 specs).
-3. **`tlsf-fin` is arbitration-shaped, hidden in single formulas** — mutex
-   (230) and response (141) only appear after `--split`; no recurrence at all.
+3. **`tlsf-fin` is arbitration- and guarded-next-shaped, hidden in single
+   formulas** — mutex (230), response (141), and guarded-next (292) are exposed
+   after `--split`; no recurrence at all.
 4. **Decomposition ~3.7×'s template-solvable `tlsf` coverage** (31 → 114 specs);
    the expanded library (free-liveness, reaction, delayed-def, fair arbiter)
    *solves* `tlsf-fin` arbitration (129 → 297 blocks, 43 → 81 specs).
-5. **Composable certification is sound but coverage-bound.** Substitution
+5. **Composable certification is sound but template coverage is bounded.** Substitution
    eliminates combinational decoders exactly and fair servers merge shared
    requests, removing the old ejection pathology (`tlsf` conflicts 113 → 48).
-   Yet **no spec is fully solved** and only **~0.4–0.6 % of constraints** are
-   eliminated — real specs are dominated by non-template safety constraints and
-   `ASSUME` assumptions. Adding a general stateless safety-invariant template
-   (single+multi-output Skolem) changed almost nothing, confirming the remaining
-   lever is genuine **safety-game solving** (stateful), not more syntactic
-   templates. The residual goes to a real synthesizer (`tlsfresidual`).
+   Template-only composition still fully solves **0** specs and only
+   **~0.4–0.6 % of constraints** are eliminated.  With AbsSynthe, however,
+   `tlsfcompose --aiger --ltlsynt /bin/false` now emits real full controllers
+   for **123 / 2545** `tlsf` specs and classifies 7 more as unrealizable.
+   Remaining no-`ltlsynt` coverage needs liveness / GR(1)-style solving.
 6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
 
