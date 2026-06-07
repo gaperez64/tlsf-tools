@@ -9,8 +9,10 @@
 /// every cluster is; a full controller is the emitted controllers plus one per
 /// cluster.
 ///
-/// tlsfcompose never spawns a process: the ltlsynt calls live in compose.sh.
+/// Text plans do not spawn processes: backend calls live in compose.sh.
+/// `--aiger` runs the selected synthesis backend immediately for each cluster.
 
+// NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
 #include "tlsf/cli.h"
@@ -23,6 +25,7 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include <fcntl.h>
 #include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -34,6 +37,7 @@
 extern char **environ;
 
 #define TLSF_VERSION "0.1.0"
+#define ABSSYNTHE_CONTROLLABLE_PREFIX "controllable_"
 
 // Render a (Boolean/LTL) node to a heap string in the ltlxba/ltl dialect, with
 // any trailing newline stripped (for ltlsynt --formula=).
@@ -99,6 +103,222 @@ static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
   return g;
 }
 
+static char *controllable_name(const char *name) {
+  size_t p = strlen(ABSSYNTHE_CONTROLLABLE_PREFIX), n = strlen(name);
+  char *out = malloc(p + n + 1);
+  if (!out)
+    return nullptr;
+  int written =
+      snprintf(out, p + n + 1, "%s%s", ABSSYNTHE_CONTROLLABLE_PREFIX, name);
+  if (written < 0 || (size_t)written != p + n) {
+    free(out);
+    return nullptr;
+  }
+  return out;
+}
+
+static bool abssynthe_bool_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+    return true;
+  case NODE_NOT:
+    return abssynthe_bool_supported(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return abssynthe_bool_supported(n->lhs) && abssynthe_bool_supported(n->rhs);
+  default:
+    return false;
+  }
+}
+
+static bool abssynthe_eligible(const Node *root, bool finite) {
+  return !finite && root->kind == NODE_G && abssynthe_bool_supported(root->arg);
+}
+
+static uint32_t abssynthe_compile_bool(Aig *g, ConstraintCover *cov,
+                                       const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return AIG_TRUE;
+  case NODE_FALSE:
+    return AIG_FALSE;
+  case NODE_AP: {
+    const char *name = n->name;
+    int32_t idx = ap_table_find(&cov->aps, name);
+    if (idx >= 0 &&
+        (ap_table_flags(&cov->aps, (uint32_t)idx) & AP_FLAG_OUTPUT)) {
+      char *cname = controllable_name(name);
+      if (!cname)
+        return UINT32_MAX;
+      uint32_t lit = aig_lookup(g, cname);
+      free(cname);
+      return lit;
+    }
+    return aig_lookup(g, name);
+  }
+  case NODE_NOT: {
+    uint32_t a = abssynthe_compile_bool(g, cov, n->arg);
+    return a == UINT32_MAX ? a : aig_not(a);
+  }
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV: {
+    uint32_t a = abssynthe_compile_bool(g, cov, n->lhs);
+    uint32_t b = abssynthe_compile_bool(g, cov, n->rhs);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    switch (n->kind) {
+    case NODE_AND:
+      return aig_and(g, a, b);
+    case NODE_OR:
+      return aig_or(g, a, b);
+    case NODE_IMPL:
+      return aig_or(g, aig_not(a), b);
+    default:
+      return aig_and(g, aig_or(g, aig_not(a), b), aig_or(g, a, aig_not(b)));
+    }
+  }
+  default:
+    return UINT32_MAX;
+  }
+}
+
+static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
+                                 const Node *root) {
+  Aig *g = aig_new();
+  if (!g)
+    return nullptr;
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
+      continue;
+    (void)aig_input(g, ap_table_name(&cov->aps, a));
+  }
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+      continue;
+    char *cname = controllable_name(ap_table_name(&cov->aps, a));
+    if (!cname) {
+      aig_free(g);
+      return nullptr;
+    }
+    (void)aig_input(g, cname);
+    free(cname);
+  }
+  uint32_t ok = abssynthe_compile_bool(g, cov, root->arg);
+  if (ok == UINT32_MAX) {
+    aig_free(g);
+    return nullptr;
+  }
+  aig_set_output(g, "bad", aig_not(ok));
+  return g;
+}
+
+static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
+                                           const bool *seen) {
+  aig_strip_output_prefix(g, ABSSYNTHE_CONTROLLABLE_PREFIX);
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+      continue;
+    if (!aig_has_output(g, ap_table_name(&cov->aps, a)))
+      return false;
+  }
+  return true;
+}
+
+static void cleanup_abssynthe_tmp(const char *dir, const char *game,
+                                  const char *strat) {
+  if (game)
+    unlink(game);
+  if (strat)
+    unlink(strat);
+  if (dir)
+    rmdir(dir);
+}
+
+// Synthesize one safety cluster with AbsSynthe.  The first backend slice
+// accepts strategy AAGs that expose each controllable as an output named either
+// `<name>` or `controllable_<name>`.
+static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
+                          const bool *seen, const Node *root, int *unreal) {
+  *unreal = 0;
+  Aig *game = build_abssynthe_game(cov, seen, root);
+  if (!game)
+    return nullptr;
+
+  char dir[] = "/tmp/tlsfcompose-abssynthe-XXXXXX";
+  if (!mkdtemp(dir)) {
+    aig_free(game);
+    return nullptr;
+  }
+  char game_path[4096], strat_path[4096];
+  if (snprintf(game_path, sizeof game_path, "%s/game.aag", dir) >=
+          (int)sizeof game_path ||
+      snprintf(strat_path, sizeof strat_path, "%s/strategy.aag", dir) >=
+          (int)sizeof strat_path) {
+    cleanup_abssynthe_tmp(dir, nullptr, nullptr);
+    aig_free(game);
+    return nullptr;
+  }
+  FILE *gf = fopen(game_path, "w");
+  if (!gf) {
+    cleanup_abssynthe_tmp(dir, nullptr, nullptr);
+    aig_free(game);
+    return nullptr;
+  }
+  aig_write_aag(gf, game);
+  fclose(gf);
+  aig_free(game);
+
+  char *argv[] = {(char *)prog, (char *)"-o", strat_path, game_path, nullptr};
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
+  posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+  pid_t pid;
+  int rc = posix_spawnp(&pid, prog, &fa, nullptr, argv, environ);
+  posix_spawn_file_actions_destroy(&fa);
+  if (rc != 0) {
+    cleanup_abssynthe_tmp(dir, game_path, strat_path);
+    return nullptr;
+  }
+
+  int status;
+  waitpid(pid, &status, 0);
+  if (!WIFEXITED(status)) {
+    cleanup_abssynthe_tmp(dir, game_path, strat_path);
+    return nullptr;
+  }
+  int code = WEXITSTATUS(status);
+  if (code == 20) {
+    *unreal = 1;
+    cleanup_abssynthe_tmp(dir, game_path, strat_path);
+    return nullptr;
+  }
+  if (code != 0 && code != 10) {
+    cleanup_abssynthe_tmp(dir, game_path, strat_path);
+    return nullptr;
+  }
+
+  FILE *sf = fopen(strat_path, "r");
+  if (!sf) {
+    cleanup_abssynthe_tmp(dir, game_path, strat_path);
+    return nullptr;
+  }
+  Aig *strategy = aig_read_aag(sf);
+  fclose(sf);
+  if (strategy && !abssynthe_strategy_has_outputs(strategy, cov, seen)) {
+    aig_free(strategy);
+    strategy = nullptr;
+  }
+  cleanup_abssynthe_tmp(dir, game_path, strat_path);
+  return strategy;
+}
+
 static void usage(const char *prog) {
   fprintf(
       stderr,
@@ -107,9 +327,11 @@ static void usage(const char *prog) {
       "clusters.\n"
       "  --split                      decompose constraints first\n"
       "  --aiger                      emit one merged controller (AIGER aag)"
-      " via ltlsynt\n"
+      " via synthesis backends\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
+      "  --abssynthe PATH             AbsSynthe to use for eligible safety "
+      "--aiger clusters\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
@@ -170,6 +392,7 @@ int main(int argc, char *argv[]) {
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
+  const char *abssynthe_path = nullptr;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -187,6 +410,8 @@ int main(int argc, char *argv[]) {
       aiger = true;
     } else if (strcmp(a, "--ltlsynt") == 0) {
       ltlsynt_path = NEED_ARG();
+    } else if (strcmp(a, "--abssynthe") == 0 || strcmp(a, "--absynthe") == 0) {
+      abssynthe_path = NEED_ARG();
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -319,6 +544,10 @@ int main(int argc, char *argv[]) {
     const char *prog = ltlsynt_path    ? ltlsynt_path
                        : (env && *env) ? env
                                        : "ltlsynt";
+    const char *abs_env = getenv("ABSSYNTHE");
+    const char *abs_prog = abssynthe_path          ? abssynthe_path
+                           : (abs_env && *abs_env) ? abs_env
+                                                   : nullptr;
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
@@ -332,26 +561,32 @@ int main(int argc, char *argv[]) {
         rc = 1;
         break;
       }
-      char *ltl = ltl_string(root, fmt, finite);
-      // Build ins/outs CSV via memstreams.
-      char *ins = nullptr, *outs = nullptr;
-      size_t isz = 0, osz = 0;
-      FILE *fi = open_memstream(&ins, &isz), *fo = open_memstream(&outs, &osz);
-      residual_print_signals(fi, cov, seen, AP_FLAG_INPUT);
-      residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
-      fclose(fi);
-      fclose(fo);
       int unreal = 0;
-      Aig *sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, &unreal) : nullptr;
-      free(ltl);
-      free(ins);
-      free(outs);
+      Aig *sub = nullptr;
+      if (abs_prog && abssynthe_eligible(root, finite)) {
+        sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
+      } else {
+        char *ltl = ltl_string(root, fmt, finite);
+        // Build ins/outs CSV via memstreams.
+        char *ins = nullptr, *outs = nullptr;
+        size_t isz = 0, osz = 0;
+        FILE *fi = open_memstream(&ins, &isz),
+             *fo = open_memstream(&outs, &osz);
+        residual_print_signals(fi, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
+        fclose(fi);
+        fclose(fo);
+        sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, &unreal) : nullptr;
+        free(ltl);
+        free(ins);
+        free(outs);
+      }
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE\n", k);
         rc = 1;
       } else if (!sub) {
         fprintf(stderr,
-                "tlsfcompose: ltlsynt failed or not found (set --ltlsynt)\n");
+                "tlsfcompose: synthesis backend failed for cluster %u\n", k);
         rc = 1;
       } else if (!aig_merge(g, sub)) {
         fprintf(stderr, "tlsfcompose: AIGER merge failed for cluster %u\n", k);

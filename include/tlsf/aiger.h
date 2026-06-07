@@ -36,8 +36,16 @@ uint32_t aig_or(Aig *g, uint32_t a, uint32_t b);
 /// Look up an available signal's literal by name, or UINT32_MAX if absent.
 uint32_t aig_lookup(const Aig *g, const char *name);
 
+/// True when `name` is a named output of `g`.
+bool aig_has_output(const Aig *g, const char *name);
+
 /// Drive output `name` with `lit`; registers `name` as available too.
 void aig_set_output(Aig *g, const char *name, uint32_t lit);
+
+/// For every output whose name starts with `prefix`, strip the prefix and
+/// register the stripped name as an available signal.  This is useful for
+/// backends that expose controllable outputs as `controllable_<name>`.
+void aig_strip_output_prefix(Aig *g, const char *prefix);
 
 /// Compile a temporal-free Boolean node into `g` (AP names resolved via
 /// `aig_lookup`).  Returns the literal, or UINT32_MAX if a name is unknown or

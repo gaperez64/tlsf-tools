@@ -1,3 +1,4 @@
+// NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
 
@@ -75,6 +76,13 @@ uint32_t aig_lookup(const Aig *g, const char *name) {
   return UINT32_MAX;
 }
 
+bool aig_has_output(const Aig *g, const char *name) {
+  for (uint32_t i = 0; i < g->nout; i++)
+    if (strcmp(g->outs[i].name, name) == 0)
+      return true;
+  return false;
+}
+
 uint32_t aig_input(Aig *g, const char *name) {
   uint32_t var = ++g->nextvar;
   uint32_t lit = var * 2;
@@ -116,6 +124,20 @@ void aig_set_output(Aig *g, const char *name, uint32_t lit) {
   g->outs[g->nout].lit = lit;
   g->nout++;
   reg_sig(g, name, lit);
+}
+
+void aig_strip_output_prefix(Aig *g, const char *prefix) {
+  size_t n = strlen(prefix);
+  for (uint32_t i = 0; i < g->nout; i++) {
+    if (strncmp(g->outs[i].name, prefix, n) != 0)
+      continue;
+    char *stripped = strdup(g->outs[i].name + n);
+    if (!stripped)
+      continue;
+    free(g->outs[i].name);
+    g->outs[i].name = stripped;
+    reg_sig(g, stripped, g->outs[i].lit);
+  }
 }
 
 uint32_t aig_compile(Aig *g, const Node *n) {
