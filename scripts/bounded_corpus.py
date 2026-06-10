@@ -45,6 +45,11 @@ BENCH_COLUMNS = [
     "conflicts",
     "eliminated_constraints",
     "owned_outputs",
+    "residual_clusters",
+    "residual_outputs",
+    "largest_residual_cluster_outputs",
+    "residual_liveness_clusters",
+    "residual_size_norm",
 ]
 
 HARNESS_COLUMNS = ["process_status", "returncode"] + BENCH_COLUMNS
@@ -187,6 +192,11 @@ def pct(num, den):
     return 100.0 * num / den
 
 
+def int_of(row, key):
+    val = row.get(key, "-")
+    return int(val) if val not in ("", "-") else 0
+
+
 def aggregate(rows):
     parsed = [r for r in rows if r.get("parse_status") == "ok"]
     solved = sum(1 for r in parsed if int(r.get("solved_blocks", "0")) > 0)
@@ -195,6 +205,22 @@ def aggregate(rows):
     eliminated = int_col(parsed, "eliminated_constraints")
     outputs = int_col(parsed, "outputs")
     owned = int_col(parsed, "owned_outputs")
+    # Residual complexity (monolith -> residual), present only when the
+    # benchgraph TSV carries the residual-complexity columns.
+    has_residual = any("residual_clusters" in r for r in parsed)
+    mono_game = sum(int_of(r, "largest_output_component") for r in parsed)
+    res_game = sum(int_of(r, "largest_residual_cluster_outputs") for r in parsed)
+    mono_size = sum(int_of(r, "formula_size_norm") for r in parsed)
+    res_size = sum(int_of(r, "residual_size_norm") for r in parsed)
+    game_smaller = sum(
+        1 for r in parsed
+        if int_of(r, "largest_residual_cluster_outputs")
+        < int_of(r, "largest_output_component"))
+    drop_to_safety = sum(
+        1 for r in parsed
+        if int_of(r, "liveness") > 0 and int_of(r, "fully_solved") == 0
+        and int_of(r, "residual_liveness_clusters") == 0)
+    factored = sum(1 for r in parsed if int_of(r, "residual_clusters") >= 2)
     return {
         "specs": len(rows),
         "process_ok": sum(1 for r in rows if r.get("process_status") == "ok"),
@@ -212,6 +238,14 @@ def aggregate(rows):
         "fully_rate": pct(fully, len(parsed)),
         "elim_rate": pct(eliminated, constraints),
         "owned_rate": pct(owned, outputs),
+        "has_residual": has_residual,
+        "mono_game": mono_game,
+        "res_game": res_game,
+        "mono_size": mono_size,
+        "res_size": res_size,
+        "game_smaller": game_smaller,
+        "drop_to_safety": drop_to_safety,
+        "factored": factored,
     }
 
 
@@ -231,6 +265,17 @@ def summary_lines(rows, baseline_rows):
         f"{agg['owned']}/{agg['outputs']} outputs owned "
         f"({agg['owned_rate']:.1f}%)",
     ]
+    if agg["has_residual"]:
+        lines.append(
+            "# residual complexity: largest sub-game outputs "
+            f"{agg['mono_game']}->{agg['res_game']} "
+            f"({pct(agg['res_game'], agg['mono_game']):.1f}% of monolith), "
+            f"strictly smaller in {agg['game_smaller']} specs; "
+            f"{agg['drop_to_safety']} drop liveness->safety, "
+            f"{agg['fully']} fully solved; "
+            f"{agg['factored']} factor into >=2 clusters; residual size "
+            f"{agg['res_size']}/{agg['mono_size']} norm nodes "
+            f"({pct(agg['res_size'], agg['mono_size']):.1f}%)")
     if baseline_rows is not None:
         base = aggregate(baseline_rows)
         lines.append(

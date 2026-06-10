@@ -586,7 +586,9 @@ test('tmpl_from_gsnf_unimplemented', xfail,
 # golden is path-independent).
 test('benchgraph_tsv', check,
   args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe, '--wl', '4',
-         '--summary', files('test/cases/arbiter2.tlsf'),
+         '--summary', files('test/cases/arbiter1formula.tlsf'),
+         files('test/cases/arbiter2.tlsf'),
+         files('test/cases/cluster_split.tlsf'),
          files('test/cases/def_demo.tlsf'),
          files('test/cases/roundrobin2.tlsf')])
 test('benchgraph_jobs_unimplemented', xfail,

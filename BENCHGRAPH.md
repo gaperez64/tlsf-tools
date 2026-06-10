@@ -137,6 +137,48 @@ for residual games: AbsSynthe now covers the non-finite safety slice, including
 strict safety wrappers of the form `S W !A`, while GR(1)-style liveness
 residuals still need a separate path.
 
+## Residual complexity (monolith → residual)
+
+"Fully solved" is a binary that hides most of the value. Reactive synthesis cost
+is ~exponential in the number of controllable **outputs** and in **operator
+class** (parity ⊐ safety ⊐ solved), so a spec we never fully close can still be
+exponentially cheaper after decomposition. `tlsfbenchgraph` now measures, per
+spec, the **residual** the backends still face — every accepted SOLVED block
+removed (so `fully_solved` ⇔ empty residual), the rest substituted and
+partitioned into output-disjoint clusters (one independent game each) — and
+reports its size, cluster count, hardest-cluster output count, and per-cluster
+safety/liveness class with the same classifier as the monolith columns.
+
+![Residual independent games by synthesis class](docs/benchgraph/residual_class.png)
+
+![Hardest game dimensionality: monolith vs residual](docs/benchgraph/residual_gamesize.png)
+
+| corpus | fully solved | specs factoring ≥2 clusters | residual clusters (safety→AbsSynthe / liveness→ltlsynt) | hardest game outs monolith→residual (mean) | residual size / monolith |
+|---|--:|--:|--:|--:|--:|
+| `tlsf` | 2 (0%) | 746 (29%) | 2004 (43%) / 2655 (57%) | 5.0→4.9 | 76.7% (7388596/9631686) |
+| `tlsf-fin` | 0 (0%) | 1422 (57%) | 1455 (21%) / 5533 (79%) | 50.3→50.3 | 100.1% (21774881/21748136) |
+
+Three findings, and they reframe where the leverage is:
+
+1. **Templates barely shrink the hardest game.** The largest residual cluster has
+   essentially the same output count as the monolith's largest output component
+   (`tlsf` 5.0→4.9, `tlsf-fin` 50.3→50.3): the big multi-output transition cores
+   `G(..→X(o1∨..∨o6))` survive untouched. Template ownership (~2 % of outputs) is
+   not the dimensionality lever.
+2. **Clustering is the lever.** **29 % of `tlsf` and 57 % of `tlsf-fin` specs
+   factor into ≥2 output-disjoint independent games.** Because cost is
+   exponential in a single game's outputs, solving `max(cluster)` instead of the
+   whole spec — `Σ exp(out_i)` rather than `exp(Σ out_i)` — is a real (often
+   exponential) reduction that lands even at a ~0 % template solve rate. The
+   residual is also smaller as a formula on `tlsf` (76.7 % of the monolith).
+3. **Liveness is sparse per clause but pervasive per spec.** ~99 % of residual
+   *conjuncts* are safety, yet most *specs* still carry one `GF`/`F` clause, so a
+   whole spec can rarely be handed to AbsSynthe as one game. Clustering isolates
+   that tail: **43 % of `tlsf` (21 % of `tlsf-fin`) residual independent games are
+   pure-safety, AbsSynthe-eligible**; only the liveness clusters need `ltlsynt`.
+   The path to a higher solved fraction is therefore *finer clustering that peels
+   each safety game off the liveness tail*, not more closed-form templates.
+
 ## Self-contained AIGER synthesis without `ltlsynt`
 
 `tlsfcompose --aiger` routes eligible non-finite safety residual clusters to
@@ -231,6 +273,13 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
    Remaining no-`ltlsynt` coverage needs liveness / GR(1)-style solving.
 6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
+7. **Decomposition lowers complexity through clustering, not template
+   ownership.** Templates barely move the hardest game (largest residual cluster
+   ≈ monolith's largest output component), but 29 % of `tlsf` / 57 % of
+   `tlsf-fin` specs factor into ≥2 independent games, and 43 % / 21 % of those
+   games are pure-safety (AbsSynthe-eligible). The lever for a higher solved
+   fraction is finer clustering that peels each safety game off the per-spec
+   liveness tail.
 
 ## Caveats
 
