@@ -222,10 +222,37 @@ fairness-bearing tail.
     big for Spot to model-check directly, but shares the verified encoding path.
     `amba_gr+` is GR(2) (out of scope for a GR(1) solver). 210 tests green,
     coverage 78.2%.
-  - [ ] **Open follow-ons.** (a) AbsSynthe BDD performance on big amba
-    (`pb_10+`): abstraction/decomposition/variable ordering, or a time/mem budget
-    knob. (b) A medium strict spec Spot *can* check, to bridge the small-fixture →
-    amba verification gap. (c) GR(2)/generalized-Rabin for `amba_gr+`.
+  - [!] **Solve-rate snapshot + two negative levers.** templates+AbsSynthe
+    (no ltlsynt) closes **~5–7%** of specs fully self-contained on capped random
+    samples (whole-spec metric: every residual cluster must be AbsSynthe-eligible).
+    Residual failure mix (500-sample): 344 "liveness not eligible" (~27% of those
+    are *unrealizable* specs needing a verdict), 42 weak-until/release **safety**
+    (encodable, unrecognized), 21 GR(2), 10 AbsSynthe-BDD timeouts.
+    - **Lever 1 — pass AbsSynthe solver flags (`$ABSSYNTHE_FLAGS`, no default):
+      measured, does not help.** GR(1) games dispatch to `solveGR1` before
+      `-a`/`-c` are read (no-ops); `-t` *slows* the GR(1) fixpoint
+      (amba_gr_pb_8 10 s→19 s); on the slow safety tail the bounded game just
+      misses faster. The slow tail is intrinsic to AbsSynthe's BDD GR(1) fixpoint
+      (abstraction isn't wired into `solveGR1`) — a real AbsSynthe feature, not a
+      flag. Knob kept for experimentation.
+    - **Lever 2 — `G(p∧q) ≡ G p ∧ G q` distribution: sound rewrite, but
+      REVERTED.** It correctly exposes `G F x` buried in `G(safety ∧ F x …)`
+      (round_robin), but widens recognition to complex specs (deep-`X` responses,
+      mutual-exclusion liveness over *controllable outputs*, the unrealizable
+      round_robins) whose *other* parts the emitter encodes inexactly →
+      **controllers that violate the spec** (Spot caught 7/7 newly-"solved" as
+      unsound, incl. 4 unrealizable specs wrongly "solved"). The lesson: the
+      recognizer's per-conjunct acceptance does **not** guarantee an *exact*
+      game, so any widening is unsafe without a gate.
+  - [ ] **Open follow-ons, re-prioritized.** (a) **Exactness/self-verification
+    gate** — before accepting an AbsSynthe controller, check it against the
+    cluster spec (Spot/model-check) and fall back to ltlsynt on failure; this
+    makes *every* recognizer widening (distribution, U-shaped responses) safe and
+    is the real unlock for "more residuals". (b) Safety-shape recognition:
+    weak-until release + `R` (42 specs, pure safety). (c) AbsSynthe BDD perf /
+    GR(1)-aware abstraction for big amba (`pb_10+`). (d) GR(2)/generalized-Rabin
+    for `amba_gr+`. (e) Trust the complete solver's UNREALIZABLE verdict on exact
+    clusters (~27% of the liveness tail).
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
