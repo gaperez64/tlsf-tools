@@ -237,15 +237,22 @@ machine-checked: the `k`-bounded controller satisfies the **unbounded** spec
 (`scripts/verify_aiger_ltl.py`: `bounded_resp`, `bounded_until`, `bounded_wuntil`,
 `cluster_prune`).
 
-Honest limit: the remaining tail (2279 specs) is **2/3 fairness-bearing** — the
-`U`/`W`/`R` extension barely dented the "liveness (non-GR)" bucket (1734→1716),
-because those clusters carry a relevant `G F a` *assumption* that cannot be
-bounded soundly. The next lever is therefore **fairness handling** (a
-self-contained bounded-GR(1) with fairness-gated counters, then the complete GR(1)
-fixpoint — an AbsSynthe extension; `aig.cpp:83-84` already parses, then ignores,
-justice/fairness), **not** more bounded temporal operators. Pure-safety-release
-`W`/`R` (where the release never comes; ~149 specs) need an exact "released"-latch
-monitor, a smaller separate prize.
+A self-contained **bounded GR(1)** path follows: a cluster
+`(SafetyAssume ∧ G F a) → (SafetyGua ∧ ⋀ Justice)` becomes a safety game by giving
+each justice goal a counter **gated on the fairness signal `a`** ("met within `k`
+occurrences of `a`", sound because it never bounds the env's absolute timing).
+It solves and machine-verifies the clean GR(1) shape (`gr1_spec`, `gr1_response`).
+
+**Plateau (honest).** Bounded reduction stops here: `F` +98 (→229), `U`/`W`/`R`/`M`
++37 (→266), bounded GR(1) **+0** (→266). The GR(1) encoder is correct but its
+clean shape — single fairness, `F`-shaped responses, no initial conditions —
+**does not occur in SYNTCOMP**: the real GR(1) clusters are multi-fairness,
+`U`-shaped (amba `!READY U (HREADY ∧ …)`), and carry initial conditions
+(`!DECIDE`). Shape-matched bounded reduction has hit its ceiling; the messy GR(1)
+tail needs a *complete* GR(1) solver with no shape restrictions — `ltlsynt` (the
+fallback) or the planned AbsSynthe GR(1) fixpoint extension (`aig.cpp:83-84`
+already parses, then ignores, justice/fairness). Pure-safety-release `W`/`R`
+(~149) remain a smaller separate prize for an exact "released"-latch monitor.
 
 The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
 illustrates the shape: `small_Lights2_f1477cc5_2.tlsf` is solved by the safety

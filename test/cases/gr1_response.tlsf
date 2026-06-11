@@ -1,0 +1,10 @@
+INFO { TITLE: "gr1_response" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { a; req; }
+  OUTPUTS { grant; }
+  ASSUME { G F a; }
+  GUARANTEE {
+    G (req -> F grant);
+    G (grant -> a);
+  }
+}

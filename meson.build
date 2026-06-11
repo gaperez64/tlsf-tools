@@ -569,6 +569,15 @@ foreach name : ['bounded_until', 'bounded_wuntil']
            '--ltlsynt', '/bin/false', '--bound', '4',
            files('test/cases/' + name + '.tlsf')])
 endforeach
+# Bounded GR(1): fairness G F a + recurrence/response justice -> fairness-gated
+# counter safety game, routed to AbsSynthe (fake stub) with ltlsynt disabled.
+foreach name : ['gr1_spec', 'gr1_response']
+  test('aiger_abssynthe_' + name, check,
+    args: [files('test/cases/' + name + '.abssynthe.aag'), tlsfcompose_exe,
+           '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+           '--ltlsynt', '/bin/false', '--bound', '4',
+           files('test/cases/' + name + '.tlsf')])
+endforeach
 test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
   args: [files('test/cases/compose_gr1_disabled.err'), tlsfcompose_exe,
          '--aiger', '--ltlsynt', '/bin/false',
@@ -666,8 +675,9 @@ if python3.found() and spot_python_found
              '--ltlsynt', '/bin/false',
              '--tlsf2ltl', tlsf2ltl_path,
              '--tlsf', files('test/cases/bounded_resp.tlsf')])
-    # Bounded until / weak-until controllers must satisfy the UNBOUNDED spec.
-    foreach name : ['bounded_until', 'bounded_wuntil']
+    # Bounded until / weak-until / GR(1) controllers must satisfy the UNBOUNDED
+    # spec (the verifier conjoins the G F a fairness assumption for GR(1)).
+    foreach name : ['bounded_until', 'bounded_wuntil', 'gr1_spec', 'gr1_response']
       test('verify_aiger_abssynthe_real_' + name, python3,
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,
