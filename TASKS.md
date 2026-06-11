@@ -120,9 +120,11 @@ fairness-bearing tail.
   occur in SYNTCOMP**: real GR(1) is multi-fairness, `U`-shaped (amba
   `!READY U (HREADY ∧ …)`), with initial conditions (`!DECIDE`). Shape-matched
   bounded reduction has hit its ceiling.
-- [~] **Next lever — complete GR(1) fixpoint (AbsSynthe submodule extension).**
-  No shape restrictions; handles the messy multi-fairness/`U`-shaped real
-  clusters. C++/CUDD, spans two repos.
+- [x] **Complete GR(1) fixpoint (AbsSynthe submodule extension) — done.**
+  Solver-side shape limits removed (multi-fairness, multi-justice, no `k`-bound)
+  and wired into tlsf-tools end to end with Spot-verified controllers. C++/CUDD,
+  spans two repos. The remaining corpus lever is now the *front-end* recognizer
+  (see the recognizer-gated note below), not the solver.
   - [x] **GR(1) realizability** (AbsSynthe `native-dev-par`, CI green). The
     Piterman–Pnueli–Sa'ar fixpoint
     `Z=νZ.⋀ⱼμY.⋁ᵢνX.[(Jˢⱼ∧cpre Z)|cpre Y|(¬Jᵉᵢ∧cpre X)]` over `cpre=¬upre(¬·)`
@@ -151,9 +153,34 @@ fairness-bearing tail.
     justice goals must be state predicates — goals over controllable *inputs*
     couple latch+input under `cpre` and misbehave (Phase 3's monitors emit state
     predicates).
-  - [ ] **tlsf-tools integration** (Phase 3). Justice/fairness *output* in tlsf
-    `aiger.c`, a GR(1)-AIGER emitter, route the GR(1) tail through AbsSynthe,
-    verify with `verify_aiger_ltl.py`, measure corpus eligibility past 266.
+  - [x] **tlsf-tools integration** (Phase 3, `tlsfgraph`). (a) AIGER 1.9
+    justice/fairness *output* in `aiger.c` (`aig_add_justice`/`aig_add_fairness`,
+    9-number header) and the reader skips those records so a GR(1) strategy reads
+    back for merging. (b) `build_abssynthe_unbounded_gr1_game` emits a real
+    justice/fairness game: each justice goal via a deterministic pending monitor
+    (`pending' = !violated & !grant & (pending|req)`, `req=true` for recurrence)
+    so the justice literal `!pending` is a STATE predicate; each fairness `a`
+    sampled into a latch. A broken safety assumption clears the monitors, lifting
+    the liveness obligation vacuously. (c) `use_gr1` routes through it (replacing
+    bounded `build_abssynthe_gr1_game`/`gr1_saturate`); on miss/unreal it defers
+    to ltlsynt to avoid a false UNREAL. (d) Multi-fairness recognized
+    (`abssynthe_gr1_parts`, `Gr1Parts.fairness[]`). 197 tests green incl.
+    `verify_aiger_abssynthe_real_gr1_{spec,response,multifair}` — Spot confirms
+    the controllers satisfy the **unbounded** GR(1) specs (multifair has two
+    fairness in one cluster). coverage 77.9%, clang-format clean.
+  - [!] **Corpus lift is recognizer-gated, not solver-gated.** Old (bounded) vs
+    new (complete) on a 150-spec random `tlsf` sample (`--ltlsynt /bin/false`,
+    capped): identical 8/150 fully-AbsSynthe-solved, **0 status changes**. The
+    complete solver removed the *solver*-side shape limits (multi-fairness, no
+    `k`-bound — proven on `gr1_multifair`), but the broad corpus number doesn't
+    move because real GR(1) clusters (e.g. `lift_gr1+`, amba) fail the *front-end*
+    `abssynthe_gr1_parts` recognizer: their liveness is `U`-shaped
+    (`!READY U (HREADY ∧ …)`) / has initial conditions, not the clean `G F a` +
+    recurrence/response it matches (both old and new report "liveness ... not
+    AbsSynthe-eligible"). And GR(1) clusters usually coexist with other residual
+    clusters that still need ltlsynt. **Next lever:** extend the recognizer
+    (`match_response`/`gr1_collect`) to `U`-shaped responses + initial conditions
+    so real amba/lift specs reach the (now complete) GR(1) solver.
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
