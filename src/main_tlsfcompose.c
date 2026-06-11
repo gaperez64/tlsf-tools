@@ -337,6 +337,14 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   if (n->kind == NODE_AND)
     return gr1_collect(a, n->lhs, assume, p) &&
            gr1_collect(a, n->rhs, assume, p);
+  // An initial Boolean conjunct (env-init on the assume side, sys-init on the
+  // guarantee side): part of the GR(1) implication's antecedent/consequent.
+  if (abssynthe_initial_supported(n)) {
+    const Node **init = assume ? &p->env_init : &p->sys_init;
+    *init =
+        (*init)->kind == NODE_TRUE ? n : node_and(a, (Node *)*init, (Node *)n);
+    return true;
+  }
   const Node *gf = match_gf(n);
   if (assume) {
     if (gf) {
@@ -377,12 +385,36 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   return true;
 }
 
+// Bucket the system-safety side `S_safety` of a strict `S_safety W ¬A_safety`
+// conjunct (a conjunction of `G(...)` invariants and initial Booleans) into the
+// guarantee-safety / sys-init buckets.  The strict conditioning itself is
+// realized by the `violated` latch (driven by the env safety A_safety, which
+// reappears in the liveness antecedent E), so the `¬A_safety` release is
+// redundant here and ignored.
+static bool gr1_collect_strict_safety(Arena *a, const Node *n, Gr1Parts *p) {
+  if (n->kind == NODE_AND)
+    return gr1_collect_strict_safety(a, n->lhs, p) &&
+           gr1_collect_strict_safety(a, n->rhs, p);
+  if (abssynthe_initial_supported(n)) {
+    p->sys_init = p->sys_init->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->sys_init, (Node *)n);
+    return true;
+  }
+  if (!abssynthe_global_supported(n))
+    return false;
+  p->safety_gua = p->safety_gua->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->safety_gua, (Node *)n);
+  return true;
+}
+
 // Bucket a GR(1) consequent conjunct.  A GR(1) cluster has exactly ONE
 // `assume -> guarantee` implication carrying all fairness/justice; outside it
-// only sys-init Booleans and unconditional safety (`G(...)` or weak-until) are
-// allowed.  A bare `G F`/response or a second implication is rejected: it would
-// be unconditional or independent liveness, which is not a single GR(1)
-// condition (it is Streett-like), and merging it would be unsound.
+// only sys-init Booleans and unconditional safety (`G(...)`, weak-until, or a
+// strict `S W ¬A` safety) are allowed.  A bare `G F`/response or a second
+// implication is rejected: it would be unconditional or independent liveness,
+// which is not a single GR(1) condition (it is Streett-like).
 static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
                                    bool *found_impl) {
   if (n->kind == NODE_AND)
@@ -409,6 +441,11 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
     p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
     return true;
   }
+  // Strict GR(1) safety `S_safety W ¬A_safety` (the operands carry `G(...)`, so
+  // the pure weak-until above did not match).  Bucket S_safety; A_safety is
+  // captured from the liveness antecedent E and drives the `violated` latch.
+  if (n->kind == NODE_W && n->rhs->kind == NODE_NOT)
+    return gr1_collect_strict_safety(a, n->lhs, p);
   if (!abssynthe_global_supported(n))
     return false; // bare response / anything that is not unconditional safety
   p->safety_gua = p->safety_gua->kind == NODE_TRUE
@@ -444,8 +481,10 @@ static bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
   bool found_impl = false;
   if (!gr1_collect_consequent(a, root, p, &found_impl))
     return false;
+  // The emitter encodes X-depth assumptions via the assumption window, so the
+  // safety assume need only be encodable (finite X-depth), not x-depth 0.
   return p->nfairness > 0 && p->njustice > 0 &&
-         abssynthe_global_x_depth(p->safety_assume) == 0;
+         abssynthe_global_x_depth(p->safety_assume) != UINT32_MAX;
 }
 
 // Bounded eventually: `x | Xx | ... | X^k x` ("x within the next k steps").
@@ -719,8 +758,11 @@ static uint32_t abssynthe_compile_assumption_window(AbssyntheCompile *ctx,
   uint32_t ok = AIG_TRUE;
   for (uint32_t lag = 0; lag <= depth; lag++) {
     uint32_t at_lag = abssynthe_compile_global_at_lag(ctx, assume, lag);
+    // At an early lag an X-depth assumption reaches before the window start and
+    // is not yet evaluable; it is vacuously satisfied there, so skip it.  The
+    // caller has already checked the assumption is encodable (finite X-depth).
     if (at_lag == UINT32_MAX)
-      return UINT32_MAX;
+      continue;
     ok = aig_and(ctx->g, ok, at_lag);
   }
   return ok;

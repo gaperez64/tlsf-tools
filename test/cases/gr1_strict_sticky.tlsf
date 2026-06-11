@@ -1,0 +1,7 @@
+INFO { TITLE: "strictsticky" DESCRIPTION: "strict GR(1), sticky env request" SEMANTICS: Mealy,Strict TARGET: Mealy }
+MAIN { INPUTS { req; } OUTPUTS { ack; }
+  REQUIRE { req -> X req; }
+  ASSUME { G F req; }
+  ASSERT { req -> ack; }
+  GUARANTEE { G F ack; }
+}

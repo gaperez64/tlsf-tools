@@ -1,0 +1,7 @@
+INFO { TITLE: "strictmulti" DESCRIPTION: "strict GR(1), env safety + two justice" SEMANTICS: Mealy,Strict TARGET: Mealy }
+MAIN { INPUTS { p; } OUTPUTS { a; b; }
+  REQUIRE { p -> X p; }
+  ASSUME { G F p; }
+  ASSERT { p -> X a; }
+  GUARANTEE { G F a; G F b; }
+}

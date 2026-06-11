@@ -1,0 +1,7 @@
+INFO { TITLE: "strict3" DESCRIPTION: "strict GR(1) with ASSERT+REQUIRE" SEMANTICS: Mealy,Strict TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; }
+  REQUIRE { r -> X r; }
+  ASSUME { G F r; }
+  ASSERT { r -> X g; }
+  GUARANTEE { G F g; }
+}
