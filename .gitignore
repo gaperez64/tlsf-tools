@@ -29,3 +29,7 @@ compile_commands.json
 # Python bytecode (scripts/)
 __pycache__/
 *.pyc
+
+# AbsSynthe dump2dot debug output lands in the repo root during real-AbsSynthe
+# test runs (test/cases/*.dot goldens are kept).
+/*.dot
