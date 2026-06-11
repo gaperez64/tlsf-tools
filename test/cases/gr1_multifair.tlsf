@@ -1,0 +1,5 @@
+INFO { TITLE: "gr1_multifair" DESCRIPTION: "GR(1) with two fairness assumptions in one cluster" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r1; r2; } OUTPUTS { g; }
+  ASSUME { G F (!r1); G F (!r2); }
+  GUARANTEE { G F g; G (r1 -> X g); G (r2 -> X g); }
+}

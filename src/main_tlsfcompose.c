@@ -280,10 +280,10 @@ static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
   return true;
 }
 
-// ---- bounded GR(1): single fairness `G F a` + recurrence/response justice
-// ----
+// ---- GR(1): `G F a` fairness assumptions + recurrence/response justice ----
 
 #define GR1_MAX_JUSTICE 32
+#define GR1_MAX_FAIRNESS 32
 
 typedef struct {
   const Node *req;    // nullptr for a recurrence `G F target`
@@ -291,7 +291,8 @@ typedef struct {
 } Gr1Justice;
 
 typedef struct {
-  const Node *fairness;      // the `a` in the single `G F a` assumption
+  const Node *fairness[GR1_MAX_FAIRNESS]; // the `a`s in the `G F a` assumptions
+  uint32_t nfairness;
   const Node *safety_assume; // AND of safety assume conjuncts (TRUE if none)
   const Node *safety_gua;    // AND of safety guarantee conjuncts (TRUE if none)
   Gr1Justice justice[GR1_MAX_JUSTICE];
@@ -330,9 +331,9 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   const Node *gf = match_gf(n);
   if (assume) {
     if (gf) {
-      if (p->fairness)
-        return false; // single fairness only (multi-fairness is a follow-on)
-      p->fairness = gf;
+      if (p->nfairness >= GR1_MAX_FAIRNESS)
+        return false;
+      p->fairness[p->nfairness++] = gf;
       return true;
     }
   } else if (gf) {
@@ -358,20 +359,20 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   return true;
 }
 
-// Recognize a bounded-GR(1) cluster `(SafetyAssume & G F a) ->
-// (SafetyGua & AND justice)`: exactly one fairness, >=1 justice, safety parts
+// Recognize a GR(1) cluster `(SafetyAssume & AND G F a) ->
+// (SafetyGua & AND justice)`: >= 1 fairness, >= 1 justice, safety parts
 // encodable with x-depth-0 assumptions (as the direct AbsSynthe path requires).
 static bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
   if (root->kind != NODE_IMPL)
     return false;
-  *p = (Gr1Parts){.fairness = nullptr,
+  *p = (Gr1Parts){.nfairness = 0,
                   .safety_assume = node_true(a),
                   .safety_gua = node_true(a),
                   .njustice = 0};
   if (!gr1_collect(a, root->lhs, true, p) ||
       !gr1_collect(a, root->rhs, false, p))
     return false;
-  return p->fairness && p->njustice > 0 &&
+  return p->nfairness > 0 && p->njustice > 0 &&
          abssynthe_global_x_depth(p->safety_assume) == 0;
 }
 
@@ -986,12 +987,15 @@ static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
     aig_add_justice(g, &jlit, 1, "gr1_justice");
   }
 
-  // Environment fairness G F a, sampled into a latch (a state predicate).
-  uint32_t fair = abssynthe_compile_at_lag(&ctx, parts->fairness, depth);
-  if (fair == UINT32_MAX)
-    UGR1_FAIL();
-  uint32_t fa = aig_latch(g, fair, AIG_FALSE);
-  aig_add_fairness(g, fa, "gr1_fairness");
+  // Environment fairness assumptions G F a, each sampled into a latch so its
+  // fairness literal is a state predicate.
+  for (uint32_t i = 0; i < parts->nfairness; i++) {
+    uint32_t fair = abssynthe_compile_at_lag(&ctx, parts->fairness[i], depth);
+    if (fair == UINT32_MAX)
+      UGR1_FAIL();
+    uint32_t fa = aig_latch(g, fair, AIG_FALSE);
+    aig_add_fairness(g, fa, "gr1_fairness");
+  }
 
   bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
 #undef UGR1_FAIL
