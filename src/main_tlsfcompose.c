@@ -284,11 +284,16 @@ static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
 
 #define GR1_MAX_JUSTICE 32
 #define GR1_MAX_FAIRNESS 32
+#define GR1_MAX_WEAK 64
 
 typedef struct {
   const Node *req;    // nullptr for a recurrence `G F target`
   const Node *target; // recurrence goal `g`, or response grant
 } Gr1Justice;
+
+typedef struct {
+  const Node *a, *b; // a weak-until guarantee `a W b` (a safety property)
+} Gr1WeakUntil;
 
 typedef struct {
   const Node *fairness[GR1_MAX_FAIRNESS]; // the `a`s in the `G F a` assumptions
@@ -299,6 +304,8 @@ typedef struct {
   const Node *safety_gua;    // AND of safety guarantee conjuncts (TRUE if none)
   Gr1Justice justice[GR1_MAX_JUSTICE];
   uint32_t njustice;
+  Gr1WeakUntil weak[GR1_MAX_WEAK]; // guarantee-side `a W b` safety monitors
+  uint32_t nweak;
 } Gr1Parts;
 
 // `G F x` with `x` AbsSynthe-Boolean -> x, else nullptr.
@@ -349,6 +356,15 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
       if (p->njustice >= GR1_MAX_JUSTICE)
         return false;
       p->justice[p->njustice++] = (Gr1Justice){req, grant};
+      return true;
+    }
+    // A weak-until `a W b` (Boolean a, b) is a pure-safety guarantee: a holds
+    // until b, or forever.  Encoded with a "released" monitor in the emitter.
+    if (n->kind == NODE_W && abssynthe_body_supported(n->lhs) &&
+        abssynthe_body_supported(n->rhs)) {
+      if (p->nweak >= GR1_MAX_WEAK)
+        return false;
+      p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
       return true;
     }
   }
@@ -938,6 +954,15 @@ static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
   }
   uint32_t A = cov->aps.count;
   uint32_t depth = ass_depth > gua_depth ? ass_depth : gua_depth;
+  // Weak-until operands may carry their own X-depth; widen the history window.
+  for (uint32_t w = 0; w < parts->nweak; w++) {
+    uint32_t da = abssynthe_x_depth(parts->weak[w].a);
+    uint32_t db = abssynthe_x_depth(parts->weak[w].b);
+    if (da > depth)
+      depth = da;
+    if (db > depth)
+      depth = db;
+  }
   uint32_t hist_count = (depth + 1) * (A ? A : 1);
   uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
   if (!hist) {
@@ -1046,6 +1071,25 @@ static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
       UGR1_FAIL();
     uint32_t fa = aig_latch(g, fair, AIG_FALSE);
     aig_add_fairness(g, fa, "gr1_fairness");
+  }
+
+  // Weak-until guarantees `a W b`: a pure-safety obligation that a holds until
+  // b (or forever).  A `released` latch records that b has held; the system
+  // loses if a fails before b is ever seen.
+  for (uint32_t w = 0; w < parts->nweak; w++) {
+    uint32_t a_ok = abssynthe_compile_at_lag(&ctx, parts->weak[w].a, depth);
+    uint32_t b_ok = abssynthe_compile_at_lag(&ctx, parts->weak[w].b, depth);
+    if (a_ok == UINT32_MAX || b_ok == UINT32_MAX)
+      UGR1_FAIL();
+    uint32_t released = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    if (!aig_set_latch_next(g, released,
+                            aig_or(g, released, aig_and(g, valid, b_ok))))
+      UGR1_FAIL();
+    uint32_t weak_bad =
+        aig_and(g, valid,
+                aig_and(g, aig_not(released),
+                        aig_and(g, aig_not(a_ok), aig_not(b_ok))));
+    bad = aig_or(g, bad, weak_bad);
   }
 
   // The system must also satisfy its initial condition at t=0.

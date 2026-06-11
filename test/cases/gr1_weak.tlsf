@@ -1,0 +1,5 @@
+INFO { TITLE: "gr1weak" DESCRIPTION: "GR(1) with a weak-until safety guarantee" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; }
+  ASSUME { G F r; }
+  GUARANTEE { G F (!g); g W r; }
+}
