@@ -179,6 +179,23 @@ Three findings, and they reframe where the leverage is:
    The path to a higher solved fraction is therefore *finer clustering that peels
    each safety game off the liveness tail*, not more closed-form templates.
 
+**Follow-up — finer clustering (per-cluster relevant-assumption scoping).** Each
+cluster now attaches only the assumptions relevant to it (a transitive cone of
+influence over signals) and drops liveness assumptions from safety-only clusters
+(a liveness assumption can never prevent a finite-time safety violation, so it is
+irrelevant to a safety guarantee; `src/residual.c` `residual_build_cluster`). This
+is sound — synthesizing against a subset `Eᵢ ⊆ E` of the assumptions still yields
+a controller valid under the full `E`. It cleanly de-contaminates the case a
+global liveness assumption inflates an otherwise-safety cluster (`cluster_assume`,
+`cluster_prune`) and leans cluster formulas. **But it does not move the SYNTCOMP
+needle**: the 43 %/21 % safety-cluster split is unchanged, because the corpus
+liveness clusters are **guarantee-driven** (responses `G(req→F grant)`, `U`-shaped
+amba obligations), not assumption-contaminated. The completeness rule correctly
+*retains* each cluster's fairness (e.g. `G F HREADY` stays on the `READY2`
+response game). The genuine lever for those clusters is a **GR(1)/Büchi backend**;
+finer clustering is its enabler, since each GR(1) game now carries only its
+relevant fairness assumptions.
+
 ## Self-contained AIGER synthesis without `ltlsynt`
 
 `tlsfcompose --aiger` routes eligible non-finite safety residual clusters to

@@ -94,19 +94,130 @@ void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
   }
 }
 
+// True if any AP occurring in `n` is set in `set` (length cov->aps.count).
+static bool residual_aps_hit(const Node *n, ConstraintCover *cov,
+                             const bool *set) {
+  switch (n->kind) {
+  case NODE_AP: {
+    int32_t i = ap_table_find(&cov->aps, n->name);
+    return i >= 0 && set[i];
+  }
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return residual_aps_hit(n->arg, cov, set);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return residual_aps_hit(n->lhs, cov, set) ||
+           residual_aps_hit(n->rhs, cov, set);
+  default:
+    return false;
+  }
+}
+
+// Finer clustering: decide which residual constraints to attach to cluster
+// `kk`. The cluster's own constraints (`key==kk`) are always kept; the global
+// (input-only) assumption pool (`key==UINT32_MAX`) is pruned to those
+// *relevant* to the cluster — a transitive cone of influence over shared
+// signals — and a liveness assumption is dropped from a safety-only cluster (it
+// can never prevent a finite-time safety violation).  Attaching a subset E_i of
+// the assumptions is sound because E => E_i, so a controller for `E_i -> G_i`
+// also satisfies `E -> G_i`.  Fills `include` (length n); returns false on OOM,
+// in which case the caller keeps the old (include-all-global) behavior.
+static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
+                                    const uint32_t *key, uint32_t kk,
+                                    uint32_t n, bool *include) {
+  uint32_t A = cov->aps.count;
+  bool *gsig = calloc(A ? A : 1, sizeof(bool));
+  bool *reached = calloc(n ? n : 1, sizeof(bool));
+  if (!gsig || !reached) {
+    free(gsig);
+    free(reached);
+    return false;
+  }
+  // Cluster core: every key==kk constraint stays; seed the cone with its
+  // signals and fix the synthesis class from the guarantee-side constraints.
+  bool cluster_safety = true, any_guarantee = false;
+  for (uint32_t i = 0; i < n; i++) {
+    include[i] = false;
+    if (!rf[i] || key[i] != kk)
+      continue;
+    include[i] = true;
+    reached[i] = true;
+    residual_collect_aps(rf[i], cov, gsig);
+    if (!cov->items[i].assumption_side) {
+      any_guarantee = true;
+      if (!cov->items[i].is_safety)
+        cluster_safety = false;
+    }
+  }
+  if (!any_guarantee)
+    cluster_safety = false; // no guarantee to fix the class: keep all relevant
+  // Transitive cone of influence over the global assumption pool.  A reached
+  // assumption grows the cone regardless of class (so liveness bridges still
+  // propagate); it is *attached* only if it is not a liveness assumption on a
+  // safety-only cluster.
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (uint32_t i = 0; i < n; i++) {
+      if (reached[i] || !rf[i] || key[i] != UINT32_MAX)
+        continue;
+      if (!residual_aps_hit(rf[i], cov, gsig))
+        continue;
+      reached[i] = true;
+      changed = true;
+      residual_collect_aps(rf[i], cov, gsig);
+      if (cluster_safety && !cov->items[i].is_safety)
+        continue; // liveness assumption is irrelevant to a safety-only cluster
+      include[i] = true;
+    }
+  }
+  free(gsig);
+  free(reached);
+  return true;
+}
+
 Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
                              const Node **rf, const uint32_t *key, uint32_t kk,
                              bool all, uint32_t n, bool *seen) {
   spec->initially.count = spec->require.count = spec->assume.count = 0;
   spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
   memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
+  // Finer clustering prunes the global assumption pool per cluster.  Skip it
+  // under strict semantics: there the assumption/guarantee `W` structure drives
+  // the (AbsSynthe strict-safety) encoding, and dropping assumptions reshapes
+  // the formula into a nested-`G` form the backend does not recognize.
+  bool *include = nullptr;
+  if (!all && !semantics_is_strict(spec->info.semantics)) {
+    include = malloc((n ? n : 1) * sizeof(bool));
+    if (include && !cluster_assumption_mask(cov, rf, key, kk, n, include)) {
+      free(include);
+      include =
+          nullptr; // OOM: fall back to the old include-all-global behavior
+    }
+  }
   for (uint32_t i = 0; i < n; i++) {
-    if (!rf[i] || !(all || key[i] == kk || key[i] == UINT32_MAX))
+    if (!rf[i])
+      continue;
+    bool inc = all       ? true
+               : include ? include[i]
+                         : (key[i] == kk || key[i] == UINT32_MAX);
+    if (!inc)
       continue;
     residual_collect_aps(rf[i], cov, seen);
     (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
                             (Node *)rf[i]);
   }
+  free(include);
   ClassifiedSpec *cs = classify_spec(spec);
   if (!cs)
     return nullptr;

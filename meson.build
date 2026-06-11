@@ -510,7 +510,7 @@ endforeach
 test('residual_single', check,
   args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
          '--single', files('test/cases/cluster_split.tlsf')])
-foreach name : ['compose_demo', 'cluster_split']
+foreach name : ['compose_demo', 'cluster_split', 'cluster_prune']
   test('compose_' + name, check,
     args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
            files('test/cases/' + name + '.tlsf')])
@@ -631,6 +631,16 @@ if python3.found() and spot_python_found
              '--ltlsynt', '/bin/false',
              '--tlsf2ltl', tlsf2ltl_path,
              '--tlsf', files('test/cases/assume_delay_real.tlsf')])
+    # Finer clustering soundness: the class lever drops a global liveness
+    # assumption from the safety cluster; the AbsSynthe controller synthesized
+    # against the smaller assumption set must still satisfy the FULL spec.
+    test('verify_aiger_abssynthe_real_prune_safe', python3,
+      args: [files('scripts/verify_aiger_ltl.py'),
+             '--compose', tlsfcompose_path,
+             '--abssynthe', abssynthe_bin,
+             '--ltlsynt', '/bin/false',
+             '--tlsf2ltl', tlsf2ltl_path,
+             '--tlsf', files('test/cases/cluster_prune_safe.tlsf')])
   endif
 endif
 
