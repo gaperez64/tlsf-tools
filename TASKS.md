@@ -260,15 +260,26 @@ fairness-bearing tail.
     fallback — the gate catches the exact class that hit lever 2 and the Phase-4
     Streett bug. Tests: gate-keeps (`/bin/true`), gate-falls-back (`/bin/false`),
     real-Spot gate on gr1_spec. 213 tests green.
-  - [ ] **Open follow-ons (now de-risked by the gate).** With `--verify` on, a
-    recognizer widening can only *help* (unsound games → caught → fallback), so:
-    (a) **re-land lever 2** (G-over-∧ distribution) + U-shaped responses
-    `G(req→X(a U b))` behind the gate. (b) Safety-shape recognition: weak-until
-    release + `R` (42 specs, pure safety). (c) AbsSynthe BDD perf / GR(1)-aware
-    abstraction for big amba (`pb_10+`). (d) GR(2)/generalized-Rabin for
-    `amba_gr+`. (e) Trust the complete solver's UNREALIZABLE verdict on exact
-    clusters (~27% of the liveness tail). (f) An optional corpus *soundness
-    sweep* CI test (solve a sample with `--verify`, fail on any violation).
+  - [!] **Lever 2 re-land measured behind the gate: not worth it; the gate's
+    protection is verifier-bounded.** With the distribution applied and `--verify`
+    on, the **sound** corpus lift is ~0: across seeds 5 and 7 *every* newly-solved
+    spec is either confirmed-unsound by Spot (amba_decomposed, lilydemo22,
+    round_robin_unreal) or a big `amba_decomposed_pb_*` that is structurally
+    identical to the confirmed-unsound base but too large for Spot to check. The
+    second clause is the key limitation: **the gate "keeps on inconclusive", and
+    the distribution's unsound cases are exactly the big specs Spot OOMs on, so
+    they would *not* be caught.** The gate only de-risks widenings whose failure
+    cases are checker-tractable; the `G`-over-∧ distribution is not one. Left
+    reverted.
+  - [ ] **Open follow-ons.** (a) U-shaped responses `G(req→X(a U b))` behind the
+    gate — *first* confirm the unsound cases are Spot-tractable (else same trap as
+    lever 2). (b) Safety-shape recognition: weak-until release + `R` (42 specs,
+    pure safety — no liveness, so exactly encodable and gate-tractable: the
+    best-bet next lever). (c) AbsSynthe BDD perf / GR(1)-aware abstraction for big
+    amba (`pb_10+`). (d) GR(2)/generalized-Rabin for `amba_gr+`. (e) A scalable
+    verifier (BDD/symbolic, not Spot) to lift the gate's check-tractability
+    ceiling. (f) Trust the complete solver's UNREALIZABLE verdict on exact
+    clusters (~27% of the liveness tail).
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
