@@ -202,10 +202,30 @@ fairness-bearing tail.
     headline amba/lift family is blocked by **strict semantics**: amba's
     guarantee is `Sys W !(… & G(EnvSafety))` (a weak-until with a `G` inside the
     release, `SEMANTICS Strict`), i.e. the whole guarantee conditioned on the env
-    maintaining its assumption. **Next lever (Phase 5):** strict GR(1) — recognize
-    `SysSafetyLiveness W !(EnvSafety)` and encode the strict conditioning
-    (system obligated only while the env keeps its safety) combined with the
-    GR(1) fixpoint.
+    maintaining its assumption.
+  - [x] **Strict GR(1)** (Phase 5, `tlsfgraph`) — **lands the amba_gr1 family.**
+    `build_spec_formula` emits strict specs as
+    `(S_safety W ¬A_safety) ∧ (E → GUARANTEE)`, `E = A_safety ∧ ASSUME`.
+    `gr1_collect_consequent` recognizes the strict `S_safety W ¬A_safety` conjunct
+    (G-safety operands, so the Phase-4 pure-weak-until handler does not match) and
+    buckets `S_safety` as sys safety/init via `gr1_collect_strict_safety`; the
+    `¬A_safety` release is redundant because `A_safety` reappears in `E` and drives
+    the existing `violated` latch, so `bad = ¬violated ∧ ¬S_safety` is exactly
+    `¬(S_safety W ¬A_safety)` — **no new emitter machinery.** `gr1_collect` also
+    buckets initial Booleans (env-init on the assume side); the x-depth-0 assume
+    gate relaxes to "encodable" and the assumption window skips early lags where an
+    X-depth assume reaches before the window start. Three diverse strict fixtures
+    (`gr1_strict`, `_sticky`, `_multi`) Spot-verify against the unbounded strict
+    spec. **Measured:** `amba_gr_pb_{2..6}` now solve via AbsSynthe alone (5/8
+    sampled; previously 0); `pb_{10,11,12}` are recognized+routed but time out at
+    30 s on AbsSynthe's BDD (a solver-perf limit, not recognition). amba is too
+    big for Spot to model-check directly, but shares the verified encoding path.
+    `amba_gr+` is GR(2) (out of scope for a GR(1) solver). 210 tests green,
+    coverage 78.2%.
+  - [ ] **Open follow-ons.** (a) AbsSynthe BDD performance on big amba
+    (`pb_10+`): abstraction/decomposition/variable ordering, or a time/mem budget
+    knob. (b) A medium strict spec Spot *can* check, to bridge the small-fixture →
+    amba verification gap. (c) GR(2)/generalized-Rabin for `amba_gr+`.
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
