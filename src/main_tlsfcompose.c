@@ -1223,7 +1223,25 @@ static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
   fclose(gf);
   aig_free(game);
 
-  char *argv[] = {(char *)prog, (char *)"-o", strat_path, game_path, nullptr};
+  // Extra AbsSynthe solver flags (e.g. "-a" abstraction, "-t" transition
+  // decomposition) from $ABSSYNTHE_FLAGS, space-separated.  Parallel/ordering
+  // flags (-p/-s) are unsafe here: their forked workers race on the -o strategy
+  // file.  Flags go before -o (getopt scans options up to the positional spec).
+#define MAX_ABS_FLAGS 8
+  char *argv[MAX_ABS_FLAGS + 5];
+  uint32_t an = 0;
+  argv[an++] = (char *)prog;
+  const char *flagenv = getenv("ABSSYNTHE_FLAGS");
+  char *flagbuf = (flagenv && *flagenv) ? strdup(flagenv) : nullptr;
+  if (flagbuf)
+    for (char *t = strtok(flagbuf, " \t"); t && an <= MAX_ABS_FLAGS;
+         t = strtok(nullptr, " \t"))
+      argv[an++] = t;
+  argv[an++] = (char *)"-o";
+  argv[an++] = strat_path;
+  argv[an++] = game_path;
+  argv[an] = nullptr;
+#undef MAX_ABS_FLAGS
   posix_spawn_file_actions_t fa;
   posix_spawn_file_actions_init(&fa);
   posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
@@ -1231,6 +1249,7 @@ static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
   pid_t pid;
   int rc = posix_spawnp(&pid, prog, &fa, nullptr, argv, environ);
   posix_spawn_file_actions_destroy(&fa);
+  free(flagbuf);
   if (rc != 0) {
     cleanup_abssynthe_tmp(dir, game_path, strat_path);
     return nullptr;
@@ -1305,6 +1324,9 @@ static void usage(const char *prog) {
       "--aiger clusters\n"
       "  --bound N                    step bound for the bounded-liveness "
       "AbsSynthe path (default 4 / $ABSSYNTHE_BOUND)\n"
+      "  $ABSSYNTHE_FLAGS             extra AbsSynthe solver flags, e.g. "
+      "\"-a\" "
+      "(abstraction) or \"-t\"; -p/-s are unsafe with -o\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
