@@ -110,6 +110,8 @@ def run_one(args, path):
     cmd = [args.compose, "--aiger", "--abssynthe", args.abssynthe]
     if args.ltlsynt:
         cmd.extend(["--ltlsynt", args.ltlsynt])
+    if args.bound:
+        cmd.extend(["--bound", str(args.bound)])
     if args.split:
         cmd.append("--split")
     cmd.append(path)
@@ -238,6 +240,9 @@ def parse_args(argv):
                         help="address-space cap per spec in MB (default 3000)")
     parser.add_argument("--timeout", type=float, default=1800,
                         help="wall-clock timeout per spec in seconds")
+    parser.add_argument("--bound", type=int,
+                        help="pass --bound N (bounded-liveness step bound) to "
+                        "tlsfcompose")
     parser.add_argument("--split", action="store_true",
                         help="pass --split through to tlsfcompose")
     parser.add_argument("--quiet", action="store_true",

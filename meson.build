@@ -554,6 +554,13 @@ test('aiger_abssynthe_strict_safety', check,
          '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
          '--ltlsynt', '/bin/false',
          files('test/cases/strict_safety.tlsf')])
+# Bounded-liveness path: a fairness-free response G(req->F grant) is bounded into
+# a safety game and routed to AbsSynthe (fake stub) with ltlsynt disabled.
+test('aiger_abssynthe_bounded_resp', check,
+  args: [files('test/cases/bounded_resp.abssynthe.aag'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+         '--ltlsynt', '/bin/false', '--bound', '4',
+         files('test/cases/bounded_resp.tlsf')])
 test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
   args: [files('test/cases/compose_gr1_disabled.err'), tlsfcompose_exe,
          '--aiger', '--ltlsynt', '/bin/false',
@@ -641,6 +648,16 @@ if python3.found() and spot_python_found
              '--ltlsynt', '/bin/false',
              '--tlsf2ltl', tlsf2ltl_path,
              '--tlsf', files('test/cases/cluster_prune_safe.tlsf')])
+    # Bounded-liveness soundness: a fairness-free response is bounded into a
+    # safety game; the controller AbsSynthe synthesizes for the k-bounded game
+    # must still satisfy the UNBOUNDED response spec.
+    test('verify_aiger_abssynthe_real_bounded_resp', python3,
+      args: [files('scripts/verify_aiger_ltl.py'),
+             '--compose', tlsfcompose_path,
+             '--abssynthe', abssynthe_bin,
+             '--ltlsynt', '/bin/false',
+             '--tlsf2ltl', tlsf2ltl_path,
+             '--tlsf', files('test/cases/bounded_resp.tlsf')])
   endif
 endif
 

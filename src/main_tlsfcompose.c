@@ -104,6 +104,26 @@ static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
   return g;
 }
 
+// Synthesize one cluster with ltlsynt: render `root` to LTL and pass the
+// cluster's input/output interface.  Caller frees the returned strategy AIG.
+static Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
+                                const bool *seen, const Node *root,
+                                LtlFormat fmt, bool finite, int *unreal) {
+  char *ltl = ltl_string(root, fmt, finite);
+  char *ins = nullptr, *outs = nullptr;
+  size_t isz = 0, osz = 0;
+  FILE *fi = open_memstream(&ins, &isz), *fo = open_memstream(&outs, &osz);
+  residual_print_signals(fi, cov, seen, AP_FLAG_INPUT);
+  residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
+  fclose(fi);
+  fclose(fo);
+  Aig *sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, unreal) : nullptr;
+  free(ltl);
+  free(ins);
+  free(outs);
+  return sub;
+}
+
 static char *controllable_name(const char *name) {
   size_t p = strlen(ABSSYNTHE_CONTROLLABLE_PREFIX), n = strlen(name);
   char *out = malloc(p + n + 1);
@@ -258,6 +278,56 @@ static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
   *sys = root->lhs;
   *env = root->rhs->arg;
   return true;
+}
+
+// Bounded eventually: `x | Xx | ... | X^k x` ("x within the next k steps").
+static Node *bounded_eventually(Arena *a, Node *x, uint32_t k) {
+  Node *r = x, *xi = x;
+  for (uint32_t i = 1; i <= k; i++) {
+    xi = node_x(a, xi);
+    r = node_or(a, r, xi);
+  }
+  return r;
+}
+
+// Bound the *guarantee* liveness of a cluster: rewrite `F x` (with `x` an
+// AbsSynthe-Boolean body) to `x | Xx | ... | X^k x` at *positive* polarity
+// only. Bounding a guarantee is sound — forcing `x` within k steps is a
+// strictly stronger obligation than `F x`, so a controller for the bounded game
+// still satisfies the unbounded spec.  Bounding an assumption would be unsound,
+// so an `F` at negative polarity (an antecedent / fairness assumption) is left
+// intact; it then fails `abssynthe_eligible` and the cluster stays on ltlsynt.
+// This turns `G F g` into `G(g|..|X^k g)` and `G(req -> F grant)` into `G(req
+// -> grant|..|X^k grant)`, both pure-safety games the existing AbsSynthe safety
+// encoder handles.
+static Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
+  switch (n->kind) {
+  case NODE_F:
+    if (pos && abssynthe_body_supported(n->arg))
+      return bounded_eventually(a, bound_liveness(a, n->arg, k, pos), k);
+    return node_f(a, bound_liveness(a, n->arg, k, pos));
+  case NODE_G:
+    return node_g(a, bound_liveness(a, n->arg, k, pos));
+  case NODE_X:
+    return node_x(a, bound_liveness(a, n->arg, k, pos));
+  case NODE_X_STRONG:
+    return node_x_strong(a, bound_liveness(a, n->arg, k, pos));
+  case NODE_NOT:
+    return node_not(a, bound_liveness(a, n->arg, k, !pos));
+  case NODE_AND:
+    return node_and(a, bound_liveness(a, n->lhs, k, pos),
+                    bound_liveness(a, n->rhs, k, pos));
+  case NODE_OR:
+    return node_or(a, bound_liveness(a, n->lhs, k, pos),
+                   bound_liveness(a, n->rhs, k, pos));
+  case NODE_IMPL:
+    return node_impl(a, bound_liveness(a, n->lhs, k, !pos),
+                     bound_liveness(a, n->rhs, k, pos));
+  default:
+    // AP / constant, or EQUIV/U/R/W/M left intact — a positive `F` surviving
+    // inside one of these fails eligibility and the cluster stays on ltlsynt.
+    return (Node *)n;
+  }
 }
 
 typedef struct {
@@ -795,6 +865,8 @@ static void usage(const char *prog) {
       "$LTLSYNT or PATH)\n"
       "  --abssynthe PATH             AbsSynthe to use for eligible safety "
       "--aiger clusters\n"
+      "  --bound N                    step bound for the bounded-liveness "
+      "AbsSynthe path (default 4 / $ABSSYNTHE_BOUND)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
@@ -856,6 +928,7 @@ int main(int argc, char *argv[]) {
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   const char *abssynthe_path = nullptr;
+  unsigned long bound_opt = 0; // 0 = unset (use $ABSSYNTHE_BOUND or default)
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -875,6 +948,14 @@ int main(int argc, char *argv[]) {
       ltlsynt_path = NEED_ARG();
     } else if (strcmp(a, "--abssynthe") == 0 || strcmp(a, "--absynthe") == 0) {
       abssynthe_path = NEED_ARG();
+    } else if (strcmp(a, "--bound") == 0) {
+      const char *v = NEED_ARG();
+      char *end;
+      bound_opt = strtoul(v, &end, 10);
+      if (*end != '\0' || bound_opt == 0) {
+        fprintf(stderr, "tlsfcompose: --bound expects a positive integer\n");
+        return 1;
+      }
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -1013,6 +1094,15 @@ int main(int argc, char *argv[]) {
     const char *abs_prog = abssynthe_path          ? abssynthe_path
                            : (abs_env && *abs_env) ? abs_env
                                                    : nullptr;
+    // Bound for the bounded-liveness AbsSynthe path: --bound, else
+    // $ABSSYNTHE_BOUND, else a small default.
+    const char *bound_env = getenv("ABSSYNTHE_BOUND");
+    uint32_t bound_k = bound_opt ? (uint32_t)bound_opt
+                       : (bound_env && *bound_env)
+                           ? (uint32_t)strtoul(bound_env, nullptr, 10)
+                           : 4;
+    if (bound_k == 0)
+      bound_k = 4;
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
@@ -1035,28 +1125,38 @@ int main(int argc, char *argv[]) {
           abs_prog && !finite && !use_abs_direct && shape.gr_level == 0 &&
           !shape.has_liveness &&
           abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
-      bool use_abs = use_abs_direct || use_abs_strict;
+      // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
+      // the cluster then becomes a pure-safety game (no fairness assumption
+      // survives), solve it with the existing AbsSynthe safety solver.
+      const Node *bounded_root = nullptr;
+      if (abs_prog && !finite && !use_abs_direct && !use_abs_strict &&
+          shape.has_liveness) {
+        Node *br = bound_liveness(spec->arena, root, bound_k, true);
+        if (abssynthe_eligible(br, finite))
+          bounded_root = br;
+      }
+      bool use_abs = use_abs_direct || use_abs_strict || bounded_root;
       const char *backend = use_abs ? "AbsSynthe" : "ltlsynt fallback";
       if (use_abs_direct) {
         sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
       } else if (use_abs_strict) {
         sub = run_abssynthe_strict_safety(abs_prog, cov, seen, strict_sys,
                                           strict_env, &unreal);
+      } else if (bounded_root) {
+        backend = "AbsSynthe (bounded)";
+        sub = run_abssynthe(abs_prog, cov, seen, bounded_root, &unreal);
+        if (!sub) {
+          // Bounded miss (unrealizable at this k, or no strategy): the
+          // unbounded game may still be realizable, so fall back to ltlsynt
+          // rather than failing the spec.
+          unreal = 0;
+          use_abs = false;
+          backend = "ltlsynt fallback (bounded miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
       } else {
-        char *ltl = ltl_string(root, fmt, finite);
-        // Build ins/outs CSV via memstreams.
-        char *ins = nullptr, *outs = nullptr;
-        size_t isz = 0, osz = 0;
-        FILE *fi = open_memstream(&ins, &isz),
-             *fo = open_memstream(&outs, &osz);
-        residual_print_signals(fi, cov, seen, AP_FLAG_INPUT);
-        residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
-        fclose(fi);
-        fclose(fo);
-        sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, &unreal) : nullptr;
-        free(ltl);
-        free(ins);
-        free(outs);
+        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
       }
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,

@@ -216,6 +216,27 @@ timeout, emits controllers for 123 specs; those successful specs account for
 **318 / 4977 (6.4 %)** template-owned units to **1757 / 4977 (35.3 %)**
 units with real AbsSynthe controllers.
 
+### Bounded-liveness reduction (recurrence/response without `ltlsynt`)
+
+The liveness clusters above are guarantee-driven (recurrence `G F g`, responses
+`G(req→F grant)`). For the **fairness-free** ones, `tlsfcompose --aiger` now
+bounds the guarantee liveness (`F x → x|Xx|..|X^k x` at positive polarity only —
+sound, a strictly stronger obligation) and solves the resulting **safety** game
+with the *existing* AbsSynthe — no `ltlsynt`, no AbsSynthe changes
+(`--bound N`, default 4). A fairness assumption sits at negative polarity, is left
+intact, fails the safety eligibility check, and stays on `ltlsynt`; a bounded miss
+falls back rather than failing.
+
+On the full `tlsf` corpus (`--split`, fake AbsSynthe, `--bound 4`), whole-spec
+eligibility without `ltlsynt` rises **131 → 229** (+98, ~75 % relative). On a
+40-spec sample of the newly-eligible specs, **real** AbsSynthe emits full
+controllers for **38 (95 %)** at `k=4` (the rest fall back). Soundness is
+machine-checked: the `k`-bounded controller satisfies the **unbounded** spec
+(`scripts/verify_aiger_ltl.py`, e.g. `bounded_resp`, `cluster_prune`). The
+fairness-bearing GR(1) tail (amba justice, `U`-shaped obligations) still needs
+`ltlsynt` or the planned complete GR(1) fixpoint (an AbsSynthe extension —
+`aig.cpp:83-84` already parses, then ignores, justice/fairness).
+
 The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
 illustrates the shape: `small_Lights2_f1477cc5_2.tlsf` is solved by the safety
 backend and `small_ltl2dba22.tlsf` by the global-recurrence template.  The four
