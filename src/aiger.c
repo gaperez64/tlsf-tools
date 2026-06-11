@@ -308,10 +308,14 @@ Aig *aig_read_aag(FILE *in) {
     if (!fgets(line, sizeof line, in))
       return nullptr;
   }
-  uint32_t hdr[5];
-  if (strncmp(line, "aag ", 4) != 0 || parse_uints(line + 4, hdr, 5) != 5)
+  // Accept both the 5-number safety header and the 9-number AIGER 1.9 header
+  // (aag M I L O A B C J F); the extra bad/constraint/justice/fairness records
+  // are skipped below, since a synthesized controller only needs the circuit.
+  uint32_t hdr[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+  if (strncmp(line, "aag ", 4) != 0 || parse_uints(line + 4, hdr, 9) < 5)
     return nullptr;
   uint32_t M = hdr[0], I = hdr[1], L = hdr[2], O = hdr[3], A = hdr[4];
+  uint32_t nbad = hdr[5], ncons = hdr[6], njust = hdr[7], nfair = hdr[8];
 
   Aig *g = aig_new();
   if (!g)
@@ -337,6 +341,22 @@ Aig *aig_read_aag(FILE *in) {
   }
   for (uint32_t i = 0; i < O; i++)
     if (!fgets(line, sizeof line, in) || parse_uints(line, &outlits[i], 1) != 1)
+      goto fail;
+  // Skip the AIGER 1.9 bad / constraint / justice / fairness records that come
+  // between outputs and the and-gates.  Justice records list J sizes first,
+  // then sum-of-sizes literals; the others are one literal per line.
+  for (uint32_t i = 0; i < nbad + ncons; i++)
+    if (!fgets(line, sizeof line, in))
+      goto fail;
+  uint32_t just_lits = 0;
+  for (uint32_t i = 0; i < njust; i++) {
+    uint32_t sz;
+    if (!fgets(line, sizeof line, in) || parse_uints(line, &sz, 1) != 1)
+      goto fail;
+    just_lits += sz;
+  }
+  for (uint32_t i = 0; i < just_lits + nfair; i++)
+    if (!fgets(line, sizeof line, in))
       goto fail;
   for (uint32_t i = 0; i < A; i++) {
     uint32_t t[3];

@@ -873,30 +873,25 @@ static Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov,
   return g;
 }
 
-// Saturating fairness-gated counter: true once `tick` has held `k` times since
-// the last `reset` (a depth-`k` unary chain; latches init to 0).
-static uint32_t gr1_saturate(Aig *g, uint32_t tick, uint32_t reset,
-                             uint32_t k) {
-  uint32_t prev = AIG_TRUE; // c[0]: >= 0 ticks holds trivially
-  uint32_t at_k = AIG_FALSE;
-  for (uint32_t i = 1; i <= k; i++) {
-    uint32_t c = aig_latch(g, AIG_FALSE, AIG_FALSE);
-    uint32_t adv =
-        aig_or(g, aig_and(g, tick, prev), aig_and(g, aig_not(tick), c));
-    aig_set_latch_next(g, c, aig_and(g, aig_not(reset), adv));
-    at_k = c;
-    prev = c;
-  }
-  return at_k;
-}
-
-// Bounded GR(1): the safety part is encoded exactly like build_abssynthe_game;
-// each justice goal `J` of `G F a -> ... G F J / G(req->F grant)` becomes a
-// fairness-gated counter that must reset (J met) within `k` occurrences of the
-// fairness `a`.  Sound: under `G F a`, `a` occurs infinitely often, so avoiding
-// `bad` forces `G F J`; if the env starves `a`, the counter stalls (vacuous).
-static Aig *build_abssynthe_gr1_game(ConstraintCover *cov, const bool *seen,
-                                     const Gr1Parts *parts, uint32_t k) {
+// Complete (unbounded) GR(1): the safety part (history latches, the valid
+// window, the guarantee/assumption masking) is encoded exactly like
+// build_abssynthe_game, but liveness is emitted as real AIGER justice /
+// fairness records for AbsSynthe's GR(1) solver rather than bounded counters.
+// Each justice goal `J` becomes a deterministic pending monitor
+// (`pending' = !violated & !grant & (pending | req)`, with `req = true` for a
+// recurrence `G F J`) so its justice literal `!pending` is a STATE predicate
+// and G F !pending <=> the goal is met infinitely often.  The fairness
+// assumption `a` is sampled into a latch (`fa' = a`) so its fairness literal is
+// a state predicate too.  State predicates are required: AbsSynthe's
+// controllable predecessor (and its multi-goal justice-counter
+// degeneralization) mishandle goals/assumptions that mention inputs directly.
+// When the environment breaks the SAFETY assumption (`violated` latches), the
+// monitors are forced to clear, lifting the liveness obligation just as the
+// safety `bad` masking lifts the safety obligation -- the GR(1) implication is
+// then vacuously won.
+static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
+                                               const bool *seen,
+                                               const Gr1Parts *parts) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
@@ -942,7 +937,7 @@ static Aig *build_abssynthe_gr1_game(ConstraintCover *cov, const bool *seen,
   for (uint32_t d = 0; d < depth; d++)
     valid = aig_latch(g, valid, AIG_FALSE);
 
-#define GR1_FAIL()                                                             \
+#define UGR1_FAIL()                                                            \
   do {                                                                         \
     free(hist);                                                                \
     aig_free(g);                                                               \
@@ -950,49 +945,56 @@ static Aig *build_abssynthe_gr1_game(ConstraintCover *cov, const bool *seen,
   } while (0)
 
   uint32_t gua_ok = abssynthe_compile_global_at_lag(&ctx, guarantee, depth);
-  uint32_t fair = abssynthe_compile_at_lag(&ctx, parts->fairness, depth);
-  if (gua_ok == UINT32_MAX || fair == UINT32_MAX)
-    GR1_FAIL();
+  if (gua_ok == UINT32_MAX)
+    UGR1_FAIL();
   uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
-  uint32_t fair_v = aig_and(g, valid, fair);
 
+  // Safety assumption first, so `violated` can lift the liveness obligation
+  // too.
+  uint32_t violated = AIG_FALSE;
+  uint32_t ass_window_ok = AIG_TRUE;
+  if (assume->kind != NODE_TRUE) {
+    uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
+    ass_window_ok = abssynthe_compile_assumption_window(&ctx, assume, depth);
+    if (ass_ok == UINT32_MAX || ass_window_ok == UINT32_MAX)
+      UGR1_FAIL();
+    violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    if (!aig_set_latch_next(
+            g, violated,
+            aig_or(g, violated, aig_and(g, valid, aig_not(ass_ok)))))
+      UGR1_FAIL();
+  }
+
+  // System justice goals: each is G F !pending via a pending monitor latch.
   for (uint32_t j = 0; j < parts->njustice; j++) {
     uint32_t tgt =
         abssynthe_compile_at_lag(&ctx, parts->justice[j].target, depth);
     if (tgt == UINT32_MAX)
-      GR1_FAIL();
-    uint32_t bad_j;
-    if (parts->justice[j].req) { // response G(req -> F grant)
-      uint32_t req =
-          abssynthe_compile_at_lag(&ctx, parts->justice[j].req, depth);
+      UGR1_FAIL();
+    uint32_t req = AIG_TRUE; // recurrence G F J == response with req = true
+    if (parts->justice[j].req) {
+      req = abssynthe_compile_at_lag(&ctx, parts->justice[j].req, depth);
       if (req == UINT32_MAX)
-        GR1_FAIL();
-      uint32_t p = aig_latch(g, AIG_FALSE, AIG_FALSE);
-      uint32_t pending = aig_or(g, p, req);
-      if (!aig_set_latch_next(g, p, aig_and(g, aig_not(tgt), pending)))
-        GR1_FAIL();
-      uint32_t at_k = gr1_saturate(g, aig_and(g, fair_v, pending), tgt, k);
-      bad_j = aig_and(g, pending, at_k);
-    } else { // recurrence G F target
-      bad_j = gr1_saturate(g, aig_and(g, fair_v, aig_not(tgt)), tgt, k);
+        UGR1_FAIL();
     }
-    bad = aig_or(g, bad, aig_and(g, valid, bad_j));
+    uint32_t p = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    uint32_t next = aig_and(g, aig_not(violated),
+                            aig_and(g, aig_not(tgt), aig_or(g, p, req)));
+    if (!aig_set_latch_next(g, p, next))
+      UGR1_FAIL();
+    uint32_t jlit = aig_not(p);
+    aig_add_justice(g, &jlit, 1, "gr1_justice");
   }
 
-  if (assume->kind != NODE_TRUE) {
-    uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
-    uint32_t ass_window_ok =
-        abssynthe_compile_assumption_window(&ctx, assume, depth);
-    if (ass_ok == UINT32_MAX || ass_window_ok == UINT32_MAX)
-      GR1_FAIL();
-    uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
-    if (!aig_set_latch_next(
-            g, violated,
-            aig_or(g, violated, aig_and(g, valid, aig_not(ass_ok)))))
-      GR1_FAIL();
-    bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
-  }
-#undef GR1_FAIL
+  // Environment fairness G F a, sampled into a latch (a state predicate).
+  uint32_t fair = abssynthe_compile_at_lag(&ctx, parts->fairness, depth);
+  if (fair == UINT32_MAX)
+    UGR1_FAIL();
+  uint32_t fa = aig_latch(g, fair, AIG_FALSE);
+  aig_add_fairness(g, fa, "gr1_fairness");
+
+  bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
+#undef UGR1_FAIL
   aig_set_output(g, "bad", bad);
   free(hist);
   return g;
@@ -1115,9 +1117,10 @@ static Aig *run_abssynthe_strict_safety(const char *prog, ConstraintCover *cov,
 
 static Aig *run_abssynthe_gr1(const char *prog, ConstraintCover *cov,
                               const bool *seen, const Gr1Parts *parts,
-                              uint32_t k, int *unreal) {
+                              int *unreal) {
   return run_abssynthe_game(
-      prog, cov, seen, build_abssynthe_gr1_game(cov, seen, parts, k), unreal);
+      prog, cov, seen, build_abssynthe_unbounded_gr1_game(cov, seen, parts),
+      unreal);
 }
 
 static void usage(const char *prog) {
@@ -1403,9 +1406,10 @@ int main(int argc, char *argv[]) {
         if (abssynthe_eligible(br, finite))
           bounded_root = br;
       }
-      // Bounded GR(1): a fairness-bearing cluster `G F a -> safety & justice`
-      // (which fails the bounded path because the `G F a` assumption can't be
-      // bounded) is solved with fairness-gated justice counters.
+      // Complete GR(1): a fairness-bearing cluster `G F a -> safety & justice`
+      // (which the bounded-liveness path cannot handle because the `G F a`
+      // assumption is unsound to bound) is emitted as a real justice/fairness
+      // game and solved by AbsSynthe's GR(1) fixpoint.
       Gr1Parts gp;
       bool use_gr1 = abs_prog && !finite && !use_abs_direct &&
                      !use_abs_strict && !bounded_root &&
@@ -1432,9 +1436,12 @@ int main(int argc, char *argv[]) {
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
       } else if (use_gr1) {
-        backend = "AbsSynthe (bounded GR(1))";
-        sub = run_abssynthe_gr1(abs_prog, cov, seen, &gp, bound_k, &unreal);
+        backend = "AbsSynthe (GR(1))";
+        sub = run_abssynthe_gr1(abs_prog, cov, seen, &gp, &unreal);
         if (!sub) {
+          // The complete GR(1) solver found no strategy (or called it
+          // unrealizable -- the recognizer may over-constrain); defer to
+          // ltlsynt rather than risk a false UNREALIZABLE.
           unreal = 0;
           use_abs = false;
           backend = "ltlsynt fallback (GR(1) miss)";
