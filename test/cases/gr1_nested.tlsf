@@ -1,5 +1,0 @@
-INFO { TITLE: "nested" DESCRIPTION: "GF nested inside a G-conjunction" SEMANTICS: Mealy TARGET: Mealy }
-MAIN { INPUTS { r; e; } OUTPUTS { g; }
-  ASSUME { G ((e -> X e) && F (!r)); }
-  GUARANTEE { G F g; G (r -> X g); }
-}

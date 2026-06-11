@@ -337,14 +337,6 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   if (n->kind == NODE_AND)
     return gr1_collect(a, n->lhs, assume, p) &&
            gr1_collect(a, n->rhs, assume, p);
-  // Distribute G over a conjunction: G(p & q) == G p & G q.  TLSF often nests
-  // liveness inside a single G, e.g. G(safety & F x); splitting exposes the
-  // G F x (fairness/justice) and the G(safety) so each can be classified.
-  if (n->kind == NODE_G && n->arg->kind == NODE_AND)
-    return gr1_collect(a,
-                       node_and(a, node_g(a, (Node *)n->arg->lhs),
-                                node_g(a, (Node *)n->arg->rhs)),
-                       assume, p);
   // An initial Boolean conjunct (env-init on the assume side, sys-init on the
   // guarantee side): part of the GR(1) implication's antecedent/consequent.
   if (abssynthe_initial_supported(n)) {
