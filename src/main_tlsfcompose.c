@@ -293,6 +293,8 @@ typedef struct {
 typedef struct {
   const Node *fairness[GR1_MAX_FAIRNESS]; // the `a`s in the `G F a` assumptions
   uint32_t nfairness;
+  const Node *env_init;      // env initial assumption (Boolean, TRUE if none)
+  const Node *sys_init;      // sys initial guarantee (Boolean, TRUE if none)
   const Node *safety_assume; // AND of safety assume conjuncts (TRUE if none)
   const Node *safety_gua;    // AND of safety guarantee conjuncts (TRUE if none)
   Gr1Justice justice[GR1_MAX_JUSTICE];
@@ -359,18 +361,49 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   return true;
 }
 
-// Recognize a GR(1) cluster `(SafetyAssume & AND G F a) ->
-// (SafetyGua & AND justice)`: >= 1 fairness, >= 1 justice, safety parts
-// encodable with x-depth-0 assumptions (as the direct AbsSynthe path requires).
+// Bucket the GR(1) consequent: sys-init Boolean conjuncts go to `sys_init`, the
+// flat `assume -> guarantee` implication is split with gr1_collect, and a bare
+// guarantee conjunct (no assume side) is collected directly.
+static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p) {
+  if (n->kind == NODE_AND)
+    return gr1_collect_consequent(a, n->lhs, p) &&
+           gr1_collect_consequent(a, n->rhs, p);
+  if (abssynthe_initial_supported(n)) {
+    p->sys_init = p->sys_init->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->sys_init, (Node *)n);
+    return true;
+  }
+  if (n->kind == NODE_IMPL) // the flat GR(1) implication: assume -> guarantee
+    return gr1_collect(a, n->lhs, true, p) && gr1_collect(a, n->rhs, false, p);
+  return gr1_collect(a, n, false, p);
+}
+
+// Recognize a GR(1) cluster `(EnvInit & SafetyAssume & AND G F a) ->
+// (SysInit & SafetyGua & AND justice)`: >= 1 fairness, >= 1 justice, safety
+// parts encodable with x-depth-0 assumptions.  TLSF renders initial conditions
+// as a nested `EnvInit -> (SysInit & (assume -> guarantee))`, so peel the
+// initial Boolean antecedents/conjuncts first.
 static bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
-  if (root->kind != NODE_IMPL)
-    return false;
   *p = (Gr1Parts){.nfairness = 0,
+                  .env_init = node_true(a),
+                  .sys_init = node_true(a),
                   .safety_assume = node_true(a),
                   .safety_gua = node_true(a),
                   .njustice = 0};
-  if (!gr1_collect(a, root->lhs, true, p) ||
-      !gr1_collect(a, root->rhs, false, p))
+  // Peel env-init: `EnvInit -> rest` where the antecedent is purely initial
+  // (a `G`/`G F` antecedent is the real assume side, so it is not peeled).
+  while (root->kind == NODE_IMPL && abssynthe_initial_supported(root->lhs)) {
+    p->env_init = p->env_init->kind == NODE_TRUE
+                      ? root->lhs
+                      : node_and(a, (Node *)p->env_init, (Node *)root->lhs);
+    root = root->rhs;
+  }
+  // The remainder is the guarantee side: sys-init conjuncts, safety, and the
+  // flat `(AND G F a) -> (AND justice)` implication (anywhere in the AND tree).
+  // gr1_collect_consequent buckets them; the fairness/justice counts below
+  // reject anything that is not actually a GR(1) cluster.
+  if (!gr1_collect_consequent(a, root, p))
     return false;
   return p->nfairness > 0 && p->njustice > 0 &&
          abssynthe_global_x_depth(p->safety_assume) == 0;
@@ -937,6 +970,10 @@ static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
   uint32_t valid = AIG_TRUE;
   for (uint32_t d = 0; d < depth; d++)
     valid = aig_latch(g, valid, AIG_FALSE);
+  // `first` marks t=0 (latch is 0 at t=0, 1 ever after), gating initial
+  // conditions, exactly as the strict-safety encoder does.
+  uint32_t past_first = aig_latch(g, AIG_TRUE, AIG_FALSE);
+  uint32_t first = aig_not(past_first);
 
 #define UGR1_FAIL()                                                            \
   do {                                                                         \
@@ -950,19 +987,33 @@ static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
     UGR1_FAIL();
   uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
 
-  // Safety assumption first, so `violated` can lift the liveness obligation
-  // too.
+  // Compile the initial conditions (Boolean, evaluated at t=0 / lag 0).
+  uint32_t env_init_ok = abssynthe_compile_at_lag(&ctx, parts->env_init, 0);
+  uint32_t sys_init_ok = abssynthe_compile_at_lag(&ctx, parts->sys_init, 0);
+  if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX)
+    UGR1_FAIL();
+  bool has_env_init = parts->env_init->kind != NODE_TRUE;
+  bool has_sys_init = parts->sys_init->kind != NODE_TRUE;
+
+  // Safety assumption and env-init first, so `violated` can lift the liveness
+  // obligation too (a broken env assumption wins the GR(1) implication
+  // vacuously).
   uint32_t violated = AIG_FALSE;
   uint32_t ass_window_ok = AIG_TRUE;
-  if (assume->kind != NODE_TRUE) {
-    uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
-    ass_window_ok = abssynthe_compile_assumption_window(&ctx, assume, depth);
-    if (ass_ok == UINT32_MAX || ass_window_ok == UINT32_MAX)
-      UGR1_FAIL();
+  if (assume->kind != NODE_TRUE || has_env_init) {
+    uint32_t vnext;
     violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
-    if (!aig_set_latch_next(
-            g, violated,
-            aig_or(g, violated, aig_and(g, valid, aig_not(ass_ok)))))
+    vnext = violated;
+    if (assume->kind != NODE_TRUE) {
+      uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
+      ass_window_ok = abssynthe_compile_assumption_window(&ctx, assume, depth);
+      if (ass_ok == UINT32_MAX || ass_window_ok == UINT32_MAX)
+        UGR1_FAIL();
+      vnext = aig_or(g, vnext, aig_and(g, valid, aig_not(ass_ok)));
+    }
+    if (has_env_init)
+      vnext = aig_or(g, vnext, aig_and(g, first, aig_not(env_init_ok)));
+    if (!aig_set_latch_next(g, violated, vnext))
       UGR1_FAIL();
   }
 
@@ -997,6 +1048,9 @@ static Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
     aig_add_fairness(g, fa, "gr1_fairness");
   }
 
+  // The system must also satisfy its initial condition at t=0.
+  if (has_sys_init)
+    bad = aig_or(g, bad, aig_and(g, first, aig_not(sys_init_ok)));
   bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
 #undef UGR1_FAIL
   aig_set_output(g, "bad", bad);

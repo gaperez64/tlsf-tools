@@ -1,0 +1,6 @@
+INFO { TITLE: "gr1preset" DESCRIPTION: "GR(1) AND-form: sys init, no env assumption beyond fairness" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; }
+  PRESET { !g; }
+  ASSUME { G F (!r); }
+  GUARANTEE { G F g; G (r -> X g); }
+}
