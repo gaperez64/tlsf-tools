@@ -377,22 +377,44 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   return true;
 }
 
-// Bucket the GR(1) consequent: sys-init Boolean conjuncts go to `sys_init`, the
-// flat `assume -> guarantee` implication is split with gr1_collect, and a bare
-// guarantee conjunct (no assume side) is collected directly.
-static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p) {
+// Bucket a GR(1) consequent conjunct.  A GR(1) cluster has exactly ONE
+// `assume -> guarantee` implication carrying all fairness/justice; outside it
+// only sys-init Booleans and unconditional safety (`G(...)` or weak-until) are
+// allowed.  A bare `G F`/response or a second implication is rejected: it would
+// be unconditional or independent liveness, which is not a single GR(1)
+// condition (it is Streett-like), and merging it would be unsound.
+static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
+                                   bool *found_impl) {
   if (n->kind == NODE_AND)
-    return gr1_collect_consequent(a, n->lhs, p) &&
-           gr1_collect_consequent(a, n->rhs, p);
+    return gr1_collect_consequent(a, n->lhs, p, found_impl) &&
+           gr1_collect_consequent(a, n->rhs, p, found_impl);
   if (abssynthe_initial_supported(n)) {
     p->sys_init = p->sys_init->kind == NODE_TRUE
                       ? n
                       : node_and(a, (Node *)p->sys_init, (Node *)n);
     return true;
   }
-  if (n->kind == NODE_IMPL) // the flat GR(1) implication: assume -> guarantee
+  if (n->kind == NODE_IMPL) { // the single flat GR(1) implication
+    if (*found_impl)
+      return false; // a second independent implication is not GR(1)
+    *found_impl = true;
     return gr1_collect(a, n->lhs, true, p) && gr1_collect(a, n->rhs, false, p);
-  return gr1_collect(a, n, false, p);
+  }
+  if (match_gf(n))
+    return false; // unconditional `G F` justice (not gated by the assume)
+  if (n->kind == NODE_W && abssynthe_body_supported(n->lhs) &&
+      abssynthe_body_supported(n->rhs)) {
+    if (p->nweak >= GR1_MAX_WEAK)
+      return false;
+    p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
+    return true;
+  }
+  if (!abssynthe_global_supported(n))
+    return false; // bare response / anything that is not unconditional safety
+  p->safety_gua = p->safety_gua->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->safety_gua, (Node *)n);
+  return true;
 }
 
 // Recognize a GR(1) cluster `(EnvInit & SafetyAssume & AND G F a) ->
@@ -415,11 +437,12 @@ static bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
                       : node_and(a, (Node *)p->env_init, (Node *)root->lhs);
     root = root->rhs;
   }
-  // The remainder is the guarantee side: sys-init conjuncts, safety, and the
-  // flat `(AND G F a) -> (AND justice)` implication (anywhere in the AND tree).
-  // gr1_collect_consequent buckets them; the fairness/justice counts below
-  // reject anything that is not actually a GR(1) cluster.
-  if (!gr1_collect_consequent(a, root, p))
+  // The remainder is the guarantee side: sys-init conjuncts, unconditional
+  // safety, and the single `(AND G F a) -> (AND justice)` implication (anywhere
+  // in the AND tree).  gr1_collect_consequent buckets them and rejects
+  // non-GR(1) shapes; the fairness/justice counts below are the final gate.
+  bool found_impl = false;
+  if (!gr1_collect_consequent(a, root, p, &found_impl))
     return false;
   return p->nfairness > 0 && p->njustice > 0 &&
          abssynthe_global_x_depth(p->safety_assume) == 0;

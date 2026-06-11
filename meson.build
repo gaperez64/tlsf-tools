@@ -594,6 +594,14 @@ if abssynthe_local.found()
     args: [tlsfcompose_exe,
            '--aiger', '--abssynthe', abssynthe_bin,
            files('test/cases/cluster_assume.tlsf')])
+  # Soundness guard: a Streett cluster (independent G F i -> G F a pairs coupled
+  # by a mutex) is NOT GR(1); the recognizer must reject it, so AbsSynthe alone
+  # (ltlsynt disabled) cannot solve the spec.  If a regression re-merges the
+  # independent implications into one GR(1) condition, AbsSynthe would emit a
+  # wrong controller (rc 0) and this expected-failure test would fail.
+  test('aiger_streett_not_gr1', xfail,
+    args: [tlsfcompose_exe, '--aiger', '--abssynthe', abssynthe_bin,
+           '--ltlsynt', '/bin/false', files('test/cases/gr1_streett.tlsf')])
 endif
 # --aiger cluster path needs real ltlsynt: only run where it is available.
 if ltlsynt.found()
