@@ -1,0 +1,9 @@
+INFO { TITLE: "bounded_wuntil" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { go; }
+  OUTPUTS { p; q; }
+  GUARANTEE {
+    G (go -> (p W q));
+    G (q -> X !q);
+  }
+}

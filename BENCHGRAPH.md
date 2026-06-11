@@ -219,23 +219,33 @@ units with real AbsSynthe controllers.
 ### Bounded-liveness reduction (recurrence/response without `ltlsynt`)
 
 The liveness clusters above are guarantee-driven (recurrence `G F g`, responses
-`G(req→F grant)`). For the **fairness-free** ones, `tlsfcompose --aiger` now
-bounds the guarantee liveness (`F x → x|Xx|..|X^k x` at positive polarity only —
-sound, a strictly stronger obligation) and solves the resulting **safety** game
-with the *existing* AbsSynthe — no `ltlsynt`, no AbsSynthe changes
-(`--bound N`, default 4). A fairness assumption sits at negative polarity, is left
-intact, fails the safety eligibility check, and stays on `ltlsynt`; a bounded miss
-falls back rather than failing.
+`G(req→F grant)`). For the **fairness-free** ones, `tlsfcompose --aiger` bounds
+the guarantee liveness at *positive polarity only* — sound, a strictly stronger
+obligation — and solves the resulting **safety** game with the *existing*
+AbsSynthe (no `ltlsynt`, no AbsSynthe changes; `--bound N`, default 4):
+`F x → x|Xx|..|X^k x`; `a U b → ⋁_i (⋀_{j<i}X^j a ∧ X^i b)`; and `a W b`, `a R b`,
+`a M b` by the sound strengthening `⟸ a U b` / `⟸ b U (a∧b)`. A fairness
+assumption sits at negative polarity, is left intact, fails the safety
+eligibility check, and stays on `ltlsynt`; a bounded miss falls back, never a
+false failure.
 
 On the full `tlsf` corpus (`--split`, fake AbsSynthe, `--bound 4`), whole-spec
-eligibility without `ltlsynt` rises **131 → 229** (+98, ~75 % relative). On a
-40-spec sample of the newly-eligible specs, **real** AbsSynthe emits full
-controllers for **38 (95 %)** at `k=4` (the rest fall back). Soundness is
+eligibility without `ltlsynt` rises **131 → 266** (`F` alone reached 229; `U`,
+`W`, `R`, `M` add +37). On a 40-spec sample of the newly-eligible specs, **real**
+AbsSynthe emits full controllers for **38 (95 %)** at `k=4`. Soundness is
 machine-checked: the `k`-bounded controller satisfies the **unbounded** spec
-(`scripts/verify_aiger_ltl.py`, e.g. `bounded_resp`, `cluster_prune`). The
-fairness-bearing GR(1) tail (amba justice, `U`-shaped obligations) still needs
-`ltlsynt` or the planned complete GR(1) fixpoint (an AbsSynthe extension —
-`aig.cpp:83-84` already parses, then ignores, justice/fairness).
+(`scripts/verify_aiger_ltl.py`: `bounded_resp`, `bounded_until`, `bounded_wuntil`,
+`cluster_prune`).
+
+Honest limit: the remaining tail (2279 specs) is **2/3 fairness-bearing** — the
+`U`/`W`/`R` extension barely dented the "liveness (non-GR)" bucket (1734→1716),
+because those clusters carry a relevant `G F a` *assumption* that cannot be
+bounded soundly. The next lever is therefore **fairness handling** (a
+self-contained bounded-GR(1) with fairness-gated counters, then the complete GR(1)
+fixpoint — an AbsSynthe extension; `aig.cpp:83-84` already parses, then ignores,
+justice/fairness), **not** more bounded temporal operators. Pure-safety-release
+`W`/`R` (where the release never comes; ~149 specs) need an exact "released"-latch
+monitor, a smaller separate prize.
 
 The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
 illustrates the shape: `small_Lights2_f1477cc5_2.tlsf` is solved by the safety

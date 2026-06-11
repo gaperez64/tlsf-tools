@@ -290,6 +290,21 @@ static Node *bounded_eventually(Arena *a, Node *x, uint32_t k) {
   return r;
 }
 
+// Bounded until: `⋁_{i=0}^{k} ( (⋀_{j<i} X^j p) ∧ X^i q )` ("q within the next
+// k steps, with p holding until then").  Sound under-approximation of `p U q`.
+static Node *bounded_until(Arena *a, Node *p, Node *q, uint32_t k) {
+  Node *acc = q;            // i = 0: q
+  Node *pre = node_true(a); // ⋀_{j<i} X^j p
+  Node *xp = p, *xq = q;    // X^{i-1} p (next loop) / X^i q
+  for (uint32_t i = 1; i <= k; i++) {
+    pre = node_and(a, pre, xp); // now ⋀_{j=0}^{i-1} X^j p
+    xp = node_x(a, xp);
+    xq = node_x(a, xq);
+    acc = node_or(a, acc, node_and(a, pre, xq));
+  }
+  return acc;
+}
+
 // Bound the *guarantee* liveness of a cluster: rewrite `F x` (with `x` an
 // AbsSynthe-Boolean body) to `x | Xx | ... | X^k x` at *positive* polarity
 // only. Bounding a guarantee is sound — forcing `x` within k steps is a
@@ -323,9 +338,35 @@ static Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
   case NODE_IMPL:
     return node_impl(a, bound_liveness(a, n->lhs, k, !pos),
                      bound_liveness(a, n->rhs, k, pos));
+  case NODE_U:
+    if (pos && abssynthe_body_supported(n->lhs) &&
+        abssynthe_body_supported(n->rhs))
+      return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
+                           bound_liveness(a, n->rhs, k, pos), k);
+    return node_u(a, bound_liveness(a, n->lhs, k, pos),
+                  bound_liveness(a, n->rhs, k, pos));
+  case NODE_W: // a W b: strengthen to bounded(a U b) (sound: bounded => U => W)
+    if (pos && abssynthe_body_supported(n->lhs) &&
+        abssynthe_body_supported(n->rhs))
+      return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
+                           bound_liveness(a, n->rhs, k, pos), k);
+    return node_w(a, bound_liveness(a, n->lhs, k, pos),
+                  bound_liveness(a, n->rhs, k, pos));
+  case NODE_R: // a R b: strengthen to bounded(b U (a&b)) (sound: => R)
+  case NODE_M: // a M b == b U (a&b); bounded form is sound
+    if (pos && abssynthe_body_supported(n->lhs) &&
+        abssynthe_body_supported(n->rhs)) {
+      Node *bl = bound_liveness(a, n->lhs, k, pos);
+      Node *br = bound_liveness(a, n->rhs, k, pos);
+      return bounded_until(a, br, node_and(a, bl, br), k);
+    }
+    return n->kind == NODE_R ? node_r(a, bound_liveness(a, n->lhs, k, pos),
+                                      bound_liveness(a, n->rhs, k, pos))
+                             : node_m(a, bound_liveness(a, n->lhs, k, pos),
+                                      bound_liveness(a, n->rhs, k, pos));
   default:
-    // AP / constant, or EQUIV/U/R/W/M left intact — a positive `F` surviving
-    // inside one of these fails eligibility and the cluster stays on ltlsynt.
+    // AP / constant, or EQUIV left intact — a positive liveness operator
+    // surviving inside it fails eligibility and the cluster stays on ltlsynt.
     return (Node *)n;
   }
 }
@@ -1130,7 +1171,7 @@ int main(int argc, char *argv[]) {
       // survives), solve it with the existing AbsSynthe safety solver.
       const Node *bounded_root = nullptr;
       if (abs_prog && !finite && !use_abs_direct && !use_abs_strict &&
-          shape.has_liveness) {
+          (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
         Node *br = bound_liveness(spec->arena, root, bound_k, true);
         if (abssynthe_eligible(br, finite))
           bounded_root = br;
