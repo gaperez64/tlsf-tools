@@ -53,6 +53,15 @@ void aig_set_output(Aig *g, const char *name, uint32_t lit);
 /// intact.
 void aig_remove_output(Aig *g, const char *name);
 
+/// Add a GR(1) justice property: a generalized-Buchi set of `n` literals, each
+/// required to hold infinitely often.  Emitted as an AIGER 1.9 justice record.
+void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
+                     const char *name);
+
+/// Add a GR(1) fairness constraint `lit` (an environment `G F` assumption).
+/// Emitted as an AIGER 1.9 fairness record.
+void aig_add_fairness(Aig *g, uint32_t lit, const char *name);
+
 /// For every output whose name starts with `prefix`, strip the prefix and
 /// register the stripped name as an available signal.  This is useful for
 /// backends that expose controllable outputs as `controllable_<name>`.

@@ -20,6 +20,15 @@ typedef struct {
   char *name;
   uint32_t lit;
 } Named;
+typedef struct {
+  char *name;
+  uint32_t *lits; // generalized-Buchi set (each lit holds infinitely often)
+  uint32_t n;
+} Justice;
+typedef struct {
+  char *name;
+  uint32_t lit;
+} Fairness;
 
 struct Aig {
   uint32_t nextvar; // running variable counter (var 0 is the constant)
@@ -33,6 +42,10 @@ struct Aig {
   uint32_t nout, out_cap;
   Named *sig; // available signals (name -> lit) for lookups
   uint32_t nsig, sig_cap;
+  Justice *just; // GR(1) system Buchi goals
+  uint32_t njust, just_cap;
+  Fairness *fair; // GR(1) environment fairness assumptions
+  uint32_t nfair, fair_cap;
 };
 
 #define GROW(arr, cap, n)                                                      \
@@ -55,11 +68,19 @@ void aig_free(Aig *g) {
     free(g->outs[i].name);
   for (uint32_t i = 0; i < g->nsig; i++)
     free(g->sig[i].name);
+  for (uint32_t i = 0; i < g->njust; i++) {
+    free(g->just[i].name);
+    free(g->just[i].lits);
+  }
+  for (uint32_t i = 0; i < g->nfair; i++)
+    free(g->fair[i].name);
   free(g->ins);
   free(g->lat);
   free(g->ands);
   free(g->outs);
   free(g->sig);
+  free(g->just);
+  free(g->fair);
   free(g);
 }
 
@@ -145,6 +166,25 @@ void aig_set_output(Aig *g, const char *name, uint32_t lit) {
   g->outs[g->nout].lit = lit;
   g->nout++;
   reg_sig(g, name, lit);
+}
+
+void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
+                     const char *name) {
+  GROW(g->just, g->just_cap, g->njust);
+  uint32_t *copy = malloc((n ? n : 1) * sizeof *copy);
+  for (uint32_t i = 0; i < n; i++)
+    copy[i] = lits[i];
+  g->just[g->njust].name = name ? strdup(name) : nullptr;
+  g->just[g->njust].lits = copy;
+  g->just[g->njust].n = n;
+  g->njust++;
+}
+
+void aig_add_fairness(Aig *g, uint32_t lit, const char *name) {
+  GROW(g->fair, g->fair_cap, g->nfair);
+  g->fair[g->nfair].name = name ? strdup(name) : nullptr;
+  g->fair[g->nfair].lit = lit;
+  g->nfair++;
 }
 
 void aig_remove_output(Aig *g, const char *name) {
@@ -418,7 +458,13 @@ void aig_write_aag(FILE *out, const Aig *g) {
     canon[g->ands[k].var] = g->nin + g->nlat + 1 + k;
 #define WLIT(lit) ((lit) < 2 ? (lit) : ((canon[(lit) / 2] * 2) | ((lit) & 1u)))
 
-  fprintf(out, "aag %u %u %u %u %u\n", M, g->nin, g->nlat, g->nout, g->nand);
+  // AIGER 1.9 requires the full 9-number header once any of bad/constraint/
+  // justice/fairness is present (here only justice/fairness can be).
+  if (g->njust || g->nfair)
+    fprintf(out, "aag %u %u %u %u %u 0 0 %u %u\n", M, g->nin, g->nlat, g->nout,
+            g->nand, g->njust, g->nfair);
+  else
+    fprintf(out, "aag %u %u %u %u %u\n", M, g->nin, g->nlat, g->nout, g->nand);
   for (uint32_t k = 0; k < g->nin; k++)
     fprintf(out, "%u\n", (k + 1) * 2);
   for (uint32_t k = 0; k < g->nlat; k++) {
@@ -430,6 +476,15 @@ void aig_write_aag(FILE *out, const Aig *g) {
   }
   for (uint32_t k = 0; k < g->nout; k++)
     fprintf(out, "%u\n", WLIT(g->outs[k].lit));
+  // bad and constraint sections are empty; justice (sizes then literals) and
+  // fairness come before the and-gates per the AIGER 1.9 section order.
+  for (uint32_t k = 0; k < g->njust; k++)
+    fprintf(out, "%u\n", g->just[k].n);
+  for (uint32_t k = 0; k < g->njust; k++)
+    for (uint32_t i = 0; i < g->just[k].n; i++)
+      fprintf(out, "%u\n", WLIT(g->just[k].lits[i]));
+  for (uint32_t k = 0; k < g->nfair; k++)
+    fprintf(out, "%u\n", WLIT(g->fair[k].lit));
   for (uint32_t k = 0; k < g->nand; k++)
     fprintf(out, "%u %u %u\n", (g->nin + g->nlat + 1 + k) * 2,
             WLIT(g->ands[k].r0), WLIT(g->ands[k].r1));
@@ -438,6 +493,12 @@ void aig_write_aag(FILE *out, const Aig *g) {
       fprintf(out, "i%u %s\n", k, g->ins[k].name);
   for (uint32_t k = 0; k < g->nout; k++)
     fprintf(out, "o%u %s\n", k, g->outs[k].name);
+  for (uint32_t k = 0; k < g->njust; k++)
+    if (g->just[k].name)
+      fprintf(out, "j%u %s\n", k, g->just[k].name);
+  for (uint32_t k = 0; k < g->nfair; k++)
+    if (g->fair[k].name)
+      fprintf(out, "f%u %s\n", k, g->fair[k].name);
 #undef WLIT
   free(canon);
 }
