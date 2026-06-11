@@ -137,9 +137,20 @@ fairness-bearing tail.
     new latches needed for one goal). `gr1verify.sh` model-checks it by
     re-solving the closed system (`cpre`→∀env) — rejects a hand-broken
     controller. 39 tests green, coverage 67.9%, valgrind clean.
-  - [ ] **GR(1) strategy — multiple goals** (Phase 2b-ii). `⌈log2 n⌉` memory
-    latches for the justice counter; needed for real amba-style multi-guarantee
-    specs. Currently `n>1` reports realizability only.
+  - [x] **GR(1) strategy — multiple goals** (Phase 2b-ii, AbsSynthe
+    `native-dev-par`, CI green). `AIG::degeneralizeJustice` rewrites a
+    generalized-Büchi guarantee into one goal via the standard degeneralization:
+    a deterministic mod-`n` justice counter (`⌈log2 n⌉` new latches, reset 0)
+    advances when the pursued goal holds; the `n` justice records become the
+    single wrap goal `(counter==n-1)∧goal[n-1]`, so `GF wrap ⟺ ⋀ᵥ GF goalᵥ` and
+    the single-goal extraction/emission/model-check apply unchanged. `solve()`
+    degeneralizes before BDDAIG construction for multi-goal synthesis (the
+    counter is plain AIG gates: sel/jcur/mod-`n` incrementer/accept). Fixtures
+    `gr1_two_goals` (+unreal) and `gr1_three_goals` (mod-3, wrap 2→0), state
+    (latch) goals. 43 tests green, coverage 68.6%, valgrind clean. **Note:**
+    justice goals must be state predicates — goals over controllable *inputs*
+    couple latch+input under `cpre` and misbehave (Phase 3's monitors emit state
+    predicates).
   - [ ] **tlsf-tools integration** (Phase 3). Justice/fairness *output* in tlsf
     `aiger.c`, a GR(1)-AIGER emitter, route the GR(1) tail through AbsSynthe,
     verify with `verify_aiger_ltl.py`, measure corpus eligibility past 266.
