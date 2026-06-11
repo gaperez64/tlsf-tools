@@ -244,15 +244,31 @@ fairness-bearing tail.
       unsound, incl. 4 unrealizable specs wrongly "solved"). The lesson: the
       recognizer's per-conjunct acceptance does **not** guarantee an *exact*
       game, so any widening is unsafe without a gate.
-  - [ ] **Open follow-ons, re-prioritized.** (a) **Exactness/self-verification
-    gate** — before accepting an AbsSynthe controller, check it against the
-    cluster spec (Spot/model-check) and fall back to ltlsynt on failure; this
-    makes *every* recognizer widening (distribution, U-shaped responses) safe and
-    is the real unlock for "more residuals". (b) Safety-shape recognition:
-    weak-until release + `R` (42 specs, pure safety). (c) AbsSynthe BDD perf /
-    GR(1)-aware abstraction for big amba (`pb_10+`). (d) GR(2)/generalized-Rabin
-    for `amba_gr+`. (e) Trust the complete solver's UNREALIZABLE verdict on exact
-    clusters (~27% of the liveness tail).
+  - [x] **Self-verification gate** (`tlsfgraph`) — the safety mechanism the
+    recognizer work was missing. `tlsfcompose --verify PROG` (or
+    `$TLSFCOMPOSE_VERIFY`) model-checks each AbsSynthe cluster controller against
+    the **original** cluster spec (`PROG --aiger F --formula L`, exit 1 =
+    violation, via `controller_violates_spec`) and, on a definite violation,
+    discards it and falls back to ltlsynt. The cluster strategy already carries
+    cluster-named i/o (controllable_ stripped on read-back), so it matches the
+    formula APs. **Inconclusive checks keep the controller** (verified / AP
+    mismatch / verifier error / Spot OOM-on-big-amba) so the gate never demotes a
+    sound solve nor regresses specs Spot can't check; default off ⇒ no behavior
+    change. `scripts/verify_aiger_ltl.py` is the reference Spot verifier. Proven:
+    re-applying the reverted G-over-∧ distribution and running an unrealizable
+    round_robin under `--verify` turns its unsound rc 0 into a correct ltlsynt
+    fallback — the gate catches the exact class that hit lever 2 and the Phase-4
+    Streett bug. Tests: gate-keeps (`/bin/true`), gate-falls-back (`/bin/false`),
+    real-Spot gate on gr1_spec. 213 tests green.
+  - [ ] **Open follow-ons (now de-risked by the gate).** With `--verify` on, a
+    recognizer widening can only *help* (unsound games → caught → fallback), so:
+    (a) **re-land lever 2** (G-over-∧ distribution) + U-shaped responses
+    `G(req→X(a U b))` behind the gate. (b) Safety-shape recognition: weak-until
+    release + `R` (42 specs, pure safety). (c) AbsSynthe BDD perf / GR(1)-aware
+    abstraction for big amba (`pb_10+`). (d) GR(2)/generalized-Rabin for
+    `amba_gr+`. (e) Trust the complete solver's UNREALIZABLE verdict on exact
+    clusters (~27% of the liveness tail). (f) An optional corpus *soundness
+    sweep* CI test (solve a sample with `--verify`, fail on any violation).
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
