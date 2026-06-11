@@ -178,9 +178,34 @@ fairness-bearing tail.
     (`!READY U (HREADY ∧ …)`) / has initial conditions, not the clean `G F a` +
     recurrence/response it matches (both old and new report "liveness ... not
     AbsSynthe-eligible"). And GR(1) clusters usually coexist with other residual
-    clusters that still need ltlsynt. **Next lever:** extend the recognizer
-    (`match_response`/`gr1_collect`) to `U`-shaped responses + initial conditions
-    so real amba/lift specs reach the (now complete) GR(1) solver.
+    clusters that still need ltlsynt.
+  - [x] **Recognizer extensions** (Phase 4, `tlsfgraph`). Three verified
+    capabilities so more real shapes reach the complete solver:
+    (a) **initial conditions** — TLSF renders INITIALLY/PRESET as a nested
+    `EnvInit -> (SysInit & (assume -> guarantee))`; `abssynthe_gr1_parts` peels
+    them into `Gr1Parts.env_init`/`.sys_init`, and the emitter adds a `first`
+    (t=0) marker (env-init breach latches `violated`, sys-init breach adds to
+    `bad`). (b) **AND-form** — a cluster with no env safety/init renders as
+    `AND(sys_init, G(safety), (AND G F a -> AND justice))` (no outer
+    implication); accepted via `gr1_collect_consequent`. (c) **pure weak-until**
+    `a W b` (Boolean) — a `released` monitor latch. Fixtures `gr1_init`,
+    `gr1_preset`, `gr1_weak`, all Spot-verified against the unbounded spec.
+  - [!] **Phase 4 lift is ~0; the real blocker is strict GR(1).** The generalized
+    recognizer first *over*-accepted Streett clusters (independent `G F i->G F a`
+    pairs, or a bare unconditional `G F a` beside a fairness implication) and
+    emitted **wrong** controllers (caught: lilydemo17/18 "controller violates
+    formula" under Spot). Fixed: `gr1_collect_consequent` accepts at most ONE
+    implication plus only unconditional safety/init; everything else falls back
+    to ltlsynt (guard `aiger_streett_not_gr1`). After the fix, old-vs-new on a
+    300-spec sample is **17/300 = 17/300, 0 sound gains, 0 regressions** — the
+    capabilities are correct but the clean shapes they unlock are rare and the
+    headline amba/lift family is blocked by **strict semantics**: amba's
+    guarantee is `Sys W !(… & G(EnvSafety))` (a weak-until with a `G` inside the
+    release, `SEMANTICS Strict`), i.e. the whole guarantee conditioned on the env
+    maintaining its assumption. **Next lever (Phase 5):** strict GR(1) — recognize
+    `SysSafetyLiveness W !(EnvSafety)` and encode the strict conditioning
+    (system obligated only while the env keeps its safety) combined with the
+    GR(1) fixpoint.
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
