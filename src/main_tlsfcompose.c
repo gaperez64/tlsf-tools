@@ -1287,6 +1287,57 @@ static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
   return strategy;
 }
 
+// Self-verification: run the external verifier (PROG --aiger FILE --formula
+// LTL) on a synthesized controller against the original cluster spec.  Returns
+// true ONLY when the verifier reports a definite violation (exit 1).  On
+// "verified" (0), an AP mismatch, a verifier error/timeout/OOM, or any other
+// code it returns false (keep the controller) -- an inconclusive check never
+// turns a sound solve into a fallback.  `controller` has cluster-named
+// inputs/outputs (the controllable_ prefix was stripped on read-back), matching
+// the formula.
+static bool controller_violates_spec(const char *verifier, Aig *controller,
+                                     const Node *root, LtlFormat fmt,
+                                     bool finite) {
+  char *ltl = ltl_string(root, fmt, finite);
+  if (!ltl)
+    return false;
+  char tmp[] = "/tmp/tlsfcompose-verify-XXXXXX";
+  int fd = mkstemp(tmp);
+  if (fd < 0) {
+    free(ltl);
+    return false;
+  }
+  FILE *f = fdopen(fd, "w");
+  if (!f) {
+    close(fd);
+    unlink(tmp);
+    free(ltl);
+    return false;
+  }
+  aig_write_aag(f, controller);
+  fclose(f);
+
+  char *argv[] = {
+      (char *)verifier, (char *)"--aiger", tmp, (char *)"--formula", ltl,
+      nullptr};
+  posix_spawn_file_actions_t fa;
+  posix_spawn_file_actions_init(&fa);
+  posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
+  posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+  pid_t pid;
+  int spawned = posix_spawnp(&pid, verifier, &fa, nullptr, argv, environ);
+  posix_spawn_file_actions_destroy(&fa);
+  bool violates = false;
+  if (spawned == 0) {
+    int status;
+    waitpid(pid, &status, 0);
+    violates = WIFEXITED(status) && WEXITSTATUS(status) == 1;
+  }
+  unlink(tmp);
+  free(ltl);
+  return violates;
+}
+
 static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
                           const bool *seen, const Node *root, int *unreal) {
   return run_abssynthe_game(prog, cov, seen,
@@ -1327,6 +1378,9 @@ static void usage(const char *prog) {
       "  $ABSSYNTHE_FLAGS             extra AbsSynthe solver flags, e.g. "
       "\"-a\" "
       "(abstraction) or \"-t\"; -p/-s are unsafe with -o\n"
+      "  --verify PROG                self-verify each AbsSynthe controller "
+      "(PROG --aiger F --formula L; exit 1 = violation) and fall back to "
+      "ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
@@ -1387,7 +1441,7 @@ int main(int argc, char *argv[]) {
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
-  const char *abssynthe_path = nullptr;
+  const char *abssynthe_path = nullptr, *verify_path = nullptr;
   unsigned long bound_opt = 0; // 0 = unset (use $ABSSYNTHE_BOUND or default)
   ParamOverride overrides[64];
   size_t n_overrides = 0;
@@ -1408,6 +1462,8 @@ int main(int argc, char *argv[]) {
       ltlsynt_path = NEED_ARG();
     } else if (strcmp(a, "--abssynthe") == 0 || strcmp(a, "--absynthe") == 0) {
       abssynthe_path = NEED_ARG();
+    } else if (strcmp(a, "--verify") == 0) {
+      verify_path = NEED_ARG();
     } else if (strcmp(a, "--bound") == 0) {
       const char *v = NEED_ARG();
       char *end;
@@ -1554,6 +1610,13 @@ int main(int argc, char *argv[]) {
     const char *abs_prog = abssynthe_path          ? abssynthe_path
                            : (abs_env && *abs_env) ? abs_env
                                                    : nullptr;
+    // Optional self-verification: when set, each AbsSynthe-synthesized cluster
+    // controller is model-checked against the cluster spec and, if it provably
+    // violates it, discarded in favour of the ltlsynt fallback.
+    const char *verify_env = getenv("TLSFCOMPOSE_VERIFY");
+    const char *verifier = verify_path                   ? verify_path
+                           : (verify_env && *verify_env) ? verify_env
+                                                         : nullptr;
     // Bound for the bounded-liveness AbsSynthe path: --bound, else
     // $ABSSYNTHE_BOUND, else a small default.
     const char *bound_env = getenv("ABSSYNTHE_BOUND");
@@ -1638,6 +1701,24 @@ int main(int argc, char *argv[]) {
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
       } else {
+        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+      }
+      // Self-verification gate: a synthesized controller must satisfy the
+      // ORIGINAL cluster spec (`root`, not a bounded/strict surrogate).  If it
+      // provably violates it, discard it and fall back to ltlsynt, so a
+      // recognizer/encoder bug becomes a sound fallback rather than a wrong
+      // controller.  Inconclusive checks (verifier error/OOM) keep the result.
+      if (verifier && use_abs && sub &&
+          controller_violates_spec(verifier, sub, root, fmt, finite)) {
+        fprintf(stderr,
+                "tlsfcompose: cluster %u controller failed self-verification "
+                "(%s); falling back to ltlsynt\n",
+                k, backend);
+        aig_free(sub);
+        sub = nullptr;
+        unreal = 0;
+        use_abs = false;
+        backend = "ltlsynt fallback (self-verification)";
         sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
       }
       if (unreal) {

@@ -585,7 +585,28 @@ test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
   args: [files('test/cases/compose_gr1_disabled.err'), tlsfcompose_exe,
          '--aiger', '--ltlsynt', '/bin/false',
          files('test/cases/gr1_spec.tlsf')])
+# Self-verification gate mechanism (trivial verifiers; no Spot/AbsSynthe needed).
+# /bin/true = "verified" -> controller kept (same golden as without --verify);
+# /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).
+test('aiger_verify_gate_keeps', check,
+  args: [files('test/cases/gr1_spec.abssynthe.aag'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+         '--ltlsynt', '/bin/false', '--verify', '/bin/true',
+         files('test/cases/gr1_spec.tlsf')])
+test('aiger_verify_gate_falls_back', xfail,
+  args: [tlsfcompose_exe, '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+         '--ltlsynt', '/bin/false', '--verify', '/bin/false',
+         files('test/cases/gr1_spec.tlsf')])
 if abssynthe_local.found()
+  # Real self-verification (Spot): a sound controller passes the gate and is
+  # kept.  With ltlsynt disabled, exit 0 means AbsSynthe solved it AND the gate
+  # kept it (a failed gate would fall back to /bin/false and exit non-zero).
+  if python3.found() and spot_python_found
+    test('aiger_verify_gate_real', tlsfcompose_exe,
+      args: ['--aiger', '--abssynthe', abssynthe_bin, '--ltlsynt', '/bin/false',
+             '--verify', files('scripts/verify_aiger_ltl.py'),
+             files('test/cases/gr1_spec.tlsf')])
+  endif
   test('aiger_abssynthe_real_assume_delay', check,
     args: [files('test/cases/assume_delay_real.abssynthe.aag'),
            tlsfcompose_exe,
