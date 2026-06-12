@@ -271,29 +271,54 @@ fairness-bearing tail.
     they would *not* be caught.** The gate only de-risks widenings whose failure
     cases are checker-tractable; the `G`-over-∧ distribution is not one. Left
     reverted.
-  - [~] **Weak-until / release safety (`W`/`R`) — guarantee side done, exact and
-    Spot-verified.** `a W b`/`a R b` are pure safety, so they encode exactly and
-    the gate is fully effective. `build_abssynthe_game` (the direct safety path)
-    now accepts them in the guarantee: `G(a W b)≡G(a|b)` and `G(a R b)≡G(b)`
-    collapse to invariants; a top-level `a W b` gets a released-monitor latch; a
-    response `G(req→X(a W b))` re-arms a weak-until via an `owe` latch
-    (`owe'=(valid&req)|(owe&!b)`, lose if `a&b` both fail while owed). Fixtures
-    `wr_response`, `wr_release` Spot-verify; `TorcsAccelerating` solves.
-    **But the corpus lift is only 1/53** on a sample: real `W`/`R` specs
-    (MusicApp, Zoo, collector, OneCounterGui, …) put `W`/`R` on the **assume**
-    side inside an `AND(G(init), IMPL(assume, guarantee))` structure. To land the
-    bulk: (i) assume-side `W`/`R` monitors feeding `violated`, (ii) peel
-    `AND(G_init, IMPL)` on the safety path (the GR(1) path already does this), and
-    (iii) relax the x-depth-0 assume gate (the `X(a W b)` responses are depth-1).
-    `collector_v1` additionally nests `G(¬x)` in an antecedent (harder).
-  - [ ] **Open follow-ons.** (a) The assume-side + structural `W`/`R` work above
-    (the bulk of the 42–53 `W`/`R` specs). (b) U-shaped responses `G(req→X(a U b))`
-    behind the gate — *first* confirm the unsound cases are Spot-tractable (else
-    same trap as lever 2). (c) AbsSynthe BDD perf / GR(1)-aware abstraction for big
-    amba (`pb_10+`). (d) GR(2)/generalized-Rabin for `amba_gr+`. (e) A scalable
-    verifier (BDD/symbolic, not Spot) to lift the gate's check-tractability
-    ceiling. (f) Trust the complete solver's UNREALIZABLE verdict on exact
-    clusters (~27% of the liveness tail).
+  - [x] **Weak-until / release safety (`W`/`R`) — guarantee + assume + structural,
+    exact and Spot-verified.** `a W b`/`a R b` are pure safety, so they encode
+    exactly and the gate is fully effective. The direct safety path
+    (`build_abssynthe_game`) collapses `G(a W b)≡G(a|b)` / `G(a R b)≡G(b)` to
+    invariants and gives a top-level `a W b` a released-monitor latch. Re-armed
+    **responses** are now unified across four shapes via `wr_response_parts` +
+    `wr_emit_g_body`: `G(req→[X](a W b))` and `G(req→[X](a R b))` (with/without the
+    `X`). The non-X variant is active the same step `req` fires (`active =
+    (valid&req)|owe`); the X variant is delayed one step (`active = owe`). `a W b`
+    releases on `b` and loses on `!a&!b`; `a R b` releases on `a&b` and loses on
+    `!b`. **Initial-state constraints** (bare-Boolean conjuncts) are charged only
+    on the first valid step via a `first = valid & !seen_valid` rising-edge marker
+    (built lazily — `wr_has_initial`/`wr_structural_has_initial` — so games without
+    an initial keep their exact old shape and goldens). A new **structural** game
+    `build_abssynthe_wr_game` handles `AND(U…, IMPL(A, G))` with `W`/`R` on any
+    side: it reuses the verified `wr_emit_guarantee` walk for all three roles
+    (unconditional U→`bad`, assume A→`viol_a` driving `violated`/`released`,
+    guarantee G→`bad_cond` gated by `!released`). Routed via `use_abs_wr`
+    (`wr_structural_supported`).
+    **Corpus measurement (429 realizable specs, AbsSynthe-only, this build):**
+    78 solve self-contained via AbsSynthe — 52 direct safety, 11 GR(1),
+    **8 W/R-structural** (MusicApp×3, OneCounter(Gui), SPI, TwoCounters×2), 7
+    bounded. A **soundness pass with the `--verify` gate over all 78** found zero
+    wrong controllers and zero new false-UNREALIZABLE from the `W`/`R` work: the
+    only flags were 5 pre-existing GR(1) self-verification fallbacks (round_robin,
+    sound) and 2 specs (Gamelogic, lilydemo19) whose residual cluster ltlsynt
+    *also* calls UNREALIZABLE (genuine, not a backend bug). Fixtures `wr_resp_nox`,
+    `wr_rel_resp`, `wr_assume` Spot-verify. `collector_v1` (nested `G(¬x)` in an
+    antecedent) and `zoo5` (a recognized cluster whose game compile still misses)
+    remain on ltlsynt — sound fallbacks, future work.
+  - [x] **Backend wall-clock caps (robustness).** `run_abssynthe_game` now honours
+    `$ABSSYNTHE_TIMEOUT` (seconds, 0/unset = unbounded): a hung BDD solve is
+    SIGKILLed and the cluster falls back to ltlsynt instead of hanging the tool
+    (test `aiger_abssynthe_timeout_fallback`). The self-verification gate
+    (`controller_violates_spec`) caps the verifier at `$TLSFCOMPOSE_VERIFY_TIMEOUT`
+    (default 30 s); a Spot blow-up on a big formula is treated as *inconclusive*
+    (keep the controller) rather than a hang — this is what lets OneCounterGuiA9
+    (AbsSynthe solves it in 0.04 s, Spot can't verify it in time) stay
+    self-contained.
+  - [ ] **Open follow-ons.** (a) Nested weak-until `G(req→(A W B))` where A/B carry
+    inner `W`/`R` (MusicAppFeedback) — needs sub-monitors. (b) `zoo5` W/R compile
+    miss — diagnose which conjunct returns `UINT32_MAX`. (c) U-shaped responses
+    `G(req→X(a U b))` behind the gate — *first* confirm the unsound cases are
+    Spot-tractable (else same trap as lever 2). (d) AbsSynthe BDD perf / GR(1)-aware
+    abstraction for big amba (`pb_10+`). (e) GR(2)/generalized-Rabin for `amba_gr+`.
+    (f) A scalable verifier (BDD/symbolic, not Spot) to lift the gate's
+    check-tractability ceiling. (g) Trust the complete solver's UNREALIZABLE verdict
+    on exact clusters (~27% of the liveness tail).
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.

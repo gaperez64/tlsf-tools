@@ -27,12 +27,14 @@
 #include "tlsf/templates.h"
 
 #include <fcntl.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char **environ;
@@ -258,9 +260,37 @@ static uint32_t abssynthe_global_x_depth(const Node *n) {
   }
 }
 
-// A conjunct of a `G(...)` body: Boolean, or a weak-until / release.  Under the
-// outer G these collapse to invariants -- `G(a W b) == G(a|b)`,
-// `G(a R b) == G(b)` -- so no monitor is needed for them.
+// Recognize a re-armed safety response `G(req -> [X](a W b))` or
+// `G(req -> [X](a R b))` with Boolean operands.  On success sets *req to the
+// antecedent, *inner to the weak-until/release node, and *xdelay to whether the
+// consequent is X-delayed.  These are genuine safety obligations that a monitor
+// latch tracks (re-armed each time req fires).
+static bool wr_response_parts(const Node *impl, const Node **req,
+                              const Node **inner, bool *xdelay) {
+  if (impl->kind != NODE_IMPL)
+    return false;
+  const Node *rhs = impl->rhs;
+  bool x = false;
+  if (rhs->kind == NODE_X || rhs->kind == NODE_X_STRONG) {
+    x = true;
+    rhs = rhs->arg;
+  }
+  if (rhs->kind != NODE_W && rhs->kind != NODE_R)
+    return false;
+  if (!abssynthe_body_supported(impl->lhs) ||
+      !abssynthe_body_supported(rhs->lhs) ||
+      !abssynthe_body_supported(rhs->rhs))
+    return false;
+  *req = impl->lhs;
+  *inner = rhs;
+  *xdelay = x;
+  return true;
+}
+
+// A conjunct of a `G(...)` body: Boolean, a bare weak-until / release, or a
+// re-armed response.  Under the outer G a bare W/R collapses to an invariant --
+// `G(a W b) == G(a|b)`, `G(a R b) == G(b)` -- so no monitor is needed; a
+// response `G(req -> [X](a W/R b))` re-arms a monitor each time req fires.
 static bool g_body_wr_supported(const Node *n) {
   switch (n->kind) {
   case NODE_AND:
@@ -268,14 +298,13 @@ static bool g_body_wr_supported(const Node *n) {
   case NODE_W:
   case NODE_R:
     return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
-  case NODE_IMPL:
-    // G(req -> X(a W b)): a re-armed weak-until response (Boolean operands).
-    if (n->rhs->kind == NODE_X && n->rhs->arg->kind == NODE_W &&
-        abssynthe_body_supported(n->lhs) &&
-        abssynthe_body_supported(n->rhs->arg->lhs) &&
-        abssynthe_body_supported(n->rhs->arg->rhs))
+  case NODE_IMPL: {
+    const Node *req, *inner;
+    bool xdelay;
+    if (wr_response_parts(n, &req, &inner, &xdelay))
       return true;
     return abssynthe_body_supported(n);
+  }
   default:
     return abssynthe_body_supported(n);
   }
@@ -298,7 +327,8 @@ static bool abssynthe_safety_wr_supported(const Node *n) {
   case NODE_R:
     return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
   default:
-    return false;
+    // A bare Boolean conjunct is an initial-state constraint (step 0 only).
+    return abssynthe_initial_supported(n);
   }
 }
 
@@ -321,7 +351,25 @@ static uint32_t abssynthe_safety_wr_x_depth(const Node *n) {
     return a > b ? a : b;
   }
   default:
-    return UINT32_MAX;
+    return abssynthe_initial_supported(n) ? 0 : UINT32_MAX;
+  }
+}
+
+// Does this safety condition carry a bare-Boolean (initial-state) conjunct?
+// Mirrors wr_emit_guarantee's structure: only the default (bare-Boolean) leaf
+// is an initial constraint, so a game needs the `first` marker only when this
+// holds.
+static bool wr_has_initial(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_G:
+  case NODE_W:
+  case NODE_R:
+    return false;
+  case NODE_AND:
+    return wr_has_initial(n->lhs) || wr_has_initial(n->rhs);
+  default:
+    return true;
   }
 }
 
@@ -904,26 +952,42 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
     *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(b)));
     return true;
   }
-  case NODE_IMPL:
-    if (n->rhs->kind == NODE_X && n->rhs->arg->kind == NODE_W) {
-      // G(req -> X(a W b)): a re-armed weak-until response.
-      uint32_t req = abssynthe_compile_at_lag(ctx, n->lhs, depth);
-      uint32_t a = abssynthe_compile_at_lag(ctx, n->rhs->arg->lhs, depth);
-      uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs->arg->rhs, depth);
+  case NODE_IMPL: {
+    const Node *rqn, *inner;
+    bool xdelay;
+    if (wr_response_parts(n, &rqn, &inner, &xdelay)) {
+      // G(req -> [X](a W/R b)): a re-armed response monitor.  An `owe` latch
+      // tracks an outstanding obligation; `a W b` releases on b (fails on
+      // !a&!b), `a R b` releases on a&b (fails on !b).  Without X the
+      // obligation is active the same step req fires; with X it is delayed one
+      // step.
+      uint32_t req = abssynthe_compile_at_lag(ctx, rqn, depth);
+      uint32_t a = abssynthe_compile_at_lag(ctx, inner->lhs, depth);
+      uint32_t b = abssynthe_compile_at_lag(ctx, inner->rhs, depth);
       if (req == UINT32_MAX || a == UINT32_MAX || b == UINT32_MAX)
         return false;
+      uint32_t release =
+          inner->kind == NODE_W ? b : aig_and(g, a, b); // W: b; R: a&b
+      uint32_t fail = inner->kind == NODE_W ? aig_and(g, aig_not(a), aig_not(b))
+                                            : aig_not(b); // W: !a&!b; R: !b
       uint32_t owe = aig_latch(g, AIG_FALSE, AIG_FALSE);
-      uint32_t owe_next =
-          aig_or(g, aig_and(g, valid, req), aig_and(g, owe, aig_not(b)));
-      if (!aig_set_latch_next(g, owe, owe_next))
-        return false;
-      *bad =
-          aig_or(g, *bad,
-                 aig_and(g, valid,
-                         aig_and(g, owe, aig_and(g, aig_not(a), aig_not(b)))));
+      uint32_t active; // obligation active this step
+      if (xdelay) {
+        active = owe;
+        uint32_t owe_next = aig_or(g, aig_and(g, valid, req),
+                                   aig_and(g, owe, aig_not(release)));
+        if (!aig_set_latch_next(g, owe, owe_next))
+          return false;
+      } else {
+        active = aig_or(g, aig_and(g, valid, req), owe);
+        if (!aig_set_latch_next(g, owe, aig_and(g, active, aig_not(release))))
+          return false;
+      }
+      *bad = aig_or(g, *bad, aig_and(g, valid, aig_and(g, active, fail)));
       return true;
     }
     [[fallthrough]];
+  }
   default: {
     uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
     if (ok == UINT32_MAX)
@@ -939,17 +1003,19 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
 // invariants).  A top-level weak-until `a W b` (a holds until b, or forever)
 // and release `a R b` (b holds until a&b, or forever) are genuine safety
 // properties: each gets a "released" monitor latch and the system loses only if
-// the obligation fails before the release.  Returns false on an unsupported
-// conjunct.
+// the obligation fails before the release.  A bare Boolean conjunct is an
+// initial-state constraint, charged only on the first valid step (`first`).
+// Returns false on an unsupported conjunct.
 static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
-                              uint32_t depth, uint32_t valid, uint32_t *bad) {
+                              uint32_t depth, uint32_t valid, uint32_t first,
+                              uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
   case NODE_TRUE:
     return true;
   case NODE_AND:
-    return wr_emit_guarantee(ctx, n->lhs, depth, valid, bad) &&
-           wr_emit_guarantee(ctx, n->rhs, depth, valid, bad);
+    return wr_emit_guarantee(ctx, n->lhs, depth, valid, first, bad) &&
+           wr_emit_guarantee(ctx, n->rhs, depth, valid, first, bad);
   case NODE_G:
     return wr_emit_g_body(ctx, n->arg, depth, valid, bad);
   case NODE_W:
@@ -969,8 +1035,17 @@ static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
     *bad = aig_or(g, *bad, aig_and(g, valid, aig_and(g, aig_not(rel), fail)));
     return true;
   }
-  default:
-    return false;
+  default: {
+    // Bare Boolean: an initial-state constraint, evaluated only on the first
+    // logical step (the rising edge of valid).
+    if (!abssynthe_initial_supported(n))
+      return false;
+    uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+    if (ok == UINT32_MAX)
+      return false;
+    *bad = aig_or(g, *bad, aig_and(g, first, aig_not(ok)));
+    return true;
+  }
   }
 }
 
@@ -1029,8 +1104,21 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   for (uint32_t d = 0; d < depth; d++)
     valid = aig_latch(g, valid, AIG_FALSE);
 
+  // The rising edge of valid (first logical step) charges initial constraints;
+  // build the marker latch only when the guarantee actually has an initial.
+  uint32_t first = AIG_FALSE;
+  if (wr_has_initial(guarantee)) {
+    uint32_t seen_valid = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    if (!aig_set_latch_next(g, seen_valid, aig_or(g, seen_valid, valid))) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    first = aig_and(g, valid, aig_not(seen_valid));
+  }
+
   uint32_t bad = AIG_FALSE;
-  if (!wr_emit_guarantee(&ctx, guarantee, depth, valid, &bad)) {
+  if (!wr_emit_guarantee(&ctx, guarantee, depth, valid, first, &bad)) {
     free(hist);
     aig_free(g);
     return nullptr;
@@ -1059,6 +1147,156 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
     }
     bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
   }
+  aig_set_output(g, "bad", bad);
+  free(hist);
+  return g;
+}
+
+// A safety cluster `AND(U..., IMPL(A, G))`: unconditional safety U plus one
+// assume->guarantee, where U/A/G are W/R-safety (`g_body`/top-level monitors).
+static bool wr_structural_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_AND:
+    return wr_structural_supported(n->lhs) && wr_structural_supported(n->rhs);
+  case NODE_IMPL:
+    return abssynthe_safety_wr_supported(n->lhs) &&
+           abssynthe_safety_wr_supported(n->rhs);
+  default:
+    return abssynthe_safety_wr_supported(n);
+  }
+}
+
+static bool wr_structural_has_initial(const Node *n) {
+  switch (n->kind) {
+  case NODE_AND:
+    return wr_structural_has_initial(n->lhs) ||
+           wr_structural_has_initial(n->rhs);
+  case NODE_IMPL:
+    return wr_has_initial(n->lhs) || wr_has_initial(n->rhs);
+  default:
+    return wr_has_initial(n);
+  }
+}
+
+static uint32_t wr_structural_x_depth(const Node *n) {
+  switch (n->kind) {
+  case NODE_AND: {
+    uint32_t a = wr_structural_x_depth(n->lhs);
+    uint32_t b = wr_structural_x_depth(n->rhs);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return a > b ? a : b;
+  }
+  case NODE_IMPL: {
+    uint32_t a = abssynthe_safety_wr_x_depth(n->lhs);
+    uint32_t b = abssynthe_safety_wr_x_depth(n->rhs);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return a > b ? a : b;
+  }
+  default:
+    return abssynthe_safety_wr_x_depth(n);
+  }
+}
+
+// Emit the obligations of `AND(U..., IMPL(A, G))`: unconditional U conjuncts
+// into *bad, the assume A's violations into *viol_a (drive `violated`), the
+// guarantee G's into *bad_cond (gated by !released).  At most one implication.
+static bool wr_emit_structural(AbssyntheCompile *ctx, const Node *n,
+                               uint32_t depth, uint32_t valid, uint32_t first,
+                               uint32_t *bad, uint32_t *viol_a,
+                               uint32_t *bad_cond, int *nimpl) {
+  if (n->kind == NODE_AND)
+    return wr_emit_structural(ctx, n->lhs, depth, valid, first, bad, viol_a,
+                              bad_cond, nimpl) &&
+           wr_emit_structural(ctx, n->rhs, depth, valid, first, bad, viol_a,
+                              bad_cond, nimpl);
+  if (n->kind == NODE_IMPL) {
+    if (++(*nimpl) > 1)
+      return false;
+    return wr_emit_guarantee(ctx, n->lhs, depth, valid, first, viol_a) &&
+           wr_emit_guarantee(ctx, n->rhs, depth, valid, first, bad_cond);
+  }
+  return wr_emit_guarantee(ctx, n, depth, valid, first, bad);
+}
+
+// Safety game for `AND(U..., IMPL(A, G))` with W/R on any side.  Reuses the
+// verified wr_emit_guarantee walk; the assume's violations latch `violated`
+// (the system is released once the env breaks an assumption), so the guarantee
+// bad is gated by `!released` while the unconditional U bad is not.
+static Aig *build_abssynthe_wr_game(ConstraintCover *cov, const bool *seen,
+                                    const Node *root) {
+  Aig *g = aig_new();
+  if (!g)
+    return nullptr;
+  uint32_t depth = wr_structural_x_depth(root);
+  if (depth == UINT32_MAX) {
+    aig_free(g);
+    return nullptr;
+  }
+  uint32_t A = cov->aps.count;
+  uint32_t hist_count = (depth + 1) * (A ? A : 1);
+  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
+  if (!hist) {
+    aig_free(g);
+    return nullptr;
+  }
+  memset(hist, 0xff, hist_count * sizeof(uint32_t));
+  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+  for (uint32_t a = 0; a < cov->aps.count; a++)
+    if (seen[a] && residual_signal_matches(cov, a, AP_FLAG_INPUT))
+      hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+      continue;
+    char *cname = controllable_name(ap_table_name(&cov->aps, a));
+    if (!cname) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    hist_set(&ctx, 0, a, aig_input(g, cname));
+    free(cname);
+  }
+  for (uint32_t d = 1; d <= depth; d++)
+    for (uint32_t a = 0; a < A; a++) {
+      uint32_t prev = hist_lit(&ctx, d - 1, a);
+      if (prev != UINT32_MAX)
+        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
+    }
+  uint32_t valid = AIG_TRUE;
+  for (uint32_t d = 0; d < depth; d++)
+    valid = aig_latch(g, valid, AIG_FALSE);
+  // The rising edge of valid (first logical step) charges initial constraints;
+  // build the marker latch only when some conjunct actually has an initial.
+  uint32_t first = AIG_FALSE;
+  if (wr_structural_has_initial(root)) {
+    uint32_t seen_valid = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    if (!aig_set_latch_next(g, seen_valid, aig_or(g, seen_valid, valid))) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    first = aig_and(g, valid, aig_not(seen_valid));
+  }
+
+  uint32_t bad = AIG_FALSE, viol_a = AIG_FALSE, bad_cond = AIG_FALSE;
+  int nimpl = 0;
+  if (!wr_emit_structural(&ctx, root, depth, valid, first, &bad, &viol_a,
+                          &bad_cond, &nimpl)) {
+    free(hist);
+    aig_free(g);
+    return nullptr;
+  }
+  // released = env has broken an assumption now or in the past.
+  uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
+  uint32_t released = aig_or(g, violated, viol_a);
+  if (!aig_set_latch_next(g, violated, released)) {
+    free(hist);
+    aig_free(g);
+    return nullptr;
+  }
+  bad = aig_or(g, bad, aig_and(g, aig_not(released), bad_cond));
   aig_set_output(g, "bad", bad);
   free(hist);
   return g;
@@ -1418,8 +1656,35 @@ static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
     return nullptr;
   }
 
+  // Optional wall-clock cap on the AbsSynthe child ($ABSSYNTHE_TIMEOUT seconds;
+  // 0/unset = unbounded).  On timeout, kill the child and return no strategy so
+  // the caller falls back to ltlsynt rather than hanging on a hard BDD game.
+  const char *to_env = getenv("ABSSYNTHE_TIMEOUT");
+  long timeout_s = (to_env && *to_env) ? strtol(to_env, nullptr, 10) : 0;
   int status;
-  waitpid(pid, &status, 0);
+  if (timeout_s > 0) {
+    struct timespec slice = {0, 20L * 1000 * 1000}; // 20 ms
+    long ticks = timeout_s * 50, i = 0;             // 50 polls per second
+    pid_t r = 0;
+    for (; i < ticks; i++) {
+      r = waitpid(pid, &status, WNOHANG);
+      if (r != 0)
+        break;
+      nanosleep(&slice, nullptr);
+    }
+    if (r == 0) { // still running at the deadline
+      kill(pid, SIGKILL);
+      waitpid(pid, &status, 0);
+      cleanup_abssynthe_tmp(dir, game_path, strat_path);
+      return nullptr;
+    }
+    if (r < 0) {
+      cleanup_abssynthe_tmp(dir, game_path, strat_path);
+      return nullptr;
+    }
+  } else {
+    waitpid(pid, &status, 0);
+  }
   if (!WIFEXITED(status)) {
     cleanup_abssynthe_tmp(dir, game_path, strat_path);
     return nullptr;
@@ -1492,9 +1757,31 @@ static bool controller_violates_spec(const char *verifier, Aig *controller,
   posix_spawn_file_actions_destroy(&fa);
   bool violates = false;
   if (spawned == 0) {
+    // The gate is best-effort: cap the verifier ($TLSFCOMPOSE_VERIFY_TIMEOUT
+    // seconds, default 30).  A timeout (e.g. Spot blowing up on a big formula)
+    // is inconclusive -- keep the controller -- rather than hanging the tool.
+    const char *to_env = getenv("TLSFCOMPOSE_VERIFY_TIMEOUT");
+    long timeout_s = (to_env && *to_env) ? strtol(to_env, nullptr, 10) : 30;
     int status;
-    waitpid(pid, &status, 0);
-    violates = WIFEXITED(status) && WEXITSTATUS(status) == 1;
+    if (timeout_s > 0) {
+      struct timespec slice = {0, 20L * 1000 * 1000}; // 20 ms
+      long ticks = timeout_s * 50;                    // 50 polls per second
+      pid_t r = 0;
+      for (long i = 0; i < ticks; i++) {
+        r = waitpid(pid, &status, WNOHANG);
+        if (r != 0)
+          break;
+        nanosleep(&slice, nullptr);
+      }
+      if (r == 0) { // verifier did not finish in time: inconclusive
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+        status = -1;
+      }
+    } else {
+      waitpid(pid, &status, 0);
+    }
+    violates = status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 1;
   }
   unlink(tmp);
   free(ltl);
@@ -1505,6 +1792,12 @@ static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
                           const bool *seen, const Node *root, int *unreal) {
   return run_abssynthe_game(prog, cov, seen,
                             build_abssynthe_game(cov, seen, root), unreal);
+}
+
+static Aig *run_abssynthe_wr(const char *prog, ConstraintCover *cov,
+                             const bool *seen, const Node *root, int *unreal) {
+  return run_abssynthe_game(prog, cov, seen,
+                            build_abssynthe_wr_game(cov, seen, root), unreal);
 }
 
 static Aig *run_abssynthe_strict_safety(const char *prog, ConstraintCover *cov,
@@ -1811,11 +2104,19 @@ int main(int argc, char *argv[]) {
           abs_prog && !finite && !use_abs_direct && shape.gr_level == 0 &&
           !shape.has_liveness &&
           abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
+      // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
+      // with W/R on any side is encoded exactly (monitors), preferred over the
+      // lossy bounded reduction below.
+      bool use_abs_wr = abs_prog && !finite && !use_abs_direct &&
+                        !use_abs_strict && !shape.has_liveness &&
+                        (shape.has_weak_until || shape.has_release) &&
+                        wr_structural_supported(root);
       // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
       // the cluster then becomes a pure-safety game (no fairness assumption
       // survives), solve it with the existing AbsSynthe safety solver.
       const Node *bounded_root = nullptr;
       if (abs_prog && !finite && !use_abs_direct && !use_abs_strict &&
+          !use_abs_wr &&
           (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
         Node *br = bound_liveness(spec->arena, root, bound_k, true);
         if (abssynthe_eligible(br, finite))
@@ -1827,16 +2128,26 @@ int main(int argc, char *argv[]) {
       // game and solved by AbsSynthe's GR(1) fixpoint.
       Gr1Parts gp;
       bool use_gr1 = abs_prog && !finite && !use_abs_direct &&
-                     !use_abs_strict && !bounded_root &&
+                     !use_abs_strict && !use_abs_wr && !bounded_root &&
                      abssynthe_gr1_parts(spec->arena, root, &gp);
-      bool use_abs =
-          use_abs_direct || use_abs_strict || bounded_root || use_gr1;
+      bool use_abs = use_abs_direct || use_abs_strict || use_abs_wr ||
+                     bounded_root || use_gr1;
       const char *backend = use_abs ? "AbsSynthe" : "ltlsynt fallback";
       if (use_abs_direct) {
         sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
       } else if (use_abs_strict) {
         sub = run_abssynthe_strict_safety(abs_prog, cov, seen, strict_sys,
                                           strict_env, &unreal);
+      } else if (use_abs_wr) {
+        backend = "AbsSynthe (W/R safety)";
+        sub = run_abssynthe_wr(abs_prog, cov, seen, root, &unreal);
+        if (!sub) {
+          unreal = 0;
+          use_abs = false;
+          backend = "ltlsynt fallback (W/R miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
       } else if (bounded_root) {
         backend = "AbsSynthe (bounded)";
         sub = run_abssynthe(abs_prog, cov, seen, bounded_root, &unreal);
@@ -1884,6 +2195,8 @@ int main(int argc, char *argv[]) {
         backend = "ltlsynt fallback (self-verification)";
         sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
       }
+      if (getenv("TLSFCOMPOSE_DEBUG"))
+        fprintf(stderr, "tlsfcompose: cluster %u routed to %s\n", k, backend);
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
                 backend);

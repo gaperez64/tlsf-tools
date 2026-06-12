@@ -574,7 +574,8 @@ endforeach
 # gr1_multifair has two fairness assumptions in one cluster.
 foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
                 'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
-                'gr1_strict_multi', 'wr_response', 'wr_release']
+                'gr1_strict_multi', 'wr_response', 'wr_release', 'wr_resp_nox',
+                'wr_rel_resp', 'wr_assume']
   test('aiger_abssynthe_' + name, check,
     args: [files('test/cases/' + name + '.abssynthe.aag'), tlsfcompose_exe,
            '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
@@ -585,6 +586,13 @@ test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
   args: [files('test/cases/compose_gr1_disabled.err'), tlsfcompose_exe,
          '--aiger', '--ltlsynt', '/bin/false',
          files('test/cases/gr1_spec.tlsf')])
+# $ABSSYNTHE_TIMEOUT caps the solver child: a hanging AbsSynthe is killed and the
+# cluster returns no strategy (here ltlsynt is disabled, so the cluster fails).
+test('aiger_abssynthe_timeout_fallback', check_fail_stderr,
+  args: [files('test/cases/compose_abssynthe_timeout.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
+         '--ltlsynt', '/bin/false', files('test/cases/inv_decline.tlsf')],
+  env: {'ABSSYNTHE_TIMEOUT': '1'})
 # Self-verification gate mechanism (trivial verifiers; no Spot/AbsSynthe needed).
 # /bin/true = "verified" -> controller kept (same golden as without --verify);
 # /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).
@@ -712,7 +720,8 @@ if python3.found() and spot_python_found
     foreach name : ['bounded_until', 'bounded_wuntil', 'gr1_spec', 'gr1_response',
                     'gr1_multifair', 'gr1_init', 'gr1_preset', 'gr1_weak',
                     'gr1_strict', 'gr1_strict_sticky', 'gr1_strict_multi',
-                    'wr_response', 'wr_release']
+                    'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
+                    'wr_assume']
       test('verify_aiger_abssynthe_real_' + name, python3,
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,

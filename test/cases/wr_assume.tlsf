@@ -1,0 +1,4 @@
+INFO { TITLE: "wrassume" DESCRIPTION: "structural assume-side W/R + initial constraint" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { start; rel; } OUTPUTS { grant; }
+  GUARANTEE { ((! start) && (G (start -> X ((! grant) W rel)))) -> (G (grant -> rel)); }
+}
