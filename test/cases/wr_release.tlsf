@@ -1,0 +1,4 @@
+INFO { TITLE: "wrrel" DESCRIPTION: "top-level weak-until + G-release collapse" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { go; } OUTPUTS { x; ready; }
+  GUARANTEE { x W go; G (go R ready); }
+}

@@ -574,7 +574,7 @@ endforeach
 # gr1_multifair has two fairness assumptions in one cluster.
 foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
                 'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
-                'gr1_strict_multi']
+                'gr1_strict_multi', 'wr_response', 'wr_release']
   test('aiger_abssynthe_' + name, check,
     args: [files('test/cases/' + name + '.abssynthe.aag'), tlsfcompose_exe,
            '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
@@ -711,7 +711,8 @@ if python3.found() and spot_python_found
     # spec (the verifier conjoins the G F a fairness assumption for GR(1)).
     foreach name : ['bounded_until', 'bounded_wuntil', 'gr1_spec', 'gr1_response',
                     'gr1_multifair', 'gr1_init', 'gr1_preset', 'gr1_weak',
-                    'gr1_strict', 'gr1_strict_sticky', 'gr1_strict_multi']
+                    'gr1_strict', 'gr1_strict_sticky', 'gr1_strict_multi',
+                    'wr_response', 'wr_release']
       test('verify_aiger_abssynthe_real_' + name, python3,
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,

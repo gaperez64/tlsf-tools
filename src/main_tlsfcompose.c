@@ -258,14 +258,81 @@ static uint32_t abssynthe_global_x_depth(const Node *n) {
   }
 }
 
+// A conjunct of a `G(...)` body: Boolean, or a weak-until / release.  Under the
+// outer G these collapse to invariants -- `G(a W b) == G(a|b)`,
+// `G(a R b) == G(b)` -- so no monitor is needed for them.
+static bool g_body_wr_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_AND:
+    return g_body_wr_supported(n->lhs) && g_body_wr_supported(n->rhs);
+  case NODE_W:
+  case NODE_R:
+    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+  case NODE_IMPL:
+    // G(req -> X(a W b)): a re-armed weak-until response (Boolean operands).
+    if (n->rhs->kind == NODE_X && n->rhs->arg->kind == NODE_W &&
+        abssynthe_body_supported(n->lhs) &&
+        abssynthe_body_supported(n->rhs->arg->lhs) &&
+        abssynthe_body_supported(n->rhs->arg->rhs))
+      return true;
+    return abssynthe_body_supported(n);
+  default:
+    return abssynthe_body_supported(n);
+  }
+}
+
+// Pure-safety guarantee that may also carry weak-until `a W b` or release
+// `a R b` (Boolean operands): genuine safety properties.  A top-level `a W b`
+// gets a "released" monitor latch; a `W`/`R` *inside* a `G` body collapses to a
+// plain invariant.  Both are exactly encodable alongside `G(...)` invariants.
+static bool abssynthe_safety_wr_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_G:
+    return g_body_wr_supported(n->arg);
+  case NODE_AND:
+    return abssynthe_safety_wr_supported(n->lhs) &&
+           abssynthe_safety_wr_supported(n->rhs);
+  case NODE_W:
+  case NODE_R:
+    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+  default:
+    return false;
+  }
+}
+
+static uint32_t abssynthe_safety_wr_x_depth(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return 0;
+  case NODE_G:
+    return abssynthe_x_depth(n->arg);
+  case NODE_AND: {
+    uint32_t a = abssynthe_safety_wr_x_depth(n->lhs);
+    uint32_t b = abssynthe_safety_wr_x_depth(n->rhs);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return UINT32_MAX;
+    return a > b ? a : b;
+  }
+  case NODE_W:
+  case NODE_R: {
+    uint32_t a = abssynthe_x_depth(n->lhs), b = abssynthe_x_depth(n->rhs);
+    return a > b ? a : b;
+  }
+  default:
+    return UINT32_MAX;
+  }
+}
+
 static bool abssynthe_eligible(const Node *root, bool finite) {
   if (finite)
     return false;
   if (root->kind == NODE_IMPL)
     return abssynthe_global_supported(root->lhs) &&
            abssynthe_global_x_depth(root->lhs) == 0 &&
-           abssynthe_global_supported(root->rhs);
-  return abssynthe_global_supported(root);
+           abssynthe_safety_wr_supported(root->rhs);
+  return abssynthe_safety_wr_supported(root);
 }
 
 static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
@@ -810,6 +877,103 @@ static uint32_t guarded_current_ok(Aig *g, uint32_t guard, uint32_t ok) {
   return aig_or(g, aig_not(guard), ok);
 }
 
+// Accumulate the obligations of a `G(...)` body into *bad.  A Boolean conjunct
+// adds `valid & !body`.  `G(a W b) == G(a|b)` and `G(a R b) == G(b)` collapse
+// to invariants.  A response `G(req -> X(a W b))` re-arms a weak-until each
+// time req fires: an `owe` latch (owe' = (valid & req) | (owe & !b)) tracks an
+// outstanding obligation, and the system loses if a and b both fail while owed.
+static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
+                           uint32_t valid, uint32_t *bad) {
+  Aig *g = ctx->g;
+  switch (n->kind) {
+  case NODE_AND:
+    return wr_emit_g_body(ctx, n->lhs, depth, valid, bad) &&
+           wr_emit_g_body(ctx, n->rhs, depth, valid, bad);
+  case NODE_W: { // G(a W b) == G(a | b)
+    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return false;
+    *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(aig_or(g, a, b))));
+    return true;
+  }
+  case NODE_R: { // G(a R b) == G(b)
+    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    if (b == UINT32_MAX)
+      return false;
+    *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(b)));
+    return true;
+  }
+  case NODE_IMPL:
+    if (n->rhs->kind == NODE_X && n->rhs->arg->kind == NODE_W) {
+      // G(req -> X(a W b)): a re-armed weak-until response.
+      uint32_t req = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+      uint32_t a = abssynthe_compile_at_lag(ctx, n->rhs->arg->lhs, depth);
+      uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs->arg->rhs, depth);
+      if (req == UINT32_MAX || a == UINT32_MAX || b == UINT32_MAX)
+        return false;
+      uint32_t owe = aig_latch(g, AIG_FALSE, AIG_FALSE);
+      uint32_t owe_next =
+          aig_or(g, aig_and(g, valid, req), aig_and(g, owe, aig_not(b)));
+      if (!aig_set_latch_next(g, owe, owe_next))
+        return false;
+      *bad =
+          aig_or(g, *bad,
+                 aig_and(g, valid,
+                         aig_and(g, owe, aig_and(g, aig_not(a), aig_not(b)))));
+      return true;
+    }
+    [[fallthrough]];
+  default: {
+    uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+    if (ok == UINT32_MAX)
+      return false;
+    *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(ok)));
+    return true;
+  }
+  }
+}
+
+// Accumulate a safety guarantee's obligations into *bad.  `G(body)` adds the
+// combinational `valid & !body@depth` (W/R inside the body collapse to
+// invariants).  A top-level weak-until `a W b` (a holds until b, or forever)
+// and release `a R b` (b holds until a&b, or forever) are genuine safety
+// properties: each gets a "released" monitor latch and the system loses only if
+// the obligation fails before the release.  Returns false on an unsupported
+// conjunct.
+static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
+                              uint32_t depth, uint32_t valid, uint32_t *bad) {
+  Aig *g = ctx->g;
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_AND:
+    return wr_emit_guarantee(ctx, n->lhs, depth, valid, bad) &&
+           wr_emit_guarantee(ctx, n->rhs, depth, valid, bad);
+  case NODE_G:
+    return wr_emit_g_body(ctx, n->arg, depth, valid, bad);
+  case NODE_W:
+  case NODE_R: {
+    uint32_t av = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+    uint32_t bv = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    if (av == UINT32_MAX || bv == UINT32_MAX)
+      return false;
+    uint32_t rel = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    // a W b releases on b; a R b releases on (a & b).
+    uint32_t release = n->kind == NODE_W ? bv : aig_and(g, av, bv);
+    if (!aig_set_latch_next(g, rel, aig_or(g, rel, aig_and(g, valid, release))))
+      return false;
+    // a W b fails when a and b both fail before release; a R b when b fails.
+    uint32_t fail =
+        n->kind == NODE_W ? aig_and(g, aig_not(av), aig_not(bv)) : aig_not(bv);
+    *bad = aig_or(g, *bad, aig_and(g, valid, aig_and(g, aig_not(rel), fail)));
+    return true;
+  }
+  default:
+    return false;
+  }
+}
+
 static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
                                  const Node *root) {
   Aig *g = aig_new();
@@ -821,7 +985,7 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
     guarantee = root->rhs;
   }
   uint32_t ass_depth = assume ? abssynthe_global_x_depth(assume) : 0;
-  uint32_t gua_depth = abssynthe_global_x_depth(guarantee);
+  uint32_t gua_depth = abssynthe_safety_wr_x_depth(guarantee);
   if (ass_depth == UINT32_MAX || gua_depth == UINT32_MAX) {
     aig_free(g);
     return nullptr;
@@ -865,13 +1029,12 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   for (uint32_t d = 0; d < depth; d++)
     valid = aig_latch(g, valid, AIG_FALSE);
 
-  uint32_t gua_ok = abssynthe_compile_global_at_lag(&ctx, guarantee, depth);
-  if (gua_ok == UINT32_MAX) {
+  uint32_t bad = AIG_FALSE;
+  if (!wr_emit_guarantee(&ctx, guarantee, depth, valid, &bad)) {
     free(hist);
     aig_free(g);
     return nullptr;
   }
-  uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
   if (assume) {
     uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
     if (ass_ok == UINT32_MAX) {
