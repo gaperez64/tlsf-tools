@@ -271,11 +271,25 @@ fairness-bearing tail.
     they would *not* be caught.** The gate only de-risks widenings whose failure
     cases are checker-tractable; the `G`-over-∧ distribution is not one. Left
     reverted.
-  - [ ] **Open follow-ons.** (a) U-shaped responses `G(req→X(a U b))` behind the
-    gate — *first* confirm the unsound cases are Spot-tractable (else same trap as
-    lever 2). (b) Safety-shape recognition: weak-until release + `R` (42 specs,
-    pure safety — no liveness, so exactly encodable and gate-tractable: the
-    best-bet next lever). (c) AbsSynthe BDD perf / GR(1)-aware abstraction for big
+  - [~] **Weak-until / release safety (`W`/`R`) — guarantee side done, exact and
+    Spot-verified.** `a W b`/`a R b` are pure safety, so they encode exactly and
+    the gate is fully effective. `build_abssynthe_game` (the direct safety path)
+    now accepts them in the guarantee: `G(a W b)≡G(a|b)` and `G(a R b)≡G(b)`
+    collapse to invariants; a top-level `a W b` gets a released-monitor latch; a
+    response `G(req→X(a W b))` re-arms a weak-until via an `owe` latch
+    (`owe'=(valid&req)|(owe&!b)`, lose if `a&b` both fail while owed). Fixtures
+    `wr_response`, `wr_release` Spot-verify; `TorcsAccelerating` solves.
+    **But the corpus lift is only 1/53** on a sample: real `W`/`R` specs
+    (MusicApp, Zoo, collector, OneCounterGui, …) put `W`/`R` on the **assume**
+    side inside an `AND(G(init), IMPL(assume, guarantee))` structure. To land the
+    bulk: (i) assume-side `W`/`R` monitors feeding `violated`, (ii) peel
+    `AND(G_init, IMPL)` on the safety path (the GR(1) path already does this), and
+    (iii) relax the x-depth-0 assume gate (the `X(a W b)` responses are depth-1).
+    `collector_v1` additionally nests `G(¬x)` in an antecedent (harder).
+  - [ ] **Open follow-ons.** (a) The assume-side + structural `W`/`R` work above
+    (the bulk of the 42–53 `W`/`R` specs). (b) U-shaped responses `G(req→X(a U b))`
+    behind the gate — *first* confirm the unsound cases are Spot-tractable (else
+    same trap as lever 2). (c) AbsSynthe BDD perf / GR(1)-aware abstraction for big
     amba (`pb_10+`). (d) GR(2)/generalized-Rabin for `amba_gr+`. (e) A scalable
     verifier (BDD/symbolic, not Spot) to lift the gate's check-tractability
     ceiling. (f) Trust the complete solver's UNREALIZABLE verdict on exact
