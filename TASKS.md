@@ -326,6 +326,30 @@ fairness-bearing tail.
     (f) A scalable verifier (BDD/symbolic, not Spot) to lift the gate's
     check-tractability ceiling. (g) Trust the complete solver's UNREALIZABLE verdict
     on exact clusters (~27% of the liveness tail).
+  - [x] **Speed benchmark (`scripts/benchgraph.py` → BENCHGRAPH.md).** Automates the
+    "fast preprocessor" question over the whole corpus: residual **complexity**
+    (ltlsynt-disabled self-contained rate + residual shape) and **speed** (full
+    pipeline wall vs standalone `ltlsynt --tlsf=SPEC --aiger`), tracking solve
+    STATUS so fast failures don't masquerade as wins. Sentinel-delimited section in
+    BENCHGRAPH.md, rerunnable; `--from-data` re-renders without re-running. First
+    run (commit de82555, 2545 specs, 20 s cap): on AbsSynthe-contributing specs
+    where both engines synthesize the **median is rough parity** (22 ms vs 17 ms)
+    but **aggregate ×0.47 (slower)** — a tail of AbsSynthe BDD solves outlasts
+    ltlsynt, and the fixed AbsSynthe spawn+CUDD-init cost hurts on specs ltlsynt
+    does in ms. Real wins: **18 specs ltlsynt cannot do in 20 s that we solve**
+    (GR(1) `amba_gr`, large decomposed safety).
+  - [ ] **Completeness gaps (PRIORITY, blocks the "fast preprocessor" claim): 80
+    specs we FAIL where ltlsynt succeeds** (selection-ltl-2025 ×41, sweap ×39). The
+    ltlsynt fallback is handed a malformed interface — e.g. `amba_decomposed_*_pb_*`
+    emits a residual whose formula references `HBUSREQ_7` but `residual_print_signals`
+    omits it from `--ins/--outs` (the cluster `root` references an AP not in its
+    `seen[]` set), so ltlsynt errors out fast instead of solving. Fix the
+    formula/`seen`-set consistency (and audit `sweap`). Until fixed we are *less
+    complete* than bare ltlsynt on these families.
+  - [ ] **Speed lever: skip/curb AbsSynthe on trivial clusters.** The spawn + CUDD
+    init is a fixed ~hundreds-of-ms cost; on specs ltlsynt solves in ms it makes us
+    net-slower. Gate AbsSynthe behind a cheap size/fan-out heuristic, or reuse a
+    persistent solver, so the abstraction only pays where it wins.
 
 > **Tracker note**: the synthesis-graph tracker tasks (#66–#71) are stale —
 > superseded by committed work; this file is the source of truth.
