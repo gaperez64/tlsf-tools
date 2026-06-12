@@ -311,8 +311,15 @@ fairness-bearing tail.
     (AbsSynthe solves it in 0.04 s, Spot can't verify it in time) stay
     self-contained.
   - [ ] **Open follow-ons.** (a) Nested weak-until `G(req→(A W B))` where A/B carry
-    inner `W`/`R` (MusicAppFeedback) — needs sub-monitors. (b) `zoo5` W/R compile
-    miss — diagnose which conjunct returns `UINT32_MAX`. (c) U-shaped responses
+    inner `W`/`R` (MusicAppFeedback) — needs sub-monitors. (b) `zoo5` is *not* a
+    compile miss: the game builds (depth 1) but AbsSynthe calls it UNREALIZABLE
+    while ltlsynt finds it realizable, i.e. the encoding **over-constrains** it (the
+    safe direction — sound ltlsynt fallback, never a wrong controller). Root cause:
+    a guarantee invariant with an `X` over inputs only
+    (`G(clicked ↔ (activated ↔ X!activated))`) whose violation is detected one step
+    late, so the `!released` gating mis-times relative to the assume violation that
+    should excuse it. Fixing the X/release timing risks the verified common case;
+    left as fallback. (c) U-shaped responses
     `G(req→X(a U b))` behind the gate — *first* confirm the unsound cases are
     Spot-tractable (else same trap as lever 2). (d) AbsSynthe BDD perf / GR(1)-aware
     abstraction for big amba (`pb_10+`). (e) GR(2)/generalized-Rabin for `amba_gr+`.
