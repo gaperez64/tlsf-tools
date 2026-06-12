@@ -377,7 +377,12 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  print_ltl(out, root, fmt, full_parens, finite);
+  // ltlxba targets ltl2ba/spot/ltlsynt, which read uppercase letters as
+  // operators; lowercase the atoms there (as syfco -f ltlxba does) so the
+  // output is directly consumable.  The faithful `ltl`/`latex` dialects keep
+  // the case.
+  print_ltl(out, root, fmt, full_parens, finite,
+            /*lower_atoms=*/fmt == LTL_FMT_LTLXBA);
   if (output_file)
     fclose(out);
 

@@ -67,6 +67,11 @@ void aig_add_fairness(Aig *g, uint32_t lit, const char *name);
 /// backends that expose controllable outputs as `controllable_<name>`.
 void aig_strip_output_prefix(Aig *g, const char *prefix);
 
+/// Rename signal `from` to `to` wherever it appears (inputs, outputs, and the
+/// lookup registry).  Used to map a controller a backend produced under
+/// renamed atoms (e.g. lowercased for ltlsynt) back to the spec's names.
+void aig_rename_signal(Aig *g, const char *from, const char *to);
+
 /// Compile a temporal-free Boolean node into `g` (AP names resolved via
 /// `aig_lookup`).  Returns the literal, or UINT32_MAX if a name is unknown or
 /// the node is not Boolean.

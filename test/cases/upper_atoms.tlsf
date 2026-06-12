@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "upper_atoms"
+  DESCRIPTION: "uppercase signal names: ltlxba lowercases (for ltlsynt), ltl keeps case"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { HREQ; HSTOP; }
+  OUTPUTS { HGRANT; }
+  GUARANTEE {
+    G ((HREQ) -> (F (HGRANT)));
+    G ((HSTOP) -> (! (HGRANT)));
+  }
+}

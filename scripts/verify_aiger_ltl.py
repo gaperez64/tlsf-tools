@@ -18,8 +18,11 @@ def read_formula(args):
         with open(args.formula_file, encoding="utf-8") as fp:
             return fp.read().strip()
     if args.tlsf is not None:
+        # Use the case-preserving `ltl` dialect: the AIGER controller keeps the
+        # spec's original signal names, but `ltlxba` lowercases atoms (for
+        # ltlsynt), which would not match the controller's symbols.
         proc = subprocess.run(
-            [args.tlsf2ltl, args.tlsf],
+            [args.tlsf2ltl, "--format", "ltl", args.tlsf],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

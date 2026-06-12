@@ -119,14 +119,16 @@ python3 scripts/verify_aiger_ltl.py --compose build/tlsfcompose \
 
 `tlsfnorm` re-emits clean TLSF (split conjunctions, NNF, boolean simplify);
 `tlsf2ltl` gives the formula and `tlsfinfo` the interface, so any spot/Strix-style
-tool can take over.
+tool can take over. The `ltlxba` dialect lowercases atoms (spot/ltl2ba read
+uppercase letters as operators — as `syfco -f ltlxba` does), so lowercase the
+interface to match; the faithful `ltl` dialect keeps the original case.
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
-ins=$(tlsfinfo  --input-signals  spec.norm.tlsf | tr -d ' ')
-outs=$(tlsfinfo --output-signals spec.norm.tlsf | tr -d ' ')
-ltlsynt --ins="$ins" --outs="$outs" -f "$(tlsf2ltl spec.norm.tlsf)"
-strix   --ins="$ins" --outs="$outs" -f "$(tlsf2ltl --format ltl spec.norm.tlsf)"
+lc() { tr 'A-Z' 'a-z' | tr -d ' '; }
+ins=$(tlsfinfo  --input-signals  spec.norm.tlsf | lc)
+outs=$(tlsfinfo --output-signals spec.norm.tlsf | lc)
+ltlsynt --ins="$ins" --outs="$outs" -f "$(tlsf2ltl spec.norm.tlsf)"   # ltlxba
 ```
 
 ### 4 · Cluster a benchmark set by type / template

@@ -1495,7 +1495,8 @@ static char *formula_str(const Csnf *c, const Node *n) {
   if (!ms)
     return nullptr;
   print_ltl(ms, n, LTL_FMT_LTLXBA, false,
-            semantics_is_finite(c->cov->spec->info.semantics));
+            semantics_is_finite(c->cov->spec->info.semantics),
+            /*lower_atoms=*/false);
   fclose(ms);
   if (sz && buf[sz - 1] == '\n')
     buf[sz - 1] = '\0';

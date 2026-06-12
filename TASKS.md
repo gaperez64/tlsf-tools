@@ -338,14 +338,27 @@ fairness-bearing tail.
     ltlsynt, and the fixed AbsSynthe spawn+CUDD-init cost hurts on specs ltlsynt
     does in ms. Real wins: **18 specs ltlsynt cannot do in 20 s that we solve**
     (GR(1) `amba_gr`, large decomposed safety).
-  - [ ] **Completeness gaps (PRIORITY, blocks the "fast preprocessor" claim): 80
-    specs we FAIL where ltlsynt succeeds** (selection-ltl-2025 ×41, sweap ×39). The
-    ltlsynt fallback is handed a malformed interface — e.g. `amba_decomposed_*_pb_*`
-    emits a residual whose formula references `HBUSREQ_7` but `residual_print_signals`
-    omits it from `--ins/--outs` (the cluster `root` references an AP not in its
-    `seen[]` set), so ltlsynt errors out fast instead of solving. Fix the
-    formula/`seen`-set consistency (and audit `sweap`). Until fixed we are *less
-    complete* than bare ltlsynt on these families.
+  - [x] **Completeness gap #1 — uppercase/mixed-case atom names (FIXED).** The
+    `HBUSREQ_7` diagnosis was a red herring: `ap_table_find` is a *pointer-identity*
+    lookup, so the formula was fine. The real bug: `ltlsynt --formula` (the ltl2ba /
+    spot ltlxba dialect) reads any uppercase letter as an operator, so an atom like
+    `changeRoom` / `HGRANT` is rejected (`should match …`).  Fix: lowercase the
+    formula + `--ins/--outs` for the ltlsynt call and rename the controller back to
+    the spec's case (`aig_rename_signal`); `tlsf2ltl --format ltlxba` lowercases
+    atoms too (matching `syfco -f ltlxba`; `--format ltl` keeps case), and
+    `verify_aiger_ltl.py` uses `--format ltl` so its APs match the controller. Tests
+    `aiger_upper_atoms_rename`, `ltl_upper_atoms_{ltlxba,ltl}`.
+  - [ ] **Completeness gap #2 — input-only assumption clusters (the real blocker,
+    PRIORITY).** With gap #1 fixed, re-running the 80 gaps shows **70 now reach
+    UNREALIZABLE** (8 timeout, 2 fail, 0 wrongly-parse): dominated by `sweap/*-real`.
+    The decomposition emits an **input-only cluster** (`outs=` empty, e.g. a `G(...)`
+    over inputs from `ASSUMPTIONS`) and `tlsfcompose` synthesises it standalone →
+    UNREALIZABLE → fails a realizable spec. An assumption-only / output-free cluster
+    needs no controller and must be skipped (it is an antecedent, not a game).
+    Also seen: a guarantee whose only outputs are template-eliminated leaving an
+    input-only unrealizable residual (`G(HREQ -> F false)` from free-output
+    substitution of a response's grant) — a composition-soundness edge to audit.
+    Until fixed we are *less complete* than bare ltlsynt on these families.
   - [ ] **Speed lever: skip/curb AbsSynthe on trivial clusters.** The spawn + CUDD
     init is a fixed ~hundreds-of-ms cost; on specs ltlsynt solves in ms it makes us
     net-slower. Gate AbsSynthe behind a cheap size/fan-out heuristic, or reuse a

@@ -535,6 +535,13 @@ test('aiger_unclassified_atom', check,
   args: [files('test/cases/aiger_unclassified_atom.aag'), tlsfcompose_exe,
          '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
          files('test/cases/aiger_unclassified_atom.tlsf')])
+# Uppercase atom names: ltlsynt's parser mishandles them, so the cluster is
+# lowercased for the (fake) ltlsynt call and the returned controller is renamed
+# back -- the merged AIGER must carry the spec's ORIGINAL-case symbols.
+test('aiger_upper_atoms_rename', check,
+  args: [files('test/cases/upper_atoms.merged.aag'), tlsfcompose_exe,
+         '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
+         files('test/cases/upper_atoms.tlsf')])
 test('aiger_abssynthe_safety', check,
   args: [files('test/cases/inv_decline.abssynthe.aag'), tlsfcompose_exe,
          '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
@@ -856,6 +863,16 @@ test('primes_inputs', check,
 test('primes_ltl', check,
   args: [files('test/cases/primes.ltl'), tlsf2ltl_exe,
          files('test/cases/primes.tlsf')])
+
+# Uppercase atom names: ltlxba lowercases them (spot/ltl2ba read uppercase as
+# operators, so this is what ltlsynt consumes, matching syfco -f ltlxba); the
+# faithful ltl dialect keeps the original case.
+test('ltl_upper_atoms_ltlxba', check,
+  args: [files('test/cases/upper_atoms.ltlxba.ltl'), tlsf2ltl_exe,
+         '--format', 'ltlxba', files('test/cases/upper_atoms.tlsf')])
+test('ltl_upper_atoms_ltl', check,
+  args: [files('test/cases/upper_atoms.ltl'), tlsf2ltl_exe,
+         '--format', 'ltl', files('test/cases/upper_atoms.tlsf')])
 
 # tlsf2ltl modes: safety / liveness selection and -os/-ot overrides.
 test('ltl_safety', check,

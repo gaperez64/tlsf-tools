@@ -1,6 +1,7 @@
 #include "tlsf/print_ltlxba.h"
 
 #include <assert.h>
+#include <ctype.h>
 
 // ---------------------------------------------------------------------------
 // Operator precedence (matches spot / ltl2ba and the TLSF arXiv papers).
@@ -68,6 +69,13 @@ typedef struct LtlSyntax {
 
 static void atom_plain(FILE *out, const char *name) {
   fprintf(out, "%s", name);
+}
+
+// ltlsynt / ltl2ba read uppercase letters as operators, so atoms are lowercased
+// for the ltlxba dialect on request (as `syfco -f ltlxba` does).
+static void atom_lower(FILE *out, const char *name) {
+  for (const char *p = name; *p; p++)
+    fputc(tolower((unsigned char)*p), out);
 }
 
 // LaTeX math: wrap in \mathit{} and escape underscores; primes pass through.
@@ -297,8 +305,11 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
 }
 
 void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
-               bool finite) {
-  emit(out, root, 1, full_parens, finite, syntax_for(fmt));
+               bool finite, bool lower_atoms) {
+  LtlSyntax s = *syntax_for(fmt);
+  if (lower_atoms)
+    s.emit_atom = atom_lower;
+  emit(out, root, 1, full_parens, finite, &s);
   fprintf(out, "\n");
 }
 
@@ -433,5 +444,6 @@ void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
                        bool full_parens) {
   Node *root = build_spec_formula(spec, cs, mode);
   bool finite = semantics_is_finite(spec->info.semantics);
-  print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite);
+  print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite,
+            /*lower_atoms=*/false);
 }

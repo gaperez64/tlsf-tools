@@ -215,6 +215,27 @@ void aig_strip_output_prefix(Aig *g, const char *prefix) {
   }
 }
 
+static void rename_in(char **slot, const char *from, const char *to) {
+  if (strcmp(*slot, from) != 0)
+    return;
+  char *t = strdup(to);
+  if (!t)
+    return;
+  free(*slot);
+  *slot = t;
+}
+
+void aig_rename_signal(Aig *g, const char *from, const char *to) {
+  if (strcmp(from, to) == 0)
+    return;
+  for (uint32_t i = 0; i < g->nin; i++)
+    rename_in(&g->ins[i].name, from, to);
+  for (uint32_t i = 0; i < g->nout; i++)
+    rename_in(&g->outs[i].name, from, to);
+  for (uint32_t i = 0; i < g->nsig; i++)
+    rename_in(&g->sig[i].name, from, to);
+}
+
 uint32_t aig_compile(Aig *g, const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:

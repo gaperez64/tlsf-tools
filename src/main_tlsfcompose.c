@@ -26,6 +26,7 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
@@ -44,13 +45,13 @@ extern char **environ;
 
 // Render a (Boolean/LTL) node to a heap string in the ltlxba/ltl dialect, with
 // any trailing newline stripped (for ltlsynt --formula=).
-static char *ltl_string(const Node *n, LtlFormat fmt, bool finite) {
+static char *ltl_string(const Node *n, LtlFormat fmt, bool finite, bool lower) {
   char *buf = nullptr;
   size_t sz = 0;
   FILE *ms = open_memstream(&buf, &sz);
   if (!ms)
     return nullptr;
-  print_ltl(ms, n, fmt, /*full_parens=*/false, finite);
+  print_ltl(ms, n, fmt, /*full_parens=*/false, finite, lower);
   fclose(ms);
   if (sz && buf[sz - 1] == '\n')
     buf[sz - 1] = '\0';
@@ -106,12 +107,75 @@ static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
   return g;
 }
 
+static char *str_dup_lower(const char *s) {
+  size_t n = strlen(s);
+  char *o = malloc(n + 1);
+  if (!o)
+    return nullptr;
+  for (size_t i = 0; i < n; i++)
+    o[i] = (char)tolower((unsigned char)s[i]);
+  o[n] = '\0';
+  return o;
+}
+
+// ltlsynt's ltlxba parser mishandles atoms containing uppercase letters (syfco
+// lowercases for the same reason).  When a cluster has such names we send a
+// lowercased formula/interface to ltlsynt and rename the controller back.
+static bool seen_has_uppercase(ConstraintCover *cov, const bool *seen) {
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a])
+      continue;
+    for (const char *p = ap_table_name(&cov->aps, a); *p; p++)
+      if (*p >= 'A' && *p <= 'Z')
+        return true;
+  }
+  return false;
+}
+
+// Lowercasing is usable only if it stays injective over the seen names, so the
+// rename-back of the controller is unambiguous.
+static bool seen_lower_safe(ConstraintCover *cov, const bool *seen) {
+  bool ok = true;
+  uint32_t cap = 0;
+  char **lc = nullptr;
+  for (uint32_t a = 0; a < cov->aps.count && ok; a++) {
+    if (!seen[a])
+      continue;
+    const char *na = ap_table_name(&cov->aps, a);
+    char *l = str_dup_lower(na);
+    if (!l) {
+      ok = false;
+      break;
+    }
+    for (uint32_t i = 0; i < cap; i++)
+      if (strcmp(lc[i], l) == 0) {
+        ok = false; // two names collide once lowercased
+        break;
+      }
+    char **grown = ok ? realloc(lc, (cap + 1) * sizeof *lc) : nullptr;
+    if (ok && grown) {
+      lc = grown;
+      lc[cap++] = l;
+    } else {
+      free(l);
+      ok = false;
+    }
+  }
+  for (uint32_t i = 0; i < cap; i++)
+    free(lc[i]);
+  free(lc);
+  return ok;
+}
+
 // Synthesize one cluster with ltlsynt: render `root` to LTL and pass the
 // cluster's input/output interface.  Caller frees the returned strategy AIG.
+// When the cluster has uppercase atom names (which ltlsynt's parser mishandles)
+// the formula and interface are lowercased and the controller is renamed back.
 static Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
                                 const bool *seen, const Node *root,
                                 LtlFormat fmt, bool finite, int *unreal) {
-  char *ltl = ltl_string(root, fmt, finite);
+  bool lower = seen_has_uppercase(cov, seen) && seen_lower_safe(cov, seen);
+  char *ltl = ltl_string(root, fmt, finite, lower);
   char *ins = nullptr, *outs = nullptr;
   size_t isz = 0, osz = 0;
   FILE *fi = open_memstream(&ins, &isz), *fo = open_memstream(&outs, &osz);
@@ -119,7 +183,31 @@ static Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
   residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
   fclose(fi);
   fclose(fo);
+  if (lower && ins && outs) { // match the lowercased formula's atoms
+    char *il = str_dup_lower(ins), *ol = str_dup_lower(outs);
+    if (il && ol) {
+      free(ins);
+      ins = il;
+      free(outs);
+      outs = ol;
+    } else {
+      free(il);
+      free(ol); // OOM: fall through; the mismatch makes ltlsynt return nothing
+    }
+  }
+
   Aig *sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, unreal) : nullptr;
+  if (sub && lower) // map the lowercased controller back to the spec's names
+    for (uint32_t a = 0; a < cov->aps.count; a++) {
+      if (!seen[a])
+        continue;
+      const char *orig = ap_table_name(&cov->aps, a);
+      char *lc = str_dup_lower(orig);
+      if (lc) {
+        aig_rename_signal(sub, lc, orig);
+        free(lc);
+      }
+    }
   free(ltl);
   free(ins);
   free(outs);
@@ -1726,7 +1814,9 @@ static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
 static bool controller_violates_spec(const char *verifier, Aig *controller,
                                      const Node *root, LtlFormat fmt,
                                      bool finite) {
-  char *ltl = ltl_string(root, fmt, finite);
+  // The controller AIGER keeps the spec's original signal names, so the spec
+  // formula handed to the verifier must too (no lowering).
+  char *ltl = ltl_string(root, fmt, finite, /*lower=*/false);
   if (!ltl)
     return false;
   char tmp[] = "/tmp/tlsfcompose-verify-XXXXXX";
@@ -2275,7 +2365,8 @@ int main(int argc, char *argv[]) {
         ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output);
     FILE *dst = ctlf ? ctlf : out;
     fprintf(dst, "ctl %s := ", oname);
-    print_ltl(dst, comp->elim[k].value, fmt, /*full_parens=*/false, finite);
+    print_ltl(dst, comp->elim[k].value, fmt, /*full_parens=*/false, finite,
+              /*lower_atoms=*/false);
   }
   if (ctlf)
     fclose(ctlf);
@@ -2315,7 +2406,7 @@ int main(int argc, char *argv[]) {
       fprintf(cf, "\nc ins=");
       residual_print_signals(cf, cov, seen, AP_FLAG_INPUT);
       fprintf(cf, "\n");
-      print_ltl(cf, root, fmt, false, finite);
+      print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/false);
       fclose(cf);
       fprintf(shf, "run cluster.%u.ltl \"", k);
       residual_print_signals(shf, cov, seen, AP_FLAG_INPUT);
@@ -2333,7 +2424,7 @@ int main(int argc, char *argv[]) {
       fprintf(out, " ins=");
       residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
-      print_ltl(out, root, fmt, false, finite);
+      print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/false);
     }
   }
   if (shf) {
