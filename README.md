@@ -251,10 +251,8 @@ faster and uses ~7× less memory than `syfco -f ltlxba`.
 
 Relative to `syfco`, not implemented: structured synthesis outputs
 (`smv`/`slugs`/`promela`/…), partition (`.part`) and config (`-r`/`-w`) files.
-The full TLSF surface *is* parsed (including `enum` types and `M` reused as an
-identifier); all **2545** SYNTCOMP `tlsf` and **2487** `tlsf-fin` benchmarks
-convert. Reserved flags (`--from-gsnf`, `--from-csnf`, `--side-conditions sat|bdd`,
-…) report a clear "not implemented" error.
+Reserved flags (`--from-gsnf`, `--from-csnf`, `--side-conditions sat|bdd`, …)
+report a clear "not implemented" error.
 
 ## License
 
