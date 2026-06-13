@@ -471,7 +471,8 @@ static bool g_body_wr_supported(const Node *n) {
     if (xn->kind == NODE_X || xn->kind == NODE_X_STRONG)
       xn = xn->arg;
     return (xn->kind == NODE_W || xn->kind == NODE_R) &&
-           abssynthe_body_supported(xn->lhs) && abssynthe_body_supported(xn->rhs);
+           abssynthe_body_supported(xn->lhs) &&
+           abssynthe_body_supported(xn->rhs);
   }
   case NODE_R:
     // G(a R b) == G(b): lhs is irrelevant; rhs may itself contain W/R.
@@ -1197,10 +1198,9 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
     uint32_t sub_arm =
         aig_and(g, aig_and(g, valid, arm_gate),
                 aig_and(g, cond, aig_not(b))); // arm when gate & cond & !B
-    uint32_t inner_release =
-        inner->kind == NODE_W ? ib : aig_and(g, ia, ib);
-    uint32_t inner_fail =
-        inner->kind == NODE_W ? aig_and(g, aig_not(ia), aig_not(ib))
+    uint32_t inner_release = inner->kind == NODE_W ? ib : aig_and(g, ia, ib);
+    uint32_t inner_fail = inner->kind == NODE_W
+                              ? aig_and(g, aig_not(ia), aig_not(ib))
                               : aig_not(ib);
     uint32_t combined_release = aig_or(g, inner_release, b); // inner or outer B
     uint32_t owe = aig_latch(g, AIG_FALSE, AIG_FALSE);
@@ -1217,10 +1217,10 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
                               aig_and(g, active, aig_not(combined_release))))
         return false;
     }
-    *bad = aig_or(g, *bad,
-                  aig_and(g, valid, aig_and(g, active,
-                                            aig_and(g, inner_fail,
-                                                    aig_not(b)))));
+    *bad =
+        aig_or(g, *bad,
+               aig_and(g, valid,
+                       aig_and(g, active, aig_and(g, inner_fail, aig_not(b)))));
     return true;
   }
   case NODE_R: // G(outer_req -> (a R b)) == G(outer_req -> b): rhs may have W/R
