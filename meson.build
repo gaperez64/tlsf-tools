@@ -613,6 +613,27 @@ test('aiger_abssynthe_strict_safety_timeout', check_fail_stderr,
          '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
          '--ltlsynt', '/bin/false', files('test/cases/strict_safety.tlsf')],
   env: {'ABSSYNTHE_TIMEOUT': '1'})
+# W/R safety fallback: AbsSynthe timeout on a structural W/R cluster falls back
+# to ltlsynt (here /bin/false, so the cluster still fails).
+test('aiger_abssynthe_wr_timeout', check_fail_stderr,
+  args: [files('test/cases/compose_wr_timeout.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
+         '--ltlsynt', '/bin/false', files('test/cases/wr_assume.tlsf')],
+  env: {'ABSSYNTHE_TIMEOUT': '1'})
+# Bounded-liveness fallback: AbsSynthe timeout on a bounded cluster falls back
+# to ltlsynt (here /bin/false, so the cluster still fails).
+test('aiger_abssynthe_bounded_timeout', check_fail_stderr,
+  args: [files('test/cases/compose_bounded_timeout.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
+         '--ltlsynt', '/bin/false', files('test/cases/bounded_resp.tlsf')],
+  env: {'ABSSYNTHE_TIMEOUT': '1'})
+# GR(1) fallback: AbsSynthe timeout on a GR(1) cluster falls back to ltlsynt
+# (here /bin/false, so the cluster still fails).
+test('aiger_abssynthe_gr1_timeout', check_fail_stderr,
+  args: [files('test/cases/compose_gr1_timeout.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
+         '--ltlsynt', '/bin/false', files('test/cases/gr1_spec.tlsf')],
+  env: {'ABSSYNTHE_TIMEOUT': '1'})
 # ABSSYNTHE_MIN_APS cost gate: clusters below the AP threshold skip AbsSynthe.
 # Use a hanging AbsSynthe stand-in to prove it is never invoked (test returns
 # immediately, not after the hang timeout).
