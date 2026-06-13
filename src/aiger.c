@@ -215,6 +215,65 @@ void aig_strip_output_prefix(Aig *g, const char *prefix) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Read accessors (for in-process solvers walking a game's cones)
+// ---------------------------------------------------------------------------
+
+uint32_t aig_num_inputs(const Aig *g) { return g->nin; }
+
+const char *aig_input_name(const Aig *g, uint32_t i, uint32_t *lit) {
+  if (lit)
+    *lit = g->ins[i].var * 2;
+  return g->ins[i].name;
+}
+
+uint32_t aig_num_latches(const Aig *g) { return g->nlat; }
+
+void aig_latch_at(const Aig *g, uint32_t i, uint32_t *cur, uint32_t *next,
+                  uint32_t *reset) {
+  if (cur)
+    *cur = g->lat[i].var * 2;
+  if (next)
+    *next = g->lat[i].next;
+  if (reset)
+    *reset = g->lat[i].reset;
+}
+
+uint32_t aig_num_ands(const Aig *g) { return g->nand; }
+
+void aig_and_at(const Aig *g, uint32_t i, uint32_t *lhs, uint32_t *r0,
+                uint32_t *r1) {
+  if (lhs)
+    *lhs = g->ands[i].var * 2;
+  if (r0)
+    *r0 = g->ands[i].r0;
+  if (r1)
+    *r1 = g->ands[i].r1;
+}
+
+uint32_t aig_output_lit(const Aig *g, const char *name) {
+  for (uint32_t i = 0; i < g->nout; i++)
+    if (strcmp(g->outs[i].name, name) == 0)
+      return g->outs[i].lit;
+  return UINT32_MAX;
+}
+
+uint32_t aig_num_justice(const Aig *g) { return g->njust; }
+
+void aig_justice_at(const Aig *g, uint32_t j, const uint32_t **lits,
+                    uint32_t *n) {
+  if (lits)
+    *lits = g->just[j].lits;
+  if (n)
+    *n = g->just[j].n;
+}
+
+uint32_t aig_num_fairness(const Aig *g) { return g->nfair; }
+
+uint32_t aig_fairness_at(const Aig *g, uint32_t i) {
+  return g->fair[i].lit;
+}
+
 static void rename_in(char **slot, const char *from, const char *to) {
   if (strcmp(*slot, from) != 0)
     return;

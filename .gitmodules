@@ -2,3 +2,6 @@
 	path = external/AbsSynthe
 	url = https://github.com/gaperez64/AbsSynthe.git
 	branch = native-dev-par
+[submodule "external/oxidd"]
+	path = external/oxidd
+	url = https://github.com/OxiDD/oxidd.git

@@ -115,6 +115,56 @@ elif abssynthe_submodule_ready
 endif
 
 # ---------------------------------------------------------------------------
+# Optional in-process safety solver: OxiDD (Rust + C FFI), vendored as a
+# submodule and built manually (like AbsSynthe) so the default build/CI stay
+# dependency-free.  `meson compile -C build oxidd-build` produces the static
+# library + cbindgen header; reconfigure to pick them up.
+# ---------------------------------------------------------------------------
+
+oxidd_feature = get_option('oxidd')
+oxidd_dir = join_paths(meson.project_source_root(), 'external', 'oxidd')
+oxidd_build_sh = join_paths(meson.project_source_root(), 'scripts', 'build_oxidd.sh')
+oxidd_lib_path = join_paths(oxidd_dir, 'target', 'release', 'liboxidd_ffi_c.a')
+oxidd_inc_path = join_paths(oxidd_dir, 'build', 'include')
+oxidd_capi_h = join_paths(oxidd_inc_path, 'oxidd', 'capi.h')
+oxidd_submodule_ready = fs.exists(join_paths(oxidd_dir, 'crates', 'oxidd-ffi-c', 'Cargo.toml'))
+
+if git.found()
+  run_target(
+    'oxidd-submodule',
+    command: [
+      git, 'submodule', 'update', '--init', '--recursive', 'external/oxidd',
+    ],
+  )
+endif
+if bash.found()
+  run_target('oxidd-build', command: [bash, oxidd_build_sh])
+endif
+
+oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h)
+oxidd_dep = dependency('', required: false)  # null dependency by default
+have_oxidd = false
+if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
+  if not oxidd_ready
+    error(
+      'OxiDD feature requested but artifacts are missing. Run ' +
+      '`meson compile -C build oxidd-build` (after ' +
+      '`meson compile -C build oxidd-submodule`), then reconfigure.',
+    )
+  endif
+  # Rust staticlib pulls in the system threading/dl/math runtime.
+  oxidd_dep = declare_dependency(
+    include_directories: include_directories('external/oxidd/build/include'),
+    link_args: [oxidd_lib_path, '-lpthread', '-ldl', '-lm'],
+  )
+  have_oxidd = true
+  message('OxiDD safety solver enabled (' + oxidd_lib_path + ')')
+elif oxidd_feature.auto()
+  message('OxiDD safety solver disabled (artifacts absent; build with ' +
+          '`meson compile -C build oxidd-build`)')
+endif
+
+# ---------------------------------------------------------------------------
 # Codegen: flex → tlsf_lex.c + tlsf_lex.h
 # ---------------------------------------------------------------------------
 
@@ -273,13 +323,36 @@ tlsfresidual_exe = executable(
   install: true,
 )
 
+tlsfcompose_sources = ['src/main_tlsfcompose.c', bison_out[1]]
+tlsfcompose_args = []
+tlsfcompose_deps = []
+if have_oxidd
+  tlsfcompose_sources += ['src/safety_oxidd.c', 'src/gr1_oxidd.c']
+  tlsfcompose_args += '-DHAVE_OXIDD'
+  tlsfcompose_deps += oxidd_dep
+endif
+
 tlsfcompose_exe = executable(
   'tlsfcompose',
-  sources: ['src/main_tlsfcompose.c', bison_out[1]],
+  sources: tlsfcompose_sources,
+  c_args: tlsfcompose_args,
+  dependencies: tlsfcompose_deps,
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
 )
+
+if have_oxidd
+  tlsfsolve_exe = executable(
+    'tlsfsolve',
+    sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
+    c_args: ['-DHAVE_OXIDD'],
+    dependencies: [oxidd_dep],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
+endif
 
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
@@ -582,13 +655,11 @@ foreach name : ['bounded_until', 'bounded_wuntil']
            '--ltlsynt', '/bin/false', '--bound', '4',
            files('test/cases/' + name + '.tlsf')])
 endforeach
-# GR(1): fairness G F a + recurrence/response justice -> a real justice/fairness
-# AIGER game, routed to AbsSynthe (fake stub) with ltlsynt disabled.
-# gr1_multifair has two fairness assumptions in one cluster.
-foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
-                'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
-                'gr1_strict_multi', 'wr_response', 'wr_release', 'wr_resp_nox',
-                'wr_rel_resp', 'wr_assume', 'wr_distributable_impl',
+# W/R: structural W-safety or R-safety games routed to the fake AbsSynthe stub.
+# GR(1) specs are no longer in this list: they now use the in-process OxiDD
+# solver and are Spot-verified in the have_oxidd block below.
+foreach name : ['wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
+                'wr_assume', 'wr_distributable_impl',
                 'wr_gated_nox', 'wr_gated_collapse', 'wr_xdelay2',
                 'wr_r_collapse', 'wr_r_x_in_body']
   test('aiger_abssynthe_' + name, check,
@@ -629,13 +700,8 @@ test('aiger_abssynthe_bounded_timeout', check_fail_stderr,
          '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
          '--ltlsynt', '/bin/false', files('test/cases/bounded_resp.tlsf')],
   env: {'ABSSYNTHE_TIMEOUT': '1'})
-# GR(1) fallback: AbsSynthe timeout on a GR(1) cluster falls back to ltlsynt
-# (here /bin/false, so the cluster still fails).
-test('aiger_abssynthe_gr1_timeout', check_fail_stderr,
-  args: [files('test/cases/compose_gr1_timeout.err'), tlsfcompose_exe,
-         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
-         '--ltlsynt', '/bin/false', files('test/cases/gr1_spec.tlsf')],
-  env: {'ABSSYNTHE_TIMEOUT': '1'})
+# (GR(1) timeout test removed: GR(1) clusters now use the in-process OxiDD
+#  solver and never invoke AbsSynthe, so the timeout path no longer exists.)
 # ABSSYNTHE_MIN_APS cost gate: clusters below the AP threshold skip AbsSynthe.
 # Use a hanging AbsSynthe stand-in to prove it is never invoked (test returns
 # immediately, not after the hang timeout).
@@ -652,11 +718,10 @@ test('aiger_not_g_is_liveness', check_fail_stderr,
          '--ltlsynt', '/bin/false',
          files('test/cases/compose_not_g_is_liveness.tlsf')])
 # Self-verification gate mechanism (trivial verifiers; no Spot/AbsSynthe needed).
-# /bin/true = "verified" -> controller kept (same golden as without --verify);
+# /bin/true = "verified" -> controller kept (exit 0);
 # /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).
-test('aiger_verify_gate_keeps', check,
-  args: [files('test/cases/gr1_spec.abssynthe.aag'), tlsfcompose_exe,
-         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+test('aiger_verify_gate_keeps', tlsfcompose_exe,
+  args: ['--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
          '--ltlsynt', '/bin/false', '--verify', '/bin/true',
          files('test/cases/gr1_spec.tlsf')])
 test('aiger_verify_gate_falls_back', xfail,
@@ -789,6 +854,54 @@ if python3.found() and spot_python_found
                '--tlsf2ltl', tlsf2ltl_path,
                '--tlsf', files('test/cases/' + name + '.tlsf')])
     endforeach
+  endif
+  if have_oxidd
+    # OxiDD in-process safety solver: Spot-verify the controller against the
+    # full spec.  No AbsSynthe binary needed; pass /bin/false to assert it is
+    # never invoked on the safety/W-R clusters exercised here.
+    oxidd_path = join_paths(meson.current_build_dir(), 'tlsfcompose')
+    foreach name : ['assume_delay_real', 'cluster_prune_safe',
+                    'strict_safety',
+                    'bounded_resp', 'bounded_until', 'bounded_wuntil',
+                    'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
+                    'wr_assume', 'wr_distributable_impl', 'wr_gated_nox',
+                    'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body']
+      test('verify_aiger_oxidd_' + name, python3,
+        args: [files('scripts/verify_aiger_ltl.py'),
+               '--compose', oxidd_path,
+               '--abssynthe', '/bin/false',
+               '--ltlsynt', '/bin/false',
+               '--tlsf2ltl', tlsf2ltl_path,
+               '--tlsf', files('test/cases/' + name + '.tlsf')],
+        env: {'TLSF_SOLVER': 'oxidd'})
+    endforeach
+    # wr_gated_collapse is unrealizable; OxiDD correctly exits non-zero.
+    test('verify_aiger_oxidd_wr_gated_collapse_unreal', xfail,
+      args: [tlsfcompose_exe,
+             '--aiger', '--abssynthe', '/bin/false', '--ltlsynt', '/bin/false',
+             files('test/cases/wr_gated_collapse.tlsf')],
+      env: {'TLSF_SOLVER': 'oxidd'})
+    # GR(1): in-process OxiDD PPS fixpoint solver, Spot-verified.
+    # No TLSF_SOLVER env needed: GR(1) clusters always use OxiDD when HAVE_OXIDD.
+    if python3.found() and spot_python_found
+      foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
+                      'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
+                      'gr1_strict_multi']
+        test('verify_aiger_oxidd_gr1_' + name, python3,
+          args: [files('scripts/verify_aiger_ltl.py'),
+                 '--compose', oxidd_path,
+                 '--abssynthe', '/bin/false',
+                 '--ltlsynt', '/bin/false',
+                 '--tlsf2ltl', tlsf2ltl_path,
+                 '--tlsf', files('test/cases/' + name + '.tlsf')])
+      endforeach
+    endif
+    # tlsfsolve: standalone AIGER game solver.
+    test('tlsfsolve_real', check,
+      args: [files('test/cases/solve_real.out.aag'),
+             tlsfsolve_exe, files('test/cases/solve_real.aag')])
+    test('tlsfsolve_unreal', xfail,
+      args: [tlsfsolve_exe, files('test/cases/solve_unreal.aag')])
   endif
 endif
 

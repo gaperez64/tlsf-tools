@@ -7,3 +7,12 @@ option(
   value: 'none',
   description: 'Enable sanitizers (for development builds)',
 )
+
+option(
+  'oxidd',
+  type: 'feature',
+  value: 'auto',
+  description: 'In-process OxiDD BDD safety solver for tlsfcompose ' +
+               '(needs the external/oxidd submodule built via ' +
+               '`meson compile -C build oxidd-build`)',
+)

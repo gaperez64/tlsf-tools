@@ -25,6 +25,10 @@
 #include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
+#ifdef HAVE_OXIDD
+#include "tlsf/gr1_oxidd.h"
+#include "tlsf/safety_oxidd.h"
+#endif
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -2073,6 +2077,28 @@ static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
   return strategy;
 }
 
+// Solve one safety game.  With $TLSF_SOLVER=oxidd (and the feature compiled in)
+// the game is solved in-process on OxiDD BDDs (no subprocess, no AIGER
+// round-trip); otherwise it goes to AbsSynthe.  Both take ownership of `game`,
+// and both return a strategy whose controllable outputs have been mapped back
+// to the cluster's output names (or nullptr, with *unreal set on a trusted
+// UNREALIZABLE verdict), so the downstream merge/verify path is identical.
+static Aig *solve_safety_game(const char *prog, ConstraintCover *cov,
+                              const bool *seen, Aig *game, int *unreal) {
+#ifdef HAVE_OXIDD
+  const char *solver = getenv("TLSF_SOLVER");
+  if (solver && strcmp(solver, "oxidd") == 0) {
+    Aig *strat = solve_safety_oxidd(game, unreal);
+    if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
+      aig_free(strat);
+      strat = nullptr;
+    }
+    return strat;
+  }
+#endif
+  return run_abssynthe_game(prog, cov, seen, game, unreal);
+}
+
 // Self-verification: run the external verifier (PROG --aiger FILE --formula
 // LTL) on a synthesized controller against the original cluster spec.  Returns
 // true ONLY when the verifier reports a definite violation (exit 1).  On
@@ -2150,30 +2176,44 @@ static bool controller_violates_spec(const char *verifier, Aig *controller,
 
 static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
                           const bool *seen, const Node *root, int *unreal) {
-  return run_abssynthe_game(prog, cov, seen,
-                            build_abssynthe_game(cov, seen, root), unreal);
+  return solve_safety_game(prog, cov, seen,
+                           build_abssynthe_game(cov, seen, root), unreal);
 }
 
 static Aig *run_abssynthe_wr(const char *prog, ConstraintCover *cov,
                              const bool *seen, const Node *root, int *unreal) {
-  return run_abssynthe_game(prog, cov, seen,
-                            build_abssynthe_wr_game(cov, seen, root), unreal);
+  return solve_safety_game(prog, cov, seen,
+                           build_abssynthe_wr_game(cov, seen, root), unreal);
 }
 
 static Aig *run_abssynthe_strict_safety(const char *prog, ConstraintCover *cov,
                                         const bool *seen, const Node *sys,
                                         const Node *env, int *unreal) {
-  return run_abssynthe_game(
+  return solve_safety_game(
       prog, cov, seen, build_abssynthe_strict_safety_game(cov, seen, sys, env),
       unreal);
+}
+
+static Aig *solve_gr1_game(const char *prog, ConstraintCover *cov,
+                           const bool *seen, Aig *game, int *unreal) {
+#ifdef HAVE_OXIDD
+  Aig *strat = solve_gr1_oxidd(game, unreal);
+  if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
+    aig_free(strat);
+    strat = nullptr;
+  }
+  return strat;
+#else
+  return run_abssynthe_game(prog, cov, seen, game, unreal);
+#endif
 }
 
 static Aig *run_abssynthe_gr1(const char *prog, ConstraintCover *cov,
                               const bool *seen, const Gr1Parts *parts,
                               int *unreal) {
-  return run_abssynthe_game(
-      prog, cov, seen, build_abssynthe_unbounded_gr1_game(cov, seen, parts),
-      unreal);
+  return solve_gr1_game(prog, cov, seen,
+                        build_abssynthe_unbounded_gr1_game(cov, seen, parts),
+                        unreal);
 }
 
 static void usage(const char *prog) {
@@ -2198,6 +2238,8 @@ static void usage(const char *prog) {
       "(seconds; 0/unset = unlimited); on timeout falls back to ltlsynt\n"
       "  $ABSSYNTHE_MIN_APS           skip AbsSynthe for clusters with fewer "
       "APs than this (0/unset = no gate; ltlsynt is faster on tiny clusters)\n"
+      "  $TLSF_SOLVER                 safety solver: 'abssynthe' (default) or "
+      "'oxidd' (in-process BDD; requires -Doxidd build)\n"
       "  --verify PROG                self-verify each AbsSynthe controller "
       "(PROG --aiger F --formula L; exit 1 = violation) and fall back to "
       "ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
