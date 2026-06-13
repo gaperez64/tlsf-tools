@@ -1,6 +1,7 @@
-# Architecture proposal — in-process safety solver on OxiDD
+# Architecture — in-process safety solver on OxiDD
 
-**Status:** design / proposal (not yet implemented).
+**Status:** phases 1–3 implemented (safety + W/R + strict-safety).
+Phases 4 (benchmark) in progress; GR(1) on OxiDD (phase 5) deferred.
 **Goal:** replace the AbsSynthe *subprocess* with a local, in-process BDD safety
 solver built on [OxiDD](https://oxidd.net/) (a modern Rust decision-diagram
 library with a C FFI), to make tlsf-tools a genuinely *fast* synthesis

@@ -44,8 +44,6 @@ def read_aiger(args):
     cmd = [args.compose, "--aiger"]
     if args.split:
         cmd.append("--split")
-    if args.abssynthe is not None:
-        cmd.extend(["--abssynthe", args.abssynthe])
     if args.ltlsynt is not None:
         cmd.extend(["--ltlsynt", args.ltlsynt])
     cmd.append(args.tlsf)
@@ -69,7 +67,6 @@ def parse_args(argv):
     parser.add_argument("--aiger", help="read AIGER from FILE")
     parser.add_argument("--compose", default="tlsfcompose",
                         help="tlsfcompose path used when --aiger is omitted")
-    parser.add_argument("--abssynthe", help="AbsSynthe path for tlsfcompose")
     parser.add_argument("--ltlsynt",
                         help="ltlsynt path for tlsfcompose; use /bin/false to "
                              "assert no fallback is used")

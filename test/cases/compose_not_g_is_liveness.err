@@ -1,1 +1,1 @@
-tlsfcompose: synthesis backend failed for cluster 0 (ltlsynt fallback: liveness temporal operators are not AbsSynthe-eligible)
+tlsfcompose: synthesis backend failed for cluster 0 (ltlsynt fallback: liveness temporal operators are not OxiDD-eligible)

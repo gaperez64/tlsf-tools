@@ -25,10 +25,8 @@
 #include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
-#ifdef HAVE_OXIDD
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/safety_oxidd.h"
-#endif
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -973,32 +971,28 @@ static ClusterShape cluster_shape(TlsfSpec *spec, const Node *root) {
 }
 
 static const char *cluster_ltlsynt_reason(const ClusterShape *shape,
-                                          bool finite, bool abs_configured,
-                                          char *buf, size_t buf_sz) {
+                                          bool finite, char *buf,
+                                          size_t buf_sz) {
   if (finite) {
-    snprintf(buf, buf_sz, "finite semantics are not supported by AbsSynthe");
+    snprintf(buf, buf_sz, "finite semantics are not OxiDD-eligible");
   } else if (shape->gr_level >= 0 && shape->has_liveness) {
     snprintf(buf, buf_sz,
              "GR(%d) residual with liveness; no GR backend is available "
              "without ltlsynt",
              shape->gr_level);
   } else if (shape->has_liveness) {
-    snprintf(buf, buf_sz,
-             "liveness temporal operators are not "
-             "AbsSynthe-eligible");
+    snprintf(buf, buf_sz, "liveness temporal operators are not OxiDD-eligible");
   } else if (shape->has_weak_until) {
     snprintf(buf, buf_sz,
-             "weak-until safety release is not AbsSynthe-eligible");
+             "weak-until safety release is not OxiDD-eligible");
   } else if (shape->has_release) {
-    snprintf(buf, buf_sz, "release safety shape is not AbsSynthe-eligible");
+    snprintf(buf, buf_sz, "release safety shape is not OxiDD-eligible");
   } else if (shape->has_strong_next) {
-    snprintf(buf, buf_sz, "finite-only strong-next is not AbsSynthe-eligible");
+    snprintf(buf, buf_sz,
+             "finite-only strong-next is not OxiDD-eligible");
   } else if (shape->has_high_level) {
     snprintf(buf, buf_sz,
              "unexpanded high-level operators are not backend-eligible");
-  } else if (!abs_configured) {
-    snprintf(buf, buf_sz,
-             "no AbsSynthe backend configured for this safety cluster");
   } else {
     snprintf(buf, buf_sz, "unsupported temporal shape");
   }
@@ -1943,160 +1937,18 @@ static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
   return true;
 }
 
-static void cleanup_abssynthe_tmp(const char *dir, const char *game,
-                                  const char *strat) {
-  if (game)
-    unlink(game);
-  if (strat)
-    unlink(strat);
-  if (dir)
-    rmdir(dir);
-}
-
-// Synthesize one safety game with AbsSynthe.  The backend slice accepts
-// strategy AAGs that expose each controllable as an output named either
-// `<name>` or `controllable_<name>`.
-static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
-                               const bool *seen, Aig *game, int *unreal) {
-  *unreal = 0;
-  if (!game)
-    return nullptr;
-
-  char dir[] = "/tmp/tlsfcompose-abssynthe-XXXXXX";
-  if (!mkdtemp(dir)) {
-    aig_free(game);
-    return nullptr;
+// Solve one safety game using OxiDD in-process BDD solver.  Takes ownership
+// of `game` and returns a strategy whose controllable outputs have been mapped
+// back to the cluster's output names (or nullptr, with *unreal set on a
+// trusted UNREALIZABLE verdict).
+static Aig *solve_safety_game(ConstraintCover *cov, const bool *seen,
+                              Aig *game, int *unreal) {
+  Aig *strat = solve_safety_oxidd(game, unreal);
+  if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
+    aig_free(strat);
+    strat = nullptr;
   }
-  char game_path[4096], strat_path[4096];
-  if (snprintf(game_path, sizeof game_path, "%s/game.aag", dir) >=
-          (int)sizeof game_path ||
-      snprintf(strat_path, sizeof strat_path, "%s/strategy.aag", dir) >=
-          (int)sizeof strat_path) {
-    cleanup_abssynthe_tmp(dir, nullptr, nullptr);
-    aig_free(game);
-    return nullptr;
-  }
-  FILE *gf = fopen(game_path, "w");
-  if (!gf) {
-    cleanup_abssynthe_tmp(dir, nullptr, nullptr);
-    aig_free(game);
-    return nullptr;
-  }
-  aig_write_aag(gf, game);
-  fclose(gf);
-  aig_free(game);
-
-  // Extra AbsSynthe solver flags (e.g. "-a" abstraction, "-t" transition
-  // decomposition) from $ABSSYNTHE_FLAGS, space-separated.  Parallel/ordering
-  // flags (-p/-s) are unsafe here: their forked workers race on the -o strategy
-  // file.  Flags go before -o (getopt scans options up to the positional spec).
-#define MAX_ABS_FLAGS 8
-  char *argv[MAX_ABS_FLAGS + 5];
-  uint32_t an = 0;
-  argv[an++] = (char *)prog;
-  const char *flagenv = getenv("ABSSYNTHE_FLAGS");
-  char *flagbuf = (flagenv && *flagenv) ? strdup(flagenv) : nullptr;
-  if (flagbuf)
-    for (char *t = strtok(flagbuf, " \t"); t && an <= MAX_ABS_FLAGS;
-         t = strtok(nullptr, " \t"))
-      argv[an++] = t;
-  argv[an++] = (char *)"-o";
-  argv[an++] = strat_path;
-  argv[an++] = game_path;
-  argv[an] = nullptr;
-#undef MAX_ABS_FLAGS
-  posix_spawn_file_actions_t fa;
-  posix_spawn_file_actions_init(&fa);
-  posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
-  posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
-  pid_t pid;
-  int rc = posix_spawnp(&pid, prog, &fa, nullptr, argv, environ);
-  posix_spawn_file_actions_destroy(&fa);
-  free(flagbuf);
-  if (rc != 0) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-
-  // Optional wall-clock cap on the AbsSynthe child ($ABSSYNTHE_TIMEOUT seconds;
-  // 0/unset = unbounded).  On timeout, kill the child and return no strategy so
-  // the caller falls back to ltlsynt rather than hanging on a hard BDD game.
-  const char *to_env = getenv("ABSSYNTHE_TIMEOUT");
-  long timeout_s = (to_env && *to_env) ? strtol(to_env, nullptr, 10) : 0;
-  int status;
-  if (timeout_s > 0) {
-    struct timespec slice = {0, 20L * 1000 * 1000}; // 20 ms
-    long ticks = timeout_s * 50, i = 0;             // 50 polls per second
-    pid_t r = 0;
-    for (; i < ticks; i++) {
-      r = waitpid(pid, &status, WNOHANG);
-      if (r != 0)
-        break;
-      nanosleep(&slice, nullptr);
-    }
-    if (r == 0) { // still running at the deadline
-      kill(pid, SIGKILL);
-      waitpid(pid, &status, 0);
-      cleanup_abssynthe_tmp(dir, game_path, strat_path);
-      return nullptr;
-    }
-    if (r < 0) {
-      cleanup_abssynthe_tmp(dir, game_path, strat_path);
-      return nullptr;
-    }
-  } else {
-    waitpid(pid, &status, 0);
-  }
-  if (!WIFEXITED(status)) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-  int code = WEXITSTATUS(status);
-  if (code == 20) {
-    *unreal = 1;
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-  if (code != 0 && code != 10) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-
-  FILE *sf = fopen(strat_path, "r");
-  if (!sf) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-  Aig *strategy = aig_read_aag(sf);
-  fclose(sf);
-  if (strategy && !abssynthe_strategy_has_outputs(strategy, cov, seen)) {
-    aig_free(strategy);
-    strategy = nullptr;
-  }
-  cleanup_abssynthe_tmp(dir, game_path, strat_path);
-  return strategy;
-}
-
-// Solve one safety game.  With $TLSF_SOLVER=oxidd (and the feature compiled in)
-// the game is solved in-process on OxiDD BDDs (no subprocess, no AIGER
-// round-trip); otherwise it goes to AbsSynthe.  Both take ownership of `game`,
-// and both return a strategy whose controllable outputs have been mapped back
-// to the cluster's output names (or nullptr, with *unreal set on a trusted
-// UNREALIZABLE verdict), so the downstream merge/verify path is identical.
-static Aig *solve_safety_game(const char *prog, ConstraintCover *cov,
-                              const bool *seen, Aig *game, int *unreal) {
-#ifdef HAVE_OXIDD
-  const char *solver = getenv("TLSF_SOLVER");
-  if (solver && strcmp(solver, "oxidd") == 0) {
-    Aig *strat = solve_safety_oxidd(game, unreal);
-    if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
-      aig_free(strat);
-      strat = nullptr;
-    }
-    return strat;
-  }
-#endif
-  return run_abssynthe_game(prog, cov, seen, game, unreal);
+  return strat;
 }
 
 // Self-verification: run the external verifier (PROG --aiger FILE --formula
@@ -2174,46 +2026,15 @@ static bool controller_violates_spec(const char *verifier, Aig *controller,
   return violates;
 }
 
-static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
-                          const bool *seen, const Node *root, int *unreal) {
-  return solve_safety_game(prog, cov, seen,
-                           build_abssynthe_game(cov, seen, root), unreal);
-}
-
-static Aig *run_abssynthe_wr(const char *prog, ConstraintCover *cov,
-                             const bool *seen, const Node *root, int *unreal) {
-  return solve_safety_game(prog, cov, seen,
-                           build_abssynthe_wr_game(cov, seen, root), unreal);
-}
-
-static Aig *run_abssynthe_strict_safety(const char *prog, ConstraintCover *cov,
-                                        const bool *seen, const Node *sys,
-                                        const Node *env, int *unreal) {
-  return solve_safety_game(
-      prog, cov, seen, build_abssynthe_strict_safety_game(cov, seen, sys, env),
-      unreal);
-}
-
-static Aig *solve_gr1_game(const char *prog, ConstraintCover *cov,
-                           const bool *seen, Aig *game, int *unreal) {
-#ifdef HAVE_OXIDD
+// Solve one GR(1) game using OxiDD in-process PPS fixpoint solver.
+static Aig *solve_gr1_game(ConstraintCover *cov, const bool *seen, Aig *game,
+                           int *unreal) {
   Aig *strat = solve_gr1_oxidd(game, unreal);
   if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
     aig_free(strat);
     strat = nullptr;
   }
   return strat;
-#else
-  return run_abssynthe_game(prog, cov, seen, game, unreal);
-#endif
-}
-
-static Aig *run_abssynthe_gr1(const char *prog, ConstraintCover *cov,
-                              const bool *seen, const Gr1Parts *parts,
-                              int *unreal) {
-  return solve_gr1_game(prog, cov, seen,
-                        build_abssynthe_unbounded_gr1_game(cov, seen, parts),
-                        unreal);
 }
 
 static void usage(const char *prog) {
@@ -2224,25 +2045,14 @@ static void usage(const char *prog) {
       "clusters.\n"
       "  --split                      decompose constraints first\n"
       "  --aiger                      emit one merged controller (AIGER aag)"
-      " via synthesis backends\n"
+      " via OxiDD + ltlsynt backends\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
-      "  --abssynthe PATH             AbsSynthe to use for eligible safety "
-      "--aiger clusters\n"
       "  --bound N                    step bound for the bounded-liveness "
-      "AbsSynthe path (default 4 / $ABSSYNTHE_BOUND)\n"
-      "  $ABSSYNTHE_FLAGS             extra AbsSynthe solver flags, e.g. "
-      "\"-a\" "
-      "(abstraction) or \"-t\"; -p/-s are unsafe with -o\n"
-      "  $ABSSYNTHE_TIMEOUT           per-call wall-clock cap for AbsSynthe "
-      "(seconds; 0/unset = unlimited); on timeout falls back to ltlsynt\n"
-      "  $ABSSYNTHE_MIN_APS           skip AbsSynthe for clusters with fewer "
-      "APs than this (0/unset = no gate; ltlsynt is faster on tiny clusters)\n"
-      "  $TLSF_SOLVER                 safety solver: 'abssynthe' (default) or "
-      "'oxidd' (in-process BDD; requires -Doxidd build)\n"
-      "  --verify PROG                self-verify each AbsSynthe controller "
-      "(PROG --aiger F --formula L; exit 1 = violation) and fall back to "
-      "ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
+      "path (default 4)\n"
+      "  --verify PROG                self-verify each OxiDD-synthesized "
+      "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
+      "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
@@ -2303,8 +2113,8 @@ int main(int argc, char *argv[]) {
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
-  const char *abssynthe_path = nullptr, *verify_path = nullptr;
-  unsigned long bound_opt = 0; // 0 = unset (use $ABSSYNTHE_BOUND or default)
+  const char *verify_path = nullptr;
+  unsigned long bound_opt = 0; // 0 = unset (default 4)
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -2322,8 +2132,6 @@ int main(int argc, char *argv[]) {
       aiger = true;
     } else if (strcmp(a, "--ltlsynt") == 0) {
       ltlsynt_path = NEED_ARG();
-    } else if (strcmp(a, "--abssynthe") == 0 || strcmp(a, "--absynthe") == 0) {
-      abssynthe_path = NEED_ARG();
     } else if (strcmp(a, "--verify") == 0) {
       verify_path = NEED_ARG();
     } else if (strcmp(a, "--bound") == 0) {
@@ -2468,33 +2276,17 @@ int main(int argc, char *argv[]) {
     const char *prog = ltlsynt_path    ? ltlsynt_path
                        : (env && *env) ? env
                                        : "ltlsynt";
-    const char *abs_env = getenv("ABSSYNTHE");
-    const char *abs_prog = abssynthe_path          ? abssynthe_path
-                           : (abs_env && *abs_env) ? abs_env
-                                                   : nullptr;
-    // Optional self-verification: when set, each AbsSynthe-synthesized cluster
+    // Optional self-verification: when set, each OxiDD-synthesized cluster
     // controller is model-checked against the cluster spec and, if it provably
     // violates it, discarded in favour of the ltlsynt fallback.
     const char *verify_env = getenv("TLSFCOMPOSE_VERIFY");
     const char *verifier = verify_path                   ? verify_path
                            : (verify_env && *verify_env) ? verify_env
                                                          : nullptr;
-    // Bound for the bounded-liveness AbsSynthe path: --bound, else
-    // $ABSSYNTHE_BOUND, else a small default.
-    const char *bound_env = getenv("ABSSYNTHE_BOUND");
-    uint32_t bound_k = bound_opt ? (uint32_t)bound_opt
-                       : (bound_env && *bound_env)
-                           ? (uint32_t)strtoul(bound_env, nullptr, 10)
-                           : 4;
+    // Bound for the bounded-liveness path: --bound or default.
+    uint32_t bound_k = bound_opt ? (uint32_t)bound_opt : 4;
     if (bound_k == 0)
       bound_k = 4;
-    // Cost gate: skip AbsSynthe for clusters with fewer than this many APs
-    // ($ABSSYNTHE_MIN_APS, default 0 = no gate).  AbsSynthe's fixed spawn +
-    // CUDD-init overhead dominates on small clusters; ltlsynt is faster there.
-    const char *min_aps_env = getenv("ABSSYNTHE_MIN_APS");
-    uint32_t abs_min_aps = (min_aps_env && *min_aps_env)
-                               ? (uint32_t)strtoul(min_aps_env, nullptr, 10)
-                               : 0;
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
@@ -2513,32 +2305,25 @@ int main(int argc, char *argv[]) {
       ClusterShape shape = cluster_shape(spec, root);
       int unreal = 0;
       Aig *sub = nullptr;
-      const char *fallback_detail =
-          nullptr; // set when AbsSynthe ran but failed
       const Node *strict_sys = nullptr, *strict_env = nullptr;
-      // Cost gate: only engage AbsSynthe backends if the cluster meets the AP
-      // minimum (spawn + CUDD-init overhead dominates on tiny clusters).
-      bool abs_cost_ok = cov->aps.count >= abs_min_aps;
-      bool use_abs_direct =
-          abs_prog && abs_cost_ok && abssynthe_eligible(root, finite);
-      bool use_abs_strict =
-          abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
-          shape.gr_level == 0 && !shape.has_liveness &&
+      bool use_direct = abssynthe_eligible(root, finite);
+      bool use_strict =
+          !finite && !use_direct && shape.gr_level == 0 &&
+          !shape.has_liveness &&
           abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
       // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
       // with W/R on any side is encoded exactly (monitors), preferred over the
       // lossy bounded reduction below.
-      bool use_abs_wr = abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
-                        !use_abs_strict && !shape.has_liveness &&
-                        (shape.has_weak_until || shape.has_release) &&
-                        wr_structural_supported(root);
+      bool use_wr = !finite && !use_direct && !use_strict &&
+                    !shape.has_liveness &&
+                    (shape.has_weak_until || shape.has_release) &&
+                    wr_structural_supported(root);
 
       // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
       // the cluster then becomes a pure-safety game (no fairness assumption
-      // survives), solve it with the existing AbsSynthe safety solver.
+      // survives), solve it with the OxiDD safety solver.
       const Node *bounded_root = nullptr;
-      if (abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
-          !use_abs_strict && !use_abs_wr &&
+      if (!finite && !use_direct && !use_strict && !use_wr &&
           (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
         Node *br = bound_liveness(spec->arena, root, bound_k, true);
         if (abssynthe_eligible(br, finite))
@@ -2547,72 +2332,76 @@ int main(int argc, char *argv[]) {
       // Complete GR(1): a fairness-bearing cluster `G F a -> safety & justice`
       // (which the bounded-liveness path cannot handle because the `G F a`
       // assumption is unsound to bound) is emitted as a real justice/fairness
-      // game and solved by AbsSynthe's GR(1) fixpoint.
+      // game and solved by the OxiDD GR(1) fixpoint.
       Gr1Parts gp;
-      bool use_gr1 = abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
-                     !use_abs_strict && !use_abs_wr && !bounded_root &&
+      bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
+                     !bounded_root &&
                      abssynthe_gr1_parts(spec->arena, root, &gp);
-      bool use_abs = use_abs_direct || use_abs_strict || use_abs_wr ||
-                     bounded_root || use_gr1;
-      const char *backend = use_abs ? "AbsSynthe" : "ltlsynt fallback";
-      if (use_abs_direct) {
-        sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
+      bool use_oxidd = use_direct || use_strict || use_wr || bounded_root ||
+                       use_gr1;
+      const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
+      if (use_direct) {
+        sub = solve_safety_game(cov, seen,
+                                build_abssynthe_game(cov, seen, root), &unreal);
         if (!sub && !unreal) {
-          // AbsSynthe failed (timeout / error): fall back to ltlsynt.
-          use_abs = false;
+          // OxiDD failed: fall back to ltlsynt.
+          use_oxidd = false;
           backend = "ltlsynt fallback (safety miss)";
-          fallback_detail = "AbsSynthe returned no strategy; ltlsynt also "
-                            "returned no strategy";
           sub =
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
-      } else if (use_abs_strict) {
-        sub = run_abssynthe_strict_safety(abs_prog, cov, seen, strict_sys,
-                                          strict_env, &unreal);
+      } else if (use_strict) {
+        sub = solve_safety_game(
+            cov, seen,
+            build_abssynthe_strict_safety_game(cov, seen, strict_sys,
+                                               strict_env),
+            &unreal);
         if (!sub && !unreal) {
-          // AbsSynthe failed: fall back to ltlsynt on the original formula.
-          use_abs = false;
+          // OxiDD failed: fall back to ltlsynt on the original formula.
+          use_oxidd = false;
           backend = "ltlsynt fallback (strict safety miss)";
-          fallback_detail = "AbsSynthe returned no strategy; ltlsynt also "
-                            "returned no strategy";
           sub =
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
-      } else if (use_abs_wr) {
-        backend = "AbsSynthe (W/R safety)";
-        sub = run_abssynthe_wr(abs_prog, cov, seen, root, &unreal);
+      } else if (use_wr) {
+        backend = "OxiDD (W/R safety)";
+        sub = solve_safety_game(cov, seen,
+                                build_abssynthe_wr_game(cov, seen, root),
+                                &unreal);
         if (!sub && !unreal) {
           // W/R monitor encoding is exact: trust UNREALIZABLE; fall back only
-          // on error/timeout (unreal=0, no strategy).
-          use_abs = false;
+          // on error (unreal=0, no strategy).
+          use_oxidd = false;
           backend = "ltlsynt fallback (W/R miss)";
-          fallback_detail = "AbsSynthe returned no strategy; ltlsynt also "
-                            "returned no strategy";
           sub =
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
       } else if (bounded_root) {
-        backend = "AbsSynthe (bounded)";
-        sub = run_abssynthe(abs_prog, cov, seen, bounded_root, &unreal);
+        backend = "OxiDD (bounded)";
+        sub = solve_safety_game(cov, seen,
+                                build_abssynthe_game(cov, seen, bounded_root),
+                                &unreal);
         if (!sub) {
           // Bounded miss (unrealizable at this k, or no strategy): the
           // unbounded game may still be realizable, so fall back to ltlsynt
           // rather than failing the spec.
           unreal = 0;
-          use_abs = false;
+          use_oxidd = false;
           backend = "ltlsynt fallback (bounded miss)";
           sub =
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
       } else if (use_gr1) {
-        backend = "AbsSynthe (GR(1))";
-        sub = run_abssynthe_gr1(abs_prog, cov, seen, &gp, &unreal);
+        backend = "OxiDD (GR(1))";
+        sub = solve_gr1_game(
+            cov, seen,
+            build_abssynthe_unbounded_gr1_game(cov, seen, &gp), &unreal);
         if (!sub) {
-          // The complete GR(1) solver found no strategy (or called it
-          // unrealizable -- the recognizer may over-constrain); defer to
-          // ltlsynt rather than risk a false UNREALIZABLE.
+          // The GR(1) solver found no strategy (or called it unrealizable --
+          // the recognizer may over-constrain); defer to ltlsynt rather than
+          // risk a false UNREALIZABLE.
           unreal = 0;
-          use_abs = false;
+          use_oxidd = false;
           backend = "ltlsynt fallback (GR(1) miss)";
           sub =
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
@@ -2625,7 +2414,7 @@ int main(int argc, char *argv[]) {
       // provably violates it, discard it and fall back to ltlsynt, so a
       // recognizer/encoder bug becomes a sound fallback rather than a wrong
       // controller.  Inconclusive checks (verifier error/OOM) keep the result.
-      if (verifier && use_abs && sub &&
+      if (verifier && use_oxidd && sub &&
           controller_violates_spec(verifier, sub, root, fmt, finite)) {
         fprintf(stderr,
                 "tlsfcompose: cluster %u controller failed self-verification "
@@ -2634,7 +2423,7 @@ int main(int argc, char *argv[]) {
         aig_free(sub);
         sub = nullptr;
         unreal = 0;
-        use_abs = false;
+        use_oxidd = false;
         backend = "ltlsynt fallback (self-verification)";
         sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
       }
@@ -2647,11 +2436,9 @@ int main(int argc, char *argv[]) {
       } else if (!sub) {
         char reason[192];
         const char *detail =
-            use_abs ? "AbsSynthe returned no usable strategy"
-            : fallback_detail
-                ? fallback_detail
-                : cluster_ltlsynt_reason(&shape, finite, abs_prog != NULL,
-                                         reason, sizeof reason);
+            use_oxidd
+                ? "OxiDD returned no usable strategy"
+                : cluster_ltlsynt_reason(&shape, finite, reason, sizeof reason);
         fprintf(stderr,
                 "tlsfcompose: synthesis backend failed for cluster %u (%s: "
                 "%s)\n",

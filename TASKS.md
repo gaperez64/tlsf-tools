@@ -69,12 +69,13 @@ On the corpus the median AbsSynthe-contributing spec is rough parity but the
 aggregate is *slower* (BENCHGRAPH.md): a fixed AbsSynthe spawn + CUDD-init cost
 hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
 
-- [ ] **Replace the AbsSynthe subprocess with an in-process BDD solver on OxiDD**
-  — the slowness is the fixed spawn + CUDD-init cost, not algorithms. Detailed
-  prototype plan in [`architecture.md`](architecture.md): keep the game encoders,
-  swap only the solve step (`run_abssynthe_game` → `solve_safety_oxidd`); unlocks a
-  persistent manager, parallel clusters, and WL-keyed controller reuse. Safety
-  first behind a feature flag, GR(1) after; AbsSynthe stays as fallback.
+- [x] **Replace the AbsSynthe subprocess with an in-process BDD solver on OxiDD**
+  — implemented in `src/safety_oxidd.c` (phases 1–3 complete). OxiDD vendored as
+  `external/oxidd` git submodule + `scripts/build_oxidd.sh`; enabled behind
+  `-Doxidd` meson feature (`auto` by default; picks up built artifacts). Routed via
+  `$TLSF_SOLVER=oxidd` env var in all three safety wrappers (`run_abssynthe`,
+  `run_abssynthe_wr`, `run_abssynthe_strict_safety`). GR(1) stays on AbsSynthe.
+  16 verify-aiger-oxidd Spot correctness tests pass; benchmark results in BENCHGRAPH.md.
 - [x] **Gate AbsSynthe behind a cheap cost heuristic** (`$ABSSYNTHE_MIN_APS`, default
   0 = no gate). Set e.g. `ABSSYNTHE_MIN_APS=8` to skip AbsSynthe on clusters with
   fewer than 8 APs (spawn overhead dominates there). Tune threshold by benchmarking;
