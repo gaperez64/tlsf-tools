@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "NOT(G(w)) is liveness not W/R-safety"
+  DESCRIPTION: "G(w) -> false simplifies to NOT(G(w)) which is liveness"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { i; p; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    (G ((i -> X p) W o) -> false);
+  }
+}

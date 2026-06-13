@@ -642,6 +642,13 @@ test('aiger_abssynthe_cost_gate', check_fail_stderr,
          '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
          '--ltlsynt', '/bin/false', files('test/cases/assume_delay_real.tlsf')],
   env: {'ABSSYNTHE_MIN_APS': '100'})
+# NOT(G(w)) is liveness: G(w)->false is simplified to NOT(G(w)) by the parser;
+# cluster_shape_visit must detect this as liveness (not W/R-safety).
+test('aiger_not_g_is_liveness', check_fail_stderr,
+  args: [files('test/cases/compose_not_g_is_liveness.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
+         '--ltlsynt', '/bin/false',
+         files('test/cases/compose_not_g_is_liveness.tlsf')])
 # Self-verification gate mechanism (trivial verifiers; no Spot/AbsSynthe needed).
 # /bin/true = "verified" -> controller kept (same golden as without --verify);
 # /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).

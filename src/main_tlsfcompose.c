@@ -790,6 +790,28 @@ typedef struct {
   bool has_high_level;
 } ClusterShape;
 
+// True if n contains at least one safety temporal operator (G, W, R) and no
+// liveness operators (F, U, M) — i.e., NOT(n) would be liveness.  A purely
+// propositional n (no temporal operators) returns false because NOT(prop) is
+// still propositional, not liveness.
+static bool is_safety_temporal(const Node *n) {
+  switch (n->kind) {
+  case NODE_G:
+  case NODE_W:
+  case NODE_R:
+    return true; // explicit safety temporal operator
+  case NODE_X:
+  case NODE_X_STRONG:
+    return is_safety_temporal(n->arg);
+  case NODE_AND:
+    return is_safety_temporal(n->lhs) || is_safety_temporal(n->rhs);
+  default:
+    // Propositional (AP, TRUE, FALSE), liveness ops, NOT, OR, IMPL —
+    // none qualify as "safety temporal" for this check.
+    return false;
+  }
+}
+
 static void cluster_shape_visit(const Node *n, ClusterShape *shape) {
   switch (n->kind) {
   case NODE_TRUE:
@@ -800,9 +822,19 @@ static void cluster_shape_visit(const Node *n, ClusterShape *shape) {
   case NODE_X_STRONG:
     shape->has_strong_next = true;
     [[fallthrough]];
-  case NODE_NOT:
   case NODE_X:
   case NODE_G:
+    cluster_shape_visit(n->arg, shape);
+    return;
+  case NODE_NOT:
+    // NOT(safety_temporal) is liveness: the parser simplifies `G(w) -> false`
+    // to NOT(G(w)) = F(!w), and NOT(AND(G(a), G(b))) similarly.  Detect this
+    // so has_liveness is set correctly for routing.  Pure propositional NOT
+    // (is_safety_temporal returns false) falls through to normal recursion.
+    if (is_safety_temporal(n->arg)) {
+      shape->has_liveness = true;
+      return;
+    }
     cluster_shape_visit(n->arg, shape);
     return;
   case NODE_F:
@@ -811,10 +843,10 @@ static void cluster_shape_visit(const Node *n, ClusterShape *shape) {
     return;
   case NODE_W:
     shape->has_weak_until = true;
-    break;
+    return; // inner structure checked by wr_structural_supported; don't recurse
   case NODE_R:
     shape->has_release = true;
-    break;
+    return; // inner structure checked by wr_structural_supported; don't recurse
   case NODE_U:
   case NODE_M:
     shape->has_liveness = true;
