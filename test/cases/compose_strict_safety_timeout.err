@@ -1,0 +1,1 @@
+tlsfcompose: synthesis backend failed for cluster 0 (ltlsynt fallback (strict safety miss): AbsSynthe returned no strategy; ltlsynt also returned no strategy)

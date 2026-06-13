@@ -606,6 +606,13 @@ test('aiger_abssynthe_timeout_fallback', check_fail_stderr,
          '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
          '--ltlsynt', '/bin/false', files('test/cases/inv_decline.tlsf')],
   env: {'ABSSYNTHE_TIMEOUT': '1'})
+# Strict-safety fallback: AbsSynthe timeout on a Strict-semantics cluster
+# falls back to ltlsynt (here /bin/false, so the cluster still fails).
+test('aiger_abssynthe_strict_safety_timeout', check_fail_stderr,
+  args: [files('test/cases/compose_strict_safety_timeout.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
+         '--ltlsynt', '/bin/false', files('test/cases/strict_safety.tlsf')],
+  env: {'ABSSYNTHE_TIMEOUT': '1'})
 # ABSSYNTHE_MIN_APS cost gate: clusters below the AP threshold skip AbsSynthe.
 # Use a hanging AbsSynthe stand-in to prove it is never invoked (test returns
 # immediately, not after the hang timeout).
