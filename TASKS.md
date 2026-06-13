@@ -18,10 +18,10 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 6 GB caps), against standalone `ltlsynt --tlsf`. "A fast preprocessor" =
 **never less complete, and net-faster.** Baseline is the latest BENCHGRAPH.md run.
 
-| Metric | Now (`d9256e7`) | Target | Moved by |
+| Metric | Now (`62fec9d`) | Target | Moved by |
 |---|---|---|---|
-| **Completeness deficit** — ltlsynt solves, we don't | **84** | **0** (hard req: never worse) | §1 |
-| ↳ false-UNREAL (output-free assumption clusters) | 74 | 0 | §1 gap #2 (the −74 lever) |
+| **Completeness deficit** — ltlsynt solves, we don't | **~10** | **0** (hard req: never worse) | §1 |
+| ↳ false-UNREAL (output-free assumption clusters) | **0** (fixed) | 0 | §1 gap #2 ✓ |
 | ↳ backend FAILED / timed out | 2 / 8 | 0 | §1, §2 |
 | **Speed, aggregate** `base/ours` (both-solved) | **×0.44** | **≥ 1.0** (net-faster) | §2 (OxiDD) |
 | Speed, median | parity (22 vs 16 ms) | ≥ 1.0 | §2 (OxiDD + cost routing) |
@@ -39,12 +39,10 @@ The benchmark's "completeness gaps" (we FAIL where bare `ltlsynt` solves) are th
 one place we are strictly worse. The uppercase-atom parse bug is fixed; the
 remaining gaps are:
 
-- [ ] **Input-only assumption clusters.** The decomposition emits a cluster with
-  no controllable outputs (`outs=` empty — e.g. a `G(...)` over inputs from
-  `ASSUMPTIONS`) and `tlsfcompose` synthesises it standalone → UNREALIZABLE →
-  fails a *realizable* spec (dominates the `sweap/*-real` gaps). An
-  assumption-only / output-free cluster needs no controller and must be **skipped**
-  (it is an antecedent, not a game).
+- [x] **Input-only assumption clusters.** Fixed in `62fec9d`: clusters whose
+  clustering key equals `A` (cov->aps.count sentinel = no output APs) are now
+  skipped in both `--aiger` and text-plan paths.  Dropped ~74 false-UNREAL cases
+  on the sweap corpus; verified by golden test `input_gua_skip`.
 - [ ] **Composition-soundness edge.** A guarantee whose only outputs are
   template-eliminated can leave an input-only unrealizable residual (e.g.
   `G(req → F false)` from free-output substitution of a response's grant). Audit
