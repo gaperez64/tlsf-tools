@@ -589,7 +589,8 @@ foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
                 'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
                 'gr1_strict_multi', 'wr_response', 'wr_release', 'wr_resp_nox',
                 'wr_rel_resp', 'wr_assume', 'wr_distributable_impl',
-                'wr_gated_nox', 'wr_gated_collapse', 'wr_xdelay2']
+                'wr_gated_nox', 'wr_gated_collapse', 'wr_xdelay2',
+                'wr_r_collapse', 'wr_r_x_in_body']
   test('aiger_abssynthe_' + name, check,
     args: [files('test/cases/' + name + '.abssynthe.aag'), tlsfcompose_exe,
            '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),

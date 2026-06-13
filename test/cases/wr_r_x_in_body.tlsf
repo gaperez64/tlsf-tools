@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "R body with X: depth-2 history required"
+  DESCRIPTION: "G(req -> X(cond R (prev -> X cur))): X inside R rhs needs wr_body_x_depth=2"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; cond; prev; }
+  OUTPUTS { cur; }
+  GUARANTEE {
+    G (req -> X (cond R (prev -> X cur)));
+  }
+}
