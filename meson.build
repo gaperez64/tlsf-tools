@@ -606,6 +606,14 @@ test('aiger_abssynthe_timeout_fallback', check_fail_stderr,
          '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
          '--ltlsynt', '/bin/false', files('test/cases/inv_decline.tlsf')],
   env: {'ABSSYNTHE_TIMEOUT': '1'})
+# ABSSYNTHE_MIN_APS cost gate: clusters below the AP threshold skip AbsSynthe.
+# Use a hanging AbsSynthe stand-in to prove it is never invoked (test returns
+# immediately, not after the hang timeout).
+test('aiger_abssynthe_cost_gate', check_fail_stderr,
+  args: [files('test/cases/compose_abssynthe_cost_gate.err'), tlsfcompose_exe,
+         '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),
+         '--ltlsynt', '/bin/false', files('test/cases/assume_delay_real.tlsf')],
+  env: {'ABSSYNTHE_MIN_APS': '100'})
 # Self-verification gate mechanism (trivial verifiers; no Spot/AbsSynthe needed).
 # /bin/true = "verified" -> controller kept (same golden as without --verify);
 # /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).
