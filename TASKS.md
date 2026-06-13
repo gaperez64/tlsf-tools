@@ -12,6 +12,27 @@ with the vendored AbsSynthe safety/GR(1) backend, the self-verification gate, an
 W/R-safety + GR(1) encodings) is built and tested. This file tracks only the
 **open levers**.
 
+## Goals (metrics)
+
+Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
+6 GB caps), against standalone `ltlsynt --tlsf`. "A fast preprocessor" =
+**never less complete, and net-faster.** Baseline is the latest BENCHGRAPH.md run.
+
+| Metric | Now (`d9256e7`) | Target | Moved by |
+|---|---|---|---|
+| **Completeness deficit** — ltlsynt solves, we don't | **84** | **0** (hard req: never worse) | §1 |
+| ↳ false-UNREAL (output-free assumption clusters) | 74 | 0 | §1 gap #2 (the −74 lever) |
+| ↳ backend FAILED / timed out | 2 / 8 | 0 | §1, §2 |
+| **Speed, aggregate** `base/ours` (both-solved) | **×0.44** | **≥ 1.0** (net-faster) | §2 (OxiDD) |
+| Speed, median | parity (22 vs 16 ms) | ≥ 1.0 | §2 (OxiDD + cost routing) |
+| **Wins** — ltlsynt can't do in budget, we can | 17 | grow | §3 |
+| Self-contained (no ltlsynt) | 192 (7.5 %) | grow | §1, §3 |
+
+Order of attack: **§1 completeness to 0** (correctness floor — gap #2 alone is
+~−74), then **§2 speed to ≥1.0** (the actual product claim), then **§3 reach** for
+upside. Rerun the benchmark after each lever; the deficit and aggregate-speed
+cells are the two that define success.
+
 ## 1 · Completeness — never fail where `ltlsynt` succeeds (PRIORITY)
 
 The benchmark's "completeness gaps" (we FAIL where bare `ltlsynt` solves) are the
