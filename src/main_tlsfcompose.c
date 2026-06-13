@@ -391,7 +391,13 @@ static bool g_body_wr_supported(const Node *n) {
     bool xdelay;
     if (wr_response_parts(n, &req, &inner, &xdelay))
       return true;
-    return abssynthe_body_supported(n);
+    // Distributable: G(outer_req -> body) === AND over G(outer_req ->
+    // conjunct). Supported when outer_req is propositional; each conjunct in
+    // body is then checked by recursing (and resolving to bool, W/R-collapse,
+    // or response).
+    if (abssynthe_body_supported(n->lhs))
+      return g_body_wr_supported(n->rhs);
+    return false;
   }
   default:
     return abssynthe_body_supported(n);
@@ -1047,6 +1053,92 @@ static uint32_t guarded_current_ok(Aig *g, uint32_t guard, uint32_t ok) {
   return aig_or(g, aig_not(guard), ok);
 }
 
+// Like wr_emit_g_body but with an additional `arm_gate` that limits when new
+// obligations can be armed and when invariants are checked.  Once armed, a
+// response obligation remains active under `valid` regardless of `arm_gate`
+// (the gate only controls arming, not the subsequent tracking/bad signal).
+// This implements G(outer_req -> body): distribute outer_req over each conjunct
+// so that obligations arm only when outer_req holds, yet once armed they fire
+// under the original `valid`.
+static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
+                                 uint32_t depth, uint32_t valid,
+                                 uint32_t arm_gate, uint32_t *bad) {
+  Aig *g = ctx->g;
+  switch (n->kind) {
+  case NODE_AND:
+    return wr_emit_g_body_gated(ctx, n->lhs, depth, valid, arm_gate, bad) &&
+           wr_emit_g_body_gated(ctx, n->rhs, depth, valid, arm_gate, bad);
+  case NODE_W: { // G(outer_req -> (a W b)) == G(outer_req -> (a|b))
+    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    if (a == UINT32_MAX || b == UINT32_MAX)
+      return false;
+    *bad = aig_or(
+        g, *bad,
+        aig_and(g, aig_and(g, valid, arm_gate), aig_not(aig_or(g, a, b))));
+    return true;
+  }
+  case NODE_R: { // G(outer_req -> (a R b)) == G(outer_req -> b)
+    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    if (b == UINT32_MAX)
+      return false;
+    *bad = aig_or(g, *bad, aig_and(g, aig_and(g, valid, arm_gate), aig_not(b)));
+    return true;
+  }
+  case NODE_IMPL: {
+    const Node *rqn, *inner;
+    bool xdelay;
+    if (wr_response_parts(n, &rqn, &inner, &xdelay)) {
+      // G(outer_req -> req -> [X](a W/R b)): arm when both outer_req and req
+      // hold; once armed, track the obligation under `valid` (no outer_req
+      // gate).
+      uint32_t req = abssynthe_compile_at_lag(ctx, rqn, depth);
+      uint32_t a = abssynthe_compile_at_lag(ctx, inner->lhs, depth);
+      uint32_t b = abssynthe_compile_at_lag(ctx, inner->rhs, depth);
+      if (req == UINT32_MAX || a == UINT32_MAX || b == UINT32_MAX)
+        return false;
+      uint32_t release = inner->kind == NODE_W ? b : aig_and(g, a, b);
+      uint32_t fail = inner->kind == NODE_W ? aig_and(g, aig_not(a), aig_not(b))
+                                            : aig_not(b);
+      uint32_t owe = aig_latch(g, AIG_FALSE, AIG_FALSE);
+      uint32_t arm = aig_and(g, aig_and(g, valid, arm_gate), req);
+      uint32_t active;
+      if (xdelay) {
+        active = owe;
+        if (!aig_set_latch_next(
+                g, owe, aig_or(g, arm, aig_and(g, owe, aig_not(release)))))
+          return false;
+      } else {
+        active = aig_or(g, arm, owe);
+        if (!aig_set_latch_next(g, owe, aig_and(g, active, aig_not(release))))
+          return false;
+      }
+      // Bad under `valid` only: once armed, obligation must be satisfied even
+      // when outer_req is not currently asserted.
+      *bad = aig_or(g, *bad, aig_and(g, valid, aig_and(g, active, fail)));
+      return true;
+    }
+    // Nested distributable: G(outer_req -> inner_req -> body)
+    if (abssynthe_body_supported(n->lhs)) {
+      uint32_t inner_gate = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+      if (inner_gate == UINT32_MAX)
+        return false;
+      return wr_emit_g_body_gated(ctx, n->rhs, depth, valid,
+                                  aig_and(g, arm_gate, inner_gate), bad);
+    }
+    [[fallthrough]];
+  }
+  default: {
+    uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+    if (ok == UINT32_MAX)
+      return false;
+    *bad =
+        aig_or(g, *bad, aig_and(g, aig_and(g, valid, arm_gate), aig_not(ok)));
+    return true;
+  }
+  }
+}
+
 // Accumulate the obligations of a `G(...)` body into *bad.  A Boolean conjunct
 // adds `valid & !body`.  `G(a W b) == G(a|b)` and `G(a R b) == G(b)` collapse
 // to invariants.  A response `G(req -> X(a W b))` re-arms a weak-until each
@@ -1107,6 +1199,15 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
       }
       *bad = aig_or(g, *bad, aig_and(g, valid, aig_and(g, active, fail)));
       return true;
+    }
+    // Distributable: G(outer_req -> body) — delegate to the gated emitter which
+    // arms obligations under outer_req but tracks them under the original
+    // valid.
+    if (abssynthe_body_supported(n->lhs)) {
+      uint32_t outer = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+      if (outer == UINT32_MAX)
+        return false;
+      return wr_emit_g_body_gated(ctx, n->rhs, depth, valid, outer, bad);
     }
     [[fallthrough]];
   }
