@@ -314,6 +314,31 @@ static uint32_t abssynthe_x_depth(const Node *n) {
   }
 }
 
+// Like abssynthe_x_depth but also recurses into W/R operands.  Required for
+// W/R-extended G bodies where X operators can appear inside W/R sub-expressions
+// (e.g. G(req -> X(a R (b -> X c))): the nested X inside the R rhs contributes
+// to the history-latch depth needed by abssynthe_compile_at_lag).
+static uint32_t wr_body_x_depth(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+    return 1 + wr_body_x_depth(n->arg);
+  case NODE_NOT:
+    return wr_body_x_depth(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_W:
+  case NODE_R: {
+    uint32_t a = wr_body_x_depth(n->lhs), b = wr_body_x_depth(n->rhs);
+    return a > b ? a : b;
+  }
+  default:
+    return 0;
+  }
+}
+
 static uint32_t abssynthe_safety_condition_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
@@ -375,6 +400,50 @@ static bool wr_response_parts(const Node *impl, const Node **req,
   return true;
 }
 
+// Strict version: W/R inside G body require both operands to be pure Boolean.
+// Used by abssynthe_eligible (direct path) to avoid routing extended W/R
+// patterns to build_abssynthe_game, which cannot handle them.
+static bool g_body_direct_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_AND:
+    return g_body_direct_supported(n->lhs) && g_body_direct_supported(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    return g_body_direct_supported(n->arg);
+  case NODE_W:
+  case NODE_R:
+    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+  case NODE_IMPL: {
+    const Node *req, *inner;
+    bool xdelay;
+    if (wr_response_parts(n, &req, &inner, &xdelay))
+      return true;
+    if (abssynthe_body_supported(n->lhs))
+      return g_body_direct_supported(n->rhs);
+    return false;
+  }
+  default:
+    return abssynthe_body_supported(n);
+  }
+}
+
+static bool abssynthe_safety_direct_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_G:
+    return g_body_direct_supported(n->arg);
+  case NODE_AND:
+    return abssynthe_safety_direct_supported(n->lhs) &&
+           abssynthe_safety_direct_supported(n->rhs);
+  case NODE_W:
+  case NODE_R:
+    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+  default:
+    return abssynthe_initial_supported(n);
+  }
+}
+
 // A conjunct of a `G(...)` body: Boolean, a bare weak-until / release, or a
 // re-armed response.  Under the outer G a bare W/R collapses to an invariant --
 // `G(a W b) == G(a|b)`, `G(a R b) == G(b)` -- so no monitor is needed; a
@@ -386,9 +455,27 @@ static bool g_body_wr_supported(const Node *n) {
   case NODE_X:
   case NODE_X_STRONG:
     return g_body_wr_supported(n->arg);
-  case NODE_W:
+  case NODE_W: {
+    // G(a W b) == G(a|b): both operands must be propositional.
+    if (abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs))
+      return true;
+    // Pattern B: (cond -> X(a W/R b)) W B — cond, a, b, B propositional.
+    // The outer W collapses because cond->X(inner) is trivially true when
+    // !cond; when cond fires, arm a sub-monitor for inner W/R.
+    if (!abssynthe_body_supported(n->rhs))
+      return false; // B must be propositional
+    const Node *lhs = n->lhs;
+    if (lhs->kind != NODE_IMPL || !abssynthe_body_supported(lhs->lhs))
+      return false;
+    const Node *xn = lhs->rhs;
+    if (xn->kind == NODE_X || xn->kind == NODE_X_STRONG)
+      xn = xn->arg;
+    return (xn->kind == NODE_W || xn->kind == NODE_R) &&
+           abssynthe_body_supported(xn->lhs) && abssynthe_body_supported(xn->rhs);
+  }
   case NODE_R:
-    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+    // G(a R b) == G(b): lhs is irrelevant; rhs may itself contain W/R.
+    return g_body_wr_supported(n->rhs);
   case NODE_IMPL: {
     const Node *req, *inner;
     bool xdelay;
@@ -434,7 +521,7 @@ static uint32_t abssynthe_safety_wr_x_depth(const Node *n) {
   case NODE_TRUE:
     return 0;
   case NODE_G:
-    return abssynthe_x_depth(n->arg);
+    return wr_body_x_depth(n->arg); // must recurse into W/R for nested X
   case NODE_AND: {
     uint32_t a = abssynthe_safety_wr_x_depth(n->lhs);
     uint32_t b = abssynthe_safety_wr_x_depth(n->rhs);
@@ -476,8 +563,8 @@ static bool abssynthe_eligible(const Node *root, bool finite) {
   if (root->kind == NODE_IMPL)
     return abssynthe_global_supported(root->lhs) &&
            abssynthe_global_x_depth(root->lhs) == 0 &&
-           abssynthe_safety_wr_supported(root->rhs);
-  return abssynthe_safety_wr_supported(root);
+           abssynthe_safety_direct_supported(root->rhs);
+  return abssynthe_safety_direct_supported(root);
 }
 
 static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
@@ -1079,20 +1166,65 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
   case NODE_W: { // G(outer_req -> (a W b)) == G(outer_req -> (a|b))
     uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, depth);
     uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
-    if (a == UINT32_MAX || b == UINT32_MAX)
-      return false;
-    *bad = aig_or(
-        g, *bad,
-        aig_and(g, aig_and(g, valid, arm_gate), aig_not(aig_or(g, a, b))));
-    return true;
-  }
-  case NODE_R: { // G(outer_req -> (a R b)) == G(outer_req -> b)
-    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    if (a != UINT32_MAX && b != UINT32_MAX) {
+      *bad = aig_or(
+          g, *bad,
+          aig_and(g, aig_and(g, valid, arm_gate), aig_not(aig_or(g, a, b))));
+      return true;
+    }
+    // Pattern B: G(outer_req -> ((cond -> [X](ia W/R ib)) W B)).
+    // When !cond the implication is trivially true; when cond fires, arm a
+    // sub-monitor for the inner W/R.  The outer B release propagates into the
+    // sub-monitor so bad is never raised after B fires.
+    b = abssynthe_compile_at_lag(ctx, n->rhs, depth); // B must be propositional
     if (b == UINT32_MAX)
       return false;
-    *bad = aig_or(g, *bad, aig_and(g, aig_and(g, valid, arm_gate), aig_not(b)));
+    const Node *lhs = n->lhs;
+    if (lhs->kind != NODE_IMPL)
+      return false;
+    uint32_t cond = abssynthe_compile_at_lag(ctx, lhs->lhs, depth);
+    if (cond == UINT32_MAX)
+      return false;
+    const Node *xn = lhs->rhs;
+    bool xd = (xn->kind == NODE_X || xn->kind == NODE_X_STRONG);
+    const Node *inner = xd ? xn->arg : xn;
+    if (inner->kind != NODE_W && inner->kind != NODE_R)
+      return false;
+    uint32_t ia = abssynthe_compile_at_lag(ctx, inner->lhs, depth);
+    uint32_t ib = abssynthe_compile_at_lag(ctx, inner->rhs, depth);
+    if (ia == UINT32_MAX || ib == UINT32_MAX)
+      return false;
+    uint32_t sub_arm =
+        aig_and(g, aig_and(g, valid, arm_gate),
+                aig_and(g, cond, aig_not(b))); // arm when gate & cond & !B
+    uint32_t inner_release =
+        inner->kind == NODE_W ? ib : aig_and(g, ia, ib);
+    uint32_t inner_fail =
+        inner->kind == NODE_W ? aig_and(g, aig_not(ia), aig_not(ib))
+                              : aig_not(ib);
+    uint32_t combined_release = aig_or(g, inner_release, b); // inner or outer B
+    uint32_t owe = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    uint32_t active;
+    if (xd) {
+      active = owe;
+      if (!aig_set_latch_next(
+              g, owe,
+              aig_or(g, sub_arm, aig_and(g, owe, aig_not(combined_release)))))
+        return false;
+    } else {
+      active = aig_or(g, sub_arm, owe);
+      if (!aig_set_latch_next(g, owe,
+                              aig_and(g, active, aig_not(combined_release))))
+        return false;
+    }
+    *bad = aig_or(g, *bad,
+                  aig_and(g, valid, aig_and(g, active,
+                                            aig_and(g, inner_fail,
+                                                    aig_not(b)))));
     return true;
   }
+  case NODE_R: // G(outer_req -> (a R b)) == G(outer_req -> b): rhs may have W/R
+    return wr_emit_g_body_gated(ctx, n->rhs, depth, valid, arm_gate, bad);
   case NODE_IMPL: {
     const Node *rqn, *inner;
     bool xdelay;
@@ -1167,13 +1299,8 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
     *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(aig_or(g, a, b))));
     return true;
   }
-  case NODE_R: { // G(a R b) == G(b)
-    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
-    if (b == UINT32_MAX)
-      return false;
-    *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(b)));
-    return true;
-  }
+  case NODE_R: // G(a R b) == G(b): rhs may itself contain W/R
+    return wr_emit_g_body(ctx, n->rhs, depth, valid, bad);
   case NODE_IMPL: {
     const Node *rqn, *inner;
     bool xdelay;
@@ -2363,6 +2490,7 @@ int main(int argc, char *argv[]) {
                         !use_abs_strict && !shape.has_liveness &&
                         (shape.has_weak_until || shape.has_release) &&
                         wr_structural_supported(root);
+
       // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
       // the cluster then becomes a pure-safety game (no fairness assumption
       // survives), solve it with the existing AbsSynthe safety solver.
