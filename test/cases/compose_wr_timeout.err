@@ -1,1 +1,1 @@
-tlsfcompose: synthesis backend failed for cluster 0 (ltlsynt fallback (W/R miss): weak-until safety release is not AbsSynthe-eligible)
+tlsfcompose: synthesis backend failed for cluster 0 (ltlsynt fallback (W/R miss): AbsSynthe returned no strategy; ltlsynt also returned no strategy)

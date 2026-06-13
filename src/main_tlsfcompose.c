@@ -2270,10 +2270,13 @@ int main(int argc, char *argv[]) {
       } else if (use_abs_wr) {
         backend = "AbsSynthe (W/R safety)";
         sub = run_abssynthe_wr(abs_prog, cov, seen, root, &unreal);
-        if (!sub) {
-          unreal = 0;
+        if (!sub && !unreal) {
+          // W/R monitor encoding is exact: trust UNREALIZABLE; fall back only
+          // on error/timeout (unreal=0, no strategy).
           use_abs = false;
           backend = "ltlsynt fallback (W/R miss)";
+          fallback_detail = "AbsSynthe returned no strategy; ltlsynt also "
+                            "returned no strategy";
           sub =
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
