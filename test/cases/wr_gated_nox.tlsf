@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "gated no-X response"
+  DESCRIPTION: "G(outer -> (req -> (a W b))): distributable with non-X-delayed response"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { gate; req; a; }
+  OUTPUTS { b; }
+  GUARANTEE {
+    G (gate -> (req -> (a W b)));
+  }
+}

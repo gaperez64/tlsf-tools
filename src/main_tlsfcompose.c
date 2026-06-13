@@ -383,6 +383,9 @@ static bool g_body_wr_supported(const Node *n) {
   switch (n->kind) {
   case NODE_AND:
     return g_body_wr_supported(n->lhs) && g_body_wr_supported(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    return g_body_wr_supported(n->arg);
   case NODE_W:
   case NODE_R:
     return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
@@ -1068,6 +1071,11 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
   case NODE_AND:
     return wr_emit_g_body_gated(ctx, n->lhs, depth, valid, arm_gate, bad) &&
            wr_emit_g_body_gated(ctx, n->rhs, depth, valid, arm_gate, bad);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (depth == 0)
+      return false;
+    return wr_emit_g_body_gated(ctx, n->arg, depth - 1, valid, arm_gate, bad);
   case NODE_W: { // G(outer_req -> (a W b)) == G(outer_req -> (a|b))
     uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, depth);
     uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
