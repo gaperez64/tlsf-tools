@@ -262,8 +262,11 @@ uint32_t aig_compile(Aig *g, const Node *n) {
       return aig_or(g, a, b);
     case NODE_IMPL:
       return aig_or(g, aig_not(a), b);
-    default: // EQUIV
-      return aig_and(g, aig_or(g, aig_not(a), b), aig_or(g, a, aig_not(b)));
+    default: { // EQUIV: sequence for determinism across compilers
+      uint32_t e0 = aig_or(g, aig_not(a), b);
+      uint32_t e1 = aig_or(g, a, aig_not(b));
+      return aig_and(g, e0, e1);
+    }
     }
   }
   default:

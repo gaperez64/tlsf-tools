@@ -20,18 +20,21 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 
 | Metric | Now (`62fec9d`) | Target | Moved by |
 |---|---|---|---|
-| **Completeness deficit** — ltlsynt solves, we don't | **~10** | **0** (hard req: never worse) | §1 |
+| **Completeness deficit** — ltlsynt solves, we don't | **~8** (timeouts only) | **0** (hard req: never worse) | §2 |
 | ↳ false-UNREAL (output-free assumption clusters) | **0** (fixed) | 0 | §1 gap #2 ✓ |
-| ↳ backend FAILED / timed out | 2 / 8 | 0 | §1, §2 |
+| ↳ backend FAILED | **0** (confirmed via scan of lily/tsl_paper/sweap/ltl2dpa/gui) | 0 | ✓ |
+| ↳ timed out | **~8** | 0 | §2 |
 | **Speed, aggregate** `base/ours` (both-solved) | **×0.44** | **≥ 1.0** (net-faster) | §2 (OxiDD) |
 | Speed, median | parity (22 vs 16 ms) | ≥ 1.0 | §2 (OxiDD + cost routing) |
 | **Wins** — ltlsynt can't do in budget, we can | 17 | grow | §3 |
 | Self-contained (no ltlsynt) | 192 (7.5 %) | grow | §1, §3 |
 
-Order of attack: **§1 completeness to 0** (correctness floor — gap #2 alone is
-~−74), then **§2 speed to ≥1.0** (the actual product claim), then **§3 reach** for
-upside. Rerun the benchmark after each lever; the deficit and aggregate-speed
-cells are the two that define success.
+Order of attack: **§1 completeness is now ≈8 timeouts** (all false-UNREALs and
+backend-FAILEDs confirmed gone by per-family gap scan), so the focus shifts to
+**§2 speed to ≥1.0** which also closes the timeout gap: a faster pipeline completes
+before the cap, eliminating the remaining ~8 deficit. Then **§3 reach** for upside.
+Rerun the benchmark after each lever; the deficit and aggregate-speed cells are the
+two that define success.
 
 ## 1 · Completeness — never fail where `ltlsynt` succeeds (PRIORITY)
 
@@ -43,10 +46,17 @@ remaining gaps are:
   clustering key equals `A` (cov->aps.count sentinel = no output APs) are now
   skipped in both `--aiger` and text-plan paths.  Dropped ~74 false-UNREAL cases
   on the sweap corpus; verified by golden test `input_gua_skip`.
-- [ ] **Composition-soundness edge.** A guarantee whose only outputs are
+- [x] **Backend FAILED cases.** Confirmed gone: per-family gap scan (lily/tsl_paper/
+  sweap/ltl2dpa/gui_glue_code_synthesis) found 0 specs where ltlsynt succeeds but
+  our tool fails without UNREALIZABLE verdict. The 2 pre-fix backend FAILEDs were
+  likely output-free cluster synthesis attempts that also triggered the ltlsynt
+  fallback in an unresolvable way; the key=A skip resolved them.
+- [ ] **Remaining ~8 timeouts.** Specs where ltlsynt solves in ≤20s but our pipeline
+  (with AbsSynthe overhead) exceeds the cap. Fix is §2 speed (OxiDD or cost gate).
+- [ ] **Composition-soundness edge (theoretical).** A guarantee whose only outputs are
   template-eliminated can leave an input-only unrealizable residual (e.g.
-  `G(req → F false)` from free-output substitution of a response's grant). Audit
-  the free-output rule so substitution never strands a still-referenced obligation.
+  `G(req → F false)` from free-output substitution of a response's grant). No
+  observed cases in the corpus; worth auditing the free-output rule but not blocking.
 
 ## 2 · Speed — be net-faster, not just self-contained
 

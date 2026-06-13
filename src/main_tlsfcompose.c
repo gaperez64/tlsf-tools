@@ -926,9 +926,11 @@ static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
       return aig_or(ctx->g, a, b);
     case NODE_IMPL:
       return aig_or(ctx->g, aig_not(a), b);
-    default:
-      return aig_and(ctx->g, aig_or(ctx->g, aig_not(a), b),
-                     aig_or(ctx->g, a, aig_not(b)));
+    default: { // EQUIV: sequence for determinism across compilers
+      uint32_t e0 = aig_or(ctx->g, aig_not(a), b);
+      uint32_t e1 = aig_or(ctx->g, a, aig_not(b));
+      return aig_and(ctx->g, e0, e1);
+    }
     }
   }
   default:
