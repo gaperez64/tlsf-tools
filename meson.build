@@ -600,7 +600,7 @@ test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
          '--aiger', '--ltlsynt', '/bin/false',
          files('test/cases/gr1_spec.tlsf')])
 # $ABSSYNTHE_TIMEOUT caps the solver child: a hanging AbsSynthe is killed and the
-# cluster returns no strategy (here ltlsynt is disabled, so the cluster fails).
+# cluster falls back to ltlsynt (here /bin/false, so the cluster still fails).
 test('aiger_abssynthe_timeout_fallback', check_fail_stderr,
   args: [files('test/cases/compose_abssynthe_timeout.err'), tlsfcompose_exe,
          '--aiger', '--abssynthe', files('test/fake_abssynthe_hang.sh'),

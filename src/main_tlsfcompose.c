@@ -2174,6 +2174,13 @@ int main(int argc, char *argv[]) {
                            : 4;
     if (bound_k == 0)
       bound_k = 4;
+    // Cost gate: skip AbsSynthe for clusters with fewer than this many APs
+    // ($ABSSYNTHE_MIN_APS, default 0 = no gate).  AbsSynthe's fixed spawn +
+    // CUDD-init overhead dominates on small clusters; ltlsynt is faster there.
+    const char *min_aps_env = getenv("ABSSYNTHE_MIN_APS");
+    uint32_t abs_min_aps = (min_aps_env && *min_aps_env)
+                               ? (uint32_t)strtoul(min_aps_env, nullptr, 10)
+                               : 0;
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
@@ -2192,16 +2199,22 @@ int main(int argc, char *argv[]) {
       ClusterShape shape = cluster_shape(spec, root);
       int unreal = 0;
       Aig *sub = nullptr;
+      const char *fallback_detail =
+          nullptr; // set when AbsSynthe ran but failed
       const Node *strict_sys = nullptr, *strict_env = nullptr;
-      bool use_abs_direct = abs_prog && abssynthe_eligible(root, finite);
+      // Cost gate: only engage AbsSynthe backends if the cluster meets the AP
+      // minimum (spawn + CUDD-init overhead dominates on tiny clusters).
+      bool abs_cost_ok = cov->aps.count >= abs_min_aps;
+      bool use_abs_direct =
+          abs_prog && abs_cost_ok && abssynthe_eligible(root, finite);
       bool use_abs_strict =
-          abs_prog && !finite && !use_abs_direct && shape.gr_level == 0 &&
-          !shape.has_liveness &&
+          abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
+          shape.gr_level == 0 && !shape.has_liveness &&
           abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
       // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
       // with W/R on any side is encoded exactly (monitors), preferred over the
       // lossy bounded reduction below.
-      bool use_abs_wr = abs_prog && !finite && !use_abs_direct &&
+      bool use_abs_wr = abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
                         !use_abs_strict && !shape.has_liveness &&
                         (shape.has_weak_until || shape.has_release) &&
                         wr_structural_supported(root);
@@ -2209,8 +2222,8 @@ int main(int argc, char *argv[]) {
       // the cluster then becomes a pure-safety game (no fairness assumption
       // survives), solve it with the existing AbsSynthe safety solver.
       const Node *bounded_root = nullptr;
-      if (abs_prog && !finite && !use_abs_direct && !use_abs_strict &&
-          !use_abs_wr &&
+      if (abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
+          !use_abs_strict && !use_abs_wr &&
           (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
         Node *br = bound_liveness(spec->arena, root, bound_k, true);
         if (abssynthe_eligible(br, finite))
@@ -2221,7 +2234,7 @@ int main(int argc, char *argv[]) {
       // assumption is unsound to bound) is emitted as a real justice/fairness
       // game and solved by AbsSynthe's GR(1) fixpoint.
       Gr1Parts gp;
-      bool use_gr1 = abs_prog && !finite && !use_abs_direct &&
+      bool use_gr1 = abs_prog && abs_cost_ok && !finite && !use_abs_direct &&
                      !use_abs_strict && !use_abs_wr && !bounded_root &&
                      abssynthe_gr1_parts(spec->arena, root, &gp);
       bool use_abs = use_abs_direct || use_abs_strict || use_abs_wr ||
@@ -2229,9 +2242,27 @@ int main(int argc, char *argv[]) {
       const char *backend = use_abs ? "AbsSynthe" : "ltlsynt fallback";
       if (use_abs_direct) {
         sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
+        if (!sub && !unreal) {
+          // AbsSynthe failed (timeout / error): fall back to ltlsynt.
+          use_abs = false;
+          backend = "ltlsynt fallback (safety miss)";
+          fallback_detail = "AbsSynthe returned no strategy; ltlsynt also "
+                            "returned no strategy";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
       } else if (use_abs_strict) {
         sub = run_abssynthe_strict_safety(abs_prog, cov, seen, strict_sys,
                                           strict_env, &unreal);
+        if (!sub && !unreal) {
+          // AbsSynthe failed: fall back to ltlsynt on the original formula.
+          use_abs = false;
+          backend = "ltlsynt fallback (strict safety miss)";
+          fallback_detail = "AbsSynthe returned no strategy; ltlsynt also "
+                            "returned no strategy";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
       } else if (use_abs_wr) {
         backend = "AbsSynthe (W/R safety)";
         sub = run_abssynthe_wr(abs_prog, cov, seen, root, &unreal);
@@ -2299,8 +2330,10 @@ int main(int argc, char *argv[]) {
         char reason[192];
         const char *detail =
             use_abs ? "AbsSynthe returned no usable strategy"
-                    : cluster_ltlsynt_reason(&shape, finite, abs_prog != NULL,
-                                             reason, sizeof reason);
+            : fallback_detail
+                ? fallback_detail
+                : cluster_ltlsynt_reason(&shape, finite, abs_prog != NULL,
+                                         reason, sizeof reason);
         fprintf(stderr,
                 "tlsfcompose: synthesis backend failed for cluster %u (%s: "
                 "%s)\n",
