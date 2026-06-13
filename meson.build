@@ -510,7 +510,7 @@ endforeach
 test('residual_single', check,
   args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
          '--single', files('test/cases/cluster_split.tlsf')])
-foreach name : ['compose_demo', 'cluster_split', 'cluster_prune']
+foreach name : ['compose_demo', 'cluster_split', 'cluster_prune', 'input_gua_skip']
   test('compose_' + name, check,
     args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
            files('test/cases/' + name + '.tlsf')])
@@ -531,6 +531,12 @@ test('aiger_merge', check,
   args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
          '--ltlsynt', files('test/fake_ltlsynt.sh'),
          files('test/cases/compose_demo.tlsf')])
+# Output-free cluster must be skipped: fake_ltlsynt is only called for the
+# output-bearing cluster; the input-only G F req cluster needs no controller.
+test('aiger_input_gua_skip', check,
+  args: [files('test/cases/input_gua_skip.aag'), tlsfcompose_exe, '--aiger',
+         '--ltlsynt', files('test/fake_ltlsynt.sh'),
+         files('test/cases/input_gua_skip.tlsf')])
 test('aiger_unclassified_atom', check,
   args: [files('test/cases/aiger_unclassified_atom.aag'), tlsfcompose_exe,
          '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),

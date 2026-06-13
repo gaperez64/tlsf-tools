@@ -2179,6 +2179,8 @@ int main(int argc, char *argv[]) {
 
     // Clusters first (so a decoder reading a synthesized output resolves).
     for (uint32_t k = 0; k < K && rc == 0; k++) {
+      if (keys[k] == A) // output-free: no controller needed, skip
+        continue;
       Node *root =
           residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
       if (!root) {
@@ -2347,7 +2349,12 @@ int main(int argc, char *argv[]) {
     return rc;
   }
 
-  fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim, K);
+  uint32_t K_visible = 0;
+  for (uint32_t k = 0; k < K; k++)
+    if (keys[k] != A)
+      K_visible++;
+  fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim,
+          K_visible);
 
   // Combinational controllers (exact): o := value.
   FILE *ctlf = nullptr;
@@ -2385,7 +2392,9 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  for (uint32_t k = 0; k < K && rc == 0; k++) {
+  for (uint32_t k = 0, ck = 0; k < K && rc == 0; k++) {
+    if (keys[k] == A) // output-free: no controller needed, skip
+      continue;
     Node *root =
         residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
     if (!root) {
@@ -2394,7 +2403,7 @@ int main(int argc, char *argv[]) {
     }
     if (out_dir) {
       char path[4096];
-      snprintf(path, sizeof path, "%s/cluster.%u.ltl", out_dir, k);
+      snprintf(path, sizeof path, "%s/cluster.%u.ltl", out_dir, ck);
       FILE *cf = fopen(path, "w");
       if (!cf) {
         fprintf(stderr, "tlsfcompose: cannot write %s\n", path);
@@ -2408,24 +2417,25 @@ int main(int argc, char *argv[]) {
       fprintf(cf, "\n");
       print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/false);
       fclose(cf);
-      fprintf(shf, "run cluster.%u.ltl \"", k);
+      fprintf(shf, "run cluster.%u.ltl \"", ck);
       residual_print_signals(shf, cov, seen, AP_FLAG_INPUT);
       fprintf(shf, "\" \"");
       residual_print_signals(shf, cov, seen, AP_FLAG_OUTPUT);
       fprintf(shf, "\"\n");
-      fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", k, k);
+      fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", ck, ck);
       residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
       fprintf(out, " ins=");
       residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
     } else {
-      fprintf(out, "c cluster %u outs=", k);
+      fprintf(out, "c cluster %u outs=", ck);
       residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
       fprintf(out, " ins=");
       residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
       print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/false);
     }
+    ck++;
   }
   if (shf) {
     fprintf(shf, "[ \"$ok\" = 1 ] && echo \"SPEC REALIZABLE\" || echo \"SPEC "
