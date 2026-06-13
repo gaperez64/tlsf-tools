@@ -87,12 +87,27 @@ hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
   liveness (F/U/GF/Büchi) that need a real liveness game, not a syntactic
   certificate. Either a fixpoint backend or trusting the complete solver more
   (see §4). ~27 % of this tail are genuinely *unrealizable* specs.
+- [x] **W/R R-collapse with complex rhs.** `G(a R b)` now recurses into `b`
+  via `g_body_wr_supported`/`wr_emit_g_body*`, enabling specs where `b` itself
+  contains W/R responses (e.g. Automata, SensorInit, SensorPart families).
+- [x] **W/R AIG x-depth undercount.** Added `wr_body_x_depth` that recurses
+  into W/R operands; used in `abssynthe_safety_wr_x_depth` for G nodes so that
+  X operators nested inside W/R sub-expressions (e.g. G(req→X(a R (b→X c))))
+  contribute the correct AIG history-latch depth. Fixes KitchenTimerV4-V9 and
+  SensorPart in the selection-ltl set (18/23 now self-contained, up from 11).
+- [x] **abssynthe_eligible conflict.** Extended g_body_wr_supported patterns
+  (Pattern A/B) were leaking into abssynthe_eligible, routing W/R formulas to
+  build_abssynthe_game (wrong path). Fixed by introducing strict
+  g_body_direct_supported / abssynthe_safety_direct_supported used only in the
+  direct-path gate.
 - [ ] **Remaining W/R-safety shapes** (gate-protected, exactly encodable):
-  nested weak-until `G(req → (A W B))` with inner `W`/`R` (needs sub-monitors);
-  U-shaped responses `G(req → X(a U b))` (*first* confirm the unsound cases are
-  Spot-tractable, else it repeats the lever-2 trap); the `zoo5` over-constraint
-  (an `X`-bearing input-only guarantee invariant whose late-detected violation
-  mis-times against the `!released` gate — currently a sound fallback).
+  nested weak-until `G(req → (A W B))` with inner `W`/`R` in operands (needs
+  sub-monitors; MusicAppFeedback pattern); X in initial-constraint conjuncts
+  (KitchenTimerV10); SensorSelector `AND(G, IMPL)` top-level structure needs
+  direct-path to handle IMPL-under-AND; U-shaped responses `G(req → X(a U b))`.
+  The 5 remaining selection-ltl failures are: Sensor, MusicAppSimple (liveness),
+  KitchenTimerV10 (X in initial), MusicAppFeedback (deeply nested W-in-W),
+  SensorSelector (IMPL-under-AND without W/R, not handled by any current path).
 - [ ] **GR(2) / generalized-Rabin** for the `amba_gr+` family (beyond GR(1)).
 - [ ] **AbsSynthe BDD perf / GR(1)-aware abstraction** for big amba (`pb_10+`).
 
