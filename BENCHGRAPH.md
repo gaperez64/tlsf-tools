@@ -362,35 +362,37 @@ only the hard liveness residual to ltlsynt, and never be slower or less complete
 Regenerate: `scripts/benchgraph.py --corpus DIR --tlsfcompose … --abssynthe … --ltlsynt …`
 (or `--from-data benchgraph.tsv` to re-render this section without re-running).
 
-### Run: 2026-06-12 19:10 UTC · commit `de82555`
+### Run: 2026-06-13 07:17 UTC · commit `8cd5bab`
 - Corpus: `/home/gperez/GIT-repos/benchmarks/tlsf` (2545 specs)
-- Caps: timeout 20s/run, AbsSynthe 6s/cluster, 8 GB RAM, sequential
+- Caps: timeout 20s/run, AbsSynthe 6s/cluster, 6 GB RAM, sequential
 - Baseline: `ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)
 - Ours: `tlsfcompose --split --aiger --abssynthe … --ltlsynt …`
 - Per-spec data: `benchgraph.tsv`
 
 ### Complexity
-- **Self-contained (templates+AbsSynthe, no ltlsynt): 191/2545 = 7.5%** (187 use AbsSynthe).
-- **AbsSynthe reach (≥1 cluster): 658/2545 = 25.9%**.
+- **Self-contained (templates+AbsSynthe, no ltlsynt): 192/2545 = 7.5%** (188 use AbsSynthe).
+- **AbsSynthe reach (≥1 cluster): 659/2545 = 25.9%**.
 - Residual shape (specs not self-contained), hardest cluster:
 
   | residual class | specs |
   |---|---|
-  | liveness (F/U/GF/Buchi) | 2062 |
+  | liveness (F/U/GF/Buchi) | 2061 |
   | W/R safety not yet handled | 143 |
   | GR(2+) generalized reactivity | 130 |
   | (none / unrealizable verdict) | 17 |
   | AbsSynthe miss | 2 |
 
 ### Speed (AbsSynthe-contributing specs)
-- Timed: 658 specs. Both produced a controller: 150.
-- **Both-solved speedup `base/ours`: median ×0.56, geomean ×0.48** (faster: 23, slower: 127).
-- Absolute wall on both-solved: **median ours 22 ms vs base 17 ms** (near parity); mean ours 381 ms vs base 181 ms (mean skewed by a slow AbsSynthe BDD tail).
-- Total wall on both-solved: ours 57.2s vs base 27.1s (**×0.47** aggregate).
-- Ours solves where **base times out** (≥20s): 18 clear wins — selection-ltl-2025×13, specs×5.
-- Ours **times out** where base solves: 0 (losses).
-- Ours **fails** where base solves: 80 completeness gaps (bugs) — selection-ltl-2025×41, sweap×39.
+- Timed: 659 specs. Both produced a controller: 150.
+- **Both-solved speedup `base/ours`: median ×0.57, geomean ×0.47** (faster: 19, slower: 131).
+- Absolute wall on both-solved: **median ours 22 ms vs base 16 ms** (near parity); mean ours 380 ms vs base 169 ms (mean skewed by a slow AbsSynthe BDD tail).
+- Total wall on both-solved: ours 57.0s vs base 25.3s (**×0.44** aggregate).
+- Ours solves where **base times out** (≥20s): 17 clear wins — selection-ltl-2025×12, specs×5.
+
+### Completeness vs ltlsynt
+- **ltlsynt produced a controller but we did not: 84** — the honest deficit (we are *less complete* on these). Breakdown: 74 we wrongly call **UNREALIZABLE**, 2 backend **FAILED**, 8 **timed out**.
+- The false-UNREALs are dominated by selection-ltl-2025×37, sweap×35, lily×1, tsl_paper×1 — output-free assumption clusters synthesised standalone (TASKS.md gap #2).
 
 ### Verdict
-On the **median** AbsSynthe-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (22 ms vs 17 ms) — the abstraction is the fixed cost of spawning AbsSynthe (process + CUDD init) on specs ltlsynt already does in milliseconds. In **aggregate we are ×0.47** (slower), pulled down by a tail of specs whose BDD solve outlasts ltlsynt. The genuine preprocessor value is the **18 specs ltlsynt cannot synthesize in 20s that we do** (GR(1) `amba_gr` + large decomposed safety). The blocking issue is **80 completeness gaps** — specs we *fail* where ltlsynt succeeds (malformed ltlsynt-fallback `--ins/--outs` on parametric residuals, etc.); fixing those is the path to a net-faster, net-complete preprocessor.
+On the **median** AbsSynthe-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (22 ms vs 16 ms) — the abstraction is the fixed cost of spawning AbsSynthe (process + CUDD init) on specs ltlsynt already does in milliseconds. In **aggregate we are ×0.44** (slower), pulled down by a tail of specs whose BDD solve outlasts ltlsynt; an in-process BDD solver (see `architecture.md`) is the planned fix. The genuine value is the **17 specs ltlsynt cannot synthesize in 20s that we do** (GR(1) `amba_gr`, large decomposed safety). The completeness blocker is **84 specs ltlsynt solves that we don't** — now dominated by **74 false-UNREALs** from output-free assumption clusters (TASKS.md gap #2), not parse bugs.
 <!-- BENCHGRAPH:PREPROCESSOR END -->

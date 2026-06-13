@@ -231,8 +231,11 @@ def write_report(args, rows, total, data_path):
     both = [r for r in timed if r["ours_st"] == "SOLVED" and r["base_st"] == "SOLVED"]
     speedups = [r["base_t"] / r["ours_t"] for r in both if r["ours_t"] > 1e-6]
     ours_win_base_to = [r for r in timed if r["ours_st"] == "SOLVED" and r["base_st"] == "TIMEOUT"]
-    gap = [r for r in timed if r["ours_st"] in ("FAILED",) and r["base_st"] == "SOLVED"]
+    gap = [r for r in timed if r["ours_st"] == "FAILED" and r["base_st"] == "SOLVED"]
     ours_to = [r for r in timed if r["ours_st"] == "TIMEOUT" and r["base_st"] == "SOLVED"]
+    false_unreal = [r for r in timed if r["ours_st"] == "UNREAL" and r["base_st"] == "SOLVED"]
+    # the honest completeness deficit: ltlsynt produced a controller, we did not
+    less_complete = gap + false_unreal + ours_to
     sum_ours = sum(r["ours_t"] for r in both)
     sum_base = sum(r["base_t"] for r in both)
 
@@ -292,10 +295,16 @@ def write_report(args, rows, total, data_path):
     L.append(f"- Ours solves where **base times out** (≥{args.timeout}s): {len(ours_win_base_to)} clear wins"
              + (" — " + ", ".join(f"{d.split('/')[-1] or d}×{n}" for d, n in win_fam.most_common()) if win_fam else "")
              + ".\n")
-    L.append(f"- Ours **times out** where base solves: {len(ours_to)} (losses).\n")
-    L.append(f"- Ours **fails** where base solves: {len(gap)} completeness gaps (bugs)"
-             + (" — " + ", ".join(f"{d.split('/')[-1] or d}×{n}" for d, n in gap_fam.most_common()) if gap_fam else "")
-             + ".\n")
+
+    fu_fam = Counter(os.path.dirname(r["name"]) or "." for r in false_unreal)
+    L.append("\n### Completeness vs ltlsynt\n")
+    L.append(f"- **ltlsynt produced a controller but we did not: {len(less_complete)}** — the honest "
+             f"deficit (we are *less complete* on these). Breakdown: {len(false_unreal)} we wrongly call "
+             f"**UNREALIZABLE**, {len(gap)} backend **FAILED**, {len(ours_to)} **timed out**.\n")
+    if fu_fam:
+        L.append("- The false-UNREALs are dominated by "
+                 + ", ".join(f"{d.split('/')[-1] or d}×{n}" for d, n in fu_fam.most_common(4))
+                 + " — output-free assumption clusters synthesised standalone (TASKS.md gap #2).\n")
 
     L.append("\n### Verdict\n")
     if both:
@@ -305,12 +314,12 @@ def write_report(args, rows, total, data_path):
             f"at **rough parity** ({med_ours*1000:.0f} ms vs {med_base*1000:.0f} ms) — the abstraction is "
             f"the fixed cost of spawning AbsSynthe (process + CUDD init) on specs ltlsynt already does "
             f"in milliseconds. In **aggregate we are ×{agg:.2f}** (slower), pulled down by a tail of "
-            f"specs whose BDD solve outlasts ltlsynt. The genuine preprocessor value is the "
-            f"**{len(ours_win_base_to)} specs ltlsynt cannot synthesize in {args.timeout}s that we do** "
-            f"(GR(1) `amba_gr` + large decomposed safety). The blocking issue is **{len(gap)} "
-            f"completeness gaps** — specs we *fail* where ltlsynt succeeds (malformed ltlsynt-fallback "
-            f"`--ins/--outs` on parametric residuals, etc.); fixing those is the path to a net-faster, "
-            f"net-complete preprocessor.\n")
+            f"specs whose BDD solve outlasts ltlsynt; an in-process BDD solver (see `architecture.md`) is "
+            f"the planned fix. The genuine value is the **{len(ours_win_base_to)} specs ltlsynt cannot "
+            f"synthesize in {args.timeout}s that we do** (GR(1) `amba_gr`, large decomposed safety). The "
+            f"completeness blocker is **{len(less_complete)} specs ltlsynt solves that we don't** — now "
+            f"dominated by **{len(false_unreal)} false-UNREALs** from output-free assumption clusters "
+            f"(TASKS.md gap #2), not parse bugs.\n")
     L.append(SENTINEL_END + "\n")
     section = "".join(L)
 
