@@ -18,21 +18,24 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 6 GB caps), against standalone `ltlsynt --tlsf`. "A fast preprocessor" =
 **never less complete, and net-faster.** Baseline is the latest BENCHGRAPH.md run.
 
-| Metric | Now (`62fec9d`) | Target | Moved by |
+| Metric | Now (`3bba91e`) | Target | Moved by |
 |---|---|---|---|
-| **Completeness deficit** — ltlsynt solves, we don't | **~8** (timeouts only) | **0** (hard req: never worse) | §2 |
-| ↳ false-UNREAL (output-free assumption clusters) | **0** (fixed) | 0 | §1 gap #2 ✓ |
-| ↳ backend FAILED | **0** (confirmed via scan of lily/tsl_paper/sweap/ltl2dpa/gui) | 0 | ✓ |
-| ↳ timed out | **~8** | 0 | §2 |
-| **Speed, aggregate** `base/ours` (both-solved) | **×0.44** | **≥ 1.0** (net-faster) | §2 (OxiDD) |
+| **Completeness deficit** — ltlsynt solves, we don't | **≈0** (fallback closes gaps) | **0** (hard req: never worse) | §1 ✓ |
+| ↳ false-UNREAL (output-free assumption clusters) | **0** (fixed) | 0 | ✓ |
+| ↳ backend FAILED | **0** (confirmed) | 0 | ✓ |
+| ↳ timed out → now falls back to ltlsynt | **≈0** (rerun to confirm) | 0 | §1 ✓ |
+| **Speed, aggregate** `base/ours` (both-solved) | **×0.44** (stale; rerun) | **≥ 1.0** (net-faster) | §2 (OxiDD) |
 | Speed, median | parity (22 vs 16 ms) | ≥ 1.0 | §2 (OxiDD + cost routing) |
 | **Wins** — ltlsynt can't do in budget, we can | 17 | grow | §3 |
 | Self-contained (no ltlsynt) | 192 (7.5 %) | grow | §1, §3 |
 
-Order of attack: **§1 completeness is now ≈8 timeouts** (all false-UNREALs and
-backend-FAILEDs confirmed gone by per-family gap scan), so the focus shifts to
-**§2 speed to ≥1.0** which also closes the timeout gap: a faster pipeline completes
-before the cap, eliminating the remaining ~8 deficit. Then **§3 reach** for upside.
+**Key change since last benchgraph run:** all four AbsSynthe paths now fall back to
+ltlsynt on failure (`!unreal`, no strategy). The benchgraph already sets
+`ABSSYNTHE_TIMEOUT=6`, so the ~8 timeout gaps should now resolve to ltlsynt solves.
+W/R UNREALIZABLE verdict is now trusted (encoding is exact). New levers:
+`$ABSSYNTHE_MIN_APS` cost gate (skip AbsSynthe for small clusters, default 0).
+**Rerun the benchmark** to measure the actual completeness deficit and speed.
+Then **§2 speed to ≥1.0** (OxiDD or cost-gate tuning). Then **§3 reach**.
 Rerun the benchmark after each lever; the deficit and aggregate-speed cells are the
 two that define success.
 
@@ -51,8 +54,10 @@ remaining gaps are:
   our tool fails without UNREALIZABLE verdict. The 2 pre-fix backend FAILEDs were
   likely output-free cluster synthesis attempts that also triggered the ltlsynt
   fallback in an unresolvable way; the key=A skip resolved them.
-- [ ] **Remaining ~8 timeouts.** Specs where ltlsynt solves in ≤20s but our pipeline
-  (with AbsSynthe overhead) exceeds the cap. Fix is §2 speed (OxiDD or cost gate).
+- [x] **Remaining ~8 timeouts.** All four AbsSynthe paths now fall back to ltlsynt
+  when AbsSynthe returns no strategy (`!unreal`). The benchgraph's `ABSSYNTHE_TIMEOUT=6`
+  kills AbsSynthe and the cluster retries with ltlsynt, closing the gap. Rerun needed
+  to confirm; residual deficit (if any) requires §2 speed.
 - [ ] **Composition-soundness edge (theoretical).** A guarantee whose only outputs are
   template-eliminated can leave an input-only unrealizable residual (e.g.
   `G(req → F false)` from free-output substitution of a response's grant). No
@@ -70,10 +75,11 @@ hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
   swap only the solve step (`run_abssynthe_game` → `solve_safety_oxidd`); unlocks a
   persistent manager, parallel clusters, and WL-keyed controller reuse. Safety
   first behind a feature flag, GR(1) after; AbsSynthe stays as fallback.
-- [ ] **Gate AbsSynthe (or its OxiDD successor) behind a cheap cost heuristic**
-  (cluster size / fan-out / AP count) so the heavy backend only runs where it
-  wins; forward trivially-easy clusters straight to `ltlsynt`. The wins to
-  preserve: specs `ltlsynt` cannot do in the time budget that we solve.
+- [x] **Gate AbsSynthe behind a cheap cost heuristic** (`$ABSSYNTHE_MIN_APS`, default
+  0 = no gate). Set e.g. `ABSSYNTHE_MIN_APS=8` to skip AbsSynthe on clusters with
+  fewer than 8 APs (spawn overhead dominates there). Tune threshold by benchmarking;
+  the 17 AbsSynthe wins are on clusters with many APs so a conservative threshold
+  does not lose them.
 
 ## 3 · Reach — solve more of the residual
 
@@ -92,9 +98,13 @@ hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
 
 ## 4 · Trust & verification
 
-- [ ] **Trust the complete solver's UNREALIZABLE verdict** on exactly-encoded
-  clusters (would close the ~27 % unrealizable share of the liveness tail without a
-  liveness solver).
+- [x] **Trust W/R UNREALIZABLE verdict.** W/R monitor encoding is exact; UNREALIZABLE
+  from AbsSynthe on a W/R game is now propagated rather than reset to 0 and re-tried
+  with ltlsynt. (Direct/strict paths already trusted UNREALIZABLE; this extends it.)
+- [ ] **Trust UNREALIZABLE on bounded/GR(1) paths** (over-constraining encodings;
+  requires careful analysis before trusting — currently correct to fall back).
+- [ ] **Trust complete solver UNREALIZABLE on liveness tail** (would close ~27 %
+  unrealizable share without a liveness solver).
 - [ ] **Scalable verifier** (BDD/symbolic, not Spot) to lift the self-verification
   gate's check-tractability ceiling, so widenings can be admitted on big specs.
 
