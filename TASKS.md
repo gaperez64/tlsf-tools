@@ -35,10 +35,16 @@ On the corpus the median AbsSynthe-contributing spec is rough parity but the
 aggregate is *slower* (BENCHGRAPH.md): a fixed AbsSynthe spawn + CUDD-init cost
 hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
 
-- [ ] **Gate AbsSynthe behind a cheap cost heuristic** (cluster size / fan-out /
-  AP count), or reuse a persistent solver, so the abstraction only pays where it
-  wins. The wins to preserve: specs `ltlsynt` cannot do in the time budget that we
-  solve (GR(1) `amba_gr`, large decomposed safety).
+- [ ] **Replace the AbsSynthe subprocess with an in-process BDD solver on OxiDD**
+  — the slowness is the fixed spawn + CUDD-init cost, not algorithms. Detailed
+  prototype plan in [`architecture.md`](architecture.md): keep the game encoders,
+  swap only the solve step (`run_abssynthe_game` → `solve_safety_oxidd`); unlocks a
+  persistent manager, parallel clusters, and WL-keyed controller reuse. Safety
+  first behind a feature flag, GR(1) after; AbsSynthe stays as fallback.
+- [ ] **Gate AbsSynthe (or its OxiDD successor) behind a cheap cost heuristic**
+  (cluster size / fan-out / AP count) so the heavy backend only runs where it
+  wins; forward trivially-easy clusters straight to `ltlsynt`. The wins to
+  preserve: specs `ltlsynt` cannot do in the time budget that we solve.
 
 ## 3 · Reach — solve more of the residual
 
