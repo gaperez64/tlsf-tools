@@ -11,8 +11,8 @@ option(
 option(
   'oxidd',
   type: 'feature',
-  value: 'enabled',
+  value: 'auto',
   description: 'In-process OxiDD BDD safety/GR(1) solver for tlsfcompose ' +
                '(needs the external/oxidd submodule built via ' +
-               '`meson compile -C build oxidd-build`)',
+               '`meson compile -C build oxidd-build`; auto = use if built)',
 )
