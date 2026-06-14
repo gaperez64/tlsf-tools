@@ -279,7 +279,9 @@ tlsfresidual_exe = executable(
 if have_oxidd
   tlsfcompose_exe = executable(
     'tlsfcompose',
-    sources: ['src/main_tlsfcompose.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+    sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
+              'src/compose_games.c', 'src/compose_solve.c',
+              'src/safety_oxidd.c', 'src/gr1_oxidd.c',
               'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],
     dependencies: [oxidd_dep],
