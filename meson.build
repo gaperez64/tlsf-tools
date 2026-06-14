@@ -280,7 +280,7 @@ if have_oxidd
   tlsfcompose_exe = executable(
     'tlsfcompose',
     sources: ['src/main_tlsfcompose.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c',
-              bison_out[1]],
+              'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],
     dependencies: [oxidd_dep],
     link_with: tlsf_lib,
@@ -290,7 +290,8 @@ if have_oxidd
 
   tlsfsolve_exe = executable(
     'tlsfsolve',
-    sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
+    sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+              'src/oxidd_common.c'],
     c_args: ['-DHAVE_OXIDD'],
     dependencies: [oxidd_dep],
     link_with: tlsf_lib,
