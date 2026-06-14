@@ -24,6 +24,49 @@ jobs:
           clang-format --version
           clang-format --dry-run --Werror src/*.c include/tlsf/*.h
 
+  # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
+  # once and share it with the OxiDD-enabled jobs as an artifact, so cargo runs
+  # a single time per CI run. The dependency-free jobs (build-test, build-clang,
+  # coverage, perf-regression) deliberately skip this to keep proving the
+  # no-Rust build path stays alive.
+  oxidd:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: OxiDD submodule revision
+        id: rev
+        run: echo "sha=$(git -C external/oxidd rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo + OxiDD build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            external/oxidd/target
+          key: oxidd-${{ runner.os }}-${{ steps.rev.outputs.sha }}
+          restore-keys: |
+            oxidd-${{ runner.os }}-
+      - name: Install cbindgen
+        run: cargo install cbindgen --locked
+      - name: Build OxiDD FFI
+        run: scripts/build_oxidd.sh
+      - name: Upload OxiDD FFI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxidd-ffi
+          path: |
+            external/oxidd/target/release/liboxidd_ffi_c.a
+            external/oxidd/build/include
+          if-no-files-found: error
+          retention-days: 1
+
   build-test:
     runs-on: ubuntu-24.04
     steps:
@@ -73,6 +116,34 @@ jobs:
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
 
+  # OxiDD-enabled build: links the shared FFI artifact, compiles the in-process
+  # safety + GR(1) solvers (src/safety_oxidd.c, src/gr1_oxidd.c, src/aiger.c via
+  # tlsfcompose/tlsfsolve) and runs the full suite. The Spot-verified
+  # verify_aiger_oxidd* tests auto-gate on Spot (absent here) and run locally;
+  # bounded_synthesis_harness still exercises a real in-process solve.
+  build-oxidd:
+    needs: oxidd
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14 python3
+      - name: Download OxiDD FFI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: oxidd-ffi
+          path: external/oxidd
+      - name: Configure, build and test (OxiDD enabled)
+        env:
+          CC: gcc-14
+        run: |
+          meson setup build-oxidd -Doxidd=enabled
+          ninja -C build-oxidd
+          meson test -C build-oxidd --print-errorlogs
+
   coverage:
     runs-on: ubuntu-24.04
     steps:
@@ -84,8 +155,12 @@ jobs:
             meson ninja-build flex bison gcc gcovr
       - name: Build with coverage and report
         run: |
-          # Build and measure with the runner's default gcc and its matching
-          # gcov; mixing the default gcc with gcov-14 makes gcov exit 3 and
+          # Coverage is measured on the dependency-free build: the OxiDD solver
+          # files compile only with -Doxidd=enabled, and their correctness paths
+          # are exercised by the Spot-verified suite (local). Enabling OxiDD here
+          # would add ~4k solver lines to the denominator without Spot to cover
+          # them. Build and measure with the runner's default gcc and its
+          # matching gcov; mixing default gcc with gcov-14 makes gcov exit 3 and
           # crashes gcovr. Gate on the parsed line percentage.
           meson setup build-cov -Db_coverage=true
           meson test -C build-cov
