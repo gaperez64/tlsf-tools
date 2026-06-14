@@ -18,24 +18,22 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 6 GB caps), against standalone `ltlsynt --tlsf`. "A fast preprocessor" =
 **never less complete, and net-faster.** Baseline is the latest BENCHGRAPH.md run.
 
-| Metric | Now (`69c4039`) | Target | Moved by |
+| Metric | Now (`5fd19e5`) | Target | Moved by |
 |---|---|---|---|
-| **Completeness deficit** — ltlsynt solves, we don't | **≈0** (fallback closes gaps) | **0** (hard req: never worse) | §1 ✓ |
-| ↳ false-UNREAL (output-free assumption clusters) | **0** (fixed) | 0 | ✓ |
-| ↳ backend FAILED | **0** (confirmed) | 0 | ✓ |
-| ↳ timed out → now falls back to ltlsynt | **≈0** (rerun to confirm) | 0 | §1 ✓ |
-| **Speed, aggregate** `base/ours` (both-solved) | **pending rerun** | **≥ 1.0** (net-faster) | §2 (OxiDD) |
-| Speed, median | pending rerun | ≥ 1.0 | §2 (OxiDD) |
-| **Wins** — ltlsynt can't do in budget, we can | 17 (stale) | grow | §3 |
-| Self-contained (no ltlsynt) | 192 (7.5 %, stale) | grow | §1, §3 |
+| **Completeness deficit** — ltlsynt solves, we don't | **8** (false-UNREALs) | **0** (hard req: never worse) | §1 |
+| ↳ false-UNREAL (output-free assumption clusters) | **8** (selection-ltl×4, tsl_paper×4) | 0 | §1 gap |
+| ↳ backend FAILED | **0** | 0 | ✓ |
+| ↳ timed out | **0** | 0 | ✓ |
+| **Speed, aggregate** `base/ours` (both-solved) | **×35.18** (ours 4.8 s vs base 170.4 s) | **≥ 1.0** ✓ | §2 ✓ |
+| Speed, median OxiDD-contributing | **×4.66** (4 ms vs 23 ms) | ≥ 1.0 ✓ | §2 ✓ |
+| **Wins** — ltlsynt can't do in budget, we can | **150** (selection-ltl×77, sweap×73) | grow | §3 |
+| Self-contained (no ltlsynt) | **787 / 2545 (30.9 %)** | grow | §1, §3 |
 
-**Key change since last benchgraph run:** AbsSynthe subprocess retired entirely; OxiDD
-is the sole backend for safety (direct, W/R, strict-safety) *and* GR(1) clusters
-(Piterman-Pnueli-Sa'ar tri-nested fixpoint in `src/gr1_oxidd.c`). No subprocess spawn;
-no CUDD re-init per cluster. **Rerun the benchmark** to capture the speed gain on GR(1)
-clusters (previously fell back to AbsSynthe subprocess; now in-process).
-Rerun the benchmark after each lever; the deficit and aggregate-speed cells are the
-two that define success.
+**Last benchgraph run: 2026-06-14 (`5fd19e5`).** OxiDD is the sole backend (safety +
+GR(1)); benchmark shows ×35 aggregate speedup on both-solved, 787/2545 self-contained,
+150 wins where ltlsynt times out. Completeness deficit is 8 false-UNREALs from
+output-free assumption clusters (see §1 open item below). §2 speed goal met. Remaining
+work is §3 reach and closing the 8 false-UNREALs.
 
 ## 1 · Completeness — never fail where `ltlsynt` succeeds (PRIORITY)
 
@@ -52,9 +50,13 @@ remaining gaps are:
   our tool fails without UNREALIZABLE verdict. The 2 pre-fix backend FAILEDs were
   likely output-free cluster synthesis attempts that also triggered the ltlsynt
   fallback in an unresolvable way; the key=A skip resolved them.
-- [x] **Remaining ~8 timeouts.** All solver paths fall back to ltlsynt when OxiDD
-  returns no strategy (`!unreal`). Rerun needed to confirm; residual deficit (if any)
-  requires §2 speed.
+- [x] **Remaining ~8 timeouts.** Confirmed gone: 0 timeouts in current benchgraph run.
+- [ ] **8 false-UNREALs (open).** selection-ltl-2025×4, tsl_paper×4 — output-free
+  assumption clusters that OxiDD correctly calls unrealizable (the cluster has no
+  outputs), but ltlsynt solves the whole spec via a different decomposition. Root
+  cause: the `key=A` skip only drops clusters whose *clustering key* is `A`; these
+  particular clusters have outputs but their safety game has none (assumption-only
+  safety constraints). Diagnosis and fix TBD.
 - [ ] **Composition-soundness edge (theoretical).** A guarantee whose only outputs are
   template-eliminated can leave an input-only unrealizable residual (e.g.
   `G(req → F false)` from free-output substitution of a response's grant). No
