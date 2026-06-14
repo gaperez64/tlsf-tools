@@ -136,11 +136,13 @@ jobs:
         with:
           name: oxidd-ffi
           path: external/oxidd
-      - name: Configure, build and test (OxiDD enabled)
+      - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
           CC: gcc-14
         run: |
-          meson setup build-oxidd -Doxidd=enabled
+          # GitHub x86 runners are Haswell+ (AVX2-safe); exercises the
+          # compile-time SIMD path in include/tlsf/simd.h.
+          meson setup build-oxidd -Doxidd=enabled -Dcpu=avx2
           ninja -C build-oxidd
           meson test -C build-oxidd --print-errorlogs
 

@@ -35,6 +35,30 @@ extra_cflags = cc.get_supported_arguments([
 add_project_arguments(extra_cflags, language: 'c')
 
 # ---------------------------------------------------------------------------
+# Target CPU / SIMD (opt-in via -Dcpu=...).  These -m flags both enable the
+# matching compile-time path in include/tlsf/simd.h (via the predefined
+# __AVX2__ / __AVX512F__ / __ARM_NEON macros) and let the compiler
+# auto-vectorize the rest of the tree.  Filtered through get_supported_arguments
+# so an ISA flag the host compiler/arch doesn't accept degrades to the scalar
+# fallback instead of failing the build.
+# ---------------------------------------------------------------------------
+
+cpu = get_option('cpu')
+cpu_flags = []
+if cpu == 'avx2'
+  cpu_flags = ['-mavx2', '-mfma']
+elif cpu == 'avx512'
+  cpu_flags = ['-mavx512f', '-mavx512bw', '-mavx512vpopcntdq']
+elif cpu == 'neon'
+  cpu_flags = ['-march=armv8-a+simd']
+elif cpu == 'native'
+  cpu_flags = ['-march=native']
+endif
+if cpu_flags.length() > 0
+  add_project_arguments(cc.get_supported_arguments(cpu_flags), language: 'c')
+endif
+
+# ---------------------------------------------------------------------------
 # Sanitizer support (opt-in via -Dsanitize=address etc.)
 # ---------------------------------------------------------------------------
 
