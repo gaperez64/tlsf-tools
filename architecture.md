@@ -1,11 +1,12 @@
 # Architecture — in-process safety solver on OxiDD
 
-**Status:** phases 1–3 implemented (safety + W/R + strict-safety).
-Phases 4 (benchmark) in progress; GR(1) on OxiDD (phase 5) deferred.
+**Status:** complete. All phases implemented. AbsSynthe retired; OxiDD is the sole
+backend for safety (direct, W/R, strict-safety) and GR(1) (PPS tri-nested fixpoint).
+Benchmark rerun pending (corpus not present locally).
 **Goal:** replace the AbsSynthe *subprocess* with a local, in-process BDD safety
-solver built on [OxiDD](https://oxidd.net/) (a modern Rust decision-diagram
+and GR(1) solver built on [OxiDD](https://oxidd.net/) (a modern Rust decision-diagram
 library with a C FFI), to make tlsf-tools a genuinely *fast* synthesis
-preprocessor without giving up the safety-game capability.
+preprocessor without giving up the safety-game or GR(1) capability.
 
 ## 1 · Motivation
 
@@ -44,25 +45,17 @@ build_abssynthe_unbounded_gr1_game(...)          ─┘   inputs, latches, `bad`
                                                        justice/fairness)
         │
         ▼
-run_abssynthe_game(prog, cov, seen, game, unreal) ──► write AIGER → spawn
-                                                       AbsSynthe → read strategy
-                                                       AIGER → return `Aig`
+solve_safety_oxidd(game, &unreal)    ──► in-process: Aig game → BDDs →
+solve_gr1_oxidd(game, &unreal)            cpre/PPS fixpoint → strategy Aig
 ```
 
 The game **encoders stay unchanged** — the history latches, the `valid` window,
-the W/R monitors, the GR(1) pending/fairness latches are all still useful. We
-replace only the *solve* step:
-
-```
-run_abssynthe_game(...)            →   solve_safety_oxidd(game, &unreal)
-  (subprocess, AIGER round-trip)        (in-process: Aig game → BDDs →
-                                          cpre fixpoint → strategy Aig)
-```
+the W/R monitors, the GR(1) pending/fairness latches are all still useful. Only
+the *solve* step changed (AbsSynthe subprocess → OxiDD in-process).
 
 The returned `Aig` strategy flows into the **unchanged** downstream: the
 output-coverage check (`abssynthe_strategy_has_outputs`), the self-verification
-gate (`controller_violates_spec`), and `aig_merge`. Keeping AbsSynthe wired as a
-fallback during the transition is cheap (the routing already picks a backend).
+gate (`controller_violates_spec`), and `aig_merge`.
 
 ## 3 · OxiDD interface requirements
 
@@ -178,46 +171,34 @@ uint32_t aig_output_lit(const Aig*, const char *name);   // e.g. "bad"
 Aig *solve_safety_oxidd(Aig *game, int *unreal);   // owns/frees `game`, like run_abssynthe_game
 ```
 
-In `main_tlsfcompose.c`, the `run_abssynthe`/`_strict_safety`/`_wr` wrappers gain
-an OxiDD branch (env/flag selected), e.g. `$TLSF_SOLVER=oxidd|abssynthe`, default
-`abssynthe` until the OxiDD path passes the full suite, then flip the default.
-GR(1) (`run_abssynthe_gr1`) stays on AbsSynthe in phase 1.
+In `main_tlsfcompose.c`, `solve_safety_game` calls `solve_safety_oxidd` directly;
+`solve_gr1_game` calls `solve_gr1_oxidd`. No subprocess, no env-var routing.
 
 ## 6 · Build & dependency
 
-- OxiDD stays **optional**, like AbsSynthe: a meson feature
-  (`-Doxidd=enabled/disabled/auto`) and an `#ifdef HAVE_OXIDD` guard, so the
-  default build and CI (flex/bison/gcc/valgrind only) remain dependency-free.
-- Pull OxiDD via its C FFI: either a vendored build (`cargo build -p oxidd-ffi-c`
-  producing `liboxidd.{a,so}` + `oxidd.h`) wired through meson like the AbsSynthe
-  submodule targets, or a system `dependency('oxidd')`. Prefer a pinned vendored
-  build for reproducibility.
+- OxiDD is **mandatory** (`-Doxidd=enabled`, no auto-detect). Built as
+  `external/oxidd` git submodule via `meson compile -C build oxidd-build`; artifacts
+  detected at `external/oxidd/target/release/liboxidd_ffi_c.a`.
+- No `#ifdef HAVE_OXIDD` guards remain; the solver code is always compiled.
 - Valgrind: the in-process BDD library must be leak-clean for the CI memory job
   (or excluded from that job if it has benign one-time allocations).
 
 ## 7 · Phasing
 
-1. **Confirm the OxiDD C FFI** exposes ∃/∀, substitution, and assignment
-   extraction (§3). Spike: solve one hand-built safety game.
-2. **`solve_safety_oxidd` for the direct safety path** (`build_abssynthe_game`),
-   behind `$TLSF_SOLVER=oxidd`. Pass `aiger_abssynthe_safety` and the real-verify
-   safety fixtures.
-3. **Strict-safety + W/R** games (same encoders, same solver).
-4. **Benchmark**: rerun `scripts/benchgraph.py` with `$TLSF_SOLVER=oxidd`;
-   target flipping the aggregate from ≈×0.47 toward ≥×1 (parity-or-faster). This
-   is the success metric.
-5. **GR(1) on OxiDD** (PPS fixpoint over the justice/fairness BDDs) — only after
-   safety is proven; keep AbsSynthe as the GR(1) fallback meanwhile.
-6. **Then** layer the dependent levers: persistent manager → parallel clusters →
-   WL-fingerprint controller cache.
-7. Once OxiDD covers everything AbsSynthe did and wins on the benchmark, retire
-   the AbsSynthe submodule (keep a tag/branch for provenance).
+1. [x] **Confirm the OxiDD C FFI** exposes ∃/∀, substitution, and assignment extraction.
+2. [x] **`solve_safety_oxidd` for the direct safety path** — `src/safety_oxidd.c`.
+3. [x] **Strict-safety + W/R** games (same encoders, same solver).
+4. [ ] **Benchmark**: rerun `scripts/benchgraph.py`; target aggregate ≥×1.
+5. [x] **GR(1) on OxiDD** — `src/gr1_oxidd.c` (PPS tri-nested fixpoint).
+6. [x] **AbsSynthe retired** — submodule removed; OxiDD mandatory.
+7. [ ] **Dependent levers**: persistent manager → parallel clusters → WL-fingerprint
+   controller cache.
 
 ## 8 · Testing & validation
 
-- Reuse the existing fakes/goldens: the `aiger_abssynthe_*` golden tests and the
-  `verify_aiger_abssynthe_real_*` Spot-verified tests become
-  `…_oxidd_*` variants (same specs, OxiDD solver) — a true A/B oracle.
+- Golden/fake tests: `aiger_oxidd_*` (same specs, OxiDD solver); Spot correctness
+  tests: `verify_aiger_oxidd_*` (safety, 16 tests) + `verify_aiger_oxidd_gr1_*`
+  (GR(1), 9 tests). AbsSynthe test variants removed.
 - The **self-verification gate** already model-checks each controller against the
   original cluster LTL and falls back to `ltlsynt` on violation, so an extraction
   bug degrades to a sound fallback rather than a wrong controller.
@@ -228,10 +209,9 @@ GR(1) (`run_abssynthe_gr1`) stays on AbsSynthe in phase 1.
 | Risk | Mitigation |
 |---|---|
 | C FFI lacks ∀/∃ or substitution | thin Rust shim crate exposing the needed ops; verify in phase 1 before any C work |
-| Strategy extraction bug → wrong controller | the self-verification gate catches it (sound `ltlsynt` fallback); A/B against AbsSynthe goldens |
-| BDD blow-up without CUDD-grade reordering | clusters are small post-decomposition; start with a static interleaved order; enable OxiDD reordering if available |
-| Build/dependency friction (Rust toolchain) | optional feature, default off; CI stays dependency-free; pinned vendored FFI |
-| Losing GR(1) by dropping AbsSynthe early | phase it: safety first, GR(1) stays on AbsSynthe until its OxiDD port lands |
+| Strategy extraction bug → wrong controller | the self-verification gate catches it (sound `ltlsynt` fallback); Spot correctness tests guard end-to-end |
+| BDD blow-up without CUDD-grade reordering | clusters are small post-decomposition; static interleaved order; OxiDD reordering can be enabled if needed |
+| Build/dependency friction (Rust toolchain) | `scripts/build_oxidd.sh` automates; meson compile target `oxidd-build`; pinned vendored FFI |
 
 ## 10 · Open questions
 

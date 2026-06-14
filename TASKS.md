@@ -1,14 +1,14 @@
 # TASKS — towards a fast, effective synthesis preprocessor
 
 **Goal.** tlsf-tools decomposes a TLSF spec, certifies what it can with closed-form
-templates, solves residual *safety* clusters with AbsSynthe, and forwards only the
-hard *liveness* residual to `ltlsynt`/`strix` — aiming to be **net faster** and
-**never less complete** than bare `ltlsynt`.
+templates, solves residual *safety* and *GR(1)* clusters with OxiDD (in-process BDD
+solver), and forwards only the hard *liveness* residual to `ltlsynt`/`strix` — aiming
+to be **net faster** and **never less complete** than bare `ltlsynt`.
 
 Current state, corpus solve-rate, speed-vs-`ltlsynt`, and honest caveats live in
 [`BENCHGRAPH.md`](BENCHGRAPH.md) (rerun with `scripts/benchgraph.py`). The
 synthesis pipeline (`tlsfgraph` → `tlsftemplates` → `tlsfresidual` → `tlsfcompose`,
-with the vendored AbsSynthe safety/GR(1) backend, the self-verification gate, and
+with the in-process OxiDD BDD backend (safety + GR(1)), the self-verification gate, and
 W/R-safety + GR(1) encodings) is built and tested. This file tracks only the
 **open levers**.
 
@@ -18,24 +18,22 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 6 GB caps), against standalone `ltlsynt --tlsf`. "A fast preprocessor" =
 **never less complete, and net-faster.** Baseline is the latest BENCHGRAPH.md run.
 
-| Metric | Now (`3bba91e`) | Target | Moved by |
+| Metric | Now (`69c4039`) | Target | Moved by |
 |---|---|---|---|
 | **Completeness deficit** — ltlsynt solves, we don't | **≈0** (fallback closes gaps) | **0** (hard req: never worse) | §1 ✓ |
 | ↳ false-UNREAL (output-free assumption clusters) | **0** (fixed) | 0 | ✓ |
 | ↳ backend FAILED | **0** (confirmed) | 0 | ✓ |
 | ↳ timed out → now falls back to ltlsynt | **≈0** (rerun to confirm) | 0 | §1 ✓ |
-| **Speed, aggregate** `base/ours` (both-solved) | **×0.44** (stale; rerun) | **≥ 1.0** (net-faster) | §2 (OxiDD) |
-| Speed, median | parity (22 vs 16 ms) | ≥ 1.0 | §2 (OxiDD + cost routing) |
-| **Wins** — ltlsynt can't do in budget, we can | 17 | grow | §3 |
-| Self-contained (no ltlsynt) | 192 (7.5 %) | grow | §1, §3 |
+| **Speed, aggregate** `base/ours` (both-solved) | **pending rerun** | **≥ 1.0** (net-faster) | §2 (OxiDD) |
+| Speed, median | pending rerun | ≥ 1.0 | §2 (OxiDD) |
+| **Wins** — ltlsynt can't do in budget, we can | 17 (stale) | grow | §3 |
+| Self-contained (no ltlsynt) | 192 (7.5 %, stale) | grow | §1, §3 |
 
-**Key change since last benchgraph run:** all four AbsSynthe paths now fall back to
-ltlsynt on failure (`!unreal`, no strategy). The benchgraph already sets
-`ABSSYNTHE_TIMEOUT=6`, so the ~8 timeout gaps should now resolve to ltlsynt solves.
-W/R UNREALIZABLE verdict is now trusted (encoding is exact). New levers:
-`$ABSSYNTHE_MIN_APS` cost gate (skip AbsSynthe for small clusters, default 0).
-**Rerun the benchmark** to measure the actual completeness deficit and speed.
-Then **§2 speed to ≥1.0** (OxiDD or cost-gate tuning). Then **§3 reach**.
+**Key change since last benchgraph run:** AbsSynthe subprocess retired entirely; OxiDD
+is the sole backend for safety (direct, W/R, strict-safety) *and* GR(1) clusters
+(Piterman-Pnueli-Sa'ar tri-nested fixpoint in `src/gr1_oxidd.c`). No subprocess spawn;
+no CUDD re-init per cluster. **Rerun the benchmark** to capture the speed gain on GR(1)
+clusters (previously fell back to AbsSynthe subprocess; now in-process).
 Rerun the benchmark after each lever; the deficit and aggregate-speed cells are the
 two that define success.
 
@@ -54,10 +52,9 @@ remaining gaps are:
   our tool fails without UNREALIZABLE verdict. The 2 pre-fix backend FAILEDs were
   likely output-free cluster synthesis attempts that also triggered the ltlsynt
   fallback in an unresolvable way; the key=A skip resolved them.
-- [x] **Remaining ~8 timeouts.** All four AbsSynthe paths now fall back to ltlsynt
-  when AbsSynthe returns no strategy (`!unreal`). The benchgraph's `ABSSYNTHE_TIMEOUT=6`
-  kills AbsSynthe and the cluster retries with ltlsynt, closing the gap. Rerun needed
-  to confirm; residual deficit (if any) requires §2 speed.
+- [x] **Remaining ~8 timeouts.** All solver paths fall back to ltlsynt when OxiDD
+  returns no strategy (`!unreal`). Rerun needed to confirm; residual deficit (if any)
+  requires §2 speed.
 - [ ] **Composition-soundness edge (theoretical).** A guarantee whose only outputs are
   template-eliminated can leave an input-only unrealizable residual (e.g.
   `G(req → F false)` from free-output substitution of a response's grant). No
@@ -65,22 +62,15 @@ remaining gaps are:
 
 ## 2 · Speed — be net-faster, not just self-contained
 
-On the corpus the median AbsSynthe-contributing spec is rough parity but the
-aggregate is *slower* (BENCHGRAPH.md): a fixed AbsSynthe spawn + CUDD-init cost
-hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
+The OxiDD in-process solver removes subprocess spawn and CUDD re-init overhead;
+aggregate benchmark is pending rerun (corpus not present locally).
 
 - [x] **Replace the AbsSynthe subprocess with an in-process BDD solver on OxiDD**
-  — implemented in `src/safety_oxidd.c` (phases 1–3 complete). OxiDD vendored as
-  `external/oxidd` git submodule + `scripts/build_oxidd.sh`; enabled behind
-  `-Doxidd` meson feature (`auto` by default; picks up built artifacts). Routed via
-  `$TLSF_SOLVER=oxidd` env var in all three safety wrappers (`run_abssynthe`,
-  `run_abssynthe_wr`, `run_abssynthe_strict_safety`). GR(1) stays on AbsSynthe.
-  16 verify-aiger-oxidd Spot correctness tests pass; benchmark results in BENCHGRAPH.md.
-- [x] **Gate AbsSynthe behind a cheap cost heuristic** (`$ABSSYNTHE_MIN_APS`, default
-  0 = no gate). Set e.g. `ABSSYNTHE_MIN_APS=8` to skip AbsSynthe on clusters with
-  fewer than 8 APs (spawn overhead dominates there). Tune threshold by benchmarking;
-  the 17 AbsSynthe wins are on clusters with many APs so a conservative threshold
-  does not lose them.
+  — safety solver in `src/safety_oxidd.c` (phases 1–3 complete); GR(1) solver in
+  `src/gr1_oxidd.c` (PPS tri-nested fixpoint). OxiDD vendored as `external/oxidd` git
+  submodule; mandatory (no AbsSynthe fallback). All safety + GR(1) clusters solved
+  in-process. 16 verify-aiger-oxidd safety tests + 9 verify-aiger-oxidd-gr1 tests pass;
+  benchmark rerun pending.
 
 ## 3 · Reach — solve more of the residual
 
@@ -110,13 +100,13 @@ hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
   KitchenTimerV10 (X in initial), MusicAppFeedback (deeply nested W-in-W),
   SensorSelector (IMPL-under-AND without W/R, not handled by any current path).
 - [ ] **GR(2) / generalized-Rabin** for the `amba_gr+` family (beyond GR(1)).
-- [ ] **AbsSynthe BDD perf / GR(1)-aware abstraction** for big amba (`pb_10+`).
+- [ ] **OxiDD BDD perf / GR(1)-aware abstraction** for big amba (`pb_10+`).
 
 ## 4 · Trust & verification
 
 - [x] **Trust W/R UNREALIZABLE verdict.** W/R monitor encoding is exact; UNREALIZABLE
-  from AbsSynthe on a W/R game is now propagated rather than reset to 0 and re-tried
-  with ltlsynt. (Direct/strict paths already trusted UNREALIZABLE; this extends it.)
+  from the OxiDD solver on a W/R game is propagated rather than reset to 0 and re-tried
+  with ltlsynt. (Direct/strict/GR(1) paths all trust UNREALIZABLE.)
 - [ ] **Trust UNREALIZABLE on bounded/GR(1) paths** (over-constraining encodings;
   requires careful analysis before trusting — currently correct to fall back).
 - [ ] **Trust complete solver UNREALIZABLE on liveness tail** (would close ~27 %
@@ -138,4 +128,4 @@ hurts on specs `ltlsynt` does in milliseconds, plus a tail of slow BDD solves.
 clang-format (LLVM) + clang-tidy clean · tests green · coverage ≥75% via
 `gcovr` with the compiler's matching `gcov` · valgrind clean · no JSON
 (DIMACS-style lines) · self-contained where CI runs (flex/bison/gcc/valgrind
-only — no spot/ltlsynt/AbsSynthe). Heavy runs bounded (`ulimit -v` + `timeout`).
+only — no spot/ltlsynt). Heavy runs bounded (`ulimit -v` + `timeout`).

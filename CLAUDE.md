@@ -5,14 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build commands
 
 ```sh
-meson setup build && ninja -C build          # default build (no AbsSynthe, no OxiDD)
+meson setup build && ninja -C build          # default build (OxiDD required)
 meson setup build-san -Dsanitize=address,undefined && ninja -C build-san  # sanitizers
 meson setup build-cov -Db_coverage=true && ninja -C build-cov             # coverage
 
-# Optional backends (submodule must be initialized first):
-meson compile -C build abssynthe-submodule abssynthe-build   # AbsSynthe subprocess solver
-meson compile -C build oxidd-submodule oxidd-build           # OxiDD in-process BDD solver
-# After oxidd-build, reconfigure so meson picks up the artifacts:
+# OxiDD submodule must be built first (requires Rust/cargo):
+meson compile -C build oxidd-submodule oxidd-build
+# Then reconfigure so meson picks up the artifacts:
 meson setup --reconfigure build-oxidd && ninja -C build-oxidd
 ```
 
@@ -20,8 +19,8 @@ meson setup --reconfigure build-oxidd && ninja -C build-oxidd
 
 ```sh
 meson test -C build                          # dependency-free golden-output suite
-meson test -C build -k verify_aiger_oxidd   # OxiDD-specific tests (needs build-oxidd)
-meson test -C build -k abssynthe            # AbsSynthe tests (needs abssynthe backend)
+meson test -C build -k verify_aiger_oxidd   # OxiDD safety tests (needs build-oxidd)
+meson test -C build -k verify_aiger_oxidd_gr1  # OxiDD GR(1) tests (needs build-oxidd)
 clang-format -i src/*.c include/tlsf/*.h    # style: LLVM, 2-space indent, 80-col
 clang-tidy -p build src/*.c                 # lint
 valgrind --leak-check=full build/tlsfcompose --split --aiger spec.tlsf   # leaks
@@ -41,32 +40,27 @@ The pipeline processes TLSF specs through four stages:
 
 ### Key source files
 
-- `src/main_tlsfcompose.c` — the synthesis orchestrator. Contains the four game builders (`build_abssynthe_game`, `build_abssynthe_strict_safety_game`, `build_abssynthe_wr_game`, `build_abssynthe_unbounded_gr1_game`) and three routing wrappers (`run_abssynthe`, `run_abssynthe_strict_safety`, `run_abssynthe_wr`). `run_abssynthe_gr1` routes GR(1) clusters.
+- `src/main_tlsfcompose.c` — the synthesis orchestrator. Contains four game builders (`build_abssynthe_game`, `build_abssynthe_strict_safety_game`, `build_abssynthe_wr_game`, `build_abssynthe_unbounded_gr1_game`) and two routing dispatchers (`solve_safety_game` → `solve_safety_oxidd`; `solve_gr1_game` → `solve_gr1_oxidd`).
 - `src/aiger.c` / `include/tlsf/aiger.h` — `Aig` struct (and-inverter graph): inputs, latches, outputs, `just[]` (system Büchi goals), `fair[]` (env fairness). All game builders emit `Aig`.
-- `src/safety_oxidd.c` / `include/tlsf/safety_oxidd.h` — in-process BDD safety solver (OxiDD). `solve_safety_oxidd(game, unreal)` runs the cpre fixpoint and Skolem strategy extraction.
-- `src/main_tlsfsolve.c` — standalone `tlsfsolve` binary: reads AIGER game → `solve_safety_oxidd` → writes strategy AIGER to stdout.
+- `src/safety_oxidd.c` / `include/tlsf/safety_oxidd.h` — in-process BDD safety solver. `solve_safety_oxidd(game, unreal)` runs the cpre fixpoint and Skolem strategy extraction.
+- `src/gr1_oxidd.c` / `include/tlsf/gr1_oxidd.h` — in-process BDD GR(1) solver. `solve_gr1_oxidd(game, unreal)` runs the PPS tri-nested fixpoint and strategy extraction with goal-counter latches.
+- `src/main_tlsfsolve.c` — standalone `tlsfsolve` binary: reads AIGER game → `solve_safety_oxidd` or `solve_gr1_oxidd` → writes strategy AIGER to stdout.
 
-### Safety solver dispatch
+### OxiDD (sole BDD backend)
 
-`solve_safety_game` (in `main_tlsfcompose.c`) selects the backend via `$TLSF_SOLVER`:
-- `TLSF_SOLVER=oxidd` → `solve_safety_oxidd` (in-process, no subprocess)
-- default → `run_abssynthe_game` (AbsSynthe subprocess)
-
-GR(1) clusters always use AbsSynthe subprocess (`run_abssynthe_gr1`) — OxiDD GR(1) is the next planned phase.
-
-### OxiDD (in-process BDD solver)
-
-Vendored as `external/oxidd` git submodule (v0.11.2). Build artifacts:
+Vendored as `external/oxidd` git submodule. Build artifacts:
 - `external/oxidd/target/release/liboxidd_ffi_c.a`
 - `external/oxidd/build/include/oxidd/capi.h`
 
-Compile-time guard: `#ifdef HAVE_OXIDD`. Meson feature: `-Doxidd=auto` (auto-detects if artifacts are present).
+Meson feature: `-Doxidd=enabled` (mandatory). No AbsSynthe fallback.
 
-The safety fixpoint: `W = νZ. ∀u. ∃c. [¬bad ∧ Z[s:=NEXT]]`. Realizable iff `W` is true at the reset cube. Strategy extraction: sequential Skolem (cofactor + substitute per controllable output), then BDD→AIG via ite-expansion memoised on BDD handle bytes.
+**Safety fixpoint:** `W = νZ. ∀u. ∃c. [¬bad ∧ Z[s:=NEXT]]`. Realizable iff `W` is true at the reset cube. Strategy: sequential Skolem (cofactor + substitute per controllable), then BDD→AIG via ite-expansion memoised on BDD handle bytes.
+
+**GR(1) fixpoint (PPS):** `W* = νZ. ⋀_j[μY. νX. cpre((Z∩goal_j) ∪ Y ∪ (X∩not_fair))]`. Strategy: one-hot goal-counter latches (all reset=0; `eff_curr[0]` is TRUE when no curr latch is set), Skolem extraction per level, BDD→AIG.
 
 ### GR(1) game format
 
-`build_abssynthe_unbounded_gr1_game` emits an `Aig` with: inputs (env + controllable), state latches, `bad` output, `just[]` pending-monitor latches (one per system justice goal), `fair[]` latch-sampled env fairness latches. The Piterman-Pnueli-Sa'ar (PPS) tri-nested fixpoint operates over these.
+`build_abssynthe_unbounded_gr1_game` emits an `Aig` with: inputs (env + controllable), state latches, `bad` output, `just[]` pending-monitor latches (one per system justice goal), `fair[]` latch-sampled env fairness latches. `solve_gr1_oxidd` operates over these via the PPS fixpoint.
 
 ### Corpus benchmarking
 
