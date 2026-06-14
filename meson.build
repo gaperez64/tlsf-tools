@@ -181,6 +181,7 @@ lib_sources = [
   'src/graph.c',
   'src/wl.c',
   'src/templates.c',
+  'src/templates_certify.c',
   'src/residual.c',
   'src/aiger.c',
   'src/gr.c',
