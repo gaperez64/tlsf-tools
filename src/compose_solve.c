@@ -198,10 +198,10 @@ Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
   return sub;
 }
 
-static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
+static bool strategy_has_outputs(Aig *g, ConstraintCover *cov,
                                            const bool *seen) {
   aig_remove_output(g, "bad");
-  aig_strip_output_prefix(g, ABSSYNTHE_CONTROLLABLE_PREFIX);
+  aig_strip_output_prefix(g, AIG_CONTROLLABLE_PREFIX);
   for (uint32_t a = 0; a < cov->aps.count; a++) {
     if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
       continue;
@@ -218,7 +218,7 @@ static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
 Aig *solve_safety_game(ConstraintCover *cov, const bool *seen, Aig *game,
                        int *unreal) {
   Aig *strat = solve_safety_oxidd(game, unreal);
-  if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
+  if (strat && !strategy_has_outputs(strat, cov, seen)) {
     aig_free(strat);
     strat = nullptr;
   }
@@ -303,7 +303,7 @@ bool controller_violates_spec(const char *verifier, Aig *controller,
 Aig *solve_gr1_game(ConstraintCover *cov, const bool *seen, Aig *game,
                     int *unreal) {
   Aig *strat = solve_gr1_oxidd(game, unreal);
-  if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
+  if (strat && !strategy_has_outputs(strat, cov, seen)) {
     aig_free(strat);
     strat = nullptr;
   }

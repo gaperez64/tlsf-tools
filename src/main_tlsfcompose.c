@@ -312,11 +312,11 @@ int main(int argc, char *argv[]) {
       int unreal = 0;
       Aig *sub = nullptr;
       const Node *strict_sys = nullptr, *strict_env = nullptr;
-      bool use_direct = abssynthe_eligible(root, finite);
+      bool use_direct = aig_eligible(root, finite);
       bool use_strict =
           !finite && !use_direct && shape.gr_level == 0 &&
           !shape.has_liveness &&
-          abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
+          aig_strict_safety_parts(root, &strict_sys, &strict_env);
       // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
       // with W/R on any side is encoded exactly (monitors), preferred over the
       // lossy bounded reduction below.
@@ -331,7 +331,7 @@ int main(int argc, char *argv[]) {
       if (!finite && !use_direct && !use_strict && !use_wr &&
           (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
         Node *br = bound_liveness(spec->arena, root, bound_k, true);
-        if (abssynthe_eligible(br, finite))
+        if (aig_eligible(br, finite))
           bounded_root = br;
       }
       // Complete GR(1): a fairness-bearing cluster `G F a -> safety & justice`
@@ -341,13 +341,13 @@ int main(int argc, char *argv[]) {
       Gr1Parts gp;
       bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
                      !bounded_root &&
-                     abssynthe_gr1_parts(spec->arena, root, &gp);
+                     aig_gr1_parts(spec->arena, root, &gp);
       bool use_oxidd =
           use_direct || use_strict || use_wr || bounded_root || use_gr1;
       const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
       if (use_direct) {
         sub = solve_safety_game(cov, seen,
-                                build_abssynthe_game(cov, seen, root), &unreal);
+                                build_aig_game(cov, seen, root), &unreal);
         if (!sub && !unreal) {
           // OxiDD failed: fall back to ltlsynt.
           use_oxidd = false;
@@ -357,7 +357,7 @@ int main(int argc, char *argv[]) {
         }
       } else if (use_strict) {
         sub = solve_safety_game(cov, seen,
-                                build_abssynthe_strict_safety_game(
+                                build_aig_strict_safety_game(
                                     cov, seen, strict_sys, strict_env),
                                 &unreal);
         if (!sub && !unreal) {
@@ -370,7 +370,7 @@ int main(int argc, char *argv[]) {
       } else if (use_wr) {
         backend = "OxiDD (W/R safety)";
         sub = solve_safety_game(cov, seen,
-                                build_abssynthe_wr_game(cov, seen, root),
+                                build_aig_wr_game(cov, seen, root),
                                 &unreal);
         if (!sub && !unreal) {
           // W/R monitor encoding is exact: trust UNREALIZABLE; fall back only
@@ -383,7 +383,7 @@ int main(int argc, char *argv[]) {
       } else if (bounded_root) {
         backend = "OxiDD (bounded)";
         sub = solve_safety_game(
-            cov, seen, build_abssynthe_game(cov, seen, bounded_root), &unreal);
+            cov, seen, build_aig_game(cov, seen, bounded_root), &unreal);
         if (!sub) {
           // Bounded miss (unrealizable at this k, or no strategy): the
           // unbounded game may still be realizable, so fall back to ltlsynt
@@ -397,7 +397,7 @@ int main(int argc, char *argv[]) {
       } else if (use_gr1) {
         backend = "OxiDD (GR(1))";
         sub = solve_gr1_game(cov, seen,
-                             build_abssynthe_unbounded_gr1_game(cov, seen, &gp),
+                             build_aig_gr1_game(cov, seen, &gp),
                              &unreal);
         if (!sub) {
           // The GR(1) solver found no strategy (or called it unrealizable --

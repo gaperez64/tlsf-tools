@@ -53,8 +53,8 @@ and four TUs (see `include/tlsf/compose_internal.h` for the shared types
 `Gr1Parts`/`ClusterShape` and the cross-module prototypes):
 
 - `src/main_tlsfcompose.c` — CLI parsing + per-cluster routing in `main`.
-- `src/compose_analysis.c` — pure AST/arena gates: eligibility, X-depth, W/R + GR(1) decomposition (`abssynthe_eligible`, `abssynthe_gr1_parts`, `bound_liveness`), cluster-shape classification.
-- `src/compose_games.c` — the four `Aig` game builders (`build_abssynthe_game`, `build_abssynthe_strict_safety_game`, `build_abssynthe_wr_game`, `build_abssynthe_unbounded_gr1_game`).
+- `src/compose_analysis.c` — pure AST/arena gates: eligibility, X-depth, W/R + GR(1) decomposition (`aig_eligible`, `aig_gr1_parts`, `bound_liveness`), cluster-shape classification.
+- `src/compose_games.c` — the four `Aig` game builders (`build_aig_game`, `build_aig_strict_safety_game`, `build_aig_wr_game`, `build_aig_gr1_game`).
 - `src/compose_solve.c` — `ltlsynt` subprocess fallback, the OxiDD dispatchers (`solve_safety_game` → `solve_safety_oxidd`; `solve_gr1_game` → `solve_gr1_oxidd`), and the self-verification gate (`controller_violates_spec`).
 - `src/aiger.c` / `include/tlsf/aiger.h` — `Aig` struct (and-inverter graph): inputs, latches, outputs, `just[]` (system Büchi goals), `fair[]` (env fairness). All game builders emit `Aig`.
 - `src/safety_oxidd.c`, `src/gr1_oxidd.c`, `src/oxidd_common.c` — in-process BDD solvers. `solve_safety_oxidd` runs the cpre fixpoint + Skolem extraction; `solve_gr1_oxidd` runs the PPS tri-nested fixpoint with goal-counter latches; `oxidd_common.{c,h}` holds the shared BDD↔AIG helpers (`Memo`, `bdd2aig`, `lit_to_bdd`, `cube_of`, `bdd_eq`).
@@ -81,7 +81,7 @@ CI builds the FFI once in the `oxidd` job and shares it as an artifact; the
 
 ### GR(1) game format
 
-`build_abssynthe_unbounded_gr1_game` emits an `Aig` with: inputs (env + controllable), state latches, `bad` output, `just[]` pending-monitor latches (one per system justice goal), `fair[]` latch-sampled env fairness latches. `solve_gr1_oxidd` operates over these via the PPS fixpoint.
+`build_aig_gr1_game` emits an `Aig` with: inputs (env + controllable), state latches, `bad` output, `just[]` pending-monitor latches (one per system justice goal), `fair[]` latch-sampled env fairness latches. `solve_gr1_oxidd` operates over these via the PPS fixpoint.
 
 ### Corpus benchmarking
 

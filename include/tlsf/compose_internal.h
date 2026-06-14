@@ -25,7 +25,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define ABSSYNTHE_CONTROLLABLE_PREFIX "controllable_"
+#define AIG_CONTROLLABLE_PREFIX "controllable_"
 
 // ---- GR(1): `G F a` fairness assumptions + recurrence/response justice ----
 
@@ -66,23 +66,23 @@ typedef struct {
 
 // ---- compose_analysis.c ---------------------------------------------------
 
-bool abssynthe_body_supported(const Node *n);
-bool abssynthe_initial_supported(const Node *n);
-bool abssynthe_initial_x_supported(const Node *n);
-uint32_t abssynthe_x_depth(const Node *n);
-uint32_t abssynthe_safety_condition_x_depth(const Node *n);
-uint32_t abssynthe_global_x_depth(const Node *n);
+bool aig_body_ok(const Node *n);
+bool aig_initial_ok(const Node *n);
+bool aig_initial_x_ok(const Node *n);
+uint32_t aig_x_depth(const Node *n);
+uint32_t aig_safety_cond_x_depth(const Node *n);
+uint32_t aig_global_x_depth(const Node *n);
 bool wr_response_parts(const Node *impl, const Node **req, const Node **inner,
                        bool *xdelay);
 bool g_body_wr_supported(const Node *n);
-bool abssynthe_safety_wr_supported(const Node *n);
-uint32_t abssynthe_safety_wr_x_depth(const Node *n);
+bool aig_safety_wr_ok(const Node *n);
+uint32_t aig_safety_wr_x_depth(const Node *n);
 bool wr_has_initial(const Node *n);
 bool wr_has_x_initial(const Node *n);
-bool abssynthe_eligible(const Node *root, bool finite);
-bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
+bool aig_eligible(const Node *root, bool finite);
+bool aig_strict_safety_parts(const Node *root, const Node **sys,
                                    const Node **env);
-bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p);
+bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p);
 Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos);
 ClusterShape cluster_shape(TlsfSpec *spec, const Node *root);
 const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
@@ -90,15 +90,15 @@ const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
 
 // ---- compose_games.c ------------------------------------------------------
 
-[[nodiscard]] Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
+[[nodiscard]] Aig *build_aig_game(ConstraintCover *cov, const bool *seen,
                                         const Node *root);
-[[nodiscard]] Aig *build_abssynthe_wr_game(ConstraintCover *cov,
+[[nodiscard]] Aig *build_aig_wr_game(ConstraintCover *cov,
                                            const bool *seen, const Node *root);
-[[nodiscard]] Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov,
+[[nodiscard]] Aig *build_aig_strict_safety_game(ConstraintCover *cov,
                                                       const bool *seen,
                                                       const Node *sys,
                                                       const Node *env);
-[[nodiscard]] Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov,
+[[nodiscard]] Aig *build_aig_gr1_game(ConstraintCover *cov,
                                                       const bool *seen,
                                                       const Gr1Parts *parts);
 bool wr_structural_supported(const Node *n);

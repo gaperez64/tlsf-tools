@@ -1,7 +1,7 @@
 // compose_analysis.c — pure AST/arena cluster analysis for tlsfcompose.
 //
 // Eligibility gates and X-depth accounting for the direct / W/R / strict-safety
-// safety paths, the GR(1) decomposition (`abssynthe_gr1_parts`), liveness
+// safety paths, the GR(1) decomposition (`aig_gr1_parts`), liveness
 // bounding (`bound_liveness`), and cluster-shape classification used to pick a
 // backend / explain an ltlsynt fallback.  No `Aig` construction here — see
 // compose_games.c.  Shared types live in compose_internal.h.
@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 
-bool abssynthe_body_supported(const Node *n) {
+bool aig_body_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
@@ -22,101 +22,101 @@ bool abssynthe_body_supported(const Node *n) {
   case NODE_NOT:
   case NODE_X:
   case NODE_X_STRONG:
-    return abssynthe_body_supported(n->arg);
+    return aig_body_ok(n->arg);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV:
-    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+    return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
   default:
     return false;
   }
 }
 
-bool abssynthe_initial_supported(const Node *n) {
+bool aig_initial_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
   case NODE_AP:
     return true;
   case NODE_NOT:
-    return abssynthe_initial_supported(n->arg);
+    return aig_initial_ok(n->arg);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV:
-    return abssynthe_initial_supported(n->lhs) &&
-           abssynthe_initial_supported(n->rhs);
+    return aig_initial_ok(n->lhs) &&
+           aig_initial_ok(n->rhs);
   default:
     return false;
   }
 }
 
-// Like abssynthe_initial_supported but also allows X/X_STRONG operators,
+// Like aig_initial_ok but also allows X/X_STRONG operators,
 // for initial-state conjuncts of the form `X(phi)` or `X(phi) -> bool`.
 // Used by the W/R safety path to accept X-delayed initial constraints.
-bool abssynthe_initial_x_supported(const Node *n) {
+bool aig_initial_x_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
   case NODE_AP:
     return true;
   case NODE_NOT:
-    return abssynthe_initial_x_supported(n->arg);
+    return aig_initial_x_ok(n->arg);
   case NODE_X:
   case NODE_X_STRONG:
-    return abssynthe_initial_x_supported(n->arg);
+    return aig_initial_x_ok(n->arg);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV:
-    return abssynthe_initial_x_supported(n->lhs) &&
-           abssynthe_initial_x_supported(n->rhs);
+    return aig_initial_x_ok(n->lhs) &&
+           aig_initial_x_ok(n->rhs);
   default:
     return false;
   }
 }
 
-static bool abssynthe_global_supported(const Node *n) {
+static bool global_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return true;
   case NODE_G:
-    return abssynthe_body_supported(n->arg);
+    return aig_body_ok(n->arg);
   case NODE_AND:
-    return abssynthe_global_supported(n->lhs) &&
-           abssynthe_global_supported(n->rhs);
+    return global_ok(n->lhs) &&
+           global_ok(n->rhs);
   default:
     return false;
   }
 }
 
-static bool abssynthe_safety_condition_supported(const Node *n) {
+static bool safety_cond_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return true;
   case NODE_AND:
-    return abssynthe_safety_condition_supported(n->lhs) &&
-           abssynthe_safety_condition_supported(n->rhs);
+    return safety_cond_ok(n->lhs) &&
+           safety_cond_ok(n->rhs);
   case NODE_G:
-    return abssynthe_body_supported(n->arg);
+    return aig_body_ok(n->arg);
   default:
-    return abssynthe_initial_supported(n);
+    return aig_initial_ok(n);
   }
 }
 
-uint32_t abssynthe_x_depth(const Node *n) {
+uint32_t aig_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_X:
   case NODE_X_STRONG:
-    return 1 + abssynthe_x_depth(n->arg);
+    return 1 + aig_x_depth(n->arg);
   case NODE_NOT:
-    return abssynthe_x_depth(n->arg);
+    return aig_x_depth(n->arg);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV: {
-    uint32_t a = abssynthe_x_depth(n->lhs), b = abssynthe_x_depth(n->rhs);
+    uint32_t a = aig_x_depth(n->lhs), b = aig_x_depth(n->rhs);
     return a > b ? a : b;
   }
   default:
@@ -124,10 +124,10 @@ uint32_t abssynthe_x_depth(const Node *n) {
   }
 }
 
-// Like abssynthe_x_depth but also recurses into W/R operands.  Required for
+// Like aig_x_depth but also recurses into W/R operands.  Required for
 // W/R-extended G bodies where X operators can appear inside W/R sub-expressions
 // (e.g. G(req -> X(a R (b -> X c))): the nested X inside the R rhs contributes
-// to the history-latch depth needed by abssynthe_compile_at_lag).
+// to the history-latch depth needed by compile_at_lag).
 static uint32_t wr_body_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_G: // G(phi) in a G body: absorbed, recurse into arg
@@ -151,33 +151,33 @@ static uint32_t wr_body_x_depth(const Node *n) {
   }
 }
 
-uint32_t abssynthe_safety_condition_x_depth(const Node *n) {
+uint32_t aig_safety_cond_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return 0;
   case NODE_AND: {
-    uint32_t a = abssynthe_safety_condition_x_depth(n->lhs);
-    uint32_t b = abssynthe_safety_condition_x_depth(n->rhs);
+    uint32_t a = aig_safety_cond_x_depth(n->lhs);
+    uint32_t b = aig_safety_cond_x_depth(n->rhs);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     return a > b ? a : b;
   }
   case NODE_G:
-    return abssynthe_x_depth(n->arg);
+    return aig_x_depth(n->arg);
   default:
-    return abssynthe_initial_supported(n) ? 0 : UINT32_MAX;
+    return aig_initial_ok(n) ? 0 : UINT32_MAX;
   }
 }
 
-uint32_t abssynthe_global_x_depth(const Node *n) {
+uint32_t aig_global_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return 0;
   case NODE_G:
-    return abssynthe_x_depth(n->arg);
+    return aig_x_depth(n->arg);
   case NODE_AND: {
-    uint32_t a = abssynthe_global_x_depth(n->lhs);
-    uint32_t b = abssynthe_global_x_depth(n->rhs);
+    uint32_t a = aig_global_x_depth(n->lhs);
+    uint32_t b = aig_global_x_depth(n->rhs);
     return a > b ? a : b;
   }
   default:
@@ -202,9 +202,9 @@ bool wr_response_parts(const Node *impl, const Node **req, const Node **inner,
   }
   if (rhs->kind != NODE_W && rhs->kind != NODE_R)
     return false;
-  if (!abssynthe_body_supported(impl->lhs) ||
-      !abssynthe_body_supported(rhs->lhs) ||
-      !abssynthe_body_supported(rhs->rhs))
+  if (!aig_body_ok(impl->lhs) ||
+      !aig_body_ok(rhs->lhs) ||
+      !aig_body_ok(rhs->rhs))
     return false;
   *req = impl->lhs;
   *inner = rhs;
@@ -213,8 +213,8 @@ bool wr_response_parts(const Node *impl, const Node **req, const Node **inner,
 }
 
 // Strict version: W/R inside G body require both operands to be pure Boolean.
-// Used by abssynthe_eligible (direct path) to avoid routing extended W/R
-// patterns to build_abssynthe_game, which cannot handle them.
+// Used by aig_eligible (direct path) to avoid routing extended W/R
+// patterns to build_aig_game, which cannot handle them.
 static bool g_body_direct_supported(const Node *n) {
   switch (n->kind) {
   case NODE_AND:
@@ -224,35 +224,35 @@ static bool g_body_direct_supported(const Node *n) {
     return g_body_direct_supported(n->arg);
   case NODE_W:
   case NODE_R:
-    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+    return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
   case NODE_IMPL: {
     const Node *req, *inner;
     bool xdelay;
     if (wr_response_parts(n, &req, &inner, &xdelay))
       return true;
-    if (abssynthe_body_supported(n->lhs))
+    if (aig_body_ok(n->lhs))
       return g_body_direct_supported(n->rhs);
     return false;
   }
   default:
-    return abssynthe_body_supported(n);
+    return aig_body_ok(n);
   }
 }
 
-static bool abssynthe_safety_direct_supported(const Node *n) {
+static bool safety_direct_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return true;
   case NODE_G:
     return g_body_direct_supported(n->arg);
   case NODE_AND:
-    return abssynthe_safety_direct_supported(n->lhs) &&
-           abssynthe_safety_direct_supported(n->rhs);
+    return safety_direct_ok(n->lhs) &&
+           safety_direct_ok(n->rhs);
   case NODE_W:
   case NODE_R:
-    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+    return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
   default:
-    return abssynthe_initial_supported(n);
+    return aig_initial_ok(n);
   }
 }
 
@@ -271,22 +271,22 @@ bool g_body_wr_supported(const Node *n) {
     return g_body_wr_supported(n->arg);
   case NODE_W: {
     // G(a W b) == G(a|b): both operands must be propositional.
-    if (abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs))
+    if (aig_body_ok(n->lhs) && aig_body_ok(n->rhs))
       return true;
     // Pattern B: (cond -> X(a W/R b)) W B — cond, a, b, B propositional.
     // The outer W collapses because cond->X(inner) is trivially true when
     // !cond; when cond fires, arm a sub-monitor for inner W/R.
-    if (!abssynthe_body_supported(n->rhs))
+    if (!aig_body_ok(n->rhs))
       return false; // B must be propositional
     const Node *lhs = n->lhs;
-    if (lhs->kind != NODE_IMPL || !abssynthe_body_supported(lhs->lhs))
+    if (lhs->kind != NODE_IMPL || !aig_body_ok(lhs->lhs))
       return false;
     const Node *xn = lhs->rhs;
     if (xn->kind == NODE_X || xn->kind == NODE_X_STRONG)
       xn = xn->arg;
     return (xn->kind == NODE_W || xn->kind == NODE_R) &&
-           abssynthe_body_supported(xn->lhs) &&
-           abssynthe_body_supported(xn->rhs);
+           aig_body_ok(xn->lhs) &&
+           aig_body_ok(xn->rhs);
   }
   case NODE_R:
     // G(a R b) == G(b): lhs is irrelevant; rhs may itself contain W/R.
@@ -300,12 +300,12 @@ bool g_body_wr_supported(const Node *n) {
     // conjunct). Supported when outer_req is propositional; each conjunct in
     // body is then checked by recursing (and resolving to bool, W/R-collapse,
     // or response).
-    if (abssynthe_body_supported(n->lhs))
+    if (aig_body_ok(n->lhs))
       return g_body_wr_supported(n->rhs);
     return false;
   }
   default:
-    return abssynthe_body_supported(n);
+    return aig_body_ok(n);
   }
 }
 
@@ -313,47 +313,47 @@ bool g_body_wr_supported(const Node *n) {
 // `a R b` (Boolean operands): genuine safety properties.  A top-level `a W b`
 // gets a "released" monitor latch; a `W`/`R` *inside* a `G` body collapses to a
 // plain invariant.  Both are exactly encodable alongside `G(...)` invariants.
-bool abssynthe_safety_wr_supported(const Node *n) {
+bool aig_safety_wr_ok(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return true;
   case NODE_G:
     return g_body_wr_supported(n->arg);
   case NODE_AND:
-    return abssynthe_safety_wr_supported(n->lhs) &&
-           abssynthe_safety_wr_supported(n->rhs);
+    return aig_safety_wr_ok(n->lhs) &&
+           aig_safety_wr_ok(n->rhs);
   case NODE_W:
   case NODE_R:
-    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
+    return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
   default:
     // A bare Boolean or X-delayed conjunct is an initial-state constraint.
-    return abssynthe_initial_x_supported(n);
+    return aig_initial_x_ok(n);
   }
 }
 
-uint32_t abssynthe_safety_wr_x_depth(const Node *n) {
+uint32_t aig_safety_wr_x_depth(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
     return 0;
   case NODE_G:
     return wr_body_x_depth(n->arg); // must recurse into W/R for nested X
   case NODE_AND: {
-    uint32_t a = abssynthe_safety_wr_x_depth(n->lhs);
-    uint32_t b = abssynthe_safety_wr_x_depth(n->rhs);
+    uint32_t a = aig_safety_wr_x_depth(n->lhs);
+    uint32_t b = aig_safety_wr_x_depth(n->rhs);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     return a > b ? a : b;
   }
   case NODE_W:
   case NODE_R: {
-    uint32_t a = abssynthe_x_depth(n->lhs), b = abssynthe_x_depth(n->rhs);
+    uint32_t a = aig_x_depth(n->lhs), b = aig_x_depth(n->rhs);
     return a > b ? a : b;
   }
   default:
     // X-delayed initial constraint: its X-depth sets the gate-latch offset.
-    if (!abssynthe_initial_x_supported(n))
+    if (!aig_initial_x_ok(n))
       return UINT32_MAX;
-    return abssynthe_x_depth(n);
+    return aig_x_depth(n);
   }
 }
 
@@ -376,7 +376,7 @@ bool wr_has_initial(const Node *n) {
 }
 
 // True if n has an initial-state conjunct that requires an X-delayed gate
-// (i.e., abssynthe_initial_x_supported but not abssynthe_initial_supported).
+// (i.e., aig_initial_x_ok but not aig_initial_ok).
 bool wr_has_x_initial(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
@@ -387,26 +387,26 @@ bool wr_has_x_initial(const Node *n) {
   case NODE_AND:
     return wr_has_x_initial(n->lhs) || wr_has_x_initial(n->rhs);
   default:
-    return !abssynthe_initial_supported(n) && abssynthe_initial_x_supported(n);
+    return !aig_initial_ok(n) && aig_initial_x_ok(n);
   }
 }
 
-bool abssynthe_eligible(const Node *root, bool finite) {
+bool aig_eligible(const Node *root, bool finite) {
   if (finite)
     return false;
   if (root->kind == NODE_IMPL)
-    return abssynthe_global_supported(root->lhs) &&
-           abssynthe_global_x_depth(root->lhs) == 0 &&
-           abssynthe_safety_direct_supported(root->rhs);
-  return abssynthe_safety_direct_supported(root);
+    return global_ok(root->lhs) &&
+           aig_global_x_depth(root->lhs) == 0 &&
+           safety_direct_ok(root->rhs);
+  return safety_direct_ok(root);
 }
 
-bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
+bool aig_strict_safety_parts(const Node *root, const Node **sys,
                                    const Node **env) {
   if (root->kind != NODE_W || root->rhs->kind != NODE_NOT)
     return false;
-  if (!abssynthe_safety_condition_supported(root->lhs) ||
-      !abssynthe_safety_condition_supported(root->rhs->arg))
+  if (!safety_cond_ok(root->lhs) ||
+      !safety_cond_ok(root->rhs->arg))
     return false;
   *sys = root->lhs;
   *env = root->rhs->arg;
@@ -420,7 +420,7 @@ bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
 // `G F x` with `x` AbsSynthe-Boolean -> x, else nullptr.
 static const Node *match_gf(const Node *n) {
   if (n->kind == NODE_G && n->arg->kind == NODE_F &&
-      abssynthe_body_supported(n->arg->arg))
+      aig_body_ok(n->arg->arg))
     return n->arg->arg;
   return nullptr;
 }
@@ -431,8 +431,8 @@ static bool match_response(const Node *n, const Node **req,
   if (n->kind != NODE_G || n->arg->kind != NODE_IMPL)
     return false;
   const Node *body = n->arg;
-  if (body->rhs->kind != NODE_F || !abssynthe_body_supported(body->lhs) ||
-      !abssynthe_body_supported(body->rhs->arg))
+  if (body->rhs->kind != NODE_F || !aig_body_ok(body->lhs) ||
+      !aig_body_ok(body->rhs->arg))
     return false;
   *req = body->lhs;
   *grant = body->rhs->arg;
@@ -448,7 +448,7 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
            gr1_collect(a, n->rhs, assume, p);
   // An initial Boolean conjunct (env-init on the assume side, sys-init on the
   // guarantee side): part of the GR(1) implication's antecedent/consequent.
-  if (abssynthe_initial_supported(n)) {
+  if (aig_initial_ok(n)) {
     const Node **init = assume ? &p->env_init : &p->sys_init;
     *init =
         (*init)->kind == NODE_TRUE ? n : node_and(a, (Node *)*init, (Node *)n);
@@ -477,15 +477,15 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
     }
     // A weak-until `a W b` (Boolean a, b) is a pure-safety guarantee: a holds
     // until b, or forever.  Encoded with a "released" monitor in the emitter.
-    if (n->kind == NODE_W && abssynthe_body_supported(n->lhs) &&
-        abssynthe_body_supported(n->rhs)) {
+    if (n->kind == NODE_W && aig_body_ok(n->lhs) &&
+        aig_body_ok(n->rhs)) {
       if (p->nweak >= GR1_MAX_WEAK)
         return false;
       p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
       return true;
     }
   }
-  if (!abssynthe_global_supported(n))
+  if (!global_ok(n))
     return false; // otherwise must be an encodable `G(safety)` conjunct
   const Node **safety = assume ? &p->safety_assume : &p->safety_gua;
   *safety = (*safety)->kind == NODE_TRUE
@@ -504,13 +504,13 @@ static bool gr1_collect_strict_safety(Arena *a, const Node *n, Gr1Parts *p) {
   if (n->kind == NODE_AND)
     return gr1_collect_strict_safety(a, n->lhs, p) &&
            gr1_collect_strict_safety(a, n->rhs, p);
-  if (abssynthe_initial_supported(n)) {
+  if (aig_initial_ok(n)) {
     p->sys_init = p->sys_init->kind == NODE_TRUE
                       ? n
                       : node_and(a, (Node *)p->sys_init, (Node *)n);
     return true;
   }
-  if (!abssynthe_global_supported(n))
+  if (!global_ok(n))
     return false;
   p->safety_gua = p->safety_gua->kind == NODE_TRUE
                       ? n
@@ -529,7 +529,7 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
   if (n->kind == NODE_AND)
     return gr1_collect_consequent(a, n->lhs, p, found_impl) &&
            gr1_collect_consequent(a, n->rhs, p, found_impl);
-  if (abssynthe_initial_supported(n)) {
+  if (aig_initial_ok(n)) {
     p->sys_init = p->sys_init->kind == NODE_TRUE
                       ? n
                       : node_and(a, (Node *)p->sys_init, (Node *)n);
@@ -543,8 +543,8 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
   }
   if (match_gf(n))
     return false; // unconditional `G F` justice (not gated by the assume)
-  if (n->kind == NODE_W && abssynthe_body_supported(n->lhs) &&
-      abssynthe_body_supported(n->rhs)) {
+  if (n->kind == NODE_W && aig_body_ok(n->lhs) &&
+      aig_body_ok(n->rhs)) {
     if (p->nweak >= GR1_MAX_WEAK)
       return false;
     p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
@@ -555,7 +555,7 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
   // captured from the liveness antecedent E and drives the `violated` latch.
   if (n->kind == NODE_W && n->rhs->kind == NODE_NOT)
     return gr1_collect_strict_safety(a, n->lhs, p);
-  if (!abssynthe_global_supported(n))
+  if (!global_ok(n))
     return false; // bare response / anything that is not unconditional safety
   p->safety_gua = p->safety_gua->kind == NODE_TRUE
                       ? n
@@ -568,7 +568,7 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
 // parts encodable with x-depth-0 assumptions.  TLSF renders initial conditions
 // as a nested `EnvInit -> (SysInit & (assume -> guarantee))`, so peel the
 // initial Boolean antecedents/conjuncts first.
-bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
+bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
   *p = (Gr1Parts){.nfairness = 0,
                   .env_init = node_true(a),
                   .sys_init = node_true(a),
@@ -577,7 +577,7 @@ bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
                   .njustice = 0};
   // Peel env-init: `EnvInit -> rest` where the antecedent is purely initial
   // (a `G`/`G F` antecedent is the real assume side, so it is not peeled).
-  while (root->kind == NODE_IMPL && abssynthe_initial_supported(root->lhs)) {
+  while (root->kind == NODE_IMPL && aig_initial_ok(root->lhs)) {
     p->env_init = p->env_init->kind == NODE_TRUE
                       ? root->lhs
                       : node_and(a, (Node *)p->env_init, (Node *)root->lhs);
@@ -593,7 +593,7 @@ bool abssynthe_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
   // The emitter encodes X-depth assumptions via the assumption window, so the
   // safety assume need only be encodable (finite X-depth), not x-depth 0.
   return p->nfairness > 0 && p->njustice > 0 &&
-         abssynthe_global_x_depth(p->safety_assume) != UINT32_MAX;
+         aig_global_x_depth(p->safety_assume) != UINT32_MAX;
 }
 
 // Bounded eventually: `x | Xx | ... | X^k x` ("x within the next k steps").
@@ -627,14 +627,14 @@ static Node *bounded_until(Arena *a, Node *p, Node *q, uint32_t k) {
 // strictly stronger obligation than `F x`, so a controller for the bounded game
 // still satisfies the unbounded spec.  Bounding an assumption would be unsound,
 // so an `F` at negative polarity (an antecedent / fairness assumption) is left
-// intact; it then fails `abssynthe_eligible` and the cluster stays on ltlsynt.
+// intact; it then fails `aig_eligible` and the cluster stays on ltlsynt.
 // This turns `G F g` into `G(g|..|X^k g)` and `G(req -> F grant)` into `G(req
 // -> grant|..|X^k grant)`, both pure-safety games the existing AbsSynthe safety
 // encoder handles.
 Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
   switch (n->kind) {
   case NODE_F:
-    if (pos && abssynthe_body_supported(n->arg))
+    if (pos && aig_body_ok(n->arg))
       return bounded_eventually(a, bound_liveness(a, n->arg, k, pos), k);
     return node_f(a, bound_liveness(a, n->arg, k, pos));
   case NODE_G:
@@ -655,23 +655,23 @@ Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
     return node_impl(a, bound_liveness(a, n->lhs, k, !pos),
                      bound_liveness(a, n->rhs, k, pos));
   case NODE_U:
-    if (pos && abssynthe_body_supported(n->lhs) &&
-        abssynthe_body_supported(n->rhs))
+    if (pos && aig_body_ok(n->lhs) &&
+        aig_body_ok(n->rhs))
       return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
                            bound_liveness(a, n->rhs, k, pos), k);
     return node_u(a, bound_liveness(a, n->lhs, k, pos),
                   bound_liveness(a, n->rhs, k, pos));
   case NODE_W: // a W b: strengthen to bounded(a U b) (sound: bounded => U => W)
-    if (pos && abssynthe_body_supported(n->lhs) &&
-        abssynthe_body_supported(n->rhs))
+    if (pos && aig_body_ok(n->lhs) &&
+        aig_body_ok(n->rhs))
       return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
                            bound_liveness(a, n->rhs, k, pos), k);
     return node_w(a, bound_liveness(a, n->lhs, k, pos),
                   bound_liveness(a, n->rhs, k, pos));
   case NODE_R: // a R b: strengthen to bounded(b U (a&b)) (sound: => R)
   case NODE_M: // a M b == b U (a&b); bounded form is sound
-    if (pos && abssynthe_body_supported(n->lhs) &&
-        abssynthe_body_supported(n->rhs)) {
+    if (pos && aig_body_ok(n->lhs) &&
+        aig_body_ok(n->rhs)) {
       Node *bl = bound_liveness(a, n->lhs, k, pos);
       Node *br = bound_liveness(a, n->rhs, k, pos);
       return bounded_until(a, br, node_and(a, bl, br), k);

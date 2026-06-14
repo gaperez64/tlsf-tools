@@ -16,12 +16,12 @@
 #include <string.h>
 
 static char *controllable_name(const char *name) {
-  size_t p = strlen(ABSSYNTHE_CONTROLLABLE_PREFIX), n = strlen(name);
+  size_t p = strlen(AIG_CONTROLLABLE_PREFIX), n = strlen(name);
   char *out = malloc(p + n + 1);
   if (!out)
     return nullptr;
   int written =
-      snprintf(out, p + n + 1, "%s%s", ABSSYNTHE_CONTROLLABLE_PREFIX, name);
+      snprintf(out, p + n + 1, "%s%s", AIG_CONTROLLABLE_PREFIX, name);
   if (written < 0 || (size_t)written != p + n) {
     free(out);
     return nullptr;
@@ -34,19 +34,19 @@ typedef struct {
   ConstraintCover *cov;
   uint32_t *hist; // (max_lag + 1) x AP table; UINT32_MAX = unavailable
   uint32_t ap_count;
-} AbssyntheCompile;
+} AigCtx;
 
-static uint32_t hist_lit(const AbssyntheCompile *ctx, uint32_t lag,
+static uint32_t hist_lit(const AigCtx *ctx, uint32_t lag,
                          uint32_t ap) {
   return ctx->hist[(lag * ctx->ap_count) + ap];
 }
 
-static void hist_set(AbssyntheCompile *ctx, uint32_t lag, uint32_t ap,
+static void hist_set(AigCtx *ctx, uint32_t lag, uint32_t ap,
                      uint32_t lit) {
   ctx->hist[(lag * ctx->ap_count) + ap] = lit;
 }
 
-static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
+static uint32_t compile_at_lag(AigCtx *ctx, const Node *n,
                                          uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
@@ -60,20 +60,20 @@ static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
     return hist_lit(ctx, lag, (uint32_t)idx);
   }
   case NODE_NOT: {
-    uint32_t a = abssynthe_compile_at_lag(ctx, n->arg, lag);
+    uint32_t a = compile_at_lag(ctx, n->arg, lag);
     return a == UINT32_MAX ? a : aig_not(a);
   }
   case NODE_X:
   case NODE_X_STRONG:
     if (lag == 0)
       return UINT32_MAX;
-    return abssynthe_compile_at_lag(ctx, n->arg, lag - 1);
+    return compile_at_lag(ctx, n->arg, lag - 1);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV: {
-    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, lag);
-    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, lag);
+    uint32_t a = compile_at_lag(ctx, n->lhs, lag);
+    uint32_t b = compile_at_lag(ctx, n->rhs, lag);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     switch (n->kind) {
@@ -95,16 +95,16 @@ static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
   }
 }
 
-static uint32_t abssynthe_compile_global_at_lag(AbssyntheCompile *ctx,
+static uint32_t compile_global(AigCtx *ctx,
                                                 const Node *n, uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
     return AIG_TRUE;
   case NODE_G:
-    return abssynthe_compile_at_lag(ctx, n->arg, lag);
+    return compile_at_lag(ctx, n->arg, lag);
   case NODE_AND: {
-    uint32_t a = abssynthe_compile_global_at_lag(ctx, n->lhs, lag);
-    uint32_t b = abssynthe_compile_global_at_lag(ctx, n->rhs, lag);
+    uint32_t a = compile_global(ctx, n->lhs, lag);
+    uint32_t b = compile_global(ctx, n->rhs, lag);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     return aig_and(ctx->g, a, b);
@@ -114,12 +114,12 @@ static uint32_t abssynthe_compile_global_at_lag(AbssyntheCompile *ctx,
   }
 }
 
-static uint32_t abssynthe_compile_assumption_window(AbssyntheCompile *ctx,
+static uint32_t compile_assumption_window(AigCtx *ctx,
                                                     const Node *assume,
                                                     uint32_t depth) {
   uint32_t ok = AIG_TRUE;
   for (uint32_t lag = 0; lag <= depth; lag++) {
-    uint32_t at_lag = abssynthe_compile_global_at_lag(ctx, assume, lag);
+    uint32_t at_lag = compile_global(ctx, assume, lag);
     // At an early lag an X-depth assumption reaches before the window start and
     // is not yet evaluable; it is vacuously satisfied there, so skip it.  The
     // caller has already checked the assumption is encodable (finite X-depth).
@@ -130,35 +130,35 @@ static uint32_t abssynthe_compile_assumption_window(AbssyntheCompile *ctx,
   return ok;
 }
 
-static uint32_t abssynthe_compile_safety_initial(AbssyntheCompile *ctx,
+static uint32_t compile_safety_initial(AigCtx *ctx,
                                                  const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_G:
     return AIG_TRUE;
   case NODE_AND: {
-    uint32_t a = abssynthe_compile_safety_initial(ctx, n->lhs);
-    uint32_t b = abssynthe_compile_safety_initial(ctx, n->rhs);
+    uint32_t a = compile_safety_initial(ctx, n->lhs);
+    uint32_t b = compile_safety_initial(ctx, n->rhs);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     return aig_and(ctx->g, a, b);
   }
   default:
-    return abssynthe_compile_at_lag(ctx, n, 0);
+    return compile_at_lag(ctx, n, 0);
   }
 }
 
-static uint32_t abssynthe_compile_safety_global_at_lag(AbssyntheCompile *ctx,
+static uint32_t compile_safety_global(AigCtx *ctx,
                                                        const Node *n,
                                                        uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
     return AIG_TRUE;
   case NODE_G:
-    return abssynthe_compile_at_lag(ctx, n->arg, lag);
+    return compile_at_lag(ctx, n->arg, lag);
   case NODE_AND: {
-    uint32_t a = abssynthe_compile_safety_global_at_lag(ctx, n->lhs, lag);
-    uint32_t b = abssynthe_compile_safety_global_at_lag(ctx, n->rhs, lag);
+    uint32_t a = compile_safety_global(ctx, n->lhs, lag);
+    uint32_t b = compile_safety_global(ctx, n->rhs, lag);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     return aig_and(ctx->g, a, b);
@@ -179,7 +179,7 @@ static uint32_t guarded_current_ok(Aig *g, uint32_t guard, uint32_t ok) {
 // This implements G(outer_req -> body): distribute outer_req over each conjunct
 // so that obligations arm only when outer_req holds, yet once armed they fire
 // under the original `valid`.
-static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
+static bool wr_emit_g_body_gated(AigCtx *ctx, const Node *n,
                                  uint32_t depth, uint32_t valid,
                                  uint32_t arm_gate, uint32_t *bad) {
   Aig *g = ctx->g;
@@ -195,8 +195,8 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
       return false;
     return wr_emit_g_body_gated(ctx, n->arg, depth - 1, valid, arm_gate, bad);
   case NODE_W: { // G(outer_req -> (a W b)) == G(outer_req -> (a|b))
-    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, depth);
-    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    uint32_t a = compile_at_lag(ctx, n->lhs, depth);
+    uint32_t b = compile_at_lag(ctx, n->rhs, depth);
     if (a != UINT32_MAX && b != UINT32_MAX) {
       *bad = aig_or(
           g, *bad,
@@ -207,13 +207,13 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
     // When !cond the implication is trivially true; when cond fires, arm a
     // sub-monitor for the inner W/R.  The outer B release propagates into the
     // sub-monitor so bad is never raised after B fires.
-    b = abssynthe_compile_at_lag(ctx, n->rhs, depth); // B must be propositional
+    b = compile_at_lag(ctx, n->rhs, depth); // B must be propositional
     if (b == UINT32_MAX)
       return false;
     const Node *lhs = n->lhs;
     if (lhs->kind != NODE_IMPL)
       return false;
-    uint32_t cond = abssynthe_compile_at_lag(ctx, lhs->lhs, depth);
+    uint32_t cond = compile_at_lag(ctx, lhs->lhs, depth);
     if (cond == UINT32_MAX)
       return false;
     const Node *xn = lhs->rhs;
@@ -221,8 +221,8 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
     const Node *inner = xd ? xn->arg : xn;
     if (inner->kind != NODE_W && inner->kind != NODE_R)
       return false;
-    uint32_t ia = abssynthe_compile_at_lag(ctx, inner->lhs, depth);
-    uint32_t ib = abssynthe_compile_at_lag(ctx, inner->rhs, depth);
+    uint32_t ia = compile_at_lag(ctx, inner->lhs, depth);
+    uint32_t ib = compile_at_lag(ctx, inner->rhs, depth);
     if (ia == UINT32_MAX || ib == UINT32_MAX)
       return false;
     uint32_t sub_arm =
@@ -262,9 +262,9 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
       // G(outer_req -> req -> [X](a W/R b)): arm when both outer_req and req
       // hold; once armed, track the obligation under `valid` (no outer_req
       // gate).
-      uint32_t req = abssynthe_compile_at_lag(ctx, rqn, depth);
-      uint32_t a = abssynthe_compile_at_lag(ctx, inner->lhs, depth);
-      uint32_t b = abssynthe_compile_at_lag(ctx, inner->rhs, depth);
+      uint32_t req = compile_at_lag(ctx, rqn, depth);
+      uint32_t a = compile_at_lag(ctx, inner->lhs, depth);
+      uint32_t b = compile_at_lag(ctx, inner->rhs, depth);
       if (req == UINT32_MAX || a == UINT32_MAX || b == UINT32_MAX)
         return false;
       uint32_t release = inner->kind == NODE_W ? b : aig_and(g, a, b);
@@ -289,8 +289,8 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
       return true;
     }
     // Nested distributable: G(outer_req -> inner_req -> body)
-    if (abssynthe_body_supported(n->lhs)) {
-      uint32_t inner_gate = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+    if (aig_body_ok(n->lhs)) {
+      uint32_t inner_gate = compile_at_lag(ctx, n->lhs, depth);
       if (inner_gate == UINT32_MAX)
         return false;
       return wr_emit_g_body_gated(ctx, n->rhs, depth, valid,
@@ -299,7 +299,7 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
     [[fallthrough]];
   }
   default: {
-    uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+    uint32_t ok = compile_at_lag(ctx, n, depth);
     if (ok == UINT32_MAX)
       return false;
     *bad =
@@ -314,7 +314,7 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
 // to invariants.  A response `G(req -> X(a W b))` re-arms a weak-until each
 // time req fires: an `owe` latch (owe' = (valid & req) | (owe & !b)) tracks an
 // outstanding obligation, and the system loses if a and b both fail while owed.
-static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
+static bool wr_emit_g_body(AigCtx *ctx, const Node *n, uint32_t depth,
                            uint32_t valid, uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
@@ -324,8 +324,8 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
     return wr_emit_g_body(ctx, n->lhs, depth, valid, bad) &&
            wr_emit_g_body(ctx, n->rhs, depth, valid, bad);
   case NODE_W: { // G(a W b) == G(a | b)
-    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, depth);
-    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    uint32_t a = compile_at_lag(ctx, n->lhs, depth);
+    uint32_t b = compile_at_lag(ctx, n->rhs, depth);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return false;
     *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(aig_or(g, a, b))));
@@ -342,9 +342,9 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
       // !a&!b), `a R b` releases on a&b (fails on !b).  Without X the
       // obligation is active the same step req fires; with X it is delayed one
       // step.
-      uint32_t req = abssynthe_compile_at_lag(ctx, rqn, depth);
-      uint32_t a = abssynthe_compile_at_lag(ctx, inner->lhs, depth);
-      uint32_t b = abssynthe_compile_at_lag(ctx, inner->rhs, depth);
+      uint32_t req = compile_at_lag(ctx, rqn, depth);
+      uint32_t a = compile_at_lag(ctx, inner->lhs, depth);
+      uint32_t b = compile_at_lag(ctx, inner->rhs, depth);
       if (req == UINT32_MAX || a == UINT32_MAX || b == UINT32_MAX)
         return false;
       uint32_t release =
@@ -370,8 +370,8 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
     // Distributable: G(outer_req -> body) — delegate to the gated emitter which
     // arms obligations under outer_req but tracks them under the original
     // valid.
-    if (abssynthe_body_supported(n->lhs)) {
-      uint32_t outer = abssynthe_compile_at_lag(ctx, n->lhs, depth);
+    if (aig_body_ok(n->lhs)) {
+      uint32_t outer = compile_at_lag(ctx, n->lhs, depth);
       if (outer == UINT32_MAX)
         return false;
       return wr_emit_g_body_gated(ctx, n->rhs, depth, valid, outer, bad);
@@ -379,7 +379,7 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
     [[fallthrough]];
   }
   default: {
-    uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+    uint32_t ok = compile_at_lag(ctx, n, depth);
     if (ok == UINT32_MAX)
       return false;
     *bad = aig_or(g, *bad, aig_and(g, valid, aig_not(ok)));
@@ -399,7 +399,7 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
 // step_one: AIG literal that is 1 only at the logical step immediately after
 // `first` (i.e., when X-delayed initial constraints should be checked).
 // AIG_FALSE means no X-initial constraints exist.
-static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
+static bool wr_emit_guarantee(AigCtx *ctx, const Node *n,
                               uint32_t depth, uint32_t valid, uint32_t first,
                               uint32_t step_one, uint32_t *bad) {
   Aig *g = ctx->g;
@@ -413,8 +413,8 @@ static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
     return wr_emit_g_body(ctx, n->arg, depth, valid, bad);
   case NODE_W:
   case NODE_R: {
-    uint32_t av = abssynthe_compile_at_lag(ctx, n->lhs, depth);
-    uint32_t bv = abssynthe_compile_at_lag(ctx, n->rhs, depth);
+    uint32_t av = compile_at_lag(ctx, n->lhs, depth);
+    uint32_t bv = compile_at_lag(ctx, n->rhs, depth);
     if (av == UINT32_MAX || bv == UINT32_MAX)
       return false;
     uint32_t rel = aig_latch(g, AIG_FALSE, AIG_FALSE);
@@ -429,9 +429,9 @@ static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
     return true;
   }
   default: {
-    if (abssynthe_initial_supported(n)) {
+    if (aig_initial_ok(n)) {
       // Bare Boolean: initial-state constraint at the first logical step.
-      uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+      uint32_t ok = compile_at_lag(ctx, n, depth);
       if (ok == UINT32_MAX)
         return false;
       *bad = aig_or(g, *bad, aig_and(g, first, aig_not(ok)));
@@ -440,8 +440,8 @@ static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
     // X-delayed initial constraint: enforced at step_one (the step after first).
     // Compile at the formula's own X-depth so X operators peel to lag=0 at the
     // physical step when step_one fires (physical t=depth + x_depth).
-    if (abssynthe_initial_x_supported(n) && step_one != AIG_FALSE) {
-      uint32_t ok = abssynthe_compile_at_lag(ctx, n, abssynthe_x_depth(n));
+    if (aig_initial_x_ok(n) && step_one != AIG_FALSE) {
+      uint32_t ok = compile_at_lag(ctx, n, aig_x_depth(n));
       if (ok == UINT32_MAX)
         return false;
       *bad = aig_or(g, *bad, aig_and(g, step_one, aig_not(ok)));
@@ -452,7 +452,7 @@ static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
   }
 }
 
-Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
+Aig *build_aig_game(ConstraintCover *cov, const bool *seen,
                           const Node *root) {
   Aig *g = aig_new();
   if (!g)
@@ -462,8 +462,8 @@ Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
     assume = root->lhs;
     guarantee = root->rhs;
   }
-  uint32_t ass_depth = assume ? abssynthe_global_x_depth(assume) : 0;
-  uint32_t gua_depth = abssynthe_safety_wr_x_depth(guarantee);
+  uint32_t ass_depth = assume ? aig_global_x_depth(assume) : 0;
+  uint32_t gua_depth = aig_safety_wr_x_depth(guarantee);
   if (ass_depth == UINT32_MAX || gua_depth == UINT32_MAX) {
     aig_free(g);
     return nullptr;
@@ -477,7 +477,7 @@ Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
     return nullptr;
   }
   memset(hist, 0xff, hist_count * sizeof(uint32_t));
-  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+  AigCtx ctx = {g, cov, hist, A ? A : 1};
 
   for (uint32_t a = 0; a < cov->aps.count; a++) {
     if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
@@ -521,8 +521,8 @@ Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   }
 
   uint32_t bad = AIG_FALSE;
-  // build_abssynthe_game uses abssynthe_safety_direct_supported, which
-  // requires abssynthe_initial_supported (no X) so step_one is never needed.
+  // build_aig_game uses safety_direct_ok, which
+  // requires aig_initial_ok (no X) so step_one is never needed.
   if (!wr_emit_guarantee(&ctx, guarantee, depth, valid, first, AIG_FALSE,
                          &bad)) {
     free(hist);
@@ -530,14 +530,14 @@ Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
     return nullptr;
   }
   if (assume) {
-    uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
+    uint32_t ass_ok = compile_global(&ctx, assume, depth);
     if (ass_ok == UINT32_MAX) {
       free(hist);
       aig_free(g);
       return nullptr;
     }
     uint32_t ass_window_ok =
-        abssynthe_compile_assumption_window(&ctx, assume, depth);
+        compile_assumption_window(&ctx, assume, depth);
     if (ass_window_ok == UINT32_MAX) {
       free(hist);
       aig_free(g);
@@ -558,7 +558,7 @@ Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   return g;
 }
 
-// Antecedent of a structural IMPL: same as abssynthe_safety_wr_supported but
+// Antecedent of a structural IMPL: same as aig_safety_wr_ok but
 // without bare NODE_W / NODE_R.  A bare `a W b` in the antecedent is only
 // exact when `b` is purely env-controlled; when `b` is a system output the W
 // creates a cycling liveness obligation (e.g. G(on→X(act W off)), G(off→X(!act
@@ -574,7 +574,7 @@ static bool wr_antecedent_supported(const Node *n) {
   case NODE_AND:
     return wr_antecedent_supported(n->lhs) && wr_antecedent_supported(n->rhs);
   default:
-    return abssynthe_initial_supported(n);
+    return aig_initial_ok(n);
   }
 }
 
@@ -587,17 +587,17 @@ bool wr_structural_supported(const Node *n) {
   case NODE_IMPL:
     // A top-level IMPL where BOTH sides are purely Boolean+X (no G/W/R) is an
     // initial-state conditional constraint (`X(phi) -> psi`), not a structural
-    // assume->guarantee.  Route it through abssynthe_safety_wr_supported which
+    // assume->guarantee.  Route it through aig_safety_wr_ok which
     // handles it via the initial-x default case.  A structural assume->guarantee
     // has at least one G-wrapped antecedent conjunct, so its lhs is not fully
     // initial_x_supported.
-    if (abssynthe_initial_x_supported(n->lhs) &&
-        abssynthe_initial_x_supported(n->rhs))
-      return abssynthe_safety_wr_supported(n);
+    if (aig_initial_x_ok(n->lhs) &&
+        aig_initial_x_ok(n->rhs))
+      return aig_safety_wr_ok(n);
     return wr_antecedent_supported(n->lhs) &&
-           abssynthe_safety_wr_supported(n->rhs);
+           aig_safety_wr_ok(n->rhs);
   default:
-    return abssynthe_safety_wr_supported(n);
+    return aig_safety_wr_ok(n);
   }
 }
 
@@ -635,21 +635,21 @@ static uint32_t wr_structural_x_depth(const Node *n) {
     return a > b ? a : b;
   }
   case NODE_IMPL: {
-    uint32_t a = abssynthe_safety_wr_x_depth(n->lhs);
-    uint32_t b = abssynthe_safety_wr_x_depth(n->rhs);
+    uint32_t a = aig_safety_wr_x_depth(n->lhs);
+    uint32_t b = aig_safety_wr_x_depth(n->rhs);
     if (a == UINT32_MAX || b == UINT32_MAX)
       return UINT32_MAX;
     return a > b ? a : b;
   }
   default:
-    return abssynthe_safety_wr_x_depth(n);
+    return aig_safety_wr_x_depth(n);
   }
 }
 
 // Emit the obligations of `AND(U..., IMPL(A, G))`: unconditional U conjuncts
 // into *bad, the assume A's violations into *viol_a (drive `violated`), the
 // guarantee G's into *bad_cond (gated by !released).  At most one implication.
-static bool wr_emit_structural(AbssyntheCompile *ctx, const Node *n,
+static bool wr_emit_structural(AigCtx *ctx, const Node *n,
                                uint32_t depth, uint32_t valid, uint32_t first,
                                uint32_t step_one, uint32_t *bad,
                                uint32_t *viol_a, uint32_t *bad_cond,
@@ -662,8 +662,8 @@ static bool wr_emit_structural(AbssyntheCompile *ctx, const Node *n,
   if (n->kind == NODE_IMPL) {
     // Initial-state conditional: treat as a plain initial constraint charged
     // into the unconditional bad, not as a structural assume->guarantee split.
-    if (abssynthe_initial_x_supported(n->lhs) &&
-        abssynthe_initial_x_supported(n->rhs))
+    if (aig_initial_x_ok(n->lhs) &&
+        aig_initial_x_ok(n->rhs))
       return wr_emit_guarantee(ctx, n, depth, valid, first, step_one, bad);
     if (++(*nimpl) > 1)
       return false;
@@ -679,7 +679,7 @@ static bool wr_emit_structural(AbssyntheCompile *ctx, const Node *n,
 // verified wr_emit_guarantee walk; the assume's violations latch `violated`
 // (the system is released once the env breaks an assumption), so the guarantee
 // bad is gated by `!released` while the unconditional U bad is not.
-Aig *build_abssynthe_wr_game(ConstraintCover *cov, const bool *seen,
+Aig *build_aig_wr_game(ConstraintCover *cov, const bool *seen,
                              const Node *root) {
   Aig *g = aig_new();
   if (!g)
@@ -697,7 +697,7 @@ Aig *build_abssynthe_wr_game(ConstraintCover *cov, const bool *seen,
     return nullptr;
   }
   memset(hist, 0xff, hist_count * sizeof(uint32_t));
-  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+  AigCtx ctx = {g, cov, hist, A ? A : 1};
   for (uint32_t a = 0; a < cov->aps.count; a++)
     if (seen[a] && residual_signal_matches(cov, a, AP_FLAG_INPUT))
       hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
@@ -768,14 +768,14 @@ Aig *build_abssynthe_wr_game(ConstraintCover *cov, const bool *seen,
   return g;
 }
 
-Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov, const bool *seen,
+Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
                                         const Node *sys, const Node *env) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
 
-  uint32_t env_depth = abssynthe_safety_condition_x_depth(env);
-  uint32_t sys_depth = abssynthe_safety_condition_x_depth(sys);
+  uint32_t env_depth = aig_safety_cond_x_depth(env);
+  uint32_t sys_depth = aig_safety_cond_x_depth(sys);
   if (env_depth == UINT32_MAX || sys_depth == UINT32_MAX) {
     aig_free(g);
     return nullptr;
@@ -789,7 +789,7 @@ Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov, const bool *seen,
     return nullptr;
   }
   memset(hist, 0xff, hist_count * sizeof(uint32_t));
-  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+  AigCtx ctx = {g, cov, hist, A ? A : 1};
 
   for (uint32_t a = 0; a < cov->aps.count; a++) {
     if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
@@ -822,12 +822,12 @@ Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov, const bool *seen,
   uint32_t past_first = aig_latch(g, AIG_TRUE, AIG_FALSE);
   uint32_t first = aig_not(past_first);
 
-  uint32_t env_init_ok = abssynthe_compile_safety_initial(&ctx, env);
-  uint32_t sys_init_ok = abssynthe_compile_safety_initial(&ctx, sys);
+  uint32_t env_init_ok = compile_safety_initial(&ctx, env);
+  uint32_t sys_init_ok = compile_safety_initial(&ctx, sys);
   uint32_t env_global_ok =
-      abssynthe_compile_safety_global_at_lag(&ctx, env, depth);
+      compile_safety_global(&ctx, env, depth);
   uint32_t sys_global_ok =
-      abssynthe_compile_safety_global_at_lag(&ctx, sys, depth);
+      compile_safety_global(&ctx, sys, depth);
   if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX ||
       env_global_ok == UINT32_MAX || sys_global_ok == UINT32_MAX) {
     free(hist);
@@ -855,7 +855,7 @@ Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov, const bool *seen,
 
 // Complete (unbounded) GR(1): the safety part (history latches, the valid
 // window, the guarantee/assumption masking) is encoded exactly like
-// build_abssynthe_game, but liveness is emitted as real AIGER justice /
+// build_aig_game, but liveness is emitted as real AIGER justice /
 // fairness records for AbsSynthe's GR(1) solver rather than bounded counters.
 // Each justice goal `J` becomes a deterministic pending monitor
 // (`pending' = !violated & !grant & (pending | req)`, with `req = true` for a
@@ -869,14 +869,14 @@ Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov, const bool *seen,
 // monitors are forced to clear, lifting the liveness obligation just as the
 // safety `bad` masking lifts the safety obligation -- the GR(1) implication is
 // then vacuously won.
-Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
+Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
                                         const Gr1Parts *parts) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
   const Node *assume = parts->safety_assume, *guarantee = parts->safety_gua;
-  uint32_t ass_depth = abssynthe_global_x_depth(assume);
-  uint32_t gua_depth = abssynthe_global_x_depth(guarantee);
+  uint32_t ass_depth = aig_global_x_depth(assume);
+  uint32_t gua_depth = aig_global_x_depth(guarantee);
   if (ass_depth == UINT32_MAX || gua_depth == UINT32_MAX) {
     aig_free(g);
     return nullptr;
@@ -885,8 +885,8 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
   uint32_t depth = ass_depth > gua_depth ? ass_depth : gua_depth;
   // Weak-until operands may carry their own X-depth; widen the history window.
   for (uint32_t w = 0; w < parts->nweak; w++) {
-    uint32_t da = abssynthe_x_depth(parts->weak[w].a);
-    uint32_t db = abssynthe_x_depth(parts->weak[w].b);
+    uint32_t da = aig_x_depth(parts->weak[w].a);
+    uint32_t db = aig_x_depth(parts->weak[w].b);
     if (da > depth)
       depth = da;
     if (db > depth)
@@ -899,7 +899,7 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
     return nullptr;
   }
   memset(hist, 0xff, hist_count * sizeof(uint32_t));
-  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
+  AigCtx ctx = {g, cov, hist, A ? A : 1};
   for (uint32_t a = 0; a < cov->aps.count; a++)
     if (seen[a] && residual_signal_matches(cov, a, AP_FLAG_INPUT))
       hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
@@ -936,14 +936,14 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
     return nullptr;                                                            \
   } while (0)
 
-  uint32_t gua_ok = abssynthe_compile_global_at_lag(&ctx, guarantee, depth);
+  uint32_t gua_ok = compile_global(&ctx, guarantee, depth);
   if (gua_ok == UINT32_MAX)
     UGR1_FAIL();
   uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
 
   // Compile the initial conditions (Boolean, evaluated at t=0 / lag 0).
-  uint32_t env_init_ok = abssynthe_compile_at_lag(&ctx, parts->env_init, 0);
-  uint32_t sys_init_ok = abssynthe_compile_at_lag(&ctx, parts->sys_init, 0);
+  uint32_t env_init_ok = compile_at_lag(&ctx, parts->env_init, 0);
+  uint32_t sys_init_ok = compile_at_lag(&ctx, parts->sys_init, 0);
   if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX)
     UGR1_FAIL();
   bool has_env_init = parts->env_init->kind != NODE_TRUE;
@@ -959,8 +959,8 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
     violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
     vnext = violated;
     if (assume->kind != NODE_TRUE) {
-      uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
-      ass_window_ok = abssynthe_compile_assumption_window(&ctx, assume, depth);
+      uint32_t ass_ok = compile_global(&ctx, assume, depth);
+      ass_window_ok = compile_assumption_window(&ctx, assume, depth);
       if (ass_ok == UINT32_MAX || ass_window_ok == UINT32_MAX)
         UGR1_FAIL();
       vnext = aig_or(g, vnext, aig_and(g, valid, aig_not(ass_ok)));
@@ -974,12 +974,12 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
   // System justice goals: each is G F !pending via a pending monitor latch.
   for (uint32_t j = 0; j < parts->njustice; j++) {
     uint32_t tgt =
-        abssynthe_compile_at_lag(&ctx, parts->justice[j].target, depth);
+        compile_at_lag(&ctx, parts->justice[j].target, depth);
     if (tgt == UINT32_MAX)
       UGR1_FAIL();
     uint32_t req = AIG_TRUE; // recurrence G F J == response with req = true
     if (parts->justice[j].req) {
-      req = abssynthe_compile_at_lag(&ctx, parts->justice[j].req, depth);
+      req = compile_at_lag(&ctx, parts->justice[j].req, depth);
       if (req == UINT32_MAX)
         UGR1_FAIL();
     }
@@ -995,7 +995,7 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
   // Environment fairness assumptions G F a, each sampled into a latch so its
   // fairness literal is a state predicate.
   for (uint32_t i = 0; i < parts->nfairness; i++) {
-    uint32_t fair = abssynthe_compile_at_lag(&ctx, parts->fairness[i], depth);
+    uint32_t fair = compile_at_lag(&ctx, parts->fairness[i], depth);
     if (fair == UINT32_MAX)
       UGR1_FAIL();
     uint32_t fa = aig_latch(g, fair, AIG_FALSE);
@@ -1006,8 +1006,8 @@ Aig *build_abssynthe_unbounded_gr1_game(ConstraintCover *cov, const bool *seen,
   // b (or forever).  A `released` latch records that b has held; the system
   // loses if a fails before b is ever seen.
   for (uint32_t w = 0; w < parts->nweak; w++) {
-    uint32_t a_ok = abssynthe_compile_at_lag(&ctx, parts->weak[w].a, depth);
-    uint32_t b_ok = abssynthe_compile_at_lag(&ctx, parts->weak[w].b, depth);
+    uint32_t a_ok = compile_at_lag(&ctx, parts->weak[w].a, depth);
+    uint32_t b_ok = compile_at_lag(&ctx, parts->weak[w].b, depth);
     if (a_ok == UINT32_MAX || b_ok == UINT32_MAX)
       UGR1_FAIL();
     uint32_t released = aig_latch(g, AIG_FALSE, AIG_FALSE);
