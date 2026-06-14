@@ -68,6 +68,7 @@ typedef struct {
 
 bool abssynthe_body_supported(const Node *n);
 bool abssynthe_initial_supported(const Node *n);
+bool abssynthe_initial_x_supported(const Node *n);
 uint32_t abssynthe_x_depth(const Node *n);
 uint32_t abssynthe_safety_condition_x_depth(const Node *n);
 uint32_t abssynthe_global_x_depth(const Node *n);
@@ -77,6 +78,7 @@ bool g_body_wr_supported(const Node *n);
 bool abssynthe_safety_wr_supported(const Node *n);
 uint32_t abssynthe_safety_wr_x_depth(const Node *n);
 bool wr_has_initial(const Node *n);
+bool wr_has_x_initial(const Node *n);
 bool abssynthe_eligible(const Node *root, bool finite);
 bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
                                    const Node **env);

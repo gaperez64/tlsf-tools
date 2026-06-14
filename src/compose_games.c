@@ -184,6 +184,8 @@ static bool wr_emit_g_body_gated(AbssyntheCompile *ctx, const Node *n,
                                  uint32_t arm_gate, uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
+  case NODE_G: // G(G(phi)) == G(phi); nested G absorbed by the outer G context
+    return wr_emit_g_body_gated(ctx, n->arg, depth, valid, arm_gate, bad);
   case NODE_AND:
     return wr_emit_g_body_gated(ctx, n->lhs, depth, valid, arm_gate, bad) &&
            wr_emit_g_body_gated(ctx, n->rhs, depth, valid, arm_gate, bad);
@@ -316,6 +318,8 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
                            uint32_t valid, uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
+  case NODE_G: // G(G(phi)) == G(phi); nested G absorbed by the outer G context
+    return wr_emit_g_body(ctx, n->arg, depth, valid, bad);
   case NODE_AND:
     return wr_emit_g_body(ctx, n->lhs, depth, valid, bad) &&
            wr_emit_g_body(ctx, n->rhs, depth, valid, bad);
@@ -392,16 +396,19 @@ static bool wr_emit_g_body(AbssyntheCompile *ctx, const Node *n, uint32_t depth,
 // the obligation fails before the release.  A bare Boolean conjunct is an
 // initial-state constraint, charged only on the first valid step (`first`).
 // Returns false on an unsupported conjunct.
+// step_one: AIG literal that is 1 only at the logical step immediately after
+// `first` (i.e., when X-delayed initial constraints should be checked).
+// AIG_FALSE means no X-initial constraints exist.
 static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
                               uint32_t depth, uint32_t valid, uint32_t first,
-                              uint32_t *bad) {
+                              uint32_t step_one, uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
   case NODE_TRUE:
     return true;
   case NODE_AND:
-    return wr_emit_guarantee(ctx, n->lhs, depth, valid, first, bad) &&
-           wr_emit_guarantee(ctx, n->rhs, depth, valid, first, bad);
+    return wr_emit_guarantee(ctx, n->lhs, depth, valid, first, step_one, bad) &&
+           wr_emit_guarantee(ctx, n->rhs, depth, valid, first, step_one, bad);
   case NODE_G:
     return wr_emit_g_body(ctx, n->arg, depth, valid, bad);
   case NODE_W:
@@ -422,15 +429,25 @@ static bool wr_emit_guarantee(AbssyntheCompile *ctx, const Node *n,
     return true;
   }
   default: {
-    // Bare Boolean: an initial-state constraint, evaluated only on the first
-    // logical step (the rising edge of valid).
-    if (!abssynthe_initial_supported(n))
-      return false;
-    uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
-    if (ok == UINT32_MAX)
-      return false;
-    *bad = aig_or(g, *bad, aig_and(g, first, aig_not(ok)));
-    return true;
+    if (abssynthe_initial_supported(n)) {
+      // Bare Boolean: initial-state constraint at the first logical step.
+      uint32_t ok = abssynthe_compile_at_lag(ctx, n, depth);
+      if (ok == UINT32_MAX)
+        return false;
+      *bad = aig_or(g, *bad, aig_and(g, first, aig_not(ok)));
+      return true;
+    }
+    // X-delayed initial constraint: enforced at step_one (the step after first).
+    // Compile at the formula's own X-depth so X operators peel to lag=0 at the
+    // physical step when step_one fires (physical t=depth + x_depth).
+    if (abssynthe_initial_x_supported(n) && step_one != AIG_FALSE) {
+      uint32_t ok = abssynthe_compile_at_lag(ctx, n, abssynthe_x_depth(n));
+      if (ok == UINT32_MAX)
+        return false;
+      *bad = aig_or(g, *bad, aig_and(g, step_one, aig_not(ok)));
+      return true;
+    }
+    return false;
   }
   }
 }
@@ -504,7 +521,10 @@ Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   }
 
   uint32_t bad = AIG_FALSE;
-  if (!wr_emit_guarantee(&ctx, guarantee, depth, valid, first, &bad)) {
+  // build_abssynthe_game uses abssynthe_safety_direct_supported, which
+  // requires abssynthe_initial_supported (no X) so step_one is never needed.
+  if (!wr_emit_guarantee(&ctx, guarantee, depth, valid, first, AIG_FALSE,
+                         &bad)) {
     free(hist);
     aig_free(g);
     return nullptr;
@@ -565,6 +585,15 @@ bool wr_structural_supported(const Node *n) {
   case NODE_AND:
     return wr_structural_supported(n->lhs) && wr_structural_supported(n->rhs);
   case NODE_IMPL:
+    // A top-level IMPL where BOTH sides are purely Boolean+X (no G/W/R) is an
+    // initial-state conditional constraint (`X(phi) -> psi`), not a structural
+    // assume->guarantee.  Route it through abssynthe_safety_wr_supported which
+    // handles it via the initial-x default case.  A structural assume->guarantee
+    // has at least one G-wrapped antecedent conjunct, so its lhs is not fully
+    // initial_x_supported.
+    if (abssynthe_initial_x_supported(n->lhs) &&
+        abssynthe_initial_x_supported(n->rhs))
+      return abssynthe_safety_wr_supported(n);
     return wr_antecedent_supported(n->lhs) &&
            abssynthe_safety_wr_supported(n->rhs);
   default:
@@ -581,6 +610,18 @@ static bool wr_structural_has_initial(const Node *n) {
     return wr_has_initial(n->lhs) || wr_has_initial(n->rhs);
   default:
     return wr_has_initial(n);
+  }
+}
+
+static bool wr_structural_has_x_initial(const Node *n) {
+  switch (n->kind) {
+  case NODE_AND:
+    return wr_structural_has_x_initial(n->lhs) ||
+           wr_structural_has_x_initial(n->rhs);
+  case NODE_IMPL:
+    return wr_has_x_initial(n->lhs) || wr_has_x_initial(n->rhs);
+  default:
+    return wr_has_x_initial(n);
   }
 }
 
@@ -610,20 +651,28 @@ static uint32_t wr_structural_x_depth(const Node *n) {
 // guarantee G's into *bad_cond (gated by !released).  At most one implication.
 static bool wr_emit_structural(AbssyntheCompile *ctx, const Node *n,
                                uint32_t depth, uint32_t valid, uint32_t first,
-                               uint32_t *bad, uint32_t *viol_a,
-                               uint32_t *bad_cond, int *nimpl) {
+                               uint32_t step_one, uint32_t *bad,
+                               uint32_t *viol_a, uint32_t *bad_cond,
+                               int *nimpl) {
   if (n->kind == NODE_AND)
-    return wr_emit_structural(ctx, n->lhs, depth, valid, first, bad, viol_a,
-                              bad_cond, nimpl) &&
-           wr_emit_structural(ctx, n->rhs, depth, valid, first, bad, viol_a,
-                              bad_cond, nimpl);
+    return wr_emit_structural(ctx, n->lhs, depth, valid, first, step_one, bad,
+                              viol_a, bad_cond, nimpl) &&
+           wr_emit_structural(ctx, n->rhs, depth, valid, first, step_one, bad,
+                              viol_a, bad_cond, nimpl);
   if (n->kind == NODE_IMPL) {
+    // Initial-state conditional: treat as a plain initial constraint charged
+    // into the unconditional bad, not as a structural assume->guarantee split.
+    if (abssynthe_initial_x_supported(n->lhs) &&
+        abssynthe_initial_x_supported(n->rhs))
+      return wr_emit_guarantee(ctx, n, depth, valid, first, step_one, bad);
     if (++(*nimpl) > 1)
       return false;
-    return wr_emit_guarantee(ctx, n->lhs, depth, valid, first, viol_a) &&
-           wr_emit_guarantee(ctx, n->rhs, depth, valid, first, bad_cond);
+    return wr_emit_guarantee(ctx, n->lhs, depth, valid, first, step_one,
+                             viol_a) &&
+           wr_emit_guarantee(ctx, n->rhs, depth, valid, first, step_one,
+                             bad_cond);
   }
-  return wr_emit_guarantee(ctx, n, depth, valid, first, bad);
+  return wr_emit_guarantee(ctx, n, depth, valid, first, step_one, bad);
 }
 
 // Safety game for `AND(U..., IMPL(A, G))` with W/R on any side.  Reuses the
@@ -676,7 +725,7 @@ Aig *build_abssynthe_wr_game(ConstraintCover *cov, const bool *seen,
   // The rising edge of valid (first logical step) charges initial constraints;
   // build the marker latch only when some conjunct actually has an initial.
   uint32_t first = AIG_FALSE;
-  if (wr_structural_has_initial(root)) {
+  if (wr_structural_has_initial(root) || wr_structural_has_x_initial(root)) {
     uint32_t seen_valid = aig_latch(g, AIG_FALSE, AIG_FALSE);
     if (!aig_set_latch_next(g, seen_valid, aig_or(g, seen_valid, valid))) {
       free(hist);
@@ -685,11 +734,22 @@ Aig *build_abssynthe_wr_game(ConstraintCover *cov, const bool *seen,
     }
     first = aig_and(g, valid, aig_not(seen_valid));
   }
+  // step_one fires one logical step after first, gating X-delayed initial
+  // constraints (depth-1 X initial).  It is a latch whose next is `first`.
+  uint32_t step_one = AIG_FALSE;
+  if (first != AIG_FALSE && wr_structural_has_x_initial(root)) {
+    step_one = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    if (!aig_set_latch_next(g, step_one, first)) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+  }
 
   uint32_t bad = AIG_FALSE, viol_a = AIG_FALSE, bad_cond = AIG_FALSE;
   int nimpl = 0;
-  if (!wr_emit_structural(&ctx, root, depth, valid, first, &bad, &viol_a,
-                          &bad_cond, &nimpl)) {
+  if (!wr_emit_structural(&ctx, root, depth, valid, first, step_one, &bad,
+                          &viol_a, &bad_cond, &nimpl)) {
     free(hist);
     aig_free(g);
     return nullptr;

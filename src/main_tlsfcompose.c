@@ -322,7 +322,6 @@ int main(int argc, char *argv[]) {
       // lossy bounded reduction below.
       bool use_wr = !finite && !use_direct && !use_strict &&
                     !shape.has_liveness &&
-                    (shape.has_weak_until || shape.has_release) &&
                     wr_structural_supported(root);
 
       // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
@@ -370,8 +369,9 @@ int main(int argc, char *argv[]) {
         }
       } else if (use_wr) {
         backend = "OxiDD (W/R safety)";
-        sub = solve_safety_game(
-            cov, seen, build_abssynthe_wr_game(cov, seen, root), &unreal);
+        sub = solve_safety_game(cov, seen,
+                                build_abssynthe_wr_game(cov, seen, root),
+                                &unreal);
         if (!sub && !unreal) {
           // W/R monitor encoding is exact: trust UNREALIZABLE; fall back only
           // on error (unreal=0, no strategy).

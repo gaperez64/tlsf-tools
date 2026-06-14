@@ -52,6 +52,31 @@ bool abssynthe_initial_supported(const Node *n) {
   }
 }
 
+// Like abssynthe_initial_supported but also allows X/X_STRONG operators,
+// for initial-state conjuncts of the form `X(phi)` or `X(phi) -> bool`.
+// Used by the W/R safety path to accept X-delayed initial constraints.
+bool abssynthe_initial_x_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+    return true;
+  case NODE_NOT:
+    return abssynthe_initial_x_supported(n->arg);
+  case NODE_X:
+  case NODE_X_STRONG:
+    return abssynthe_initial_x_supported(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    return abssynthe_initial_x_supported(n->lhs) &&
+           abssynthe_initial_x_supported(n->rhs);
+  default:
+    return false;
+  }
+}
+
 static bool abssynthe_global_supported(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
@@ -105,6 +130,8 @@ uint32_t abssynthe_x_depth(const Node *n) {
 // to the history-latch depth needed by abssynthe_compile_at_lag).
 static uint32_t wr_body_x_depth(const Node *n) {
   switch (n->kind) {
+  case NODE_G: // G(phi) in a G body: absorbed, recurse into arg
+    return wr_body_x_depth(n->arg);
   case NODE_X:
   case NODE_X_STRONG:
     return 1 + wr_body_x_depth(n->arg);
@@ -235,6 +262,8 @@ static bool abssynthe_safety_direct_supported(const Node *n) {
 // response `G(req -> [X](a W/R b))` re-arms a monitor each time req fires.
 bool g_body_wr_supported(const Node *n) {
   switch (n->kind) {
+  case NODE_G: // G(G(phi)) == G(phi); nested G in a G body is absorbed
+    return g_body_wr_supported(n->arg);
   case NODE_AND:
     return g_body_wr_supported(n->lhs) && g_body_wr_supported(n->rhs);
   case NODE_X:
@@ -297,8 +326,8 @@ bool abssynthe_safety_wr_supported(const Node *n) {
   case NODE_R:
     return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
   default:
-    // A bare Boolean conjunct is an initial-state constraint (step 0 only).
-    return abssynthe_initial_supported(n);
+    // A bare Boolean or X-delayed conjunct is an initial-state constraint.
+    return abssynthe_initial_x_supported(n);
   }
 }
 
@@ -321,7 +350,10 @@ uint32_t abssynthe_safety_wr_x_depth(const Node *n) {
     return a > b ? a : b;
   }
   default:
-    return abssynthe_initial_supported(n) ? 0 : UINT32_MAX;
+    // X-delayed initial constraint: its X-depth sets the gate-latch offset.
+    if (!abssynthe_initial_x_supported(n))
+      return UINT32_MAX;
+    return abssynthe_x_depth(n);
   }
 }
 
@@ -340,6 +372,22 @@ bool wr_has_initial(const Node *n) {
     return wr_has_initial(n->lhs) || wr_has_initial(n->rhs);
   default:
     return true;
+  }
+}
+
+// True if n has an initial-state conjunct that requires an X-delayed gate
+// (i.e., abssynthe_initial_x_supported but not abssynthe_initial_supported).
+bool wr_has_x_initial(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_G:
+  case NODE_W:
+  case NODE_R:
+    return false;
+  case NODE_AND:
+    return wr_has_x_initial(n->lhs) || wr_has_x_initial(n->rhs);
+  default:
+    return !abssynthe_initial_supported(n) && abssynthe_initial_x_supported(n);
   }
 }
 
