@@ -438,6 +438,20 @@ test('wl_nearest', check,   # output is index-only, no paths to normalize
          tlsfwl_exe, '--nearest', '1', '--kernel', 'jaccard',
          files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf'),
          files('test/cases/arbiter2.tlsf')])
+test('wl_version', check,
+  args: [files('test/cases/wl_version.txt'), tlsfwl_exe, '--version'])
+test('wl_labels_basic', check_wl,
+  args: [files('test/cases/wl_labels_basic.txt'), tlsfwl_exe,
+         '--labels', 'basic', '--matrix',
+         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
+test('wl_kernel_dot', check_wl,
+  args: [files('test/cases/wl_kernel_dot.txt'), tlsfwl_exe,
+         '--kernel', 'dot', '--compare', files('test/cases/resp1.tlsf'),
+         files('test/cases/arbiter2.tlsf')])
+test('wl_split', check_wl,
+  args: [files('test/cases/wl_split_matrix.txt'), tlsfwl_exe,
+         '--split', '--matrix',
+         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
 test('graph_wl_template', check_wl,
   args: [files('test/cases/arbiter2.graph.wltmpl'),
          tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
@@ -508,6 +522,26 @@ test('tmpl_arbiter', check_wl,
   args: [files('test/cases/arbiter2.csnf'), tlsftemplates_exe,
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/arbiter2.tlsf')])
+# CLI option coverage: --list-templates, --version, --template/--templates
+# filter, --param.  These reuse existing goldens where possible.
+test('tmpl_list_templates', check,
+  args: [files('test/cases/tmpl_list_templates.txt'), tlsftemplates_exe,
+         '--list-templates'])
+test('tmpl_version', check,
+  args: [files('test/cases/tmpl_version.txt'), tlsftemplates_exe, '--version'])
+test('tmpl_template_filter', check_wl,
+  args: [files('test/cases/reaction_ok.csnf'), tlsftemplates_exe,
+         '--template', 'reaction', '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/reaction_ok.tlsf')])
+test('tmpl_templates_filter', check_wl,
+  args: [files('test/cases/reaction_ok.csnf'), tlsftemplates_exe,
+         '--templates', 'reaction', '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/reaction_ok.tlsf')])
+test('tmpl_param', check_wl,
+  args: [files('test/cases/tmpl_param_demo.csnf'), tlsftemplates_exe,
+         '--param', 'n=5', '--param', 'k=2',
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/param_demo.tlsf')])
 # Composition soundness: tlsftemplates --check (whole-spec verdict) and
 # tlsfresidual (leftover LTL after the accepted blocks).
 foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
@@ -528,6 +562,22 @@ endforeach
 test('residual_single', check,
   args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
          '--single', files('test/cases/cluster_split.tlsf')])
+# CLI option coverage: --version, --format ltl/ltlxba, --split, --param.
+test('residual_version', check,
+  args: [files('test/cases/residual_version.txt'), tlsfresidual_exe, '--version'])
+test('residual_ltl_format', check,
+  args: [files('test/cases/residual_ltl_format.residual'), tlsfresidual_exe,
+         '--format', 'ltl', files('test/cases/cluster_split.tlsf')])
+test('residual_ltlxba_format', check,
+  args: [files('test/cases/cluster_split.residual'), tlsfresidual_exe,
+         '--format', 'ltlxba', files('test/cases/cluster_split.tlsf')])
+test('residual_split', check,
+  args: [files('test/cases/cluster_split.residual'), tlsfresidual_exe,
+         '--split', files('test/cases/cluster_split.tlsf')])
+test('residual_param', check,
+  args: [files('test/cases/residual_param_demo.residual'), tlsfresidual_exe,
+         '--param', 'n=5', '--param', 'k=2',
+         files('test/cases/param_demo.tlsf')])
 if have_oxidd
   foreach name : ['compose_demo', 'cluster_split', 'cluster_prune', 'input_gua_skip']
     test('compose_' + name, check,
@@ -703,6 +753,35 @@ test('graph_split_on', check,
   args: [files('test/cases/arbiter1formula.split.txt'),
          tlsfgraph_exe, '--split', '--templates',
          files('test/cases/arbiter1formula.tlsf')])
+# CLI option coverage: --version, --param, --safety, --assumptions, --liveness.
+test('graph_version', check,
+  args: [files('test/cases/graph_version.txt'), tlsfgraph_exe, '--version'])
+test('graph_param', check,
+  args: [files('test/cases/graph_param_demo.graph.txt'), tlsfgraph_exe,
+         '--param', 'n=5', '--param', 'k=2',
+         files('test/cases/param_demo.tlsf')])
+test('graph_safety_filter', check,
+  args: [files('test/cases/graph_arbiter2_safety.txt'), tlsfgraph_exe,
+         '--safety', files('test/cases/arbiter2.tlsf')])
+test('graph_assumptions_filter', check,
+  args: [files('test/cases/graph_arbiter2_assumptions.txt'), tlsfgraph_exe,
+         '--assumptions', files('test/cases/arbiter2.tlsf')])
+test('graph_liveness_filter', check,
+  args: [files('test/cases/graph_param_demo_liveness.txt'), tlsfgraph_exe,
+         '--liveness', '--param', 'n=5', '--param', 'k=2',
+         files('test/cases/param_demo.tlsf')])
+test('graph_roles_guarantee', check,
+  args: [files('test/cases/arbiter2.no_tmpl.txt'), tlsfgraph_exe,
+         '--roles', 'GUARANTEE', files('test/cases/arbiter2.tlsf')])
+test('graph_formula_unimplemented', xfail,
+  args: [tlsfgraph_exe, '--graph', 'formula',
+         files('test/cases/arbiter2.tlsf')])
+test('graph_wl_labels_basic', check_wl,
+  args: [files('test/cases/arbiter2.wl0_basic.txt'), tlsfgraph_exe,
+         '--wl', '0', '--wl-labels', 'basic', files('test/cases/arbiter2.tlsf')])
+test('graph_template_named', check,
+  args: [files('test/cases/arbiter1formula.tmpl_reaction.txt'), tlsfgraph_exe,
+         '--template', 'reaction', files('test/cases/arbiter1formula.tlsf')])
 test('norm_split', check,
   args: [files('test/cases/arbiter1formula.norm.tlsf'),
          tlsfnorm_exe, '--passes', 'split',

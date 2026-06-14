@@ -1,0 +1,11 @@
+semantics: Mealy
+target: Mealy
+inputs: 2
+outputs: 2
+constraints: 3
+syntactic safety: 1
+syntactic liveness: 2
+c WL features for arbiter2.tlsf
+p wl 0 basic
+v 4 0:AP
+v 3 0:C
