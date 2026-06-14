@@ -185,16 +185,19 @@
 %type <node_list> call_arg_list
 
 /* -------------------------------------------------------------------------
- * Operator precedence (lowest → highest)
- * Mirrors syfco's LTL expression grammar.
+ * Operator precedence (lowest → highest) — matches syfco / TLSF paper.
+ * Temporal binary ops (W/U/R) bind looser than all propositional connectives,
+ * contrary to standard LTL textbooks but consistent with syfco's parser:
+ *   a && b W c  parses as  (a && b) W c
+ *   a -> b W c  parses as  (a -> b) W c
  * --------------------------------------------------------------------- */
+%right TOK_UNTIL TOK_RELEASE TOK_WEAK TOK_STRONG_REL
 %right TOK_IMPL TOK_EQUIV
 %left  TOK_OR
 %left  TOK_AND
 /* Formula-level equality (e.g. a bus matched against an enum label) binds
  * tighter than the boolean connectives but looser than the temporal ops. */
 %left  TOK_EQ TOK_NEQ
-%right TOK_UNTIL TOK_RELEASE TOK_WEAK TOK_STRONG_REL
 %right TOK_GLOBALLY TOK_FINALLY TOK_NEXT TOK_SNEXT
 %right TOK_NOT
 

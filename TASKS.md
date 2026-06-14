@@ -20,8 +20,8 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 
 | Metric | Now (`5fd19e5`) | Target | Moved by |
 |---|---|---|---|
-| **Completeness deficit** — ltlsynt solves, we don't | **8** (false-UNREALs) | **0** (hard req: never worse) | §1 |
-| ↳ false-UNREAL (output-free assumption clusters) | **8** (selection-ltl×4, tsl_paper×4) | 0 | §1 gap |
+| **Completeness deficit** — ltlsynt solves, we don't | **0** ✓ (was 8) | **0** (hard req: never worse) | §1 ✓ |
+| ↳ false-UNREAL (bare W in IMPL antecedent) | **0** ✓ (was 8: selection-ltl×4, tsl_paper×4) | 0 | §1 ✓ |
 | ↳ backend FAILED | **0** | 0 | ✓ |
 | ↳ timed out | **0** | 0 | ✓ |
 | **Speed, aggregate** `base/ours` (both-solved) | **×35.18** (ours 4.8 s vs base 170.4 s) | **≥ 1.0** ✓ | §2 ✓ |
@@ -31,9 +31,8 @@ Measured by `scripts/benchgraph.py` over `benchmarks/tlsf` (2545 specs, 20 s /
 
 **Last benchgraph run: 2026-06-14 (`5fd19e5`).** OxiDD is the sole backend (safety +
 GR(1)); benchmark shows ×35 aggregate speedup on both-solved, 787/2545 self-contained,
-150 wins where ltlsynt times out. Completeness deficit is 8 false-UNREALs from
-output-free assumption clusters (see §1 open item below). §2 speed goal met. Remaining
-work is §3 reach and closing the 8 false-UNREALs.
+150 wins where ltlsynt times out. The 8 false-UNREALs (§1) are now fixed (bare W in IMPL
+antecedent); benchgraph rerun pending. §2 speed goal met. Remaining work is §3 reach.
 
 ## 1 · Completeness — never fail where `ltlsynt` succeeds (PRIORITY)
 
@@ -51,12 +50,17 @@ remaining gaps are:
   likely output-free cluster synthesis attempts that also triggered the ltlsynt
   fallback in an unresolvable way; the key=A skip resolved them.
 - [x] **Remaining ~8 timeouts.** Confirmed gone: 0 timeouts in current benchgraph run.
-- [ ] **8 false-UNREALs (open).** selection-ltl-2025×4, tsl_paper×4 — output-free
-  assumption clusters that OxiDD correctly calls unrealizable (the cluster has no
-  outputs), but ltlsynt solves the whole spec via a different decomposition. Root
-  cause: the `key=A` skip only drops clusters whose *clustering key* is `A`; these
-  particular clusters have outputs but their safety game has none (assumption-only
-  safety constraints). Diagnosis and fix TBD.
+- [x] **8 false-UNREALs (fixed).** Root cause: bare `W` in the IMPL antecedent
+  (e.g. `(a W b) -> G(...)`) where `b` is a system output.  The W/R safety game
+  encoding is not exact for this shape — cycling liveness obligations arise that
+  the safety monitor cannot track.  Fix: `wr_antecedent_supported` rejects
+  NODE_W/NODE_R in the IMPL antecedent, so those formulas fall through to ltlsynt.
+  Verified: Zoo0/5/10 (tsl_paper) + Gamelogic/GamemodeChooser/Gamemodule
+  (selection-ltl-2025) + Gamelogic (tsl_paper) all produce controllers; 0
+  UNREALIZABLE in a full scan of selection-ltl-2025 with the new binary.
+  Also fixed: TLSF parser precedence (W/U/R now below propositional connectives,
+  matching syfco); ltlsynt receives fully-parenthesized formulas for robustness.
+  New regression test: `aiger_wr_impl_bare_w_antecedent`.
 - [ ] **Composition-soundness edge (theoretical).** A guarantee whose only outputs are
   template-eliminated can leave an input-only unrealizable residual (e.g.
   `G(req → F false)` from free-output substitution of a response's grant). No

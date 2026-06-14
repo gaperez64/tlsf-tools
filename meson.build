@@ -554,6 +554,12 @@ test('aiger_input_gua_skip', check,
   args: [files('test/cases/input_gua_skip.aag'), tlsfcompose_exe, '--aiger',
          '--ltlsynt', files('test/fake_ltlsynt.sh'),
          files('test/cases/input_gua_skip.tlsf')])
+# Bare W in IMPL antecedent where release is sys output must NOT be encoded as
+# W/R safety (would be a false UNREAL); falls through to ltlsynt.
+test('aiger_wr_impl_bare_w_antecedent', check,
+  args: [files('test/cases/wr_impl_bare_w_antecedent.aag'), tlsfcompose_exe,
+         '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
+         files('test/cases/wr_impl_bare_w_antecedent.tlsf')])
 # aiger_unclassified_atom: OxiDD correctly identifies this spec as unrealizable
 # (BURST4 is env input; system cannot force req to be true in the consequent).
 test('aiger_unclassified_atom', xfail,

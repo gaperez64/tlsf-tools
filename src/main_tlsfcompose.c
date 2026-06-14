@@ -53,7 +53,7 @@ static char *ltl_string(const Node *n, LtlFormat fmt, bool finite, bool lower) {
   FILE *ms = open_memstream(&buf, &sz);
   if (!ms)
     return nullptr;
-  print_ltl(ms, n, fmt, /*full_parens=*/false, finite, lower);
+  print_ltl(ms, n, fmt, /*full_parens=*/true, finite, lower);
   fclose(ms);
   if (sz && buf[sz - 1] == '\n')
     buf[sz - 1] = '\0';
@@ -1508,6 +1508,26 @@ static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
   return g;
 }
 
+// Antecedent of a structural IMPL: same as abssynthe_safety_wr_supported but
+// without bare NODE_W / NODE_R.  A bare `a W b` in the antecedent is only
+// exact when `b` is purely env-controlled; when `b` is a system output the W
+// creates a cycling liveness obligation (e.g. G(on→X(act W off)), G(off→X(!act
+// W on))) that the safety game cannot model exactly, producing false UNREALs.
+// Rejecting bare W/R in the antecedent causes these clusters to fall through to
+// ltlsynt.  G-wrapped W/R in the antecedent (G(req→X(a W b))) is still exact.
+static bool wr_antecedent_supported(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+    return true;
+  case NODE_G:
+    return g_body_wr_supported(n->arg);
+  case NODE_AND:
+    return wr_antecedent_supported(n->lhs) && wr_antecedent_supported(n->rhs);
+  default:
+    return abssynthe_initial_supported(n);
+  }
+}
+
 // A safety cluster `AND(U..., IMPL(A, G))`: unconditional safety U plus one
 // assume->guarantee, where U/A/G are W/R-safety (`g_body`/top-level monitors).
 static bool wr_structural_supported(const Node *n) {
@@ -1515,7 +1535,7 @@ static bool wr_structural_supported(const Node *n) {
   case NODE_AND:
     return wr_structural_supported(n->lhs) && wr_structural_supported(n->rhs);
   case NODE_IMPL:
-    return abssynthe_safety_wr_supported(n->lhs) &&
+    return wr_antecedent_supported(n->lhs) &&
            abssynthe_safety_wr_supported(n->rhs);
   default:
     return abssynthe_safety_wr_supported(n);
