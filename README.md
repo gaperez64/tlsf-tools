@@ -14,8 +14,8 @@ Format) specifications, sharing a common C library.
 | `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
 | `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
 | `tlsfnorm`  | TLSF 1.1/1.2 spec | Local normalization (split / nnf / boolean passes), re-emitted as TLSF |
-| `tlsfresidual` | TLSF 1.1/1.2 spec | Residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`, or safety clusters for AbsSynthe) |
-| `tlsfcompose` | TLSF 1.1/1.2 spec | Decomposed-synthesis plan or merged AIGER: certified controllers + residual clusters + optional AbsSynthe/`ltlsynt` backends |
+| `tlsfresidual` | TLSF 1.1/1.2 spec | Residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`, or safety/GR(1) clusters for OxiDD) |
+| `tlsfcompose` | TLSF 1.1/1.2 spec | Decomposed-synthesis plan or merged AIGER: certified controllers + residual clusters + OxiDD (safety+GR(1)) and `ltlsynt` backends |
 
 They are a lightweight, dependency-free alternative to the relevant parts of
 [`syfco`](https://github.com/reactive-systems/syfco): given a parameterised TLSF
@@ -44,11 +44,11 @@ meson setup build && ninja -C build
 meson setup build-san -Dsanitize=address,undefined   # sanitizers (optional)
 ```
 
-Optional safety backend (enables `tlsfcompose --aiger --abssynthe PATH` and the
-real-AbsSynthe regression tests):
+Optional OxiDD backend (in-process safety + GR(1) BDD solver; requires Rust/cargo + cbindgen):
 
 ```sh
-meson compile -C build abssynthe-submodule abssynthe-build
+meson compile -C build oxidd-submodule oxidd-build   # or: scripts/build_oxidd.sh
+meson setup build-oxidd -Doxidd=enabled && ninja -C build-oxidd
 ```
 
 ## Usage
@@ -81,7 +81,7 @@ tlsfbenchgraph --input-dir specs/ --split --summary       # corpus shape census
 tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized TLSF
 tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl per cluster
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers + clusters + compose.sh
-tlsfcompose --split --aiger --abssynthe PATH spec.tlsf    # one merged AIGER controller
+tlsfcompose --split --aiger spec.tlsf                     # one merged AIGER controller (OxiDD + ltlsynt)
 ```
 
 ## Example pipelines
@@ -103,15 +103,14 @@ ltlsynt --ins=… --outs=… --formula="$(grep -v '^c ' out/cluster.0.ltl)"
 ### 2 · One merged controller circuit (AIGER)
 
 `--aiger` closes the loop: certified controllers become and-inverter gates,
-eligible non-finite **safety** clusters go to AbsSynthe (`--abssynthe`),
+eligible safety clusters go to OxiDD (in-process BDD safety + GR(1) solver),
 everything else to `ltlsynt`, and the output-disjoint strategies are merged into
 one `aag` over the full interface.
 
 ```sh
-tlsfcompose --split --aiger --abssynthe external/AbsSynthe/binary/abssynthe \
-            spec.tlsf > ctrl.aag
+tlsfcompose --split --aiger spec.tlsf > ctrl.aag          # OxiDD build required
 # verify it against the spec (Spot):
-python3 scripts/verify_aiger_ltl.py --compose build/tlsfcompose \
+python3 scripts/verify_aiger_ltl.py --compose build-oxidd/tlsfcompose \
         --tlsf2ltl build/tlsf2ltl --tlsf spec.tlsf
 ```
 
@@ -150,18 +149,18 @@ tlsfgraph --split --templates spec.tlsf
 
 ### 5 · Measure the self-contained / fast-preprocessor slice
 
-How much do templates+AbsSynthe solve *without* `ltlsynt`, and is the pipeline
+How much do templates+OxiDD solve *without* `ltlsynt`, and is the pipeline
 faster than `ltlsynt` alone? `scripts/benchgraph.py` answers both over a corpus
 and writes the [`BENCHGRAPH.md`](BENCHGRAPH.md) "Preprocessor speed & complexity"
 section.
 
 ```sh
 # self-contained slice only: forbid the ltlsynt fallback
-tlsfcompose --split --aiger --abssynthe PATH --ltlsynt /bin/false spec.tlsf
+tlsfcompose --split --aiger --ltlsynt /bin/false spec.tlsf
 
 # full corpus speed + complexity (rerunnable; --from-data re-renders the report)
-scripts/benchgraph.py --corpus benchmarks/tlsf --tlsfcompose build/tlsfcompose \
-        --abssynthe external/AbsSynthe/binary/abssynthe --ltlsynt ltlsynt
+scripts/benchgraph.py --corpus benchmarks/tlsf \
+        --tlsfcompose build-oxidd/tlsfcompose --ltlsynt ltlsynt
 ```
 
 ## How the synthesis layer works
@@ -189,12 +188,13 @@ certificate, and stay `candidate`.
 the residual over a *smaller* alphabet, **clustering** it by shared output
 (`E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)` when output sets are disjoint) into independent,
 parallelisable sub-problems. `tlsfcompose` turns that into a runnable plan or a
-single merged AIGER, routing safety clusters to AbsSynthe and the rest to
-`ltlsynt`. The spec is **realizable iff every cluster is**, so the certified
-controllers ⊕ one controller per cluster realise the whole spec. The machine
-formats (`gsnf`/`csnf`) are DIMACS-style line records (`fgets`/`strtok`, no JSON).
+single merged AIGER, routing safety and GR(1) clusters to OxiDD (in-process BDD
+solver) and pure liveness to `ltlsynt`. The spec is **realizable iff every
+cluster is**, so the certified controllers ⊕ one controller per cluster realise
+the whole spec. The machine formats (`gsnf`/`csnf`) are DIMACS-style line records
+(`fgets`/`strtok`, no JSON).
 
-Corpus shape distributions and the templates+AbsSynthe solve-rate / speed numbers
+Corpus shape distributions and the templates+OxiDD solve-rate / speed numbers
 live in [`BENCHGRAPH.md`](BENCHGRAPH.md); WL similarity is a heuristic, templates
 are the proof.
 

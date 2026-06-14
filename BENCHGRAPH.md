@@ -133,9 +133,8 @@ So the answer to "what raises the statistics" is: **composition was necessary
 but not sufficient**, and **more syntactic templates are not the main lever**.
 The general stateless safety-invariant added essentially nothing, because real
 safety is stateful (`X`) or output-coupled.  The useful lever is a real backend
-for residual games: AbsSynthe now covers the non-finite safety slice, including
-strict safety wrappers of the form `S W !A`, while GR(1)-style liveness
-residuals still need a separate path.
+for residual games: OxiDD covers the non-finite safety slice (including strict
+safety wrappers `S W !A`) and the GR(1) tier; pure liveness needs `ltlsynt`.
 
 ## Residual complexity (monolith → residual)
 
@@ -153,7 +152,7 @@ safety/liveness class with the same classifier as the monolith columns.
 
 ![Hardest game dimensionality: monolith vs residual](docs/benchgraph/residual_gamesize.png)
 
-| corpus | fully solved | specs factoring ≥2 clusters | residual clusters (safety→AbsSynthe / liveness→ltlsynt) | hardest game outs monolith→residual (mean) | residual size / monolith |
+| corpus | fully solved | specs factoring ≥2 clusters | residual clusters (safety→OxiDD / liveness→ltlsynt) | hardest game outs monolith→residual (mean) | residual size / monolith |
 |---|--:|--:|--:|--:|--:|
 | `tlsf` | 2 (0%) | 746 (29%) | 2004 (43%) / 2655 (57%) | 5.0→4.9 | 76.7% (7388596/9631686) |
 | `tlsf-fin` | 0 (0%) | 1422 (57%) | 1455 (21%) / 5533 (79%) | 50.3→50.3 | 100.1% (21774881/21748136) |
@@ -173,9 +172,9 @@ Three findings, and they reframe where the leverage is:
    residual is also smaller as a formula on `tlsf` (76.7 % of the monolith).
 3. **Liveness is sparse per clause but pervasive per spec.** ~99 % of residual
    *conjuncts* are safety, yet most *specs* still carry one `GF`/`F` clause, so a
-   whole spec can rarely be handed to AbsSynthe as one game. Clustering isolates
+   whole spec can rarely be handed to OxiDD as one game. Clustering isolates
    that tail: **43 % of `tlsf` (21 % of `tlsf-fin`) residual independent games are
-   pure-safety, AbsSynthe-eligible**; only the liveness clusters need `ltlsynt`.
+   pure-safety, OxiDD-eligible**; only the liveness clusters need `ltlsynt`.
    The path to a higher solved fraction is therefore *finer clustering that peels
    each safety game off the liveness tail*, not more closed-form templates.
 
@@ -195,72 +194,6 @@ amba obligations), not assumption-contaminated. The completeness rule correctly
 response game). The genuine lever for those clusters is a **GR(1)/Büchi backend**;
 finer clustering is its enabler, since each GR(1) game now carries only its
 relevant fairness assumptions.
-
-## Self-contained AIGER synthesis without `ltlsynt`
-
-`tlsfcompose --aiger` routes eligible non-finite safety residual clusters to
-AbsSynthe.  The measurements below deliberately pass `--ltlsynt /bin/false`, so
-every successful run is handled by certified templates plus AbsSynthe only.
-
-| corpus | full controllers | unrealizable | timeout | still needs `ltlsynt` / liveness backend |
-|---|--:|--:|--:|--:|
-| `tlsf` | 125 / 2545 (4.9 %) | 7 | 1 | 2412 |
-| `tlsf-fin` | 0 / 2487 (0.0 %) | 0 | 0 | 2487 |
-
-For `tlsf`, `tlsfcompose --split` produces 318 certified/local controller
-outputs and 4659 residual clusters.  The fake AbsSynthe backend says 131 whole
-specs are syntactically eligible without `ltlsynt`, covering 1483 residual
-clusters.  Real AbsSynthe, run only on those eligible specs with a 10s/spec
-timeout, emits controllers for 123 specs; those successful specs account for
-1439 residual clusters.  In composition-unit terms, coverage rises from
-**318 / 4977 (6.4 %)** template-owned units to **1757 / 4977 (35.3 %)**
-units with real AbsSynthe controllers.
-
-### Bounded-liveness reduction (recurrence/response without `ltlsynt`)
-
-The liveness clusters above are guarantee-driven (recurrence `G F g`, responses
-`G(req→F grant)`). For the **fairness-free** ones, `tlsfcompose --aiger` bounds
-the guarantee liveness at *positive polarity only* — sound, a strictly stronger
-obligation — and solves the resulting **safety** game with the *existing*
-AbsSynthe (no `ltlsynt`, no AbsSynthe changes; `--bound N`, default 4):
-`F x → x|Xx|..|X^k x`; `a U b → ⋁_i (⋀_{j<i}X^j a ∧ X^i b)`; and `a W b`, `a R b`,
-`a M b` by the sound strengthening `⟸ a U b` / `⟸ b U (a∧b)`. A fairness
-assumption sits at negative polarity, is left intact, fails the safety
-eligibility check, and stays on `ltlsynt`; a bounded miss falls back, never a
-false failure.
-
-On the full `tlsf` corpus (`--split`, fake AbsSynthe, `--bound 4`), whole-spec
-eligibility without `ltlsynt` rises **131 → 266** (`F` alone reached 229; `U`,
-`W`, `R`, `M` add +37). On a 40-spec sample of the newly-eligible specs, **real**
-AbsSynthe emits full controllers for **38 (95 %)** at `k=4`. Soundness is
-machine-checked: the `k`-bounded controller satisfies the **unbounded** spec
-(`scripts/verify_aiger_ltl.py`: `bounded_resp`, `bounded_until`, `bounded_wuntil`,
-`cluster_prune`).
-
-A self-contained **bounded GR(1)** path follows: a cluster
-`(SafetyAssume ∧ G F a) → (SafetyGua ∧ ⋀ Justice)` becomes a safety game by giving
-each justice goal a counter **gated on the fairness signal `a`** ("met within `k`
-occurrences of `a`", sound because it never bounds the env's absolute timing).
-It solves and machine-verifies the clean GR(1) shape (`gr1_spec`, `gr1_response`).
-
-**Plateau (honest).** Bounded reduction stops here: `F` +98 (→229), `U`/`W`/`R`/`M`
-+37 (→266), bounded GR(1) **+0** (→266). The GR(1) encoder is correct but its
-clean shape — single fairness, `F`-shaped responses, no initial conditions —
-**does not occur in SYNTCOMP**: the real GR(1) clusters are multi-fairness,
-`U`-shaped (amba `!READY U (HREADY ∧ …)`), and carry initial conditions
-(`!DECIDE`). Shape-matched bounded reduction has hit its ceiling; the messy GR(1)
-tail needs a *complete* GR(1) solver with no shape restrictions — `ltlsynt` (the
-fallback) or the planned AbsSynthe GR(1) fixpoint extension (`aig.cpp:83-84`
-already parses, then ignores, justice/fairness). Pure-safety-release `W`/`R`
-(~149) remain a smaller separate prize for an exact "released"-latch monitor.
-
-The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
-illustrates the shape: `small_Lights2_f1477cc5_2.tlsf` is solved by the safety
-backend and `small_ltl2dba22.tlsf` by the global-recurrence template.  The four
-robot benchmarks now advance past their strict-safety cluster with AbsSynthe,
-but still stop at a GR(1) liveness cluster when `ltlsynt` is disabled. Raising
-the no-`ltlsynt` full-spec count further needs GR(1)-style handling, not
-another stateless template.
 
 ## Effect of constraint decomposition (`--split`)
 
@@ -322,17 +255,17 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
    eliminates combinational decoders exactly and fair servers merge shared
    requests, removing the old ejection pathology (`tlsf` conflicts 113 → 48).
    Template-only composition now fully solves **2** specs and only
-   **~0.4–0.6 % of constraints** are eliminated.  With AbsSynthe, however,
-   `tlsfcompose --aiger --ltlsynt /bin/false` now emits real full controllers
-   for **125 / 2545** `tlsf` specs and classifies 7 more as unrealizable.
-   Remaining no-`ltlsynt` coverage needs liveness / GR(1)-style solving.
+   **~0.4–0.6 % of constraints** are eliminated.  With OxiDD,
+   `tlsfcompose --aiger --ltlsynt /bin/false` emits real full controllers
+   for **787 / 2545 (30.9 %)** `tlsf` specs (see benchgraph section below).
+   Remaining no-`ltlsynt` coverage needs a liveness / Büchi backend.
 6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
 7. **Decomposition lowers complexity through clustering, not template
    ownership.** Templates barely move the hardest game (largest residual cluster
    ≈ monolith's largest output component), but 29 % of `tlsf` / 57 % of
    `tlsf-fin` specs factor into ≥2 independent games, and 43 % / 21 % of those
-   games are pure-safety (AbsSynthe-eligible). The lever for a higher solved
+   games are pure-safety (OxiDD-eligible). The lever for a higher solved
    fraction is finer clustering that peels each safety game off the per-spec
    liveness tail.
 
