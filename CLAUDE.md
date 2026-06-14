@@ -5,15 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build commands
 
 ```sh
-meson setup build && ninja -C build          # default build (OxiDD required)
+meson setup build && ninja -C build          # dependency-free build (templates only)
 meson setup build-san -Dsanitize=address,undefined && ninja -C build-san  # sanitizers
 meson setup build-cov -Db_coverage=true && ninja -C build-cov             # coverage
 
-# OxiDD submodule must be built first (requires Rust/cargo):
-meson compile -C build oxidd-submodule oxidd-build
-# Then reconfigure so meson picks up the artifacts:
-meson setup --reconfigure build-oxidd && ninja -C build-oxidd
+# OxiDD (the safety + GR(1) BDD solvers, i.e. tlsfcompose/tlsfsolve) is an
+# optional feature (-Doxidd=auto): the submodule must be built first
+# (requires Rust/cargo + cbindgen), then enable it explicitly:
+meson compile -C build oxidd-submodule oxidd-build   # or: scripts/build_oxidd.sh
+meson setup build-oxidd -Doxidd=enabled && ninja -C build-oxidd
+
+# Optimized / SIMD build (compile-time ISA via -Dcpu; see include/tlsf/simd.h):
+meson setup build-opt -Doxidd=enabled -Dcpu=native --buildtype=release -Db_lto=true
 ```
+
+Without OxiDD, only the TLSF preprocessing tools build (parse, graph, templates,
+residual, WL); `tlsfcompose`/`tlsfsolve` and the BDD solvers need `-Doxidd`.
+`-Dcpu` ∈ `baseline|avx2|avx512|neon|native` (default `baseline`).
 
 ## Test, lint, format
 
@@ -40,10 +48,18 @@ The pipeline processes TLSF specs through four stages:
 
 ### Key source files
 
-- `src/main_tlsfcompose.c` — the synthesis orchestrator. Contains four game builders (`build_abssynthe_game`, `build_abssynthe_strict_safety_game`, `build_abssynthe_wr_game`, `build_abssynthe_unbounded_gr1_game`) and two routing dispatchers (`solve_safety_game` → `solve_safety_oxidd`; `solve_gr1_game` → `solve_gr1_oxidd`).
+The synthesis orchestrator (`tlsfcompose`) is split across one internal header
+and four TUs (see `include/tlsf/compose_internal.h` for the shared types
+`Gr1Parts`/`ClusterShape` and the cross-module prototypes):
+
+- `src/main_tlsfcompose.c` — CLI parsing + per-cluster routing in `main`.
+- `src/compose_analysis.c` — pure AST/arena gates: eligibility, X-depth, W/R + GR(1) decomposition (`abssynthe_eligible`, `abssynthe_gr1_parts`, `bound_liveness`), cluster-shape classification.
+- `src/compose_games.c` — the four `Aig` game builders (`build_abssynthe_game`, `build_abssynthe_strict_safety_game`, `build_abssynthe_wr_game`, `build_abssynthe_unbounded_gr1_game`).
+- `src/compose_solve.c` — `ltlsynt` subprocess fallback, the OxiDD dispatchers (`solve_safety_game` → `solve_safety_oxidd`; `solve_gr1_game` → `solve_gr1_oxidd`), and the self-verification gate (`controller_violates_spec`).
 - `src/aiger.c` / `include/tlsf/aiger.h` — `Aig` struct (and-inverter graph): inputs, latches, outputs, `just[]` (system Büchi goals), `fair[]` (env fairness). All game builders emit `Aig`.
-- `src/safety_oxidd.c` / `include/tlsf/safety_oxidd.h` — in-process BDD safety solver. `solve_safety_oxidd(game, unreal)` runs the cpre fixpoint and Skolem strategy extraction.
-- `src/gr1_oxidd.c` / `include/tlsf/gr1_oxidd.h` — in-process BDD GR(1) solver. `solve_gr1_oxidd(game, unreal)` runs the PPS tri-nested fixpoint and strategy extraction with goal-counter latches.
+- `src/safety_oxidd.c`, `src/gr1_oxidd.c`, `src/oxidd_common.c` — in-process BDD solvers. `solve_safety_oxidd` runs the cpre fixpoint + Skolem extraction; `solve_gr1_oxidd` runs the PPS tri-nested fixpoint with goal-counter latches; `oxidd_common.{c,h}` holds the shared BDD↔AIG helpers (`Memo`, `bdd2aig`, `lit_to_bdd`, `cube_of`, `bdd_eq`).
+- `src/templates.c` + `src/templates_certify.c` (`include/tlsf/templates_internal.h`) — CSNF template machinery: `templates.c` keeps the dispatcher / composition / emission; `templates_certify.c` holds the 15 per-template recognizers + certifiers; the private `Block`/`Csnf` model lives in the internal header.
+- `include/tlsf/simd.h` — compile-time ISA selection (AVX-512/AVX2/NEON/scalar) for the `apset` word-array reductions, keyed off `-Dcpu`.
 - `src/main_tlsfsolve.c` — standalone `tlsfsolve` binary: reads AIGER game → `solve_safety_oxidd` or `solve_gr1_oxidd` → writes strategy AIGER to stdout.
 
 ### OxiDD (sole BDD backend)
@@ -52,7 +68,12 @@ Vendored as `external/oxidd` git submodule. Build artifacts:
 - `external/oxidd/target/release/liboxidd_ffi_c.a`
 - `external/oxidd/build/include/oxidd/capi.h`
 
-Meson feature: `-Doxidd=enabled` (mandatory). No AbsSynthe fallback.
+Meson feature `-Doxidd` (`auto`: use if the artifacts are present; `enabled`:
+require them). AbsSynthe is fully retired — OxiDD is the only BDD backend, and
+`ltlsynt` is the fallback for liveness clusters and failed/unverified solves.
+CI builds the FFI once in the `oxidd` job and shares it as an artifact; the
+`build-oxidd` job builds `-Doxidd=enabled -Dcpu=avx2`. The Spot-verified
+`verify_aiger_oxidd*` tests auto-gate on Spot (absent in CI; run locally).
 
 **Safety fixpoint:** `W = νZ. ∀u. ∃c. [¬bad ∧ Z[s:=NEXT]]`. Realizable iff `W` is true at the reset cube. Strategy: sequential Skolem (cofactor + substitute per controllable), then BDD→AIG via ite-expansion memoised on BDD handle bytes.
 
@@ -65,6 +86,37 @@ Meson feature: `-Doxidd=enabled` (mandatory). No AbsSynthe fallback.
 ### Corpus benchmarking
 
 `scripts/benchgraph.py` runs the full pipeline vs `ltlsynt` over a corpus; results go to `BENCHGRAPH.md`. **Never run two instances in parallel** — each spawns child processes that together can OOM the machine. Use `--resume` after a crash.
+
+## Status & remaining work
+
+Done: in-process OxiDD safety + GR(1) solvers (AbsSynthe retired); completeness
+gaps closed (no false-UNREAL on the W/R path); compile-time SIMD + OxiDD-in-CI.
+
+Open (reach — solve more residuals):
+- **Liveness backend** (biggest lever): ~2/3 of residuals are pure liveness
+  (F/U/GF/Büchi) needing a real game, not a syntactic certificate; ~27% of that
+  tail are genuinely unrealizable.
+- **Remaining W/R-safety shapes** (gate-protected, exactly encodable): nested
+  weak-until `G(req → (A W B))` with inner W/R (sub-monitors; *MusicAppFeedback*);
+  X in initial-constraint conjuncts (*KitchenTimerV10*); top-level `AND(G, IMPL)`
+  IMPL-under-AND without W/R (*SensorSelector*); U-shaped responses
+  `G(req → X(a U b))`. Extend the gates in `compose_analysis.c` + the builders in
+  `compose_games.c`; the self-verification gate keeps any wrong encoding sound
+  (falls back to `ltlsynt`).
+- **GR(2)/generalized-Rabin** for `amba_gr+`; GR(1)-aware BDD abstraction for big
+  amba (`pb_10+`).
+- **Trust UNREALIZABLE** on bounded/GR(1)/liveness paths (needs over-constraint
+  analysis; currently sound to fall back).
+
+Deferred perf levers (in order): persistent BDD manager (per-session, not
+per-cluster) → parallel output-disjoint clusters → WL-fingerprint controller
+cache.
+
+Measured dead-ends — **do not redo** (all +0 on the SYNTCOMP needle): finer
+per-cluster assumption scoping; bounded-liveness reduction (fairness is the
+lever, not more bounded operators); `G`-over-∧ distribution behind the gate
+(Spot OOMs on the big unsound specs the gate can't protect); adding recognizer
+shapes without a solver (recognizer lift is gated at the GR(1) wall).
 
 ## Code conventions
 

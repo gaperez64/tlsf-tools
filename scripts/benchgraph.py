@@ -305,7 +305,7 @@ def write_report(args, rows, total, data_path):
     if fu_fam:
         L.append("- The false-UNREALs are dominated by "
                  + ", ".join(f"{d.split('/')[-1] or d}×{n}" for d, n in fu_fam.most_common(4))
-                 + " — output-free assumption clusters synthesised standalone (TASKS.md gap #2).\n")
+                 + " — output-free assumption clusters synthesised standalone.\n")
 
     L.append("\n### Verdict\n")
     if both:
@@ -318,8 +318,8 @@ def write_report(args, rows, total, data_path):
             f"The genuine value is the **{len(ours_win_base_to)} specs ltlsynt cannot "
             f"synthesize in {args.timeout}s that we do** (GR(1) `amba_gr`, large decomposed safety). The "
             f"completeness blocker is **{len(less_complete)} specs ltlsynt solves that we don't** — now "
-            f"dominated by **{len(false_unreal)} false-UNREALs** from output-free assumption clusters "
-            f"(TASKS.md gap #2), not parse bugs.\n")
+            f"dominated by **{len(false_unreal)} false-UNREALs** from output-free assumption clusters, "
+            f"not parse bugs.\n")
     L.append(SENTINEL_END + "\n")
     section = "".join(L)
 
