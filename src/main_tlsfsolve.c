@@ -65,8 +65,8 @@ int main(int argc, char **argv) {
 
   int unreal = 0;
   bool is_gr1 = aig_num_justice(game) > 0 || aig_num_fairness(game) > 0;
-  Aig *strat =
-      is_gr1 ? solve_gr1_oxidd(game, &unreal) : solve_safety_oxidd(game, &unreal);
+  Aig *strat = is_gr1 ? solve_gr1_oxidd(game, &unreal)
+                      : solve_safety_oxidd(game, &unreal);
 
   if (!strat) {
     fprintf(stderr, "UNREALIZABLE\n");

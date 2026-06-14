@@ -983,13 +983,11 @@ static const char *cluster_ltlsynt_reason(const ClusterShape *shape,
   } else if (shape->has_liveness) {
     snprintf(buf, buf_sz, "liveness temporal operators are not OxiDD-eligible");
   } else if (shape->has_weak_until) {
-    snprintf(buf, buf_sz,
-             "weak-until safety release is not OxiDD-eligible");
+    snprintf(buf, buf_sz, "weak-until safety release is not OxiDD-eligible");
   } else if (shape->has_release) {
     snprintf(buf, buf_sz, "release safety shape is not OxiDD-eligible");
   } else if (shape->has_strong_next) {
-    snprintf(buf, buf_sz,
-             "finite-only strong-next is not OxiDD-eligible");
+    snprintf(buf, buf_sz, "finite-only strong-next is not OxiDD-eligible");
   } else if (shape->has_high_level) {
     snprintf(buf, buf_sz,
              "unexpanded high-level operators are not backend-eligible");
@@ -1961,8 +1959,8 @@ static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
 // of `game` and returns a strategy whose controllable outputs have been mapped
 // back to the cluster's output names (or nullptr, with *unreal set on a
 // trusted UNREALIZABLE verdict).
-static Aig *solve_safety_game(ConstraintCover *cov, const bool *seen,
-                              Aig *game, int *unreal) {
+static Aig *solve_safety_game(ConstraintCover *cov, const bool *seen, Aig *game,
+                              int *unreal) {
   Aig *strat = solve_safety_oxidd(game, unreal);
   if (strat && !abssynthe_strategy_has_outputs(strat, cov, seen)) {
     aig_free(strat);
@@ -2357,8 +2355,8 @@ int main(int argc, char *argv[]) {
       bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
                      !bounded_root &&
                      abssynthe_gr1_parts(spec->arena, root, &gp);
-      bool use_oxidd = use_direct || use_strict || use_wr || bounded_root ||
-                       use_gr1;
+      bool use_oxidd =
+          use_direct || use_strict || use_wr || bounded_root || use_gr1;
       const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
       if (use_direct) {
         sub = solve_safety_game(cov, seen,
@@ -2371,11 +2369,10 @@ int main(int argc, char *argv[]) {
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
       } else if (use_strict) {
-        sub = solve_safety_game(
-            cov, seen,
-            build_abssynthe_strict_safety_game(cov, seen, strict_sys,
-                                               strict_env),
-            &unreal);
+        sub = solve_safety_game(cov, seen,
+                                build_abssynthe_strict_safety_game(
+                                    cov, seen, strict_sys, strict_env),
+                                &unreal);
         if (!sub && !unreal) {
           // OxiDD failed: fall back to ltlsynt on the original formula.
           use_oxidd = false;
@@ -2385,9 +2382,8 @@ int main(int argc, char *argv[]) {
         }
       } else if (use_wr) {
         backend = "OxiDD (W/R safety)";
-        sub = solve_safety_game(cov, seen,
-                                build_abssynthe_wr_game(cov, seen, root),
-                                &unreal);
+        sub = solve_safety_game(
+            cov, seen, build_abssynthe_wr_game(cov, seen, root), &unreal);
         if (!sub && !unreal) {
           // W/R monitor encoding is exact: trust UNREALIZABLE; fall back only
           // on error (unreal=0, no strategy).
@@ -2398,9 +2394,8 @@ int main(int argc, char *argv[]) {
         }
       } else if (bounded_root) {
         backend = "OxiDD (bounded)";
-        sub = solve_safety_game(cov, seen,
-                                build_abssynthe_game(cov, seen, bounded_root),
-                                &unreal);
+        sub = solve_safety_game(
+            cov, seen, build_abssynthe_game(cov, seen, bounded_root), &unreal);
         if (!sub) {
           // Bounded miss (unrealizable at this k, or no strategy): the
           // unbounded game may still be realizable, so fall back to ltlsynt
@@ -2413,9 +2408,9 @@ int main(int argc, char *argv[]) {
         }
       } else if (use_gr1) {
         backend = "OxiDD (GR(1))";
-        sub = solve_gr1_game(
-            cov, seen,
-            build_abssynthe_unbounded_gr1_game(cov, seen, &gp), &unreal);
+        sub = solve_gr1_game(cov, seen,
+                             build_abssynthe_unbounded_gr1_game(cov, seen, &gp),
+                             &unreal);
         if (!sub) {
           // The GR(1) solver found no strategy (or called it unrealizable --
           // the recognizer may over-constrain); defer to ltlsynt rather than

@@ -11,7 +11,8 @@
 // Strategy: the output AIG adds m one-hot goal-counter latches curr[0..m-1]
 // (reset curr[0]=1, rest 0).  At each step the system picks controllables to
 // make progress toward the current goal, and advances the counter when the
-// current game state satisfies that goal and the state is in the winning region.
+// current game state satisfies that goal and the state is in the winning
+// region.
 
 #include "tlsf/gr1_oxidd.h"
 
@@ -311,8 +312,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   Bdd *curr_bdd = m_goals ? calloc(m_goals, sizeof *curr_bdd) : nullptr;
   uint32_t *var2lit = calloc(nvars, sizeof *var2lit);
   uint32_t *lat_lit = nlat ? calloc(nlat, sizeof *lat_lit) : nullptr;
-  uint32_t *curr_latch_lit = m_goals ? calloc(m_goals, sizeof *curr_latch_lit)
-                                     : nullptr;
+  uint32_t *curr_latch_lit =
+      m_goals ? calloc(m_goals, sizeof *curr_latch_lit) : nullptr;
   uint32_t *cvars = nin ? calloc(nin, sizeof *cvars) : nullptr;
   uint32_t *uvars = nin ? calloc(nin, sizeof *uvars) : nullptr;
   uint32_t *cinput = nin ? calloc(nin, sizeof *cinput) : nullptr;
@@ -401,7 +402,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
       ok = false;
   }
 
-  // Justice goal BDDs (one lit per justice property, the pending-monitor negation).
+  // Justice goal BDDs (one lit per justice property, the pending-monitor
+  // negation).
   for (uint32_t j = 0; j < m_goals && ok; j++) {
     const uint32_t *lits;
     uint32_t n;
@@ -411,7 +413,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
       ok = false;
   }
 
-  // Fairness BDDs + not_fair = ⋃_i ¬fair_i (env breaks at least one assumption).
+  // Fairness BDDs + not_fair = ⋃_i ¬fair_i (env breaks at least one
+  // assumption).
   not_fair = oxidd_bdd_false(m); // ⊥ when m_fair == 0: env is always "fair"
   for (uint32_t i = 0; i < m_fair && ok; i++) {
     uint32_t lit = aig_fairness_at(game, i);
@@ -459,7 +462,7 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
 
         Bdd Y = oxidd_bdd_false(m); // μ-fixpoint from ⊥
 
-        for (;;) { // μ-fixpoint over Y
+        for (;;) {                   // μ-fixpoint over Y
           Bdd X = oxidd_bdd_true(m); // inner ν-fixpoint from ⊤
 
           for (;;) { // inner ν-fixpoint over X
@@ -472,8 +475,7 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
             oxidd_bdd_unref(wgy);
             oxidd_bdd_unref(xnf);
 
-            Bdd X_new =
-                cpre_full(target, sub_lat, notbad, ctrl_cube, unc_cube);
+            Bdd X_new = cpre_full(target, sub_lat, notbad, ctrl_cube, unc_cube);
             oxidd_bdd_unref(target);
 
             if (bdd_invalid(X_new)) {
@@ -555,9 +557,11 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   //
   //   For each goal j:
   //     at_goal_j = W* ∩ goal_bdd[j]
-  //     M_j = (s ∈ at_goal_j) ∧ cpre_c(W*)              // advance: any safe move
+  //     M_j = (s ∈ at_goal_j) ∧ cpre_c(W*)              // advance: any safe
+  //     move
   //         ∪ (s ∈ level_j_0 \ at_goal_j) ∧ cpre_c(at_goal_j)
-  //         ∪ (s ∈ level_j_k \ level_j_{k-1} \ at_goal_j) ∧ cpre_c(Y_{k-1} ∪ at_goal_j)
+  //         ∪ (s ∈ level_j_k \ level_j_{k-1} \ at_goal_j) ∧ cpre_c(Y_{k-1} ∪
+  //         at_goal_j)
   //         ...
   //
   //   M_total = ⋃_j [curr_bdd[j] ∧ M_j]

@@ -270,9 +270,7 @@ void aig_justice_at(const Aig *g, uint32_t j, const uint32_t **lits,
 
 uint32_t aig_num_fairness(const Aig *g) { return g->nfair; }
 
-uint32_t aig_fairness_at(const Aig *g, uint32_t i) {
-  return g->fair[i].lit;
-}
+uint32_t aig_fairness_at(const Aig *g, uint32_t i) { return g->fair[i].lit; }
 
 static void rename_in(char **slot, const char *from, const char *to) {
   if (strcmp(*slot, from) != 0)
