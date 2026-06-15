@@ -20,8 +20,7 @@ static char *controllable_name(const char *name) {
   char *out = malloc(p + n + 1);
   if (!out)
     return nullptr;
-  int written =
-      snprintf(out, p + n + 1, "%s%s", AIG_CONTROLLABLE_PREFIX, name);
+  int written = snprintf(out, p + n + 1, "%s%s", AIG_CONTROLLABLE_PREFIX, name);
   if (written < 0 || (size_t)written != p + n) {
     free(out);
     return nullptr;
@@ -36,18 +35,15 @@ typedef struct {
   uint32_t ap_count;
 } AigCtx;
 
-static uint32_t hist_lit(const AigCtx *ctx, uint32_t lag,
-                         uint32_t ap) {
+static uint32_t hist_lit(const AigCtx *ctx, uint32_t lag, uint32_t ap) {
   return ctx->hist[(lag * ctx->ap_count) + ap];
 }
 
-static void hist_set(AigCtx *ctx, uint32_t lag, uint32_t ap,
-                     uint32_t lit) {
+static void hist_set(AigCtx *ctx, uint32_t lag, uint32_t ap, uint32_t lit) {
   ctx->hist[(lag * ctx->ap_count) + ap] = lit;
 }
 
-static uint32_t compile_at_lag(AigCtx *ctx, const Node *n,
-                                         uint32_t lag) {
+static uint32_t compile_at_lag(AigCtx *ctx, const Node *n, uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
     return AIG_TRUE;
@@ -95,8 +91,7 @@ static uint32_t compile_at_lag(AigCtx *ctx, const Node *n,
   }
 }
 
-static uint32_t compile_global(AigCtx *ctx,
-                                                const Node *n, uint32_t lag) {
+static uint32_t compile_global(AigCtx *ctx, const Node *n, uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
     return AIG_TRUE;
@@ -114,9 +109,8 @@ static uint32_t compile_global(AigCtx *ctx,
   }
 }
 
-static uint32_t compile_assumption_window(AigCtx *ctx,
-                                                    const Node *assume,
-                                                    uint32_t depth) {
+static uint32_t compile_assumption_window(AigCtx *ctx, const Node *assume,
+                                          uint32_t depth) {
   uint32_t ok = AIG_TRUE;
   for (uint32_t lag = 0; lag <= depth; lag++) {
     uint32_t at_lag = compile_global(ctx, assume, lag);
@@ -130,8 +124,7 @@ static uint32_t compile_assumption_window(AigCtx *ctx,
   return ok;
 }
 
-static uint32_t compile_safety_initial(AigCtx *ctx,
-                                                 const Node *n) {
+static uint32_t compile_safety_initial(AigCtx *ctx, const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_G:
@@ -148,9 +141,8 @@ static uint32_t compile_safety_initial(AigCtx *ctx,
   }
 }
 
-static uint32_t compile_safety_global(AigCtx *ctx,
-                                                       const Node *n,
-                                                       uint32_t lag) {
+static uint32_t compile_safety_global(AigCtx *ctx, const Node *n,
+                                      uint32_t lag) {
   switch (n->kind) {
   case NODE_TRUE:
     return AIG_TRUE;
@@ -179,9 +171,9 @@ static uint32_t guarded_current_ok(Aig *g, uint32_t guard, uint32_t ok) {
 // This implements G(outer_req -> body): distribute outer_req over each conjunct
 // so that obligations arm only when outer_req holds, yet once armed they fire
 // under the original `valid`.
-static bool wr_emit_g_body_gated(AigCtx *ctx, const Node *n,
-                                 uint32_t depth, uint32_t valid,
-                                 uint32_t arm_gate, uint32_t *bad) {
+static bool wr_emit_g_body_gated(AigCtx *ctx, const Node *n, uint32_t depth,
+                                 uint32_t valid, uint32_t arm_gate,
+                                 uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
   case NODE_G: // G(G(phi)) == G(phi); nested G absorbed by the outer G context
@@ -399,9 +391,9 @@ static bool wr_emit_g_body(AigCtx *ctx, const Node *n, uint32_t depth,
 // step_one: AIG literal that is 1 only at the logical step immediately after
 // `first` (i.e., when X-delayed initial constraints should be checked).
 // AIG_FALSE means no X-initial constraints exist.
-static bool wr_emit_guarantee(AigCtx *ctx, const Node *n,
-                              uint32_t depth, uint32_t valid, uint32_t first,
-                              uint32_t step_one, uint32_t *bad) {
+static bool wr_emit_guarantee(AigCtx *ctx, const Node *n, uint32_t depth,
+                              uint32_t valid, uint32_t first, uint32_t step_one,
+                              uint32_t *bad) {
   Aig *g = ctx->g;
   switch (n->kind) {
   case NODE_TRUE:
@@ -437,9 +429,9 @@ static bool wr_emit_guarantee(AigCtx *ctx, const Node *n,
       *bad = aig_or(g, *bad, aig_and(g, first, aig_not(ok)));
       return true;
     }
-    // X-delayed initial constraint: enforced at step_one (the step after first).
-    // Compile at the formula's own X-depth so X operators peel to lag=0 at the
-    // physical step when step_one fires (physical t=depth + x_depth).
+    // X-delayed initial constraint: enforced at step_one (the step after
+    // first). Compile at the formula's own X-depth so X operators peel to lag=0
+    // at the physical step when step_one fires (physical t=depth + x_depth).
     if (aig_initial_x_ok(n) && step_one != AIG_FALSE) {
       uint32_t ok = compile_at_lag(ctx, n, aig_x_depth(n));
       if (ok == UINT32_MAX)
@@ -452,8 +444,7 @@ static bool wr_emit_guarantee(AigCtx *ctx, const Node *n,
   }
 }
 
-Aig *build_aig_game(ConstraintCover *cov, const bool *seen,
-                          const Node *root) {
+Aig *build_aig_game(ConstraintCover *cov, const bool *seen, const Node *root) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
@@ -536,8 +527,7 @@ Aig *build_aig_game(ConstraintCover *cov, const bool *seen,
       aig_free(g);
       return nullptr;
     }
-    uint32_t ass_window_ok =
-        compile_assumption_window(&ctx, assume, depth);
+    uint32_t ass_window_ok = compile_assumption_window(&ctx, assume, depth);
     if (ass_window_ok == UINT32_MAX) {
       free(hist);
       aig_free(g);
@@ -588,14 +578,12 @@ bool wr_structural_supported(const Node *n) {
     // A top-level IMPL where BOTH sides are purely Boolean+X (no G/W/R) is an
     // initial-state conditional constraint (`X(phi) -> psi`), not a structural
     // assume->guarantee.  Route it through aig_safety_wr_ok which
-    // handles it via the initial-x default case.  A structural assume->guarantee
-    // has at least one G-wrapped antecedent conjunct, so its lhs is not fully
-    // initial_x_supported.
-    if (aig_initial_x_ok(n->lhs) &&
-        aig_initial_x_ok(n->rhs))
+    // handles it via the initial-x default case.  A structural
+    // assume->guarantee has at least one G-wrapped antecedent conjunct, so its
+    // lhs is not fully initial_x_supported.
+    if (aig_initial_x_ok(n->lhs) && aig_initial_x_ok(n->rhs))
       return aig_safety_wr_ok(n);
-    return wr_antecedent_supported(n->lhs) &&
-           aig_safety_wr_ok(n->rhs);
+    return wr_antecedent_supported(n->lhs) && aig_safety_wr_ok(n->rhs);
   default:
     return aig_safety_wr_ok(n);
   }
@@ -649,8 +637,8 @@ static uint32_t wr_structural_x_depth(const Node *n) {
 // Emit the obligations of `AND(U..., IMPL(A, G))`: unconditional U conjuncts
 // into *bad, the assume A's violations into *viol_a (drive `violated`), the
 // guarantee G's into *bad_cond (gated by !released).  At most one implication.
-static bool wr_emit_structural(AigCtx *ctx, const Node *n,
-                               uint32_t depth, uint32_t valid, uint32_t first,
+static bool wr_emit_structural(AigCtx *ctx, const Node *n, uint32_t depth,
+                               uint32_t valid, uint32_t first,
                                uint32_t step_one, uint32_t *bad,
                                uint32_t *viol_a, uint32_t *bad_cond,
                                int *nimpl) {
@@ -662,8 +650,7 @@ static bool wr_emit_structural(AigCtx *ctx, const Node *n,
   if (n->kind == NODE_IMPL) {
     // Initial-state conditional: treat as a plain initial constraint charged
     // into the unconditional bad, not as a structural assume->guarantee split.
-    if (aig_initial_x_ok(n->lhs) &&
-        aig_initial_x_ok(n->rhs))
+    if (aig_initial_x_ok(n->lhs) && aig_initial_x_ok(n->rhs))
       return wr_emit_guarantee(ctx, n, depth, valid, first, step_one, bad);
     if (++(*nimpl) > 1)
       return false;
@@ -680,7 +667,7 @@ static bool wr_emit_structural(AigCtx *ctx, const Node *n,
 // (the system is released once the env breaks an assumption), so the guarantee
 // bad is gated by `!released` while the unconditional U bad is not.
 Aig *build_aig_wr_game(ConstraintCover *cov, const bool *seen,
-                             const Node *root) {
+                       const Node *root) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
@@ -769,7 +756,7 @@ Aig *build_aig_wr_game(ConstraintCover *cov, const bool *seen,
 }
 
 Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
-                                        const Node *sys, const Node *env) {
+                                  const Node *sys, const Node *env) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
@@ -824,10 +811,8 @@ Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
 
   uint32_t env_init_ok = compile_safety_initial(&ctx, env);
   uint32_t sys_init_ok = compile_safety_initial(&ctx, sys);
-  uint32_t env_global_ok =
-      compile_safety_global(&ctx, env, depth);
-  uint32_t sys_global_ok =
-      compile_safety_global(&ctx, sys, depth);
+  uint32_t env_global_ok = compile_safety_global(&ctx, env, depth);
+  uint32_t sys_global_ok = compile_safety_global(&ctx, sys, depth);
   if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX ||
       env_global_ok == UINT32_MAX || sys_global_ok == UINT32_MAX) {
     free(hist);
@@ -870,7 +855,7 @@ Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
 // safety `bad` masking lifts the safety obligation -- the GR(1) implication is
 // then vacuously won.
 Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
-                                        const Gr1Parts *parts) {
+                        const Gr1Parts *parts) {
   Aig *g = aig_new();
   if (!g)
     return nullptr;
@@ -973,8 +958,7 @@ Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
 
   // System justice goals: each is G F !pending via a pending monitor latch.
   for (uint32_t j = 0; j < parts->njustice; j++) {
-    uint32_t tgt =
-        compile_at_lag(&ctx, parts->justice[j].target, depth);
+    uint32_t tgt = compile_at_lag(&ctx, parts->justice[j].target, depth);
     if (tgt == UINT32_MAX)
       UGR1_FAIL();
     uint32_t req = AIG_TRUE; // recurrence G F J == response with req = true

@@ -320,16 +320,14 @@ int main(int argc, char *argv[]) {
       Aig *sub = nullptr;
       const Node *strict_sys = nullptr, *strict_env = nullptr;
       bool use_direct = aig_eligible(root, finite);
-      bool use_strict =
-          !finite && !use_direct && shape.gr_level == 0 &&
-          !shape.has_liveness &&
-          aig_strict_safety_parts(root, &strict_sys, &strict_env);
+      bool use_strict = !finite && !use_direct && shape.gr_level == 0 &&
+                        !shape.has_liveness &&
+                        aig_strict_safety_parts(root, &strict_sys, &strict_env);
       // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
       // with W/R on any side is encoded exactly (monitors), preferred over the
       // lossy bounded reduction below.
       bool use_wr = !finite && !use_direct && !use_strict &&
-                    !shape.has_liveness &&
-                    wr_structural_supported(root);
+                    !shape.has_liveness && wr_structural_supported(root);
 
       // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
       // the cluster then becomes a pure-safety game (no fairness assumption
@@ -347,14 +345,13 @@ int main(int argc, char *argv[]) {
       // game and solved by the OxiDD GR(1) fixpoint.
       Gr1Parts gp;
       bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
-                     !bounded_root &&
-                     aig_gr1_parts(spec->arena, root, &gp);
+                     !bounded_root && aig_gr1_parts(spec->arena, root, &gp);
       bool use_oxidd =
           use_direct || use_strict || use_wr || bounded_root || use_gr1;
       const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
       if (use_direct) {
-        sub = solve_safety_game(cov, seen,
-                                build_aig_game(cov, seen, root), &unreal);
+        sub = solve_safety_game(cov, seen, build_aig_game(cov, seen, root),
+                                &unreal);
         // Formulas with bare top-level W/R (not inside G) use release-latch
         // monitors compiled at lag=depth.  When depth>0 (G X conjuncts in the
         // same formula) the lag interaction can spuriously over-constrain the
@@ -369,10 +366,10 @@ int main(int argc, char *argv[]) {
               run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
         }
       } else if (use_strict) {
-        sub = solve_safety_game(cov, seen,
-                                build_aig_strict_safety_game(
-                                    cov, seen, strict_sys, strict_env),
-                                &unreal);
+        sub = solve_safety_game(
+            cov, seen,
+            build_aig_strict_safety_game(cov, seen, strict_sys, strict_env),
+            &unreal);
         if (!sub && !unreal) {
           // OxiDD failed: fall back to ltlsynt on the original formula.
           use_oxidd = false;
@@ -382,8 +379,7 @@ int main(int argc, char *argv[]) {
         }
       } else if (use_wr) {
         backend = "OxiDD (W/R safety)";
-        sub = solve_safety_game(cov, seen,
-                                build_aig_wr_game(cov, seen, root),
+        sub = solve_safety_game(cov, seen, build_aig_wr_game(cov, seen, root),
                                 &unreal);
         if (!sub) {
           // Fall back on both encoding errors (unreal=0) and UNREALIZABLE
@@ -412,8 +408,7 @@ int main(int argc, char *argv[]) {
         }
       } else if (use_gr1) {
         backend = "OxiDD (GR(1))";
-        sub = solve_gr1_game(cov, seen,
-                             build_aig_gr1_game(cov, seen, &gp),
+        sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &gp),
                              &unreal);
         if (!sub) {
           // The GR(1) solver found no strategy (or called it unrealizable --

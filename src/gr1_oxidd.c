@@ -130,13 +130,15 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   //                 nin+nlat..nin+nlat+m_goals-1 = goal counter curr[j].
   uint32_t nvars = nin + nlat + m_goals;
 
-  // Manager: reuse session manager when active; otherwise right-size a fresh one.
+  // Manager: reuse session manager when active; otherwise right-size a fresh
+  // one.
   bool own_mgr = (oxidd_session_get()._p == NULL);
   oxidd_bdd_manager_t m;
   uint32_t var_base;
   if (own_mgr) {
     uint32_t exp_gr1 = nvars + 6 < 22 ? nvars + 6 : 22;
-    uint32_t inner_cap = (1u << exp_gr1) < (1u << 10) ? (1u << 10) : (1u << exp_gr1);
+    uint32_t inner_cap =
+        (1u << exp_gr1) < (1u << 10) ? (1u << 10) : (1u << exp_gr1);
     m = oxidd_bdd_manager_new(inner_cap, inner_cap, 1);
     oxidd_bdd_manager_add_vars(m, nvars);
     var_base = 0;
@@ -188,7 +190,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   uint32_t ncv = 0, nuv = 0;
   bool ok = true;
 
-  // Variables: input p -> bdd var (var_base+p); latch j -> bdd var (var_base+nin+j);
+  // Variables: input p -> bdd var (var_base+p); latch j -> bdd var
+  // (var_base+nin+j);
   //            goal counter j -> bdd var (var_base+nin+nlat+j).
   for (uint32_t p = 0; p < nin; p++) {
     uint32_t lit;

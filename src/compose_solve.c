@@ -199,7 +199,7 @@ Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
 }
 
 static bool strategy_has_outputs(Aig *g, ConstraintCover *cov,
-                                           const bool *seen) {
+                                 const bool *seen) {
   aig_remove_output(g, "bad");
   aig_strip_output_prefix(g, AIG_CONTROLLABLE_PREFIX);
   for (uint32_t a = 0; a < cov->aps.count; a++) {

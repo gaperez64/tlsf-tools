@@ -45,8 +45,7 @@ bool aig_initial_ok(const Node *n) {
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV:
-    return aig_initial_ok(n->lhs) &&
-           aig_initial_ok(n->rhs);
+    return aig_initial_ok(n->lhs) && aig_initial_ok(n->rhs);
   default:
     return false;
   }
@@ -70,8 +69,7 @@ bool aig_initial_x_ok(const Node *n) {
   case NODE_OR:
   case NODE_IMPL:
   case NODE_EQUIV:
-    return aig_initial_x_ok(n->lhs) &&
-           aig_initial_x_ok(n->rhs);
+    return aig_initial_x_ok(n->lhs) && aig_initial_x_ok(n->rhs);
   default:
     return false;
   }
@@ -84,8 +82,7 @@ static bool global_ok(const Node *n) {
   case NODE_G:
     return aig_body_ok(n->arg);
   case NODE_AND:
-    return global_ok(n->lhs) &&
-           global_ok(n->rhs);
+    return global_ok(n->lhs) && global_ok(n->rhs);
   default:
     return false;
   }
@@ -96,8 +93,7 @@ static bool safety_cond_ok(const Node *n) {
   case NODE_TRUE:
     return true;
   case NODE_AND:
-    return safety_cond_ok(n->lhs) &&
-           safety_cond_ok(n->rhs);
+    return safety_cond_ok(n->lhs) && safety_cond_ok(n->rhs);
   case NODE_G:
     return aig_body_ok(n->arg);
   default:
@@ -202,8 +198,7 @@ bool wr_response_parts(const Node *impl, const Node **req, const Node **inner,
   }
   if (rhs->kind != NODE_W && rhs->kind != NODE_R)
     return false;
-  if (!aig_body_ok(impl->lhs) ||
-      !aig_body_ok(rhs->lhs) ||
+  if (!aig_body_ok(impl->lhs) || !aig_body_ok(rhs->lhs) ||
       !aig_body_ok(rhs->rhs))
     return false;
   *req = impl->lhs;
@@ -246,8 +241,7 @@ static bool safety_direct_ok(const Node *n) {
   case NODE_G:
     return g_body_direct_supported(n->arg);
   case NODE_AND:
-    return safety_direct_ok(n->lhs) &&
-           safety_direct_ok(n->rhs);
+    return safety_direct_ok(n->lhs) && safety_direct_ok(n->rhs);
   case NODE_W:
   case NODE_R:
     return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
@@ -284,8 +278,7 @@ bool g_body_wr_supported(const Node *n) {
     const Node *xn = lhs->rhs;
     if (xn->kind == NODE_X || xn->kind == NODE_X_STRONG)
       xn = xn->arg;
-    return (xn->kind == NODE_W || xn->kind == NODE_R) &&
-           aig_body_ok(xn->lhs) &&
+    return (xn->kind == NODE_W || xn->kind == NODE_R) && aig_body_ok(xn->lhs) &&
            aig_body_ok(xn->rhs);
   }
   case NODE_R:
@@ -320,8 +313,7 @@ bool aig_safety_wr_ok(const Node *n) {
   case NODE_G:
     return g_body_wr_supported(n->arg);
   case NODE_AND:
-    return aig_safety_wr_ok(n->lhs) &&
-           aig_safety_wr_ok(n->rhs);
+    return aig_safety_wr_ok(n->lhs) && aig_safety_wr_ok(n->rhs);
   case NODE_W:
   case NODE_R:
     return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
@@ -412,18 +404,16 @@ bool aig_eligible(const Node *root, bool finite) {
   if (finite)
     return false;
   if (root->kind == NODE_IMPL)
-    return global_ok(root->lhs) &&
-           aig_global_x_depth(root->lhs) == 0 &&
+    return global_ok(root->lhs) && aig_global_x_depth(root->lhs) == 0 &&
            safety_direct_ok(root->rhs);
   return safety_direct_ok(root);
 }
 
 bool aig_strict_safety_parts(const Node *root, const Node **sys,
-                                   const Node **env) {
+                             const Node **env) {
   if (root->kind != NODE_W || root->rhs->kind != NODE_NOT)
     return false;
-  if (!safety_cond_ok(root->lhs) ||
-      !safety_cond_ok(root->rhs->arg))
+  if (!safety_cond_ok(root->lhs) || !safety_cond_ok(root->rhs->arg))
     return false;
   *sys = root->lhs;
   *env = root->rhs->arg;
@@ -436,8 +426,7 @@ bool aig_strict_safety_parts(const Node *root, const Node **sys,
 
 // `G F x` with `x` AbsSynthe-Boolean -> x, else nullptr.
 static const Node *match_gf(const Node *n) {
-  if (n->kind == NODE_G && n->arg->kind == NODE_F &&
-      aig_body_ok(n->arg->arg))
+  if (n->kind == NODE_G && n->arg->kind == NODE_F && aig_body_ok(n->arg->arg))
     return n->arg->arg;
   return nullptr;
 }
@@ -494,8 +483,7 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
     }
     // A weak-until `a W b` (Boolean a, b) is a pure-safety guarantee: a holds
     // until b, or forever.  Encoded with a "released" monitor in the emitter.
-    if (n->kind == NODE_W && aig_body_ok(n->lhs) &&
-        aig_body_ok(n->rhs)) {
+    if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
       if (p->nweak >= GR1_MAX_WEAK)
         return false;
       p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
@@ -560,8 +548,7 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
   }
   if (match_gf(n))
     return false; // unconditional `G F` justice (not gated by the assume)
-  if (n->kind == NODE_W && aig_body_ok(n->lhs) &&
-      aig_body_ok(n->rhs)) {
+  if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
     if (p->nweak >= GR1_MAX_WEAK)
       return false;
     p->weak[p->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
@@ -672,23 +659,20 @@ Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
     return node_impl(a, bound_liveness(a, n->lhs, k, !pos),
                      bound_liveness(a, n->rhs, k, pos));
   case NODE_U:
-    if (pos && aig_body_ok(n->lhs) &&
-        aig_body_ok(n->rhs))
+    if (pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs))
       return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
                            bound_liveness(a, n->rhs, k, pos), k);
     return node_u(a, bound_liveness(a, n->lhs, k, pos),
                   bound_liveness(a, n->rhs, k, pos));
   case NODE_W: // a W b: strengthen to bounded(a U b) (sound: bounded => U => W)
-    if (pos && aig_body_ok(n->lhs) &&
-        aig_body_ok(n->rhs))
+    if (pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs))
       return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
                            bound_liveness(a, n->rhs, k, pos), k);
     return node_w(a, bound_liveness(a, n->lhs, k, pos),
                   bound_liveness(a, n->rhs, k, pos));
   case NODE_R: // a R b: strengthen to bounded(b U (a&b)) (sound: => R)
   case NODE_M: // a M b == b U (a&b); bounded form is sound
-    if (pos && aig_body_ok(n->lhs) &&
-        aig_body_ok(n->rhs)) {
+    if (pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
       Node *bl = bound_liveness(a, n->lhs, k, pos);
       Node *br = bound_liveness(a, n->rhs, k, pos);
       return bounded_until(a, br, node_and(a, bl, br), k);

@@ -119,7 +119,8 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
   uint32_t ncv = 0, nuv = 0;
   bool ok = true;
 
-  // Variables: input p -> bdd var (var_base+p); latch j -> bdd var (var_base+nin+j).
+  // Variables: input p -> bdd var (var_base+p); latch j -> bdd var
+  // (var_base+nin+j).
   for (uint32_t p = 0; p < nin; p++) {
     uint32_t lit;
     const char *name = aig_input_name(game, p, &lit);

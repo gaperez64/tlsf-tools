@@ -82,7 +82,7 @@ bool wr_has_x_initial(const Node *n);
 bool wr_has_bare_wr(const Node *n);
 bool aig_eligible(const Node *root, bool finite);
 bool aig_strict_safety_parts(const Node *root, const Node **sys,
-                                   const Node **env);
+                             const Node **env);
 bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p);
 Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos);
 ClusterShape cluster_shape(TlsfSpec *spec, const Node *root);
@@ -92,16 +92,15 @@ const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
 // ---- compose_games.c ------------------------------------------------------
 
 [[nodiscard]] Aig *build_aig_game(ConstraintCover *cov, const bool *seen,
-                                        const Node *root);
-[[nodiscard]] Aig *build_aig_wr_game(ConstraintCover *cov,
-                                           const bool *seen, const Node *root);
+                                  const Node *root);
+[[nodiscard]] Aig *build_aig_wr_game(ConstraintCover *cov, const bool *seen,
+                                     const Node *root);
 [[nodiscard]] Aig *build_aig_strict_safety_game(ConstraintCover *cov,
-                                                      const bool *seen,
-                                                      const Node *sys,
-                                                      const Node *env);
-[[nodiscard]] Aig *build_aig_gr1_game(ConstraintCover *cov,
-                                                      const bool *seen,
-                                                      const Gr1Parts *parts);
+                                                const bool *seen,
+                                                const Node *sys,
+                                                const Node *env);
+[[nodiscard]] Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
+                                      const Gr1Parts *parts);
 bool wr_structural_supported(const Node *n);
 
 // ---- compose_solve.c / oxidd_common.c ------------------------------------

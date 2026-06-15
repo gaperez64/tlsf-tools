@@ -57,7 +57,7 @@ void memo_free(Memo *t);
 typedef struct {
   Aig *strat;
   const uint32_t *var2lit; // bdd var index (relative to var_base) -> AIG lit
-  uint32_t var_base;        // subtract from oxidd_bdd_node_var() before lookup
+  uint32_t var_base;       // subtract from oxidd_bdd_node_var() before lookup
   Memo memo;
   bool error;
 } Bdd2Aig;
