@@ -97,7 +97,14 @@ fix (bare-W/R + G X over-constraint → ltlsynt fallback); output-free guarantee
 soundness fix (`--split` now realizability-checks input-only guarantees with all
 assumptions instead of dropping them — e.g. `G(o&&a)` correctly UNREALIZABLE);
 `spot-syntcomp` Docker image (Spot ltlsynt + preprocessor) + GHCR CD job.
-Benchmark baseline: 32.1% self-contained, 0 false-UNREALs.
+
+Benchmark baseline (first accurate run *after* the W/R-UNREALIZABLE fallback;
+ltlsynt/Spot 2.14.1): **31.8% self-contained** (809/2545), **25.8% OxiDD reach**,
+**0 false-UNREALs**, **77 specs solved that ltlsynt times out on**; both-solved
+aggregate ≈ parity (×1.08). The older ×35 / 151-solve figures were a *stale*
+pre-fallback render that trusted W/R UNREALIZABLE verdicts (some unsound); the
+sound fallback trades that inflated reach for correctness. Recovering reach needs
+the over-constraint analysis to *trust* W/R UNREALIZABLE selectively (open).
 
 Open (reach — solve more residuals):
 - **Liveness backend** (biggest lever): ~2/3 of residuals are pure liveness
