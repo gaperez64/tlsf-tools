@@ -164,10 +164,18 @@ jobs:
           # them. Build and measure with the runner's default gcc and its
           # matching gcov; mixing default gcc with gcov-14 makes gcov exit 3 and
           # crashes gcovr. Gate on the parsed line percentage.
+          # aiger.c is excluded for the same reason as the solver files: it is an
+          # OxiDD-path TU (the AIG game model) whose only callers
+          # (main_tlsfcompose / csnf_emit_local_aiger) need -DHAVE_OXIDD, so it is
+          # never exercised in this dependency-free build (0% here), yet it links
+          # into the shared lib. It is covered by the local verify_aiger_oxidd*
+          # suite. Counting its ~780 untestable-here lines just makes the gate
+          # spuriously fragile.
           meson setup build-cov -Db_coverage=true
           meson test -C build-cov
           summary=$(gcovr --root . \
             --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
+            --exclude '.*aiger\.c' \
             --print-summary 2>&1) || true
           echo "$summary"
           pct=$(echo "$summary" | grep -oE 'lines: [0-9.]+%' | grep -oE '[0-9.]+')
