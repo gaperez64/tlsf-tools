@@ -79,6 +79,7 @@ bool aig_safety_wr_ok(const Node *n);
 uint32_t aig_safety_wr_x_depth(const Node *n);
 bool wr_has_initial(const Node *n);
 bool wr_has_x_initial(const Node *n);
+bool wr_has_bare_wr(const Node *n);
 bool aig_eligible(const Node *root, bool finite);
 bool aig_strict_safety_parts(const Node *root, const Node **sys,
                                    const Node **env);

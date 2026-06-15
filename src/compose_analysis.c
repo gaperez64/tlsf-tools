@@ -391,6 +391,23 @@ bool wr_has_x_initial(const Node *n) {
   }
 }
 
+// True if the top-level safety formula has a bare W/R conjunct (not inside G).
+// build_aig_game encodes bare W/R with release latches compiled at lag=depth;
+// when depth > 0 (from G X conjuncts) this interaction can spuriously
+// over-constrain the game.  Use this to decide whether to trust an UNREALIZABLE
+// result or fall back to ltlsynt.
+bool wr_has_bare_wr(const Node *n) {
+  switch (n->kind) {
+  case NODE_W:
+  case NODE_R:
+    return true;
+  case NODE_AND:
+    return wr_has_bare_wr(n->lhs) || wr_has_bare_wr(n->rhs);
+  default:
+    return false; // G, initial Boolean, etc. — no bare W/R at this level
+  }
+}
+
 bool aig_eligible(const Node *root, bool finite) {
   if (finite)
     return false;

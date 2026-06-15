@@ -1027,7 +1027,7 @@ void certify_reaction(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->cids, ids, nid * sizeof(uint32_t));
     blk->ncids = nid;
     blk->asg_output = (int32_t)o;
-    if (certify && exclusive && !moore) {
+    if (certify && exclusive && !moore && output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "reaction_consistency";
       blk->asg_guards = malloc((nt ? nt : 1) * sizeof(Node *));

@@ -355,8 +355,14 @@ int main(int argc, char *argv[]) {
       if (use_direct) {
         sub = solve_safety_game(cov, seen,
                                 build_aig_game(cov, seen, root), &unreal);
-        if (!sub && !unreal) {
-          // OxiDD failed: fall back to ltlsynt.
+        // Formulas with bare top-level W/R (not inside G) use release-latch
+        // monitors compiled at lag=depth.  When depth>0 (G X conjuncts in the
+        // same formula) the lag interaction can spuriously over-constrain the
+        // game.  Fall back to ltlsynt on UNREALIZABLE in that case; for pure
+        // G-only formulas (no bare W/R) the encoding is exact and UNREALIZABLE
+        // can be trusted.
+        if (!sub && (!unreal || wr_has_bare_wr(root))) {
+          unreal = 0;
           use_oxidd = false;
           backend = "ltlsynt fallback (safety miss)";
           sub =
