@@ -295,42 +295,42 @@ only the hard liveness residual to ltlsynt, and never be slower or less complete
 Regenerate: `scripts/benchgraph.py --corpus DIR --tlsfcompose … --ltlsynt …`
 (or `--from-data benchgraph.tsv` to re-render this section without re-running).
 
-### Run: 2026-06-14 19:20 UTC · commit `49c6951`
+### Run: 2026-06-15 06:03 UTC · commit `2287f27`
 - Corpus: `/home/gperez/GIT-repos/benchmarks/tlsf` (2545 specs)
 - Caps: timeout 15s/run, 6 GB RAM, sequential
 - Baseline: `ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)
 - Ours: `tlsfcompose --split --aiger --ltlsynt …`
-- Per-spec data: `benchgraph.tsv`
+- Per-spec data: `BENCHGRAPH.tsv`
 
 ### Complexity
-- **Self-contained (templates+OxiDD, no ltlsynt): 814/2545 = 32.0%** (630 use OxiDD).
-- **OxiDD reach (≥1 cluster): 724/2545 = 28.4%**.
+- **Self-contained (templates+OxiDD, no ltlsynt): 816/2545 = 32.1%** (632 use OxiDD).
+- **OxiDD reach (≥1 cluster): 686/2545 = 27.0%**.
 - Residual shape (specs not self-contained), hardest cluster:
 
   | residual class | specs |
   |---|---|
-  | liveness (F/U/GF/Buchi) | 1482 |
+  | liveness (F/U/GF/Buchi) | 1454 |
   | GR(2+) generalized reactivity | 100 |
-  | (none / unrealizable verdict) | 94 |
-  | W/R safety not yet handled | 55 |
+  | (none / unrealizable verdict) | 96 |
+  | W/R safety not yet handled | 79 |
 
 ### Residual reduction (complexity)
-- Specs with ≥1 synthesis cluster: 2361; 3697 clusters total (2060 peeled by OxiDD, 1637 forwarded to ltlsynt).
-- **Formula mass OxiDD carves off the residual before ltlsynt: aggregate 2.0%** (residual 3460891/3531665 nodes), median per spec **0.0%**.
-- OxiDD peels the **entire** synthesis residual (nothing left for ltlsynt): 724/2361 specs.
-- Residual clusters still forwarded to ltlsynt (count → specs): 0→724, 1→1637.
+- Specs with ≥1 synthesis cluster: 2319; 3656 clusters total (2023 peeled by OxiDD, 1633 forwarded to ltlsynt).
+- **Formula mass OxiDD carves off the residual before ltlsynt: aggregate 1.8%** (residual 3458618/3523440 nodes), median per spec **0.0%**.
+- OxiDD peels the **entire** synthesis residual (nothing left for ltlsynt): 686/2319 specs.
+- Residual clusters still forwarded to ltlsynt (count → specs): 0→686, 1→1633.
 
 ### Speed (OxiDD-contributing specs)
-- Timed: 724 specs. Both produced a controller: 273.
-- **Both-solved speedup `base/ours`: median ×4.86, geomean ×7.94** (faster: 255, slower: 18).
-- Absolute wall on both-solved: **median ours 5 ms vs base 27 ms** (near parity); mean ours 23 ms vs base 716 ms.
-- Total wall on both-solved: ours 6.3s vs base 195.4s (**×31.17** aggregate).
-- Ours solves where **base times out** (≥15s): 159 clear wins — selection-ltl-2025×86, sweap×73.
+- Timed: 686 specs. Both produced a controller: 275.
+- **Both-solved speedup `base/ours`: median ×7.58, geomean ×8.38** (faster: 250, slower: 25).
+- Absolute wall on both-solved: **median ours 4 ms vs base 22 ms** (near parity); mean ours 19 ms vs base 651 ms.
+- Total wall on both-solved: ours 5.1s vs base 179.0s (**×35.14** aggregate).
+- Ours solves where **base times out** (≥15s): 151 clear wins — selection-ltl-2025×78, sweap×73.
 
 ### Completeness vs ltlsynt
 - **ltlsynt produced a controller but we did not: 2** — the honest deficit (we are *less complete* on these). Breakdown: 2 we wrongly call **UNREALIZABLE**, 0 backend **FAILED**, 0 **timed out**.
 - The false-UNREALs are dominated by selection-ltl-2025×1, tsl_paper×1 — output-free assumption clusters synthesised standalone.
 
 ### Verdict
-On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (5 ms vs 27 ms). In **aggregate we are ×31.17 faster** than ltlsynt. The genuine value is the **159 specs ltlsynt cannot synthesize in 15s that we do** (GR(1) `amba_gr`, large decomposed safety). The completeness blocker is **2 specs ltlsynt solves that we don't** — now dominated by **2 false-UNREALs** from output-free assumption clusters, not parse bugs.
+On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (4 ms vs 22 ms). In **aggregate we are ×35.14 faster** than ltlsynt. The genuine value is the **151 specs ltlsynt cannot synthesize in 15s that we do** (GR(1) `amba_gr`, large decomposed safety). The completeness blocker is **2 specs ltlsynt solves that we don't** — now dominated by **2 false-UNREALs** from output-free assumption clusters, not parse bugs.
 <!-- BENCHGRAPH:PREPROCESSOR END -->

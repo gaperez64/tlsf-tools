@@ -89,8 +89,10 @@ CI builds the FFI once in the `oxidd` job and shares it as an artifact; the
 
 ## Status & remaining work
 
-Done: in-process OxiDD safety + GR(1) solvers (AbsSynthe retired); completeness
-gaps closed (no false-UNREAL on the W/R path); compile-time SIMD + OxiDD-in-CI.
+Done: in-process OxiDD safety + GR(1) solvers (AbsSynthe retired); OxiDD manager
+cap raised to 22 bits; W/R false-UNREAL safety fix (complex depth≥3 bodies now
+fall back to ltlsynt); SensorSelector AND(G,IMPL) shape; compile-time SIMD +
+OxiDD-in-CI. Benchmark baseline: 32.1% self-contained, ×35 aggregate speedup.
 
 Open (reach — solve more residuals):
 - **Liveness backend** (biggest lever): ~2/3 of residuals are pure liveness
@@ -98,11 +100,12 @@ Open (reach — solve more residuals):
   tail are genuinely unrealizable.
 - **Remaining W/R-safety shapes** (gate-protected, exactly encodable): nested
   weak-until `G(req → (A W B))` with inner W/R (sub-monitors; *MusicAppFeedback*);
-  X in initial-constraint conjuncts (*KitchenTimerV10*); top-level `AND(G, IMPL)`
-  IMPL-under-AND without W/R (*SensorSelector*); U-shaped responses
-  `G(req → X(a U b))`. Extend the gates in `compose_analysis.c` + the builders in
-  `compose_games.c`; the self-verification gate keeps any wrong encoding sound
-  (falls back to `ltlsynt`).
+  U-shaped responses `G(req → X(a U b))`. Extend the gates in
+  `compose_analysis.c` + the builders in `compose_games.c`; the self-verification
+  gate keeps any wrong encoding sound (falls back to `ltlsynt`).
+  **Note:** W/R path currently falls back on UNREALIZABLE as well as OOM (complex
+  depth≥3 pattern interaction can produce over-constrained games); exact W/R
+  encoding for specs with many nested X operators is an open correctness task.
 - **GR(2)/generalized-Rabin** for `amba_gr+`; GR(1)-aware BDD abstraction for big
   amba (`pb_10+`).
 - **Trust UNREALIZABLE** on bounded/GR(1)/liveness paths (needs over-constraint
