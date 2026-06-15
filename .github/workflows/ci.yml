@@ -54,7 +54,10 @@ jobs:
           restore-keys: |
             oxidd-${{ runner.os }}-
       - name: Install cbindgen
-        run: cargo install cbindgen --locked
+        # ~/.cargo/bin is cached, so a restored cache already has cbindgen and a
+        # plain `cargo install` would fail with "binary already exists"; skip it
+        # when present (and --force on the rare miss to stay idempotent).
+        run: command -v cbindgen >/dev/null || cargo install cbindgen --locked --force
       - name: Build OxiDD FFI
         run: scripts/build_oxidd.sh
       - name: Upload OxiDD FFI artifact
