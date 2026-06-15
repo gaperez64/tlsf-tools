@@ -373,9 +373,12 @@ int main(int argc, char *argv[]) {
         sub = solve_safety_game(cov, seen,
                                 build_aig_wr_game(cov, seen, root),
                                 &unreal);
-        if (!sub && !unreal) {
-          // W/R monitor encoding is exact: trust UNREALIZABLE; fall back only
-          // on error (unreal=0, no strategy).
+        if (!sub) {
+          // Fall back on both encoding errors (unreal=0) and UNREALIZABLE
+          // verdicts (unreal=1): complex pattern interaction (nested X, depth≥3
+          // bodies) can produce over-constrained games that are spuriously
+          // unrealizable.  ltlsynt is the authoritative oracle.
+          unreal = 0;
           use_oxidd = false;
           backend = "ltlsynt fallback (W/R miss)";
           sub =

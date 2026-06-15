@@ -130,8 +130,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   //                 nin+nlat..nin+nlat+m_goals-1 = goal counter curr[j].
   uint32_t nvars = nin + nlat + m_goals;
 
-  // Right-size the manager: use 1 << min(nvars+6, 19) clamped to [1<<10, 1<<19].
-  uint32_t exp_gr1 = nvars + 6 < 19 ? nvars + 6 : 19;
+  // Right-size the manager: use 1 << min(nvars+6, 22) clamped to [1<<10, 1<<22].
+  uint32_t exp_gr1 = nvars + 6 < 22 ? nvars + 6 : 22;
   uint32_t inner_cap = (1u << exp_gr1) < (1u << 10) ? (1u << 10) : (1u << exp_gr1);
   uint32_t cache_cap = inner_cap;
 
