@@ -1,0 +1,20 @@
+# Keep the build context lean and avoid copying host build artifacts into the
+# image (they would collide with `meson setup build-oxidd` and pull in binaries
+# built against the host toolchain).
+.git
+.github
+.claude
+
+# meson build trees (top-level build/ and build-*/)
+build
+build-*
+
+# vendored OxiDD build artifacts — rebuilt inside the image by build_oxidd.sh
+external/oxidd/target
+external/oxidd/build
+
+# benchmark / scratch outputs
+*.tsv
+*.bak
+BENCHGRAPH.md
+docs/benchgraph
