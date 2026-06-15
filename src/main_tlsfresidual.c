@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
 
   if (single) {
     Node *root = residual_build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true,
-                                        N, seen);
+                                        /*prune=*/true, N, seen);
     if (!root) {
       rc = 1;
     } else {
@@ -232,7 +232,8 @@ int main(int argc, char *argv[]) {
     fprintf(out, "c clusters %u\n", K);
     for (uint32_t k = 0; k < K && rc == 0; k++) {
       Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+          residual_build_cluster(spec, cov, rf, key, keys[k],
+                                 /*all=*/false, /*prune=*/true, N, seen);
       if (!root) {
         rc = 1;
         break;

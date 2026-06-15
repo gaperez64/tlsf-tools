@@ -1,4 +1,6 @@
-c compose: controllers=0 clusters=1
+c compose: controllers=0 clusters=2
 c cluster 0 outs=grant ins=req
 G (grant -> X req) -> G F grant
+c cluster 1 outs=grant ins=req,helper
+G F helper && G (grant -> X req) -> G F req
 c realizable iff every cluster is realizable (controllers are exact)

@@ -182,8 +182,8 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
   uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
   m->residual_clusters = K;
   for (uint32_t k = 0; k < K; k++) {
-    Node *root =
-        residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+    Node *root = residual_build_cluster(spec, cov, rf, key, keys[k],
+                                        /*all=*/false, /*prune=*/true, N, seen);
     if (!root)
       continue;
     uint32_t outs = 0;

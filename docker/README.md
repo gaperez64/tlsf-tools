@@ -54,12 +54,13 @@ docker build -f docker/Dockerfile -t spot-syntcomp .
 
 Build args: `SPOT_VERSION` (default `2.15.1`).
 
-## Caveat (preprocessor soundness)
+## Soundness of output-free clusters
 
-The `--split` decomposition currently skips *output-free* clusters
-unconditionally (`src/main_tlsfcompose.c`). That is sound for environment
-assumptions but **unsound for input-only guarantees not entailed by the
-assumptions** — such a spec can be reported `REALIZABLE` when it is not (e.g.
-`G(o && a)` with `a` an input). This is the known "output-free assumption
-cluster" gap tracked in `BENCHGRAPH.md`; fixing it needs an entailment check.
-Keep this in mind before relying on the image for unrealizable instances.
+`--split` can produce *output-free* clusters (input-only system guarantees, e.g.
+`G(a)` after `G(o && a)` splits into `G(o)` and `G(a)`).  These are **not**
+dropped: each is realizability-checked via ltlsynt with all assumptions present
+(the system has full control of any outputs the cluster references through
+assumptions).  Unrealizable there soundly implies the whole spec is
+unrealizable, so e.g. `G(o && a)` with `a` an input is correctly reported
+`UNREALIZABLE`, while an input-only guarantee entailed by the assumptions stays
+`REALIZABLE`.

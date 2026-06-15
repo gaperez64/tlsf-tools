@@ -188,7 +188,7 @@ static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
 
 Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
                              const Node **rf, const uint32_t *key, uint32_t kk,
-                             bool all, uint32_t n, bool *seen) {
+                             bool all, bool prune, uint32_t n, bool *seen) {
   spec->initially.count = spec->require.count = spec->assume.count = 0;
   spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
   memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
@@ -197,7 +197,7 @@ Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
   // the (AbsSynthe strict-safety) encoding, and dropping assumptions reshapes
   // the formula into a nested-`G` form the backend does not recognize.
   bool *include = nullptr;
-  if (!all && !semantics_is_strict(spec->info.semantics)) {
+  if (!all && prune && !semantics_is_strict(spec->info.semantics)) {
     include = malloc((n ? n : 1) * sizeof(bool));
     if (include && !cluster_assumption_mask(cov, rf, key, kk, n, include)) {
       free(include);
@@ -208,9 +208,21 @@ Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
   for (uint32_t i = 0; i < n; i++) {
     if (!rf[i])
       continue;
-    bool inc = all       ? true
-               : include ? include[i]
-                         : (key[i] == kk || key[i] == UINT32_MAX);
+    bool inc;
+    if (all)
+      inc = true;
+    else if (include)
+      inc = include[i];
+    else if (!prune)
+      // Output-free realizability check: the key==kk guarantees plus *every*
+      // assumption (not just key==UINT32_MAX ones).  A coupling assumption like
+      // G(grant -> X req) mentions an output, so residual_cluster_keys keys it
+      // to that output's cluster, not to UINT32_MAX; it must still be present
+      // (with grant declared controllable) for the input-only guarantee to be
+      // judged realizable.
+      inc = key[i] == kk || cov->items[i].assumption_side;
+    else
+      inc = key[i] == kk || key[i] == UINT32_MAX; // OOM fallback (prune path)
     if (!inc)
       continue;
     residual_collect_aps(rf[i], cov, seen);

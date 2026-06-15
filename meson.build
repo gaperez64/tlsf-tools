@@ -629,8 +629,9 @@ if have_oxidd
     args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
            '--ltlsynt', files('test/fake_ltlsynt.sh'),
            files('test/cases/compose_demo.tlsf')])
-  # Output-free cluster must be skipped: fake_ltlsynt is only called for the
-  # output-bearing cluster; the input-only G F req cluster needs no controller.
+  # Output-free (input-only) guarantee cluster: no controller is merged, but it
+  # is realizability-checked via (fake) ltlsynt -- here G F req is realizable
+  # given the assumptions, so the merged AIGER is unchanged.
   test('aiger_input_gua_skip', check,
     args: [files('test/cases/input_gua_skip.aag'), tlsfcompose_exe, '--aiger',
            '--ltlsynt', files('test/fake_ltlsynt.sh'),
@@ -675,6 +676,12 @@ if have_oxidd
       args: ['--aiger', files('test/cases/compose_demo.tlsf')])
     test('aiger_unrealizable', xfail,
       args: [tlsfcompose_exe, '--aiger', files('test/cases/inv_decline.tlsf')])
+    # Regression: with --split, G(o && a) decomposes into G(o) and the
+    # input-only G(a); the output-free G(a) must be realizability-checked (not
+    # skipped) so the genuinely unrealizable spec is reported UNREALIZABLE.
+    test('aiger_unrealizable_split', xfail,
+      args: [tlsfcompose_exe, '--split', '--aiger',
+             files('test/cases/inv_decline.tlsf')])
   endif
 endif
 test('tmpl_sat_unimplemented', xfail,

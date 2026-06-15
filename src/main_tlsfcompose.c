@@ -307,10 +307,43 @@ int main(int argc, char *argv[]) {
 
     // Clusters first (so a decoder reading a synthesized output resolves).
     for (uint32_t k = 0; k < K && rc == 0; k++) {
-      if (keys[k] == A) // output-free: no controller needed, skip
+      if (keys[k] == A) {
+        // Output-free cluster: input-only system guarantees with no controller
+        // to emit.  These are NOT trivially satisfiable -- the system meets
+        // them only if the assumptions entail them -- so check realizability
+        // rather than dropping the cluster.  Dropping is unsound: e.g.
+        // G(o && a) splits into G(o) and the input-only G(a); skipping G(a)
+        // reports a genuinely unrealizable spec as realizable.  In isolation
+        // the system has full control of any outputs this cluster references
+        // via assumptions, so UNREALIZABLE here soundly implies the whole spec
+        // is unrealizable.  We use only the verdict: any referenced outputs are
+        // driven by their owning clusters, so nothing is merged.
+        Node *ofree =
+            residual_build_cluster(spec, cov, rf, key, A, /*all=*/false,
+                                   /*prune=*/false, N, seen);
+        if (!ofree) {
+          rc = 1;
+          break;
+        }
+        int of_unreal = 0;
+        Aig *of_sub = run_ltlsynt_cluster(prog, cov, seen, ofree, fmt, finite,
+                                          &of_unreal);
+        if (getenv("TLSFCOMPOSE_DEBUG"))
+          fprintf(stderr, "tlsfcompose: output-free cluster checked (%s)\n",
+                  of_unreal ? "UNREALIZABLE"
+                  : of_sub  ? "realizable"
+                            : "realizable/unknown");
+        if (of_unreal) {
+          fprintf(stderr, "tlsfcompose: output-free guarantee cluster is "
+                          "UNREALIZABLE (ltlsynt)\n");
+          rc = 1;
+        }
+        aig_free(of_sub);
         continue;
+      }
       Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+          residual_build_cluster(spec, cov, rf, key, keys[k],
+                                 /*all=*/false, /*prune=*/true, N, seen);
       if (!root) {
         rc = 1;
         break;
@@ -505,12 +538,7 @@ int main(int argc, char *argv[]) {
     return rc;
   }
 
-  uint32_t K_visible = 0;
-  for (uint32_t k = 0; k < K; k++)
-    if (keys[k] != A)
-      K_visible++;
-  fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim,
-          K_visible);
+  fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim, K);
 
   // Combinational controllers (exact): o := value.
   FILE *ctlf = nullptr;
@@ -549,10 +577,14 @@ int main(int argc, char *argv[]) {
   }
 
   for (uint32_t k = 0, ck = 0; k < K && rc == 0; k++) {
-    if (keys[k] == A) // output-free: no controller needed, skip
-      continue;
+    // Output-free (input-only) guarantee clusters carry no controller, but they
+    // are NOT trivially realizable -- emit them too so compose.sh's per-cluster
+    // realizability check covers them (built with all assumptions, prune=false,
+    // so coupling assumptions that mention other clusters' outputs survive).
+    bool output_free = keys[k] == A;
     Node *root =
-        residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+        residual_build_cluster(spec, cov, rf, key, keys[k], /*all=*/false,
+                               /*prune=*/!output_free, N, seen);
     if (!root) {
       rc = 1;
       break;

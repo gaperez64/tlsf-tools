@@ -92,7 +92,12 @@ CI builds the FFI once in the `oxidd` job and shares it as an artifact; the
 Done: in-process OxiDD safety + GR(1) solvers (AbsSynthe retired); OxiDD manager
 cap raised to 22 bits; W/R false-UNREAL safety fix (complex depth≥3 bodies now
 fall back to ltlsynt); SensorSelector AND(G,IMPL) shape; compile-time SIMD +
-OxiDD-in-CI. Benchmark baseline: 32.1% self-contained, ×35 aggregate speedup.
+OxiDD-in-CI; persistent BDD manager (one alloc per run); Gamelogic false-UNREAL
+fix (bare-W/R + G X over-constraint → ltlsynt fallback); output-free guarantee
+soundness fix (`--split` now realizability-checks input-only guarantees with all
+assumptions instead of dropping them — e.g. `G(o&&a)` correctly UNREALIZABLE);
+`spot-syntcomp` Docker image (Spot ltlsynt + preprocessor) + GHCR CD job.
+Benchmark baseline: 32.1% self-contained, 0 false-UNREALs.
 
 Open (reach — solve more residuals):
 - **Liveness backend** (biggest lever): ~2/3 of residuals are pure liveness
