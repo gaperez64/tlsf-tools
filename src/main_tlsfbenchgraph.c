@@ -4,6 +4,7 @@
 /// reuses cover/recognize/certify(/WL) and adds no new analysis.
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
+#include "tlsf/ast.h"
 #include "tlsf/classify.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
@@ -77,28 +78,7 @@ static int cstr_cmp(const void *a, const void *b) {
 }
 
 // ---- metrics --------------------------------------------------------------
-
-static uint32_t node_count(const Node *n) {
-  switch (n->kind) {
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return 1 + node_count(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return 1 + node_count(n->lhs) + node_count(n->rhs);
-  default:
-    return 1; // atom / constant
-  }
-}
+// Formula-size proxy is the shared `ast_node_count` (include/tlsf/ast.h).
 
 static uint32_t uf_find(uint32_t *parent, uint32_t x) {
   while (parent[x] != x)
@@ -218,7 +198,7 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
     if (nf && classify_formula(nf) == FCLASS_LIVENESS)
       m->residual_liveness_clusters++;
     Node *sn = apply_rewrites(spec->arena, root, RW_STRONG_SIMPLIFY);
-    m->residual_size_norm += node_count(sn ? sn : root);
+    m->residual_size_norm += ast_node_count(sn ? sn : root);
   }
   for (uint32_t a = 0; a < A; a++)
     m->residual_outputs += any_out[a] ? 1 : 0;
@@ -281,9 +261,9 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
       else if (!strcmp(n, "definition"))
         m.definition++;
     }
-    m.size_raw += node_count(c->formula);
+    m.size_raw += ast_node_count(c->formula);
     Node *nf = apply_rewrites(spec->arena, c->formula, RW_STRONG_SIMPLIFY);
-    m.size_norm += nf ? node_count(nf) : node_count(c->formula);
+    m.size_norm += nf ? ast_node_count(nf) : ast_node_count(c->formula);
   }
 
   Csnf *csnf = templates_certify(cov, TPL_ALL, true);

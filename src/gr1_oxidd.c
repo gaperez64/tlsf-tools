@@ -130,6 +130,11 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   //                 nin+nlat..nin+nlat+m_goals-1 = goal counter curr[j].
   uint32_t nvars = nin + nlat + m_goals;
 
+  // Right-size the manager: use 1 << min(nvars+6, 19) clamped to [1<<10, 1<<19].
+  uint32_t exp_gr1 = nvars + 6 < 19 ? nvars + 6 : 19;
+  uint32_t inner_cap = (1u << exp_gr1) < (1u << 10) ? (1u << 10) : (1u << exp_gr1);
+  uint32_t cache_cap = inner_cap;
+
   Aig *strat = nullptr;
   Bdd *var_bdd = calloc(maxvar + 1, sizeof *var_bdd);
   Bdd *next_bdd = nlat ? calloc(nlat, sizeof *next_bdd) : nullptr;
@@ -165,8 +170,7 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
     return nullptr;
   }
 
-  oxidd_bdd_manager_t m =
-      oxidd_bdd_manager_new(OXIDD_INNER_CAP, OXIDD_CACHE_CAP, 1);
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
   oxidd_bdd_manager_add_vars(m, nvars);
 
   Bdd bad = {0}, notbad = {0}, not_fair = {0}, W = {0}, ctrl_cube = {0},
@@ -707,6 +711,11 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
     for (uint32_t j = 0; j < m_goals; j++)
       oxidd_bdd_unref(curr_bdd[j]);
     free(curr_bdd);
+  }
+  if (eff_curr) {
+    for (uint32_t j = 0; j < m_goals; j++)
+      oxidd_bdd_unref(eff_curr[j]);
+    free(eff_curr);
   }
   for (uint32_t j = 0; j < nlat; j++)
     oxidd_bdd_unref(next_bdd[j]);

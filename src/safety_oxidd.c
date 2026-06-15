@@ -69,6 +69,14 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       maxvar = lhs / 2;
   }
 
+  // Right-size the manager per cluster: the cap must fit the BDD computation
+  // but a fixed 1<<18 node table for a 3-variable cluster wastes mmap budget.
+  // Use 1 << min(nin+nlat+6, 18) clamped to [1<<10, OXIDD_INNER_CAP].
+  uint32_t nvars_local = nin + nlat;
+  uint32_t exp = nvars_local + 6 < 18 ? nvars_local + 6 : 18;
+  uint32_t inner_cap = (1u << exp) < (1u << 10) ? (1u << 10) : (1u << exp);
+  uint32_t cache_cap = inner_cap;
+
   Aig *strat = nullptr;
   Bdd *var_bdd = calloc(maxvar + 1, sizeof *var_bdd); // AIG var -> BDD
   Bdd *next_bdd = nlat ? calloc(nlat, sizeof *next_bdd) : nullptr;
@@ -94,8 +102,7 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
     return nullptr;
   }
 
-  oxidd_bdd_manager_t m =
-      oxidd_bdd_manager_new(OXIDD_INNER_CAP, OXIDD_CACHE_CAP, 1);
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
   oxidd_bdd_manager_add_vars(m, nin + nlat);
 
   Bdd bad = {0}, notbad = {0}, Z = {0}, M = {0}, ctrl_cube = {0},

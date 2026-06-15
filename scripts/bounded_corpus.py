@@ -96,6 +96,11 @@ def sample_files(files, sample, seed):
 
 
 def limit_address_space(mem_mb):
+    # ASan maps ~20 TB of shadow memory at startup; RLIMIT_AS=512 MB would
+    # abort that immediately.  Skip the cap when running under sanitizers.
+    if os.environ.get("ASAN_OPTIONS") or os.environ.get("TSAN_OPTIONS"):
+        return None
+
     def _limit():
         lim = mem_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (lim, lim))

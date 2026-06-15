@@ -87,18 +87,30 @@ def probe(spec, args):
     routes, reasons, unreal = [], [], 0
     for line in err.splitlines():
         if "routed to " in line:
-            routes.append(line.split("routed to ", 1)[1])
+            backend = line.split("routed to ", 1)[1]
+            nodes = 0
+            if "nodes=" in line:  # per-cluster residual formula size
+                tok = line.split("nodes=", 1)[1].split(" ", 1)[0]
+                nodes = int(tok) if tok.isdigit() else 0
+            routes.append((nodes, backend))
         elif "synthesis backend failed for cluster" in line and "(" in line:
             inner = line[line.index("(") + 1:line.rindex(")")]
             reasons.append(inner.split(": ", 1)[1] if ": " in inner else inner)
         elif "is UNREALIZABLE" in line:
             unreal += 1
-    oxidd_clusters = sum(1 for r in routes if r.startswith("OxiDD"))
+    # A cluster routed to a backend starting with "OxiDD" was peeled in-process;
+    # anything else is forwarded to ltlsynt (liveness/GR(1)/OxiDD-miss fallback).
+    oxidd = [n for n, b in routes if b.startswith("OxiDD")]
+    ltl = [n for n, b in routes if not b.startswith("OxiDD")]
     return {
         "self_contained": rc == 0,
-        "abs_clusters": oxidd_clusters,
+        "abs_clusters": len(oxidd),
         "residual_class": classify_residual(reasons),
         "probe_unreal": unreal,
+        "full_nodes": sum(oxidd) + sum(ltl),   # all synthesis clusters
+        "residual_nodes": sum(ltl),            # forwarded to ltlsynt
+        "n_oxidd": len(oxidd),
+        "n_ltlsynt": len(ltl),
     }
 
 
@@ -137,12 +149,18 @@ def load_rows(path):
         next(f)
         for line in f:
             p = line.rstrip("\n").split("\t")
-            rows.append({
+            r = {
                 "name": p[0], "self_contained": p[1] == "1", "abs_clusters": int(p[2]),
                 "residual_class": p[3], "ours_st": p[4],
                 "ours_t": float(p[5]) if p[5] else 0.0, "base_st": p[6],
                 "base_t": float(p[7]) if p[7] else 0.0,
-            })
+            }
+            # Residual-reduction columns (added later; tolerate older TSVs).
+            r["full_nodes"] = int(p[8]) if len(p) > 8 and p[8] else 0
+            r["residual_nodes"] = int(p[9]) if len(p) > 9 and p[9] else 0
+            r["n_oxidd"] = int(p[10]) if len(p) > 10 and p[10] else 0
+            r["n_ltlsynt"] = int(p[11]) if len(p) > 11 and p[11] else 0
+            rows.append(r)
     return rows
 
 
@@ -184,7 +202,8 @@ def main():
     # the OOM killer on a memory-hungry spec -- loses nothing and `--resume`
     # continues.
     header = ("name\tself_contained\tabs_clusters\tresidual_class\t"
-              "ours_st\tours_t\tbase_st\tbase_t\n")
+              "ours_st\tours_t\tbase_st\tbase_t\t"
+              "full_nodes\tresidual_nodes\tn_oxidd\tn_ltlsynt\n")
     done = set()
     if args.resume and os.path.exists(data_path):
         done = {r["name"] for r in load_rows(data_path)}
@@ -207,7 +226,9 @@ def main():
             base = base_status(spec, args)
         f.write(f"{name}\t{int(pr['self_contained'])}\t{pr['abs_clusters']}\t"
                 f"{pr['residual_class']}\t{ours[0]}\t{ours[1] or ''}\t"
-                f"{base[0]}\t{base[1] or ''}\n")
+                f"{base[0]}\t{base[1] or ''}\t"
+                f"{pr['full_nodes']}\t{pr['residual_nodes']}\t"
+                f"{pr['n_oxidd']}\t{pr['n_ltlsynt']}\n")
         f.flush()
         if i % 50 == 0 or i == total:
             el = time.monotonic() - t0
@@ -275,6 +296,35 @@ def write_report(args, rows, total, data_path):
     L.append("  | residual class | specs |\n  |---|---|\n")
     for cls, n in resid.most_common():
         L.append(f"  | {cls} | {n} |\n")
+
+    # Residual reduction: of the synthesis clusters that survive templating, how
+    # much formula mass (node count) OxiDD peels off before ltlsynt.  A cluster
+    # routed to "OxiDD*" is solved in-process; everything else is forwarded.
+    nz = [r for r in rows if r["full_nodes"] > 0]
+    L.append("\n### Residual reduction (complexity)\n")
+    if nz:
+        tot_full = sum(r["full_nodes"] for r in nz)
+        tot_resid = sum(r["residual_nodes"] for r in nz)
+        n_ox = sum(r["n_oxidd"] for r in nz)
+        n_lt = sum(r["n_ltlsynt"] for r in nz)
+        carved_per = [1 - r["residual_nodes"] / r["full_nodes"] for r in nz]
+        fully = sum(1 for r in nz if r["residual_nodes"] == 0)
+        agg = 1 - tot_resid / tot_full if tot_full else float("nan")
+        dist = Counter(r["n_ltlsynt"] for r in nz)
+        L.append(f"- Specs with ≥1 synthesis cluster: {len(nz)}; "
+                 f"{n_ox + n_lt} clusters total "
+                 f"({n_ox} peeled by OxiDD, {n_lt} forwarded to ltlsynt).\n")
+        L.append(f"- **Formula mass OxiDD carves off the residual before ltlsynt: "
+                 f"aggregate {100*agg:.1f}%** "
+                 f"(residual {tot_resid}/{tot_full} nodes), "
+                 f"median per spec **{100*med(carved_per):.1f}%**.\n")
+        L.append(f"- OxiDD peels the **entire** synthesis residual (nothing left "
+                 f"for ltlsynt): {fully}/{len(nz)} specs.\n")
+        L.append("- Residual clusters still forwarded to ltlsynt (count → specs): "
+                 + ", ".join(f"{k}→{v}" for k, v in sorted(dist.items())) + ".\n")
+    else:
+        L.append("- (no per-cluster node data in this dataset — re-run the corpus "
+                 "with an instrumented `tlsfcompose`)\n")
 
     med_ours = med([r["ours_t"] for r in both])
     med_base = med([r["base_t"] for r in both])

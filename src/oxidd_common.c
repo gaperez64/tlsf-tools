@@ -130,6 +130,25 @@ void memo_free(Memo *t) {
 }
 
 // ---------------------------------------------------------------------------
+// Persistent BDD manager session
+// ---------------------------------------------------------------------------
+
+static oxidd_bdd_manager_t g_session_mgr = {._p = NULL};
+
+void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap) {
+  g_session_mgr = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
+}
+
+void oxidd_session_free(void) {
+  if (g_session_mgr._p) {
+    oxidd_bdd_manager_unref(g_session_mgr);
+    g_session_mgr._p = NULL;
+  }
+}
+
+oxidd_bdd_manager_t oxidd_session_get(void) { return g_session_mgr; }
+
+// ---------------------------------------------------------------------------
 // BDD -> AIG (memoised ite expansion over the strategy AIG)
 // ---------------------------------------------------------------------------
 

@@ -133,3 +133,25 @@ void node_copy_bounded(Node *dst, const Node *src) {
   assert(dst && src);
   dst->bounded = src->bounded;
 }
+
+uint32_t ast_node_count(const Node *n) {
+  switch (n->kind) {
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return 1 + ast_node_count(n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return 1 + ast_node_count(n->lhs) + ast_node_count(n->rhs);
+  default:
+    return 1; // atom / constant
+  }
+}

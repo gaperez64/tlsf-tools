@@ -15,6 +15,7 @@
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
+#include "tlsf/ast.h"
 #include "tlsf/cli.h"
 #include "tlsf/compose_internal.h"
 #include "tlsf/cover.h"
@@ -431,7 +432,8 @@ int main(int argc, char *argv[]) {
         sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
       }
       if (getenv("TLSFCOMPOSE_DEBUG"))
-        fprintf(stderr, "tlsfcompose: cluster %u routed to %s\n", k, backend);
+        fprintf(stderr, "tlsfcompose: cluster %u nodes=%u routed to %s\n", k,
+                ast_node_count(root), backend);
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
                 backend);

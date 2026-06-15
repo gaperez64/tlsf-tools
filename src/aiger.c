@@ -48,12 +48,48 @@ struct Aig {
   uint32_t nfair, fair_cap;
 };
 
+// Allocation in the AIG builders is non-recoverable: the surrounding API is
+// void / returns a literal and cannot propagate failure, and a NULL on OOM here
+// previously clobbered the array pointer (leak + later NULL-deref).  Treat OOM
+// as fatal so it fails loudly and diagnosably instead of corrupting the graph.
+static void aig_oom(void) {
+  fprintf(stderr, "tlsf/aiger: out of memory\n");
+  abort();
+}
+
+static void *aig_xrealloc(void *p, size_t n) {
+  void *q = realloc(p, n);
+  if (!q && n)
+    aig_oom();
+  return q;
+}
+
+static void *aig_xmalloc(size_t n) {
+  void *q = malloc(n);
+  if (!q && n)
+    aig_oom();
+  return q;
+}
+
+static void *aig_xcalloc(size_t nmemb, size_t size) {
+  void *q = calloc(nmemb, size);
+  if (!q && nmemb && size)
+    aig_oom();
+  return q;
+}
+
+static char *aig_xstrdup(const char *s) {
+  char *q = strdup(s);
+  if (!q)
+    aig_oom();
+  return q;
+}
+
 #define GROW(arr, cap, n)                                                      \
   do {                                                                         \
     if ((n) == (cap)) {                                                        \
       (cap) = (cap) ? (cap) * 2 : 8;                                           \
-      void *grown_ = realloc((arr), (cap) * sizeof *(arr));                    \
-      (arr) = grown_;                                                          \
+      (arr) = aig_xrealloc((arr), (cap) * sizeof *(arr));                      \
     }                                                                          \
   } while (0)
 
@@ -86,7 +122,7 @@ void aig_free(Aig *g) {
 
 static void reg_sig(Aig *g, const char *name, uint32_t lit) {
   GROW(g->sig, g->sig_cap, g->nsig);
-  g->sig[g->nsig].name = strdup(name);
+  g->sig[g->nsig].name = aig_xstrdup(name);
   g->sig[g->nsig].lit = lit;
   g->nsig++;
 }
@@ -109,7 +145,7 @@ uint32_t aig_input(Aig *g, const char *name) {
   uint32_t var = ++g->nextvar;
   uint32_t lit = var * 2;
   GROW(g->ins, g->in_cap, g->nin);
-  g->ins[g->nin].name = strdup(name);
+  g->ins[g->nin].name = aig_xstrdup(name);
   g->ins[g->nin].var = var;
   g->nin++;
   reg_sig(g, name, lit);
@@ -162,7 +198,7 @@ uint32_t aig_or(Aig *g, uint32_t a, uint32_t b) {
 
 void aig_set_output(Aig *g, const char *name, uint32_t lit) {
   GROW(g->outs, g->out_cap, g->nout);
-  g->outs[g->nout].name = strdup(name);
+  g->outs[g->nout].name = aig_xstrdup(name);
   g->outs[g->nout].lit = lit;
   g->nout++;
   reg_sig(g, name, lit);
@@ -171,10 +207,10 @@ void aig_set_output(Aig *g, const char *name, uint32_t lit) {
 void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
                      const char *name) {
   GROW(g->just, g->just_cap, g->njust);
-  uint32_t *copy = malloc((n ? n : 1) * sizeof *copy);
+  uint32_t *copy = aig_xmalloc((n ? n : 1) * sizeof *copy);
   for (uint32_t i = 0; i < n; i++)
     copy[i] = lits[i];
-  g->just[g->njust].name = name ? strdup(name) : nullptr;
+  g->just[g->njust].name = name ? aig_xstrdup(name) : nullptr;
   g->just[g->njust].lits = copy;
   g->just[g->njust].n = n;
   g->njust++;
@@ -182,7 +218,7 @@ void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
 
 void aig_add_fairness(Aig *g, uint32_t lit, const char *name) {
   GROW(g->fair, g->fair_cap, g->nfair);
-  g->fair[g->nfair].name = name ? strdup(name) : nullptr;
+  g->fair[g->nfair].name = name ? aig_xstrdup(name) : nullptr;
   g->fair[g->nfair].lit = lit;
   g->nfair++;
 }
@@ -402,7 +438,7 @@ Aig *aig_read_aag(FILE *in) {
   if (!g)
     return nullptr;
   g->nextvar = M;
-  uint32_t *outlits = O ? malloc(O * sizeof(uint32_t)) : nullptr;
+  uint32_t *outlits = O ? aig_xmalloc(O * sizeof(uint32_t)) : nullptr;
 
   for (uint32_t i = 0; i < I; i++) {
     uint32_t lit;
@@ -550,7 +586,7 @@ bool aig_merge(Aig *dst, const Aig *src) {
 
 void aig_write_aag(FILE *out, const Aig *g) {
   uint32_t M = g->nin + g->nlat + g->nand;
-  uint32_t *canon = calloc(g->nextvar + 1, sizeof(uint32_t));
+  uint32_t *canon = aig_xcalloc(g->nextvar + 1, sizeof(uint32_t));
   for (uint32_t k = 0; k < g->nin; k++)
     canon[g->ins[k].var] = k + 1;
   for (uint32_t k = 0; k < g->nlat; k++)

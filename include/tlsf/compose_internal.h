@@ -103,7 +103,12 @@ const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
                                                       const Gr1Parts *parts);
 bool wr_structural_supported(const Node *n);
 
-// ---- compose_solve.c ------------------------------------------------------
+// ---- compose_solve.c / oxidd_common.c ------------------------------------
+
+// Persistent BDD manager session: call init before the cluster loop, free
+// after.  Both are no-ops when the OxiDD build is not active.
+void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
+void oxidd_session_free(void);
 
 [[nodiscard]] Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
                                        const bool *seen, const Node *root,

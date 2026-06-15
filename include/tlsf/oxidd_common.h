@@ -67,4 +67,15 @@ typedef struct {
 /// failure; subsequent calls are no-ops returning AIG_FALSE.
 uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f);
 
+/// Persistent BDD manager session (one per tlsfcompose invocation).
+/// When active, the safety and GR(1) solvers reuse this manager across
+/// clusters instead of creating a new one per solve call.  Variables
+/// accumulate with a per-cluster base offset; BDD nodes are reclaimed by GC
+/// after each cluster.  Call oxidd_session_init() before the first solve and
+/// oxidd_session_free() after the last.  If the session is never initialised
+/// the solvers fall back to per-cluster managers (same as before).
+void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
+void oxidd_session_free(void);
+oxidd_bdd_manager_t oxidd_session_get(void);
+
 #endif // TLSF_OXIDD_COMMON_H
