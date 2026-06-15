@@ -56,7 +56,8 @@ void memo_free(Memo *t);
 /// BDD -> AIG (memoised ite expansion over the strategy AIG).
 typedef struct {
   Aig *strat;
-  const uint32_t *var2lit; // bdd var index -> strat AIG lit (UINT32_MAX = none)
+  const uint32_t *var2lit; // bdd var index (relative to var_base) -> AIG lit
+  uint32_t var_base;        // subtract from oxidd_bdd_node_var() before lookup
   Memo memo;
   bool error;
 } Bdd2Aig;
@@ -77,5 +78,10 @@ uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f);
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
 void oxidd_session_free(void);
 oxidd_bdd_manager_t oxidd_session_get(void);
+/// Allocate `n` new variables in the session manager; returns the base index
+/// for this cluster's variables (add to all local var indices 0..n-1).
+uint32_t oxidd_session_alloc_vars(uint32_t n);
+/// Run a GC pass on the session manager (call after freeing cluster BDDs).
+void oxidd_session_gc(void);
 
 #endif // TLSF_OXIDD_COMMON_H

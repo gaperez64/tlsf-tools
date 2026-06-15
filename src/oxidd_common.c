@@ -134,9 +134,11 @@ void memo_free(Memo *t) {
 // ---------------------------------------------------------------------------
 
 static oxidd_bdd_manager_t g_session_mgr = {._p = NULL};
+static uint32_t g_session_var_base = 0;
 
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap) {
   g_session_mgr = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
+  g_session_var_base = 0;
 }
 
 void oxidd_session_free(void) {
@@ -144,9 +146,22 @@ void oxidd_session_free(void) {
     oxidd_bdd_manager_unref(g_session_mgr);
     g_session_mgr._p = NULL;
   }
+  g_session_var_base = 0;
 }
 
 oxidd_bdd_manager_t oxidd_session_get(void) { return g_session_mgr; }
+
+uint32_t oxidd_session_alloc_vars(uint32_t n) {
+  uint32_t base = g_session_var_base;
+  oxidd_bdd_manager_add_vars(g_session_mgr, n);
+  g_session_var_base += n;
+  return base;
+}
+
+void oxidd_session_gc(void) {
+  if (g_session_mgr._p)
+    oxidd_bdd_manager_gc(g_session_mgr);
+}
 
 // ---------------------------------------------------------------------------
 // BDD -> AIG (memoised ite expansion over the strategy AIG)
@@ -160,7 +175,7 @@ uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f) {
   uint32_t cached;
   if (memo_get(&ctx->memo, f, &cached))
     return cached;
-  oxidd_var_no_t v = oxidd_bdd_node_var(f);
+  oxidd_var_no_t v = oxidd_bdd_node_var(f) - ctx->var_base;
   uint32_t vlit = ctx->var2lit[v];
   if (vlit ==
       UINT32_MAX) { // a variable that must not appear (e.g. controllable)

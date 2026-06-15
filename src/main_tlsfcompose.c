@@ -294,6 +294,12 @@ int main(int argc, char *argv[]) {
     uint32_t bound_k = bound_opt ? (uint32_t)bound_opt : 4;
     if (bound_k == 0)
       bound_k = 4;
+    // Persistent BDD manager: one allocation shared across all clusters,
+    // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
+    // Variables accumulate with per-cluster base offsets; GC reclaims dead
+    // nodes between clusters.  Cap at 1<<22 (4M nodes / ~96-160MB RSS).
+    oxidd_session_init(1u << 22, 1u << 22);
+
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
@@ -485,6 +491,7 @@ int main(int argc, char *argv[]) {
     if (rc == 0)
       aig_write_aag(out, g);
     aig_free(g);
+    oxidd_session_free();
     free(seen);
     free(rf);
     free(key);

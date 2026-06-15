@@ -130,10 +130,20 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   //                 nin+nlat..nin+nlat+m_goals-1 = goal counter curr[j].
   uint32_t nvars = nin + nlat + m_goals;
 
-  // Right-size the manager: use 1 << min(nvars+6, 22) clamped to [1<<10, 1<<22].
-  uint32_t exp_gr1 = nvars + 6 < 22 ? nvars + 6 : 22;
-  uint32_t inner_cap = (1u << exp_gr1) < (1u << 10) ? (1u << 10) : (1u << exp_gr1);
-  uint32_t cache_cap = inner_cap;
+  // Manager: reuse session manager when active; otherwise right-size a fresh one.
+  bool own_mgr = (oxidd_session_get()._p == NULL);
+  oxidd_bdd_manager_t m;
+  uint32_t var_base;
+  if (own_mgr) {
+    uint32_t exp_gr1 = nvars + 6 < 22 ? nvars + 6 : 22;
+    uint32_t inner_cap = (1u << exp_gr1) < (1u << 10) ? (1u << 10) : (1u << exp_gr1);
+    m = oxidd_bdd_manager_new(inner_cap, inner_cap, 1);
+    oxidd_bdd_manager_add_vars(m, nvars);
+    var_base = 0;
+  } else {
+    m = oxidd_session_get();
+    var_base = oxidd_session_alloc_vars(nvars);
+  }
 
   Aig *strat = nullptr;
   Bdd *var_bdd = calloc(maxvar + 1, sizeof *var_bdd);
@@ -166,12 +176,11 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
     free(uvars);
     free(cinput);
     free(y_levels);
+    if (own_mgr)
+      oxidd_bdd_manager_unref(m);
     aig_free(game);
     return nullptr;
   }
-
-  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
-  oxidd_bdd_manager_add_vars(m, nvars);
 
   Bdd bad = {0}, notbad = {0}, not_fair = {0}, W = {0}, ctrl_cube = {0},
       unc_cube = {0};
@@ -179,27 +188,27 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   uint32_t ncv = 0, nuv = 0;
   bool ok = true;
 
-  // Variables: input p -> bdd var p; latch j -> bdd var nin+j;
-  //            goal counter j -> bdd var nin+nlat+j.
+  // Variables: input p -> bdd var (var_base+p); latch j -> bdd var (var_base+nin+j);
+  //            goal counter j -> bdd var (var_base+nin+nlat+j).
   for (uint32_t p = 0; p < nin; p++) {
     uint32_t lit;
     const char *name = aig_input_name(game, p, &lit);
-    var_bdd[lit / 2] = oxidd_bdd_var(m, p);
+    var_bdd[lit / 2] = oxidd_bdd_var(m, var_base + p);
     if (is_controllable(name)) {
-      cvars[ncv] = p;
+      cvars[ncv] = var_base + p;
       cinput[ncv] = p;
       ncv++;
     } else {
-      uvars[nuv++] = p;
+      uvars[nuv++] = var_base + p;
     }
   }
   for (uint32_t j = 0; j < nlat; j++) {
     uint32_t cur;
     aig_latch_at(game, j, &cur, nullptr, nullptr);
-    var_bdd[cur / 2] = oxidd_bdd_var(m, nin + j);
+    var_bdd[cur / 2] = oxidd_bdd_var(m, var_base + nin + j);
   }
   for (uint32_t j = 0; j < m_goals; j++)
-    curr_bdd[j] = oxidd_bdd_var(m, nin + nlat + j);
+    curr_bdd[j] = oxidd_bdd_var(m, var_base + nin + nlat + j);
 
   // And-gates in topological order.
   for (uint32_t i = 0; i < nand && ok; i++) {
@@ -266,7 +275,7 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   if (ok) {
     sub_lat = oxidd_bdd_substitution_new(nlat);
     for (uint32_t j = 0; j < nlat; j++)
-      oxidd_bdd_substitution_add_pair(sub_lat, nin + j, next_bdd[j]);
+      oxidd_bdd_substitution_add_pair(sub_lat, var_base + nin + j, next_bdd[j]);
     ctrl_cube = cube_of(m, cvars, ncv);
     unc_cube = cube_of(m, uvars, nuv);
     if (!sub_lat || bdd_invalid(ctrl_cube) || bdd_invalid(unc_cube))
@@ -635,7 +644,7 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
       var2lit[nin + nlat + j] = curr_latch_lit[j];
     }
 
-    Bdd2Aig ctx = {strat, var2lit, {0}, false};
+    Bdd2Aig ctx = {strat, var2lit, var_base, {0}, false};
 
     // Controllable outputs f_k.
     for (uint32_t k = 0; k < ncv; k++) {
@@ -729,7 +738,10 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   oxidd_bdd_unref(unc_cube);
   if (sub_lat)
     oxidd_bdd_substitution_free(sub_lat);
-  oxidd_bdd_manager_unref(m);
+  if (own_mgr)
+    oxidd_bdd_manager_unref(m);
+  else
+    oxidd_session_gc();
 
   free(var_bdd);
   free(next_bdd);
