@@ -275,6 +275,8 @@ stays delegated to `ltlsynt`. The realistic, automata-free levers are:
    pushing more safety / GR(k)-shaped residuals onto the in-process solver so
    only genuinely automata-shaped liveness is forwarded.
 
+See [roadmap](docs/ROADMAP-gr1-persistence.md) too.
+
 ## License
 
 [MIT](LICENSE).
