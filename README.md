@@ -262,15 +262,17 @@ liveness in-process. A full liveness game backend is an LTL→automata translati
 (determinize to parity/Rabin, then solve), i.e. reimplementing Spot; that work
 stays delegated to `ltlsynt`. The realistic, automata-free levers are:
 
-1. **Symbolic GR(2) / generalized-Rabin.** The OxiDD GR(1) fixpoint already
+0. Survey "pastification" procedures to change subformulas into past LTL for
+   easier reduction to safety.
+2. **Symbolic GR(2) / generalized-Rabin.** The OxiDD GR(1) fixpoint already
    solves the `⋀ G F aᵢ → ⋀ G F gⱼ` fragment without any determinization. Extend
    it to generalized-Rabin acceptance to reach the `amba_gr+` family — still a
    BDD fixpoint, no automata.
-2. **Tighter decomposition → smaller residual.** More sound combinational/
+3. **Tighter decomposition → smaller residual.** More sound combinational/
    template eliminations and finer output-disjoint clustering shrink each
    cluster handed to `ltlsynt` without changing its job. This is exactly what the
    *residual-reduction* metric in [`BENCHGRAPH.md`](BENCHGRAPH.md) scores.
-3. **Widen the BDD-fast fragment.** Symbolic GR(1) already beats automata
+4. **Widen the BDD-fast fragment.** Symbolic GR(1) already beats automata
    construction on the specs `ltlsynt` times out on (large `amba_gr`); keep
    pushing more safety / GR(k)-shaped residuals onto the in-process solver so
    only genuinely automata-shaped liveness is forwarded.
