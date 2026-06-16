@@ -4,9 +4,13 @@ name: CD
 # preprocessor) to GHCR.  Runs on a version tag (publishes the release tag plus
 # `latest`) or on manual dispatch (publishes `edge`).  The image build is long
 # (~30 min: Spot LTO + OxiDD/Rust), so it is deliberately not run per-push.
+#
+# Tag filters are case-sensitive, so match both `v*` and `V*` (e.g. V0.1.0).
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
+      - 'V*'
   workflow_dispatch:
 
 permissions:
@@ -34,6 +38,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/spot-syntcomp
           tags: |
+            type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
