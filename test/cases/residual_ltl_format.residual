@@ -1,0 +1,6 @@
+c composition: residual=2/2 constraints (0% eliminated), outputs owned=0, conflicts=0
+c clusters 2
+c cluster 0 outs=x ins=a
+G (x <-> X a)
+c cluster 1 outs=y ins=b
+G (y <-> X b)

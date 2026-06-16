@@ -1,0 +1,1 @@
+G (hreq -> F hgrant) && G (hstop -> !hgrant)

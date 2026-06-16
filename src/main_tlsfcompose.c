@@ -15,7 +15,9 @@
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
+#include "tlsf/ast.h"
 #include "tlsf/cli.h"
+#include "tlsf/compose_internal.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
@@ -26,761 +28,21 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include <ctype.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char **environ;
 
 #define TLSF_VERSION "0.1.0"
-#define ABSSYNTHE_CONTROLLABLE_PREFIX "controllable_"
-
-// Render a (Boolean/LTL) node to a heap string in the ltlxba/ltl dialect, with
-// any trailing newline stripped (for ltlsynt --formula=).
-static char *ltl_string(const Node *n, LtlFormat fmt, bool finite) {
-  char *buf = nullptr;
-  size_t sz = 0;
-  FILE *ms = open_memstream(&buf, &sz);
-  if (!ms)
-    return nullptr;
-  print_ltl(ms, n, fmt, /*full_parens=*/false, finite);
-  fclose(ms);
-  if (sz && buf[sz - 1] == '\n')
-    buf[sz - 1] = '\0';
-  return buf;
-}
-
-// Synthesize one cluster with ltlsynt --aiger; returns its strategy AIG (caller
-// frees), nullptr on failure (and sets *unreal=1 if ltlsynt said UNREALIZABLE).
-static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
-                        const char *ltl, int *unreal) {
-  *unreal = 0;
-  FILE *cap = tmpfile();
-  if (!cap)
-    return nullptr;
-  char *ai = malloc(strlen(ins) + 8), *ao = malloc(strlen(outs) + 9),
-       *af = malloc(strlen(ltl) + 12);
-  if (!ai || !ao || !af) {
-    free(ai);
-    free(ao);
-    free(af);
-    fclose(cap);
-    return nullptr;
-  }
-  sprintf(ai, "--ins=%s", ins);
-  sprintf(ao, "--outs=%s", outs);
-  sprintf(af, "--formula=%s", ltl);
-  char *argv[] = {(char *)prog, ai, ao, af, (char *)"--aiger", nullptr};
-  posix_spawn_file_actions_t fa;
-  posix_spawn_file_actions_init(&fa);
-  posix_spawn_file_actions_adddup2(&fa, fileno(cap), 1);
-  pid_t pid;
-  int rc = posix_spawnp(&pid, prog, &fa, nullptr, argv, environ);
-  posix_spawn_file_actions_destroy(&fa);
-  free(ai);
-  free(ao);
-  free(af);
-  if (rc != 0) {
-    fclose(cap);
-    return nullptr; // ltlsynt not found / not executable
-  }
-  int status;
-  waitpid(pid, &status, 0);
-  char line[64];
-  fseek(cap, 0, SEEK_SET);
-  if (fgets(line, sizeof line, cap) && strncmp(line, "UNREALIZABLE", 12) == 0) {
-    *unreal = 1;
-    fclose(cap);
-    return nullptr;
-  }
-  fseek(cap, 0, SEEK_SET); // aig_read_aag skips a leading REALIZABLE line
-  Aig *g = aig_read_aag(cap);
-  fclose(cap);
-  return g;
-}
-
-static char *controllable_name(const char *name) {
-  size_t p = strlen(ABSSYNTHE_CONTROLLABLE_PREFIX), n = strlen(name);
-  char *out = malloc(p + n + 1);
-  if (!out)
-    return nullptr;
-  int written =
-      snprintf(out, p + n + 1, "%s%s", ABSSYNTHE_CONTROLLABLE_PREFIX, name);
-  if (written < 0 || (size_t)written != p + n) {
-    free(out);
-    return nullptr;
-  }
-  return out;
-}
-
-static bool abssynthe_body_supported(const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-  case NODE_FALSE:
-  case NODE_AP:
-    return true;
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-    return abssynthe_body_supported(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    return abssynthe_body_supported(n->lhs) && abssynthe_body_supported(n->rhs);
-  default:
-    return false;
-  }
-}
-
-static bool abssynthe_initial_supported(const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-  case NODE_FALSE:
-  case NODE_AP:
-    return true;
-  case NODE_NOT:
-    return abssynthe_initial_supported(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    return abssynthe_initial_supported(n->lhs) &&
-           abssynthe_initial_supported(n->rhs);
-  default:
-    return false;
-  }
-}
-
-static bool abssynthe_global_supported(const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return true;
-  case NODE_G:
-    return abssynthe_body_supported(n->arg);
-  case NODE_AND:
-    return abssynthe_global_supported(n->lhs) &&
-           abssynthe_global_supported(n->rhs);
-  default:
-    return false;
-  }
-}
-
-static bool abssynthe_safety_condition_supported(const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return true;
-  case NODE_AND:
-    return abssynthe_safety_condition_supported(n->lhs) &&
-           abssynthe_safety_condition_supported(n->rhs);
-  case NODE_G:
-    return abssynthe_body_supported(n->arg);
-  default:
-    return abssynthe_initial_supported(n);
-  }
-}
-
-static uint32_t abssynthe_x_depth(const Node *n) {
-  switch (n->kind) {
-  case NODE_X:
-  case NODE_X_STRONG:
-    return 1 + abssynthe_x_depth(n->arg);
-  case NODE_NOT:
-    return abssynthe_x_depth(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV: {
-    uint32_t a = abssynthe_x_depth(n->lhs), b = abssynthe_x_depth(n->rhs);
-    return a > b ? a : b;
-  }
-  default:
-    return 0;
-  }
-}
-
-static uint32_t abssynthe_safety_condition_x_depth(const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return 0;
-  case NODE_AND: {
-    uint32_t a = abssynthe_safety_condition_x_depth(n->lhs);
-    uint32_t b = abssynthe_safety_condition_x_depth(n->rhs);
-    if (a == UINT32_MAX || b == UINT32_MAX)
-      return UINT32_MAX;
-    return a > b ? a : b;
-  }
-  case NODE_G:
-    return abssynthe_x_depth(n->arg);
-  default:
-    return abssynthe_initial_supported(n) ? 0 : UINT32_MAX;
-  }
-}
-
-static uint32_t abssynthe_global_x_depth(const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return 0;
-  case NODE_G:
-    return abssynthe_x_depth(n->arg);
-  case NODE_AND: {
-    uint32_t a = abssynthe_global_x_depth(n->lhs);
-    uint32_t b = abssynthe_global_x_depth(n->rhs);
-    return a > b ? a : b;
-  }
-  default:
-    return UINT32_MAX;
-  }
-}
-
-static bool abssynthe_eligible(const Node *root, bool finite) {
-  if (finite)
-    return false;
-  if (root->kind == NODE_IMPL)
-    return abssynthe_global_supported(root->lhs) &&
-           abssynthe_global_x_depth(root->lhs) == 0 &&
-           abssynthe_global_supported(root->rhs);
-  return abssynthe_global_supported(root);
-}
-
-static bool abssynthe_strict_safety_parts(const Node *root, const Node **sys,
-                                          const Node **env) {
-  if (root->kind != NODE_W || root->rhs->kind != NODE_NOT)
-    return false;
-  if (!abssynthe_safety_condition_supported(root->lhs) ||
-      !abssynthe_safety_condition_supported(root->rhs->arg))
-    return false;
-  *sys = root->lhs;
-  *env = root->rhs->arg;
-  return true;
-}
-
-typedef struct {
-  int gr_level;
-  bool has_liveness;
-  bool has_weak_until;
-  bool has_release;
-  bool has_strong_next;
-  bool has_high_level;
-} ClusterShape;
-
-static void cluster_shape_visit(const Node *n, ClusterShape *shape) {
-  switch (n->kind) {
-  case NODE_TRUE:
-  case NODE_FALSE:
-  case NODE_AP:
-  case NODE_INT:
-    return;
-  case NODE_X_STRONG:
-    shape->has_strong_next = true;
-    [[fallthrough]];
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_G:
-    cluster_shape_visit(n->arg, shape);
-    return;
-  case NODE_F:
-    shape->has_liveness = true;
-    cluster_shape_visit(n->arg, shape);
-    return;
-  case NODE_W:
-    shape->has_weak_until = true;
-    break;
-  case NODE_R:
-    shape->has_release = true;
-    break;
-  case NODE_U:
-  case NODE_M:
-    shape->has_liveness = true;
-    break;
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    break;
-  default:
-    if (node_kind_is_high_level(n->kind))
-      shape->has_high_level = true;
-    return;
-  }
-  cluster_shape_visit(n->lhs, shape);
-  cluster_shape_visit(n->rhs, shape);
-}
-
-static ClusterShape cluster_shape(TlsfSpec *spec, const Node *root) {
-  ClusterShape shape = {.gr_level = gr_level(spec)};
-  cluster_shape_visit(root, &shape);
-  return shape;
-}
-
-static const char *cluster_ltlsynt_reason(const ClusterShape *shape,
-                                          bool finite, bool abs_configured,
-                                          char *buf, size_t buf_sz) {
-  if (finite) {
-    snprintf(buf, buf_sz, "finite semantics are not supported by AbsSynthe");
-  } else if (shape->gr_level >= 0 && shape->has_liveness) {
-    snprintf(buf, buf_sz,
-             "GR(%d) residual with liveness; no GR backend is available "
-             "without ltlsynt",
-             shape->gr_level);
-  } else if (shape->has_liveness) {
-    snprintf(buf, buf_sz,
-             "liveness temporal operators are not "
-             "AbsSynthe-eligible");
-  } else if (shape->has_weak_until) {
-    snprintf(buf, buf_sz,
-             "weak-until safety release is not AbsSynthe-eligible");
-  } else if (shape->has_release) {
-    snprintf(buf, buf_sz, "release safety shape is not AbsSynthe-eligible");
-  } else if (shape->has_strong_next) {
-    snprintf(buf, buf_sz, "finite-only strong-next is not AbsSynthe-eligible");
-  } else if (shape->has_high_level) {
-    snprintf(buf, buf_sz,
-             "unexpanded high-level operators are not backend-eligible");
-  } else if (!abs_configured) {
-    snprintf(buf, buf_sz,
-             "no AbsSynthe backend configured for this safety cluster");
-  } else {
-    snprintf(buf, buf_sz, "unsupported temporal shape");
-  }
-  return buf;
-}
-
-typedef struct {
-  Aig *g;
-  ConstraintCover *cov;
-  uint32_t *hist; // (max_lag + 1) x AP table; UINT32_MAX = unavailable
-  uint32_t ap_count;
-} AbssyntheCompile;
-
-static uint32_t hist_lit(const AbssyntheCompile *ctx, uint32_t lag,
-                         uint32_t ap) {
-  return ctx->hist[(lag * ctx->ap_count) + ap];
-}
-
-static void hist_set(AbssyntheCompile *ctx, uint32_t lag, uint32_t ap,
-                     uint32_t lit) {
-  ctx->hist[(lag * ctx->ap_count) + ap] = lit;
-}
-
-static uint32_t abssynthe_compile_at_lag(AbssyntheCompile *ctx, const Node *n,
-                                         uint32_t lag) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return AIG_TRUE;
-  case NODE_FALSE:
-    return AIG_FALSE;
-  case NODE_AP: {
-    int32_t idx = ap_table_find(&ctx->cov->aps, n->name);
-    if (idx < 0)
-      return UINT32_MAX;
-    return hist_lit(ctx, lag, (uint32_t)idx);
-  }
-  case NODE_NOT: {
-    uint32_t a = abssynthe_compile_at_lag(ctx, n->arg, lag);
-    return a == UINT32_MAX ? a : aig_not(a);
-  }
-  case NODE_X:
-  case NODE_X_STRONG:
-    if (lag == 0)
-      return UINT32_MAX;
-    return abssynthe_compile_at_lag(ctx, n->arg, lag - 1);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV: {
-    uint32_t a = abssynthe_compile_at_lag(ctx, n->lhs, lag);
-    uint32_t b = abssynthe_compile_at_lag(ctx, n->rhs, lag);
-    if (a == UINT32_MAX || b == UINT32_MAX)
-      return UINT32_MAX;
-    switch (n->kind) {
-    case NODE_AND:
-      return aig_and(ctx->g, a, b);
-    case NODE_OR:
-      return aig_or(ctx->g, a, b);
-    case NODE_IMPL:
-      return aig_or(ctx->g, aig_not(a), b);
-    default:
-      return aig_and(ctx->g, aig_or(ctx->g, aig_not(a), b),
-                     aig_or(ctx->g, a, aig_not(b)));
-    }
-  }
-  default:
-    return UINT32_MAX;
-  }
-}
-
-static uint32_t abssynthe_compile_global_at_lag(AbssyntheCompile *ctx,
-                                                const Node *n, uint32_t lag) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return AIG_TRUE;
-  case NODE_G:
-    return abssynthe_compile_at_lag(ctx, n->arg, lag);
-  case NODE_AND: {
-    uint32_t a = abssynthe_compile_global_at_lag(ctx, n->lhs, lag);
-    uint32_t b = abssynthe_compile_global_at_lag(ctx, n->rhs, lag);
-    if (a == UINT32_MAX || b == UINT32_MAX)
-      return UINT32_MAX;
-    return aig_and(ctx->g, a, b);
-  }
-  default:
-    return UINT32_MAX;
-  }
-}
-
-static uint32_t abssynthe_compile_assumption_window(AbssyntheCompile *ctx,
-                                                    const Node *assume,
-                                                    uint32_t depth) {
-  uint32_t ok = AIG_TRUE;
-  for (uint32_t lag = 0; lag <= depth; lag++) {
-    uint32_t at_lag = abssynthe_compile_global_at_lag(ctx, assume, lag);
-    if (at_lag == UINT32_MAX)
-      return UINT32_MAX;
-    ok = aig_and(ctx->g, ok, at_lag);
-  }
-  return ok;
-}
-
-static uint32_t abssynthe_compile_safety_initial(AbssyntheCompile *ctx,
-                                                 const Node *n) {
-  switch (n->kind) {
-  case NODE_TRUE:
-  case NODE_G:
-    return AIG_TRUE;
-  case NODE_AND: {
-    uint32_t a = abssynthe_compile_safety_initial(ctx, n->lhs);
-    uint32_t b = abssynthe_compile_safety_initial(ctx, n->rhs);
-    if (a == UINT32_MAX || b == UINT32_MAX)
-      return UINT32_MAX;
-    return aig_and(ctx->g, a, b);
-  }
-  default:
-    return abssynthe_compile_at_lag(ctx, n, 0);
-  }
-}
-
-static uint32_t abssynthe_compile_safety_global_at_lag(AbssyntheCompile *ctx,
-                                                       const Node *n,
-                                                       uint32_t lag) {
-  switch (n->kind) {
-  case NODE_TRUE:
-    return AIG_TRUE;
-  case NODE_G:
-    return abssynthe_compile_at_lag(ctx, n->arg, lag);
-  case NODE_AND: {
-    uint32_t a = abssynthe_compile_safety_global_at_lag(ctx, n->lhs, lag);
-    uint32_t b = abssynthe_compile_safety_global_at_lag(ctx, n->rhs, lag);
-    if (a == UINT32_MAX || b == UINT32_MAX)
-      return UINT32_MAX;
-    return aig_and(ctx->g, a, b);
-  }
-  default:
-    return AIG_TRUE;
-  }
-}
-
-static uint32_t guarded_current_ok(Aig *g, uint32_t guard, uint32_t ok) {
-  return aig_or(g, aig_not(guard), ok);
-}
-
-static Aig *build_abssynthe_game(ConstraintCover *cov, const bool *seen,
-                                 const Node *root) {
-  Aig *g = aig_new();
-  if (!g)
-    return nullptr;
-  const Node *assume = nullptr, *guarantee = root;
-  if (root->kind == NODE_IMPL) {
-    assume = root->lhs;
-    guarantee = root->rhs;
-  }
-  uint32_t ass_depth = assume ? abssynthe_global_x_depth(assume) : 0;
-  uint32_t gua_depth = abssynthe_global_x_depth(guarantee);
-  if (ass_depth == UINT32_MAX || gua_depth == UINT32_MAX) {
-    aig_free(g);
-    return nullptr;
-  }
-  uint32_t A = cov->aps.count;
-  uint32_t depth = ass_depth > gua_depth ? ass_depth : gua_depth;
-  uint32_t hist_count = (depth + 1) * (A ? A : 1);
-  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
-  if (!hist) {
-    aig_free(g);
-    return nullptr;
-  }
-  memset(hist, 0xff, hist_count * sizeof(uint32_t));
-  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
-
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
-      continue;
-    hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
-  }
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
-      continue;
-    char *cname = controllable_name(ap_table_name(&cov->aps, a));
-    if (!cname) {
-      free(hist);
-      aig_free(g);
-      return nullptr;
-    }
-    hist_set(&ctx, 0, a, aig_input(g, cname));
-    free(cname);
-  }
-  for (uint32_t d = 1; d <= depth; d++) {
-    for (uint32_t a = 0; a < A; a++) {
-      uint32_t prev = hist_lit(&ctx, d - 1, a);
-      if (prev != UINT32_MAX)
-        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
-    }
-  }
-  uint32_t valid = AIG_TRUE;
-  for (uint32_t d = 0; d < depth; d++)
-    valid = aig_latch(g, valid, AIG_FALSE);
-
-  uint32_t gua_ok = abssynthe_compile_global_at_lag(&ctx, guarantee, depth);
-  if (gua_ok == UINT32_MAX) {
-    free(hist);
-    aig_free(g);
-    return nullptr;
-  }
-  uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
-  if (assume) {
-    uint32_t ass_ok = abssynthe_compile_global_at_lag(&ctx, assume, depth);
-    if (ass_ok == UINT32_MAX) {
-      free(hist);
-      aig_free(g);
-      return nullptr;
-    }
-    uint32_t ass_window_ok =
-        abssynthe_compile_assumption_window(&ctx, assume, depth);
-    if (ass_window_ok == UINT32_MAX) {
-      free(hist);
-      aig_free(g);
-      return nullptr;
-    }
-    uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
-    uint32_t violated_next =
-        aig_or(g, violated, aig_and(g, valid, aig_not(ass_ok)));
-    if (!aig_set_latch_next(g, violated, violated_next)) {
-      free(hist);
-      aig_free(g);
-      return nullptr;
-    }
-    bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
-  }
-  aig_set_output(g, "bad", bad);
-  free(hist);
-  return g;
-}
-
-static Aig *build_abssynthe_strict_safety_game(ConstraintCover *cov,
-                                               const bool *seen,
-                                               const Node *sys,
-                                               const Node *env) {
-  Aig *g = aig_new();
-  if (!g)
-    return nullptr;
-
-  uint32_t env_depth = abssynthe_safety_condition_x_depth(env);
-  uint32_t sys_depth = abssynthe_safety_condition_x_depth(sys);
-  if (env_depth == UINT32_MAX || sys_depth == UINT32_MAX) {
-    aig_free(g);
-    return nullptr;
-  }
-  uint32_t A = cov->aps.count;
-  uint32_t depth = env_depth > sys_depth ? env_depth : sys_depth;
-  uint32_t hist_count = (depth + 1) * (A ? A : 1);
-  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
-  if (!hist) {
-    aig_free(g);
-    return nullptr;
-  }
-  memset(hist, 0xff, hist_count * sizeof(uint32_t));
-  AbssyntheCompile ctx = {g, cov, hist, A ? A : 1};
-
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
-      continue;
-    hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
-  }
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
-      continue;
-    char *cname = controllable_name(ap_table_name(&cov->aps, a));
-    if (!cname) {
-      free(hist);
-      aig_free(g);
-      return nullptr;
-    }
-    hist_set(&ctx, 0, a, aig_input(g, cname));
-    free(cname);
-  }
-  for (uint32_t d = 1; d <= depth; d++) {
-    for (uint32_t a = 0; a < A; a++) {
-      uint32_t prev = hist_lit(&ctx, d - 1, a);
-      if (prev != UINT32_MAX)
-        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
-    }
-  }
-
-  uint32_t valid = AIG_TRUE;
-  for (uint32_t d = 0; d < depth; d++)
-    valid = aig_latch(g, valid, AIG_FALSE);
-  uint32_t past_first = aig_latch(g, AIG_TRUE, AIG_FALSE);
-  uint32_t first = aig_not(past_first);
-
-  uint32_t env_init_ok = abssynthe_compile_safety_initial(&ctx, env);
-  uint32_t sys_init_ok = abssynthe_compile_safety_initial(&ctx, sys);
-  uint32_t env_global_ok =
-      abssynthe_compile_safety_global_at_lag(&ctx, env, depth);
-  uint32_t sys_global_ok =
-      abssynthe_compile_safety_global_at_lag(&ctx, sys, depth);
-  if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX ||
-      env_global_ok == UINT32_MAX || sys_global_ok == UINT32_MAX) {
-    free(hist);
-    aig_free(g);
-    return nullptr;
-  }
-
-  uint32_t env_ok = aig_and(g, guarded_current_ok(g, first, env_init_ok),
-                            guarded_current_ok(g, valid, env_global_ok));
-  uint32_t sys_ok = aig_and(g, guarded_current_ok(g, first, sys_init_ok),
-                            guarded_current_ok(g, valid, sys_global_ok));
-  uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
-  uint32_t violated_next = aig_or(g, violated, aig_not(env_ok));
-  if (!aig_set_latch_next(g, violated, violated_next)) {
-    free(hist);
-    aig_free(g);
-    return nullptr;
-  }
-  uint32_t bad =
-      aig_and(g, aig_not(violated), aig_and(g, env_ok, aig_not(sys_ok)));
-  aig_set_output(g, "bad", bad);
-  free(hist);
-  return g;
-}
-
-static bool abssynthe_strategy_has_outputs(Aig *g, ConstraintCover *cov,
-                                           const bool *seen) {
-  aig_remove_output(g, "bad");
-  aig_strip_output_prefix(g, ABSSYNTHE_CONTROLLABLE_PREFIX);
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
-      continue;
-    if (!aig_has_output(g, ap_table_name(&cov->aps, a)))
-      return false;
-  }
-  return true;
-}
-
-static void cleanup_abssynthe_tmp(const char *dir, const char *game,
-                                  const char *strat) {
-  if (game)
-    unlink(game);
-  if (strat)
-    unlink(strat);
-  if (dir)
-    rmdir(dir);
-}
-
-// Synthesize one safety game with AbsSynthe.  The backend slice accepts
-// strategy AAGs that expose each controllable as an output named either
-// `<name>` or `controllable_<name>`.
-static Aig *run_abssynthe_game(const char *prog, ConstraintCover *cov,
-                               const bool *seen, Aig *game, int *unreal) {
-  *unreal = 0;
-  if (!game)
-    return nullptr;
-
-  char dir[] = "/tmp/tlsfcompose-abssynthe-XXXXXX";
-  if (!mkdtemp(dir)) {
-    aig_free(game);
-    return nullptr;
-  }
-  char game_path[4096], strat_path[4096];
-  if (snprintf(game_path, sizeof game_path, "%s/game.aag", dir) >=
-          (int)sizeof game_path ||
-      snprintf(strat_path, sizeof strat_path, "%s/strategy.aag", dir) >=
-          (int)sizeof strat_path) {
-    cleanup_abssynthe_tmp(dir, nullptr, nullptr);
-    aig_free(game);
-    return nullptr;
-  }
-  FILE *gf = fopen(game_path, "w");
-  if (!gf) {
-    cleanup_abssynthe_tmp(dir, nullptr, nullptr);
-    aig_free(game);
-    return nullptr;
-  }
-  aig_write_aag(gf, game);
-  fclose(gf);
-  aig_free(game);
-
-  char *argv[] = {(char *)prog, (char *)"-o", strat_path, game_path, nullptr};
-  posix_spawn_file_actions_t fa;
-  posix_spawn_file_actions_init(&fa);
-  posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
-  posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
-  pid_t pid;
-  int rc = posix_spawnp(&pid, prog, &fa, nullptr, argv, environ);
-  posix_spawn_file_actions_destroy(&fa);
-  if (rc != 0) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-
-  int status;
-  waitpid(pid, &status, 0);
-  if (!WIFEXITED(status)) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-  int code = WEXITSTATUS(status);
-  if (code == 20) {
-    *unreal = 1;
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-  if (code != 0 && code != 10) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-
-  FILE *sf = fopen(strat_path, "r");
-  if (!sf) {
-    cleanup_abssynthe_tmp(dir, game_path, strat_path);
-    return nullptr;
-  }
-  Aig *strategy = aig_read_aag(sf);
-  fclose(sf);
-  if (strategy && !abssynthe_strategy_has_outputs(strategy, cov, seen)) {
-    aig_free(strategy);
-    strategy = nullptr;
-  }
-  cleanup_abssynthe_tmp(dir, game_path, strat_path);
-  return strategy;
-}
-
-static Aig *run_abssynthe(const char *prog, ConstraintCover *cov,
-                          const bool *seen, const Node *root, int *unreal) {
-  return run_abssynthe_game(prog, cov, seen,
-                            build_abssynthe_game(cov, seen, root), unreal);
-}
-
-static Aig *run_abssynthe_strict_safety(const char *prog, ConstraintCover *cov,
-                                        const bool *seen, const Node *sys,
-                                        const Node *env, int *unreal) {
-  return run_abssynthe_game(
-      prog, cov, seen, build_abssynthe_strict_safety_game(cov, seen, sys, env),
-      unreal);
-}
 
 static void usage(const char *prog) {
   fprintf(
@@ -790,11 +52,14 @@ static void usage(const char *prog) {
       "clusters.\n"
       "  --split                      decompose constraints first\n"
       "  --aiger                      emit one merged controller (AIGER aag)"
-      " via synthesis backends\n"
+      " via OxiDD + ltlsynt backends\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
-      "  --abssynthe PATH             AbsSynthe to use for eligible safety "
-      "--aiger clusters\n"
+      "  --bound N                    step bound for the bounded-liveness "
+      "path (default 4)\n"
+      "  --verify PROG                self-verify each OxiDD-synthesized "
+      "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
+      "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
@@ -855,7 +120,8 @@ int main(int argc, char *argv[]) {
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
-  const char *abssynthe_path = nullptr;
+  const char *verify_path = nullptr;
+  unsigned long bound_opt = 0; // 0 = unset (default 4)
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -873,8 +139,16 @@ int main(int argc, char *argv[]) {
       aiger = true;
     } else if (strcmp(a, "--ltlsynt") == 0) {
       ltlsynt_path = NEED_ARG();
-    } else if (strcmp(a, "--abssynthe") == 0 || strcmp(a, "--absynthe") == 0) {
-      abssynthe_path = NEED_ARG();
+    } else if (strcmp(a, "--verify") == 0) {
+      verify_path = NEED_ARG();
+    } else if (strcmp(a, "--bound") == 0) {
+      const char *v = NEED_ARG();
+      char *end;
+      bound_opt = strtoul(v, &end, 10);
+      if (*end != '\0' || bound_opt == 0) {
+        fprintf(stderr, "tlsfcompose: --bound expects a positive integer\n");
+        return 1;
+      }
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -1009,10 +283,23 @@ int main(int argc, char *argv[]) {
     const char *prog = ltlsynt_path    ? ltlsynt_path
                        : (env && *env) ? env
                                        : "ltlsynt";
-    const char *abs_env = getenv("ABSSYNTHE");
-    const char *abs_prog = abssynthe_path          ? abssynthe_path
-                           : (abs_env && *abs_env) ? abs_env
-                                                   : nullptr;
+    // Optional self-verification: when set, each OxiDD-synthesized cluster
+    // controller is model-checked against the cluster spec and, if it provably
+    // violates it, discarded in favour of the ltlsynt fallback.
+    const char *verify_env = getenv("TLSFCOMPOSE_VERIFY");
+    const char *verifier = verify_path                   ? verify_path
+                           : (verify_env && *verify_env) ? verify_env
+                                                         : nullptr;
+    // Bound for the bounded-liveness path: --bound or default.
+    uint32_t bound_k = bound_opt ? (uint32_t)bound_opt : 4;
+    if (bound_k == 0)
+      bound_k = 4;
+    // Persistent BDD manager: one allocation shared across all clusters,
+    // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
+    // Variables accumulate with per-cluster base offsets; GC reclaims dead
+    // nodes between clusters.  Cap at 1<<22 (4M nodes / ~96-160MB RSS).
+    oxidd_session_init(1u << 22, 1u << 22);
+
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
@@ -1020,8 +307,43 @@ int main(int argc, char *argv[]) {
 
     // Clusters first (so a decoder reading a synthesized output resolves).
     for (uint32_t k = 0; k < K && rc == 0; k++) {
+      if (keys[k] == A) {
+        // Output-free cluster: input-only system guarantees with no controller
+        // to emit.  These are NOT trivially satisfiable -- the system meets
+        // them only if the assumptions entail them -- so check realizability
+        // rather than dropping the cluster.  Dropping is unsound: e.g.
+        // G(o && a) splits into G(o) and the input-only G(a); skipping G(a)
+        // reports a genuinely unrealizable spec as realizable.  In isolation
+        // the system has full control of any outputs this cluster references
+        // via assumptions, so UNREALIZABLE here soundly implies the whole spec
+        // is unrealizable.  We use only the verdict: any referenced outputs are
+        // driven by their owning clusters, so nothing is merged.
+        Node *ofree =
+            residual_build_cluster(spec, cov, rf, key, A, /*all=*/false,
+                                   /*prune=*/false, N, seen);
+        if (!ofree) {
+          rc = 1;
+          break;
+        }
+        int of_unreal = 0;
+        Aig *of_sub = run_ltlsynt_cluster(prog, cov, seen, ofree, fmt, finite,
+                                          &of_unreal);
+        if (getenv("TLSFCOMPOSE_DEBUG"))
+          fprintf(stderr, "tlsfcompose: output-free cluster checked (%s)\n",
+                  of_unreal ? "UNREALIZABLE"
+                  : of_sub  ? "realizable"
+                            : "realizable/unknown");
+        if (of_unreal) {
+          fprintf(stderr, "tlsfcompose: output-free guarantee cluster is "
+                          "UNREALIZABLE (ltlsynt)\n");
+          rc = 1;
+        }
+        aig_free(of_sub);
+        continue;
+      }
       Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+          residual_build_cluster(spec, cov, rf, key, keys[k],
+                                 /*all=*/false, /*prune=*/true, N, seen);
       if (!root) {
         rc = 1;
         break;
@@ -1030,34 +352,131 @@ int main(int argc, char *argv[]) {
       int unreal = 0;
       Aig *sub = nullptr;
       const Node *strict_sys = nullptr, *strict_env = nullptr;
-      bool use_abs_direct = abs_prog && abssynthe_eligible(root, finite);
-      bool use_abs_strict =
-          abs_prog && !finite && !use_abs_direct && shape.gr_level == 0 &&
-          !shape.has_liveness &&
-          abssynthe_strict_safety_parts(root, &strict_sys, &strict_env);
-      bool use_abs = use_abs_direct || use_abs_strict;
-      const char *backend = use_abs ? "AbsSynthe" : "ltlsynt fallback";
-      if (use_abs_direct) {
-        sub = run_abssynthe(abs_prog, cov, seen, root, &unreal);
-      } else if (use_abs_strict) {
-        sub = run_abssynthe_strict_safety(abs_prog, cov, seen, strict_sys,
-                                          strict_env, &unreal);
-      } else {
-        char *ltl = ltl_string(root, fmt, finite);
-        // Build ins/outs CSV via memstreams.
-        char *ins = nullptr, *outs = nullptr;
-        size_t isz = 0, osz = 0;
-        FILE *fi = open_memstream(&ins, &isz),
-             *fo = open_memstream(&outs, &osz);
-        residual_print_signals(fi, cov, seen, AP_FLAG_INPUT);
-        residual_print_signals(fo, cov, seen, AP_FLAG_OUTPUT);
-        fclose(fi);
-        fclose(fo);
-        sub = ltl ? run_ltlsynt(prog, ins, outs, ltl, &unreal) : nullptr;
-        free(ltl);
-        free(ins);
-        free(outs);
+      bool use_direct = aig_eligible(root, finite);
+      bool use_strict = !finite && !use_direct && shape.gr_level == 0 &&
+                        !shape.has_liveness &&
+                        aig_strict_safety_parts(root, &strict_sys, &strict_env);
+      // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
+      // with W/R on any side is encoded exactly (monitors), preferred over the
+      // lossy bounded reduction below.
+      bool use_wr = !finite && !use_direct && !use_strict &&
+                    !shape.has_liveness && wr_structural_supported(root);
+
+      // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
+      // the cluster then becomes a pure-safety game (no fairness assumption
+      // survives), solve it with the OxiDD safety solver.
+      const Node *bounded_root = nullptr;
+      if (!finite && !use_direct && !use_strict && !use_wr &&
+          (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
+        Node *br = bound_liveness(spec->arena, root, bound_k, true);
+        if (aig_eligible(br, finite))
+          bounded_root = br;
       }
+      // Complete GR(1): a fairness-bearing cluster `G F a -> safety & justice`
+      // (which the bounded-liveness path cannot handle because the `G F a`
+      // assumption is unsound to bound) is emitted as a real justice/fairness
+      // game and solved by the OxiDD GR(1) fixpoint.
+      Gr1Parts gp;
+      bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
+                     !bounded_root && aig_gr1_parts(spec->arena, root, &gp);
+      bool use_oxidd =
+          use_direct || use_strict || use_wr || bounded_root || use_gr1;
+      const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
+      if (use_direct) {
+        sub = solve_safety_game(cov, seen, build_aig_game(cov, seen, root),
+                                &unreal);
+        // Formulas with bare top-level W/R (not inside G) use release-latch
+        // monitors compiled at lag=depth.  When depth>0 (G X conjuncts in the
+        // same formula) the lag interaction can spuriously over-constrain the
+        // game.  Fall back to ltlsynt on UNREALIZABLE in that case; for pure
+        // G-only formulas (no bare W/R) the encoding is exact and UNREALIZABLE
+        // can be trusted.
+        if (!sub && (!unreal || wr_has_bare_wr(root))) {
+          unreal = 0;
+          use_oxidd = false;
+          backend = "ltlsynt fallback (safety miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
+      } else if (use_strict) {
+        sub = solve_safety_game(
+            cov, seen,
+            build_aig_strict_safety_game(cov, seen, strict_sys, strict_env),
+            &unreal);
+        if (!sub && !unreal) {
+          // OxiDD failed: fall back to ltlsynt on the original formula.
+          use_oxidd = false;
+          backend = "ltlsynt fallback (strict safety miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
+      } else if (use_wr) {
+        backend = "OxiDD (W/R safety)";
+        sub = solve_safety_game(cov, seen, build_aig_wr_game(cov, seen, root),
+                                &unreal);
+        if (!sub) {
+          // Fall back on both encoding errors (unreal=0) and UNREALIZABLE
+          // verdicts (unreal=1): complex pattern interaction (nested X, depth≥3
+          // bodies) can produce over-constrained games that are spuriously
+          // unrealizable.  ltlsynt is the authoritative oracle.
+          unreal = 0;
+          use_oxidd = false;
+          backend = "ltlsynt fallback (W/R miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
+      } else if (bounded_root) {
+        backend = "OxiDD (bounded)";
+        sub = solve_safety_game(
+            cov, seen, build_aig_game(cov, seen, bounded_root), &unreal);
+        if (!sub) {
+          // Bounded miss (unrealizable at this k, or no strategy): the
+          // unbounded game may still be realizable, so fall back to ltlsynt
+          // rather than failing the spec.
+          unreal = 0;
+          use_oxidd = false;
+          backend = "ltlsynt fallback (bounded miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
+      } else if (use_gr1) {
+        backend = "OxiDD (GR(1))";
+        sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &gp),
+                             &unreal);
+        if (!sub) {
+          // The GR(1) solver found no strategy (or called it unrealizable --
+          // the recognizer may over-constrain); defer to ltlsynt rather than
+          // risk a false UNREALIZABLE.
+          unreal = 0;
+          use_oxidd = false;
+          backend = "ltlsynt fallback (GR(1) miss)";
+          sub =
+              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        }
+      } else {
+        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+      }
+      // Self-verification gate: a synthesized controller must satisfy the
+      // ORIGINAL cluster spec (`root`, not a bounded/strict surrogate).  If it
+      // provably violates it, discard it and fall back to ltlsynt, so a
+      // recognizer/encoder bug becomes a sound fallback rather than a wrong
+      // controller.  Inconclusive checks (verifier error/OOM) keep the result.
+      if (verifier && use_oxidd && sub &&
+          controller_violates_spec(verifier, sub, root, fmt, finite)) {
+        fprintf(stderr,
+                "tlsfcompose: cluster %u controller failed self-verification "
+                "(%s); falling back to ltlsynt\n",
+                k, backend);
+        aig_free(sub);
+        sub = nullptr;
+        unreal = 0;
+        use_oxidd = false;
+        backend = "ltlsynt fallback (self-verification)";
+        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+      }
+      if (getenv("TLSFCOMPOSE_DEBUG"))
+        fprintf(stderr, "tlsfcompose: cluster %u nodes=%u routed to %s\n", k,
+                ast_node_count(root), backend);
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
                 backend);
@@ -1065,9 +484,9 @@ int main(int argc, char *argv[]) {
       } else if (!sub) {
         char reason[192];
         const char *detail =
-            use_abs ? "AbsSynthe returned no usable strategy"
-                    : cluster_ltlsynt_reason(&shape, finite, abs_prog != NULL,
-                                             reason, sizeof reason);
+            use_oxidd
+                ? "OxiDD returned no usable strategy"
+                : cluster_ltlsynt_reason(&shape, finite, reason, sizeof reason);
         fprintf(stderr,
                 "tlsfcompose: synthesis backend failed for cluster %u (%s: "
                 "%s)\n",
@@ -1106,6 +525,7 @@ int main(int argc, char *argv[]) {
     if (rc == 0)
       aig_write_aag(out, g);
     aig_free(g);
+    oxidd_session_free();
     free(seen);
     free(rf);
     free(key);
@@ -1136,7 +556,8 @@ int main(int argc, char *argv[]) {
         ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output);
     FILE *dst = ctlf ? ctlf : out;
     fprintf(dst, "ctl %s := ", oname);
-    print_ltl(dst, comp->elim[k].value, fmt, /*full_parens=*/false, finite);
+    print_ltl(dst, comp->elim[k].value, fmt, /*full_parens=*/false, finite,
+              /*lower_atoms=*/false);
   }
   if (ctlf)
     fclose(ctlf);
@@ -1155,16 +576,22 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  for (uint32_t k = 0; k < K && rc == 0; k++) {
+  for (uint32_t k = 0, ck = 0; k < K && rc == 0; k++) {
+    // Output-free (input-only) guarantee clusters carry no controller, but they
+    // are NOT trivially realizable -- emit them too so compose.sh's per-cluster
+    // realizability check covers them (built with all assumptions, prune=false,
+    // so coupling assumptions that mention other clusters' outputs survive).
+    bool output_free = keys[k] == A;
     Node *root =
-        residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+        residual_build_cluster(spec, cov, rf, key, keys[k], /*all=*/false,
+                               /*prune=*/!output_free, N, seen);
     if (!root) {
       rc = 1;
       break;
     }
     if (out_dir) {
       char path[4096];
-      snprintf(path, sizeof path, "%s/cluster.%u.ltl", out_dir, k);
+      snprintf(path, sizeof path, "%s/cluster.%u.ltl", out_dir, ck);
       FILE *cf = fopen(path, "w");
       if (!cf) {
         fprintf(stderr, "tlsfcompose: cannot write %s\n", path);
@@ -1176,26 +603,27 @@ int main(int argc, char *argv[]) {
       fprintf(cf, "\nc ins=");
       residual_print_signals(cf, cov, seen, AP_FLAG_INPUT);
       fprintf(cf, "\n");
-      print_ltl(cf, root, fmt, false, finite);
+      print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/false);
       fclose(cf);
-      fprintf(shf, "run cluster.%u.ltl \"", k);
+      fprintf(shf, "run cluster.%u.ltl \"", ck);
       residual_print_signals(shf, cov, seen, AP_FLAG_INPUT);
       fprintf(shf, "\" \"");
       residual_print_signals(shf, cov, seen, AP_FLAG_OUTPUT);
       fprintf(shf, "\"\n");
-      fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", k, k);
+      fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", ck, ck);
       residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
       fprintf(out, " ins=");
       residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
     } else {
-      fprintf(out, "c cluster %u outs=", k);
+      fprintf(out, "c cluster %u outs=", ck);
       residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
       fprintf(out, " ins=");
       residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
-      print_ltl(out, root, fmt, false, finite);
+      print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/false);
     }
+    ck++;
   }
   if (shf) {
     fprintf(shf, "[ \"$ok\" = 1 ] && echo \"SPEC REALIZABLE\" || echo \"SPEC "

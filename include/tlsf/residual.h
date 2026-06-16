@@ -35,11 +35,14 @@ bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag);
 /// (`rf[i] == nullptr` => skip) belonging to cluster `kk` (or all when `all`),
 /// always including the global environment (key == UINT32_MAX), and assemble
 /// the cluster's LTL formula.  Fills `seen` with the APs it mentions.  nullptr
-/// on OOM.
+/// on OOM.  When `prune` is true the global assumption pool is narrowed to each
+/// cluster's cone of influence; pass false to keep *all* assumptions (needed
+/// for the output-free realizability check, whose cone-of-influence seed has no
+/// outputs and would otherwise drop the coupling assumptions).
 [[nodiscard]] Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
                                            const Node **rf, const uint32_t *key,
-                                           uint32_t kk, bool all, uint32_t n,
-                                           bool *seen);
+                                           uint32_t kk, bool all, bool prune,
+                                           uint32_t n, bool *seen);
 
 /// Cluster `rf[0..n)` by shared output (union-find).  Fills `key[i]` (caller
 /// array, length `n`): the output-component root, `cov->aps.count` for an

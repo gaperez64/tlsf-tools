@@ -35,6 +35,30 @@ extra_cflags = cc.get_supported_arguments([
 add_project_arguments(extra_cflags, language: 'c')
 
 # ---------------------------------------------------------------------------
+# Target CPU / SIMD (opt-in via -Dcpu=...).  These -m flags both enable the
+# matching compile-time path in include/tlsf/simd.h (via the predefined
+# __AVX2__ / __AVX512F__ / __ARM_NEON macros) and let the compiler
+# auto-vectorize the rest of the tree.  Filtered through get_supported_arguments
+# so an ISA flag the host compiler/arch doesn't accept degrades to the scalar
+# fallback instead of failing the build.
+# ---------------------------------------------------------------------------
+
+cpu = get_option('cpu')
+cpu_flags = []
+if cpu == 'avx2'
+  cpu_flags = ['-mavx2', '-mfma']
+elif cpu == 'avx512'
+  cpu_flags = ['-mavx512f', '-mavx512bw', '-mavx512vpopcntdq']
+elif cpu == 'neon'
+  cpu_flags = ['-march=armv8-a+simd']
+elif cpu == 'native'
+  cpu_flags = ['-march=native']
+endif
+if cpu_flags.length() > 0
+  add_project_arguments(cc.get_supported_arguments(cpu_flags), language: 'c')
+endif
+
+# ---------------------------------------------------------------------------
 # Sanitizer support (opt-in via -Dsanitize=address etc.)
 # ---------------------------------------------------------------------------
 
@@ -67,51 +91,54 @@ if python3.found()
   ).returncode() == 0
 endif
 
-# Optional safety backend dependency.  AbsSynthe is vendored as a submodule so
-# CI and offline builds can stay self-contained after the initial checkout.
-abssynthe_dir = join_paths(meson.project_source_root(), 'external', 'AbsSynthe')
-abssynthe_build_sh = join_paths(abssynthe_dir, 'build.sh')
-abssynthe_bin = join_paths(abssynthe_dir, 'binary', 'abssynthe')
-abssynthe_submodule_ready = fs.exists(abssynthe_build_sh)
-abssynthe_local = find_program(abssynthe_bin, required: false)
-abssynthe_system = find_program('abssynthe', required: false)
+# ---------------------------------------------------------------------------
+# In-process safety + GR(1) solver: OxiDD (Rust + C FFI), vendored as a
+# submodule and built manually so the default build/CI stay dependency-free.
+# `meson compile -C build oxidd-build` produces the static library + cbindgen
+# header; reconfigure to pick them up.
+# ---------------------------------------------------------------------------
+
+oxidd_feature = get_option('oxidd')
+oxidd_dir = join_paths(meson.project_source_root(), 'external', 'oxidd')
+oxidd_build_sh = join_paths(meson.project_source_root(), 'scripts', 'build_oxidd.sh')
+oxidd_lib_path = join_paths(oxidd_dir, 'target', 'release', 'liboxidd_ffi_c.a')
+oxidd_inc_path = join_paths(oxidd_dir, 'build', 'include')
+oxidd_capi_h = join_paths(oxidd_inc_path, 'oxidd', 'capi.h')
+oxidd_submodule_ready = fs.exists(join_paths(oxidd_dir, 'crates', 'oxidd-ffi-c', 'Cargo.toml'))
 
 if git.found()
   run_target(
-    'abssynthe-submodule',
+    'oxidd-submodule',
     command: [
-      git,
-      'submodule',
-      'update',
-      '--init',
-      '--recursive',
-      'external/AbsSynthe',
+      git, 'submodule', 'update', '--init', '--recursive', 'external/oxidd',
     ],
   )
 endif
-
-if abssynthe_submodule_ready
-  message('AbsSynthe submodule found at external/AbsSynthe')
-  if bash.found()
-    run_target('abssynthe-build', command: [bash, abssynthe_build_sh])
-  endif
-else
-  warning(
-    'AbsSynthe submodule is not initialized. Run `meson compile -C build ' +
-    'abssynthe-submodule` or `git submodule update --init --recursive ' +
-    'external/AbsSynthe` before using the AbsSynthe backend.',
-  )
+if bash.found()
+  run_target('oxidd-build', command: [bash, oxidd_build_sh])
 endif
 
-if abssynthe_local.found()
-  message('AbsSynthe binary found at ' + abssynthe_bin)
-elif abssynthe_system.found()
-  message('AbsSynthe binary found in PATH')
-elif abssynthe_submodule_ready
-  warning(
-    'AbsSynthe submodule is present but binary/abssynthe is missing. Run ' +
-    '`meson compile -C build abssynthe-build`.',
+oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h)
+oxidd_dep = dependency('', required: false)  # null dependency by default
+have_oxidd = false
+if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
+  if not oxidd_ready
+    error(
+      'OxiDD feature requested but artifacts are missing. Run ' +
+      '`meson compile -C build oxidd-build` (after ' +
+      '`meson compile -C build oxidd-submodule`), then reconfigure.',
+    )
+  endif
+  # Rust staticlib pulls in the system threading/dl/math runtime.
+  oxidd_dep = declare_dependency(
+    include_directories: include_directories('external/oxidd/build/include'),
+    link_args: [oxidd_lib_path, '-lpthread', '-ldl', '-lm'],
   )
+  have_oxidd = true
+  message('OxiDD safety solver enabled (' + oxidd_lib_path + ')')
+elif oxidd_feature.auto()
+  message('OxiDD safety solver disabled (artifacts absent; build with ' +
+          '`meson compile -C build oxidd-build`)')
 endif
 
 # ---------------------------------------------------------------------------
@@ -178,6 +205,7 @@ lib_sources = [
   'src/graph.c',
   'src/wl.c',
   'src/templates.c',
+  'src/templates_certify.c',
   'src/residual.c',
   'src/aiger.c',
   'src/gr.c',
@@ -273,13 +301,31 @@ tlsfresidual_exe = executable(
   install: true,
 )
 
-tlsfcompose_exe = executable(
-  'tlsfcompose',
-  sources: ['src/main_tlsfcompose.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+if have_oxidd
+  tlsfcompose_exe = executable(
+    'tlsfcompose',
+    sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
+              'src/compose_games.c', 'src/compose_solve.c',
+              'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+              'src/oxidd_common.c', bison_out[1]],
+    c_args: ['-DHAVE_OXIDD'],
+    dependencies: [oxidd_dep],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
+
+  tlsfsolve_exe = executable(
+    'tlsfsolve',
+    sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+              'src/oxidd_common.c'],
+    c_args: ['-DHAVE_OXIDD'],
+    dependencies: [oxidd_dep],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
+endif
 
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
@@ -420,6 +466,20 @@ test('wl_nearest', check,   # output is index-only, no paths to normalize
          tlsfwl_exe, '--nearest', '1', '--kernel', 'jaccard',
          files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf'),
          files('test/cases/arbiter2.tlsf')])
+test('wl_version', check,
+  args: [files('test/cases/wl_version.txt'), tlsfwl_exe, '--version'])
+test('wl_labels_basic', check_wl,
+  args: [files('test/cases/wl_labels_basic.txt'), tlsfwl_exe,
+         '--labels', 'basic', '--matrix',
+         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
+test('wl_kernel_dot', check_wl,
+  args: [files('test/cases/wl_kernel_dot.txt'), tlsfwl_exe,
+         '--kernel', 'dot', '--compare', files('test/cases/resp1.tlsf'),
+         files('test/cases/arbiter2.tlsf')])
+test('wl_split', check_wl,
+  args: [files('test/cases/wl_split_matrix.txt'), tlsfwl_exe,
+         '--split', '--matrix',
+         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
 test('graph_wl_template', check_wl,
   args: [files('test/cases/arbiter2.graph.wltmpl'),
          tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
@@ -490,6 +550,26 @@ test('tmpl_arbiter', check_wl,
   args: [files('test/cases/arbiter2.csnf'), tlsftemplates_exe,
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/arbiter2.tlsf')])
+# CLI option coverage: --list-templates, --version, --template/--templates
+# filter, --param.  These reuse existing goldens where possible.
+test('tmpl_list_templates', check,
+  args: [files('test/cases/tmpl_list_templates.txt'), tlsftemplates_exe,
+         '--list-templates'])
+test('tmpl_version', check,
+  args: [files('test/cases/tmpl_version.txt'), tlsftemplates_exe, '--version'])
+test('tmpl_template_filter', check_wl,
+  args: [files('test/cases/reaction_ok.csnf'), tlsftemplates_exe,
+         '--template', 'reaction', '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/reaction_ok.tlsf')])
+test('tmpl_templates_filter', check_wl,
+  args: [files('test/cases/reaction_ok.csnf'), tlsftemplates_exe,
+         '--templates', 'reaction', '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/reaction_ok.tlsf')])
+test('tmpl_param', check_wl,
+  args: [files('test/cases/tmpl_param_demo.csnf'), tlsftemplates_exe,
+         '--param', 'n=5', '--param', 'k=2',
+         '--certify', '--solve', '--format', 'csnf',
+         files('test/cases/param_demo.tlsf')])
 # Composition soundness: tlsftemplates --check (whole-spec verdict) and
 # tlsfresidual (leftover LTL after the accepted blocks).
 foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
@@ -510,71 +590,99 @@ endforeach
 test('residual_single', check,
   args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
          '--single', files('test/cases/cluster_split.tlsf')])
-foreach name : ['compose_demo', 'cluster_split']
-  test('compose_' + name, check,
-    args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
-           files('test/cases/' + name + '.tlsf')])
-endforeach
-test('compose_aiger_unclassified_atom', check,
-  args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
-         files('test/cases/aiger_unclassified_atom.tlsf')])
-# --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
-foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
-  test('aiger_' + name, check,
-    args: [files('test/cases/' + name + '.aag'), tlsfcompose_exe, '--aiger',
-           '--ltlsynt', '/bin/false',
-           files('test/cases/' + name + '.tlsf')])
-endforeach
-# --aiger reader/merge path with a fake ltlsynt stub (deterministic, no real
-# ltlsynt): exercises run_ltlsynt + aig_read_aag + aig_merge in CI.
-test('aiger_merge', check,
-  args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
-         '--ltlsynt', files('test/fake_ltlsynt.sh'),
-         files('test/cases/compose_demo.tlsf')])
-test('aiger_unclassified_atom', check,
-  args: [files('test/cases/aiger_unclassified_atom.aag'), tlsfcompose_exe,
-         '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
-         files('test/cases/aiger_unclassified_atom.tlsf')])
-test('aiger_abssynthe_safety', check,
-  args: [files('test/cases/inv_decline.abssynthe.aag'), tlsfcompose_exe,
-         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
-         files('test/cases/inv_decline.tlsf')])
-test('aiger_abssynthe_next_safety', check,
-  args: [files('test/cases/aiger_unclassified_atom.abssynthe.aag'),
-         tlsfcompose_exe,
-         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
-         '--ltlsynt', files('test/fake_ltlsynt.sh'),
-         files('test/cases/aiger_unclassified_atom.tlsf')])
-test('aiger_abssynthe_assume_safety', check,
-  args: [files('test/cases/cluster_assume.abssynthe.aag'), tlsfcompose_exe,
-         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
-         files('test/cases/cluster_assume.tlsf')])
-test('aiger_abssynthe_strict_safety', check,
-  args: [files('test/cases/strict_safety.abssynthe.aag'), tlsfcompose_exe,
-         '--aiger', '--abssynthe', files('test/fake_abssynthe.sh'),
-         '--ltlsynt', '/bin/false',
-         files('test/cases/strict_safety.tlsf')])
-test('aiger_gr1_disabled_fallback_diagnostic', check_fail_stderr,
-  args: [files('test/cases/compose_gr1_disabled.err'), tlsfcompose_exe,
-         '--aiger', '--ltlsynt', '/bin/false',
-         files('test/cases/gr1_spec.tlsf')])
-if abssynthe_local.found()
-  test('aiger_abssynthe_real_assume_delay', check,
-    args: [files('test/cases/assume_delay_real.abssynthe.aag'),
-           tlsfcompose_exe,
-           '--aiger', '--abssynthe', abssynthe_bin,
-           files('test/cases/assume_delay_real.tlsf')])
-  test('aiger_abssynthe_real_assume_unrealizable', xfail,
-    args: [tlsfcompose_exe,
-           '--aiger', '--abssynthe', abssynthe_bin,
-           files('test/cases/cluster_assume.tlsf')])
-endif
-# --aiger cluster path needs real ltlsynt: only run where it is available.
-if ltlsynt.found()
-  test('aiger_cluster', tlsfcompose_exe,
-    args: ['--aiger', files('test/cases/compose_demo.tlsf')])
-  test('aiger_unrealizable', xfail,
-    args: [tlsfcompose_exe, '--aiger', files('test/cases/inv_decline.tlsf')])
+# CLI option coverage: --version, --format ltl/ltlxba, --split, --param.
+test('residual_version', check,
+  args: [files('test/cases/residual_version.txt'), tlsfresidual_exe, '--version'])
+test('residual_ltl_format', check,
+  args: [files('test/cases/residual_ltl_format.residual'), tlsfresidual_exe,
+         '--format', 'ltl', files('test/cases/cluster_split.tlsf')])
+test('residual_ltlxba_format', check,
+  args: [files('test/cases/cluster_split.residual'), tlsfresidual_exe,
+         '--format', 'ltlxba', files('test/cases/cluster_split.tlsf')])
+test('residual_split', check,
+  args: [files('test/cases/cluster_split.residual'), tlsfresidual_exe,
+         '--split', files('test/cases/cluster_split.tlsf')])
+test('residual_param', check,
+  args: [files('test/cases/residual_param_demo.residual'), tlsfresidual_exe,
+         '--param', 'n=5', '--param', 'k=2',
+         files('test/cases/param_demo.tlsf')])
+if have_oxidd
+  foreach name : ['compose_demo', 'cluster_split', 'cluster_prune', 'input_gua_skip']
+    test('compose_' + name, check,
+      args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
+             files('test/cases/' + name + '.tlsf')])
+  endforeach
+  test('compose_aiger_unclassified_atom', check,
+    args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
+           files('test/cases/aiger_unclassified_atom.tlsf')])
+  # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
+  foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
+    test('aiger_' + name, check,
+      args: [files('test/cases/' + name + '.aag'), tlsfcompose_exe, '--aiger',
+             '--ltlsynt', '/bin/false',
+             files('test/cases/' + name + '.tlsf')])
+  endforeach
+  # --aiger merge path: OxiDD solves the bounded-liveness cluster, the
+  # combinational controller drives 'o', and the merged AIGER is golden-tested.
+  # fake_ltlsynt is passed but not invoked (OxiDD handles the only cluster).
+  test('aiger_merge', check,
+    args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
+           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           files('test/cases/compose_demo.tlsf')])
+  # Output-free (input-only) guarantee cluster: no controller is merged, but it
+  # is realizability-checked via (fake) ltlsynt -- here G F req is realizable
+  # given the assumptions, so the merged AIGER is unchanged.
+  test('aiger_input_gua_skip', check,
+    args: [files('test/cases/input_gua_skip.aag'), tlsfcompose_exe, '--aiger',
+           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           files('test/cases/input_gua_skip.tlsf')])
+  # Bare W in IMPL antecedent where release is sys output must NOT be encoded as
+  # W/R safety (would be a false UNREAL); falls through to ltlsynt.
+  test('aiger_wr_impl_bare_w_antecedent', check,
+    args: [files('test/cases/wr_impl_bare_w_antecedent.aag'), tlsfcompose_exe,
+           '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           files('test/cases/wr_impl_bare_w_antecedent.tlsf')])
+  # aiger_unclassified_atom: OxiDD correctly identifies this spec as unrealizable
+  # (BURST4 is env input; system cannot force req to be true in the consequent).
+  test('aiger_unclassified_atom', xfail,
+    args: [tlsfcompose_exe, '--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/aiger_unclassified_atom.tlsf')])
+  # Uppercase atom names: ltlsynt's parser mishandles them, so the cluster is
+  # lowercased for the (fake) ltlsynt call and the returned controller is renamed
+  # back -- the merged AIGER must carry the spec's ORIGINAL-case symbols.
+  test('aiger_upper_atoms_rename', check,
+    args: [files('test/cases/upper_atoms.merged.aag'), tlsfcompose_exe,
+           '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           files('test/cases/upper_atoms.tlsf')])
+  # NOT(G(w)) is liveness: G(w)->false is simplified to NOT(G(w)) by the parser;
+  # cluster_shape_visit must detect this as liveness (not W/R-safety).
+  test('aiger_not_g_is_liveness', check_fail_stderr,
+    args: [files('test/cases/compose_not_g_is_liveness.err'), tlsfcompose_exe,
+           '--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/compose_not_g_is_liveness.tlsf')])
+  # Self-verification gate mechanism (trivial verifiers; no AbsSynthe needed).
+  # /bin/true = "verified" -> controller kept (exit 0);
+  # /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).
+  test('aiger_verify_gate_keeps', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false', '--verify', '/bin/true',
+           files('test/cases/gr1_spec.tlsf')])
+  test('aiger_verify_gate_falls_back', xfail,
+    args: [tlsfcompose_exe, '--aiger',
+           '--ltlsynt', '/bin/false', '--verify', '/bin/false',
+           files('test/cases/gr1_spec.tlsf')])
+  # --aiger cluster path needs real ltlsynt: only run where it is available.
+  if ltlsynt.found()
+    test('aiger_cluster', tlsfcompose_exe,
+      args: ['--aiger', files('test/cases/compose_demo.tlsf')])
+    test('aiger_unrealizable', xfail,
+      args: [tlsfcompose_exe, '--aiger', files('test/cases/inv_decline.tlsf')])
+    # Regression: with --split, G(o && a) decomposes into G(o) and the
+    # input-only G(a); the output-free G(a) must be realizability-checked (not
+    # skipped) so the genuinely unrealizable spec is reported UNREALIZABLE.
+    test('aiger_unrealizable_split', xfail,
+      args: [tlsfcompose_exe, '--split', '--aiger',
+             files('test/cases/inv_decline.tlsf')])
+  endif
 endif
 test('tmpl_sat_unimplemented', xfail,
   args: [tlsftemplates_exe, '--side-conditions', 'sat',
@@ -586,7 +694,9 @@ test('tmpl_from_gsnf_unimplemented', xfail,
 # golden is path-independent).
 test('benchgraph_tsv', check,
   args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe, '--wl', '4',
-         '--summary', files('test/cases/arbiter2.tlsf'),
+         '--summary', files('test/cases/arbiter1formula.tlsf'),
+         files('test/cases/arbiter2.tlsf'),
+         files('test/cases/cluster_split.tlsf'),
          files('test/cases/def_demo.tlsf'),
          files('test/cases/roundrobin2.tlsf')])
 test('benchgraph_jobs_unimplemented', xfail,
@@ -598,37 +708,74 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
-  test('bounded_synthesis_harness', python3,
-    args: [files('scripts/bounded_synthesis.py'),
-           '--compose', tlsfcompose_exe,
-           '--abssynthe', files('test/fake_abssynthe.sh'),
-           '--ltlsynt', files('test/fake_ltlsynt.sh'),
-           '--mem-mb', '512', '--timeout', '5', '--quiet',
-           files('test/cases/assume_delay_real.tlsf'),
-           files('test/cases/inv_valid.tlsf')])
+  if have_oxidd
+    test('bounded_synthesis_harness', python3,
+      args: [files('scripts/bounded_synthesis.py'),
+             '--compose', tlsfcompose_exe,
+             '--ltlsynt', files('test/fake_ltlsynt.sh'),
+             '--mem-mb', '512', '--timeout', '5', '--quiet',
+             files('test/cases/assume_delay_real.tlsf'),
+             files('test/cases/inv_valid.tlsf')])
+  endif
 endif
 if python3.found() and spot_python_found
-  tlsfcompose_path = join_paths(meson.current_build_dir(), 'tlsfcompose')
   tlsf2ltl_path = join_paths(meson.current_build_dir(), 'tlsf2ltl')
-  test('verify_aiger_reaction_ok', python3,
-    args: [files('scripts/verify_aiger_ltl.py'),
-           '--compose', tlsfcompose_path,
-           '--tlsf2ltl', tlsf2ltl_path,
-           '--tlsf', files('test/cases/reaction_ok.tlsf')])
-  test('verify_aiger_dbuchi_switch', python3,
-    args: [files('scripts/verify_aiger_ltl.py'),
-           '--compose', tlsfcompose_path,
-           '--ltlsynt', '/bin/false',
-           '--tlsf2ltl', tlsf2ltl_path,
-           '--tlsf', files('test/cases/dbuchi_switch.tlsf')])
-  if abssynthe_local.found()
-    test('verify_aiger_abssynthe_real_assume_delay', python3,
+  if have_oxidd
+    tlsfcompose_path = join_paths(meson.current_build_dir(), 'tlsfcompose')
+    test('verify_aiger_reaction_ok', python3,
       args: [files('scripts/verify_aiger_ltl.py'),
              '--compose', tlsfcompose_path,
-             '--abssynthe', abssynthe_bin,
+             '--tlsf2ltl', tlsf2ltl_path,
+             '--tlsf', files('test/cases/reaction_ok.tlsf')])
+    test('verify_aiger_dbuchi_switch', python3,
+      args: [files('scripts/verify_aiger_ltl.py'),
+             '--compose', tlsfcompose_path,
              '--ltlsynt', '/bin/false',
              '--tlsf2ltl', tlsf2ltl_path,
-             '--tlsf', files('test/cases/assume_delay_real.tlsf')])
+             '--tlsf', files('test/cases/dbuchi_switch.tlsf')])
+    # OxiDD in-process safety + GR(1) solver: Spot-verify controllers.
+    foreach name : ['assume_delay_real', 'cluster_prune_safe',
+                    'strict_safety',
+                    'bounded_resp', 'bounded_until', 'bounded_wuntil',
+                    'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
+                    'wr_assume', 'wr_distributable_impl', 'wr_gated_nox',
+                    'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body']
+      test('verify_aiger_oxidd_' + name, python3,
+        args: [files('scripts/verify_aiger_ltl.py'),
+               '--compose', tlsfcompose_path,
+               '--ltlsynt', '/bin/false',
+               '--tlsf2ltl', tlsf2ltl_path,
+               '--tlsf', files('test/cases/' + name + '.tlsf')])
+    endforeach
+    # wr_gated_collapse is unrealizable; OxiDD correctly exits non-zero.
+    test('verify_aiger_oxidd_wr_gated_collapse_unreal', xfail,
+      args: [tlsfcompose_exe,
+             '--aiger', '--ltlsynt', '/bin/false',
+             files('test/cases/wr_gated_collapse.tlsf')])
+    # GR(1): in-process OxiDD PPS fixpoint solver, Spot-verified.
+    foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
+                    'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
+                    'gr1_strict_multi']
+      test('verify_aiger_oxidd_gr1_' + name, python3,
+        args: [files('scripts/verify_aiger_ltl.py'),
+               '--compose', tlsfcompose_path,
+               '--ltlsynt', '/bin/false',
+               '--tlsf2ltl', tlsf2ltl_path,
+               '--tlsf', files('test/cases/' + name + '.tlsf')])
+    endforeach
+    # OxiDD correctly identifies these specs as unrealizable.
+    foreach name : ['inv_decline', 'cluster_assume']
+      test('verify_aiger_oxidd_' + name + '_unreal', xfail,
+        args: [tlsfcompose_exe,
+               '--aiger', '--ltlsynt', '/bin/false',
+               files('test/cases/' + name + '.tlsf')])
+    endforeach
+    # tlsfsolve: standalone AIGER game solver.
+    test('tlsfsolve_real', check,
+      args: [files('test/cases/solve_real.out.aag'),
+             tlsfsolve_exe, files('test/cases/solve_real.aag')])
+    test('tlsfsolve_unreal', xfail,
+      args: [tlsfsolve_exe, files('test/cases/solve_unreal.aag')])
   endif
 endif
 
@@ -641,6 +788,35 @@ test('graph_split_on', check,
   args: [files('test/cases/arbiter1formula.split.txt'),
          tlsfgraph_exe, '--split', '--templates',
          files('test/cases/arbiter1formula.tlsf')])
+# CLI option coverage: --version, --param, --safety, --assumptions, --liveness.
+test('graph_version', check,
+  args: [files('test/cases/graph_version.txt'), tlsfgraph_exe, '--version'])
+test('graph_param', check,
+  args: [files('test/cases/graph_param_demo.graph.txt'), tlsfgraph_exe,
+         '--param', 'n=5', '--param', 'k=2',
+         files('test/cases/param_demo.tlsf')])
+test('graph_safety_filter', check,
+  args: [files('test/cases/graph_arbiter2_safety.txt'), tlsfgraph_exe,
+         '--safety', files('test/cases/arbiter2.tlsf')])
+test('graph_assumptions_filter', check,
+  args: [files('test/cases/graph_arbiter2_assumptions.txt'), tlsfgraph_exe,
+         '--assumptions', files('test/cases/arbiter2.tlsf')])
+test('graph_liveness_filter', check,
+  args: [files('test/cases/graph_param_demo_liveness.txt'), tlsfgraph_exe,
+         '--liveness', '--param', 'n=5', '--param', 'k=2',
+         files('test/cases/param_demo.tlsf')])
+test('graph_roles_guarantee', check,
+  args: [files('test/cases/arbiter2.no_tmpl.txt'), tlsfgraph_exe,
+         '--roles', 'GUARANTEE', files('test/cases/arbiter2.tlsf')])
+test('graph_formula_unimplemented', xfail,
+  args: [tlsfgraph_exe, '--graph', 'formula',
+         files('test/cases/arbiter2.tlsf')])
+test('graph_wl_labels_basic', check_wl,
+  args: [files('test/cases/arbiter2.wl0_basic.txt'), tlsfgraph_exe,
+         '--wl', '0', '--wl-labels', 'basic', files('test/cases/arbiter2.tlsf')])
+test('graph_template_named', check,
+  args: [files('test/cases/arbiter1formula.tmpl_reaction.txt'), tlsfgraph_exe,
+         '--template', 'reaction', files('test/cases/arbiter1formula.tlsf')])
 test('norm_split', check,
   args: [files('test/cases/arbiter1formula.norm.tlsf'),
          tlsfnorm_exe, '--passes', 'split',
@@ -755,6 +931,16 @@ test('primes_inputs', check,
 test('primes_ltl', check,
   args: [files('test/cases/primes.ltl'), tlsf2ltl_exe,
          files('test/cases/primes.tlsf')])
+
+# Uppercase atom names: ltlxba lowercases them (spot/ltl2ba read uppercase as
+# operators, so this is what ltlsynt consumes, matching syfco -f ltlxba); the
+# faithful ltl dialect keeps the original case.
+test('ltl_upper_atoms_ltlxba', check,
+  args: [files('test/cases/upper_atoms.ltlxba.ltl'), tlsf2ltl_exe,
+         '--format', 'ltlxba', files('test/cases/upper_atoms.tlsf')])
+test('ltl_upper_atoms_ltl', check,
+  args: [files('test/cases/upper_atoms.ltl'), tlsf2ltl_exe,
+         '--format', 'ltl', files('test/cases/upper_atoms.tlsf')])
 
 # tlsf2ltl modes: safety / liveness selection and -os/-ot overrides.
 test('ltl_safety', check,

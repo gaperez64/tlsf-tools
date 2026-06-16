@@ -133,37 +133,67 @@ So the answer to "what raises the statistics" is: **composition was necessary
 but not sufficient**, and **more syntactic templates are not the main lever**.
 The general stateless safety-invariant added essentially nothing, because real
 safety is stateful (`X`) or output-coupled.  The useful lever is a real backend
-for residual games: AbsSynthe now covers the non-finite safety slice, including
-strict safety wrappers of the form `S W !A`, while GR(1)-style liveness
-residuals still need a separate path.
+for residual games: OxiDD covers the non-finite safety slice (including strict
+safety wrappers `S W !A`) and the GR(1) tier; pure liveness needs `ltlsynt`.
 
-## Self-contained AIGER synthesis without `ltlsynt`
+## Residual complexity (monolith → residual)
 
-`tlsfcompose --aiger` routes eligible non-finite safety residual clusters to
-AbsSynthe.  The measurements below deliberately pass `--ltlsynt /bin/false`, so
-every successful run is handled by certified templates plus AbsSynthe only.
+"Fully solved" is a binary that hides most of the value. Reactive synthesis cost
+is ~exponential in the number of controllable **outputs** and in **operator
+class** (parity ⊐ safety ⊐ solved), so a spec we never fully close can still be
+exponentially cheaper after decomposition. `tlsfbenchgraph` now measures, per
+spec, the **residual** the backends still face — every accepted SOLVED block
+removed (so `fully_solved` ⇔ empty residual), the rest substituted and
+partitioned into output-disjoint clusters (one independent game each) — and
+reports its size, cluster count, hardest-cluster output count, and per-cluster
+safety/liveness class with the same classifier as the monolith columns.
 
-| corpus | full controllers | unrealizable | timeout | still needs `ltlsynt` / liveness backend |
-|---|--:|--:|--:|--:|
-| `tlsf` | 125 / 2545 (4.9 %) | 7 | 1 | 2412 |
-| `tlsf-fin` | 0 / 2487 (0.0 %) | 0 | 0 | 2487 |
+![Residual independent games by synthesis class](docs/benchgraph/residual_class.png)
 
-For `tlsf`, `tlsfcompose --split` produces 318 certified/local controller
-outputs and 4659 residual clusters.  The fake AbsSynthe backend says 131 whole
-specs are syntactically eligible without `ltlsynt`, covering 1483 residual
-clusters.  Real AbsSynthe, run only on those eligible specs with a 10s/spec
-timeout, emits controllers for 123 specs; those successful specs account for
-1439 residual clusters.  In composition-unit terms, coverage rises from
-**318 / 4977 (6.4 %)** template-owned units to **1757 / 4977 (35.3 %)**
-units with real AbsSynthe controllers.
+![Hardest game dimensionality: monolith vs residual](docs/benchgraph/residual_gamesize.png)
 
-The remaining gap is not a safety-backend issue.  The local `bench/specs` rerun
-illustrates the shape: `small_Lights2_f1477cc5_2.tlsf` is solved by the safety
-backend and `small_ltl2dba22.tlsf` by the global-recurrence template.  The four
-robot benchmarks now advance past their strict-safety cluster with AbsSynthe,
-but still stop at a GR(1) liveness cluster when `ltlsynt` is disabled. Raising
-the no-`ltlsynt` full-spec count further needs GR(1)-style handling, not
-another stateless template.
+| corpus | fully solved | specs factoring ≥2 clusters | residual clusters (safety→OxiDD / liveness→ltlsynt) | hardest game outs monolith→residual (mean) | residual size / monolith |
+|---|--:|--:|--:|--:|--:|
+| `tlsf` | 2 (0%) | 746 (29%) | 2004 (43%) / 2655 (57%) | 5.0→4.9 | 76.7% (7388596/9631686) |
+| `tlsf-fin` | 0 (0%) | 1422 (57%) | 1455 (21%) / 5533 (79%) | 50.3→50.3 | 100.1% (21774881/21748136) |
+
+Three findings, and they reframe where the leverage is:
+
+1. **Templates barely shrink the hardest game.** The largest residual cluster has
+   essentially the same output count as the monolith's largest output component
+   (`tlsf` 5.0→4.9, `tlsf-fin` 50.3→50.3): the big multi-output transition cores
+   `G(..→X(o1∨..∨o6))` survive untouched. Template ownership (~2 % of outputs) is
+   not the dimensionality lever.
+2. **Clustering is the lever.** **29 % of `tlsf` and 57 % of `tlsf-fin` specs
+   factor into ≥2 output-disjoint independent games.** Because cost is
+   exponential in a single game's outputs, solving `max(cluster)` instead of the
+   whole spec — `Σ exp(out_i)` rather than `exp(Σ out_i)` — is a real (often
+   exponential) reduction that lands even at a ~0 % template solve rate. The
+   residual is also smaller as a formula on `tlsf` (76.7 % of the monolith).
+3. **Liveness is sparse per clause but pervasive per spec.** ~99 % of residual
+   *conjuncts* are safety, yet most *specs* still carry one `GF`/`F` clause, so a
+   whole spec can rarely be handed to OxiDD as one game. Clustering isolates
+   that tail: **43 % of `tlsf` (21 % of `tlsf-fin`) residual independent games are
+   pure-safety, OxiDD-eligible**; only the liveness clusters need `ltlsynt`.
+   The path to a higher solved fraction is therefore *finer clustering that peels
+   each safety game off the liveness tail*, not more closed-form templates.
+
+**Follow-up — finer clustering (per-cluster relevant-assumption scoping).** Each
+cluster now attaches only the assumptions relevant to it (a transitive cone of
+influence over signals) and drops liveness assumptions from safety-only clusters
+(a liveness assumption can never prevent a finite-time safety violation, so it is
+irrelevant to a safety guarantee; `src/residual.c` `residual_build_cluster`). This
+is sound — synthesizing against a subset `Eᵢ ⊆ E` of the assumptions still yields
+a controller valid under the full `E`. It cleanly de-contaminates the case a
+global liveness assumption inflates an otherwise-safety cluster (`cluster_assume`,
+`cluster_prune`) and leans cluster formulas. **But it does not move the SYNTCOMP
+needle**: the 43 %/21 % safety-cluster split is unchanged, because the corpus
+liveness clusters are **guarantee-driven** (responses `G(req→F grant)`, `U`-shaped
+amba obligations), not assumption-contaminated. The completeness rule correctly
+*retains* each cluster's fairness (e.g. `G F HREADY` stays on the `READY2`
+response game). The genuine lever for those clusters is a **GR(1)/Büchi backend**;
+finer clustering is its enabler, since each GR(1) game now carries only its
+relevant fairness assumptions.
 
 ## Effect of constraint decomposition (`--split`)
 
@@ -225,12 +255,19 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
    eliminates combinational decoders exactly and fair servers merge shared
    requests, removing the old ejection pathology (`tlsf` conflicts 113 → 48).
    Template-only composition now fully solves **2** specs and only
-   **~0.4–0.6 % of constraints** are eliminated.  With AbsSynthe, however,
-   `tlsfcompose --aiger --ltlsynt /bin/false` now emits real full controllers
-   for **125 / 2545** `tlsf` specs and classifies 7 more as unrealizable.
-   Remaining no-`ltlsynt` coverage needs liveness / GR(1)-style solving.
+   **~0.4–0.6 % of constraints** are eliminated.  With OxiDD,
+   `tlsfcompose --aiger --ltlsynt /bin/false` emits real full controllers
+   for **787 / 2545 (30.9 %)** `tlsf` specs (see benchgraph section below).
+   Remaining no-`ltlsynt` coverage needs a liveness / Büchi backend.
 6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
    formulas (it normalises, it does not shrink).
+7. **Decomposition lowers complexity through clustering, not template
+   ownership.** Templates barely move the hardest game (largest residual cluster
+   ≈ monolith's largest output component), but 29 % of `tlsf` / 57 % of
+   `tlsf-fin` specs factor into ≥2 independent games, and 43 % / 21 % of those
+   games are pure-safety (OxiDD-eligible). The lever for a higher solved
+   fraction is finer clustering that peels each safety game off the per-spec
+   liveness tail.
 
 ## Caveats
 
@@ -248,3 +285,51 @@ and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
   keep a conservative **free-output** rule: they reduce the residual only when
   the output is otherwise unreferenced. This is where coverage is left on the
   table — a shared grant read by other constraints stays in the residual.
+
+<!-- BENCHGRAPH:PREPROCESSOR START (generated by scripts/benchgraph.py) -->
+## Preprocessor speed & complexity vs ltlsynt (`scripts/benchgraph.py`)
+Is templates+OxiDD a FAST preprocessor? Two metrics: residual **complexity**
+(what's left after templates+OxiDD) and **speed** (our full pipeline vs standalone
+`ltlsynt --tlsf` on the whole spec). Goal: carve off safety with OxiDD, forward
+only the hard liveness residual to ltlsynt, and never be slower or less complete.
+Regenerate: `scripts/benchgraph.py --corpus DIR --tlsfcompose … --ltlsynt …`
+(or `--from-data benchgraph.tsv` to re-render this section without re-running).
+
+### Run: 2026-06-15 21:23 UTC · commit `ee5b342`
+- Corpus: `/home/gperez/GIT-repos/benchmarks/tlsf` (2545 specs)
+- Caps: timeout 15s/run, 6 GB RAM/run (systemd cgroup hard cap), sequential
+- Baseline: `ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)
+- Ours: `tlsfcompose --split --aiger --ltlsynt …`
+- Per-spec data: `BENCHGRAPH.tsv`
+
+### Complexity
+- **Self-contained (templates+OxiDD, no ltlsynt): 809/2545 = 31.8%** (639 use OxiDD).
+- **OxiDD reach (≥1 cluster): 657/2545 = 25.8%**.
+- Residual shape (specs not self-contained), hardest cluster:
+
+  | residual class | specs |
+  |---|---|
+  | liveness (F/U/GF/Buchi) | 1478 |
+  | W/R safety not yet handled | 103 |
+  | GR(2+) generalized reactivity | 98 |
+  | (none / unrealizable verdict) | 57 |
+
+### Residual reduction (complexity)
+- Specs with ≥1 synthesis cluster: 2332; 3605 clusters total (1926 peeled by OxiDD, 1679 forwarded to ltlsynt).
+- **Formula mass OxiDD carves off the residual before ltlsynt: aggregate 1.7%** (residual 3460320/3520672 nodes), median per spec **0.0%**.
+- OxiDD peels the **entire** synthesis residual (nothing left for ltlsynt): 653/2332 specs.
+- Residual clusters still forwarded to ltlsynt (count → specs): 0→653, 1→1679.
+
+### Speed (OxiDD-contributing specs)
+- Timed: 657 specs. Both produced a controller: 284.
+- **Both-solved speedup `base/ours`: median ×0.43, geomean ×0.48** (faster: 52, slower: 232).
+- Absolute wall on both-solved: **median ours 89 ms vs base 38 ms** (near parity); mean ours 578 ms vs base 623 ms.
+- Total wall on both-solved: ours 164.1s vs base 177.0s (**×1.08** aggregate).
+- Ours solves where **base times out** (≥15s): 77 clear wins — selection-ltl-2025×41, sweap×35, specs×1.
+
+### Completeness vs ltlsynt
+- **ltlsynt produced a controller but we did not: 1** — the honest deficit (we are *less complete* on these). Breakdown: 0 we wrongly call **UNREALIZABLE**, 0 backend **FAILED**, 1 **timed out**.
+
+### Verdict
+On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (89 ms vs 38 ms). In **aggregate we are ×1.08 faster** than ltlsynt. The genuine value is the **77 specs ltlsynt cannot synthesize in 15s that we do** (GR(1) `amba_gr`, large decomposed safety). The completeness blocker is **1 specs ltlsynt solves that we don't** — now dominated by **0 false-UNREALs** from output-free assumption clusters, not parse bugs.
+<!-- BENCHGRAPH:PREPROCESSOR END -->

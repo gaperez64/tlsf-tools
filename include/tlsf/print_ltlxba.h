@@ -59,9 +59,11 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
 
 /// Print a single (already-assembled) formula in the given dialect, followed by
 /// a newline.  `full_parens` fully parenthesises; `finite` selects finite-word
-/// rendering of the strong next (X[!]).
+/// rendering of the strong next (X[!]).  `lower_atoms` lowercases atom names --
+/// spot/ltl2ba treat uppercase letters as operators, so the ltlxba dialect
+/// needs this to be consumable by ltlsynt (matching `syfco -f ltlxba`).
 void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
-               bool finite);
+               bool finite, bool lower_atoms);
 
 /// Convenience: assemble the spec formula (ltlxba dialect) and print it.
 /// Retained for callers that do not apply transforms.

@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "distributable implication"
+  DESCRIPTION: "G(req -> bool_and_responses) distributes to G(req -> conjunct) per conjunct"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { upd; in0; }
+  OUTPUTS { out0; }
+  GUARANTEE {
+    G (upd -> ((in0 <-> out0) && (in0 -> X (out0 W upd)) && (!in0 -> X (!out0 W upd))));
+  }
+}

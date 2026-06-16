@@ -1,0 +1,7 @@
+INFO { TITLE: "gr1init" DESCRIPTION: "GR(1) with env+sys initial conditions" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { r; } OUTPUTS { g; }
+  INITIALLY { !r; }
+  PRESET { !g; }
+  ASSUME { G F (!r); }
+  GUARANTEE { G F g; G (r -> X g); }
+}

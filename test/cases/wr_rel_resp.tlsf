@@ -1,0 +1,4 @@
+INFO { TITLE: "wrrelresp" DESCRIPTION: "guarantee-side X-delayed release response" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { trig; ack; } OUTPUTS { p; q; }
+  GUARANTEE { G (trig -> X (p R q)); G (p -> ack); }
+}

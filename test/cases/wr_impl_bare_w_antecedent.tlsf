@@ -1,0 +1,8 @@
+INFO { TITLE: "wr_impl_bare_w_antecedent"
+  DESCRIPTION: "Bare W in IMPL antecedent with sys output as release — must NOT be encoded as W/R safety (false UNREAL risk); falls through to ltlsynt."
+  SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS  { a; }
+  OUTPUTS { on; }
+  GUARANTEE { (!a W on) -> G (!a -> on); }
+}

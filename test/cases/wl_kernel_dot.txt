@@ -1,0 +1,4 @@
+p wlcompare 1 dot
+m ref resp1.tlsf
+m file 0 arbiter2.tlsf
+x 0 12.0000

@@ -34,16 +34,6 @@ def default_compose():
     return "tlsfcompose"
 
 
-def default_abssynthe():
-    env = os.environ.get("ABSSYNTHE")
-    if env:
-        return env
-    candidate = repo_root() / "external" / "AbsSynthe" / "binary" / "abssynthe"
-    if candidate.exists():
-        return str(candidate)
-    return "abssynthe"
-
-
 def default_ltlsynt():
     return os.environ.get("LTLSYNT", "ltlsynt")
 
@@ -107,9 +97,11 @@ def classify(returncode, stderr):
 
 
 def run_one(args, path):
-    cmd = [args.compose, "--aiger", "--abssynthe", args.abssynthe]
+    cmd = [args.compose, "--aiger"]
     if args.ltlsynt:
         cmd.extend(["--ltlsynt", args.ltlsynt])
+    if args.bound:
+        cmd.extend(["--bound", str(args.bound)])
     if args.split:
         cmd.append("--split")
     cmd.append(path)
@@ -222,8 +214,6 @@ def parse_args(argv):
                         help="read TLSF paths from FILE, one per line")
     parser.add_argument("--compose", default=default_compose(),
                         help="path to tlsfcompose")
-    parser.add_argument("--abssynthe", default=default_abssynthe(),
-                        help="path to AbsSynthe")
     parser.add_argument("--ltlsynt", default=default_ltlsynt(),
                         help="path to ltlsynt; use '' to omit --ltlsynt")
     parser.add_argument("--output", default="-",
@@ -238,6 +228,9 @@ def parse_args(argv):
                         help="address-space cap per spec in MB (default 3000)")
     parser.add_argument("--timeout", type=float, default=1800,
                         help="wall-clock timeout per spec in seconds")
+    parser.add_argument("--bound", type=int,
+                        help="pass --bound N (bounded-liveness step bound) to "
+                        "tlsfcompose")
     parser.add_argument("--split", action="store_true",
                         help="pass --split through to tlsfcompose")
     parser.add_argument("--quiet", action="store_true",

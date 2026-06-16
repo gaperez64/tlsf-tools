@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "bounded_resp"
+  DESCRIPTION: "fairness-free response G(req -> F grant) plus a pulse safety constraint: a genuine liveness game the bounded-liveness path turns into a safety game for AbsSynthe"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE {
+    G (req -> F grant);
+    G (grant -> X !grant);
+  }
+}

@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
 
   if (single) {
     Node *root = residual_build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true,
-                                        N, seen);
+                                        /*prune=*/true, N, seen);
     if (!root) {
       rc = 1;
     } else {
@@ -219,7 +219,8 @@ int main(int argc, char *argv[]) {
       fprintf(out, "\nc ins=");
       residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
       fprintf(out, "\n");
-      print_ltl(out, root, fmt, /*full_parens=*/false, finite);
+      print_ltl(out, root, fmt, /*full_parens=*/false, finite,
+                /*lower_atoms=*/false);
     }
   } else {
     // Cluster residual constraints by shared output (output-disjoint
@@ -231,7 +232,8 @@ int main(int argc, char *argv[]) {
     fprintf(out, "c clusters %u\n", K);
     for (uint32_t k = 0; k < K && rc == 0; k++) {
       Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k], false, N, seen);
+          residual_build_cluster(spec, cov, rf, key, keys[k],
+                                 /*all=*/false, /*prune=*/true, N, seen);
       if (!root) {
         rc = 1;
         break;
@@ -250,7 +252,7 @@ int main(int argc, char *argv[]) {
         fprintf(cf, "\nc ins=");
         residual_print_signals(cf, cov, seen, AP_FLAG_INPUT);
         fprintf(cf, "\n");
-        print_ltl(cf, root, fmt, false, finite);
+        print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/false);
         fclose(cf);
         fprintf(out, "c cluster %u file=residual.%u.ltl outs=", k, k);
         residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
@@ -263,7 +265,7 @@ int main(int argc, char *argv[]) {
         fprintf(out, " ins=");
         residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
         fprintf(out, "\n");
-        print_ltl(out, root, fmt, false, finite);
+        print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/false);
       }
     }
     free(key);

@@ -1,5 +1,7 @@
 #include "tlsf/apset.h"
 
+#include "tlsf/simd.h"
+
 // ---------------------------------------------------------------------------
 // AP index table (pointer-keyed; names are interned so they compare by pointer)
 // ---------------------------------------------------------------------------
@@ -103,14 +105,10 @@ void apset_init(ApSet *s, Arena *a, uint32_t nbits) {
 
 void apset_union(ApSet *dst, const ApSet *src) {
   uint32_t nwords = (dst->nbits + 63) / 64;
-  for (uint32_t i = 0; i < nwords; i++)
-    dst->words[i] |= src->words[i];
+  tlsf_words_or(dst->words, src->words, nwords);
 }
 
 uint32_t apset_count(const ApSet *s) {
   uint32_t nwords = (s->nbits + 63) / 64;
-  uint32_t n = 0;
-  for (uint32_t i = 0; i < nwords; i++)
-    n += (uint32_t)__builtin_popcountll(s->words[i]);
-  return n;
+  return tlsf_words_popcount(s->words, nwords);
 }

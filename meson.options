@@ -7,3 +7,23 @@ option(
   value: 'none',
   description: 'Enable sanitizers (for development builds)',
 )
+
+option(
+  'oxidd',
+  type: 'feature',
+  value: 'auto',
+  description: 'In-process OxiDD BDD safety/GR(1) solver for tlsfcompose ' +
+               '(needs the external/oxidd submodule built via ' +
+               '`meson compile -C build oxidd-build`; auto = use if built)',
+)
+
+option(
+  'cpu',
+  type: 'combo',
+  choices: ['baseline', 'avx2', 'avx512', 'neon', 'native'],
+  value: 'baseline',
+  description: 'Target CPU ISA for the compile-time SIMD kernels (include/' +
+               'tlsf/simd.h) and compiler auto-vectorization.  baseline = ' +
+               'portable scalar; avx2/avx512 = x86-64 SIMD; neon = AArch64 ' +
+               'NEON; native = -march=native for this machine.',
+)

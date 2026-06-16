@@ -1,0 +1,18 @@
+INFO {
+  TITLE: "input_gua_skip"
+  DESCRIPTION: "guarantee over only inputs creates an output-free cluster that must be skipped"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; helper; }
+  OUTPUTS { grant; }
+  ASSUME {
+    G F helper;
+    G (grant -> X req);
+  }
+  GUARANTEE {
+    G F grant;
+    G F req;
+  }
+}

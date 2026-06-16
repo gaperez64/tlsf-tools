@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "gated W/R collapse inside distributable body"
+  DESCRIPTION: "G(gate -> (a W b) && bool) — bare W inside distributable AND body"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { gate; a; b_in; }
+  OUTPUTS { b; }
+  GUARANTEE {
+    G (gate -> ((a W b) && (b_in <-> b)));
+  }
+}

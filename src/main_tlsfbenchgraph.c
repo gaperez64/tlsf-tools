@@ -4,10 +4,14 @@
 /// reuses cover/recognize/certify(/WL) and adds no new analysis.
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
+#include "tlsf/ast.h"
+#include "tlsf/classify.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
+#include "tlsf/nnf.h"
 #include "tlsf/recognize.h"
+#include "tlsf/residual.h"
 #include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
@@ -74,28 +78,7 @@ static int cstr_cmp(const void *a, const void *b) {
 }
 
 // ---- metrics --------------------------------------------------------------
-
-static uint32_t node_count(const Node *n) {
-  switch (n->kind) {
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return 1 + node_count(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return 1 + node_count(n->lhs) + node_count(n->rhs);
-  default:
-    return 1; // atom / constant
-  }
-}
+// Formula-size proxy is the shared `ast_node_count` (include/tlsf/ast.h).
 
 static uint32_t uf_find(uint32_t *parent, uint32_t x) {
   while (parent[x] != x)
@@ -151,8 +134,80 @@ typedef struct {
   uint32_t conflicts, fully_solved;
   uint32_t elim_constraints, owned_outputs;
   uint32_t size_raw, size_norm;
+  // Residual (post-all-templates `--aiger` residual): the genuine games the
+  // synthesis backends still face after every template controller is applied.
+  uint32_t residual_clusters, residual_outputs,
+      largest_residual_cluster_outputs;
+  uint32_t residual_liveness_clusters, residual_size_norm;
   int wl_stab;
 } Metrics;
+
+// Measure the residual the synthesis backends still face after every template
+// controller is applied.  A constraint is dropped when it belongs to any
+// accepted SOLVED block (`!comp->residual_constraint[i]`): combinational
+// `o:=value` controllers, local-AIGER register/toggle/... blocks, AND
+// multi-constraint solved blocks like arbiters/mutexes.  This is the
+// composition residual, so a fully-solved spec yields an empty residual
+// (`fully_solved` <=> no clusters), crediting all template work.  Surviving
+// constraints have the combinational controllers substituted in and are
+// partitioned into output-disjoint clusters (one independent game each) with
+// the shared residual-clustering helpers.  Each cluster is classified with the
+// same NNF + classify_formula path as the monolith safety/liveness columns
+// (cover.c:150,153), so the two are apples-to-apples.
+static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
+                             const CsnfComposition *comp, Metrics *m) {
+  uint32_t N = cov->count, A = cov->aps.count;
+  const Node **rf = calloc(N ? N : 1, sizeof(Node *));
+  bool *seen = calloc(A ? A : 1, sizeof(bool));
+  bool *any_out = calloc(A ? A : 1, sizeof(bool));
+  uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
+  if (!rf || !seen || !any_out || !key) {
+    free(rf);
+    free(seen);
+    free(any_out);
+    free(key);
+    return;
+  }
+  for (uint32_t i = 0; i < N; i++) {
+    if (!comp->residual_constraint[i])
+      continue;
+    const Node *f =
+        residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
+    f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);
+    if (f->kind != NODE_TRUE)
+      rf[i] = f;
+  }
+
+  uint32_t *keys = nullptr;
+  uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
+  m->residual_clusters = K;
+  for (uint32_t k = 0; k < K; k++) {
+    Node *root = residual_build_cluster(spec, cov, rf, key, keys[k],
+                                        /*all=*/false, /*prune=*/true, N, seen);
+    if (!root)
+      continue;
+    uint32_t outs = 0;
+    for (uint32_t a = 0; a < A; a++)
+      if (seen[a] && (ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT)) {
+        outs++;
+        any_out[a] = true;
+      }
+    if (outs > m->largest_residual_cluster_outputs)
+      m->largest_residual_cluster_outputs = outs;
+    Node *nf = to_nnf(spec->arena, root, true);
+    if (nf && classify_formula(nf) == FCLASS_LIVENESS)
+      m->residual_liveness_clusters++;
+    Node *sn = apply_rewrites(spec->arena, root, RW_STRONG_SIMPLIFY);
+    m->residual_size_norm += ast_node_count(sn ? sn : root);
+  }
+  for (uint32_t a = 0; a < A; a++)
+    m->residual_outputs += any_out[a] ? 1 : 0;
+  free(rf);
+  free(seen);
+  free(any_out);
+  free(key);
+  free(keys);
+}
 
 static Metrics measure(const char *path, int wl_depth, bool split) {
   Metrics m = {0};
@@ -206,9 +261,9 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
       else if (!strcmp(n, "definition"))
         m.definition++;
     }
-    m.size_raw += node_count(c->formula);
+    m.size_raw += ast_node_count(c->formula);
     Node *nf = apply_rewrites(spec->arena, c->formula, RW_STRONG_SIMPLIFY);
-    m.size_norm += nf ? node_count(nf) : node_count(c->formula);
+    m.size_norm += nf ? ast_node_count(nf) : ast_node_count(c->formula);
   }
 
   Csnf *csnf = templates_certify(cov, TPL_ALL, true);
@@ -221,6 +276,7 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
       m.fully_solved = comp->fully_solved ? 1 : 0;
       m.elim_constraints = comp->neliminated;
       m.owned_outputs = comp->nowned_outputs;
+      measure_residual(spec, cov, comp, &m);
       csnf_composition_free(comp);
     }
     csnf_free(csnf);
@@ -324,13 +380,18 @@ int main(int argc, char *argv[]) {
           "dependent_outputs\tresidual_constraints\tlargest_output_component"
           "\tformula_size_raw\tformula_size_norm\twl_stab_depth\t"
           "fully_solved\tconflicts\t"
-          "eliminated_constraints\towned_outputs\n");
+          "eliminated_constraints\towned_outputs\t"
+          "residual_clusters\tresidual_outputs\t"
+          "largest_residual_cluster_outputs\tresidual_liveness_clusters\t"
+          "residual_size_norm\n");
 
   // Aggregates.
   uint32_t nok = 0, nfail = 0;
   uint64_t tot[16] = {0};
   uint32_t with_solved = 0, with_resp = 0, with_mutex = 0, with_def = 0,
            with_rec = 0, fully = 0;
+  uint64_t mono_lc = 0, res_lc = 0, mono_sz = 0, res_sz = 0;
+  uint32_t lc_strictly_smaller = 0, drop_to_safety = 0, factored = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
     Metrics m = measure(g_files[i], wl_depth, split);
@@ -339,7 +400,7 @@ int main(int argc, char *argv[]) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
@@ -351,12 +412,15 @@ int main(int argc, char *argv[]) {
       snprintf(wl, sizeof wl, "-");
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\n",
+            "\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
             m.response, m.mutex, m.recurrence, m.persistence, m.global_rec,
             m.gnext, m.definition, m.tcands, m.solved, m.certified, m.dependent,
             m.residual, m.comp, m.size_raw, m.size_norm, wl, m.fully_solved,
-            m.conflicts, m.elim_constraints, m.owned_outputs);
+            m.conflicts, m.elim_constraints, m.owned_outputs,
+            m.residual_clusters, m.residual_outputs,
+            m.largest_residual_cluster_outputs, m.residual_liveness_clusters,
+            m.residual_size_norm);
 
     tot[0] += m.response;
     tot[1] += m.mutex;
@@ -377,6 +441,14 @@ int main(int argc, char *argv[]) {
     with_mutex += m.mutex > 0;
     with_def += m.definition > 0;
     with_rec += m.recurrence > 0;
+    mono_lc += m.comp;
+    res_lc += m.largest_residual_cluster_outputs;
+    mono_sz += m.size_norm;
+    res_sz += m.residual_size_norm;
+    lc_strictly_smaller += m.largest_residual_cluster_outputs < m.comp;
+    drop_to_safety += m.liveness > 0 && m.fully_solved == 0 &&
+                      m.residual_liveness_clusters == 0;
+    factored += m.residual_clusters >= 2;
   }
 
   if (summary) {
@@ -404,6 +476,16 @@ int main(int argc, char *argv[]) {
             tot[8] ? 100.0 * (double)tot[9] / (double)tot[8] : 0.0,
             (unsigned long long)tot[10], (unsigned long long)tot[11],
             tot[11] ? 100.0 * (double)tot[10] / (double)tot[11] : 0.0);
+    fprintf(out,
+            "# residual complexity: largest sub-game outputs %llu->%llu "
+            "(monolith->residual sum; %.1f%%), strictly smaller in %u specs; "
+            "%u drop liveness->safety, %u fully solved; %u factor into >=2 "
+            "clusters; residual size %llu/%llu norm nodes (%.1f%%)\n",
+            (unsigned long long)mono_lc, (unsigned long long)res_lc,
+            mono_lc ? 100.0 * (double)res_lc / (double)mono_lc : 0.0,
+            lc_strictly_smaller, drop_to_safety, fully, factored,
+            (unsigned long long)res_sz, (unsigned long long)mono_sz,
+            mono_sz ? 100.0 * (double)res_sz / (double)mono_sz : 0.0);
   }
 
   if (output_file)

@@ -1,0 +1,16 @@
+definition
+delayed-definition
+guarded-next-assignment
+set-reset-register
+toggle-register
+fixed-delay-response
+global-recurrence-switch
+reaction
+mutex
+pure-recurrence
+round-robin
+response
+arbiter
+persistence
+reachability
+safety-invariant

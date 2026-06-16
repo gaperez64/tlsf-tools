@@ -1,0 +1,4 @@
+INFO { TITLE: "wrrespnox" DESCRIPTION: "guarantee-side non-X weak-until response" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { req; stop; } OUTPUTS { busy; }
+  GUARANTEE { G (req -> (busy W stop)); }
+}

@@ -123,6 +123,26 @@ def aggregate(label, rows):
         if raw > 0:
             ratios.append(norm / raw)
     agg["reduction_ratios"] = ratios
+
+    # Residual complexity (monolith -> residual), when the columns are present.
+    def cell(r, key):
+        v = r.get(key, "-")
+        return int(v) if v not in ("-", "") else 0
+
+    agg["has_residual"] = any("residual_clusters" in r for r in parsed)
+    agg["res_game"] = col_int(parsed, "largest_residual_cluster_outputs")
+    agg["res_clusters"] = col_int(parsed, "residual_clusters")
+    agg["res_clusters_total"] = sum(agg["res_clusters"])
+    agg["res_live_clusters_total"] = sum(
+        col_int(parsed, "residual_liveness_clusters"))
+    agg["res_safety_clusters_total"] = (
+        agg["res_clusters_total"] - agg["res_live_clusters_total"])
+    agg["comp_total"] = sum(agg["comp"])
+    agg["res_game_total"] = sum(agg["res_game"])
+    agg["size_norm_total"] = sum(col_int(parsed, "formula_size_norm"))
+    agg["res_size_total"] = sum(col_int(parsed, "residual_size_norm"))
+    # Specs whose residual factors into >= 2 independent games.
+    agg["factored"] = sum(1 for r in parsed if cell(r, "residual_clusters") >= 2)
     return agg
 
 
@@ -249,6 +269,80 @@ def plot_wl(aggs, out):
     return True
 
 
+def plot_residual_class(aggs, out):
+    """Per corpus: residual independent games (clusters) by synthesis class.
+
+    After all template work, the residual factors into output-disjoint clusters
+    — one independent game each.  Stacked bars give the share of those games
+    that are pure-safety (AbsSynthe-eligible) vs carry liveness (need ltlsynt).
+    This is the decomposition-credit view: even when a whole spec still has a
+    liveness tail, clustering isolates it, so most independent games are safety.
+    """
+    if not any(a.get("has_residual") for a in aggs):
+        return False
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
+    labels = [a["label"] for a in aggs]
+    x = range(len(aggs))
+
+    def frac(a, key):
+        tot = a["res_clusters_total"]
+        return 100.0 * a[key] / tot if tot else 0.0
+
+    safety = [frac(a, "res_safety_clusters_total") for a in aggs]
+    liveness = [frac(a, "res_live_clusters_total") for a in aggs]
+    ax.bar(x, safety, 0.6, color="#4c72b0",
+           label="pure-safety game (AbsSynthe)")
+    ax.bar(x, liveness, 0.6, bottom=safety, color="#c44e52",
+           label="game w/ liveness (ltlsynt)")
+    for i in x:
+        ax.text(i, safety[i] / 2, f"{safety[i]:.0f}%", va="center",
+                ha="center", fontsize=9, color="white")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("% of residual independent games (clusters)")
+    ax.set_title("Residual independent games by synthesis class")
+    ax.set_ylim(0, 100)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "residual_class.png"), dpi=120)
+    plt.close(fig)
+    return True
+
+
+def plot_residual_gamesize(aggs, out):
+    """Per corpus: mean outputs in the hardest game, monolith vs residual.
+
+    Synthesis cost is ~exponential in controllable outputs, so the largest
+    output component of the monolith vs the largest residual cluster is the
+    headline 'did decomposition shrink the hardest game' number.
+    """
+    if not any(a.get("has_residual") for a in aggs):
+        return False
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
+    labels = [a["label"] for a in aggs]
+    x = range(len(aggs))
+    mono = [mean(a["comp"]) if a["comp"] else 0.0 for a in aggs]
+    res = [mean(a["res_game"]) if a["res_game"] else 0.0 for a in aggs]
+    ax.bar([xi - 0.2 for xi in x], mono, 0.4, color="#8172b3",
+           label="monolith (largest output component)")
+    ax.bar([xi + 0.2 for xi in x], res, 0.4, color="#55a868",
+           label="residual (largest cluster)")
+    for i in x:
+        ax.text(i - 0.2, mono[i], f"{mono[i]:.1f}", va="bottom", ha="center",
+                fontsize=8)
+        ax.text(i + 0.2, res[i], f"{res[i]:.1f}", va="bottom", ha="center",
+                fontsize=8)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("mean outputs in the hardest game")
+    ax.set_title("Hardest game dimensionality: monolith vs residual")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "residual_gamesize.png"), dpi=120)
+    plt.close(fig)
+    return True
+
+
 # --------------------------------------------------------------------------
 
 def stats_markdown(aggs_raw, aggs, wl_ok):
@@ -290,6 +384,45 @@ def stats_markdown(aggs_raw, aggs, wl_ok):
         lines.append("|---|---|")
         for a in aggs:
             lines.append(f"| `{a['label']}` | {fmt(a['wl_stab'])} |")
+
+    # Residual complexity (monolith -> residual) after all template work.
+    if any(a.get("has_residual") for a in aggs):
+        lines.append("")
+        lines.append("Residual complexity after all template work — per-spec "
+                     "residual = the games the synthesis backends still face "
+                     "(every accepted SOLVED block removed):")
+        lines.append("")
+        lines.append("| corpus | fully solved | specs factoring ≥2 clusters | "
+                     "residual clusters (safety→AbsSynthe / liveness→ltlsynt) | "
+                     "hardest game outs monolith→residual (mean) | "
+                     "residual size / monolith |")
+        lines.append("|---|--:|--:|--:|--:|--:|")
+        for a in aggs:
+            p = a["parsed"]
+            sv = a["specs_fully_solved"]
+            fs = f"{sv} ({100.0 * sv / p:.0f}%)" if p else "-"
+            fac = f"{a['factored']} ({100.0 * a['factored'] / p:.0f}%)" \
+                if p else "-"
+            ct = a["res_clusters_total"]
+            sc = a["res_safety_clusters_total"]
+            lc = a["res_live_clusters_total"]
+            cc = f"{sc} ({100.0 * sc / ct:.0f}%) / {lc} ({100.0 * lc / ct:.0f}%)" \
+                if ct else "-"
+            mg = mean(a["comp"]) if a["comp"] else 0.0
+            rg = mean(a["res_game"]) if a["res_game"] else 0.0
+            st = a["size_norm_total"]
+            rs = a["res_size_total"]
+            sp = f"{100.0 * rs / st:.1f}% ({rs}/{st})" if st else "-"
+            lines.append(
+                f"| `{a['label']}` | {fs} | {fac} | {cc} | "
+                f"{mg:.1f}→{rg:.1f} | {sp} |")
+        lines.append("")
+        lines.append("_(Per-spec class: most specs still carry a liveness "
+                     "cluster, but clustering isolates it — the safety clusters "
+                     "are AbsSynthe-eligible games; only the liveness clusters "
+                     "need `ltlsynt`. Synthesis cost is ~exponential in a game's "
+                     "outputs, so the hardest-game column is the headline "
+                     "dimensionality number.)_")
 
     # Decomposition effect: raw vs --split.
     lines.append("")
@@ -337,6 +470,8 @@ def main():
     plot_coverage(aggs_split, args.out)
     plot_reduction(aggs_split, args.out)
     plot_split_effect(aggs_raw, aggs_split, args.out)
+    plot_residual_class(aggs_split, args.out)
+    plot_residual_gamesize(aggs_split, args.out)
     wl_ok = plot_wl(aggs_split, args.out)
     print(f"plots written to {args.out}/", file=sys.stderr)
 

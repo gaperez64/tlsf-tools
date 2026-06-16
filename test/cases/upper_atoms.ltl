@@ -1,0 +1,1 @@
+G (HREQ -> F HGRANT) && G (HSTOP -> !HGRANT)

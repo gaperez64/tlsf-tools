@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "cluster_prune_safe"
+  DESCRIPTION: "realizable pure-safety guarantee with a global liveness assumption the class lever drops; AbsSynthe solves the de-contaminated cluster and the controller must still satisfy the full spec"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  ASSUME {
+    G F (!r);
+  }
+  GUARANTEE {
+    G (r -> X g);
+  }
+}

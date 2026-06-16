@@ -215,6 +215,15 @@ void node_set_bounded(Node *n, BoundedTemporalOrigin origin, int64_t lo,
 void node_copy_bounded(Node *dst, const Node *src);
 
 // ---------------------------------------------------------------------------
+// Node measures
+// ---------------------------------------------------------------------------
+
+/// Total node count of a (post-expansion) LTL formula: one per operator/atom,
+/// recursing through unary and binary children.  Used as a cheap formula-size
+/// proxy (residual complexity) by the benchmarking tools.
+uint32_t ast_node_count(const Node *n);
+
+// ---------------------------------------------------------------------------
 // Node predicates
 // ---------------------------------------------------------------------------
 

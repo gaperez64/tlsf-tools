@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "R-collapse with W rhs in G body"
+  DESCRIPTION: "G(req -> X(go R (a W done))): R collapses to W rhs which itself needs a monitor"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; go; a; }
+  OUTPUTS { done; }
+  GUARANTEE {
+    G (req -> X (go R (a W done)));
+  }
+}

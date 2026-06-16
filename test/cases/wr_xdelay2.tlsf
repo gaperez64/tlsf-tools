@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "X2-delayed W/R response"
+  DESCRIPTION: "G(req -> X X (cond -> (a W b))): distributable body with 2-step X delay before W response"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; cond; a; }
+  OUTPUTS { b; }
+  GUARANTEE {
+    G (req -> X X (cond -> (a W b)));
+  }
+}
