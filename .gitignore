@@ -35,4 +35,6 @@ __pycache__/
 /*.dot
 
 # benchgraph.py per-run data (regenerable; summary lives in BENCHGRAPH.md)
+# default output is BENCHGRAPH.tsv (alongside BENCHGRAPH.md); keep both cases
+BENCHGRAPH.tsv
 benchgraph.tsv
