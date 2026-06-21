@@ -257,8 +257,6 @@ static void emit_tsv(FILE *out, ConstraintCover *cov, const GraphOpts *o) {
 
 int graph_emit(FILE *out, ConstraintCover *cov, GraphFormat fmt,
                const GraphOpts *o) {
-  if (o->kind == GK_FORMULA || o->kind == GK_QUOTIENT)
-    return -1; // not implemented this milestone
   switch (fmt) {
   case GFMT_TEXT:
     emit_text(out, cov, o);

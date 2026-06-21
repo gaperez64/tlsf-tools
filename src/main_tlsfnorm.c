@@ -59,8 +59,8 @@ static bool parse_override(const char *s, ParamOverride *out) {
 
 typedef enum { PASS_SPLIT, PASS_NNF, PASS_BOOLEAN } Pass;
 
-static const char *RESERVED_PASSES[] = {"macro", "response", "expose-gf",
-                                        "expose-fg", "offending"};
+static const char *RESERVED_PASSES[] = {"response", "expose-gf", "expose-fg",
+                                        "offending"};
 
 // Apply one pass to one section list (in spec->arena).  Returns the new count.
 static void apply_pass(TlsfSpec *spec, FormulaList *L, Pass pass) {
@@ -159,8 +159,8 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
       return 0;
-    } else if (!strcmp(a, "--global") || !strcmp(a, "--norm-depth") ||
-               !strcmp(a, "--all-depths") || !strcmp(a, "--pass-schedule") ||
+    } else if (!strcmp(a, "--global") || !strcmp(a, "--all-depths") ||
+               !strcmp(a, "--pass-schedule") ||
                !strcmp(a, "--stop-on-stable") || !strcmp(a, "--output-dir") ||
                !strcmp(a, "--max-size") || !strcmp(a, "--max-nodes")) {
       fprintf(stderr, "tlsfnorm: %s is not implemented yet\n", a);

@@ -251,8 +251,7 @@ faster and uses ~7× less memory than `syfco -f ltlxba`.
 
 Relative to `syfco`, not implemented: structured synthesis outputs
 (`smv`/`slugs`/`promela`/…), partition (`.part`) and config (`-r`/`-w`) files.
-Reserved flags (`--from-gsnf`, `--from-csnf`, `--side-conditions sat|bdd`, …)
-report a clear "not implemented" error.
+Unsupported options fail through each tool's ordinary option validation.
 
 ## Future work
 

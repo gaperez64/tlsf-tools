@@ -684,12 +684,6 @@ if have_oxidd
              files('test/cases/inv_decline.tlsf')])
   endif
 endif
-test('tmpl_sat_unimplemented', xfail,
-  args: [tlsftemplates_exe, '--side-conditions', 'sat',
-         files('test/cases/def_demo.tlsf')])
-test('tmpl_from_gsnf_unimplemented', xfail,
-  args: [tlsftemplates_exe, '--from-gsnf', files('test/cases/def_demo.tlsf')])
-
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
 # golden is path-independent).
 test('benchgraph_tsv', check,
@@ -699,8 +693,6 @@ test('benchgraph_tsv', check,
          files('test/cases/cluster_split.tlsf'),
          files('test/cases/def_demo.tlsf'),
          files('test/cases/roundrobin2.tlsf')])
-test('benchgraph_jobs_unimplemented', xfail,
-  args: [tlsfbenchgraph_exe, '--jobs', '4', files('test/cases/def_demo.tlsf')])
 if python3.found()
   test('bounded_corpus_harness', check,
     args: [files('test/cases/bounded_corpus.tsv'),
@@ -808,9 +800,6 @@ test('graph_liveness_filter', check,
 test('graph_roles_guarantee', check,
   args: [files('test/cases/arbiter2.no_tmpl.txt'), tlsfgraph_exe,
          '--roles', 'GUARANTEE', files('test/cases/arbiter2.tlsf')])
-test('graph_formula_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--graph', 'formula',
-         files('test/cases/arbiter2.tlsf')])
 test('graph_wl_labels_basic', check_wl,
   args: [files('test/cases/arbiter2.wl0_basic.txt'), tlsfgraph_exe,
          '--wl', '0', '--wl-labels', 'basic', files('test/cases/arbiter2.tlsf')])
@@ -833,18 +822,6 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
-test('norm_macro_unimplemented', xfail,
-  args: [tlsfnorm_exe, '--passes', 'macro',
-         files('test/cases/arbiter1formula.tlsf')])
-
-# Reserved (later-milestone) flags must error, not be silently ignored.
-test('graph_norm_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--norm-depth', '3', files('test/cases/arbiter2.tlsf')])
-test('graph_quotient_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--graph', 'quotient', files('test/cases/arbiter2.tlsf')])
-test('wl_from_gsnf_unimplemented', xfail,
-  args: [tlsfwl_exe, '--from-gsnf', files('test/cases/arbiter2.tlsf')])
-
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

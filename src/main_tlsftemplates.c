@@ -35,8 +35,7 @@ static void usage(const char *prog) {
           "  --list-templates             print recognized templates and "
           "exit\n"
           "  --format text|csnf           output format (default text)\n"
-          "  --side-conditions syntactic  side-condition mode (sat/bdd "
-          "reserved)\n"
+          "  --side-conditions syntactic  side-condition mode\n"
           "  --overwrite-semantics VALUE  replace SEMANTICS\n"
           "  --overwrite-target VALUE     replace TARGET\n"
           "  --param NAME=VALUE           override a parameter (repeatable)\n"
@@ -203,11 +202,9 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--side-conditions") == 0) {
       const char *v = NEED_ARG();
       if (strcmp(v, "syntactic") != 0) {
-        fprintf(stderr,
-                "tlsftemplates: --side-conditions %s not implemented "
-                "(only 'syntactic')\n",
+        fprintf(stderr, "tlsftemplates: unknown side-condition mode '%s'\n",
                 v);
-        return 2;
+        return 1;
       }
     } else if (strcmp(a, "--overwrite-semantics") == 0) {
       os_arg = NEED_ARG();
@@ -229,13 +226,6 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
       return 0;
-    } else if (!strcmp(a, "--from-gsnf") || !strcmp(a, "--template-library") ||
-               !strcmp(a, "--disable")) {
-      fprintf(stderr,
-              "tlsftemplates: %s is not implemented yet (GSNF line reader is "
-              "milestone 6)\n",
-              a);
-      return 2;
     } else if (a[0] != '-') {
       if (input_file) {
         fprintf(stderr, "tlsftemplates: multiple input files not supported\n");

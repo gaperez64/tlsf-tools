@@ -344,9 +344,8 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
       return 0;
-    } else if (!strcmp(a, "--norm-depth") || !strcmp(a, "--passes") ||
-               !strcmp(a, "--jobs") || !strcmp(a, "--timeout") ||
-               !strcmp(a, "--output-dir") || !strcmp(a, "--from-gsnf")) {
+    } else if (!strcmp(a, "--passes") || !strcmp(a, "--timeout") ||
+               !strcmp(a, "--output-dir")) {
       fprintf(stderr,
               "tlsfbenchgraph: %s is not implemented yet (normalization / "
               "parallelism are later milestones)\n",

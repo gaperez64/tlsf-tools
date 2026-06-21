@@ -133,13 +133,6 @@ int main(int argc, char *argv[]) {
       usage(argv[0]);
       free(files);
       return 0;
-    } else if (!strcmp(a, "--from-gsnf") || !strcmp(a, "--template-library")) {
-      fprintf(stderr,
-              "tlsfwl: %s is not implemented yet (line reader is a "
-              "follow-up)\n",
-              a);
-      free(files);
-      return 2;
     } else if (a[0] != '-') {
       files[nfiles++] = a;
     } else {
