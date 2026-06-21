@@ -204,12 +204,9 @@ lib_sources = [
   'src/cover.c',
   'src/recognize.c',
   'src/pipeline.c',
-  'src/graph.c',
-  'src/wl.c',
   'src/templates.c',
   'src/templates_certify.c',
   'src/residual.c',
-  'src/residual_plan.c',
   'src/aiger.c',
   'src/gr.c',
   'src/print_ltlxba.c',
@@ -219,6 +216,17 @@ lib_sources = [
   bison_out[1],   # tlsf_parse.h — declare as a source so the generated lexer
                   # (which #includes it) is compiled only after it exists.
 ]
+
+if research_tools
+  lib_sources += [
+    'src/graph.c',
+    'src/wl.c',
+  ]
+endif
+
+if have_oxidd
+  lib_sources += ['src/residual_plan.c']
+endif
 
 tlsf_lib = static_library(
   'tlsf',
