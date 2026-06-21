@@ -39,6 +39,38 @@ static Block *new_block(Csnf *c) {
   return b;
 }
 
+static int32_t candidate_output(ConstraintCover *cov, const Constraint *c,
+                                CandidateKind kind) {
+  const TemplateCandidate *tc = constraint_find_candidate_payload(cov, c, kind);
+  if (!tc)
+    return -1;
+  switch (kind) {
+  case CAND_DEFINITION:
+    return tc->u.definition.output;
+  case CAND_RECURRENCE:
+    return tc->u.recurrence.output;
+  case CAND_REACHABILITY:
+    return tc->u.reachability.output;
+  case CAND_PERSISTENCE:
+    return tc->u.persistence.output;
+  case CAND_DELAYED_DEF:
+    return tc->u.delayed_def.output;
+  case CAND_TOGGLE:
+    return tc->u.toggle.output;
+  case CAND_FIXED_DELAY:
+    return tc->u.fixed_delay.output;
+  default:
+    return -1;
+  }
+}
+
+static const ResponseCandidate *response_candidate(ConstraintCover *cov,
+                                                   const Constraint *c) {
+  const TemplateCandidate *tc =
+      constraint_find_candidate_payload(cov, c, CAND_RESPONSE);
+  return tc ? &tc->u.response : nullptr;
+}
+
 static void guard_literals(ConstraintCover *cov, const Node *n, ApSet *pos,
                            ApSet *neg) {
   if (n->kind == NODE_AND) {
@@ -364,8 +396,9 @@ void certify_round_robin(Csnf *c, unsigned want, bool certify) {
     uint32_t no = 0;
     for (uint32_t k = 0; k < tb->count; k++) {
       Constraint *m = &cov->items[tb->constraint_ids[k]];
-      if (m->rec_output >= 0)
-        outs[no++] = m->rec_output;
+      int32_t rec_output = candidate_output(cov, m, CAND_RECURRENCE);
+      if (rec_output >= 0)
+        outs[no++] = rec_output;
     }
 
     // Side condition: those outputs occur in no constraint outside the block.
@@ -412,10 +445,11 @@ void certify_definition(Csnf *c, unsigned want, bool certify) {
   bool moore = semantics_is_moore(cov->spec->info.semantics);
   for (uint32_t i = 0; i < cov->count; i++) {
     Constraint *cc = &cov->items[i];
-    if (c->claimed[i] || !has_cand(cc, "definition") || cc->def_output < 0)
+    int32_t def_output = candidate_output(cov, cc, CAND_DEFINITION);
+    if (c->claimed[i] || !has_cand(cc, "definition") || def_output < 0)
       continue;
     const Node *eq = cc->formula->arg; // G(<eq>)
-    const char *oname = ap_table_name(&cov->aps, (uint32_t)cc->def_output);
+    const char *oname = ap_table_name(&cov->aps, (uint32_t)def_output);
     const Node *theta = (eq->lhs->kind == NODE_AP && eq->lhs->name == oname)
                             ? eq->rhs
                             : eq->lhs;
@@ -433,12 +467,12 @@ void certify_definition(Csnf *c, unsigned want, bool certify) {
     if (certify && !moore && !has_next(theta) && !occurs_in(theta, oname)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "definition_decoder";
-      blk->dec_output = cc->def_output;
+      blk->dec_output = def_output;
       blk->dec_theta = theta;
       c->solved[i] = true;
     } else {
       blk->status = CSNF_CANDIDATE;
-      blk->dec_output = cc->def_output;
+      blk->dec_output = def_output;
       blk->dec_theta = theta;
     }
     c->claimed[i] = true;
@@ -788,7 +822,8 @@ void certify_mutex(Csnf *c, unsigned want, bool certify) {
   ConstraintCover *cov = c->cov;
   for (uint32_t i = 0; i < cov->count; i++) {
     Constraint *cc = &cov->items[i];
-    if (c->claimed[i] || !cc->has_mutex)
+    if (c->claimed[i] ||
+        !constraint_find_candidate_payload(cov, cc, CAND_MUTEX))
       continue;
     Block *blk = new_block(c);
     if (!blk)
@@ -836,11 +871,12 @@ void certify_arbiter(Csnf *c, unsigned want, bool certify) {
     bool ok = true;
     for (uint32_t k = 0; k < tb->count; k++) {
       Constraint *m = &cov->items[tb->constraint_ids[k]];
-      if (m->resp_target < 0)
+      const ResponseCandidate *resp = response_candidate(cov, m);
+      if (!resp || resp->target < 0)
         continue; // the mutex member
-      grants[ng++] = m->resp_target;
-      if (m->resp_guard < 0 ||
-          !(ap_table_flags(&cov->aps, (uint32_t)m->resp_guard) & AP_FLAG_INPUT))
+      grants[ng++] = resp->target;
+      if (resp->guard < 0 ||
+          !(ap_table_flags(&cov->aps, (uint32_t)resp->guard) & AP_FLAG_INPUT))
         ok = false; // request is not a plain environment input
     }
     if (certify && ok)
@@ -880,10 +916,12 @@ void certify_response(Csnf *c, unsigned want, bool certify) {
       continue;
     uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
     uint32_t nid = 0;
-    for (uint32_t i = 0; i < cov->count; i++)
-      if (!c->claimed[i] && has_cand(&cov->items[i], "response") &&
-          cov->items[i].resp_target == (int32_t)o)
+    for (uint32_t i = 0; i < cov->count; i++) {
+      const ResponseCandidate *resp = response_candidate(cov, &cov->items[i]);
+      if (!c->claimed[i] && has_cand(&cov->items[i], "response") && resp &&
+          resp->target == (int32_t)o)
         ids[nid++] = i;
+    }
     if (nid == 0) {
       free(ids);
       continue;
@@ -922,9 +960,10 @@ void certify_persistence(Csnf *c, unsigned want, bool certify) {
   ConstraintCover *cov = c->cov;
   for (uint32_t i = 0; i < cov->count; i++) {
     Constraint *cc = &cov->items[i];
-    if (c->claimed[i] || !has_cand(cc, "persistence") || cc->pers_output < 0)
+    int32_t pers_output = candidate_output(cov, cc, CAND_PERSISTENCE);
+    if (c->claimed[i] || !has_cand(cc, "persistence") || pers_output < 0)
       continue;
-    uint32_t o = (uint32_t)cc->pers_output;
+    uint32_t o = (uint32_t)pers_output;
     Block *blk = new_block(c);
     if (!blk)
       return;
@@ -951,9 +990,10 @@ void certify_reachability(Csnf *c, unsigned want, bool certify) {
   ConstraintCover *cov = c->cov;
   for (uint32_t i = 0; i < cov->count; i++) {
     Constraint *cc = &cov->items[i];
-    if (c->claimed[i] || !has_cand(cc, "reachability") || cc->reach_output < 0)
+    int32_t reach_output = candidate_output(cov, cc, CAND_REACHABILITY);
+    if (c->claimed[i] || !has_cand(cc, "reachability") || reach_output < 0)
       continue;
-    uint32_t o = (uint32_t)cc->reach_output;
+    uint32_t o = (uint32_t)reach_output;
     Block *blk = new_block(c);
     if (!blk)
       return;
@@ -1057,14 +1097,15 @@ void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
   ConstraintCover *cov = c->cov;
   for (uint32_t i = 0; i < cov->count; i++) {
     Constraint *cc = &cov->items[i];
+    int32_t ddef_output = candidate_output(cov, cc, CAND_DELAYED_DEF);
     if (c->claimed[i] || !has_cand(cc, "delayed-definition") ||
-        cc->ddef_output < 0)
+        ddef_output < 0)
       continue;
     const Node *eq = cc->formula->arg; // G(<eq>)
     bool strong =
         eq->lhs->kind == NODE_X_STRONG || eq->rhs->kind == NODE_X_STRONG;
     const Node *theta = is_next_kind(eq->lhs->kind) ? eq->rhs : eq->lhs;
-    uint32_t o = (uint32_t)cc->ddef_output;
+    uint32_t o = (uint32_t)ddef_output;
     Block *blk = new_block(c);
     if (!blk)
       return;

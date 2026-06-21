@@ -175,15 +175,19 @@ static void emit_gsnf(FILE *out, ConstraintCover *cov, const GraphOpts *o) {
         if (apset_test(&c->inputs, a) || apset_test(&c->outputs, a))
           fprintf(out, "e c%u %s occurs_in\n", c->id,
                   ap_table_name(&cov->aps, a));
-    if (c->resp_guard >= 0)
+    const TemplateCandidate *resp =
+        constraint_find_candidate_payload(cov, c, CAND_RESPONSE);
+    if (resp && resp->u.response.guard >= 0)
       fprintf(out, "e c%u %s response_guard\n", c->id,
-              ap_table_name(&cov->aps, (uint32_t)c->resp_guard));
-    if (c->resp_target >= 0)
+              ap_table_name(&cov->aps, (uint32_t)resp->u.response.guard));
+    if (resp && resp->u.response.target >= 0)
       fprintf(out, "e c%u %s response_target\n", c->id,
-              ap_table_name(&cov->aps, (uint32_t)c->resp_target));
-    if (c->has_mutex)
+              ap_table_name(&cov->aps, (uint32_t)resp->u.response.target));
+    const TemplateCandidate *mutex =
+        constraint_find_candidate_payload(cov, c, CAND_MUTEX);
+    if (mutex)
       for (uint32_t a = 0; a < cov->aps.count; a++)
-        if (apset_test(&c->mutex_members, a))
+        if (apset_test(&mutex->u.mutex.members, a))
           fprintf(out, "e c%u %s mutex_member\n", c->id,
                   ap_table_name(&cov->aps, a));
   }
@@ -226,9 +230,11 @@ static void emit_dot(FILE *out, ConstraintCover *cov, const GraphOpts *o) {
         if (apset_test(&c->inputs, a) || apset_test(&c->outputs, a))
           fprintf(out, "  c%u -> \"%s\" [label=\"occurs_in\"];\n", c->id,
                   ap_table_name(&cov->aps, a));
-    if (c->resp_target >= 0)
+    const TemplateCandidate *resp =
+        constraint_find_candidate_payload(cov, c, CAND_RESPONSE);
+    if (resp && resp->u.response.target >= 0)
       fprintf(out, "  c%u -> \"%s\" [label=\"response_target\"];\n", c->id,
-              ap_table_name(&cov->aps, (uint32_t)c->resp_target));
+              ap_table_name(&cov->aps, (uint32_t)resp->u.response.target));
   }
   fprintf(out, "}\n");
 }

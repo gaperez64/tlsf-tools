@@ -95,8 +95,12 @@ static void match_response(ConstraintCover *cov, Constraint *c) {
   if (cons->kind != NODE_F)
     return;
   constraint_add_candidate(cov, c, "response");
-  c->resp_guard = ap_idx(cov, guard);
-  c->resp_target = ap_idx(cov, cons->arg);
+  TemplateCandidate *tc =
+      constraint_add_candidate_payload(cov, c, CAND_RESPONSE);
+  if (tc) {
+    tc->u.response.guard = ap_idx(cov, guard);
+    tc->u.response.target = ap_idx(cov, cons->arg);
+  }
 }
 
 // G F x  (records the target output when x is a plain output AP)
@@ -105,8 +109,12 @@ static void match_recurrence(ConstraintCover *cov, Constraint *c) {
     return;
   constraint_add_candidate(cov, c, "pure-recurrence");
   const Node *x = c->formula->arg->arg;
-  if (is_output(cov, x))
-    c->rec_output = ap_idx(cov, x);
+  if (is_output(cov, x)) {
+    TemplateCandidate *tc =
+        constraint_add_candidate_payload(cov, c, CAND_RECURRENCE);
+    if (tc)
+      tc->u.recurrence.output = ap_idx(cov, x);
+  }
 }
 
 // F G x  (records the target output when x is a plain output AP)
@@ -115,8 +123,12 @@ static void match_persistence(ConstraintCover *cov, Constraint *c) {
     return;
   constraint_add_candidate(cov, c, "persistence");
   const Node *x = c->formula->arg->arg;
-  if (is_output(cov, x))
-    c->pers_output = ap_idx(cov, x);
+  if (is_output(cov, x)) {
+    TemplateCandidate *tc =
+        constraint_add_candidate_payload(cov, c, CAND_PERSISTENCE);
+    if (tc)
+      tc->u.persistence.output = ap_idx(cov, x);
+  }
 }
 
 // F g  (one-shot reachability of an output)
@@ -127,7 +139,10 @@ static void match_reachability(ConstraintCover *cov, Constraint *c) {
   if (!is_output(cov, g))
     return;
   constraint_add_candidate(cov, c, "reachability");
-  c->reach_output = ap_idx(cov, g);
+  TemplateCandidate *tc =
+      constraint_add_candidate_payload(cov, c, CAND_REACHABILITY);
+  if (tc)
+    tc->u.reachability.output = ap_idx(cov, g);
 }
 
 // G(alpha -> o) / G(alpha -> !o)  (immediate reaction; o an output literal,
@@ -163,8 +178,12 @@ static void match_fixed_delay_response(ConstraintCover *cov, Constraint *c) {
   if (steps < 2 || !is_output(cov, target))
     return;
   constraint_add_candidate(cov, c, "fixed-delay-response");
-  c->fdelay_output = ap_idx(cov, target);
-  c->fdelay_steps = steps;
+  TemplateCandidate *tc =
+      constraint_add_candidate_payload(cov, c, CAND_FIXED_DELAY);
+  if (tc) {
+    tc->u.fixed_delay.output = ap_idx(cov, target);
+    tc->u.fixed_delay.steps = steps;
+  }
 }
 
 static bool recurrence_side(ConstraintCover *cov, const Node *n) {
@@ -209,7 +228,10 @@ static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
   if (!xside || !is_output(cov, xside->arg))
     return;
   constraint_add_candidate(cov, c, "delayed-definition");
-  c->ddef_output = ap_idx(cov, xside->arg);
+  TemplateCandidate *tc =
+      constraint_add_candidate_payload(cov, c, CAND_DELAYED_DEF);
+  if (tc)
+    tc->u.delayed_def.output = ap_idx(cov, xside->arg);
 }
 
 // G(alpha -> X o) / G(alpha -> X !o)  (also X[!])
@@ -249,7 +271,10 @@ static void match_toggle_register(ConstraintCover *cov, Constraint *c) {
       lhs->arg->name != rhs->arg->name || !is_output(cov, lhs->arg))
     return;
   constraint_add_candidate(cov, c, "toggle-register");
-  c->toggle_output = ap_idx(cov, lhs->arg);
+  TemplateCandidate *tc =
+      constraint_add_candidate_payload(cov, c, CAND_TOGGLE);
+  if (tc)
+    tc->u.toggle.output = ap_idx(cov, lhs->arg);
 }
 
 // G(o <-> theta), o an output
@@ -261,10 +286,16 @@ static void match_definition(ConstraintCover *cov, Constraint *c) {
     return;
   if (is_output(cov, body->lhs)) {
     constraint_add_candidate(cov, c, "definition");
-    c->def_output = ap_idx(cov, body->lhs);
+    TemplateCandidate *tc =
+        constraint_add_candidate_payload(cov, c, CAND_DEFINITION);
+    if (tc)
+      tc->u.definition.output = ap_idx(cov, body->lhs);
   } else if (is_output(cov, body->rhs)) {
     constraint_add_candidate(cov, c, "definition");
-    c->def_output = ap_idx(cov, body->rhs);
+    TemplateCandidate *tc =
+        constraint_add_candidate_payload(cov, c, CAND_DEFINITION);
+    if (tc)
+      tc->u.definition.output = ap_idx(cov, body->rhs);
   }
 }
 
@@ -278,16 +309,17 @@ static void match_invariant(ConstraintCover *cov, Constraint *c) {
 }
 
 // Collect a mutex written as a conjunction of !(x && y) leaves.
-static bool mutex_leaves(ConstraintCover *cov, Constraint *c, const Node *n) {
+static bool mutex_leaves(ConstraintCover *cov, ApSet *members, const Node *n) {
   if (n->kind == NODE_AND)
-    return mutex_leaves(cov, c, n->lhs) && mutex_leaves(cov, c, n->rhs);
+    return mutex_leaves(cov, members, n->lhs) &&
+           mutex_leaves(cov, members, n->rhs);
   if (n->kind == NODE_NOT && n->arg->kind == NODE_AND) {
     const Node *p = n->arg;
     int32_t li = ap_idx(cov, p->lhs), ri = ap_idx(cov, p->rhs);
     if (li < 0 || ri < 0)
       return false;
-    apset_set(&c->mutex_members, (uint32_t)li);
-    apset_set(&c->mutex_members, (uint32_t)ri);
+    apset_set(members, (uint32_t)li);
+    apset_set(members, (uint32_t)ri);
     return true;
   }
   return false;
@@ -296,12 +328,16 @@ static bool mutex_leaves(ConstraintCover *cov, Constraint *c, const Node *n) {
 static void match_mutex(ConstraintCover *cov, Constraint *c) {
   if (c->formula->kind != NODE_G)
     return;
-  if (!mutex_leaves(cov, c, c->formula->arg))
+  ApSet members;
+  apset_init(&members, cov->arena, cov->aps.count);
+  if (!mutex_leaves(cov, &members, c->formula->arg))
     return;
-  if (apset_count(&c->mutex_members) < 2)
+  if (apset_count(&members) < 2)
     return;
-  c->has_mutex = true;
   constraint_add_candidate(cov, c, "mutex");
+  TemplateCandidate *tc = constraint_add_candidate_payload(cov, c, CAND_MUTEX);
+  if (tc)
+    tc->u.mutex.members = members;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +352,7 @@ static void build_blocks(ConstraintCover *cov) {
   // Upper bound: two blocks (arbiter + round-robin) per mutex constraint.
   uint32_t nmutex = 0;
   for (uint32_t i = 0; i < cov->count; i++)
-    if (cov->items[i].has_mutex)
+    if (constraint_find_candidate_payload(cov, &cov->items[i], CAND_MUTEX))
       nmutex++;
   if (nmutex == 0)
     return;
@@ -326,16 +362,23 @@ static void build_blocks(ConstraintCover *cov) {
 
   for (uint32_t m = 0; m < cov->count; m++) {
     Constraint *mx = &cov->items[m];
-    if (!mx->has_mutex)
+    const TemplateCandidate *mutex =
+        constraint_find_candidate_payload(cov, mx, CAND_MUTEX);
+    if (!mutex)
       continue;
 
     // Arbiter: responses targeting a mutex member.
     uint32_t *aids = ARENA_ALLOC_N(cov->arena, uint32_t, cov->count);
     uint32_t an = 0;
-    for (uint32_t r = 0; r < cov->count; r++)
-      if (cov->items[r].resp_target >= 0 &&
-          apset_test(&mx->mutex_members, (uint32_t)cov->items[r].resp_target))
+    for (uint32_t r = 0; r < cov->count; r++) {
+      const TemplateCandidate *resp =
+          constraint_find_candidate_payload(cov, &cov->items[r],
+                                            CAND_RESPONSE);
+      if (resp && resp->u.response.target >= 0 &&
+          apset_test(&mutex->u.mutex.members,
+                     (uint32_t)resp->u.response.target))
         aids[an++] = cov->items[r].id;
+    }
     if (an >= 2) {
       aids[an++] = mx->id;
       cov->blocks[cov->block_count++] =
@@ -347,10 +390,15 @@ static void build_blocks(ConstraintCover *cov) {
     // Round-robin: recurrences whose target output is a mutex member.
     uint32_t *rids = ARENA_ALLOC_N(cov->arena, uint32_t, cov->count);
     uint32_t rn = 0;
-    for (uint32_t r = 0; r < cov->count; r++)
-      if (cov->items[r].rec_output >= 0 &&
-          apset_test(&mx->mutex_members, (uint32_t)cov->items[r].rec_output))
+    for (uint32_t r = 0; r < cov->count; r++) {
+      const TemplateCandidate *rec =
+          constraint_find_candidate_payload(cov, &cov->items[r],
+                                            CAND_RECURRENCE);
+      if (rec && rec->u.recurrence.output >= 0 &&
+          apset_test(&mutex->u.mutex.members,
+                     (uint32_t)rec->u.recurrence.output))
         rids[rn++] = cov->items[r].id;
+    }
     if (rn >= 2) {
       rids[rn++] = mx->id;
       cov->blocks[cov->block_count++] =

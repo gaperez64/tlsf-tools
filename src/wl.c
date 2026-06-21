@@ -171,13 +171,19 @@ static Adj *wl_build_adj(const ConstraintCover *cov, uint32_t *Nout) {
     for (uint32_t a = 0; a < A; a++)
       if (apset_test(&c->inputs, a) || apset_test(&c->outputs, a))
         add_edge(adj, i, K + a, "occurs_in");
-    if (c->resp_guard >= 0)
-      add_edge(adj, i, K + (uint32_t)c->resp_guard, "response_guard");
-    if (c->resp_target >= 0)
-      add_edge(adj, i, K + (uint32_t)c->resp_target, "response_target");
-    if (c->has_mutex)
+    const TemplateCandidate *resp =
+        constraint_find_candidate_payload(cov, c, CAND_RESPONSE);
+    if (resp && resp->u.response.guard >= 0)
+      add_edge(adj, i, K + (uint32_t)resp->u.response.guard,
+               "response_guard");
+    if (resp && resp->u.response.target >= 0)
+      add_edge(adj, i, K + (uint32_t)resp->u.response.target,
+               "response_target");
+    const TemplateCandidate *mutex =
+        constraint_find_candidate_payload(cov, c, CAND_MUTEX);
+    if (mutex)
       for (uint32_t a = 0; a < A; a++)
-        if (apset_test(&c->mutex_members, a))
+        if (apset_test(&mutex->u.mutex.members, a))
           add_edge(adj, i, K + a, "mutex_member");
   }
   return adj;
