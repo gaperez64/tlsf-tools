@@ -212,7 +212,7 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
     for (uint32_t j = 0; j < nlat; j++) {
       uint32_t reset;
       aig_latch_at(game, j, nullptr, nullptr, &reset);
-      args[j].var = nin + j;
+      args[j].var = var_base + nin + j;
       args[j].val = reset != 0;
     }
     bool realizable = oxidd_bdd_eval(Z, args, nlat);
