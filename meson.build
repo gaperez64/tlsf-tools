@@ -138,9 +138,13 @@ if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
     )
   endif
   # Rust staticlib pulls in the system threading/dl/math runtime.
+  oxidd_link_args = [oxidd_lib_path, '-lpthread', '-lm']
+  if host_machine.system() != 'darwin'
+    oxidd_link_args += ['-ldl']
+  endif
   oxidd_dep = declare_dependency(
     include_directories: include_directories('external/oxidd/build/include'),
-    link_args: [oxidd_lib_path, '-lpthread', '-ldl', '-lm'],
+    link_args: oxidd_link_args,
   )
   have_oxidd = true
   message('OxiDD safety solver enabled (' + oxidd_lib_path + ')')
