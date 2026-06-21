@@ -202,6 +202,7 @@ lib_sources = [
   'src/apset.c',
   'src/cover.c',
   'src/recognize.c',
+  'src/pipeline.c',
   'src/graph.c',
   'src/wl.c',
   'src/templates.c',
