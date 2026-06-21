@@ -308,6 +308,7 @@ if have_oxidd
     'tlsfcompose',
     sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
               'src/compose_games.c', 'src/compose_solve.c',
+              'src/compose_route.c',
               'src/safety_oxidd.c', 'src/gr1_oxidd.c',
               'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],

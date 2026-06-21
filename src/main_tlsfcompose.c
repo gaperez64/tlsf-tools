@@ -28,6 +28,8 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include "compose_route.h"
+
 #include <ctype.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -341,114 +343,13 @@ int main(int argc, char *argv[]) {
         rc = 1;
         break;
       }
-      ClusterShape shape = cluster_shape(spec, root);
       int unreal = 0;
-      Aig *sub = nullptr;
-      const Node *strict_sys = nullptr, *strict_env = nullptr;
-      bool use_direct = aig_eligible(root, finite);
-      bool use_strict = !finite && !use_direct && shape.gr_level == 0 &&
-                        !shape.has_liveness &&
-                        aig_strict_safety_parts(root, &strict_sys, &strict_env);
-      // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
-      // with W/R on any side is encoded exactly (monitors), preferred over the
-      // lossy bounded reduction below.
-      bool use_wr = !finite && !use_direct && !use_strict &&
-                    !shape.has_liveness && wr_structural_supported(root);
-
-      // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
-      // the cluster then becomes a pure-safety game (no fairness assumption
-      // survives), solve it with the OxiDD safety solver.
-      const Node *bounded_root = nullptr;
-      if (!finite && !use_direct && !use_strict && !use_wr &&
-          (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
-        Node *br = bound_liveness(spec->arena, root, bound_k, true);
-        if (aig_eligible(br, finite))
-          bounded_root = br;
-      }
-      // Complete GR(1): a fairness-bearing cluster `G F a -> safety & justice`
-      // (which the bounded-liveness path cannot handle because the `G F a`
-      // assumption is unsound to bound) is emitted as a real justice/fairness
-      // game and solved by the OxiDD GR(1) fixpoint.
-      Gr1Parts gp;
-      bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
-                     !bounded_root && aig_gr1_parts(spec->arena, root, &gp);
-      bool use_oxidd =
-          use_direct || use_strict || use_wr || bounded_root || use_gr1;
-      const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
-      if (use_direct) {
-        sub = solve_safety_game(cov, seen, build_aig_game(cov, seen, root),
-                                &unreal);
-        // Formulas with bare top-level W/R (not inside G) use release-latch
-        // monitors compiled at lag=depth.  When depth>0 (G X conjuncts in the
-        // same formula) the lag interaction can spuriously over-constrain the
-        // game.  Fall back to ltlsynt on UNREALIZABLE in that case; for pure
-        // G-only formulas (no bare W/R) the encoding is exact and UNREALIZABLE
-        // can be trusted.
-        if (!sub && (!unreal || wr_has_bare_wr(root))) {
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (safety miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (use_strict) {
-        sub = solve_safety_game(
-            cov, seen,
-            build_aig_strict_safety_game(cov, seen, strict_sys, strict_env),
-            &unreal);
-        if (!sub && !unreal) {
-          // OxiDD failed: fall back to ltlsynt on the original formula.
-          use_oxidd = false;
-          backend = "ltlsynt fallback (strict safety miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (use_wr) {
-        backend = "OxiDD (W/R safety)";
-        sub = solve_safety_game(cov, seen, build_aig_wr_game(cov, seen, root),
-                                &unreal);
-        if (!sub) {
-          // Fall back on both encoding errors (unreal=0) and UNREALIZABLE
-          // verdicts (unreal=1): complex pattern interaction (nested X, depth≥3
-          // bodies) can produce over-constrained games that are spuriously
-          // unrealizable.  ltlsynt is the authoritative oracle.
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (W/R miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (bounded_root) {
-        backend = "OxiDD (bounded)";
-        sub = solve_safety_game(
-            cov, seen, build_aig_game(cov, seen, bounded_root), &unreal);
-        if (!sub) {
-          // Bounded miss (unrealizable at this k, or no strategy): the
-          // unbounded game may still be realizable, so fall back to ltlsynt
-          // rather than failing the spec.
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (bounded miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (use_gr1) {
-        backend = "OxiDD (GR(1))";
-        sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &gp),
-                             &unreal);
-        if (!sub) {
-          // The GR(1) solver found no strategy (or called it unrealizable --
-          // the recognizer may over-constrain); defer to ltlsynt rather than
-          // risk a false UNREALIZABLE.
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (GR(1) miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else {
-        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-      }
+      ComposeRoute route;
+      (void)compose_route_select(spec, root, finite, bound_k, &route);
+      bool use_oxidd = false;
+      const char *backend = nullptr;
+      Aig *sub = compose_route_solve(&route, prog, cov, seen, fmt, finite,
+                                     &unreal, &use_oxidd, &backend);
       // Self-verification gate: a synthesized controller must satisfy the
       // ORIGINAL cluster spec (`root`, not a bounded/strict surrogate).  If it
       // provably violates it, discard it and fall back to ltlsynt, so a
@@ -479,7 +380,8 @@ int main(int argc, char *argv[]) {
         const char *detail =
             use_oxidd
                 ? "OxiDD returned no usable strategy"
-                : cluster_ltlsynt_reason(&shape, finite, reason, sizeof reason);
+                : cluster_ltlsynt_reason(&route.shape, finite, reason,
+                                         sizeof reason);
         fprintf(stderr,
                 "tlsfcompose: synthesis backend failed for cluster %u (%s: "
                 "%s)\n",
