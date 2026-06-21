@@ -35,8 +35,7 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
     return true;
   }
 
-  bool use_wr = !finite && !shape.has_liveness &&
-                wr_structural_supported(root);
+  bool use_wr = !finite && !shape.has_liveness && wr_structural_supported(root);
   if (use_wr) {
     out->kind = ROUTE_WR_SAFETY;
     out->uses_oxidd = true;
@@ -44,9 +43,8 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
     return true;
   }
 
-  if (bound_k != 0 &&
-      !finite && (shape.has_liveness || shape.has_weak_until ||
-                  shape.has_release)) {
+  if (bound_k != 0 && !finite &&
+      (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
     Node *br = bound_liveness(spec->arena, root, bound_k, true);
     if (aig_eligible(br, finite)) {
       out->kind = ROUTE_BOUNDED_EXPERIMENTAL;
@@ -98,11 +96,11 @@ Aig *compose_route_solve(const ComposeRoute *route, const char *ltlsynt_prog,
     break;
 
   case ROUTE_STRICT_SAFETY:
-    sub = solve_safety_game(
-        cov, seen,
-        build_aig_strict_safety_game(cov, seen, route->strict_sys,
-                                     route->strict_env),
-        &local_unreal);
+    sub =
+        solve_safety_game(cov, seen,
+                          build_aig_strict_safety_game(
+                              cov, seen, route->strict_sys, route->strict_env),
+                          &local_unreal);
     if (!sub && !local_unreal) {
       use_oxidd = false;
       backend = "ltlsynt fallback (strict safety miss)";
@@ -127,9 +125,9 @@ Aig *compose_route_solve(const ComposeRoute *route, const char *ltlsynt_prog,
     break;
 
   case ROUTE_BOUNDED_EXPERIMENTAL:
-    sub = solve_safety_game(
-        cov, seen, build_aig_game(cov, seen, route->bounded_root),
-        &local_unreal);
+    sub = solve_safety_game(cov, seen,
+                            build_aig_game(cov, seen, route->bounded_root),
+                            &local_unreal);
     if (!sub) {
       // Bounded miss (unrealizable at this k, or no strategy): the unbounded
       // game may still be realizable, so fall back instead of failing.
@@ -142,8 +140,7 @@ Aig *compose_route_solve(const ComposeRoute *route, const char *ltlsynt_prog,
     break;
 
   case ROUTE_GR1:
-    sub = solve_gr1_game(cov, seen,
-                         build_aig_gr1_game(cov, seen, &route->gr1),
+    sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &route->gr1),
                          &local_unreal);
     if (!sub) {
       // The GR(1) recognizer may over-constrain; defer to ltlsynt rather than

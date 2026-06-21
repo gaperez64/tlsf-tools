@@ -202,8 +202,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--side-conditions") == 0) {
       const char *v = NEED_ARG();
       if (strcmp(v, "syntactic") != 0) {
-        fprintf(stderr, "tlsftemplates: unknown side-condition mode '%s'\n",
-                v);
+        fprintf(stderr, "tlsftemplates: unknown side-condition mode '%s'\n", v);
         return 1;
       }
     } else if (strcmp(a, "--overwrite-semantics") == 0) {

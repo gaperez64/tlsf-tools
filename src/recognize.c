@@ -271,8 +271,7 @@ static void match_toggle_register(ConstraintCover *cov, Constraint *c) {
       lhs->arg->name != rhs->arg->name || !is_output(cov, lhs->arg))
     return;
   constraint_add_candidate(cov, c, "toggle-register");
-  TemplateCandidate *tc =
-      constraint_add_candidate_payload(cov, c, CAND_TOGGLE);
+  TemplateCandidate *tc = constraint_add_candidate_payload(cov, c, CAND_TOGGLE);
   if (tc)
     tc->u.toggle.output = ap_idx(cov, lhs->arg);
 }
@@ -372,8 +371,7 @@ static void build_blocks(ConstraintCover *cov) {
     uint32_t an = 0;
     for (uint32_t r = 0; r < cov->count; r++) {
       const TemplateCandidate *resp =
-          constraint_find_candidate_payload(cov, &cov->items[r],
-                                            CAND_RESPONSE);
+          constraint_find_candidate_payload(cov, &cov->items[r], CAND_RESPONSE);
       if (resp && resp->u.response.target >= 0 &&
           apset_test(&mutex->u.mutex.members,
                      (uint32_t)resp->u.response.target))
@@ -391,9 +389,8 @@ static void build_blocks(ConstraintCover *cov) {
     uint32_t *rids = ARENA_ALLOC_N(cov->arena, uint32_t, cov->count);
     uint32_t rn = 0;
     for (uint32_t r = 0; r < cov->count; r++) {
-      const TemplateCandidate *rec =
-          constraint_find_candidate_payload(cov, &cov->items[r],
-                                            CAND_RECURRENCE);
+      const TemplateCandidate *rec = constraint_find_candidate_payload(
+          cov, &cov->items[r], CAND_RECURRENCE);
       if (rec && rec->u.recurrence.output >= 0 &&
           apset_test(&mutex->u.mutex.members,
                      (uint32_t)rec->u.recurrence.output))

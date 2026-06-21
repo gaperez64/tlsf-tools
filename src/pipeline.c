@@ -48,8 +48,7 @@ TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
   }
   recognize_all(p->cover);
 
-  p->csnf = templates_certify(p->cover,
-                              opts ? opts->template_mask : TPL_ALL,
+  p->csnf = templates_certify(p->cover, opts ? opts->template_mask : TPL_ALL,
                               opts ? opts->certify : true);
   p->composition = p->csnf ? csnf_compose(p->csnf) : nullptr;
   if (!p->csnf || !p->composition) {

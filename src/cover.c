@@ -131,9 +131,8 @@ TemplateCandidate *constraint_add_candidate_payload(ConstraintCover *cov,
                                                     Constraint *c,
                                                     CandidateKind kind) {
   if (cov->template_candidate_count == cov->template_candidate_cap) {
-    uint32_t nc = cov->template_candidate_cap
-                      ? cov->template_candidate_cap * 2u
-                      : 16u;
+    uint32_t nc =
+        cov->template_candidate_cap ? cov->template_candidate_cap * 2u : 16u;
     TemplateCandidate *arr = ARENA_ALLOC_N(cov->arena, TemplateCandidate, nc);
     if (!arr)
       return nullptr;
@@ -148,8 +147,8 @@ TemplateCandidate *constraint_add_candidate_payload(ConstraintCover *cov,
   ids[0] = c->id;
   TemplateCandidate *tc =
       &cov->template_candidates[cov->template_candidate_count++];
-  *tc = (TemplateCandidate){.kind = kind, .constraint_ids = ids,
-                            .nconstraints = 1};
+  *tc = (TemplateCandidate){
+      .kind = kind, .constraint_ids = ids, .nconstraints = 1};
   return tc;
 }
 

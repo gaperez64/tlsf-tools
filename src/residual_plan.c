@@ -6,8 +6,7 @@
 #include <stdlib.h>
 
 ResidualPlan *residual_plan_build(TlsfSpec *spec, ConstraintCover *cov,
-                                  const Csnf *csnf,
-                                  const CsnfComposition *comp,
+                                  const Csnf *csnf, const CsnfComposition *comp,
                                   ResidualPlanOptions opts) {
   uint32_t n = cov->count;
   ResidualPlan *p = calloc(1, sizeof(*p));
@@ -24,8 +23,7 @@ ResidualPlan *residual_plan_build(TlsfSpec *spec, ConstraintCover *cov,
   for (uint32_t i = 0; i < n; i++) {
     if (comp->elim_constraint[i])
       continue;
-    if (opts.skip_local_aiger &&
-        csnf_constraint_has_local_aiger(csnf, comp, i))
+    if (opts.skip_local_aiger && csnf_constraint_has_local_aiger(csnf, comp, i))
       continue;
     const Node *f =
         residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);

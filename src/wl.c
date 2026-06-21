@@ -174,8 +174,7 @@ static Adj *wl_build_adj(const ConstraintCover *cov, uint32_t *Nout) {
     const TemplateCandidate *resp =
         constraint_find_candidate_payload(cov, c, CAND_RESPONSE);
     if (resp && resp->u.response.guard >= 0)
-      add_edge(adj, i, K + (uint32_t)resp->u.response.guard,
-               "response_guard");
+      add_edge(adj, i, K + (uint32_t)resp->u.response.guard, "response_guard");
     if (resp && resp->u.response.target >= 0)
       add_edge(adj, i, K + (uint32_t)resp->u.response.target,
                "response_target");

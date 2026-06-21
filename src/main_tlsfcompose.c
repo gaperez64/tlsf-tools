@@ -335,9 +335,9 @@ int main(int argc, char *argv[]) {
         aig_free(of_sub);
         continue;
       }
-      Node *root = residual_plan_build_cluster(
-          spec, cov, rplan, rplan->keys[k], /*all=*/false, /*prune=*/true,
-          seen);
+      Node *root =
+          residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                      /*all=*/false, /*prune=*/true, seen);
       if (!root) {
         rc = 1;
         break;
@@ -377,10 +377,9 @@ int main(int argc, char *argv[]) {
       } else if (!sub) {
         char reason[192];
         const char *detail =
-            use_oxidd
-                ? "OxiDD returned no usable strategy"
-                : cluster_ltlsynt_reason(&route.shape, finite, reason,
-                                         sizeof reason);
+            use_oxidd ? "OxiDD returned no usable strategy"
+                      : cluster_ltlsynt_reason(&route.shape, finite, reason,
+                                               sizeof reason);
         fprintf(stderr,
                 "tlsfcompose: synthesis backend failed for cluster %u (%s: "
                 "%s)\n",
@@ -474,9 +473,9 @@ int main(int argc, char *argv[]) {
     // realizability check covers them (built with all assumptions, prune=false,
     // so coupling assumptions that mention other clusters' outputs survive).
     bool output_free = rplan->keys[k] == A;
-    Node *root = residual_plan_build_cluster(
-        spec, cov, rplan, rplan->keys[k], /*all=*/false,
-        /*prune=*/!output_free, seen);
+    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                             /*all=*/false,
+                                             /*prune=*/!output_free, seen);
     if (!root) {
       rc = 1;
       break;

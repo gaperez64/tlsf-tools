@@ -1098,8 +1098,7 @@ void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
   for (uint32_t i = 0; i < cov->count; i++) {
     Constraint *cc = &cov->items[i];
     int32_t ddef_output = candidate_output(cov, cc, CAND_DELAYED_DEF);
-    if (c->claimed[i] || !has_cand(cc, "delayed-definition") ||
-        ddef_output < 0)
+    if (c->claimed[i] || !has_cand(cc, "delayed-definition") || ddef_output < 0)
       continue;
     const Node *eq = cc->formula->arg; // G(<eq>)
     bool strong =
