@@ -666,6 +666,9 @@ if have_oxidd
     args: [files('test/cases/compose_demo.route_stats'), tlsfcompose_exe,
            '--route-stats', '--experimental-bounded', '4',
            files('test/cases/compose_demo.tlsf')])
+  test('compose_route_stats_initial_x_assume', check,
+    args: [files('test/cases/initial_x_assume.route_stats'), tlsfcompose_exe,
+           '--route-stats', files('test/cases/initial_x_assume.tlsf')])
   # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
   foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
     test('aiger_' + name, check,

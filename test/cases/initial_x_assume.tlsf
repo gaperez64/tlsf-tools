@@ -1,0 +1,7 @@
+INFO { TITLE: "initial_x_assume" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { i; }
+  OUTPUTS { o; }
+  ASSUMPTIONS { X i; }
+  GUARANTEES { G (o -> X i); }
+}

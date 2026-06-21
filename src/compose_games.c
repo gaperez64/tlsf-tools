@@ -564,7 +564,9 @@ static bool wr_antecedent_supported(const Node *n) {
   case NODE_AND:
     return wr_antecedent_supported(n->lhs) && wr_antecedent_supported(n->rhs);
   default:
-    return aig_initial_ok(n);
+    // X-delayed initial assumptions are encoded by wr_emit_guarantee's
+    // step_one gate.
+    return aig_initial_x_ok(n);
   }
 }
 
