@@ -38,3 +38,8 @@ __pycache__/
 # default output is BENCHGRAPH.tsv (alongside BENCHGRAPH.md); keep both cases
 BENCHGRAPH.tsv
 benchgraph.tsv
+
+# Local handoff artifacts
+handoff.md
+tlsf-selection-2026/
+tlsf-fin-selection-2026/
