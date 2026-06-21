@@ -16,6 +16,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
 #include "tlsf/ast.h"
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
@@ -43,8 +44,6 @@
 #include <unistd.h>
 
 extern char **environ;
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(
@@ -120,11 +119,35 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
   return buf;
 }
 
+static uint32_t count_seen_aps(const ConstraintCover *cov, const bool *seen,
+                               uint32_t flag) {
+  uint32_t count = 0;
+  for (uint32_t i = 0; i < cov->aps.count; i++) {
+    if (seen[i] && (ap_table_flags(&cov->aps, i) & flag))
+      count++;
+  }
+  return count;
+}
+
+static size_t formula_bytes(const Node *root, LtlFormat fmt, bool finite) {
+  char *buf = nullptr;
+  size_t len = 0;
+  FILE *ms = open_memstream(&buf, &len);
+  if (!ms)
+    return 0;
+  print_ltl(ms, root, fmt, /*full_parens=*/false, finite,
+            /*lower_atoms=*/false);
+  fclose(ms);
+  free(buf);
+  return len;
+}
+
 static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
                              const ResidualPlan *rplan, bool finite,
-                             uint32_t bound_k, bool *seen) {
-  fprintf(out, "cluster\touts\tins\tnodes\tgr_level\thas_liveness\thas_wr\t"
-               "has_release\troute\tbackend\treason\n");
+                             uint32_t bound_k, bool *seen, LtlFormat fmt) {
+  fprintf(out,
+          "cluster\tn_outs\tn_ins\touts\tins\tnodes\tformula_bytes\tgr_level\t"
+          "has_liveness\thas_wr\thas_release\troute\tbackend\texact\treason\n");
   for (uint32_t k = 0; k < rplan->nclusters; k++) {
     bool output_free = rplan->keys[k] == cov->aps.count;
     Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
@@ -148,14 +171,17 @@ static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
       (void)compose_route_select(spec, root, finite, bound_k, &route);
     }
     char reason[192];
-    fprintf(out, "%u\t", k);
+    fprintf(out, "%u\t%u\t%u\t", k, count_seen_aps(cov, seen, AP_FLAG_OUTPUT),
+            count_seen_aps(cov, seen, AP_FLAG_INPUT));
     residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
     fprintf(out, "\t");
     residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
-    fprintf(out, "\t%u\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", ast_node_count(root),
+    fprintf(out, "\t%u\t%zu\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%s\n",
+            ast_node_count(root), formula_bytes(root, fmt, finite),
             route.shape.gr_level, route.shape.has_liveness ? 1 : 0,
             route.shape.has_weak_until ? 1 : 0, route.shape.has_release ? 1 : 0,
             route_kind_name(route.kind), route.label ? route.label : "ltlsynt",
+            route.exact ? 1 : 0,
             route_stats_reason(&route, finite, reason, sizeof reason));
   }
   return true;
@@ -269,7 +295,9 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(a, "--version") == 0) {
-      printf("tlsfcompose %s\n", TLSF_VERSION);
+      printf("tlsfcompose %s oxidd=%s research=%s simd=%s\n",
+             TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
+             tlsf_build_simd());
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
@@ -374,7 +402,9 @@ int main(int argc, char *argv[]) {
 
   if (route_stats) {
     uint32_t bound_k = (uint32_t)bound_opt;
-    rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen) ? 0 : 1;
+    rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen, fmt)
+             ? 0
+             : 1;
     free(seen);
     residual_plan_free(rplan);
     if (output_file)
@@ -404,8 +434,9 @@ int main(int argc, char *argv[]) {
     // Persistent BDD manager: one allocation shared across all clusters,
     // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
     // Variables accumulate with per-cluster base offsets; GC reclaims dead
-    // nodes between clusters.  Cap at 1<<22 (4M nodes / ~96-160MB RSS).
-    oxidd_session_init(1u << 22, 1u << 22);
+    // nodes between clusters.  Cap at 1<<21 (2M nodes) to keep peak RSS low
+    // while still covering the measured self-contained OxiDD corpus.
+    oxidd_session_init(1u << 21, 1u << 21);
 
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs

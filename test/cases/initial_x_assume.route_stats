@@ -1,2 +1,2 @@
 cluster	n_outs	n_ins	outs	ins	nodes	formula_bytes	gr_level	has_liveness	has_wr	has_release	route	backend	exact	reason
-0	1	1	g	r	5	13	-1	1	0	0	bounded-experimental	OxiDD (bounded)	0	selected explicit experimental bounded path
+0	1	1	o	i	8	20	-1	0	0	0	wr-safety	OxiDD (W/R safety)	1	selected exact fast path

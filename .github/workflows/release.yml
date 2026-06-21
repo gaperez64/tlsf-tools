@@ -1,0 +1,135 @@
+name: Release Archives
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64-v2
+            os: ubuntu-24.04
+            cpu: x86-64-v2
+          - platform: macos-arm64
+            os: macos-14
+            cpu: neon
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Verify runner platform
+        run: |
+          uname -a
+          if [ "${{ matrix.platform }}" = "macos-arm64" ] && [ "$(uname -m)" != "arm64" ]; then
+            echo "macos-arm64 release must run on an ARM64 runner" >&2
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              meson ninja-build flex bison gcc-14
+            echo "CC=gcc-14" >> "$GITHUB_ENV"
+          else
+            brew update
+            brew install meson ninja flex bison
+            echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+            echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Install Rust and cbindgen
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          command -v cbindgen >/dev/null || cargo install cbindgen --locked --force
+
+      - name: Build OxiDD FFI
+        run: scripts/build_oxidd.sh
+
+      - name: Configure and build all tools
+        run: |
+          meson setup build-release \
+            -Doxidd=enabled \
+            -Dresearch_tools=true \
+            -Dcpu=${{ matrix.cpu }} \
+            --buildtype=release
+          ninja -C build-release
+
+      - name: Smoke test release binaries
+        run: |
+          ./build-release/tlsf2ltl --version
+          ./build-release/tlsf2tlsf --version
+          ./build-release/tlsfinfo --version
+          ./build-release/tlsfnorm --version
+          ./build-release/tlsfresidual --version
+          ./build-release/tlsfcompose --version
+          ./build-release/tlsfsolve --help
+          ./build-release/tlsfsolve test/cases/solve_real.aag >/tmp/strategy.aag
+
+      - name: Package archive
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            short_sha="$(git rev-parse --short HEAD)"
+            version="0.1.0-${short_sha}"
+          fi
+          archive="tlsf-tools-${version}-${{ matrix.platform }}"
+          stage="dist/${archive}"
+          mkdir -p "$stage"
+
+          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm tlsfresidual tlsfcompose tlsfsolve tlsfgraph tlsfwl tlsftemplates tlsfbenchgraph"
+          for tool in $tools; do
+            cp "build-release/${tool}" "$stage/"
+          done
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "$stage/"
+          {
+            printf 'version=%s\n' "$version"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'platform=%s\n' "${{ matrix.platform }}"
+            printf 'oxidd=enabled\n'
+            printf 'research_tools=true\n'
+            printf 'cpu=%s\n' "${{ matrix.cpu }}"
+          } > "$stage/BUILD_INFO.txt"
+
+          (
+            cd "$stage"
+            for file in $tools README.md LICENSE THIRD_PARTY_NOTICES.md BUILD_INFO.txt; do
+              if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum "$file"
+              else
+                shasum -a 256 "$file"
+              fi
+            done > SHA256SUMS
+          )
+
+          tar -C dist -czf "dist/${archive}.tar.gz" "$archive"
+          echo "ARCHIVE=dist/${archive}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-archive
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+      - name: Upload GitHub release asset
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+              --notes "tlsf-tools ${GITHUB_REF_NAME}"
+          gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" --clobber

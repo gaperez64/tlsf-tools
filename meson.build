@@ -46,12 +46,18 @@ add_project_arguments(extra_cflags, language: 'c')
 
 cpu = get_option('cpu')
 cpu_flags = []
-if cpu == 'avx2'
+if cpu == 'x86-64-v2'
+  cpu_flags = ['-march=x86-64-v2', '-mtune=generic']
+elif cpu == 'avx2'
   cpu_flags = ['-mavx2', '-mfma']
 elif cpu == 'avx512'
   cpu_flags = ['-mavx512f', '-mavx512bw', '-mavx512vpopcntdq']
 elif cpu == 'neon'
-  cpu_flags = ['-march=armv8-a+simd']
+  if host_machine.system() == 'darwin'
+    cpu_flags = []
+  else
+    cpu_flags = ['-march=armv8-a+simd']
+  endif
 elif cpu == 'native'
   cpu_flags = ['-march=native']
 endif
@@ -94,9 +100,8 @@ endif
 
 # ---------------------------------------------------------------------------
 # In-process safety + GR(1) solver: OxiDD (Rust + C FFI), vendored as a
-# submodule and built manually so the default build/CI stay dependency-free.
-# `meson compile -C build oxidd-build` produces the static library + cbindgen
-# header; reconfigure to pick them up.
+# submodule and built before OxiDD-enabled Meson configuration. Reduced
+# developer/frontend-only builds can pass -Doxidd=disabled.
 # ---------------------------------------------------------------------------
 
 oxidd_feature = get_option('oxidd')
@@ -125,15 +130,21 @@ have_oxidd = false
 if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
   if not oxidd_ready
     error(
-      'OxiDD feature requested but artifacts are missing. Run ' +
-      '`meson compile -C build oxidd-build` (after ' +
-      '`meson compile -C build oxidd-submodule`), then reconfigure.',
+      'OxiDD artifacts are missing. Run:\n' +
+      '  git submodule update --init --recursive\n' +
+      '  scripts/build_oxidd.sh\n' +
+      '  meson setup build -Doxidd=enabled --buildtype=release\n' +
+      'or configure a frontend-only developer build with -Doxidd=disabled.',
     )
   endif
   # Rust staticlib pulls in the system threading/dl/math runtime.
+  oxidd_link_args = [oxidd_lib_path, '-lpthread', '-lm']
+  if host_machine.system() != 'darwin'
+    oxidd_link_args += ['-ldl']
+  endif
   oxidd_dep = declare_dependency(
     include_directories: include_directories('external/oxidd/build/include'),
-    link_args: [oxidd_lib_path, '-lpthread', '-ldl', '-lm'],
+    link_args: oxidd_link_args,
   )
   have_oxidd = true
   message('OxiDD safety solver enabled (' + oxidd_lib_path + ')')
@@ -141,6 +152,15 @@ elif oxidd_feature.auto()
   message('OxiDD safety solver disabled (artifacts absent; build with ' +
           '`meson compile -C build oxidd-build`)')
 endif
+
+build_info_conf = configuration_data()
+build_info_conf.set_quoted('TLSF_PROJECT_VERSION', meson.project_version())
+build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
+build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
+configure_file(
+  output: 'build_config.h',
+  configuration: build_info_conf,
+)
 
 # ---------------------------------------------------------------------------
 # Codegen: flex → tlsf_lex.c + tlsf_lex.h
@@ -264,6 +284,14 @@ tlsfinfo_exe = executable(
   install: true,
 )
 
+tlsfnorm_exe = executable(
+  'tlsfnorm',
+  sources: ['src/main_tlsfnorm.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
 if research_tools
   tlsfgraph_exe = executable(
     'tlsfgraph',
@@ -292,14 +320,6 @@ if research_tools
   tlsfbenchgraph_exe = executable(
     'tlsfbenchgraph',
     sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
-
-  tlsfnorm_exe = executable(
-    'tlsfnorm',
-    sources: ['src/main_tlsfnorm.c', bison_out[1]],
     link_with: tlsf_lib,
     include_directories: inc,
     install: true,
@@ -340,6 +360,13 @@ if have_oxidd
     install: true,
   )
 endif
+
+simd_check_exe = executable(
+  'simd_check',
+  sources: ['test/simd_check.c'],
+  include_directories: inc,
+)
+test('simd_kernels', simd_check_exe)
 
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
@@ -639,6 +666,15 @@ if have_oxidd
     args: [files('test/cases/compose_demo.route_stats'), tlsfcompose_exe,
            '--route-stats', '--experimental-bounded', '4',
            files('test/cases/compose_demo.tlsf')])
+  test('compose_route_stats_initial_x_assume', check,
+    args: [files('test/cases/initial_x_assume.route_stats'), tlsfcompose_exe,
+           '--route-stats', files('test/cases/initial_x_assume.tlsf')])
+  test('compose_route_stats_delayed_global', check,
+    args: [files('test/cases/delayed_global.route_stats'), tlsfcompose_exe,
+           '--route-stats', files('test/cases/delayed_global.tlsf')])
+  test('compose_route_stats_gr1_recurrence', check,
+    args: [files('test/cases/gr1_recurrence.route_stats'), tlsfcompose_exe,
+           '--route-stats', files('test/cases/gr1_recurrence.tlsf')])
   # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
   foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
     test('aiger_' + name, check,
@@ -692,6 +728,12 @@ if have_oxidd
   test('aiger_verify_gate_keeps', tlsfcompose_exe,
     args: ['--aiger', '--ltlsynt', '/bin/false', '--verify', '/bin/true',
            files('test/cases/gr1_spec.tlsf')])
+  test('aiger_delayed_global_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/delayed_global.tlsf')])
+  test('aiger_gr1_recurrence_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/gr1_recurrence.tlsf')])
   test('aiger_verify_gate_falls_back', xfail,
     args: [tlsfcompose_exe, '--aiger',
            '--ltlsynt', '/bin/false', '--verify', '/bin/false',
@@ -812,7 +854,7 @@ endif
 
 if research_tools
 # Constraint decomposition: cover --split exposes shapes inside a single
-# conjunctive formula; tlsfnorm re-emits the split spec.
+# conjunctive formula for graph/template inspection.
 test('graph_split_off', check,
   args: [files('test/cases/arbiter1formula.graph.txt'),
          tlsfgraph_exe, '--templates', files('test/cases/arbiter1formula.tlsf')])
@@ -846,6 +888,9 @@ test('graph_wl_labels_basic', check_wl,
 test('graph_template_named', check,
   args: [files('test/cases/arbiter1formula.tmpl_reaction.txt'), tlsfgraph_exe,
          '--template', 'reaction', files('test/cases/arbiter1formula.tlsf')])
+endif
+
+# tlsfnorm is stable preprocessing functionality.
 test('norm_split', check,
   args: [files('test/cases/arbiter1formula.norm.tlsf'),
          tlsfnorm_exe, '--passes', 'split',
@@ -862,7 +907,7 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
-endif
+
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

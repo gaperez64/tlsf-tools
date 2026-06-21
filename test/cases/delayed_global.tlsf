@@ -1,0 +1,6 @@
+INFO { TITLE: "delayed_global" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { i; }
+  OUTPUTS { o; }
+  GUARANTEES { X G (i -> o); }
+}

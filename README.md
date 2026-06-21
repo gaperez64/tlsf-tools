@@ -4,52 +4,85 @@ Small, fast, Unix-style command-line tools for working with
 [TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
 Format) specifications, sharing a common C library.
 
-| Tool | Input | Output |
-|---|---|---|
-| `tlsf2ltl`  | TLSF 1.1/1.2 spec | LTL formula — `ltlxba` (default, for [spot](https://spot.lre.epita.fr/), `ltl2ba`, `ltl3ba`), `ltl`, or `latex`; optional simplification/rewrites |
-| `tlsf2tlsf` | TLSF 1.1/1.2 spec | Expanded *basic* TLSF (no `GLOBAL` section, flat formula lists) |
-| `tlsfinfo`  | TLSF 1.1/1.2 spec | Metadata (title, semantics/target, signals, GR level, bounded-temporal origins) |
-| `tlsfgraph` | TLSF 1.1/1.2 spec | Synthesis graph (GSNF) + template candidates + WL features — `text`/`gsnf`/`dot`/`tsv` |
-| `tlsfwl`    | TLSF 1.1/1.2 specs | Weisfeiler-Lehman features / similarity matrix for clustering & retrieval |
-| `tlsftemplates` | TLSF 1.1/1.2 spec | Certify template-solvable blocks → CSNF (decoders, schedulers, certificates) |
-| `tlsfbenchgraph` | TLSF corpus (dir/list/files) | Per-spec form/template-shape metrics (TSV) + aggregate summary |
-| `tlsfnorm`  | TLSF 1.1/1.2 spec | Local normalization (split / nnf / boolean passes), re-emitted as TLSF |
-| `tlsfresidual` | TLSF 1.1/1.2 spec | Residual LTL after a *sound* template decomposition (for `ltlsynt`/`strix`, or safety/GR(1) clusters for OxiDD) |
-| `tlsfcompose` | TLSF 1.1/1.2 spec | Decomposed-synthesis plan or merged AIGER: certified controllers + residual clusters + OxiDD (safety+GR(1)) and `ltlsynt` backends |
+The normal release build uses OxiDD (<https://github.com/OxiDD/oxidd>) as the
+in-process BDD backend for safety and GR(1) games. `ltlsynt` is not a library
+dependency of this project; it is an optional fallback executable used by
+`tlsfcompose --aiger` and by the Docker wrapper image.
 
-They are a lightweight, dependency-free alternative to the relevant parts of
-[`syfco`](https://github.com/reactive-systems/syfco): given a parameterised TLSF
-spec, fully expand it (parameters, definitions including recursive case
-definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed `X[n]` and
-bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground TLSF spec or
-the equivalent LTL — plus a structure-aware analysis/decomposition/synthesis
-layer (`tlsfgraph`…`tlsfcompose`) that `syfco` does not have.
+The tools fully expand parameterised TLSF (parameters, definitions including
+recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
+`X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
+TLSF spec or equivalent LTL. The synthesis layer adds structure-aware
+decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
+routes, and optional fallback to `ltlsynt`.
+
+## Status
+
+### Stable tools
+
+| Tool | Purpose |
+|---|---|
+| `tlsf2ltl` | Convert expanded TLSF to LTL. |
+| `tlsf2tlsf` | Emit expanded/basic TLSF. |
+| `tlsfinfo` | Inspect metadata, signals, and GR level. |
+| `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
+| `tlsfresidual` | Emit residual clusters after sound decomposition. |
+| `tlsfcompose` | Build a decomposed synthesis plan or merged AIGER controller. |
+| `tlsfsolve` | Solve AbsSynthe-style AIGER safety/GR(1) games with OxiDD. |
+
+### Research and diagnostic tools
+
+Built with `-Dresearch_tools=true`; included in release archives for
+reproducibility, but not part of the stable preprocessing API.
+
+| Tool | Purpose |
+|---|---|
+| `tlsfgraph` | Inspect GSNF/template candidates. |
+| `tlsfwl` | Compute WL graph fingerprints/similarity. |
+| `tlsftemplates` | Inspect template certificates and CSNF output. |
+| `tlsfbenchgraph` | Generate corpus-level benchmark/shape reports. |
 
 ```
 TLSF file ──parse──► raw AST ──expand──► ground AST ──► tlsf2tlsf  (basic TLSF)
                   (flex+bison)  (params→defs→buses→quantifiers)  └──► tlsf2ltl  (LTL)
-ground AST ──► tlsfgraph/tlsftemplates (structure, candidates, certified controllers)
-           └──► tlsfresidual/tlsfcompose (residual clusters + backends → plan / AIGER)
+ground AST ──► tlsfnorm      (normalized TLSF)
+           ├──► tlsfresidual (residual clusters)
+           └──► tlsfcompose  (residual clusters + backends → plan / AIGER)
 ```
 
 ## Building
 
 Requires a C23 compiler, [meson](https://mesonbuild.com/),
-[ninja](https://ninja-build.org/), `flex`, and `bison`.
+[ninja](https://ninja-build.org/), `flex`, `bison`, Rust/cargo, and
+`cbindgen` for release-quality OxiDD-enabled builds.
+
+Release-quality build:
 
 ```sh
-meson setup build && ninja -C build
-# build/{tlsf2ltl,tlsf2tlsf,tlsfinfo,tlsfgraph,tlsfwl,tlsftemplates,
-#        tlsfbenchgraph,tlsfnorm,tlsfresidual,tlsfcompose}
-meson setup build-san -Dsanitize=address,undefined   # sanitizers (optional)
+git submodule update --init --recursive
+scripts/build_oxidd.sh
+meson setup build -Doxidd=enabled --buildtype=release
+ninja -C build
 ```
 
-Optional OxiDD backend (in-process safety + GR(1) BDD solver; requires Rust/cargo + cbindgen):
+Reduced developer/frontend-only build:
 
 ```sh
-meson compile -C build oxidd-submodule oxidd-build   # or: scripts/build_oxidd.sh
-meson setup build-oxidd -Doxidd=enabled && ninja -C build-oxidd
+meson setup build-min -Doxidd=disabled
+ninja -C build-min
 ```
+
+Research/diagnostic tools:
+
+```sh
+git submodule update --init --recursive
+scripts/build_oxidd.sh
+meson setup build-research -Doxidd=enabled -Dresearch_tools=true --buildtype=release
+ninja -C build-research
+```
+
+Sanitizers are available for development builds with
+`-Dsanitize=address,undefined`.
 
 ## Usage
 
@@ -82,7 +115,13 @@ tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized T
 tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl per cluster
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers + clusters + compose.sh
 tlsfcompose --split --aiger spec.tlsf                     # one merged AIGER controller (OxiDD + ltlsynt)
+tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
+
+`tlsfsolve` reads an AbsSynthe-style AIGER game: uncontrollable inputs are
+ordinary inputs, controllable inputs are prefixed `controllable_`, safety games
+use a `bad` output, and GR(1) games may use AIGER 1.9 `justice`/`fairness`
+records. It emits a strategy AAG on stdout or exits nonzero with `UNREALIZABLE`.
 
 ## Example pipelines
 
@@ -236,7 +275,7 @@ every result is `ltlfilt --equivalent-to` the input. Check against syfco with
 
 ```sh
 meson test -C build                                  # fast golden-output suite
-meson setup build-cov -Db_coverage=true && meson test -C build-cov   # + coverage
+meson setup build-cov -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
 clang-format -i src/*.c include/tlsf/*.h             # style (LLVM, 2-space, 80col)
 clang-tidy -p build src/*.c                          # lint
 bench/bench.sh [--baseline|--check]                  # wall/RSS vs syfco / guard
@@ -252,31 +291,6 @@ faster and uses ~7× less memory than `syfco -f ltlxba`.
 Relative to `syfco`, not implemented: structured synthesis outputs
 (`smv`/`slugs`/`promela`/…), partition (`.part`) and config (`-r`/`-w`) files.
 Unsupported options fail through each tool's ordinary option validation.
-
-## Future work
-
-The preprocessor's job is to hand `ltlsynt` a *smaller, cheaper* problem and to
-carve off what symbolic BDD methods do better — **not** to solve general
-liveness in-process. A full liveness game backend is an LTL→automata translation
-(determinize to parity/Rabin, then solve), i.e. reimplementing Spot; that work
-stays delegated to `ltlsynt`. The realistic, automata-free levers are:
-
-0. Survey "pastification" procedures to change subformulas into past LTL for
-   easier reduction to safety.
-2. **Symbolic GR(2) / generalized-Rabin.** The OxiDD GR(1) fixpoint already
-   solves the `⋀ G F aᵢ → ⋀ G F gⱼ` fragment without any determinization. Extend
-   it to generalized-Rabin acceptance to reach the `amba_gr+` family — still a
-   BDD fixpoint, no automata.
-3. **Tighter decomposition → smaller residual.** More sound combinational/
-   template eliminations and finer output-disjoint clustering shrink each
-   cluster handed to `ltlsynt` without changing its job. This is exactly what the
-   *residual-reduction* metric in [`BENCHGRAPH.md`](BENCHGRAPH.md) scores.
-4. **Widen the BDD-fast fragment.** Symbolic GR(1) already beats automata
-   construction on the specs `ltlsynt` times out on (large `amba_gr`); keep
-   pushing more safety / GR(k)-shaped residuals onto the in-process solver so
-   only genuinely automata-shaped liveness is forwarded.
-
-See [roadmap](docs/ROADMAP-gr1-persistence.md) too.
 
 ## License
 

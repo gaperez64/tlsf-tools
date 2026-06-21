@@ -317,6 +317,11 @@ bool aig_safety_wr_ok(const Node *n) {
   case NODE_W:
   case NODE_R:
     return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return true;
+    return aig_initial_x_ok(n);
   default:
     // A bare Boolean or X-delayed conjunct is an initial-state constraint.
     return aig_initial_x_ok(n);
@@ -341,6 +346,13 @@ uint32_t aig_safety_wr_x_depth(const Node *n) {
     uint32_t a = aig_x_depth(n->lhs), b = aig_x_depth(n->rhs);
     return a > b ? a : b;
   }
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return 1 + wr_body_x_depth(n->arg->arg);
+    if (!aig_initial_x_ok(n))
+      return UINT32_MAX;
+    return aig_x_depth(n);
   default:
     // X-delayed initial constraint: its X-depth sets the gate-latch offset.
     if (!aig_initial_x_ok(n))
@@ -362,6 +374,11 @@ bool wr_has_initial(const Node *n) {
     return false;
   case NODE_AND:
     return wr_has_initial(n->lhs) || wr_has_initial(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return false;
+    return true;
   default:
     return true;
   }
@@ -378,8 +395,29 @@ bool wr_has_x_initial(const Node *n) {
     return false;
   case NODE_AND:
     return wr_has_x_initial(n->lhs) || wr_has_x_initial(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return false;
+    return !aig_initial_ok(n) && aig_initial_x_ok(n);
   default:
     return !aig_initial_ok(n) && aig_initial_x_ok(n);
+  }
+}
+
+// True if n contains a one-step delayed invariant `X G(body)`.  The W/R game
+// builder checks these from the second logical step onward.
+bool wr_has_delayed_global(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+    return n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg);
+  case NODE_AND:
+    return wr_has_delayed_global(n->lhs) || wr_has_delayed_global(n->rhs);
+  case NODE_IMPL:
+    return wr_has_delayed_global(n->lhs) || wr_has_delayed_global(n->rhs);
+  default:
+    return false;
   }
 }
 
@@ -530,10 +568,11 @@ static bool gr1_collect_strict_safety(Arena *a, const Node *n, Gr1Parts *p) {
 // implication is rejected: it would be unconditional or independent liveness,
 // which is not a single GR(1) condition (it is Streett-like).
 static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
-                                   bool *found_impl) {
+                                   bool *found_impl, bool *found_bare_justice) {
   if (n->kind == NODE_AND)
-    return gr1_collect_consequent(a, n->lhs, p, found_impl) &&
-           gr1_collect_consequent(a, n->rhs, p, found_impl);
+    return gr1_collect_consequent(a, n->lhs, p, found_impl,
+                                  found_bare_justice) &&
+           gr1_collect_consequent(a, n->rhs, p, found_impl, found_bare_justice);
   if (aig_initial_ok(n)) {
     p->sys_init = p->sys_init->kind == NODE_TRUE
                       ? n
@@ -541,13 +580,19 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
     return true;
   }
   if (n->kind == NODE_IMPL) { // the single flat GR(1) implication
-    if (*found_impl)
+    if (*found_impl || *found_bare_justice)
       return false; // a second independent implication is not GR(1)
     *found_impl = true;
     return gr1_collect(a, n->lhs, true, p) && gr1_collect(a, n->rhs, false, p);
   }
-  if (match_gf(n))
-    return false; // unconditional `G F` justice (not gated by the assume)
+  const Node *gf = match_gf(n);
+  if (gf) {
+    if (*found_impl || p->njustice >= GR1_MAX_JUSTICE)
+      return false; // don't mix unconditional justice with env fairness
+    *found_bare_justice = true;
+    p->justice[p->njustice++] = (Gr1Justice){nullptr, gf};
+    return true;
+  }
   if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
     if (p->nweak >= GR1_MAX_WEAK)
       return false;
@@ -589,14 +634,16 @@ bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
   }
   // The remainder is the guarantee side: sys-init conjuncts, unconditional
   // safety, and the single `(AND G F a) -> (AND justice)` implication (anywhere
-  // in the AND tree).  gr1_collect_consequent buckets them and rejects
-  // non-GR(1) shapes; the fairness/justice counts below are the final gate.
+  // in the AND tree), or a recurrence-only `G F goal` with no fairness
+  // implication.  gr1_collect_consequent buckets them and rejects non-GR(1)
+  // shapes; the fairness/justice counts below are the final gate.
   bool found_impl = false;
-  if (!gr1_collect_consequent(a, root, p, &found_impl))
+  bool found_bare_justice = false;
+  if (!gr1_collect_consequent(a, root, p, &found_impl, &found_bare_justice))
     return false;
   // The emitter encodes X-depth assumptions via the assumption window, so the
   // safety assume need only be encodable (finite X-depth), not x-depth 0.
-  return p->nfairness > 0 && p->njustice > 0 &&
+  return p->njustice > 0 && (p->nfairness > 0 || !found_impl) &&
          aig_global_x_depth(p->safety_assume) != UINT32_MAX;
 }
 

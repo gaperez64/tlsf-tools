@@ -403,6 +403,17 @@ static bool wr_emit_guarantee(AigCtx *ctx, const Node *n, uint32_t depth,
            wr_emit_guarantee(ctx, n->rhs, depth, valid, first, step_one, bad);
   case NODE_G:
     return wr_emit_g_body(ctx, n->arg, depth, valid, bad);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg)) {
+      if (first == AIG_FALSE)
+        return false;
+      // X G(body): start enforcing the invariant one logical step after the
+      // first state, i.e. when valid is high and the first pulse is over.
+      uint32_t delayed_valid = aig_and(g, valid, aig_not(first));
+      return wr_emit_g_body(ctx, n->arg->arg, depth, delayed_valid, bad);
+    }
+    [[fallthrough]];
   case NODE_W:
   case NODE_R: {
     uint32_t av = compile_at_lag(ctx, n->lhs, depth);
@@ -564,7 +575,9 @@ static bool wr_antecedent_supported(const Node *n) {
   case NODE_AND:
     return wr_antecedent_supported(n->lhs) && wr_antecedent_supported(n->rhs);
   default:
-    return aig_initial_ok(n);
+    // X-delayed initial assumptions are encoded by wr_emit_guarantee's
+    // step_one gate.
+    return aig_initial_x_ok(n);
   }
 }
 
@@ -712,7 +725,8 @@ Aig *build_aig_wr_game(ConstraintCover *cov, const bool *seen,
   // The rising edge of valid (first logical step) charges initial constraints;
   // build the marker latch only when some conjunct actually has an initial.
   uint32_t first = AIG_FALSE;
-  if (wr_structural_has_initial(root) || wr_structural_has_x_initial(root)) {
+  if (wr_structural_has_initial(root) || wr_structural_has_x_initial(root) ||
+      wr_has_delayed_global(root)) {
     uint32_t seen_valid = aig_latch(g, AIG_FALSE, AIG_FALSE);
     if (!aig_set_latch_next(g, seen_valid, aig_or(g, seen_valid, valid))) {
       free(hist);

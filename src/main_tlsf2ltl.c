@@ -2,6 +2,7 @@
 /// See --help for the options.
 
 #include "tlsf/classify.h"
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/nnf.h"
@@ -12,8 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSF_VERSION "0.1.0"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -275,7 +274,8 @@ int main(int argc, char *argv[]) {
       if (!parse_override(a, &overrides[n_overrides++]))
         return 1;
     } else if (strcmp(argv[i], "--version") == 0) {
-      printf("tlsf2ltl %s\n", TLSF_VERSION);
+      printf("tlsf2ltl %s oxidd=%s research=%s simd=%s\n", TLSF_PROJECT_VERSION,
+             tlsf_build_oxidd(), tlsf_build_research(), tlsf_build_simd());
       return 0;
     } else if (strcmp(argv[i], "--help") == 0) {
       usage(argv[0]);

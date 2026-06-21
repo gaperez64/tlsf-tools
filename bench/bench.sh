@@ -3,6 +3,7 @@
 # peak resident memory, over the specs in bench/specs/.
 #
 #   bench/bench.sh [--build DIR] [--runs N] [--baseline] [--check]
+#   bench/bench.sh --matrix CORPUS [--runs N] [--matrix-timeout SECONDS]
 #
 #   --baseline   write our numbers to bench/baseline.tsv
 #   --check      compare our numbers to bench/baseline.tsv and fail on a
@@ -16,6 +17,8 @@ root="$(dirname "$here")"
 build="$root/build"
 runs=7
 mode=report
+matrix_corpus=""
+matrix_timeout=60
 # Time is machine-dependent (the committed baseline is from one host), so the
 # time tolerance is generous and catches only gross algorithmic regressions;
 # peak RSS is far more stable across machines.
@@ -29,9 +32,161 @@ while [ $# -gt 0 ]; do
     --runs) runs="$2"; shift 2 ;;
     --baseline) mode=baseline; shift ;;
     --check) mode=check; shift ;;
+    --matrix) matrix_corpus="$2"; shift 2 ;;
+    --matrix-timeout) matrix_timeout="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+percentile() {
+  local pct="$1"
+  awk -v pct="$pct" '
+    { a[NR] = $1 }
+    END {
+      if (NR == 0) { print 0; exit }
+      idx = int((NR * pct + 99) / 100)
+      if (idx < 1) idx = 1
+      if (idx > NR) idx = NR
+      print a[idx]
+    }'
+}
+
+cpu_supported() {
+  local cpu="$1"
+  case "$cpu" in
+    baseline|native) return 0 ;;
+    x86-64-v2)
+      [ -r /proc/cpuinfo ] || return 0
+      grep -qi 'sse4_2' /proc/cpuinfo && grep -qi 'popcnt' /proc/cpuinfo
+      return $? ;;
+    avx2)
+      [ -r /proc/cpuinfo ] || return 0
+      grep -qi 'avx2' /proc/cpuinfo
+      return $? ;;
+    *) return 0 ;;
+  esac
+}
+
+setup_matrix_build() {
+  local dir="$1" cpu="$2"
+  if ! cpu_supported "$cpu"; then
+    echo "skip $cpu: CPU tier not supported by this host" >&2
+    return 1
+  fi
+  if [ -d "$dir/meson-private" ]; then
+    meson setup "$dir" --reconfigure -Doxidd=enabled -Dcpu="$cpu" \
+      --buildtype=release >/dev/null || return 1
+  else
+    meson setup "$dir" -Doxidd=enabled -Dcpu="$cpu" --buildtype=release \
+      >/dev/null || return 1
+  fi
+  ninja -C "$dir" >/dev/null
+}
+
+measure_once() {
+  local tmp start end rc rss
+  tmp="$(mktemp)"
+  start=$(date +%s%N)
+  /usr/bin/time -v -o "$tmp" "$@" >/dev/null 2>/dev/null
+  rc=$?
+  end=$(date +%s%N)
+  rss="$(awk '/Maximum resident/{print $NF}' "$tmp")"
+  rm -f "$tmp"
+  printf '%s\t%s\t%s\n' "$(((end - start) / 1000000))" "${rss:-0}" "$rc"
+}
+
+measure_matrix_once() {
+  local build_dir="$1" label="$2" spec="$3"
+  local cmd=()
+  case "$label" in
+    tlsf2ltl)
+      cmd=("$build_dir/tlsf2ltl" "$spec") ;;
+    tlsfresidual_split)
+      cmd=("$build_dir/tlsfresidual" --split "$spec") ;;
+    route_stats)
+      cmd=("$build_dir/tlsfcompose" --split --route-stats "$spec") ;;
+    compose_self_contained)
+      cmd=("$build_dir/tlsfcompose" --split --aiger --ltlsynt /bin/false "$spec") ;;
+    compose_full)
+      cmd=("$build_dir/tlsfcompose" --split --aiger "$spec") ;;
+    *)
+      return 2 ;;
+  esac
+  if [ "${matrix_timeout:-0}" != 0 ] && [ -n "${timeout_bin:-}" ]; then
+    measure_once "$timeout_bin" "$matrix_timeout" "${cmd[@]}"
+  else
+    measure_once "${cmd[@]}"
+  fi
+}
+
+summarize_matrix_command() {
+  local build_name="$1" cpu="$2" build_dir="$3" label="$4" route_file="$5"
+  local times=() rss_values=() failures=0 self_ok=0 total=0 spec run row ms rss rc
+  for spec in "${matrix_specs[@]}"; do
+    for ((run = 0; run < runs; run++)); do
+      row="$(measure_matrix_once "$build_dir" "$label" "$spec")"
+      IFS=$'\t' read -r ms rss rc <<< "$row"
+      times+=("$ms")
+      rss_values+=("$rss")
+      [ "$rc" = 0 ] || failures=$((failures + 1))
+      if [ "$label" = compose_self_contained ] && [ "$rc" = 0 ]; then
+        self_ok=$((self_ok + 1))
+      fi
+      total=$((total + 1))
+    done
+  done
+  local med p95 max_rss
+  med="$(printf '%s\n' "${times[@]}" | sort -n | percentile 50)"
+  p95="$(printf '%s\n' "${times[@]}" | sort -n | percentile 95)"
+  max_rss="$(printf '%s\n' "${rss_values[@]}" | sort -n | tail -1)"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$build_name" "$cpu" "$label" "${#matrix_specs[@]}" "$med" "$p95" \
+    "${max_rss:-0}" "$failures" "$self_ok/$total" "$route_file"
+}
+
+run_matrix() {
+  [ "$runs" -lt 3 ] && runs=3
+  [ -n "$matrix_corpus" ] || { echo "--matrix needs a corpus path" >&2; exit 2; }
+  timeout_bin=""
+  if [ "$matrix_timeout" != 0 ]; then
+    if ! timeout_bin="$(command -v timeout 2>/dev/null)"; then
+      echo "warning: timeout command not found; matrix commands are unbounded" >&2
+      timeout_bin=""
+    fi
+  fi
+  mapfile -t matrix_specs < <(find "$matrix_corpus" -name '*.tlsf' | sort)
+  [ ${#matrix_specs[@]} -gt 0 ] || { echo "no TLSF files in $matrix_corpus" >&2; exit 2; }
+
+  local entries=(
+    "build-scalar:baseline"
+    "build-v2:x86-64-v2"
+    "build-avx2:avx2"
+    "build-native:native"
+  )
+  local commands=(tlsf2ltl tlsfresidual_split route_stats compose_self_contained)
+  if command -v ltlsynt >/dev/null 2>&1; then
+    commands+=(compose_full)
+  fi
+
+  printf 'build\tcpu\tcommand\tspecs\tmedian_ms\tp95_ms\tmax_rss_kib\tfailures\tself_contained\troute_summary\n'
+  local entry dir cpu route_file
+  for entry in "${entries[@]}"; do
+    dir="${entry%%:*}"
+    cpu="${entry##*:}"
+    setup_matrix_build "$root/$dir" "$cpu" || continue
+    route_file="$root/bench/route_stats_${cpu}.tsv"
+    "$root/scripts/collect_route_stats.py" --compose "$root/$dir/tlsfcompose" \
+      --out "$route_file" "$matrix_corpus" >/dev/null || true
+    for cmd in "${commands[@]}"; do
+      summarize_matrix_command "$dir" "$cpu" "$root/$dir" "$cmd" "$route_file"
+    done
+  done
+}
+
+if [ -n "$matrix_corpus" ]; then
+  run_matrix
+  exit 0
+fi
 
 # median wall-clock in milliseconds of `runs` executions of "$@"
 median_ms() {
