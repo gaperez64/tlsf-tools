@@ -46,6 +46,7 @@ def read_aiger(args):
         cmd.append("--split")
     if args.ltlsynt is not None:
         cmd.extend(["--ltlsynt", args.ltlsynt])
+    cmd.extend(args.compose_arg)
     cmd.append(args.tlsf)
     proc = subprocess.run(
         cmd,
@@ -72,6 +73,8 @@ def parse_args(argv):
                              "assert no fallback is used")
     parser.add_argument("--split", action="store_true",
                         help="pass --split to tlsfcompose")
+    parser.add_argument("--compose-arg", action="append", default=[],
+                        help="additional tlsfcompose argument (repeatable)")
     parser.add_argument("--tlsf", help="TLSF spec to translate and/or compose")
     parser.add_argument("--tlsf2ltl", default="tlsf2ltl",
                         help="tlsf2ltl path used with --tlsf")

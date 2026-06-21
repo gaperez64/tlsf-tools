@@ -57,8 +57,8 @@ static void usage(const char *prog) {
       " via OxiDD + ltlsynt backends\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
-      "  --bound N                    step bound for the bounded-liveness "
-      "path (default 4)\n"
+      "  --experimental-bounded N     enable bounded-liveness heuristic with "
+      "step bound N\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
       "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
       "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   const char *verify_path = nullptr;
-  unsigned long bound_opt = 0; // 0 = unset (default 4)
+  unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -143,12 +143,14 @@ int main(int argc, char *argv[]) {
       ltlsynt_path = NEED_ARG();
     } else if (strcmp(a, "--verify") == 0) {
       verify_path = NEED_ARG();
-    } else if (strcmp(a, "--bound") == 0) {
+    } else if (strcmp(a, "--experimental-bounded") == 0) {
       const char *v = NEED_ARG();
       char *end;
       bound_opt = strtoul(v, &end, 10);
       if (*end != '\0' || bound_opt == 0) {
-        fprintf(stderr, "tlsfcompose: --bound expects a positive integer\n");
+        fprintf(stderr,
+                "tlsfcompose: --experimental-bounded expects a positive "
+                "integer\n");
         return 1;
       }
     } else if (strcmp(a, "--output-dir") == 0) {
@@ -286,10 +288,7 @@ int main(int argc, char *argv[]) {
     const char *verifier = verify_path                   ? verify_path
                            : (verify_env && *verify_env) ? verify_env
                                                          : nullptr;
-    // Bound for the bounded-liveness path: --bound or default.
-    uint32_t bound_k = bound_opt ? (uint32_t)bound_opt : 4;
-    if (bound_k == 0)
-      bound_k = 4;
+    uint32_t bound_k = (uint32_t)bound_opt;
     // Persistent BDD manager: one allocation shared across all clusters,
     // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
     // Variables accumulate with per-cluster base offsets; GC reclaims dead

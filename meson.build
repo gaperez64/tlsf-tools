@@ -627,10 +627,12 @@ if have_oxidd
   endforeach
   # --aiger merge path: OxiDD solves the bounded-liveness cluster, the
   # combinational controller drives 'o', and the merged AIGER is golden-tested.
-  # fake_ltlsynt is passed but not invoked (OxiDD handles the only cluster).
+  # fake_ltlsynt is passed but not invoked when the experimental bounded route
+  # handles the only cluster.
   test('aiger_merge', check,
     args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
-           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           '--experimental-bounded', '4', '--ltlsynt',
+           files('test/fake_ltlsynt.sh'),
            files('test/cases/compose_demo.tlsf')])
   # Output-free (input-only) guarantee cluster: no controller is merged, but it
   # is realizability-checked via (fake) ltlsynt -- here G F req is realizable
@@ -731,7 +733,6 @@ if python3.found() and spot_python_found
     # OxiDD in-process safety + GR(1) solver: Spot-verify controllers.
     foreach name : ['assume_delay_real', 'cluster_prune_safe',
                     'strict_safety',
-                    'bounded_resp', 'bounded_until', 'bounded_wuntil',
                     'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
                     'wr_assume', 'wr_distributable_impl', 'wr_gated_nox',
                     'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body']
@@ -739,6 +740,16 @@ if python3.found() and spot_python_found
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,
                '--ltlsynt', '/bin/false',
+               '--tlsf2ltl', tlsf2ltl_path,
+               '--tlsf', files('test/cases/' + name + '.tlsf')])
+    endforeach
+    foreach name : ['bounded_resp', 'bounded_until', 'bounded_wuntil']
+      test('verify_aiger_oxidd_' + name, python3,
+        args: [files('scripts/verify_aiger_ltl.py'),
+               '--compose', tlsfcompose_path,
+               '--ltlsynt', '/bin/false',
+               '--compose-arg', '--experimental-bounded',
+               '--compose-arg', '4',
                '--tlsf2ltl', tlsf2ltl_path,
                '--tlsf', files('test/cases/' + name + '.tlsf')])
     endforeach
