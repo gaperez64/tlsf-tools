@@ -127,6 +127,50 @@ void constraint_add_candidate(ConstraintCover *cov, Constraint *c,
   c->candidates[c->candidate_count++] = name;
 }
 
+TemplateCandidate *constraint_add_candidate_payload(ConstraintCover *cov,
+                                                    Constraint *c,
+                                                    CandidateKind kind) {
+  if (cov->template_candidate_count == cov->template_candidate_cap) {
+    uint32_t nc =
+        cov->template_candidate_cap ? cov->template_candidate_cap * 2u : 16u;
+    TemplateCandidate *arr = ARENA_ALLOC_N(cov->arena, TemplateCandidate, nc);
+    if (!arr)
+      return nullptr;
+    for (uint32_t i = 0; i < cov->template_candidate_count; i++)
+      arr[i] = cov->template_candidates[i];
+    cov->template_candidates = arr;
+    cov->template_candidate_cap = nc;
+  }
+  uint32_t *ids = ARENA_ALLOC_N(cov->arena, uint32_t, 1);
+  if (!ids)
+    return nullptr;
+  ids[0] = c->id;
+  TemplateCandidate *tc =
+      &cov->template_candidates[cov->template_candidate_count++];
+  *tc = (TemplateCandidate){
+      .kind = kind, .constraint_ids = ids, .nconstraints = 1};
+  return tc;
+}
+
+static bool candidate_has_constraint(const TemplateCandidate *tc,
+                                     uint32_t constraint_id) {
+  for (uint32_t i = 0; i < tc->nconstraints; i++)
+    if (tc->constraint_ids[i] == constraint_id)
+      return true;
+  return false;
+}
+
+const TemplateCandidate *
+constraint_find_candidate_payload(const ConstraintCover *cov,
+                                  const Constraint *c, CandidateKind kind) {
+  for (uint32_t i = 0; i < cov->template_candidate_count; i++) {
+    const TemplateCandidate *tc = &cov->template_candidates[i];
+    if (tc->kind == kind && candidate_has_constraint(tc, c->id))
+      return tc;
+  }
+  return nullptr;
+}
+
 // Append one constraint (formula already grounded); grows cov->items.
 static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
                            Node *formula) {
@@ -151,10 +195,6 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   if (!c->nnf)
     return false;
   c->is_safety = classify_formula(c->nnf) == FCLASS_SAFETY;
-  c->resp_guard = c->resp_target = c->def_output = c->rec_output = -1;
-  c->reach_output = c->pers_output = c->ddef_output = c->toggle_output = -1;
-  c->fdelay_output = -1;
-  c->fdelay_steps = 0;
   intern_aps(&cov->aps, c->nnf);
   cov->count++;
   return true;
@@ -220,11 +260,13 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
     apset_init(&c->neg_outputs, a, n);
     apset_init(&c->cur_outputs, a, n);
     apset_init(&c->next_outputs, a, n);
-    apset_init(&c->mutex_members, a, n);
     collect(c, &cov->aps, c->nnf, false, false);
   }
 
   cov->blocks = nullptr;
   cov->block_count = 0;
+  cov->template_candidates = nullptr;
+  cov->template_candidate_count = 0;
+  cov->template_candidate_cap = 0;
   return cov;
 }

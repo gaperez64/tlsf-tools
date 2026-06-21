@@ -647,7 +647,9 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
         fprintf(out, "hold %u %s\n", i,
                 ap_table_name(&cov->aps, (uint32_t)b->hold_output));
       if (b->resp_output >= 0 && b->status == CSNF_SOLVED) {
-        int32_t g = cov->items[b->cids[0]].resp_guard;
+        const TemplateCandidate *resp = constraint_find_candidate_payload(
+            cov, &cov->items[b->cids[0]], CAND_RESPONSE);
+        int32_t g = resp ? resp->u.response.guard : -1;
         fprintf(out, "resp %u %s", i,
                 ap_table_name(&cov->aps, (uint32_t)b->resp_output));
         if (g >= 0)

@@ -19,6 +19,7 @@ fs = import('fs')
 
 cc = meson.get_compiler('c')
 m_dep = cc.find_library('m', required: false)  # WL kernels (sqrt)
+research_tools = get_option('research_tools')
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
@@ -202,8 +203,7 @@ lib_sources = [
   'src/apset.c',
   'src/cover.c',
   'src/recognize.c',
-  'src/graph.c',
-  'src/wl.c',
+  'src/pipeline.c',
   'src/templates.c',
   'src/templates_certify.c',
   'src/residual.c',
@@ -216,6 +216,17 @@ lib_sources = [
   bison_out[1],   # tlsf_parse.h — declare as a source so the generated lexer
                   # (which #includes it) is compiled only after it exists.
 ]
+
+if research_tools
+  lib_sources += [
+    'src/graph.c',
+    'src/wl.c',
+  ]
+endif
+
+if have_oxidd
+  lib_sources += ['src/residual_plan.c']
+endif
 
 tlsf_lib = static_library(
   'tlsf',
@@ -253,45 +264,47 @@ tlsfinfo_exe = executable(
   install: true,
 )
 
-tlsfgraph_exe = executable(
-  'tlsfgraph',
-  sources: ['src/main_tlsfgraph.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+if research_tools
+  tlsfgraph_exe = executable(
+    'tlsfgraph',
+    sources: ['src/main_tlsfgraph.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsfwl_exe = executable(
-  'tlsfwl',
-  sources: ['src/main_tlsfwl.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsfwl_exe = executable(
+    'tlsfwl',
+    sources: ['src/main_tlsfwl.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsftemplates_exe = executable(
-  'tlsftemplates',
-  sources: ['src/main_tlsftemplates.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsftemplates_exe = executable(
+    'tlsftemplates',
+    sources: ['src/main_tlsftemplates.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsfbenchgraph_exe = executable(
-  'tlsfbenchgraph',
-  sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsfbenchgraph_exe = executable(
+    'tlsfbenchgraph',
+    sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsfnorm_exe = executable(
-  'tlsfnorm',
-  sources: ['src/main_tlsfnorm.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsfnorm_exe = executable(
+    'tlsfnorm',
+    sources: ['src/main_tlsfnorm.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
+endif
 
 tlsfresidual_exe = executable(
   'tlsfresidual',
@@ -306,6 +319,7 @@ if have_oxidd
     'tlsfcompose',
     sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
               'src/compose_games.c', 'src/compose_solve.c',
+              'src/compose_route.c',
               'src/safety_oxidd.c', 'src/gr1_oxidd.c',
               'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],
@@ -420,12 +434,14 @@ test('ltl_enum', check,
   args: [files('test/cases/enum_demo.ltl'),
          tlsf2ltl_exe, files('test/cases/enum_demo.tlsf')])
 
+check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
+
 test('tlsf_enum_basic', check,
   args: [files('test/cases/enum_demo.basic.tlsf'),
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
 
+if research_tools
 # tlsfgraph: GSNF text/gsnf/dot/tsv + template candidates (arbiter pattern).
-check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
 test('graph_text', check,
   args: [files('test/cases/arbiter2.graph.txt'),
          tlsfgraph_exe, '--templates', files('test/cases/arbiter2.tlsf')])
@@ -579,6 +595,7 @@ foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
     args: [files('test/cases/' + name + '.check'), tlsftemplates_exe,
            '--check', '--format', 'csnf', files('test/cases/' + name + '.tlsf')])
 endforeach
+endif
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
                 'server_merge', 'arbiter_nomutex', 'cluster_split',
@@ -615,6 +632,13 @@ if have_oxidd
   test('compose_aiger_unclassified_atom', check,
     args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
            files('test/cases/aiger_unclassified_atom.tlsf')])
+  test('compose_route_stats_gr1', check,
+    args: [files('test/cases/gr1_spec.route_stats'), tlsfcompose_exe,
+           '--route-stats', files('test/cases/gr1_spec.tlsf')])
+  test('compose_route_stats_bounded', check,
+    args: [files('test/cases/compose_demo.route_stats'), tlsfcompose_exe,
+           '--route-stats', '--experimental-bounded', '4',
+           files('test/cases/compose_demo.tlsf')])
   # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
   foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
     test('aiger_' + name, check,
@@ -624,10 +648,12 @@ if have_oxidd
   endforeach
   # --aiger merge path: OxiDD solves the bounded-liveness cluster, the
   # combinational controller drives 'o', and the merged AIGER is golden-tested.
-  # fake_ltlsynt is passed but not invoked (OxiDD handles the only cluster).
+  # fake_ltlsynt is passed but not invoked when the experimental bounded route
+  # handles the only cluster.
   test('aiger_merge', check,
     args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
-           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           '--experimental-bounded', '4', '--ltlsynt',
+           files('test/fake_ltlsynt.sh'),
            files('test/cases/compose_demo.tlsf')])
   # Output-free (input-only) guarantee cluster: no controller is merged, but it
   # is realizability-checked via (fake) ltlsynt -- here G F req is realizable
@@ -684,12 +710,7 @@ if have_oxidd
              files('test/cases/inv_decline.tlsf')])
   endif
 endif
-test('tmpl_sat_unimplemented', xfail,
-  args: [tlsftemplates_exe, '--side-conditions', 'sat',
-         files('test/cases/def_demo.tlsf')])
-test('tmpl_from_gsnf_unimplemented', xfail,
-  args: [tlsftemplates_exe, '--from-gsnf', files('test/cases/def_demo.tlsf')])
-
+if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
 # golden is path-independent).
 test('benchgraph_tsv', check,
@@ -699,8 +720,6 @@ test('benchgraph_tsv', check,
          files('test/cases/cluster_split.tlsf'),
          files('test/cases/def_demo.tlsf'),
          files('test/cases/roundrobin2.tlsf')])
-test('benchgraph_jobs_unimplemented', xfail,
-  args: [tlsfbenchgraph_exe, '--jobs', '4', files('test/cases/def_demo.tlsf')])
 if python3.found()
   test('bounded_corpus_harness', check,
     args: [files('test/cases/bounded_corpus.tsv'),
@@ -708,6 +727,9 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
+endif
+endif
+if python3.found()
   if have_oxidd
     test('bounded_synthesis_harness', python3,
       args: [files('scripts/bounded_synthesis.py'),
@@ -736,7 +758,6 @@ if python3.found() and spot_python_found
     # OxiDD in-process safety + GR(1) solver: Spot-verify controllers.
     foreach name : ['assume_delay_real', 'cluster_prune_safe',
                     'strict_safety',
-                    'bounded_resp', 'bounded_until', 'bounded_wuntil',
                     'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
                     'wr_assume', 'wr_distributable_impl', 'wr_gated_nox',
                     'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body']
@@ -744,6 +765,16 @@ if python3.found() and spot_python_found
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,
                '--ltlsynt', '/bin/false',
+               '--tlsf2ltl', tlsf2ltl_path,
+               '--tlsf', files('test/cases/' + name + '.tlsf')])
+    endforeach
+    foreach name : ['bounded_resp', 'bounded_until', 'bounded_wuntil']
+      test('verify_aiger_oxidd_' + name, python3,
+        args: [files('scripts/verify_aiger_ltl.py'),
+               '--compose', tlsfcompose_path,
+               '--ltlsynt', '/bin/false',
+               '--compose-arg', '--experimental-bounded',
+               '--compose-arg', '4',
                '--tlsf2ltl', tlsf2ltl_path,
                '--tlsf', files('test/cases/' + name + '.tlsf')])
     endforeach
@@ -779,6 +810,7 @@ if python3.found() and spot_python_found
   endif
 endif
 
+if research_tools
 # Constraint decomposition: cover --split exposes shapes inside a single
 # conjunctive formula; tlsfnorm re-emits the split spec.
 test('graph_split_off', check,
@@ -808,9 +840,6 @@ test('graph_liveness_filter', check,
 test('graph_roles_guarantee', check,
   args: [files('test/cases/arbiter2.no_tmpl.txt'), tlsfgraph_exe,
          '--roles', 'GUARANTEE', files('test/cases/arbiter2.tlsf')])
-test('graph_formula_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--graph', 'formula',
-         files('test/cases/arbiter2.tlsf')])
 test('graph_wl_labels_basic', check_wl,
   args: [files('test/cases/arbiter2.wl0_basic.txt'), tlsfgraph_exe,
          '--wl', '0', '--wl-labels', 'basic', files('test/cases/arbiter2.tlsf')])
@@ -833,18 +862,7 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
-test('norm_macro_unimplemented', xfail,
-  args: [tlsfnorm_exe, '--passes', 'macro',
-         files('test/cases/arbiter1formula.tlsf')])
-
-# Reserved (later-milestone) flags must error, not be silently ignored.
-test('graph_norm_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--norm-depth', '3', files('test/cases/arbiter2.tlsf')])
-test('graph_quotient_unimplemented', xfail,
-  args: [tlsfgraph_exe, '--graph', 'quotient', files('test/cases/arbiter2.tlsf')])
-test('wl_from_gsnf_unimplemented', xfail,
-  args: [tlsfwl_exe, '--from-gsnf', files('test/cases/arbiter2.tlsf')])
-
+endif
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

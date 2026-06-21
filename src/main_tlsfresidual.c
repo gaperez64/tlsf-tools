@@ -7,13 +7,9 @@
 /// controllers plus a controller for this residual realise the whole spec.
 
 #include "tlsf/cli.h"
-#include "tlsf/cover.h"
-#include "tlsf/expand.h"
+#include "tlsf/pipeline.h"
 #include "tlsf/print_ltlxba.h"
-#include "tlsf/recognize.h"
 #include "tlsf/residual.h"
-#include "tlsf/spec.h"
-#include "tlsf/templates.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -132,56 +128,31 @@ int main(int argc, char *argv[]) {
   FILE *fp = cli_open_input(input_file, "tlsfresidual");
   if (!fp)
     return 1;
-  TlsfSpec *spec = cli_parse(fp, "tlsfresidual");
+  TlsfPipelineOptions popts = {
+      .split = split,
+      .certify = true,
+      .template_mask = TPL_ALL,
+      .overwrite_semantics = os_arg,
+      .overwrite_target = ot_arg,
+      .overrides = overrides,
+      .n_overrides = n_overrides,
+      .tool_name = "tlsfresidual",
+  };
+  TlsfPipeline *p = tlsf_pipeline_load(fp, &popts);
   if (input_file)
     fclose(fp);
-  if (!spec)
-    return 1;
-
-  if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
-    fprintf(stderr, "tlsfresidual: invalid semantics '%s'\n", os_arg);
-    spec_free(spec);
-    return 1;
-  }
-  if (ot_arg && !parse_target(ot_arg, &spec->info.target)) {
-    fprintf(stderr, "tlsfresidual: invalid target '%s'\n", ot_arg);
-    spec_free(spec);
-    return 1;
-  }
-  if (!spec_validate_semantics(spec, "tlsfresidual")) {
-    spec_free(spec);
-    return 1;
-  }
-  if (expand(spec, overrides, n_overrides) != 0) {
-    spec_free(spec);
-    return 1;
-  }
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
+  if (!p)
+    return 1;
 
-  // Cover -> recognize -> certify -> compose.
-  ConstraintCover *cov = cover_build(spec, split);
-  if (!cov) {
-    fprintf(stderr, "tlsfresidual: out of memory\n");
-    spec_free(spec);
-    return 1;
-  }
-  recognize_all(cov);
-  Csnf *csnf = templates_certify(cov, TPL_ALL, true);
-  CsnfComposition *comp = csnf ? csnf_compose(csnf) : nullptr;
-  if (!csnf || !comp) {
-    fprintf(stderr, "tlsfresidual: out of memory\n");
-    csnf_composition_free(comp);
-    csnf_free(csnf);
-    spec_free(spec);
-    return 1;
-  }
+  TlsfSpec *spec = p->spec;
+  ConstraintCover *cov = p->cover;
+  CsnfComposition *comp = p->composition;
 
   FILE *out = cli_open_output(output_file, "tlsfresidual");
   if (!out) {
-    csnf_composition_free(comp);
-    csnf_free(csnf);
-    spec_free(spec);
+    tlsf_pipeline_free(p);
     return 1;
   }
 
@@ -278,8 +249,6 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "tlsfresidual: classification failed (OOM)\n");
   if (output_file)
     fclose(out);
-  csnf_composition_free(comp);
-  csnf_free(csnf);
-  spec_free(spec);
+  tlsf_pipeline_free(p);
   return rc;
 }

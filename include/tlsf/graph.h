@@ -14,8 +14,6 @@ typedef enum { GFMT_TEXT, GFMT_GSNF, GFMT_DOT, GFMT_TSV } GraphFormat;
 typedef enum {
   GK_SYNTHESIS,  ///< constraints + AP ownership + dependency/template edges
   GK_CONSTRAINT, ///< constraints + section/role + shared-output edges (no APs)
-  GK_FORMULA,    ///< not yet implemented
-  GK_QUOTIENT,   ///< not yet implemented
 } GraphKind;
 
 typedef struct {
@@ -26,8 +24,7 @@ typedef struct {
   const bool *selected;      ///< length cov->count; nullptr ⇒ all constraints
 } GraphOpts;
 
-/// Emit `cov` as a GSNF graph.  Returns 0 on success, -1 if the requested
-/// graph kind is not implemented (caller should report a clear error).
+/// Emit `cov` as a GSNF graph.  Returns 0 on success.
 int graph_emit(FILE *out, ConstraintCover *cov, GraphFormat fmt,
                const GraphOpts *o);
 

@@ -25,6 +25,69 @@ typedef enum {
 
 const char *role_name(Role r); ///< uppercase TLSF section name
 
+typedef enum {
+  CAND_RESPONSE,
+  CAND_DEFINITION,
+  CAND_RECURRENCE,
+  CAND_REACHABILITY,
+  CAND_PERSISTENCE,
+  CAND_DELAYED_DEF,
+  CAND_TOGGLE,
+  CAND_FIXED_DELAY,
+  CAND_MUTEX,
+  CAND_ARBITER,
+} CandidateKind;
+
+typedef struct {
+  int32_t guard;
+  int32_t target;
+} ResponseCandidate;
+
+typedef struct {
+  int32_t output;
+} DefinitionCandidate;
+typedef struct {
+  int32_t output;
+} RecurrenceCandidate;
+typedef struct {
+  int32_t output;
+} ReachabilityCandidate;
+typedef struct {
+  int32_t output;
+} PersistenceCandidate;
+typedef struct {
+  int32_t output;
+} DelayedDefCandidate;
+typedef struct {
+  int32_t output;
+} ToggleCandidate;
+
+typedef struct {
+  int32_t output;
+  uint32_t steps;
+} FixedDelayCandidate;
+
+typedef struct {
+  ApSet members;
+} MutexCandidate;
+
+typedef struct {
+  CandidateKind kind;
+  uint32_t *constraint_ids;
+  uint32_t nconstraints;
+  union {
+    ResponseCandidate response;
+    DefinitionCandidate definition;
+    RecurrenceCandidate recurrence;
+    ReachabilityCandidate reachability;
+    PersistenceCandidate persistence;
+    DelayedDefCandidate delayed_def;
+    ToggleCandidate toggle;
+    FixedDelayCandidate fixed_delay;
+    MutexCandidate mutex;
+  } u;
+} TemplateCandidate;
+
 typedef struct {
   uint32_t id;
   Role role;
@@ -43,22 +106,6 @@ typedef struct {
   const char **candidates; ///< template-candidate names (recognize.h)
   uint16_t candidate_count;
   uint16_t candidate_cap;
-
-  // Recognizer-extracted roles (-1 / empty when not applicable).
-  int32_t resp_guard;   ///< request AP index (response)
-  int32_t resp_target;  ///< grant AP index (response)
-  int32_t def_output;   ///< defined output AP index (definition)
-  int32_t rec_output;   ///< recurrence target output AP index (G F o)
-  int32_t reach_output; ///< reachability target output AP index (F o)
-  int32_t pers_output;  ///< persistence target output AP index (F G o)
-  int32_t
-      ddef_output; ///< delayed-definition output AP index (G(X o <-> theta))
-  int32_t
-      toggle_output; ///< toggle-register output AP index (G(t -> (X o<->!o)))
-  int32_t fdelay_output; ///< fixed-delay response output AP index (G(r->X^k o))
-  uint32_t fdelay_steps; ///< fixed-delay response delay k (0 when absent)
-  ApSet mutex_members;   ///< output AP indices in a mutex
-  bool has_mutex;
 } Constraint;
 
 /// A multi-constraint template candidate (e.g. arbiter = responses + mutex).
@@ -77,6 +124,9 @@ typedef struct {
   uint32_t cap; ///< allocated `items` slots (grow-by-doubling)
   TemplateBlock *blocks;
   uint32_t block_count;
+  TemplateCandidate *template_candidates;
+  uint32_t template_candidate_count;
+  uint32_t template_candidate_cap;
 } ConstraintCover;
 
 /// Build the constraint cover from an already-expanded spec.  When `split` is
@@ -87,5 +137,13 @@ typedef struct {
 /// Append a candidate template name to a constraint (used by recognize.c).
 void constraint_add_candidate(ConstraintCover *cov, Constraint *c,
                               const char *name);
+
+/// Append/find typed recognizer payloads for candidate-specific data.
+[[nodiscard]] TemplateCandidate *
+constraint_add_candidate_payload(ConstraintCover *cov, Constraint *c,
+                                 CandidateKind kind);
+[[nodiscard]] const TemplateCandidate *
+constraint_find_candidate_payload(const ConstraintCover *cov,
+                                  const Constraint *c, CandidateKind kind);
 
 #endif // TLSF_COVER_H

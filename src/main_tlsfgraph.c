@@ -25,9 +25,7 @@ static void usage(const char *prog) {
       "  --format text|gsnf|dot|tsv   output format (default text); gsnf is\n"
       "                               the DIMACS-style line format\n"
       "  --graph synthesis|constraint complete graph kind (default "
-      "synthesis;\n"
-      "                               formula/quotient not yet "
-      "implemented)\n"
+      "synthesis)\n"
       "  --wl N                       append WL features of depth N\n"
       "  --wl-labels basic|synthesis|template   WL label scheme (default "
       "synthesis)\n"
@@ -125,10 +123,6 @@ int main(int argc, char *argv[]) {
         o.kind = GK_SYNTHESIS;
       else if (!strcmp(v, "constraint"))
         o.kind = GK_CONSTRAINT;
-      else if (!strcmp(v, "formula"))
-        o.kind = GK_FORMULA;
-      else if (!strcmp(v, "quotient"))
-        o.kind = GK_QUOTIENT;
       else {
         fprintf(stderr, "tlsfgraph: unknown graph kind '%s'\n", v);
         return 1;
@@ -201,14 +195,6 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
       return 0;
-    } else if (!strcmp(a, "--no-wl-retrieval") || !strcmp(a, "--norm-depth") ||
-               !strcmp(a, "--passes") || !strcmp(a, "--pass-schedule") ||
-               !strcmp(a, "--stop-on-stable")) {
-      fprintf(stderr,
-              "tlsfgraph: %s is not implemented yet (normalization passes are "
-              "tlsfnorm, milestone later)\n",
-              a);
-      return 2;
     } else if (a[0] != '-') {
       if (input_file) {
         fprintf(stderr, "tlsfgraph: multiple input files not supported\n");

@@ -17,16 +17,18 @@
 #include "tlsf/aiger.h"
 #include "tlsf/ast.h"
 #include "tlsf/cli.h"
-#include "tlsf/compose_internal.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
-#include "tlsf/rewrite.h"
+#include "tlsf/residual_plan.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
+
+#include "compose_internal.h"
+#include "compose_route.h"
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -55,8 +57,10 @@ static void usage(const char *prog) {
       " via OxiDD + ltlsynt backends\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
-      "  --bound N                    step bound for the bounded-liveness "
-      "path (default 4)\n"
+      "  --experimental-bounded N     enable bounded-liveness heuristic with "
+      "step bound N\n"
+      "  --route-stats                print residual-cluster route diagnostics "
+      "and exit\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
       "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
       "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
@@ -70,6 +74,91 @@ static void usage(const char *prog) {
       "stdout)\n"
       "  --version, --help\n",
       prog);
+}
+
+static const char *route_kind_name(ComposeRouteKind kind) {
+  switch (kind) {
+  case ROUTE_OUTPUT_FREE_LTLSYNT:
+    return "output-free";
+  case ROUTE_DIRECT_SAFETY:
+    return "direct-safety";
+  case ROUTE_STRICT_SAFETY:
+    return "strict-safety";
+  case ROUTE_WR_SAFETY:
+    return "wr-safety";
+  case ROUTE_BOUNDED_EXPERIMENTAL:
+    return "bounded-experimental";
+  case ROUTE_GR1:
+    return "gr1";
+  case ROUTE_LTLSYNT:
+    return "ltlsynt";
+  default:
+    return "unknown";
+  }
+}
+
+static const char *route_stats_reason(const ComposeRoute *route, bool finite,
+                                      char *buf, size_t buf_sz) {
+  switch (route->kind) {
+  case ROUTE_OUTPUT_FREE_LTLSYNT:
+    snprintf(buf, buf_sz, "output-free guarantee check");
+    break;
+  case ROUTE_DIRECT_SAFETY:
+  case ROUTE_STRICT_SAFETY:
+  case ROUTE_WR_SAFETY:
+  case ROUTE_GR1:
+    snprintf(buf, buf_sz, "selected exact fast path");
+    break;
+  case ROUTE_BOUNDED_EXPERIMENTAL:
+    snprintf(buf, buf_sz, "selected explicit experimental bounded path");
+    break;
+  case ROUTE_LTLSYNT:
+  default:
+    (void)cluster_ltlsynt_reason(&route->shape, finite, buf, buf_sz);
+    break;
+  }
+  return buf;
+}
+
+static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
+                             const ResidualPlan *rplan, bool finite,
+                             uint32_t bound_k, bool *seen) {
+  fprintf(out, "cluster\touts\tins\tnodes\tgr_level\thas_liveness\thas_wr\t"
+               "has_release\troute\tbackend\treason\n");
+  for (uint32_t k = 0; k < rplan->nclusters; k++) {
+    bool output_free = rplan->keys[k] == cov->aps.count;
+    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                             /*all=*/false,
+                                             /*prune=*/!output_free, seen);
+    if (!root) {
+      fprintf(stderr, "tlsfcompose: out of memory\n");
+      return false;
+    }
+    ComposeRoute route;
+    if (output_free) {
+      route = (ComposeRoute){
+          .kind = ROUTE_OUTPUT_FREE_LTLSYNT,
+          .uses_oxidd = false,
+          .exact = true,
+          .label = "ltlsynt",
+          .shape = cluster_shape(spec, root),
+          .root = root,
+      };
+    } else {
+      (void)compose_route_select(spec, root, finite, bound_k, &route);
+    }
+    char reason[192];
+    fprintf(out, "%u\t", k);
+    residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+    fprintf(out, "\t");
+    residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
+    fprintf(out, "\t%u\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", ast_node_count(root),
+            route.shape.gr_level, route.shape.has_liveness ? 1 : 0,
+            route.shape.has_weak_until ? 1 : 0, route.shape.has_release ? 1 : 0,
+            route_kind_name(route.kind), route.label ? route.label : "ltlsynt",
+            route_stats_reason(&route, finite, reason, sizeof reason));
+  }
+  return true;
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -116,12 +205,12 @@ static void compose_sh_header(FILE *sh) {
 }
 
 int main(int argc, char *argv[]) {
-  bool split = false, aiger = false;
+  bool split = false, aiger = false, route_stats = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   const char *verify_path = nullptr;
-  unsigned long bound_opt = 0; // 0 = unset (default 4)
+  unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -141,14 +230,18 @@ int main(int argc, char *argv[]) {
       ltlsynt_path = NEED_ARG();
     } else if (strcmp(a, "--verify") == 0) {
       verify_path = NEED_ARG();
-    } else if (strcmp(a, "--bound") == 0) {
+    } else if (strcmp(a, "--experimental-bounded") == 0) {
       const char *v = NEED_ARG();
       char *end;
       bound_opt = strtoul(v, &end, 10);
       if (*end != '\0' || bound_opt == 0) {
-        fprintf(stderr, "tlsfcompose: --bound expects a positive integer\n");
+        fprintf(stderr,
+                "tlsfcompose: --experimental-bounded expects a positive "
+                "integer\n");
         return 1;
       }
+    } else if (strcmp(a, "--route-stats") == 0) {
+      route_stats = true;
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -250,30 +343,47 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  uint32_t A = cov->aps.count, N = cov->count;
+  uint32_t A = cov->aps.count;
   bool finite = semantics_is_finite(spec->info.semantics);
   int rc = 0;
 
-  // Synthesis residual = every constraint NOT discharged by a combinational
-  // controller (those liveness templates / registers / genuine leftovers go to
-  // ltlsynt), with the combinational controllers substituted in.
-  const Node **rf = calloc(N ? N : 1, sizeof(Node *));
-  for (uint32_t i = 0; i < N; i++) {
-    if (comp->elim_constraint[i])
-      continue; // discharged by a combinational controller
-    if (aiger && csnf_constraint_has_local_aiger(csnf, comp, i))
-      continue; // discharged by a direct local AIGER controller
-    const Node *f =
-        residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
-    f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);
-    if (f->kind != NODE_TRUE)
-      rf[i] = f;
+  ResidualPlanOptions ropts = {.skip_local_aiger = aiger,
+                               .simplify_weak = true};
+  ResidualPlan *rplan = residual_plan_build(spec, cov, csnf, comp, ropts);
+  if (!rplan) {
+    fprintf(stderr, "tlsfcompose: out of memory\n");
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return 1;
+  }
+  uint32_t K = rplan->nclusters;
+  bool *seen = calloc(A ? A : 1, sizeof(bool));
+  if (!seen) {
+    fprintf(stderr, "tlsfcompose: out of memory\n");
+    residual_plan_free(rplan);
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return 1;
   }
 
-  uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
-  uint32_t *keys = nullptr;
-  uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
-  bool *seen = calloc(A ? A : 1, sizeof(bool));
+  if (route_stats) {
+    uint32_t bound_k = (uint32_t)bound_opt;
+    rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen) ? 0 : 1;
+    free(seen);
+    residual_plan_free(rplan);
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return rc;
+  }
 
   // --aiger: synthesize each cluster with ltlsynt and merge with the
   // combinational controllers into one AIGER controller over the full
@@ -290,10 +400,7 @@ int main(int argc, char *argv[]) {
     const char *verifier = verify_path                   ? verify_path
                            : (verify_env && *verify_env) ? verify_env
                                                          : nullptr;
-    // Bound for the bounded-liveness path: --bound or default.
-    uint32_t bound_k = bound_opt ? (uint32_t)bound_opt : 4;
-    if (bound_k == 0)
-      bound_k = 4;
+    uint32_t bound_k = (uint32_t)bound_opt;
     // Persistent BDD manager: one allocation shared across all clusters,
     // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
     // Variables accumulate with per-cluster base offsets; GC reclaims dead
@@ -307,7 +414,7 @@ int main(int argc, char *argv[]) {
 
     // Clusters first (so a decoder reading a synthesized output resolves).
     for (uint32_t k = 0; k < K && rc == 0; k++) {
-      if (keys[k] == A) {
+      if (rplan->keys[k] == A) {
         // Output-free cluster: input-only system guarantees with no controller
         // to emit.  These are NOT trivially satisfiable -- the system meets
         // them only if the assumptions entail them -- so check realizability
@@ -318,9 +425,8 @@ int main(int argc, char *argv[]) {
         // via assumptions, so UNREALIZABLE here soundly implies the whole spec
         // is unrealizable.  We use only the verdict: any referenced outputs are
         // driven by their owning clusters, so nothing is merged.
-        Node *ofree =
-            residual_build_cluster(spec, cov, rf, key, A, /*all=*/false,
-                                   /*prune=*/false, N, seen);
+        Node *ofree = residual_plan_build_cluster(
+            spec, cov, rplan, A, /*all=*/false, /*prune=*/false, seen);
         if (!ofree) {
           rc = 1;
           break;
@@ -342,120 +448,19 @@ int main(int argc, char *argv[]) {
         continue;
       }
       Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k],
-                                 /*all=*/false, /*prune=*/true, N, seen);
+          residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                      /*all=*/false, /*prune=*/true, seen);
       if (!root) {
         rc = 1;
         break;
       }
-      ClusterShape shape = cluster_shape(spec, root);
       int unreal = 0;
-      Aig *sub = nullptr;
-      const Node *strict_sys = nullptr, *strict_env = nullptr;
-      bool use_direct = aig_eligible(root, finite);
-      bool use_strict = !finite && !use_direct && shape.gr_level == 0 &&
-                        !shape.has_liveness &&
-                        aig_strict_safety_parts(root, &strict_sys, &strict_env);
-      // Weak-until / release safety: a pure-safety cluster `AND(U, A -> G)`
-      // with W/R on any side is encoded exactly (monitors), preferred over the
-      // lossy bounded reduction below.
-      bool use_wr = !finite && !use_direct && !use_strict &&
-                    !shape.has_liveness && wr_structural_supported(root);
-
-      // Bounded GR(1): bound the guarantee liveness (F -> within k steps); if
-      // the cluster then becomes a pure-safety game (no fairness assumption
-      // survives), solve it with the OxiDD safety solver.
-      const Node *bounded_root = nullptr;
-      if (!finite && !use_direct && !use_strict && !use_wr &&
-          (shape.has_liveness || shape.has_weak_until || shape.has_release)) {
-        Node *br = bound_liveness(spec->arena, root, bound_k, true);
-        if (aig_eligible(br, finite))
-          bounded_root = br;
-      }
-      // Complete GR(1): a fairness-bearing cluster `G F a -> safety & justice`
-      // (which the bounded-liveness path cannot handle because the `G F a`
-      // assumption is unsound to bound) is emitted as a real justice/fairness
-      // game and solved by the OxiDD GR(1) fixpoint.
-      Gr1Parts gp;
-      bool use_gr1 = !finite && !use_direct && !use_strict && !use_wr &&
-                     !bounded_root && aig_gr1_parts(spec->arena, root, &gp);
-      bool use_oxidd =
-          use_direct || use_strict || use_wr || bounded_root || use_gr1;
-      const char *backend = use_oxidd ? "OxiDD" : "ltlsynt fallback";
-      if (use_direct) {
-        sub = solve_safety_game(cov, seen, build_aig_game(cov, seen, root),
-                                &unreal);
-        // Formulas with bare top-level W/R (not inside G) use release-latch
-        // monitors compiled at lag=depth.  When depth>0 (G X conjuncts in the
-        // same formula) the lag interaction can spuriously over-constrain the
-        // game.  Fall back to ltlsynt on UNREALIZABLE in that case; for pure
-        // G-only formulas (no bare W/R) the encoding is exact and UNREALIZABLE
-        // can be trusted.
-        if (!sub && (!unreal || wr_has_bare_wr(root))) {
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (safety miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (use_strict) {
-        sub = solve_safety_game(
-            cov, seen,
-            build_aig_strict_safety_game(cov, seen, strict_sys, strict_env),
-            &unreal);
-        if (!sub && !unreal) {
-          // OxiDD failed: fall back to ltlsynt on the original formula.
-          use_oxidd = false;
-          backend = "ltlsynt fallback (strict safety miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (use_wr) {
-        backend = "OxiDD (W/R safety)";
-        sub = solve_safety_game(cov, seen, build_aig_wr_game(cov, seen, root),
-                                &unreal);
-        if (!sub) {
-          // Fall back on both encoding errors (unreal=0) and UNREALIZABLE
-          // verdicts (unreal=1): complex pattern interaction (nested X, depth≥3
-          // bodies) can produce over-constrained games that are spuriously
-          // unrealizable.  ltlsynt is the authoritative oracle.
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (W/R miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (bounded_root) {
-        backend = "OxiDD (bounded)";
-        sub = solve_safety_game(
-            cov, seen, build_aig_game(cov, seen, bounded_root), &unreal);
-        if (!sub) {
-          // Bounded miss (unrealizable at this k, or no strategy): the
-          // unbounded game may still be realizable, so fall back to ltlsynt
-          // rather than failing the spec.
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (bounded miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else if (use_gr1) {
-        backend = "OxiDD (GR(1))";
-        sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &gp),
-                             &unreal);
-        if (!sub) {
-          // The GR(1) solver found no strategy (or called it unrealizable --
-          // the recognizer may over-constrain); defer to ltlsynt rather than
-          // risk a false UNREALIZABLE.
-          unreal = 0;
-          use_oxidd = false;
-          backend = "ltlsynt fallback (GR(1) miss)";
-          sub =
-              run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        }
-      } else {
-        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-      }
+      ComposeRoute route;
+      (void)compose_route_select(spec, root, finite, bound_k, &route);
+      bool use_oxidd = false;
+      const char *backend = nullptr;
+      Aig *sub = compose_route_solve(&route, prog, cov, seen, fmt, finite,
+                                     &unreal, &use_oxidd, &backend);
       // Self-verification gate: a synthesized controller must satisfy the
       // ORIGINAL cluster spec (`root`, not a bounded/strict surrogate).  If it
       // provably violates it, discard it and fall back to ltlsynt, so a
@@ -484,9 +489,9 @@ int main(int argc, char *argv[]) {
       } else if (!sub) {
         char reason[192];
         const char *detail =
-            use_oxidd
-                ? "OxiDD returned no usable strategy"
-                : cluster_ltlsynt_reason(&shape, finite, reason, sizeof reason);
+            use_oxidd ? "OxiDD returned no usable strategy"
+                      : cluster_ltlsynt_reason(&route.shape, finite, reason,
+                                               sizeof reason);
         fprintf(stderr,
                 "tlsfcompose: synthesis backend failed for cluster %u (%s: "
                 "%s)\n",
@@ -527,9 +532,7 @@ int main(int argc, char *argv[]) {
     aig_free(g);
     oxidd_session_free();
     free(seen);
-    free(rf);
-    free(key);
-    free(keys);
+    residual_plan_free(rplan);
     if (output_file)
       fclose(out);
     csnf_composition_free(comp);
@@ -581,10 +584,10 @@ int main(int argc, char *argv[]) {
     // are NOT trivially realizable -- emit them too so compose.sh's per-cluster
     // realizability check covers them (built with all assumptions, prune=false,
     // so coupling assumptions that mention other clusters' outputs survive).
-    bool output_free = keys[k] == A;
-    Node *root =
-        residual_build_cluster(spec, cov, rf, key, keys[k], /*all=*/false,
-                               /*prune=*/!output_free, N, seen);
+    bool output_free = rplan->keys[k] == A;
+    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                             /*all=*/false,
+                                             /*prune=*/!output_free, seen);
     if (!root) {
       rc = 1;
       break;
@@ -634,9 +637,7 @@ int main(int argc, char *argv[]) {
                "exact)\n");
 
   free(seen);
-  free(rf);
-  free(key);
-  free(keys);
+  residual_plan_free(rplan);
   if (rc)
     fprintf(stderr, "tlsfcompose: failed (OOM or I/O)\n");
   if (output_file)

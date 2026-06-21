@@ -160,13 +160,15 @@ jobs:
             meson ninja-build flex bison gcc gcovr
       - name: Build with coverage and report
         run: |
-          # Coverage is measured on the dependency-free build: the OxiDD solver
-          # files compile only with -Doxidd=enabled, and their correctness paths
-          # are exercised by the Spot-verified suite (local). Enabling OxiDD here
-          # would add ~4k solver lines to the denominator without Spot to cover
-          # them. Build and measure with the runner's default gcc and its
-          # matching gcov; mixing default gcc with gcov-14 makes gcov exit 3 and
-          # crashes gcovr. Gate on the parsed line percentage.
+          # Coverage is measured on the dependency-free build with the
+          # research CLIs enabled: they exercise graph/WL/template code without
+          # requiring Rust/OxiDD. The OxiDD solver files compile only with
+          # -Doxidd=enabled, and their correctness paths are exercised by the
+          # Spot-verified suite (local). Enabling OxiDD here would add ~4k solver
+          # lines to the denominator without Spot to cover them. Build and
+          # measure with the runner's default gcc and its matching gcov; mixing
+          # default gcc with gcov-14 makes gcov exit 3 and crashes gcovr. Gate on
+          # the parsed line percentage.
           # aiger.c is excluded for the same reason as the solver files: it is an
           # OxiDD-path TU (the AIG game model) whose only callers
           # (main_tlsfcompose / csnf_emit_local_aiger) need -DHAVE_OXIDD, so it is
@@ -174,7 +176,7 @@ jobs:
           # into the shared lib. It is covered by the local verify_aiger_oxidd*
           # suite. Counting its ~780 untestable-here lines just makes the gate
           # spuriously fragile.
-          meson setup build-cov -Db_coverage=true
+          meson setup build-cov -Db_coverage=true -Dresearch_tools=true -Doxidd=disabled
           meson test -C build-cov
           summary=$(gcovr --root . \
             --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
