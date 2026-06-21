@@ -119,6 +119,27 @@ jobs:
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
 
+  simd-matrix:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cpu: [baseline, x86-64-v2, avx2]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14
+      - name: Configure, build, and test SIMD kernels
+        env:
+          CC: gcc-14
+        run: |
+          meson setup build-simd-${{ matrix.cpu }} -Doxidd=disabled -Dcpu=${{ matrix.cpu }}
+          ninja -C build-simd-${{ matrix.cpu }} simd_check
+          meson test -C build-simd-${{ matrix.cpu }} simd_kernels --print-errorlogs
+
   # OxiDD-enabled build: links the shared FFI artifact, compiles the in-process
   # safety + GR(1) solvers (src/safety_oxidd.c, src/gr1_oxidd.c, src/aiger.c via
   # tlsfcompose/tlsfsolve) and runs the full suite. The Spot-verified

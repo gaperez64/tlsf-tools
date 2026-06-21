@@ -13,6 +13,7 @@
 ///   tlsfsolve --help
 
 #include "tlsf/aiger.h"
+#include "tlsf/build_info.h"
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/safety_oxidd.h"
 
@@ -27,7 +28,7 @@ static void usage(const char *prog) {
           "  FILE   aag game file (default: stdin; use '-' for stdin)\n"
           "Exit 0: realizable — writes strategy aag to stdout.\n"
           "Exit 1: UNREALIZABLE — writes message to stderr.\n"
-          "  --help\n",
+          "  --version, --help\n",
           prog);
 }
 
@@ -36,6 +37,12 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
       usage(argv[0]);
+      return 0;
+    }
+    if (!strcmp(argv[i], "--version")) {
+      printf("tlsfsolve %s oxidd=%s research=%s simd=%s\n",
+             TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
+             tlsf_build_simd());
       return 0;
     }
     if (!strcmp(argv[i], "-")) {

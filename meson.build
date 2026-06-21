@@ -46,12 +46,18 @@ add_project_arguments(extra_cflags, language: 'c')
 
 cpu = get_option('cpu')
 cpu_flags = []
-if cpu == 'avx2'
+if cpu == 'x86-64-v2'
+  cpu_flags = ['-march=x86-64-v2', '-mtune=generic']
+elif cpu == 'avx2'
   cpu_flags = ['-mavx2', '-mfma']
 elif cpu == 'avx512'
   cpu_flags = ['-mavx512f', '-mavx512bw', '-mavx512vpopcntdq']
 elif cpu == 'neon'
-  cpu_flags = ['-march=armv8-a+simd']
+  if host_machine.system() == 'darwin'
+    cpu_flags = []
+  else
+    cpu_flags = ['-march=armv8-a+simd']
+  endif
 elif cpu == 'native'
   cpu_flags = ['-march=native']
 endif
@@ -142,6 +148,15 @@ elif oxidd_feature.auto()
   message('OxiDD safety solver disabled (artifacts absent; build with ' +
           '`meson compile -C build oxidd-build`)')
 endif
+
+build_info_conf = configuration_data()
+build_info_conf.set_quoted('TLSF_PROJECT_VERSION', meson.project_version())
+build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
+build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
+configure_file(
+  output: 'build_config.h',
+  configuration: build_info_conf,
+)
 
 # ---------------------------------------------------------------------------
 # Codegen: flex → tlsf_lex.c + tlsf_lex.h
@@ -341,6 +356,13 @@ if have_oxidd
     install: true,
   )
 endif
+
+simd_check_exe = executable(
+  'simd_check',
+  sources: ['test/simd_check.c'],
+  include_directories: inc,
+)
+test('simd_kernels', simd_check_exe)
 
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)

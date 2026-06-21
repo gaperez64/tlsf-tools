@@ -16,6 +16,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
 #include "tlsf/ast.h"
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
@@ -43,8 +44,6 @@
 #include <unistd.h>
 
 extern char **environ;
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(
@@ -269,7 +268,9 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(a, "--version") == 0) {
-      printf("tlsfcompose %s\n", TLSF_VERSION);
+      printf("tlsfcompose %s oxidd=%s research=%s simd=%s\n",
+             TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
+             tlsf_build_simd());
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);

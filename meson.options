@@ -20,12 +20,12 @@ option(
 option(
   'cpu',
   type: 'combo',
-  choices: ['baseline', 'avx2', 'avx512', 'neon', 'native'],
+  choices: ['baseline', 'x86-64-v2', 'avx2', 'avx512', 'neon', 'native'],
   value: 'baseline',
   description: 'Target CPU ISA for the compile-time SIMD kernels (include/' +
-               'tlsf/simd.h) and compiler auto-vectorization.  baseline = ' +
-               'portable scalar; avx2/avx512 = x86-64 SIMD; neon = AArch64 ' +
-               'NEON; native = -march=native for this machine.',
+               'tlsf/simd.h) and compiler auto-vectorization. baseline = ' +
+               'portable scalar; x86-64-v2/avx2/avx512 = x86 SIMD; neon = ' +
+               'AArch64 NEON; native = -march=native for this machine.',
 )
 
 option(

@@ -4,9 +4,10 @@
 /// simd.h — compile-time CPU-ISA selection for the small word-array kernels.
 ///
 /// The build picks one ISA tier via -Dcpu=... (see meson.build): the matching
-/// `-m` flag makes the compiler predefine __AVX512F__ / __AVX2__ / __ARM_NEON,
-/// which selects the corresponding branch below.  Every kernel has a portable
-/// scalar fallback, so omitting -Dcpu (baseline) is always correct.
+/// `-m` flag makes the compiler predefine __AVX512F__ / __AVX2__ /
+/// __POPCNT__+__SSE4_2__ / __ARM_NEON, which selects the corresponding branch
+/// below.  Every kernel has a portable scalar fallback, so omitting -Dcpu
+/// (baseline) is always correct.
 ///
 /// These are deliberately tiny, branch-free reductions over uint64 word arrays
 /// (bitset union / popcount / popcount-of-AND).  The vector paths process
@@ -23,6 +24,10 @@
 #elif defined(__AVX2__)
 #include <immintrin.h>
 #define TLSF_SIMD_TIER "avx2"
+#elif defined(__SSE2__) && defined(__POPCNT__) && defined(__SSE4_2__)
+#include <emmintrin.h>
+#define TLSF_SIMD_TIER "x86-64-v2"
+#define TLSF_SIMD_SSE2 1
 #elif defined(__ARM_NEON) || defined(__aarch64__)
 #include <arm_neon.h>
 #define TLSF_SIMD_TIER "neon"
@@ -45,6 +50,12 @@ static inline void tlsf_words_or(uint64_t *restrict dst,
     __m256i d = _mm256_loadu_si256((const __m256i *)(dst + i));
     __m256i s = _mm256_loadu_si256((const __m256i *)(src + i));
     _mm256_storeu_si256((__m256i *)(dst + i), _mm256_or_si256(d, s));
+  }
+#elif defined(TLSF_SIMD_SSE2)
+  for (; i + 2 <= n; i += 2) {
+    __m128i d = _mm_loadu_si128((const __m128i *)(dst + i));
+    __m128i s = _mm_loadu_si128((const __m128i *)(src + i));
+    _mm_storeu_si128((__m128i *)(dst + i), _mm_or_si128(d, s));
   }
 #elif defined(__ARM_NEON) || defined(__aarch64__)
   for (; i + 2 <= n; i += 2)
