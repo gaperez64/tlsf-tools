@@ -59,6 +59,8 @@ static void usage(const char *prog) {
       "$LTLSYNT or PATH)\n"
       "  --experimental-bounded N     enable bounded-liveness heuristic with "
       "step bound N\n"
+      "  --route-stats                print residual-cluster route diagnostics "
+      "and exit\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
       "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
       "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
@@ -72,6 +74,91 @@ static void usage(const char *prog) {
       "stdout)\n"
       "  --version, --help\n",
       prog);
+}
+
+static const char *route_kind_name(ComposeRouteKind kind) {
+  switch (kind) {
+  case ROUTE_OUTPUT_FREE_LTLSYNT:
+    return "output-free";
+  case ROUTE_DIRECT_SAFETY:
+    return "direct-safety";
+  case ROUTE_STRICT_SAFETY:
+    return "strict-safety";
+  case ROUTE_WR_SAFETY:
+    return "wr-safety";
+  case ROUTE_BOUNDED_EXPERIMENTAL:
+    return "bounded-experimental";
+  case ROUTE_GR1:
+    return "gr1";
+  case ROUTE_LTLSYNT:
+    return "ltlsynt";
+  default:
+    return "unknown";
+  }
+}
+
+static const char *route_stats_reason(const ComposeRoute *route, bool finite,
+                                      char *buf, size_t buf_sz) {
+  switch (route->kind) {
+  case ROUTE_OUTPUT_FREE_LTLSYNT:
+    snprintf(buf, buf_sz, "output-free guarantee check");
+    break;
+  case ROUTE_DIRECT_SAFETY:
+  case ROUTE_STRICT_SAFETY:
+  case ROUTE_WR_SAFETY:
+  case ROUTE_GR1:
+    snprintf(buf, buf_sz, "selected exact fast path");
+    break;
+  case ROUTE_BOUNDED_EXPERIMENTAL:
+    snprintf(buf, buf_sz, "selected explicit experimental bounded path");
+    break;
+  case ROUTE_LTLSYNT:
+  default:
+    (void)cluster_ltlsynt_reason(&route->shape, finite, buf, buf_sz);
+    break;
+  }
+  return buf;
+}
+
+static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
+                             const ResidualPlan *rplan, bool finite,
+                             uint32_t bound_k, bool *seen) {
+  fprintf(out, "cluster\touts\tins\tnodes\tgr_level\thas_liveness\thas_wr\t"
+               "has_release\troute\tbackend\treason\n");
+  for (uint32_t k = 0; k < rplan->nclusters; k++) {
+    bool output_free = rplan->keys[k] == cov->aps.count;
+    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                             /*all=*/false,
+                                             /*prune=*/!output_free, seen);
+    if (!root) {
+      fprintf(stderr, "tlsfcompose: out of memory\n");
+      return false;
+    }
+    ComposeRoute route;
+    if (output_free) {
+      route = (ComposeRoute){
+          .kind = ROUTE_OUTPUT_FREE_LTLSYNT,
+          .uses_oxidd = false,
+          .exact = true,
+          .label = "ltlsynt",
+          .shape = cluster_shape(spec, root),
+          .root = root,
+      };
+    } else {
+      (void)compose_route_select(spec, root, finite, bound_k, &route);
+    }
+    char reason[192];
+    fprintf(out, "%u\t", k);
+    residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+    fprintf(out, "\t");
+    residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
+    fprintf(out, "\t%u\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", ast_node_count(root),
+            route.shape.gr_level, route.shape.has_liveness ? 1 : 0,
+            route.shape.has_weak_until ? 1 : 0, route.shape.has_release ? 1 : 0,
+            route_kind_name(route.kind), route.label ? route.label : "ltlsynt",
+            route_stats_reason(&route, finite, reason, sizeof reason));
+  }
+  return true;
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -118,7 +205,7 @@ static void compose_sh_header(FILE *sh) {
 }
 
 int main(int argc, char *argv[]) {
-  bool split = false, aiger = false;
+  bool split = false, aiger = false, route_stats = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
@@ -153,6 +240,8 @@ int main(int argc, char *argv[]) {
                 "integer\n");
         return 1;
       }
+    } else if (strcmp(a, "--route-stats") == 0) {
+      route_stats = true;
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -272,6 +361,29 @@ int main(int argc, char *argv[]) {
   }
   uint32_t K = rplan->nclusters;
   bool *seen = calloc(A ? A : 1, sizeof(bool));
+  if (!seen) {
+    fprintf(stderr, "tlsfcompose: out of memory\n");
+    residual_plan_free(rplan);
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return 1;
+  }
+
+  if (route_stats) {
+    uint32_t bound_k = (uint32_t)bound_opt;
+    rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen) ? 0 : 1;
+    free(seen);
+    residual_plan_free(rplan);
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return rc;
+  }
 
   // --aiger: synthesize each cluster with ltlsynt and merge with the
   // combinational controllers into one AIGER controller over the full
