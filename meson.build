@@ -208,6 +208,7 @@ lib_sources = [
   'src/templates.c',
   'src/templates_certify.c',
   'src/residual.c',
+  'src/residual_plan.c',
   'src/aiger.c',
   'src/gr.c',
   'src/print_ltlxba.c',

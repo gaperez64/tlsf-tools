@@ -24,7 +24,7 @@
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
-#include "tlsf/rewrite.h"
+#include "tlsf/residual_plan.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
@@ -250,29 +250,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  uint32_t A = cov->aps.count, N = cov->count;
+  uint32_t A = cov->aps.count;
   bool finite = semantics_is_finite(spec->info.semantics);
   int rc = 0;
 
-  // Synthesis residual = every constraint NOT discharged by a combinational
-  // controller (those liveness templates / registers / genuine leftovers go to
-  // ltlsynt), with the combinational controllers substituted in.
-  const Node **rf = calloc(N ? N : 1, sizeof(Node *));
-  for (uint32_t i = 0; i < N; i++) {
-    if (comp->elim_constraint[i])
-      continue; // discharged by a combinational controller
-    if (aiger && csnf_constraint_has_local_aiger(csnf, comp, i))
-      continue; // discharged by a direct local AIGER controller
-    const Node *f =
-        residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
-    f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);
-    if (f->kind != NODE_TRUE)
-      rf[i] = f;
+  ResidualPlanOptions ropts = {.skip_local_aiger = aiger,
+                               .simplify_weak = true};
+  ResidualPlan *rplan = residual_plan_build(spec, cov, csnf, comp, ropts);
+  if (!rplan) {
+    fprintf(stderr, "tlsfcompose: out of memory\n");
+    if (output_file)
+      fclose(out);
+    csnf_composition_free(comp);
+    csnf_free(csnf);
+    spec_free(spec);
+    return 1;
   }
-
-  uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
-  uint32_t *keys = nullptr;
-  uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
+  uint32_t K = rplan->nclusters;
   bool *seen = calloc(A ? A : 1, sizeof(bool));
 
   // --aiger: synthesize each cluster with ltlsynt and merge with the
@@ -307,7 +301,7 @@ int main(int argc, char *argv[]) {
 
     // Clusters first (so a decoder reading a synthesized output resolves).
     for (uint32_t k = 0; k < K && rc == 0; k++) {
-      if (keys[k] == A) {
+      if (rplan->keys[k] == A) {
         // Output-free cluster: input-only system guarantees with no controller
         // to emit.  These are NOT trivially satisfiable -- the system meets
         // them only if the assumptions entail them -- so check realizability
@@ -318,9 +312,8 @@ int main(int argc, char *argv[]) {
         // via assumptions, so UNREALIZABLE here soundly implies the whole spec
         // is unrealizable.  We use only the verdict: any referenced outputs are
         // driven by their owning clusters, so nothing is merged.
-        Node *ofree =
-            residual_build_cluster(spec, cov, rf, key, A, /*all=*/false,
-                                   /*prune=*/false, N, seen);
+        Node *ofree = residual_plan_build_cluster(
+            spec, cov, rplan, A, /*all=*/false, /*prune=*/false, seen);
         if (!ofree) {
           rc = 1;
           break;
@@ -341,9 +334,9 @@ int main(int argc, char *argv[]) {
         aig_free(of_sub);
         continue;
       }
-      Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k],
-                                 /*all=*/false, /*prune=*/true, N, seen);
+      Node *root = residual_plan_build_cluster(
+          spec, cov, rplan, rplan->keys[k], /*all=*/false, /*prune=*/true,
+          seen);
       if (!root) {
         rc = 1;
         break;
@@ -527,9 +520,7 @@ int main(int argc, char *argv[]) {
     aig_free(g);
     oxidd_session_free();
     free(seen);
-    free(rf);
-    free(key);
-    free(keys);
+    residual_plan_free(rplan);
     if (output_file)
       fclose(out);
     csnf_composition_free(comp);
@@ -581,10 +572,10 @@ int main(int argc, char *argv[]) {
     // are NOT trivially realizable -- emit them too so compose.sh's per-cluster
     // realizability check covers them (built with all assumptions, prune=false,
     // so coupling assumptions that mention other clusters' outputs survive).
-    bool output_free = keys[k] == A;
-    Node *root =
-        residual_build_cluster(spec, cov, rf, key, keys[k], /*all=*/false,
-                               /*prune=*/!output_free, N, seen);
+    bool output_free = rplan->keys[k] == A;
+    Node *root = residual_plan_build_cluster(
+        spec, cov, rplan, rplan->keys[k], /*all=*/false,
+        /*prune=*/!output_free, seen);
     if (!root) {
       rc = 1;
       break;
@@ -634,9 +625,7 @@ int main(int argc, char *argv[]) {
                "exact)\n");
 
   free(seen);
-  free(rf);
-  free(key);
-  free(keys);
+  residual_plan_free(rplan);
   if (rc)
     fprintf(stderr, "tlsfcompose: failed (OOM or I/O)\n");
   if (output_file)
