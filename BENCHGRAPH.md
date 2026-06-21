@@ -1,41 +1,44 @@
-# SYNTCOMP form / template-shape statistics
+# SYNTCOMP selection form / template-shape statistics
 
 > Generated benchmark snapshot. This file records measurements; it is not a
-> roadmap. Regenerate it with the benchmark script before relying on the
+> roadmap. Regenerate it with the benchmark scripts before relying on the
 > numbers.
 
-Aggregate structural statistics of the [SYNTCOMP](https://github.com/SYNTCOMP/benchmarks)
-benchmark corpus, computed with `tlsfbenchgraph`. Two sets:
+Aggregate structural statistics for the local SYNTCOMP selection directories,
+computed with `tlsfbenchgraph` from `build-release-local`:
 
-- **`tlsf`** — real-time / infinite-word benchmarks (2545 specs).
-- **`tlsf-fin`** — finite-word (LTLf) benchmarks (2487 specs).
+- **`tlsf`** — `tlsf-selection-2026` (1586 specs).
+- **`tlsf-fin`** — `tlsf-fin-selection-2026` (748 specs).
 
-Every spec in both sets parses, expands and is analysed (0 failures). Numbers
-come from the synthesis-graph layer (`tlsfgraph` cover + recognizers,
-`tlsftemplates` certification, `tlsfwl` WL refinement). They are *syntactic* —
-a constraint is counted under a shape only if it matches that shape's exact
-pattern, so per-shape counts are **lower bounds**.
+Every selected spec parses, expands, and is analysed. The structural numbers are
+syntactic lower bounds: a constraint is counted under a shape only when it
+matches that exact recognizer pattern.
 
-**Primary tables use `--split`** (constraint decomposition): each section
-formula is split into its top-level `&&` conjuncts (distributing `G`/`X` over
-`&&` along the spine — equivalence-preserving), so structure conjoined into one
-clause is visible to the recognizers. A dedicated section below quantifies the
-effect of decomposition (it is large).
+Primary structural tables use `--split`, which decomposes top-level conjunctions
+so conjoined obligations are visible to the recognizers.
 
-Regenerate everything (plots + the tables below):
+Regenerate structural plots and tables:
 
 ```sh
-ninja -C build
 python3 scripts/benchgraph_plots.py \
-    --benchgraph build/tlsfbenchgraph --out docs/benchgraph --wl 6 \
-    /path/to/benchmarks/tlsf:tlsf \
-    /path/to/benchmarks/tlsf-fin:tlsf-fin
+    --benchgraph build-release-local/tlsfbenchgraph \
+    --out docs/benchgraph --wl 6 \
+    tlsf-selection-2026:tlsf \
+    tlsf-fin-selection-2026:tlsf-fin
 ```
 
-(The script needs `matplotlib`; it runs `tlsfbenchgraph` itself — once per
-corpus *with* and *without* `--split` — writes the PNGs under
-`docs/benchgraph/`, and prints these markdown tables. TSVs go to a temp dir and
-are discarded.)
+Regenerate the preprocessor speed/complexity section:
+
+```sh
+scripts/benchgraph.py \
+    --corpus tlsf-selection-2026 \
+    --tlsfcompose build-release-local/tlsfcompose \
+    --ltlsynt ltlsynt \
+    --baseline-mode tlsf-tools \
+    --out BENCHGRAPH.md \
+    --data benchgraph_data.tsv \
+    --timeout 15 --mem-gb 6
+```
 
 ---
 
@@ -43,115 +46,37 @@ are discarded.)
 
 | corpus | specs | parsed | constraints (med/mean/max) | inputs (med) | outputs (med) |
 |---|--:|--:|---|--:|--:|
-| `tlsf` | 2545 | 2545 | 13 / 35.7 / 5154 | 8 | 3 |
-| `tlsf-fin` | 2487 | 2487 | 7 / 13.8 / 162 | 12 | 10 |
+| `tlsf` | 1586 | 1586 | 15 / 40.4 / 5154 | 7 | 3 |
+| `tlsf-fin` | 748 | 748 | 13 / 19.0 / 162 | 13 | 35 |
 
 ![Constraint-count distribution](docs/benchgraph/constraints_hist.png)
 
-`tlsf` has a small-but-long-tailed size profile; `tlsf-fin` specs are written as
-one or a few large conjunctive formulas (see the decomposition blow-up below).
-
 ## Template-shape prevalence (decomposed)
 
-| corpus | response | mutex | recurrence | persistence | global recurrence | guarded_next | definition |
+| corpus | response | mutex | recurrence | persistence | global_recurrence | guarded_next | definition |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 431 (2551) | 12 (14) | 876 (1882) | 46 (54) | 4 (4) | 48 (129) | 92 (331) |
-| `tlsf-fin` | 141 (544) | 230 (655) | 0 (0) | 0 (0) | 0 (0) | 292 (601) | 43 (43) |
+| `tlsf` | 383 (2419) | 5 (6) | 556 (1090) | 19 (19) | 2 (2) | 36 (106) | 55 (250) |
+| `tlsf-fin` | 26 (96) | 46 (104) | 0 (0) | 0 (0) | 0 (0) | 77 (132) | 22 (22) |
 
-_Cells: number of specs exhibiting the shape, and (total candidate count)._
+_(cells: # specs with the shape, and total candidate count)_
 
 ![Template-shape prevalence](docs/benchgraph/shape_prevalence.png)
 
-- **`tlsf` is recurrence-dominated** — a `GF` recurrence in **876 / 2545 (≈34 %)**
-  specs — but once conjunctions are split, **response** is the second most
-  common shape (431 specs), and **definition** (92), **guarded-next** (48), and
-  the rare deterministic-Buchi **global recurrence** shape (4) are non-trivial.
-- **`tlsf-fin` still has no recurrence/persistence** (`GF`/`FG` are meaningless
-  on finite traces) but, after decomposition, it is clearly **arbitration- and
-  guarded-next-shaped**: **mutex in 230 specs, response in 141, and
-  guarded-next in 292** — much of this is invisible without splitting (see next
-  section).
-
-## Safety / liveness and template-solvable coverage (decomposed)
+## Template-solvable coverage (decomposed)
 
 | corpus | solved blocks | certified | specs ≥1 solved | specs fully solved | constraints eliminated | outputs owned |
 |---|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 502 | 14 | 202 | 2 | 0.4 % (385/90855) | 2.2 % (318/14463) |
-| `tlsf-fin` | 305 | 426 | 89 | 0 | 0.6 % (219/34352) | 0.2 % (219/132149) |
+| `tlsf` | 231 | 6 | 106 | 1 | 0.2% (126/64136) | 0.9% (88/9377) |
+| `tlsf-fin` | 154 | 62 | 45 | 0 | 0.8% (110/14243) | 0.2% (110/61672) |
 
-_"constraints eliminated" / "outputs owned" are the **residual reduction**:
-constraints discharged and outputs determined by a sound composable controller
-(`tlsfresidual` / `tlsftemplates --check`)._
+`constraints eliminated` and `outputs owned` are residual-reduction metrics:
+constraints discharged and outputs determined by certified composable blocks.
 
 ![Residual reduction](docs/benchgraph/coverage.png)
 
-The certified template library spans the Manna–Pnueli safety–progress hierarchy
-([spot's classes](https://spot.lre.epita.fr/hierarchy.html)): **safety**
-(definition / delayed-definition / guarded-next / reaction / mutex / a general
-stateless **safety-invariant** `G(B)`), **guarantee** (`F o`), **persistence**
-(`FG o`) and **recurrence** (global recurrence switch / response / round-robin /
-arbiter). The controllers are **composable**: combinational decoders (`o:=θ`,
-`o:=true`, `o:=⋁guards`, and the invariant Skolem `o:=¬B[o:=⊥]`) are
-*eliminated from the residual by substitution*, deterministic-Buchi switches
-emit a one-bit local controller, and responses on a shared grant are merged into
-one **fair server** rather than the monopolizing `o:=true`.
+## Residual complexity (monolith -> residual)
 
-The stateless safety-invariant `G(B)` (B temporal-free) is solved by a
-memoryless Skolem controller when its outputs are free and `∀inputs∃outputs.B`
-(a bounded propositional check); single- and multi-output. It is the most
-general safety template, but on the corpus it barely moves the needle (`tlsf`
-constraints eliminated 326→383 before the later global-recurrence addition,
-`tlsf-fin` +0): almost all real safety either couples outputs read elsewhere or
-is **stateful** (mentions `X`), which a *stateless* invariant cannot claim.
-Confirms that the coverage lever is genuine **safety-game solving**, not more
-syntactic templates.
-
-## Composable certification & residual reduction (`tlsfresidual`)
-
-Each block is certified *locally*; "specs with ≥1 solved block" (202 / 89) is a
-floor, not a solved-spec count. The real measure is how much of the problem a
-**sound whole-spec decomposition** removes before handing off to a synthesizer:
-
-| corpus | fully solved | constraints eliminated | outputs owned | specs with a residual conflict |
-|---|--:|--:|--:|--:|
-| `tlsf` | **2** | 0.4 % | 2.2 % | 48 |
-| `tlsf-fin` | **0** | 0.6 % | 0.2 % | 43 |
-
-Two honest findings:
-
-1. **Composability was the soundness fix, not a coverage fix.** Substitution
-   eliminates every combinational decoder *exactly* (an output merely *read*
-   elsewhere is rewritten, not ejected), and fair-server merging turns
-   same-resource requests into one block instead of a self-collision. This
-   removed the ejection pathology in that benchmark family — `tlsf` composition
-   conflicts dropped
-   **113 → 48**, and those that remain are *genuine* (decoder cycles, real value
-   clashes such as `G(o<->a) ∧ G!o`, which surface as an unrealizable residual).
-2. **But the headline barely moves: ~0.4–0.6 % of constraints are eliminated and
-   only 2 specs are fully solved.** The new deterministic-Buchi switch handles
-   the two `ltl2dba22` copies; real specs are still dominated by plain safety
-   constraints no template matches, plus `ASSUME` assumptions that always belong
-   to the residual. Templates discharge the few cleanly decoupled obligations
-   (mostly definitions); the bulk (~99 %) is the residual.
-
-So the answer to "what raises the statistics" is: **composition was necessary
-but not sufficient**, and **more syntactic templates are not the main lever**.
-The general stateless safety-invariant added essentially nothing, because real
-safety is stateful (`X`) or output-coupled.  The useful lever is a real backend
-for residual games: OxiDD covers the non-finite safety slice (including strict
-safety wrappers `S W !A`) and the GR(1) tier; pure liveness needs `ltlsynt`.
-
-## Residual complexity (monolith → residual)
-
-"Fully solved" is a binary that hides most of the value. Reactive synthesis cost
-is ~exponential in the number of controllable **outputs** and in **operator
-class** (parity ⊐ safety ⊐ solved), so a spec we never fully close can still be
-exponentially cheaper after decomposition. `tlsfbenchgraph` now measures, per
-spec, the **residual** the backends still face — every accepted SOLVED block
-removed (so `fully_solved` ⇔ empty residual), the rest substituted and
-partitioned into output-disjoint clusters (one independent game each) — and
-reports its size, cluster count, hardest-cluster output count, and per-cluster
-safety/liveness class with the same classifier as the monolith columns.
+Residual complexity after all template work — per-spec residual = the games the synthesis backends still face (every accepted SOLVED block removed):
 
 ![Residual independent games by synthesis class](docs/benchgraph/residual_class.png)
 
@@ -159,182 +84,103 @@ safety/liveness class with the same classifier as the monolith columns.
 
 | corpus | fully solved | specs factoring ≥2 clusters | residual clusters (safety→OxiDD / liveness→ltlsynt) | hardest game outs monolith→residual (mean) | residual size / monolith |
 |---|--:|--:|--:|--:|--:|
-| `tlsf` | 2 (0%) | 746 (29%) | 2004 (43%) / 2655 (57%) | 5.0→4.9 | 76.7% (7388596/9631686) |
-| `tlsf-fin` | 0 (0%) | 1422 (57%) | 1455 (21%) / 5533 (79%) | 50.3→50.3 | 100.1% (21774881/21748136) |
+| `tlsf` | 1 (0%) | 371 (23%) | 1622 (50%) / 1612 (50%) | 5.0→4.9 | 69.4% (3463866/4988001) |
+| `tlsf-fin` | 0 (0%) | 241 (32%) | 272 (18%) / 1257 (82%) | 80.8→80.7 | 100.1% (10763580/10750952) |
 
-Three findings, and they reframe where the leverage is:
-
-1. **Templates barely shrink the hardest game.** The largest residual cluster has
-   essentially the same output count as the monolith's largest output component
-   (`tlsf` 5.0→4.9, `tlsf-fin` 50.3→50.3): the big multi-output transition cores
-   `G(..→X(o1∨..∨o6))` survive untouched. Template ownership (~2 % of outputs) is
-   not the dimensionality lever.
-2. **Clustering is the lever.** **29 % of `tlsf` and 57 % of `tlsf-fin` specs
-   factor into ≥2 output-disjoint independent games.** Because cost is
-   exponential in a single game's outputs, solving `max(cluster)` instead of the
-   whole spec — `Σ exp(out_i)` rather than `exp(Σ out_i)` — is a real (often
-   exponential) reduction that lands even at a ~0 % template solve rate. The
-   residual is also smaller as a formula on `tlsf` (76.7 % of the monolith).
-3. **Liveness is sparse per clause but pervasive per spec.** ~99 % of residual
-   *conjuncts* are safety, yet most *specs* still carry one `GF`/`F` clause, so a
-   whole spec can rarely be handed to OxiDD as one game. Clustering isolates
-   that tail: **43 % of `tlsf` (21 % of `tlsf-fin`) residual independent games are
-   pure-safety, OxiDD-eligible**; only the liveness clusters need `ltlsynt`.
-   The path to a higher solved fraction is therefore *finer clustering that peels
-   each safety game off the liveness tail*, not more closed-form templates.
-
-**Follow-up — finer clustering (per-cluster relevant-assumption scoping).** Each
-cluster now attaches only the assumptions relevant to it (a transitive cone of
-influence over signals) and drops liveness assumptions from safety-only clusters
-(a liveness assumption can never prevent a finite-time safety violation, so it is
-irrelevant to a safety guarantee; `src/residual.c` `residual_build_cluster`). This
-is sound — synthesizing against a subset `Eᵢ ⊆ E` of the assumptions still yields
-a controller valid under the full `E`. It cleanly de-contaminates the case a
-global liveness assumption inflates an otherwise-safety cluster (`cluster_assume`,
-`cluster_prune`) and leans cluster formulas. **But it does not move the SYNTCOMP
-needle**: the 43 %/21 % safety-cluster split is unchanged, because the corpus
-liveness clusters are **guarantee-driven** (responses `G(req→F grant)`, `U`-shaped
-amba obligations), not assumption-contaminated. The completeness rule correctly
-*retains* each cluster's fairness (e.g. `G F HREADY` stays on the `READY2`
-response game). The genuine lever for those clusters is a **GR(1)/Büchi backend**;
-finer clustering is its enabler, since each GR(1) game now carries only its
-relevant fairness assumptions.
+_(Per-spec class: most specs still carry a liveness cluster, but clustering isolates it — the safety clusters are OxiDD-eligible games; only the liveness clusters need `ltlsynt`. Synthesis cost is ~exponential in a game's outputs, so the hardest-game column is the headline dimensionality number.)_
 
 ## Effect of constraint decomposition (`--split`)
 
-| corpus | constraints (total) | response | mutex | recurrence | persistence | global recurrence | guarded_next | definition |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| `tlsf` | 33513 → 90855 | 44→431 | 4→12 | 796→876 | 46→46 | 4→4 | 30→48 | 16→92 |
-| `tlsf-fin` | 3051 → 34352 | 0→141 | 0→230 | 0→0 | 0→0 | 0→0 | 43→292 | 43→43 |
+Effect of `--split` (specs with the shape: raw → decomposed):
 
-_(specs exhibiting the shape: raw → decomposed)_
+| corpus | constraints (total) | response | mutex | recurrence | persistence | global_recurrence | guarded_next | definition |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| `tlsf` | 14686→64136 | 23→383 | 2→5 | 484→556 | 19→19 | 2→2 | 23→36 | 15→55 |
+| `tlsf-fin` | 1036→14243 | 0→26 | 0→46 | 0→0 | 0→0 | 0→0 | 22→77 | 22→22 |
 
 ![Decomposition effect](docs/benchgraph/split_effect.png)
-
-This is the headline: most specs write several obligations as **one conjunctive
-clause**, so whole-formula matching badly under-counts structure. Splitting
-(equivalence-preserving) multiplies the visible constraints (tlsf ≈2.7×,
-tlsf-fin ≈11×) and uncovers shapes that were entirely hidden —
-**`tlsf-fin` mutex 0 → 230, response 0 → 141, guarded-next 43 → 292**;
-**`tlsf` response 44 → 431**.
-Counts that don't reference `&&`-conjoined siblings (recurrence, persistence)
-are essentially unchanged, as expected.
 
 ## Weisfeiler-Lehman stabilisation depth (decomposed)
 
 | corpus | WL stabilisation depth (med/mean/max) |
 |---|---|
-| `tlsf` | 3 / 2.7 / 6 |
+| `tlsf` | 2 / 2.6 / 6 |
 | `tlsf-fin` | 3 / 3.0 / 6 |
 
 ![WL stabilisation depth](docs/benchgraph/wl_stab.png)
-
-Even decomposed, the graphs are **shallow**: WL refinement reaches a fixed point
-in a median of 3 rounds (≤6 anywhere), so low-depth fingerprints suffice for
-clustering/retrieval.
 
 ## Normalisation (formula size under `--strong-simplify`)
 
 ![Formula size under strong-simplify](docs/benchgraph/reduction.png)
 
-`--strong-simplify` is a *normal form*, not a minimiser (it eliminates `W`/`R`
-and applies NNF): on `tlsf` it tends to grow formulas (median ×1.14), on
-`tlsf-fin` it is roughly neutral (median ×0.99).
-
----
-
 ## Key takeaways
 
-1. **Most obligations are conjoined into one clause.** Whole-formula matching
-   under-counts; decomposition multiplies visible constraints (≈2.7× / ≈11×)
-   and is what makes the shape statistics meaningful.
-2. **`tlsf` is recurrence-dominated** (~34 % of specs) with responses pervasive
-   once split (431 specs).
-3. **`tlsf-fin` is arbitration- and guarded-next-shaped, hidden in single
-   formulas** — mutex (230), response (141), and guarded-next (292) are exposed
-   after `--split`; no recurrence at all.
-4. **Decomposition ~3.7×'s template-solvable `tlsf` coverage** (55 → 202 specs);
-   the expanded library (free-liveness, reaction, delayed-def, fair arbiter)
-   *solves* `tlsf-fin` arbitration (137 → 305 blocks, 51 → 89 specs).
-5. **Composable certification is sound but template coverage is bounded.** Substitution
-   eliminates combinational decoders exactly and fair servers merge shared
-   requests, removing the old ejection pathology (`tlsf` conflicts 113 → 48).
-   Template-only composition now fully solves **2** specs and only
-   **~0.4–0.6 % of constraints** are eliminated.  With OxiDD,
-   `tlsfcompose --aiger --ltlsynt /bin/false` emits real full controllers
-   for **787 / 2545 (30.9 %)** `tlsf` specs (see benchgraph section below).
-   Remaining no-`ltlsynt` coverage needs a liveness / Büchi backend.
-6. **Structure is shallow** (WL depth ≤6) and **`--strong-simplify` can grow**
-   formulas (it normalises, it does not shrink).
-7. **Decomposition lowers complexity through clustering, not template
-   ownership.** Templates barely move the hardest game (largest residual cluster
-   ≈ monolith's largest output component), but 29 % of `tlsf` / 57 % of
-   `tlsf-fin` specs factor into ≥2 independent games, and 43 % / 21 % of those
-   games are pure-safety (OxiDD-eligible). The lever for a higher solved
-   fraction is finer clustering that peels each safety game off the per-spec
-   liveness tail.
+1. The selected `tlsf` corpus remains recurrence-heavy after decomposition: 556
+   specs expose recurrence candidates, and 383 expose response candidates.
+2. The selected `tlsf-fin` corpus is dominated by guarded-next and mutex-shaped
+   structure after decomposition, with no recurrence or persistence candidates.
+3. Template-certified blocks solve part of the problem but rarely the whole spec:
+   106 selected `tlsf` specs and 45 selected `tlsf-fin` specs have at least one
+   solved block, while full structural solve counts are 1 and 0 respectively.
+4. Residual clustering is the main decomposition lever: 371 selected `tlsf`
+   specs and 241 selected `tlsf-fin` specs factor into two or more residual
+   games, with safety clusters isolated for OxiDD.
+5. The refreshed preprocessor benchmark below is based on the selected `tlsf`
+   corpus and records the per-spec data in `benchgraph_data.tsv`.
 
 ## Caveats
 
-- Recognizers are *syntactic*; per-shape numbers are lower bounds even after
-  decomposition.
-- `--split` distributes `G`/`X` over `&&` only along the spine (never inside
-  `F`/`U`/…), so it is equivalence-preserving and does not perturb
-  recurrence/persistence counts.
-- Combinational outputs (definition/reaction/reachability/persistence) are
-  **eliminated by substitution** (`o:=value` rewritten into the residual), so an
-  output merely *read* elsewhere costs nothing; a constraint that genuinely
-  *forces* `o` the other way becomes an unrealizable residual (surfaced, not
-  mis-certified).
-- Liveness-owned outputs (fair servers, registers) have no closed form, so they
-  keep a conservative **free-output** rule: they reduce the residual only when
-  the output is otherwise unreferenced. This is where coverage is left on the
-  table — a shared grant read by other constraints stays in the residual.
+- Recognizers are syntactic; shape counts are lower bounds.
+- `--split` only distributes over equivalence-preserving top-level conjunctions.
+- The speed section compares only OxiDD-contributing specs; baseline `ERROR`
+  rows are reported but excluded from both-solved speedup statistics.
 
 <!-- BENCHGRAPH:PREPROCESSOR START (generated by scripts/benchgraph.py) -->
 ## Preprocessor speed & complexity vs ltlsynt (`scripts/benchgraph.py`)
 Is templates+OxiDD a FAST preprocessor? Two metrics: residual **complexity**
-(what's left after templates+OxiDD) and **speed** (our full pipeline vs standalone
-`ltlsynt --tlsf` on the whole spec). Goal: carve off safety with OxiDD, forward
+(what's left after templates+OxiDD) and **speed** (our full pipeline vs a standalone
+`ltlsynt` baseline for the whole spec). Goal: carve off safety with OxiDD, forward
 only the hard liveness residual to ltlsynt, and never be slower or less complete.
 Regenerate: `scripts/benchgraph.py --corpus DIR --tlsfcompose … --ltlsynt …`
 (or `--from-data benchgraph.tsv` to re-render this section without re-running).
 
-### Run: 2026-06-15 21:23 UTC · commit `ee5b342`
-- Corpus: `/home/gperez/GIT-repos/benchmarks/tlsf` (2545 specs)
+### Run: 2026-06-21 15:42 UTC · commit `38c04fd`
+- Corpus: `tlsf-selection-2026` (1586 specs)
 - Caps: timeout 15s/run, 6 GB RAM/run (systemd cgroup hard cap), sequential
-- Baseline: `ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)
+- Baseline: `tlsf2tlsf --basic` + `tlsf2ltl --format ltl` + `ltlsynt -F … --ins … --outs … --aiger`
 - Ours: `tlsfcompose --split --aiger --ltlsynt …`
-- Per-spec data: `BENCHGRAPH.tsv`
+- Per-spec data: `benchgraph_data.tsv`
 
 ### Complexity
-- **Self-contained (templates+OxiDD, no ltlsynt): 809/2545 = 31.8%** (639 use OxiDD).
-- **OxiDD reach (≥1 cluster): 657/2545 = 25.8%**.
+- **Self-contained (templates+OxiDD, no ltlsynt): 489/1586 = 30.8%** (404 use OxiDD).
+- **OxiDD reach (≥1 cluster): 407/1586 = 25.7%**.
 - Residual shape (specs not self-contained), hardest cluster:
 
   | residual class | specs |
   |---|---|
-  | liveness (F/U/GF/Buchi) | 1478 |
-  | W/R safety not yet handled | 103 |
-  | GR(2+) generalized reactivity | 98 |
-  | (none / unrealizable verdict) | 57 |
+  | liveness (F/U/GF/Buchi) | 944 |
+  | GR(2+) generalized reactivity | 60 |
+  | W/R safety not yet handled | 50 |
+  | (none / unrealizable verdict) | 43 |
 
 ### Residual reduction (complexity)
-- Specs with ≥1 synthesis cluster: 2332; 3605 clusters total (1926 peeled by OxiDD, 1679 forwarded to ltlsynt).
-- **Formula mass OxiDD carves off the residual before ltlsynt: aggregate 1.7%** (residual 3460320/3520672 nodes), median per spec **0.0%**.
-- OxiDD peels the **entire** synthesis residual (nothing left for ltlsynt): 653/2332 specs.
-- Residual clusters still forwarded to ltlsynt (count → specs): 0→653, 1→1679.
+- Specs with ≥1 synthesis cluster: 1461; 2746 clusters total (1692 peeled by OxiDD, 1054 forwarded to ltlsynt).
+- **Formula mass OxiDD carves off the residual before ltlsynt: aggregate 32.0%** (residual 1297605/1909224 nodes), median per spec **0.0%**.
+- OxiDD peels the **entire** synthesis residual (nothing left for ltlsynt): 407/1461 specs.
+- Residual clusters still forwarded to ltlsynt (count → specs): 0→407, 1→1054.
 
 ### Speed (OxiDD-contributing specs)
-- Timed: 657 specs. Both produced a controller: 284.
-- **Both-solved speedup `base/ours`: median ×0.43, geomean ×0.48** (faster: 52, slower: 232).
-- Absolute wall on both-solved: **median ours 89 ms vs base 38 ms** (near parity); mean ours 578 ms vs base 623 ms.
-- Total wall on both-solved: ours 164.1s vs base 177.0s (**×1.08** aggregate).
-- Ours solves where **base times out** (≥15s): 77 clear wins — selection-ltl-2025×41, sweap×35, specs×1.
+- Timed: 407 specs. Both produced a controller: 89.
+- Status breakdown on timed specs: ours SOLVED 215, UNREAL 143, TIMEOUT 49, FAILED 0; baseline SOLVED 89, UNREAL 4, TIMEOUT 1, ERROR 313.
+- Baseline ERROR rows are excluded from speedup statistics; they are cases where standalone `ltlsynt` did not produce a verdict for the expanded formula/signals.
+- **Both-solved speedup `base/ours`: median ×0.60, geomean ×0.43** (faster: 16, slower: 73).
+- Absolute wall on both-solved: **median ours 57 ms vs base 34 ms** (near parity); mean ours 418 ms vs base 140 ms.
+- Total wall on both-solved: ours 37.2s vs base 12.5s (**×0.34** aggregate).
+- Ours solves where **base times out** (≥15s): 1 clear win.
 
 ### Completeness vs ltlsynt
-- **ltlsynt produced a controller but we did not: 1** — the honest deficit (we are *less complete* on these). Breakdown: 0 we wrongly call **UNREALIZABLE**, 0 backend **FAILED**, 1 **timed out**.
+- **ltlsynt produced a controller but we did not: 0** — the honest deficit (we are *less complete* on these). Breakdown: 0 we wrongly call **UNREALIZABLE**, 0 backend **FAILED**, 0 **timed out**.
 
 ### Verdict
-On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (89 ms vs 38 ms). In **aggregate we are ×1.08 faster** than ltlsynt. The genuine value is the **77 specs ltlsynt cannot synthesize in 15s that we do** (GR(1) `amba_gr`, large decomposed safety). The completeness blocker is **1 specs ltlsynt solves that we don't** — now dominated by **0 false-UNREALs** from output-free assumption clusters, not parse bugs.
+On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is at **rough parity** (57 ms vs 34 ms). In **aggregate we are ×0.34 slower** than ltlsynt. The genuine value is the **1 spec ltlsynt cannot synthesize in 15s that we do**. The completeness blocker is **0 specs ltlsynt solves that we don't** — now dominated by **0 false-UNREALs** from output-free assumption clusters, not parse bugs.
 <!-- BENCHGRAPH:PREPROCESSOR END -->

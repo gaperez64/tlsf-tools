@@ -274,7 +274,7 @@ def plot_residual_class(aggs, out):
 
     After all template work, the residual factors into output-disjoint clusters
     — one independent game each.  Stacked bars give the share of those games
-    that are pure-safety (AbsSynthe-eligible) vs carry liveness (need ltlsynt).
+    that are pure-safety (OxiDD-eligible) vs carry liveness (need ltlsynt).
     This is the decomposition-credit view: even when a whole spec still has a
     liveness tail, clustering isolates it, so most independent games are safety.
     """
@@ -291,7 +291,7 @@ def plot_residual_class(aggs, out):
     safety = [frac(a, "res_safety_clusters_total") for a in aggs]
     liveness = [frac(a, "res_live_clusters_total") for a in aggs]
     ax.bar(x, safety, 0.6, color="#4c72b0",
-           label="pure-safety game (AbsSynthe)")
+           label="pure-safety game (OxiDD)")
     ax.bar(x, liveness, 0.6, bottom=safety, color="#c44e52",
            label="game w/ liveness (ltlsynt)")
     for i in x:
@@ -393,7 +393,7 @@ def stats_markdown(aggs_raw, aggs, wl_ok):
                      "(every accepted SOLVED block removed):")
         lines.append("")
         lines.append("| corpus | fully solved | specs factoring ≥2 clusters | "
-                     "residual clusters (safety→AbsSynthe / liveness→ltlsynt) | "
+                     "residual clusters (safety→OxiDD / liveness→ltlsynt) | "
                      "hardest game outs monolith→residual (mean) | "
                      "residual size / monolith |")
         lines.append("|---|--:|--:|--:|--:|--:|")
@@ -419,7 +419,7 @@ def stats_markdown(aggs_raw, aggs, wl_ok):
         lines.append("")
         lines.append("_(Per-spec class: most specs still carry a liveness "
                      "cluster, but clustering isolates it — the safety clusters "
-                     "are AbsSynthe-eligible games; only the liveness clusters "
+                     "are OxiDD-eligible games; only the liveness clusters "
                      "need `ltlsynt`. Synthesis cost is ~exponential in a game's "
                      "outputs, so the hardest-game column is the headline "
                      "dimensionality number.)_")

@@ -9,8 +9,8 @@ Two metrics, both rerunnable over the corpus and summarised into BENCHGRAPH.md:
   clusters that still need a liveness backend.
 
   SPEED (focus: specs where OxiDD handles >=1 cluster): wall time of the full
-  tlsf-tools pipeline (templates + OxiDD + ltlsynt on residuals) vs standalone
-  `ltlsynt --tlsf` on the whole spec.  Solve STATUS is tracked too -- a fast
+  tlsf-tools pipeline (templates + OxiDD + ltlsynt on residuals) vs a standalone
+  `ltlsynt` baseline for the whole spec.  Solve STATUS is tracked too -- a fast
   failure is not a speedup, so speedups are only computed where both engines
   actually produced a controller.
 
@@ -26,6 +26,7 @@ import signal
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -143,7 +144,100 @@ def ours_status(spec, args):
     return st, secs
 
 
+def sibling_tool(path, name):
+    d = os.path.dirname(path)
+    return os.path.join(d, name) if d else name
+
+
+def parse_basic_signals(text):
+    ins, outs, section = [], [], None
+    for line in text.splitlines():
+        s = line.split("//", 1)[0].strip()
+        if s == "INPUTS {":
+            section = "inputs"
+            continue
+        if s == "OUTPUTS {":
+            section = "outputs"
+            continue
+        if section and s == "}":
+            section = None
+            continue
+        if section and s.endswith(";"):
+            name = s[:-1].strip()
+            if name:
+                (ins if section == "inputs" else outs).append(name)
+    return ins, outs
+
+
+def base_status_via_tlsf_tools(spec, args):
+    start = time.monotonic()
+
+    def remaining():
+        return max(0.0, args.timeout - (time.monotonic() - start))
+
+    try:
+        basic = subprocess.run(
+            [args.tlsf2tlsf, "--basic", spec],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=remaining(),
+        )
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT", time.monotonic() - start
+    if basic.returncode != 0:
+        return "ERROR", time.monotonic() - start
+    ins, outs = parse_basic_signals(basic.stdout)
+    if not outs:
+        return "ERROR", time.monotonic() - start
+
+    try:
+        formula = subprocess.run(
+            [args.tlsf2ltl, "--format", "ltl", spec],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=remaining(),
+        )
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT", time.monotonic() - start
+    if formula.returncode != 0 or not formula.stdout.strip():
+        return "ERROR", time.monotonic() - start
+
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".ltl", delete=False) as f:
+            tmp = f.name
+            f.write(formula.stdout.strip())
+            f.write("\n")
+        rem = remaining()
+        if rem <= 0:
+            return "TIMEOUT", time.monotonic() - start
+        cmd = [args.ltlsynt, "-F", tmp, "--outs", ",".join(outs), "--aiger"]
+        if ins:
+            cmd += ["--ins", ",".join(ins)]
+        rc, _, _, to = run_timed(cmd, rem)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    secs = time.monotonic() - start
+    if to:
+        st = "TIMEOUT"
+    elif rc == 0:
+        st = "SOLVED"
+    elif rc == 1:
+        st = "UNREAL"
+    else:
+        st = "ERROR"
+    return st, secs
+
+
 def base_status(spec, args):
+    if args.baseline_mode == "tlsf-tools":
+        return base_status_via_tlsf_tools(spec, args)
     rc, _, secs, to = run_timed([args.ltlsynt, "--tlsf=" + spec, "--aiger"], args.timeout)
     if to:
         st = "TIMEOUT"
@@ -154,6 +248,13 @@ def base_status(spec, args):
     else:
         st = "ERROR"
     return st, secs
+
+
+def baseline_description(args):
+    if args.baseline_mode == "tlsf-tools":
+        return ("`tlsf2tlsf --basic` + `tlsf2ltl --format ltl` + "
+                "`ltlsynt -F … --ins … --outs … --aiger`")
+    return "`ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)"
 
 
 def load_rows(path):
@@ -177,11 +278,32 @@ def load_rows(path):
     return rows
 
 
+def write_rows(path, rows):
+    with open(path, "w") as f:
+        f.write("name\tself_contained\tabs_clusters\tresidual_class\t"
+                "ours_st\tours_t\tbase_st\tbase_t\t"
+                "full_nodes\tresidual_nodes\tn_oxidd\tn_ltlsynt\n")
+        for r in rows:
+            f.write(f"{r['name']}\t{int(r['self_contained'])}\t"
+                    f"{r['abs_clusters']}\t{r['residual_class']}\t"
+                    f"{r['ours_st']}\t{r['ours_t'] or ''}\t"
+                    f"{r['base_st']}\t{r['base_t'] or ''}\t"
+                    f"{r['full_nodes']}\t{r['residual_nodes']}\t"
+                    f"{r['n_oxidd']}\t{r['n_ltlsynt']}\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--tlsfcompose", required=True)
     ap.add_argument("--ltlsynt", default=shutil.which("ltlsynt") or "ltlsynt")
+    ap.add_argument("--tlsf2ltl", default=None,
+                    help="tlsf2ltl path for syfco-free baseline mode")
+    ap.add_argument("--tlsf2tlsf", default=None,
+                    help="tlsf2tlsf path for syfco-free baseline mode")
+    ap.add_argument("--baseline-mode", choices=["auto", "syfco", "tlsf-tools"],
+                    default="auto",
+                    help="baseline translation path for standalone ltlsynt")
     ap.add_argument("--out", default="BENCHGRAPH.md")
     ap.add_argument("--data", default=None, help="per-spec TSV (default: alongside --out)")
     ap.add_argument("--timeout", type=int, default=15)
@@ -195,11 +317,33 @@ def main():
                     help="regenerate the report from an existing TSV (skip the corpus run)")
     ap.add_argument("--resume", action="store_true",
                     help="skip specs already present in --data (recover a crashed run)")
+    ap.add_argument("--refresh-baseline-errors", action="store_true",
+                    help="recompute baseline columns for timed rows whose baseline status is ERROR")
     args = ap.parse_args()
     data_path = args.data or (os.path.splitext(args.out)[0] + ".tsv")
+    if args.tlsf2ltl is None:
+        args.tlsf2ltl = sibling_tool(args.tlsfcompose, "tlsf2ltl")
+    if args.tlsf2tlsf is None:
+        args.tlsf2tlsf = sibling_tool(args.tlsfcompose, "tlsf2tlsf")
+    if args.baseline_mode == "auto":
+        args.baseline_mode = "syfco" if shutil.which("syfco") else "tlsf-tools"
 
     global MEM_GB
     MEM_GB = args.mem_gb
+
+    if args.refresh_baseline_errors:
+        rows = load_rows(data_path)
+        for i, r in enumerate(rows, 1):
+            if r["ours_st"] and r["base_st"] == "ERROR":
+                spec = os.path.join(args.corpus, r["name"])
+                r["base_st"], r["base_t"] = base_status(spec, args)
+            if i % 50 == 0 or i == len(rows):
+                print(f"[{i}/{len(rows)}] baseline refresh", file=sys.stderr, flush=True)
+        write_rows(data_path, rows)
+        write_report(args, rows, len(rows), data_path)
+        print(f"refreshed baseline columns in {data_path} and {args.out}",
+              file=sys.stderr)
+        return
 
     if args.from_data:
         rows = load_rows(args.from_data)
@@ -279,6 +423,8 @@ def write_report(args, rows, total, data_path):
     gap = [r for r in timed if r["ours_st"] == "FAILED" and r["base_st"] == "SOLVED"]
     ours_to = [r for r in timed if r["ours_st"] == "TIMEOUT" and r["base_st"] == "SOLVED"]
     false_unreal = [r for r in timed if r["ours_st"] == "UNREAL" and r["base_st"] == "SOLVED"]
+    ours_statuses = Counter(r["ours_st"] for r in timed)
+    base_statuses = Counter(r["base_st"] for r in timed)
     # the honest completeness deficit: ltlsynt produced a controller, we did not
     less_complete = gap + false_unreal + ours_to
     sum_ours = sum(r["ours_t"] for r in both)
@@ -298,8 +444,8 @@ def write_report(args, rows, total, data_path):
     L.append(SENTINEL_START + "\n")
     L.append("## Preprocessor speed & complexity vs ltlsynt (`scripts/benchgraph.py`)\n")
     L.append("Is templates+OxiDD a FAST preprocessor? Two metrics: residual **complexity**\n"
-             "(what's left after templates+OxiDD) and **speed** (our full pipeline vs standalone\n"
-             "`ltlsynt --tlsf` on the whole spec). Goal: carve off safety with OxiDD, forward\n"
+             "(what's left after templates+OxiDD) and **speed** (our full pipeline vs a standalone\n"
+             "`ltlsynt` baseline for the whole spec). Goal: carve off safety with OxiDD, forward\n"
              "only the hard liveness residual to ltlsynt, and never be slower or less complete.\n"
              "Regenerate: `scripts/benchgraph.py --corpus DIR --tlsfcompose … --ltlsynt …`\n"
              "(or `--from-data benchgraph.tsv` to re-render this section without re-running).\n")
@@ -308,7 +454,7 @@ def write_report(args, rows, total, data_path):
     L.append(f"- Corpus: `{args.corpus}` ({total} specs)\n"
              f"- Caps: timeout {args.timeout}s/run, "
              f"{MEM_GB} GB RAM/run ({cap_how}), sequential\n"
-             f"- Baseline: `ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)\n"
+             f"- Baseline: {baseline_description(args)}\n"
              f"- Ours: `tlsfcompose --split --aiger --ltlsynt …`\n"
              f"- Per-spec data: `{os.path.basename(data_path)}`\n")
 
@@ -356,8 +502,30 @@ def write_report(args, rows, total, data_path):
     win_fam = Counter(os.path.dirname(r["name"]) or "." for r in ours_win_base_to)
     gap_fam = Counter(os.path.dirname(r["name"]) or "." for r in gap)
 
+    def fam_summary(counter):
+        parts = []
+        for d, n in counter.most_common():
+            if d == ".":
+                continue
+            parts.append(f"{d.split('/')[-1]}×{n}")
+        return ", ".join(parts)
+
     L.append("\n### Speed (OxiDD-contributing specs)\n")
     L.append(f"- Timed: {len(timed)} specs. Both produced a controller: {len(both)}.\n")
+    if timed:
+        L.append("- Status breakdown on timed specs: "
+                 f"ours SOLVED {ours_statuses['SOLVED']}, "
+                 f"UNREAL {ours_statuses['UNREAL']}, "
+                 f"TIMEOUT {ours_statuses['TIMEOUT']}, "
+                 f"FAILED {ours_statuses['FAILED']}; "
+                 f"baseline SOLVED {base_statuses['SOLVED']}, "
+                 f"UNREAL {base_statuses['UNREAL']}, "
+                 f"TIMEOUT {base_statuses['TIMEOUT']}, "
+                 f"ERROR {base_statuses['ERROR']}.\n")
+    if base_statuses["ERROR"]:
+        L.append("- Baseline ERROR rows are excluded from speedup statistics; "
+                 "they are cases where standalone `ltlsynt` did not produce a "
+                 "verdict for the expanded formula/signals.\n")
     if speedups:
         L.append(f"- **Both-solved speedup `base/ours`: median ×{med(speedups):.2f}, "
                  f"geomean ×{geo(speedups):.2f}** "
@@ -367,8 +535,10 @@ def write_report(args, rows, total, data_path):
                  f"vs base {sum_base/len(both)*1000:.0f} ms.\n")
         L.append(f"- Total wall on both-solved: ours {sum_ours:.1f}s vs base {sum_base:.1f}s "
                  f"(**×{sum_base/sum_ours:.2f}** aggregate).\n")
-    L.append(f"- Ours solves where **base times out** (≥{args.timeout}s): {len(ours_win_base_to)} clear wins"
-             + (" — " + ", ".join(f"{d.split('/')[-1] or d}×{n}" for d, n in win_fam.most_common()) if win_fam else "")
+    wins_word = "win" if len(ours_win_base_to) == 1 else "wins"
+    win_fams = fam_summary(win_fam)
+    L.append(f"- Ours solves where **base times out** (≥{args.timeout}s): {len(ours_win_base_to)} clear {wins_word}"
+             + (f" — {win_fams}" if win_fams else "")
              + ".\n")
 
     fu_fam = Counter(os.path.dirname(r["name"]) or "." for r in false_unreal)
@@ -389,8 +559,9 @@ def write_report(args, rows, total, data_path):
             f"On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is "
             f"at **rough parity** ({med_ours*1000:.0f} ms vs {med_base*1000:.0f} ms). "
             f"In **aggregate we are ×{agg:.2f} {agg_dir}** than ltlsynt. "
-            f"The genuine value is the **{len(ours_win_base_to)} specs ltlsynt cannot "
-            f"synthesize in {args.timeout}s that we do** (GR(1) `amba_gr`, large decomposed safety). The "
+            f"The genuine value is the **{len(ours_win_base_to)} "
+            f"{'spec' if len(ours_win_base_to) == 1 else 'specs'} ltlsynt cannot "
+            f"synthesize in {args.timeout}s that we do**. The "
             f"completeness blocker is **{len(less_complete)} specs ltlsynt solves that we don't** — now "
             f"dominated by **{len(false_unreal)} false-UNREALs** from output-free assumption clusters, "
             f"not parse bugs.\n")
