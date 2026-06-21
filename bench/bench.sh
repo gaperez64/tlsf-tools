@@ -3,7 +3,7 @@
 # peak resident memory, over the specs in bench/specs/.
 #
 #   bench/bench.sh [--build DIR] [--runs N] [--baseline] [--check]
-#   bench/bench.sh --matrix CORPUS [--runs N]
+#   bench/bench.sh --matrix CORPUS [--runs N] [--matrix-timeout SECONDS]
 #
 #   --baseline   write our numbers to bench/baseline.tsv
 #   --check      compare our numbers to bench/baseline.tsv and fail on a
@@ -18,6 +18,7 @@ build="$root/build"
 runs=7
 mode=report
 matrix_corpus=""
+matrix_timeout=60
 # Time is machine-dependent (the committed baseline is from one host), so the
 # time tolerance is generous and catches only gross algorithmic regressions;
 # peak RSS is far more stable across machines.
@@ -32,6 +33,7 @@ while [ $# -gt 0 ]; do
     --baseline) mode=baseline; shift ;;
     --check) mode=check; shift ;;
     --matrix) matrix_corpus="$2"; shift 2 ;;
+    --matrix-timeout) matrix_timeout="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -110,7 +112,11 @@ measure_matrix_once() {
     *)
       return 2 ;;
   esac
-  measure_once "${cmd[@]}"
+  if [ "${matrix_timeout:-0}" != 0 ] && [ -n "${timeout_bin:-}" ]; then
+    measure_once "$timeout_bin" "$matrix_timeout" "${cmd[@]}"
+  else
+    measure_once "${cmd[@]}"
+  fi
 }
 
 summarize_matrix_command() {
@@ -141,6 +147,13 @@ summarize_matrix_command() {
 run_matrix() {
   [ "$runs" -lt 3 ] && runs=3
   [ -n "$matrix_corpus" ] || { echo "--matrix needs a corpus path" >&2; exit 2; }
+  timeout_bin=""
+  if [ "$matrix_timeout" != 0 ]; then
+    if ! timeout_bin="$(command -v timeout 2>/dev/null)"; then
+      echo "warning: timeout command not found; matrix commands are unbounded" >&2
+      timeout_bin=""
+    fi
+  fi
   mapfile -t matrix_specs < <(find "$matrix_corpus" -name '*.tlsf' | sort)
   [ ${#matrix_specs[@]} -gt 0 ] || { echo "no TLSF files in $matrix_corpus" >&2; exit 2; }
 
