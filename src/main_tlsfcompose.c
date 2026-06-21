@@ -434,8 +434,9 @@ int main(int argc, char *argv[]) {
     // Persistent BDD manager: one allocation shared across all clusters,
     // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
     // Variables accumulate with per-cluster base offsets; GC reclaims dead
-    // nodes between clusters.  Cap at 1<<22 (4M nodes / ~96-160MB RSS).
-    oxidd_session_init(1u << 22, 1u << 22);
+    // nodes between clusters.  Cap at 1<<21 (2M nodes) to keep peak RSS low
+    // while still covering the measured self-contained OxiDD corpus.
+    oxidd_session_init(1u << 21, 1u << 21);
 
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
