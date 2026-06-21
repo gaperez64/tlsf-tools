@@ -672,6 +672,9 @@ if have_oxidd
   test('compose_route_stats_delayed_global', check,
     args: [files('test/cases/delayed_global.route_stats'), tlsfcompose_exe,
            '--route-stats', files('test/cases/delayed_global.tlsf')])
+  test('compose_route_stats_gr1_recurrence', check,
+    args: [files('test/cases/gr1_recurrence.route_stats'), tlsfcompose_exe,
+           '--route-stats', files('test/cases/gr1_recurrence.tlsf')])
   # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
   foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
     test('aiger_' + name, check,
@@ -728,6 +731,9 @@ if have_oxidd
   test('aiger_delayed_global_self_contained', tlsfcompose_exe,
     args: ['--aiger', '--ltlsynt', '/bin/false',
            files('test/cases/delayed_global.tlsf')])
+  test('aiger_gr1_recurrence_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/gr1_recurrence.tlsf')])
   test('aiger_verify_gate_falls_back', xfail,
     args: [tlsfcompose_exe, '--aiger',
            '--ltlsynt', '/bin/false', '--verify', '/bin/false',

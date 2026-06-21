@@ -1,0 +1,5 @@
+INFO { TITLE: "gr1_recurrence" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  OUTPUTS { g; }
+  GUARANTEES { G F g; }
+}

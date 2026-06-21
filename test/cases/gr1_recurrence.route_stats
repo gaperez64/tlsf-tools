@@ -1,0 +1,2 @@
+cluster	n_outs	n_ins	outs	ins	nodes	formula_bytes	gr_level	has_liveness	has_wr	has_release	route	backend	exact	reason
+0	1	0	g		3	6	1	1	0	0	gr1	OxiDD (GR(1))	1	selected exact fast path
