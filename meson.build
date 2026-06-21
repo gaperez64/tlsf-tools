@@ -23,6 +23,22 @@ research_tools = get_option('research_tools')
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
+# Apple clang 15 accepts -std=c2x but lacks the C23 nullptr keyword.
+has_c23_nullptr = cc.compiles(
+  'int main(void) { void *p = nullptr; return p == nullptr; }',
+  args: c23_flag,
+  name: 'C23 nullptr',
+)
+if not has_c23_nullptr
+  if not cc.compiles(
+    'int main(void) { void *p = nullptr; return p == nullptr; }',
+    args: c23_flag + ['-Dnullptr=0'],
+    name: 'C23 nullptr compatibility define',
+  )
+    error('compiler does not support C23 nullptr or the compatibility define')
+  endif
+  add_project_arguments('-Dnullptr=0', language: 'c')
+endif
 
 extra_cflags = cc.get_supported_arguments([
   '-Wstrict-prototypes',
