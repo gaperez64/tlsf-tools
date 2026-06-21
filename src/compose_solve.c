@@ -8,7 +8,7 @@
 
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
-#include "tlsf/compose_internal.h"
+#include "compose_internal.h"
 
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/residual.h"

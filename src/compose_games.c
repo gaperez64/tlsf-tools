@@ -7,7 +7,7 @@
 // The AST eligibility gates that decide which builder applies live in
 // compose_analysis.c; shared types in compose_internal.h.
 
-#include "tlsf/compose_internal.h"
+#include "compose_internal.h"
 
 #include "tlsf/residual.h"
 

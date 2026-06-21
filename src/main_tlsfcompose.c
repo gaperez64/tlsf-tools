@@ -17,7 +17,6 @@
 #include "tlsf/aiger.h"
 #include "tlsf/ast.h"
 #include "tlsf/cli.h"
-#include "tlsf/compose_internal.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
@@ -28,6 +27,7 @@
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
+#include "compose_internal.h"
 #include "compose_route.h"
 
 #include <ctype.h>

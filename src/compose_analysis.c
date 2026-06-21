@@ -6,7 +6,7 @@
 // backend / explain an ltlsynt fallback.  No `Aig` construction here — see
 // compose_games.c.  Shared types live in compose_internal.h.
 
-#include "tlsf/compose_internal.h"
+#include "compose_internal.h"
 
 #include "tlsf/gr.h"
 

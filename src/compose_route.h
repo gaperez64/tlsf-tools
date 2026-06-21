@@ -1,7 +1,7 @@
 #ifndef TLSF_COMPOSE_ROUTE_H
 #define TLSF_COMPOSE_ROUTE_H
 
-#include "tlsf/compose_internal.h"
+#include "compose_internal.h"
 
 typedef enum {
   ROUTE_OUTPUT_FREE_LTLSYNT,
