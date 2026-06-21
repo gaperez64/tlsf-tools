@@ -49,10 +49,9 @@ RUN cargo install cbindgen --locked
 WORKDIR /src
 COPY . .
 # Vendored OxiDD C FFI (static lib + cbindgen header), then the OxiDD-enabled
-# release build of every tlsf tool (tlsfcompose, tlsfsolve, and the
-# preprocessing utilities).
+# release build of the stable tlsf tools used by the preprocessor image.
 RUN scripts/build_oxidd.sh && \
-    meson setup build-oxidd -Doxidd=enabled --buildtype=release && \
+    meson setup build-oxidd -Doxidd=enabled -Dresearch_tools=false --buildtype=release && \
     ninja -C build-oxidd
 
 # ---------------------------------------------------------------------------
@@ -67,11 +66,9 @@ RUN echo /usr/local/lib64 > /etc/ld.so.conf.d/spot.conf && ldconfig
 COPY --from=spot-build /usr/bin/ltl*synt /usr/bin/
 COPY --from=tlsf-build \
      /src/build-oxidd/tlsfcompose /src/build-oxidd/tlsfsolve \
-     /src/build-oxidd/tlsfgraph /src/build-oxidd/tlsfresidual \
-     /src/build-oxidd/tlsftemplates /src/build-oxidd/tlsf2ltl \
-     /src/build-oxidd/tlsf2tlsf /src/build-oxidd/tlsfinfo \
-     /src/build-oxidd/tlsfnorm /src/build-oxidd/tlsfwl \
-     /src/build-oxidd/tlsfbenchgraph \
+     /src/build-oxidd/tlsfresidual /src/build-oxidd/tlsfnorm \
+     /src/build-oxidd/tlsf2ltl /src/build-oxidd/tlsf2tlsf \
+     /src/build-oxidd/tlsfinfo \
      /usr/bin/
 COPY docker/spot-syntcomp-syn docker/spot-syntcomp-real /usr/bin/
 RUN chmod +x /usr/bin/spot-syntcomp-syn /usr/bin/spot-syntcomp-real
