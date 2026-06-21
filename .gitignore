@@ -38,6 +38,7 @@ __pycache__/
 # default output is BENCHGRAPH.tsv (alongside BENCHGRAPH.md); keep both cases
 BENCHGRAPH.tsv
 benchgraph.tsv
+bench/route_stats_*.tsv
 
 # Local handoff artifacts
 handoff.md
