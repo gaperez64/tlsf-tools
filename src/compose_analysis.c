@@ -317,6 +317,11 @@ bool aig_safety_wr_ok(const Node *n) {
   case NODE_W:
   case NODE_R:
     return aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return true;
+    return aig_initial_x_ok(n);
   default:
     // A bare Boolean or X-delayed conjunct is an initial-state constraint.
     return aig_initial_x_ok(n);
@@ -341,6 +346,13 @@ uint32_t aig_safety_wr_x_depth(const Node *n) {
     uint32_t a = aig_x_depth(n->lhs), b = aig_x_depth(n->rhs);
     return a > b ? a : b;
   }
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return 1 + wr_body_x_depth(n->arg->arg);
+    if (!aig_initial_x_ok(n))
+      return UINT32_MAX;
+    return aig_x_depth(n);
   default:
     // X-delayed initial constraint: its X-depth sets the gate-latch offset.
     if (!aig_initial_x_ok(n))
@@ -362,6 +374,11 @@ bool wr_has_initial(const Node *n) {
     return false;
   case NODE_AND:
     return wr_has_initial(n->lhs) || wr_has_initial(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return false;
+    return true;
   default:
     return true;
   }
@@ -378,8 +395,29 @@ bool wr_has_x_initial(const Node *n) {
     return false;
   case NODE_AND:
     return wr_has_x_initial(n->lhs) || wr_has_x_initial(n->rhs);
+  case NODE_X:
+  case NODE_X_STRONG:
+    if (n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg))
+      return false;
+    return !aig_initial_ok(n) && aig_initial_x_ok(n);
   default:
     return !aig_initial_ok(n) && aig_initial_x_ok(n);
+  }
+}
+
+// True if n contains a one-step delayed invariant `X G(body)`.  The W/R game
+// builder checks these from the second logical step onward.
+bool wr_has_delayed_global(const Node *n) {
+  switch (n->kind) {
+  case NODE_X:
+  case NODE_X_STRONG:
+    return n->arg->kind == NODE_G && g_body_wr_supported(n->arg->arg);
+  case NODE_AND:
+    return wr_has_delayed_global(n->lhs) || wr_has_delayed_global(n->rhs);
+  case NODE_IMPL:
+    return wr_has_delayed_global(n->lhs) || wr_has_delayed_global(n->rhs);
+  default:
+    return false;
   }
 }
 
