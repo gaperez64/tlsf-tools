@@ -1,5 +1,9 @@
 # SYNTCOMP form / template-shape statistics
 
+> Generated benchmark snapshot. This file records measurements; it is not a
+> roadmap. Regenerate it with the benchmark script before relying on the
+> numbers.
+
 Aggregate structural statistics of the [SYNTCOMP](https://github.com/SYNTCOMP/benchmarks)
 benchmark corpus, computed with `tlsfbenchgraph`. Two sets:
 
@@ -119,7 +123,8 @@ Two honest findings:
    eliminates every combinational decoder *exactly* (an output merely *read*
    elsewhere is rewritten, not ejected), and fair-server merging turns
    same-resource requests into one block instead of a self-collision. This
-   removed the M6a ejection pathology — `tlsf` composition conflicts dropped
+   removed the ejection pathology in that benchmark family — `tlsf` composition
+   conflicts dropped
    **113 → 48**, and those that remain are *genuine* (decoder cycles, real value
    clashes such as `G(o<->a) ∧ G!o`, which surface as an unrealizable residual).
 2. **But the headline barely moves: ~0.4–0.6 % of constraints are eliminated and
