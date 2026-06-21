@@ -26,9 +26,9 @@ jobs:
 
   # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
   # once and share it with the OxiDD-enabled jobs as an artifact, so cargo runs
-  # a single time per CI run. The dependency-free jobs (build-test, build-clang,
-  # coverage, perf-regression) deliberately skip this to keep proving the
-  # no-Rust build path stays alive.
+  # a single time per CI run. The frontend-only jobs (build-test, build-clang,
+  # coverage, perf-regression) pass -Doxidd=disabled deliberately to keep
+  # proving the reduced no-Rust developer build path stays alive.
   oxidd:
     runs-on: ubuntu-24.04
     steps:
@@ -82,7 +82,7 @@ jobs:
       - name: Configure
         env:
           CC: gcc-14
-        run: meson setup build
+        run: meson setup build -Doxidd=disabled
       - name: Build
         run: ninja -C build
       - name: Run regression tests
@@ -115,7 +115,7 @@ jobs:
         env:
           CC: clang
         run: |
-          meson setup build-clang
+          meson setup build-clang -Doxidd=disabled
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
 
@@ -200,7 +200,7 @@ jobs:
         env:
           CC: gcc-14
         run: |
-          meson setup build
+          meson setup build -Doxidd=disabled
           ninja -C build
       - name: Perf regression guard (no syfco needed)
         run: bench/bench.sh --check

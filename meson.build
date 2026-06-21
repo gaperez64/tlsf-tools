@@ -94,9 +94,8 @@ endif
 
 # ---------------------------------------------------------------------------
 # In-process safety + GR(1) solver: OxiDD (Rust + C FFI), vendored as a
-# submodule and built manually so the default build/CI stay dependency-free.
-# `meson compile -C build oxidd-build` produces the static library + cbindgen
-# header; reconfigure to pick them up.
+# submodule and built before OxiDD-enabled Meson configuration. Reduced
+# developer/frontend-only builds can pass -Doxidd=disabled.
 # ---------------------------------------------------------------------------
 
 oxidd_feature = get_option('oxidd')
@@ -125,9 +124,11 @@ have_oxidd = false
 if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
   if not oxidd_ready
     error(
-      'OxiDD feature requested but artifacts are missing. Run ' +
-      '`meson compile -C build oxidd-build` (after ' +
-      '`meson compile -C build oxidd-submodule`), then reconfigure.',
+      'OxiDD artifacts are missing. Run:\n' +
+      '  git submodule update --init --recursive\n' +
+      '  scripts/build_oxidd.sh\n' +
+      '  meson setup build -Doxidd=enabled --buildtype=release\n' +
+      'or configure a frontend-only developer build with -Doxidd=disabled.',
     )
   endif
   # Rust staticlib pulls in the system threading/dl/math runtime.
@@ -264,6 +265,14 @@ tlsfinfo_exe = executable(
   install: true,
 )
 
+tlsfnorm_exe = executable(
+  'tlsfnorm',
+  sources: ['src/main_tlsfnorm.c', bison_out[1]],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
 if research_tools
   tlsfgraph_exe = executable(
     'tlsfgraph',
@@ -292,14 +301,6 @@ if research_tools
   tlsfbenchgraph_exe = executable(
     'tlsfbenchgraph',
     sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
-
-  tlsfnorm_exe = executable(
-    'tlsfnorm',
-    sources: ['src/main_tlsfnorm.c', bison_out[1]],
     link_with: tlsf_lib,
     include_directories: inc,
     install: true,
@@ -812,7 +813,7 @@ endif
 
 if research_tools
 # Constraint decomposition: cover --split exposes shapes inside a single
-# conjunctive formula; tlsfnorm re-emits the split spec.
+# conjunctive formula for graph/template inspection.
 test('graph_split_off', check,
   args: [files('test/cases/arbiter1formula.graph.txt'),
          tlsfgraph_exe, '--templates', files('test/cases/arbiter1formula.tlsf')])
@@ -846,6 +847,9 @@ test('graph_wl_labels_basic', check_wl,
 test('graph_template_named', check,
   args: [files('test/cases/arbiter1formula.tmpl_reaction.txt'), tlsfgraph_exe,
          '--template', 'reaction', files('test/cases/arbiter1formula.tlsf')])
+endif
+
+# tlsfnorm is stable preprocessing functionality.
 test('norm_split', check,
   args: [files('test/cases/arbiter1formula.norm.tlsf'),
          tlsfnorm_exe, '--passes', 'split',
@@ -862,7 +866,7 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
-endif
+
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,

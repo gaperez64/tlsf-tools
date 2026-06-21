@@ -275,7 +275,7 @@ every result is `ltlfilt --equivalent-to` the input. Check against syfco with
 
 ```sh
 meson test -C build                                  # fast golden-output suite
-meson setup build-cov -Db_coverage=true && meson test -C build-cov   # + coverage
+meson setup build-cov -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
 clang-format -i src/*.c include/tlsf/*.h             # style (LLVM, 2-space, 80col)
 clang-tidy -p build src/*.c                          # lint
 bench/bench.sh [--baseline|--check]                  # wall/RSS vs syfco / guard

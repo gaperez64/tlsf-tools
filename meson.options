@@ -11,10 +11,10 @@ option(
 option(
   'oxidd',
   type: 'feature',
-  value: 'auto',
+  value: 'enabled',
   description: 'In-process OxiDD BDD safety/GR(1) solver for tlsfcompose ' +
-               '(needs the external/oxidd submodule built via ' +
-               '`meson compile -C build oxidd-build`; auto = use if built)',
+               '(normal release builds require external/oxidd artifacts; ' +
+               'use -Doxidd=disabled for a reduced developer build)',
 )
 
 option(
