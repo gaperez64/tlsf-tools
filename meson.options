@@ -27,3 +27,10 @@ option(
                'portable scalar; avx2/avx512 = x86-64 SIMD; neon = AArch64 ' +
                'NEON; native = -march=native for this machine.',
 )
+
+option(
+  'research_tools',
+  type: 'boolean',
+  value: false,
+  description: 'Build graph/WL/bench/template research CLIs',
+)

@@ -19,6 +19,7 @@ fs = import('fs')
 
 cc = meson.get_compiler('c')
 m_dep = cc.find_library('m', required: false)  # WL kernels (sqrt)
+research_tools = get_option('research_tools')
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
@@ -255,45 +256,47 @@ tlsfinfo_exe = executable(
   install: true,
 )
 
-tlsfgraph_exe = executable(
-  'tlsfgraph',
-  sources: ['src/main_tlsfgraph.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+if research_tools
+  tlsfgraph_exe = executable(
+    'tlsfgraph',
+    sources: ['src/main_tlsfgraph.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsfwl_exe = executable(
-  'tlsfwl',
-  sources: ['src/main_tlsfwl.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsfwl_exe = executable(
+    'tlsfwl',
+    sources: ['src/main_tlsfwl.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsftemplates_exe = executable(
-  'tlsftemplates',
-  sources: ['src/main_tlsftemplates.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsftemplates_exe = executable(
+    'tlsftemplates',
+    sources: ['src/main_tlsftemplates.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsfbenchgraph_exe = executable(
-  'tlsfbenchgraph',
-  sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsfbenchgraph_exe = executable(
+    'tlsfbenchgraph',
+    sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
 
-tlsfnorm_exe = executable(
-  'tlsfnorm',
-  sources: ['src/main_tlsfnorm.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
+  tlsfnorm_exe = executable(
+    'tlsfnorm',
+    sources: ['src/main_tlsfnorm.c', bison_out[1]],
+    link_with: tlsf_lib,
+    include_directories: inc,
+    install: true,
+  )
+endif
 
 tlsfresidual_exe = executable(
   'tlsfresidual',
@@ -423,12 +426,14 @@ test('ltl_enum', check,
   args: [files('test/cases/enum_demo.ltl'),
          tlsf2ltl_exe, files('test/cases/enum_demo.tlsf')])
 
+check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
+
 test('tlsf_enum_basic', check,
   args: [files('test/cases/enum_demo.basic.tlsf'),
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
 
+if research_tools
 # tlsfgraph: GSNF text/gsnf/dot/tsv + template candidates (arbiter pattern).
-check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
 test('graph_text', check,
   args: [files('test/cases/arbiter2.graph.txt'),
          tlsfgraph_exe, '--templates', files('test/cases/arbiter2.tlsf')])
@@ -582,6 +587,7 @@ foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
     args: [files('test/cases/' + name + '.check'), tlsftemplates_exe,
            '--check', '--format', 'csnf', files('test/cases/' + name + '.tlsf')])
 endforeach
+endif
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
                 'server_merge', 'arbiter_nomutex', 'cluster_split',
@@ -689,6 +695,7 @@ if have_oxidd
              files('test/cases/inv_decline.tlsf')])
   endif
 endif
+if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
 # golden is path-independent).
 test('benchgraph_tsv', check,
@@ -705,6 +712,9 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
+endif
+endif
+if python3.found()
   if have_oxidd
     test('bounded_synthesis_harness', python3,
       args: [files('scripts/bounded_synthesis.py'),
@@ -785,6 +795,7 @@ if python3.found() and spot_python_found
   endif
 endif
 
+if research_tools
 # Constraint decomposition: cover --split exposes shapes inside a single
 # conjunctive formula; tlsfnorm re-emits the split spec.
 test('graph_split_off', check,
@@ -836,6 +847,7 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
+endif
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.
 test('ltl_simplify_weak', check,
