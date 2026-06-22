@@ -82,6 +82,9 @@ static void usage(const char *prog) {
       " via OxiDD + ltlsynt backends\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
+      "  --pre-normalize SCHEDULE     pre-expansion normalization (opt-in)\n"
+      "  --match-normalize SCHEDULE   recognition normalization, e.g. "
+      "match-safe:1 (opt-in)\n"
       "  --experimental-bounded N     enable bounded-liveness heuristic with "
       "step bound N\n"
       "  --preprocess-policy MODE     OxiDD routing policy: always, "
@@ -468,6 +471,7 @@ int main(int argc, char *argv[]) {
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   const char *verify_path = nullptr;
+  const char *pre_norm = nullptr, *match_norm = nullptr;
   unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
   PreprocessPolicy preprocess_policy = PREPROCESS_PROFITABLE;
   FallbackMode fallback_mode = FALLBACK_AUTO;
@@ -488,6 +492,10 @@ int main(int argc, char *argv[]) {
       aiger = true;
     } else if (strcmp(a, "--ltlsynt") == 0) {
       ltlsynt_path = NEED_ARG();
+    } else if (strcmp(a, "--pre-normalize") == 0) {
+      pre_norm = NEED_ARG();
+    } else if (strcmp(a, "--match-normalize") == 0) {
+      match_norm = NEED_ARG();
     } else if (strcmp(a, "--verify") == 0) {
       verify_path = NEED_ARG();
     } else if (strcmp(a, "--experimental-bounded") == 0) {
@@ -591,6 +599,24 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+  bool norm_finite = semantics_is_finite(spec->info.semantics);
+  if (pre_norm) {
+    TlsfNormSchedule sch;
+    TlsfNormOptions o;
+    tlsf_norm_options_default(&o, TLSF_NORM_PHASE_PRE_EXPAND);
+    o.finite_word = norm_finite;
+    TlsfNormRejectReason rr;
+    if (!tlsf_norm_parse_schedule(spec->arena, pre_norm, "tlsfcompose", &sch)) {
+      spec_free(spec);
+      return 1;
+    }
+    o.schedule = sch;
+    if (!tlsf_norm_schedule_check(&sch, &o, "tlsfcompose", &rr)) {
+      spec_free(spec);
+      return 1;
+    }
+    tlsf_prenorm_spec(spec, &o, nullptr);
+  }
   if (expand(spec, overrides, n_overrides) != 0) {
     spec_free(spec);
     return 1;
@@ -601,6 +627,14 @@ int main(int argc, char *argv[]) {
   ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
     fprintf(stderr, "tlsfcompose: out of memory\n");
+    spec_free(spec);
+    return 1;
+  }
+  // Match normalization (opt-in) rewrites match_formula only; residual/routing
+  // and the self-verification gate still use the original formula, so a wrong
+  // normalization stays sound (it can only fail to recognize, never mis-solve).
+  if (!cover_match_normalize(cov, match_norm, norm_finite, "tlsfcompose",
+                             nullptr)) {
     spec_free(spec);
     return 1;
   }
