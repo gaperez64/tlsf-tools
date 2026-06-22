@@ -86,8 +86,8 @@ static void usage(const char *prog) {
       "step bound N\n"
       "  --preprocess-policy MODE     OxiDD routing policy: always, "
       "profitable, off, diagnose (default profitable)\n"
-      "  --fallback-mode MODE         fallback policy: clusters, monolithic, "
-      "auto (default clusters)\n"
+      "  --fallback-mode MODE         fallback policy: auto, clusters, "
+      "monolithic (default auto)\n"
       "  --route-stats                print residual-cluster route diagnostics "
       "and exit\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
@@ -470,7 +470,7 @@ int main(int argc, char *argv[]) {
   const char *verify_path = nullptr;
   unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
   PreprocessPolicy preprocess_policy = PREPROCESS_PROFITABLE;
-  FallbackMode fallback_mode = FALLBACK_CLUSTERS;
+  FallbackMode fallback_mode = FALLBACK_AUTO;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 

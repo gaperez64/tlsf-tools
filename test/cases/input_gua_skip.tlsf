@@ -1,6 +1,6 @@
 INFO {
   TITLE: "input_gua_skip"
-  DESCRIPTION: "guarantee over only inputs creates an output-free cluster that must be skipped"
+  DESCRIPTION: "output-dependent assumption couples an output-free guarantee"
   SEMANTICS: Mealy
   TARGET: Mealy
 }

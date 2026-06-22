@@ -155,11 +155,11 @@ controls OxiDD routing:
 remove a fallback cluster, fallback output dimension, or at least 20% of
 residual formula nodes. `always` keeps every selected OxiDD route, `off` sends
 residual synthesis clusters to `ltlsynt`, and `diagnose` prints what the
-profitability rule would do. `--fallback-mode auto` keeps the default
-per-cluster fallback behavior unless the effective routing plan has no exact
-OxiDD work, multiple fallback clusters, and no output-dimension benefit from
-clustering; then it tries the full residual with one `ltlsynt` call and retries
-the per-cluster path if that monolithic call fails without a verdict.
+profitability rule would do. `--fallback-mode auto` is the default: it keeps
+the per-cluster fallback behavior unless the effective routing plan has no
+exact OxiDD work, multiple fallback clusters, and no output-dimension benefit
+from clustering; then it tries the full residual with one `ltlsynt` call and
+retries the per-cluster path if that monolithic call fails without a verdict.
 
 ```sh
 tlsfcompose --split --aiger spec.tlsf > ctrl.aag          # OxiDD build required
