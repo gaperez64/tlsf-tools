@@ -1031,6 +1031,174 @@ static Node *equiv_output_side(Arena *a, Node *n) {
   return r;
 }
 
+// ---------------------------------------------------------------------------
+// Bounded Sickert Stage 2: lift a GF/FG limit node out of its nearest temporal
+// context.  For a monotone (NNF, positive-polarity) context C and any hole φ,
+//   C[φ] == (φ && C[true]) || C[false]
+// which is the case-split identity (C monotone => C[false] => C[true]).  We use
+// it with φ a GF/FG limit node strictly under a temporal node, so the limit
+// floats to the top.  Infinite-word-only.
+// ---------------------------------------------------------------------------
+
+static bool is_limit(const Node *n) { return is_gf(n) || is_fg(n); }
+
+// Replace the node `target` (by pointer identity) with `repl` inside `n`.
+static Node *subst_by_ptr(Arena *a, Node *n, const Node *target, Node *repl) {
+  if (n == target)
+    return repl;
+  switch (n->kind) {
+  case NODE_NOT:
+    return node_not(a, subst_by_ptr(a, n->arg, target, repl));
+  case NODE_X:
+    return node_x(a, subst_by_ptr(a, n->arg, target, repl));
+  case NODE_X_STRONG:
+    return node_x_strong(a, subst_by_ptr(a, n->arg, target, repl));
+  case NODE_F:
+    return node_f(a, subst_by_ptr(a, n->arg, target, repl));
+  case NODE_G:
+    return node_g(a, subst_by_ptr(a, n->arg, target, repl));
+  case NODE_AND:
+    return node_and(a, subst_by_ptr(a, n->lhs, target, repl),
+                    subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_OR:
+    return node_or(a, subst_by_ptr(a, n->lhs, target, repl),
+                   subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_IMPL:
+    return node_impl(a, subst_by_ptr(a, n->lhs, target, repl),
+                     subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_EQUIV:
+    return node_equiv(a, subst_by_ptr(a, n->lhs, target, repl),
+                      subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_U:
+    return node_u(a, subst_by_ptr(a, n->lhs, target, repl),
+                  subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_R:
+    return node_r(a, subst_by_ptr(a, n->lhs, target, repl),
+                  subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_W:
+    return node_w(a, subst_by_ptr(a, n->lhs, target, repl),
+                  subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_M:
+    return node_m(a, subst_by_ptr(a, n->lhs, target, repl),
+                  subst_by_ptr(a, n->rhs, target, repl));
+  default:
+    return n;
+  }
+}
+
+// A limit node reachable from `n` through boolean (&&/||) paths only, without
+// crossing another temporal node.  When found, `n`'s enclosing temporal node is
+// that limit node's *nearest* temporal ancestor.
+static const Node *limit_under_bool(const Node *n) {
+  if (is_limit(n))
+    return n;
+  if (n->kind == NODE_AND || n->kind == NODE_OR) {
+    const Node *l = limit_under_bool(n->lhs);
+    return l ? l : limit_under_bool(n->rhs);
+  }
+  return nullptr; // temporal (non-limit) or leaf: stop
+}
+
+// One lift step (outermost temporal context first).  Sets *done on success.
+static Node *sickert2_step(Arena *a, Node *n, bool *done) {
+  if (*done)
+    return n;
+  if (node_kind_is_temporal(n->kind)) {
+    const Node *limit = nullptr;
+    switch (n->kind) {
+    case NODE_X:
+    case NODE_X_STRONG:
+    case NODE_F:
+    case NODE_G:
+      limit = limit_under_bool(n->arg);
+      break;
+    default: // U/R/W/M
+      limit = limit_under_bool(n->lhs);
+      if (!limit)
+        limit = limit_under_bool(n->rhs);
+      break;
+    }
+    if (limit) {
+      Node *c_true = subst_by_ptr(a, n, limit, node_true(a));
+      Node *c_false = subst_by_ptr(a, n, limit, node_false(a));
+      *done = true;
+      return node_or(a, node_and(a, (Node *)limit, c_true), c_false);
+    }
+  }
+  // Recurse, rewriting at most one occurrence.
+  switch (n->kind) {
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G: {
+    Node *x = sickert2_step(a, n->arg, done);
+    if (x == n->arg)
+      return n;
+    switch (n->kind) {
+    case NODE_NOT:
+      return node_not(a, x);
+    case NODE_X:
+      return node_x(a, x);
+    case NODE_X_STRONG:
+      return node_x_strong(a, x);
+    case NODE_F:
+      return node_f(a, x);
+    default:
+      return node_g(a, x);
+    }
+  }
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M: {
+    Node *l = sickert2_step(a, n->lhs, done);
+    Node *r = *done && l != n->lhs ? n->rhs : sickert2_step(a, n->rhs, done);
+    if (l == n->lhs && r == n->rhs)
+      return n;
+    switch (n->kind) {
+    case NODE_AND:
+      return node_and(a, l, r);
+    case NODE_OR:
+      return node_or(a, l, r);
+    case NODE_IMPL:
+      return node_impl(a, l, r);
+    case NODE_EQUIV:
+      return node_equiv(a, l, r);
+    case NODE_U:
+      return node_u(a, l, r);
+    case NODE_R:
+      return node_r(a, l, r);
+    case NODE_W:
+      return node_w(a, l, r);
+    default:
+      return node_m(a, l, r);
+    }
+  }
+  default:
+    return n;
+  }
+}
+
+static Node *sickert_stage2(Arena *a, Node *n) {
+  // Work on the NNF so every context is monotone (the identity needs that);
+  // only fire when a GF/FG limit node sits under a temporal node.
+  Node *nnf = to_nnf(a, n, true);
+  TlsfObstacles ob = {0};
+  tlsf_norm_count_obstacles(nnf, &ob);
+  if (ob.limit_under_temporal == 0)
+    return n; // no obstacle: leave the (possibly non-NNF) input untouched
+  bool done = false;
+  Node *r = sickert2_step(a, nnf, &done);
+  if (!done)
+    return n;
+  return apply_rewrites(a, r, RW_SIMPLIFY_WEAK);
+}
+
 static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
   switch (p) {
   case TLSF_NORM_PASS_NNF:
@@ -1057,8 +1225,10 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
     // U||G would degrade syntactic safety classification).
     return apply_rewrites(
         a, n, RW_NNF | RW_PUSH_G_IN | RW_PUSH_X_IN | RW_SIMPLIFY_WEAK);
+  case TLSF_NORM_PASS_SICKERT_STAGE2:
+    return sickert_stage2(a, n);
   default:
-    return n; // split + pre-spine-split are list-level; sickert lands in PR9/10
+    return n; // split + pre-spine-split are list-level; sickert-stage3 in PR10
   }
 }
 

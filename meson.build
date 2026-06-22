@@ -897,6 +897,24 @@ test('norm_route_safe', check,
   args: [files('test/cases/normalization_route.routesafe.tlsf'),
          tlsfnorm_exe, '--passes', 'route-safe:1',
          files('test/cases/normalization_route.tlsf')])
+# Sickert Stage 2 (PR9): lift a GF/FG limit node out of its temporal context.
+test('norm_sickert2', check,
+  args: [files('test/cases/normalization_sickert2.s2.tlsf'),
+         tlsfnorm_exe, '--passes', 'sickert-stage2:2', '--norm-max-growth',
+         '400', files('test/cases/normalization_sickert2.tlsf')])
+# Soundness gate (Spot-verified; auto-skips when ltlfilt is absent, e.g. in CI):
+# each schedule must preserve the spec's LTL meaning.
+check_norm_equiv = files('scripts/check_norm_equiv.sh')
+foreach case : [
+    ['match-safe:1', 'normalization_patterns.tlsf'],
+    ['route-safe:1', 'normalization_route.tlsf'],
+    ['sickert-stage2:2', 'normalization_sickert2.tlsf'],
+  ]
+  test('norm_equiv_' + case[0].underscorify() + '_' + case[1].underscorify(),
+    check_norm_equiv,
+    args: [tlsfnorm_exe, tlsf2ltl_exe, case[0],
+           files('test/cases/' + case[1])])
+endforeach
 # Sickert passes are infinite-word-only: they must be rejected on Finite specs.
 test('norm_finite_rejects_sickert', xfail,
   args: [tlsfnorm_exe, '--passes', 'sickert-stage2:1',
