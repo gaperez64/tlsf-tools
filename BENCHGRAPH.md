@@ -137,8 +137,34 @@ invariants (e.g. `G mutual_exclusion(WL)` over an empty index range) that the
 baseline was over-counting as solved blocks. `match-safe:2` adds nothing over
 `:1`; `route-safe` on the match axis regresses (it is a *routing* pass — wrong
 axis). The sweep is structural only, so it flags such rows `review (verify with
-solver)`; the decision to default a schedule must come from a `tlsfcompose`
-solver run, not these structural counts. Defaults remain `off`.
+solver)`.
+
+### Solver-backed default decision (`tlsf`, templates+OxiDD, no ltlsynt)
+
+The structural deltas above do not settle whether a schedule should be the
+default — that needs the backend solver. Running `tlsfcompose --split --aiger
+--ltlsynt /bin/false` (self-contained = a verified controller without the
+ltlsynt fallback) over all 2545 `tlsf` specs, off vs `match-safe:1`, at a 10 s /
+4 GB cap (`docs/benchgraph/norm_selfcontained.tsv`):
+
+| metric | `off` | `match-safe:1` |
+|---|--:|--:|
+| self-contained | 418 (16.4%) | 418 (16.4%) |
+| self-contained gained / lost | — | 0 / 0 |
+| REALIZABLE↔UNREALIZABLE flips | — | 0 |
+
+`match-safe:1` is **sound but synthesis-neutral**: zero self-contained change,
+zero verdict flips (the only two rc differences were 10 s-timeout flakiness — at
+a 60 s cap both specs give the same verdict under off and match-safe). The
+recognition wins do not convert to synthesis wins because the constraints
+match-safe newly recognizes (OR-form guarded-next, De-Morgan mutex) are *safety*
+constraints OxiDD already solves directly — recognition only helps when it leads
+to combinational elimination or a liveness certificate, which these do not.
+
+**Conclusion: no normalization schedule is enabled by default.** Every schedule
+stays opt-in (`tlsfnorm`, `--pre-normalize` / `--match-normalize`); none meets
+the release gate's "≥1 meaningful coverage/speed metric improves" bar at the
+synthesis level.
 
 ## Normalisation (formula size under `--strong-simplify`)
 
