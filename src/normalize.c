@@ -328,9 +328,11 @@ static bool expand_token(SpecVec *out, const char *base, uint32_t iter) {
     return true;
   }
   if (strcmp(base, "sickert-bounded") == 0) {
-    if (!sv_push(out, TLSF_NORM_PASS_SICKERT_STAGE2, rep))
-      return false;
-    return sv_push(out, TLSF_NORM_PASS_SICKERT_STAGE3, rep);
+    // stage2:N -> weak -> stage3:N -> weak (under the driver's caps).
+    return sv_push(out, TLSF_NORM_PASS_SICKERT_STAGE2, rep) &&
+           sv_push(out, TLSF_NORM_PASS_WEAK, 1) &&
+           sv_push(out, TLSF_NORM_PASS_SICKERT_STAGE3, rep) &&
+           sv_push(out, TLSF_NORM_PASS_WEAK, 1);
   }
   return false;
 }
@@ -1199,6 +1201,143 @@ static Node *sickert_stage2(Arena *a, Node *n) {
   return apply_rewrites(a, r, RW_SIMPLIFY_WEAK);
 }
 
+// ---------------------------------------------------------------------------
+// Bounded Sickert Stage 3: rewrite a W inside a top-level GF (resp. a U inside
+// a top-level FG) to remove the weak-until / until obstacle.  Monotone (NNF)
+// context C:
+//   GF C[a W b] == GF C[a U b] || (FG a && GF C[true])
+//   FG C[a U b] == (GF b && FG C[a W b]) || FG C[false]
+// Infinite-word-only.
+// ---------------------------------------------------------------------------
+
+// First node of kind `k` in pre-order (outermost = maximal obstacle).
+static const Node *find_kind(const Node *n, NodeKind k) {
+  if (n->kind == k)
+    return n;
+  switch (n->kind) {
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return find_kind(n->arg, k);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M: {
+    const Node *l = find_kind(n->lhs, k);
+    return l ? l : find_kind(n->rhs, k);
+  }
+  default:
+    return nullptr;
+  }
+}
+
+static Node *sickert3_step(Arena *a, Node *n, bool *done) {
+  if (*done)
+    return n;
+  if (is_gf(n)) {
+    Node *body = n->arg->arg; // G(F(body))
+    const Node *w = find_kind(body, NODE_W);
+    if (w) {
+      Node *aL = w->lhs, *bR = w->rhs;
+      Node *c_u = subst_by_ptr(a, body, w, node_u(a, aL, bR));
+      Node *c_true = subst_by_ptr(a, body, w, node_true(a));
+      *done = true;
+      return node_or(
+          a, node_g(a, node_f(a, c_u)),
+          node_and(a, node_f(a, node_g(a, aL)), node_g(a, node_f(a, c_true))));
+    }
+  }
+  if (is_fg(n)) {
+    Node *body = n->arg->arg; // F(G(body))
+    const Node *u = find_kind(body, NODE_U);
+    if (u) {
+      Node *aL = u->lhs, *bR = u->rhs;
+      Node *c_w = subst_by_ptr(a, body, u, node_w(a, aL, bR));
+      Node *c_false = subst_by_ptr(a, body, u, node_false(a));
+      *done = true;
+      return node_or(
+          a, node_and(a, node_g(a, node_f(a, bR)), node_f(a, node_g(a, c_w))),
+          node_f(a, node_g(a, c_false)));
+    }
+  }
+  // Recurse, at most one rewrite.
+  switch (n->kind) {
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G: {
+    Node *x = sickert3_step(a, n->arg, done);
+    if (x == n->arg)
+      return n;
+    switch (n->kind) {
+    case NODE_NOT:
+      return node_not(a, x);
+    case NODE_X:
+      return node_x(a, x);
+    case NODE_X_STRONG:
+      return node_x_strong(a, x);
+    case NODE_F:
+      return node_f(a, x);
+    default:
+      return node_g(a, x);
+    }
+  }
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M: {
+    Node *l = sickert3_step(a, n->lhs, done);
+    Node *r = *done && l != n->lhs ? n->rhs : sickert3_step(a, n->rhs, done);
+    if (l == n->lhs && r == n->rhs)
+      return n;
+    switch (n->kind) {
+    case NODE_AND:
+      return node_and(a, l, r);
+    case NODE_OR:
+      return node_or(a, l, r);
+    case NODE_IMPL:
+      return node_impl(a, l, r);
+    case NODE_EQUIV:
+      return node_equiv(a, l, r);
+    case NODE_U:
+      return node_u(a, l, r);
+    case NODE_R:
+      return node_r(a, l, r);
+    case NODE_W:
+      return node_w(a, l, r);
+    default:
+      return node_m(a, l, r);
+    }
+  }
+  default:
+    return n;
+  }
+}
+
+static Node *sickert_stage3(Arena *a, Node *n) {
+  Node *nnf = to_nnf(a, n, true);
+  TlsfObstacles ob = {0};
+  tlsf_norm_count_obstacles(nnf, &ob);
+  if (ob.w_under_gf == 0 && ob.u_under_fg == 0)
+    return n;
+  bool done = false;
+  Node *r = sickert3_step(a, nnf, &done);
+  if (!done)
+    return n;
+  return apply_rewrites(a, r, RW_SIMPLIFY_WEAK);
+}
+
 static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
   switch (p) {
   case TLSF_NORM_PASS_NNF:
@@ -1227,8 +1366,10 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
         a, n, RW_NNF | RW_PUSH_G_IN | RW_PUSH_X_IN | RW_SIMPLIFY_WEAK);
   case TLSF_NORM_PASS_SICKERT_STAGE2:
     return sickert_stage2(a, n);
+  case TLSF_NORM_PASS_SICKERT_STAGE3:
+    return sickert_stage3(a, n);
   default:
-    return n; // split + pre-spine-split are list-level; sickert-stage3 in PR10
+    return n; // split + pre-spine-split are list-level
   }
 }
 

@@ -902,6 +902,11 @@ test('norm_sickert2', check,
   args: [files('test/cases/normalization_sickert2.s2.tlsf'),
          tlsfnorm_exe, '--passes', 'sickert-stage2:2', '--norm-max-growth',
          '400', files('test/cases/normalization_sickert2.tlsf')])
+# Sickert Stage 3 (PR10): W inside GF -> U inside GF (+ FG-tail disjunct).
+test('norm_sickert3', check,
+  args: [files('test/cases/normalization_sickert3.s3.tlsf'),
+         tlsfnorm_exe, '--passes', 'sickert-stage3:1', '--norm-max-growth',
+         '800', files('test/cases/normalization_sickert3.tlsf')])
 # Soundness gate (Spot-verified; auto-skips when ltlfilt is absent, e.g. in CI):
 # each schedule must preserve the spec's LTL meaning.
 check_norm_equiv = files('scripts/check_norm_equiv.sh')
@@ -909,6 +914,8 @@ foreach case : [
     ['match-safe:1', 'normalization_patterns.tlsf'],
     ['route-safe:1', 'normalization_route.tlsf'],
     ['sickert-stage2:2', 'normalization_sickert2.tlsf'],
+    ['sickert-stage3:1', 'normalization_sickert3.tlsf'],
+    ['sickert-bounded', 'normalization_sickert3.tlsf'],
   ]
   test('norm_equiv_' + case[0].underscorify() + '_' + case[1].underscorify(),
     check_norm_equiv,
