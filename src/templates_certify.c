@@ -135,7 +135,8 @@ static const Node *next_chain_target(const Node *n, uint32_t *steps,
 static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
                                const Node **alpha, int32_t *out, bool *neg,
                                bool *strong) {
-  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_IMPL)
+  if (constraint_match_formula(c)->kind != NODE_G ||
+      constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
   const Node *body = constraint_match_formula(c)->arg;
   if (!is_next_kind(body->rhs->kind))
@@ -161,7 +162,8 @@ static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
 // index, and whether the next operator is strong.
 static bool parse_toggle(ConstraintCover *cov, const Constraint *c,
                          const Node **trigger, int32_t *out, bool *strong) {
-  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_IMPL)
+  if (constraint_match_formula(c)->kind != NODE_G ||
+      constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
   const Node *body = constraint_match_formula(c)->arg;
   if (body->rhs->kind != NODE_EQUIV)
@@ -317,7 +319,8 @@ static bool has_output_ref(ConstraintCover *cov, const Node *n) {
 // Parse G(alpha -> o) / G(alpha -> !o); returns guard, output index, sign.
 static bool parse_reaction(ConstraintCover *cov, const Constraint *c,
                            const Node **alpha, int32_t *out, bool *neg) {
-  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_IMPL)
+  if (constraint_match_formula(c)->kind != NODE_G ||
+      constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
   const Node *body = constraint_match_formula(c)->arg;
   const Node *t = body->rhs;

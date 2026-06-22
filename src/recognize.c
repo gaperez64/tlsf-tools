@@ -105,7 +105,8 @@ static void match_response(ConstraintCover *cov, Constraint *c) {
 
 // G F x  (records the target output when x is a plain output AP)
 static void match_recurrence(ConstraintCover *cov, Constraint *c) {
-  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_F)
+  if (constraint_match_formula(c)->kind != NODE_G ||
+      constraint_match_formula(c)->arg->kind != NODE_F)
     return;
   constraint_add_candidate(cov, c, "pure-recurrence");
   const Node *x = constraint_match_formula(c)->arg->arg;
@@ -119,7 +120,8 @@ static void match_recurrence(ConstraintCover *cov, Constraint *c) {
 
 // F G x  (records the target output when x is a plain output AP)
 static void match_persistence(ConstraintCover *cov, Constraint *c) {
-  if (constraint_match_formula(c)->kind != NODE_F || constraint_match_formula(c)->arg->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_F ||
+      constraint_match_formula(c)->arg->kind != NODE_G)
     return;
   constraint_add_candidate(cov, c, "persistence");
   const Node *x = constraint_match_formula(c)->arg->arg;

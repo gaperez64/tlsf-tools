@@ -783,7 +783,7 @@ if python3.found()
   # solved on the crafted pattern spec.
   test('norm_sweep_match_safe', check_contains,
     args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+1',
-           python3, files('scripts/norm_sweep.py'),
+           files('scripts/norm_sweep.py'),
            '--tlsfbenchgraph', tlsfbenchgraph_exe,
            files('test/cases/normalization_patterns.tlsf'),
            '--schedules', 'off', 'match-safe:1'])
