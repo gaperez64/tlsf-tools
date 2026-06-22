@@ -892,6 +892,11 @@ test('norm_match_patterns', check,
   args: [files('test/cases/normalization_patterns.matchsafe.tlsf'),
          tlsfnorm_exe, '--passes', 'match-safe:1',
          files('test/cases/normalization_patterns.tlsf')])
+# route-safe (PR7): NNF + push G/X inward exposes independent safety invariants.
+test('norm_route_safe', check,
+  args: [files('test/cases/normalization_route.routesafe.tlsf'),
+         tlsfnorm_exe, '--passes', 'route-safe:1',
+         files('test/cases/normalization_route.tlsf')])
 # Sickert passes are infinite-word-only: they must be rejected on Finite specs.
 test('norm_finite_rejects_sickert', xfail,
   args: [tlsfnorm_exe, '--passes', 'sickert-stage2:1',

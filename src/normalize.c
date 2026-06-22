@@ -1051,9 +1051,14 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
     return pre_bounded_bool(a, n);
   case TLSF_NORM_PASS_PRE_WEAK:
     return pre_weak(a, n);
+  case TLSF_NORM_PASS_ROUTE_SAFE:
+    // NNF + push G/X inward + weak simplify, to expose safety/liveness
+    // structure for routing.  W is deliberately left intact (replacing it by
+    // U||G would degrade syntactic safety classification).
+    return apply_rewrites(
+        a, n, RW_NNF | RW_PUSH_G_IN | RW_PUSH_X_IN | RW_SIMPLIFY_WEAK);
   default:
-    return n; // split + pre-spine-split are list-level; route/sickert land in
-              // later PRs
+    return n; // split + pre-spine-split are list-level; sickert lands in PR9/10
   }
 }
 
