@@ -30,7 +30,7 @@ routes, and optional fallback to `ltlsynt`.
 | `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
 | `tlsfresidual` | Emit residual clusters after sound decomposition. |
 | `tlsfcompose` | Build a decomposed synthesis plan or merged AIGER controller. |
-| `tlsfsolve` | Solve AbsSynthe-style AIGER safety/GR(1) games with OxiDD. |
+| `tlsfsolve` | Solve [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER safety/GR(1) games with OxiDD. |
 
 ### Research and diagnostic tools
 
@@ -122,7 +122,7 @@ tlsfcompose --split --aiger --fallback-mode auto spec.tlsf
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
 
-`tlsfsolve` reads an AbsSynthe-style AIGER game: uncontrollable inputs are
+`tlsfsolve` reads an [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER game: uncontrollable inputs are
 ordinary inputs, controllable inputs are prefixed `controllable_`, safety games
 use a `bad` output, and GR(1) games may use AIGER 1.9 `justice`/`fairness`
 records. It emits a strategy AAG on stdout or exits nonzero with `UNREALIZABLE`.
