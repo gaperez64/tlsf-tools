@@ -22,7 +22,7 @@ Regenerate structural plots and tables:
 ```sh
 python3 scripts/benchgraph_plots.py \
     --benchgraph build-release-local/tlsfbenchgraph \
-    --out docs/benchgraph --wl 6 \
+    --out docs/benchgraph \
     tlsf-selection-2026:tlsf \
     tlsf-fin-selection-2026:tlsf-fin
 ```
@@ -100,14 +100,14 @@ Effect of `--split` (specs with the shape: raw → decomposed):
 
 ![Decomposition effect](docs/benchgraph/split_effect.png)
 
-## Weisfeiler-Lehman stabilisation depth (decomposed)
+## Normalization obstacles before matching
 
-| corpus | WL stabilisation depth (med/mean/max) |
-|---|---|
-| `tlsf` | 2 / 2.6 / 6 |
-| `tlsf-fin` | 3 / 3.0 / 6 |
-
-![WL stabilisation depth](docs/benchgraph/wl_stab.png)
+Structural indicators (from `tlsfbenchgraph`, summed over the raw constraint
+formulas) of where a Sickert-style normalization would have to fire: `u_under_w`
+(`U` under `W`), `limit_under_temporal` (a `GF`/`FG` limit node under a temporal
+node), `w_under_gf` (`W` inside a `GF`), and `u_under_fg` (`U` inside an `FG`).
+These quantify the obstacle tail that the bounded Sickert passes target; a corpus
+with near-zero counts will not benefit from those passes.
 
 ## Normalisation (formula size under `--strong-simplify`)
 

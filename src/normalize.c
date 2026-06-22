@@ -563,6 +563,62 @@ static Node *bool_canon(Arena *a, Node *n) {
 // report attempts so observability is available before the rewrite lands.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Sickert obstacle counting
+// ---------------------------------------------------------------------------
+
+static bool is_gf(const Node *n) {
+  return n->kind == NODE_G && n->arg->kind == NODE_F;
+}
+static bool is_fg(const Node *n) {
+  return n->kind == NODE_F && n->arg->kind == NODE_G;
+}
+
+static void obst_walk(const Node *n, bool under_temporal, bool under_w,
+                      bool under_gf, bool under_fg, TlsfObstacles *o) {
+  if (n->kind == NODE_U && under_w)
+    o->u_under_w++;
+  if (n->kind == NODE_W && under_gf)
+    o->w_under_gf++;
+  if (n->kind == NODE_U && under_fg)
+    o->u_under_fg++;
+  if ((is_gf(n) || is_fg(n)) && under_temporal)
+    o->limit_under_temporal++;
+
+  bool ct = under_temporal || node_kind_is_temporal(n->kind);
+  bool cw = under_w || n->kind == NODE_W;
+  bool cgf = under_gf || is_gf(n);
+  bool cfg = under_fg || is_fg(n);
+
+  switch (n->kind) {
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    obst_walk(n->arg, ct, cw, cgf, cfg, o);
+    return;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    obst_walk(n->lhs, ct, cw, cgf, cfg, o);
+    obst_walk(n->rhs, ct, cw, cgf, cfg, o);
+    return;
+  default:
+    return; // atoms / high-level nodes
+  }
+}
+
+void tlsf_norm_count_obstacles(const Node *n, TlsfObstacles *out) {
+  if (n)
+    obst_walk(n, false, false, false, false, out);
+}
+
 static bool node_eq(const Node *x, const Node *y);
 
 static bool is_int_lit(const Node *n, int64_t *v) {
@@ -1036,6 +1092,12 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
     if (n0 > stats->nodes_max_before)
       stats->nodes_max_before = n0;
     stats->nodes_before += n0;
+    TlsfObstacles ob = {0};
+    tlsf_norm_count_obstacles(root, &ob);
+    stats->u_under_w_before += ob.u_under_w;
+    stats->limit_under_temporal_before += ob.limit_under_temporal;
+    stats->w_under_gf_before += ob.w_under_gf;
+    stats->u_under_fg_before += ob.u_under_fg;
   }
 
   Node *cur = root;
@@ -1113,6 +1175,12 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
       stats->formulas_changed++;
     if (rejected)
       stats->formulas_rejected++;
+    TlsfObstacles ob = {0};
+    tlsf_norm_count_obstacles(cur, &ob);
+    stats->u_under_w_after += ob.u_under_w;
+    stats->limit_under_temporal_after += ob.limit_under_temporal;
+    stats->w_under_gf_after += ob.w_under_gf;
+    stats->u_under_fg_after += ob.u_under_fg;
   }
   return cur;
 }
@@ -1145,6 +1213,17 @@ void tlsf_norm_stats_print_human(FILE *out, const TlsfNormStats *s) {
             (unsigned long long)rs->nodes_before_sum,
             (unsigned long long)rs->nodes_after_sum);
   }
+  fprintf(out,
+          "  obstacles: u_under_w %llu->%llu, limit_under_temporal %llu->%llu, "
+          "w_under_gf %llu->%llu, u_under_fg %llu->%llu\n",
+          (unsigned long long)s->u_under_w_before,
+          (unsigned long long)s->u_under_w_after,
+          (unsigned long long)s->limit_under_temporal_before,
+          (unsigned long long)s->limit_under_temporal_after,
+          (unsigned long long)s->w_under_gf_before,
+          (unsigned long long)s->w_under_gf_after,
+          (unsigned long long)s->u_under_fg_before,
+          (unsigned long long)s->u_under_fg_after);
 }
 
 void tlsf_norm_stats_print_tsv_header(FILE *out) {

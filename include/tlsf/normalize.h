@@ -199,6 +199,22 @@ const char *tlsf_norm_phase_name(TlsfNormPhase p);
 const char *tlsf_norm_reject_name(TlsfNormRejectReason r);
 
 // ---------------------------------------------------------------------------
+// Sickert-style normalization obstacles (PR8): structural indicators of where
+// a Sickert-style rewrite would have to fire.  `GF x` is G(F x); `FG x` is
+// F(G x); temporal nodes are X/U/W/R/M/F/G (and GF/FG limit nodes).  Counts
+// node occurrences and ADDS to `*out` (caller zero-initializes).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+  uint64_t u_under_w;            ///< U strictly under a W
+  uint64_t limit_under_temporal; ///< GF/FG limit node under a temporal node
+  uint64_t w_under_gf;           ///< W inside the body of a GF
+  uint64_t u_under_fg;           ///< U inside the body of an FG
+} TlsfObstacles;
+
+void tlsf_norm_count_obstacles(const Node *n, TlsfObstacles *out);
+
+// ---------------------------------------------------------------------------
 // Options + entry points
 // ---------------------------------------------------------------------------
 

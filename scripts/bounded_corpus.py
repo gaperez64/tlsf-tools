@@ -49,6 +49,10 @@ BENCH_COLUMNS = [
     "largest_residual_cluster_outputs",
     "residual_liveness_clusters",
     "residual_size_norm",
+    "u_under_w",
+    "limit_under_temporal",
+    "w_under_gf",
+    "u_under_fg",
 ]
 
 HARNESS_COLUMNS = ["process_status", "returncode"] + BENCH_COLUMNS

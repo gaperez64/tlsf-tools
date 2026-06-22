@@ -10,6 +10,7 @@
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/nnf.h"
+#include "tlsf/normalize.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
 #include "tlsf/rewrite.h"
@@ -137,6 +138,8 @@ typedef struct {
   uint32_t residual_clusters, residual_outputs,
       largest_residual_cluster_outputs;
   uint32_t residual_liveness_clusters, residual_size_norm;
+  // Sickert-style normalization obstacles over the raw constraint formulas.
+  TlsfObstacles obstacles;
 } Metrics;
 
 // Measure the residual the synthesis backends still face after every template
@@ -260,6 +263,7 @@ static Metrics measure(const char *path, bool split) {
     m.size_raw += ast_node_count(c->formula);
     Node *nf = apply_rewrites(spec->arena, c->formula, RW_STRONG_SIMPLIFY);
     m.size_norm += nf ? ast_node_count(nf) : ast_node_count(c->formula);
+    tlsf_norm_count_obstacles(c->formula, &m.obstacles);
   }
 
   Csnf *csnf = templates_certify(cov, TPL_ALL, true);
@@ -373,7 +377,8 @@ int main(int argc, char *argv[]) {
           "eliminated_constraints\towned_outputs\t"
           "residual_clusters\tresidual_outputs\t"
           "largest_residual_cluster_outputs\tresidual_liveness_clusters\t"
-          "residual_size_norm\n");
+          "residual_size_norm\t"
+          "u_under_w\tlimit_under_temporal\tw_under_gf\tu_under_fg\n");
 
   // Aggregates.
   uint32_t nok = 0, nfail = 0;
@@ -390,14 +395,15 @@ int main(int argc, char *argv[]) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
     nok++;
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            "\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu"
+            "\t%llu\t%llu\t%llu\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
             m.response, m.mutex, m.recurrence, m.persistence, m.global_rec,
             m.gnext, m.definition, m.tcands, m.solved, m.certified, m.dependent,
@@ -405,7 +411,10 @@ int main(int argc, char *argv[]) {
             m.conflicts, m.elim_constraints, m.owned_outputs,
             m.residual_clusters, m.residual_outputs,
             m.largest_residual_cluster_outputs, m.residual_liveness_clusters,
-            m.residual_size_norm);
+            m.residual_size_norm, (unsigned long long)m.obstacles.u_under_w,
+            (unsigned long long)m.obstacles.limit_under_temporal,
+            (unsigned long long)m.obstacles.w_under_gf,
+            (unsigned long long)m.obstacles.u_under_fg);
 
     tot[0] += m.response;
     tot[1] += m.mutex;
