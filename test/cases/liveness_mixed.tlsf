@@ -1,0 +1,9 @@
+INFO { TITLE: "liveness_mixed" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE {
+    G (req -> F grant);
+    G F grant;
+  }
+}

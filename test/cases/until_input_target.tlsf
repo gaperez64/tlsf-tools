@@ -1,0 +1,6 @@
+INFO { TITLE: "until_input_target" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { done; }
+  OUTPUTS { hold; }
+  GUARANTEE { hold U done; }
+}

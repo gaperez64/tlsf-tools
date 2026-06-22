@@ -1,0 +1,6 @@
+INFO { TITLE: "liveness_until" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { i; }
+  OUTPUTS { g; }
+  GUARANTEE { i U g; }
+}

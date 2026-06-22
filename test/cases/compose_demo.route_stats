@@ -1,2 +1,2 @@
-cluster	n_outs	n_ins	outs	ins	nodes	formula_bytes	gr_level	has_liveness	has_wr	has_release	route	backend	exact	reason
-0	1	1	g	r	5	13	-1	1	0	0	bounded-experimental	OxiDD (bounded)	0	selected explicit experimental bounded path
+spec	cluster_id	n_inputs	n_outputs	formula_nodes	formula_bytes	gr_level	has_liveness	has_weak_until	has_release	liveness_class	n_response	n_recurrence	n_eventual	n_until	has_nested_temporal	route	backend	exact	uses_oxidd	reason
+	0	1	1	5	13	-1	1	0	0	response	1	0	0	0	0	bounded-experimental	OxiDD (bounded)	0	1	selected explicit experimental bounded path

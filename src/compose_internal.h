@@ -33,9 +33,16 @@
 #define GR1_MAX_FAIRNESS 32
 #define GR1_MAX_WEAK 64
 
+typedef enum {
+  GR1_JUSTICE_RECURRENCE,
+  GR1_JUSTICE_RESPONSE,
+  GR1_JUSTICE_EVENTUAL,
+} Gr1JusticeKind;
+
 typedef struct {
   const Node *req;    // nullptr for a recurrence `G F target`
   const Node *target; // recurrence goal `g`, or response grant
+  Gr1JusticeKind kind;
 } Gr1Justice;
 
 typedef struct {
@@ -84,6 +91,9 @@ bool wr_has_bare_wr(const Node *n);
 bool aig_eligible(const Node *root, bool finite);
 bool aig_strict_safety_parts(const Node *root, const Node **sys,
                              const Node **env);
+bool aig_response_monitor_parts(Arena *a, const Node *root, Gr1Parts *p);
+bool aig_eventual_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p);
+bool aig_until_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p);
 bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p);
 Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos);
 ClusterShape cluster_shape(TlsfSpec *spec, const Node *root);

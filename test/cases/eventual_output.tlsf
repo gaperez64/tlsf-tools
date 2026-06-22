@@ -1,0 +1,8 @@
+INFO { TITLE: "eventual_output" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  OUTPUTS { g; h; }
+  GUARANTEE {
+    G (h <-> X (!h));
+    F (g && !h);
+  }
+}

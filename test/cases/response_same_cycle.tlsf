@@ -1,0 +1,10 @@
+INFO { TITLE: "response_same_cycle" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE {
+    G (req -> grant);
+    G (grant -> req);
+    G (req -> F grant);
+  }
+}

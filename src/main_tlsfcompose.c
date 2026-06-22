@@ -21,6 +21,7 @@
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
+#include "tlsf/liveness_class.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
@@ -45,6 +46,31 @@
 
 extern char **environ;
 
+typedef enum {
+  PREPROCESS_ALWAYS,
+  PREPROCESS_PROFITABLE,
+  PREPROCESS_OFF,
+  PREPROCESS_DIAGNOSE,
+} PreprocessPolicy;
+
+typedef enum {
+  FALLBACK_CLUSTERS,
+  FALLBACK_MONOLITHIC,
+  FALLBACK_AUTO,
+} FallbackMode;
+
+typedef struct {
+  uint32_t n_oxidd_clusters;
+  uint32_t n_exact_oxidd_clusters;
+  uint32_t n_fallback_clusters;
+  uint64_t total_nodes;
+  uint64_t oxidd_nodes;
+  uint64_t fallback_nodes;
+  uint32_t max_outputs_any_cluster;
+  uint32_t max_outputs_fallback;
+  bool profitable_use_oxidd;
+} RoutePolicyStats;
+
 static void usage(const char *prog) {
   fprintf(
       stderr,
@@ -58,6 +84,10 @@ static void usage(const char *prog) {
       "$LTLSYNT or PATH)\n"
       "  --experimental-bounded N     enable bounded-liveness heuristic with "
       "step bound N\n"
+      "  --preprocess-policy MODE     OxiDD routing policy: always, "
+      "profitable, off, diagnose (default profitable)\n"
+      "  --fallback-mode MODE         fallback policy: clusters, monolithic, "
+      "auto (default clusters)\n"
       "  --route-stats                print residual-cluster route diagnostics "
       "and exit\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
@@ -75,6 +105,34 @@ static void usage(const char *prog) {
       prog);
 }
 
+static bool parse_preprocess_policy(const char *s, PreprocessPolicy *out) {
+  if (!strcmp(s, "always")) {
+    *out = PREPROCESS_ALWAYS;
+  } else if (!strcmp(s, "profitable")) {
+    *out = PREPROCESS_PROFITABLE;
+  } else if (!strcmp(s, "off")) {
+    *out = PREPROCESS_OFF;
+  } else if (!strcmp(s, "diagnose")) {
+    *out = PREPROCESS_DIAGNOSE;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+static bool parse_fallback_mode(const char *s, FallbackMode *out) {
+  if (!strcmp(s, "clusters")) {
+    *out = FALLBACK_CLUSTERS;
+  } else if (!strcmp(s, "monolithic")) {
+    *out = FALLBACK_MONOLITHIC;
+  } else if (!strcmp(s, "auto")) {
+    *out = FALLBACK_AUTO;
+  } else {
+    return false;
+  }
+  return true;
+}
+
 static const char *route_kind_name(ComposeRouteKind kind) {
   switch (kind) {
   case ROUTE_OUTPUT_FREE_LTLSYNT:
@@ -87,6 +145,12 @@ static const char *route_kind_name(ComposeRouteKind kind) {
     return "wr-safety";
   case ROUTE_BOUNDED_EXPERIMENTAL:
     return "bounded-experimental";
+  case ROUTE_RESPONSE_MONITOR_GR1:
+    return "response-monitor-gr1";
+  case ROUTE_EVENTUAL_MONITOR_GR1:
+    return "eventual-monitor-gr1";
+  case ROUTE_UNTIL_MONITOR_GR1:
+    return "until-monitor-gr1";
   case ROUTE_GR1:
     return "gr1";
   case ROUTE_LTLSYNT:
@@ -98,6 +162,10 @@ static const char *route_kind_name(ComposeRouteKind kind) {
 
 static const char *route_stats_reason(const ComposeRoute *route, bool finite,
                                       char *buf, size_t buf_sz) {
+  if (route->reason_override) {
+    snprintf(buf, buf_sz, "%s", route->reason_override);
+    return buf;
+  }
   switch (route->kind) {
   case ROUTE_OUTPUT_FREE_LTLSYNT:
     snprintf(buf, buf_sz, "output-free guarantee check");
@@ -105,6 +173,9 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
   case ROUTE_DIRECT_SAFETY:
   case ROUTE_STRICT_SAFETY:
   case ROUTE_WR_SAFETY:
+  case ROUTE_RESPONSE_MONITOR_GR1:
+  case ROUTE_EVENTUAL_MONITOR_GR1:
+  case ROUTE_UNTIL_MONITOR_GR1:
   case ROUTE_GR1:
     snprintf(buf, buf_sz, "selected exact fast path");
     break;
@@ -142,12 +213,128 @@ static size_t formula_bytes(const Node *root, LtlFormat fmt, bool finite) {
   return len;
 }
 
-static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
-                             const ResidualPlan *rplan, bool finite,
-                             uint32_t bound_k, bool *seen, LtlFormat fmt) {
-  fprintf(out,
-          "cluster\tn_outs\tn_ins\touts\tins\tnodes\tformula_bytes\tgr_level\t"
-          "has_liveness\thas_wr\thas_release\troute\tbackend\texact\treason\n");
+static void output_free_route(TlsfSpec *spec, const Node *root,
+                              ComposeRoute *out) {
+  *out = (ComposeRoute){
+      .kind = ROUTE_OUTPUT_FREE_LTLSYNT,
+      .uses_oxidd = false,
+      .exact = true,
+      .label = "ltlsynt",
+      .shape = cluster_shape(spec, root),
+      .root = root,
+  };
+}
+
+static void route_policy_stats_add(RoutePolicyStats *stats,
+                                   const ComposeRoute *route, uint32_t nodes,
+                                   uint32_t n_outputs) {
+  stats->total_nodes += nodes;
+  if (n_outputs > stats->max_outputs_any_cluster)
+    stats->max_outputs_any_cluster = n_outputs;
+
+  if (route->uses_oxidd) {
+    stats->n_oxidd_clusters++;
+    if (route->exact)
+      stats->n_exact_oxidd_clusters++;
+    stats->oxidd_nodes += nodes;
+  } else {
+    stats->n_fallback_clusters++;
+    stats->fallback_nodes += nodes;
+    if (n_outputs > stats->max_outputs_fallback)
+      stats->max_outputs_fallback = n_outputs;
+  }
+}
+
+static void route_policy_stats_finalize(RoutePolicyStats *stats) {
+  if (stats->n_fallback_clusters == 0) {
+    stats->profitable_use_oxidd = true;
+  } else if (stats->max_outputs_fallback < stats->max_outputs_any_cluster) {
+    stats->profitable_use_oxidd = true;
+  } else {
+    uint64_t denom = stats->total_nodes ? stats->total_nodes : 1;
+    stats->profitable_use_oxidd = stats->oxidd_nodes * 5 >= denom;
+  }
+}
+
+static void force_ltlsynt_policy_route(ComposeRoute *route, const char *label,
+                                       const char *reason) {
+  route->kind = ROUTE_LTLSYNT;
+  route->uses_oxidd = false;
+  route->exact = true;
+  route->label = label;
+  route->reason_override = reason;
+}
+
+static void apply_preprocess_policy(ComposeRoute *route, PreprocessPolicy policy,
+                                    const RoutePolicyStats *stats) {
+  if (!route->uses_oxidd)
+    return;
+  if (policy == PREPROCESS_OFF) {
+    force_ltlsynt_policy_route(route, "ltlsynt fallback (policy off)",
+                               "preprocess policy off");
+  } else if (policy == PREPROCESS_PROFITABLE &&
+             stats && !stats->profitable_use_oxidd) {
+    force_ltlsynt_policy_route(
+        route, "ltlsynt fallback (policy profitable)",
+        "preprocess policy profitable skipped OxiDD");
+  }
+}
+
+static bool preprocess_policy_skips_oxidd(PreprocessPolicy policy,
+                                          const RoutePolicyStats *stats) {
+  if (policy == PREPROCESS_OFF)
+    return true;
+  return policy == PREPROCESS_PROFITABLE && stats &&
+         !stats->profitable_use_oxidd;
+}
+
+static uint32_t effective_exact_oxidd_clusters(
+    PreprocessPolicy policy, const RoutePolicyStats *stats) {
+  if (!stats)
+    return 0;
+  return preprocess_policy_skips_oxidd(policy, stats)
+             ? 0
+             : stats->n_exact_oxidd_clusters;
+}
+
+static uint32_t effective_fallback_clusters(PreprocessPolicy policy,
+                                            const RoutePolicyStats *stats) {
+  if (!stats)
+    return 0;
+  return stats->n_fallback_clusters +
+         (preprocess_policy_skips_oxidd(policy, stats) ? stats->n_oxidd_clusters
+                                                       : 0);
+}
+
+static uint32_t effective_max_outputs_fallback(PreprocessPolicy policy,
+                                               const RoutePolicyStats *stats) {
+  if (!stats)
+    return 0;
+  return preprocess_policy_skips_oxidd(policy, stats)
+             ? stats->max_outputs_any_cluster
+             : stats->max_outputs_fallback;
+}
+
+static bool fallback_mode_uses_monolithic(FallbackMode mode,
+                                          PreprocessPolicy policy,
+                                          const RoutePolicyStats *stats) {
+  if (mode == FALLBACK_CLUSTERS)
+    return false;
+  if (mode == FALLBACK_MONOLITHIC)
+    return true;
+  if (!stats)
+    return false;
+  return effective_exact_oxidd_clusters(policy, stats) == 0 &&
+         effective_fallback_clusters(policy, stats) > 1 &&
+         effective_max_outputs_fallback(policy, stats) ==
+             stats->max_outputs_any_cluster;
+}
+
+static bool compute_route_policy_stats(TlsfSpec *spec, ConstraintCover *cov,
+                                       const ResidualPlan *rplan, bool finite,
+                                       uint32_t bound_k, bool *seen,
+                                       RoutePolicyStats *stats) {
+  *stats = (RoutePolicyStats){0};
   for (uint32_t k = 0; k < rplan->nclusters; k++) {
     bool output_free = rplan->keys[k] == cov->aps.count;
     Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
@@ -158,30 +345,77 @@ static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
       return false;
     }
     ComposeRoute route;
-    if (output_free) {
-      route = (ComposeRoute){
-          .kind = ROUTE_OUTPUT_FREE_LTLSYNT,
-          .uses_oxidd = false,
-          .exact = true,
-          .label = "ltlsynt",
-          .shape = cluster_shape(spec, root),
-          .root = root,
-      };
-    } else {
+    if (output_free)
+      output_free_route(spec, root, &route);
+    else
       (void)compose_route_select(spec, root, finite, bound_k, &route);
+
+    route_policy_stats_add(stats, &route, ast_node_count(root),
+                           count_seen_aps(cov, seen, AP_FLAG_OUTPUT));
+  }
+  route_policy_stats_finalize(stats);
+  return true;
+}
+
+static void print_policy_diagnosis(const RoutePolicyStats *stats) {
+  fprintf(stderr,
+          "tlsfcompose: preprocess-policy diagnose: profitable would %s OxiDD "
+          "clusters (n_oxidd_clusters=%u n_exact_oxidd_clusters=%u "
+          "n_fallback_clusters=%u oxidd_nodes=%llu fallback_nodes=%llu "
+          "total_nodes=%llu max_outputs_fallback=%u "
+          "max_outputs_any_cluster=%u)\n",
+          stats->profitable_use_oxidd ? "keep" : "skip",
+          stats->n_oxidd_clusters, stats->n_exact_oxidd_clusters,
+          stats->n_fallback_clusters, (unsigned long long)stats->oxidd_nodes,
+          (unsigned long long)stats->fallback_nodes,
+          (unsigned long long)stats->total_nodes,
+          stats->max_outputs_fallback, stats->max_outputs_any_cluster);
+}
+
+static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
+                             const ResidualPlan *rplan, bool finite,
+                             uint32_t bound_k, bool *seen, LtlFormat fmt,
+                             const char *input_file, PreprocessPolicy policy,
+                             const RoutePolicyStats *policy_stats) {
+  (void)input_file;
+  fprintf(out,
+          "spec\tcluster_id\tn_inputs\tn_outputs\tformula_nodes\t"
+          "formula_bytes\tgr_level\thas_liveness\thas_weak_until\t"
+          "has_release\tliveness_class\tn_response\tn_recurrence\t"
+          "n_eventual\tn_until\thas_nested_temporal\troute\tbackend\texact\t"
+          "uses_oxidd\treason\n");
+  for (uint32_t k = 0; k < rplan->nclusters; k++) {
+    bool output_free = rplan->keys[k] == cov->aps.count;
+    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                             /*all=*/false,
+                                             /*prune=*/!output_free, seen);
+    if (!root) {
+      fprintf(stderr, "tlsfcompose: out of memory\n");
+      return false;
+    }
+    ComposeRoute route;
+    if (output_free)
+      output_free_route(spec, root, &route);
+    else {
+      (void)compose_route_select(spec, root, finite, bound_k, &route);
+      apply_preprocess_policy(&route, policy, policy_stats);
     }
     char reason[192];
-    fprintf(out, "%u\t%u\t%u\t", k, count_seen_aps(cov, seen, AP_FLAG_OUTPUT),
-            count_seen_aps(cov, seen, AP_FLAG_INPUT));
-    residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
-    fprintf(out, "\t");
-    residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
-    fprintf(out, "\t%u\t%zu\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%s\n",
-            ast_node_count(root), formula_bytes(root, fmt, finite),
-            route.shape.gr_level, route.shape.has_liveness ? 1 : 0,
-            route.shape.has_weak_until ? 1 : 0, route.shape.has_release ? 1 : 0,
-            route_kind_name(route.kind), route.label ? route.label : "ltlsynt",
-            route.exact ? 1 : 0,
+    LivenessSummary live = liveness_classify(root);
+    fprintf(out,
+            "\t%u\t%u\t%u\t%u\t%zu\t%d\t%d\t%d\t%d\t%s\t%u\t%u\t%u\t%u\t%d\t"
+            "%s\t%s\t%d\t%d\t%s\n",
+            k, count_seen_aps(cov, seen, AP_FLAG_INPUT),
+            count_seen_aps(cov, seen, AP_FLAG_OUTPUT), ast_node_count(root),
+            formula_bytes(root, fmt, finite), route.shape.gr_level,
+            route.shape.has_liveness ? 1 : 0,
+            route.shape.has_weak_until ? 1 : 0,
+            route.shape.has_release ? 1 : 0,
+            liveness_class_name(live.kind), live.n_response,
+            live.n_recurrence, live.n_eventual, live.n_until,
+            live.has_nested_temporal ? 1 : 0, route_kind_name(route.kind),
+            route.label ? route.label : "ltlsynt", route.exact ? 1 : 0,
+            route.uses_oxidd ? 1 : 0,
             route_stats_reason(&route, finite, reason, sizeof reason));
   }
   return true;
@@ -237,6 +471,8 @@ int main(int argc, char *argv[]) {
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   const char *verify_path = nullptr;
   unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
+  PreprocessPolicy preprocess_policy = PREPROCESS_PROFITABLE;
+  FallbackMode fallback_mode = FALLBACK_CLUSTERS;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -264,6 +500,24 @@ int main(int argc, char *argv[]) {
         fprintf(stderr,
                 "tlsfcompose: --experimental-bounded expects a positive "
                 "integer\n");
+        return 1;
+      }
+    } else if (strcmp(a, "--preprocess-policy") == 0) {
+      const char *v = NEED_ARG();
+      if (!parse_preprocess_policy(v, &preprocess_policy)) {
+        fprintf(stderr,
+                "tlsfcompose: unknown --preprocess-policy '%s' "
+                "(expected always, profitable, off, diagnose)\n",
+                v);
+        return 1;
+      }
+    } else if (strcmp(a, "--fallback-mode") == 0) {
+      const char *v = NEED_ARG();
+      if (!parse_fallback_mode(v, &fallback_mode)) {
+        fprintf(stderr,
+                "tlsfcompose: unknown --fallback-mode '%s' "
+                "(expected clusters, monolithic, auto)\n",
+                v);
         return 1;
       }
     } else if (strcmp(a, "--route-stats") == 0) {
@@ -402,9 +656,18 @@ int main(int argc, char *argv[]) {
 
   if (route_stats) {
     uint32_t bound_k = (uint32_t)bound_opt;
-    rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen, fmt)
-             ? 0
-             : 1;
+    RoutePolicyStats policy_stats;
+    if (!compute_route_policy_stats(spec, cov, rplan, finite, bound_k, seen,
+                                    &policy_stats)) {
+      rc = 1;
+    } else {
+      if (preprocess_policy == PREPROCESS_DIAGNOSE)
+        print_policy_diagnosis(&policy_stats);
+      rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen, fmt,
+                            input_file, preprocess_policy, &policy_stats)
+               ? 0
+               : 1;
+    }
     free(seen);
     residual_plan_free(rplan);
     if (output_file)
@@ -431,20 +694,88 @@ int main(int argc, char *argv[]) {
                            : (verify_env && *verify_env) ? verify_env
                                                          : nullptr;
     uint32_t bound_k = (uint32_t)bound_opt;
+    RoutePolicyStats policy_stats = {0};
+    const RoutePolicyStats *policy_stats_ptr = nullptr;
+    bool need_policy_stats = preprocess_policy == PREPROCESS_PROFITABLE ||
+                             preprocess_policy == PREPROCESS_DIAGNOSE ||
+                             fallback_mode == FALLBACK_AUTO;
+    if (need_policy_stats) {
+      if (!compute_route_policy_stats(spec, cov, rplan, finite, bound_k, seen,
+                                      &policy_stats)) {
+        free(seen);
+        residual_plan_free(rplan);
+        if (output_file)
+          fclose(out);
+        csnf_composition_free(comp);
+        csnf_free(csnf);
+        spec_free(spec);
+        return 1;
+      }
+      policy_stats_ptr = &policy_stats;
+      if (preprocess_policy == PREPROCESS_DIAGNOSE)
+        print_policy_diagnosis(&policy_stats);
+    }
+    bool use_monolithic_fallback =
+        K > 0 && fallback_mode_uses_monolithic(fallback_mode, preprocess_policy,
+                                               policy_stats_ptr);
+    bool oxidd_session_started = false;
     // Persistent BDD manager: one allocation shared across all clusters,
     // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
     // Variables accumulate with per-cluster base offsets; GC reclaims dead
     // nodes between clusters.  Cap at 1<<21 (2M nodes) to keep peak RSS low
     // while still covering the measured self-contained OxiDD corpus.
-    oxidd_session_init(1u << 21, 1u << 21);
+    if (!use_monolithic_fallback) {
+      oxidd_session_init(1u << 21, 1u << 21);
+      oxidd_session_started = true;
+    }
 
     Aig *g = aig_new();
     for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
       if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
         (void)aig_input(g, ap_table_name(&cov->aps, o));
 
+    if (use_monolithic_fallback) {
+      Node *root =
+          residual_plan_build_cluster(spec, cov, rplan, 0, /*all=*/true,
+                                      /*prune=*/true, seen);
+      if (!root) {
+        rc = 1;
+      } else {
+        int unreal = 0;
+        Aig *sub =
+            run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+        if (getenv("TLSFCOMPOSE_DEBUG"))
+          fprintf(stderr, "tlsfcompose: residual routed to monolithic %s\n",
+                  prog);
+        if (unreal) {
+          fprintf(stderr,
+                  "tlsfcompose: monolithic fallback is UNREALIZABLE "
+                  "(ltlsynt)\n");
+          rc = 1;
+        } else if (!sub) {
+          if (fallback_mode == FALLBACK_AUTO) {
+            fprintf(stderr,
+                    "tlsfcompose: monolithic fallback failed (ltlsynt); "
+                    "retrying per-cluster fallback\n");
+            use_monolithic_fallback = false;
+            oxidd_session_init(1u << 21, 1u << 21);
+            oxidd_session_started = true;
+          } else {
+            fprintf(stderr,
+                    "tlsfcompose: monolithic fallback failed (ltlsynt)\n");
+            rc = 1;
+          }
+        } else if (!aig_merge(g, sub)) {
+          fprintf(stderr, "tlsfcompose: AIGER merge failed for monolithic "
+                          "fallback\n");
+          rc = 1;
+        }
+        aig_free(sub);
+      }
+    }
+
     // Clusters first (so a decoder reading a synthesized output resolves).
-    for (uint32_t k = 0; k < K && rc == 0; k++) {
+    for (uint32_t k = 0; !use_monolithic_fallback && k < K && rc == 0; k++) {
       if (rplan->keys[k] == A) {
         // Output-free cluster: input-only system guarantees with no controller
         // to emit.  These are NOT trivially satisfiable -- the system meets
@@ -488,6 +819,7 @@ int main(int argc, char *argv[]) {
       int unreal = 0;
       ComposeRoute route;
       (void)compose_route_select(spec, root, finite, bound_k, &route);
+      apply_preprocess_policy(&route, preprocess_policy, policy_stats_ptr);
       bool use_oxidd = false;
       const char *backend = nullptr;
       Aig *sub = compose_route_solve(&route, prog, cov, seen, fmt, finite,
@@ -561,7 +893,8 @@ int main(int argc, char *argv[]) {
     if (rc == 0)
       aig_write_aag(out, g);
     aig_free(g);
-    oxidd_session_free();
+    if (oxidd_session_started)
+      oxidd_session_free();
     free(seen);
     residual_plan_free(rplan);
     if (output_file)
