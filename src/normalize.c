@@ -820,6 +820,123 @@ uint32_t tlsf_prenorm_spine_split(Arena *a, Node *f, Node ***out) {
   return v.n;
 }
 
+// ---------------------------------------------------------------------------
+// match-safe pattern passes (post-expansion, equivalence-preserving).  These
+// expose exact template shapes that the recognizers parse: or-to-impl exposes
+// guarded-next (which requires NODE_IMPL, not the !r||Xo disjunction); mutex-
+// demorgan exposes mutex (mutex_leaves wants !(a&&b), not !a||!b).
+// ---------------------------------------------------------------------------
+
+typedef Node *(*MapFn)(Arena *, Node *);
+
+// Rebuild `n` with `f` applied to each boolean/temporal child; returns the same
+// pointer when nothing changed (so callers can detect stability cheaply).
+static Node *map_children(Arena *a, Node *n, MapFn f) {
+  switch (n->kind) {
+  case NODE_NOT: {
+    Node *x = f(a, n->arg);
+    return x == n->arg ? n : node_not(a, x);
+  }
+  case NODE_X: {
+    Node *x = f(a, n->arg);
+    return x == n->arg ? n : node_x(a, x);
+  }
+  case NODE_X_STRONG: {
+    Node *x = f(a, n->arg);
+    return x == n->arg ? n : node_x_strong(a, x);
+  }
+  case NODE_F: {
+    Node *x = f(a, n->arg);
+    return x == n->arg ? n : node_f(a, x);
+  }
+  case NODE_G: {
+    Node *x = f(a, n->arg);
+    return x == n->arg ? n : node_g(a, x);
+  }
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M: {
+    Node *l = f(a, n->lhs), *r = f(a, n->rhs);
+    if (l == n->lhs && r == n->rhs)
+      return n;
+    switch (n->kind) {
+    case NODE_AND:
+      return node_and(a, l, r);
+    case NODE_OR:
+      return node_or(a, l, r);
+    case NODE_IMPL:
+      return node_impl(a, l, r);
+    case NODE_EQUIV:
+      return node_equiv(a, l, r);
+    case NODE_U:
+      return node_u(a, l, r);
+    case NODE_R:
+      return node_r(a, l, r);
+    case NODE_W:
+      return node_w(a, l, r);
+    default:
+      return node_m(a, l, r);
+    }
+  }
+  default:
+    return n; // atoms / (post-expansion-absent) high-level nodes
+  }
+}
+
+// A response/guarded-next/fixed-delay consequent: F p or an X / X[!] chain.
+static bool is_response_rhs(const Node *n) {
+  return n->kind == NODE_F || n->kind == NODE_X || n->kind == NODE_X_STRONG;
+}
+
+// or-to-impl-pattern: !r || (F g | X o | X^k o) -> r -> (...).  Only that exact
+// shape, never arbitrary OR.  (¬r ∨ ψ ≡ r → ψ.)
+static Node *or_to_impl(Arena *a, Node *n) {
+  Node *r = map_children(a, n, or_to_impl);
+  if (r->kind == NODE_OR) {
+    if (r->lhs->kind == NODE_NOT && is_response_rhs(r->rhs))
+      return node_impl(a, r->lhs->arg, r->rhs);
+    if (r->rhs->kind == NODE_NOT && is_response_rhs(r->lhs))
+      return node_impl(a, r->rhs->arg, r->lhs);
+  }
+  return r;
+}
+
+// mutex-demorgan: !a || !b -> !(a && b) for a negated AP pair.
+static Node *mutex_demorgan(Arena *a, Node *n) {
+  Node *r = map_children(a, n, mutex_demorgan);
+  if (r->kind == NODE_OR && r->lhs->kind == NODE_NOT &&
+      r->rhs->kind == NODE_NOT && r->lhs->arg->kind == NODE_AP &&
+      r->rhs->arg->kind == NODE_AP)
+    return node_not(a, node_and(a, r->lhs->arg, r->rhs->arg));
+  return r;
+}
+
+// True if `n` is a bare AP or an X / X[!] chain over an AP (optionally
+// negated): the "recognizable output side" of a definition/register
+// equivalence.
+static bool is_output_side(const Node *n) {
+  if (n->kind == NODE_NOT)
+    n = n->arg;
+  while (n->kind == NODE_X || n->kind == NODE_X_STRONG)
+    n = n->arg;
+  return n->kind == NODE_AP;
+}
+
+// equiv-output-side: put the recognizable output side of an EQUIV on the left
+// (a <-> b is symmetric, so this is purely a canonical orientation).
+static Node *equiv_output_side(Arena *a, Node *n) {
+  Node *r = map_children(a, n, equiv_output_side);
+  if (r->kind == NODE_EQUIV && is_output_side(r->rhs) &&
+      !is_output_side(r->lhs))
+    return node_equiv(a, r->rhs, r->lhs);
+  return r;
+}
+
 static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
   switch (p) {
   case TLSF_NORM_PASS_NNF:
@@ -828,6 +945,12 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
     return apply_rewrites(a, n, RW_SIMPLIFY_WEAK);
   case TLSF_NORM_PASS_BOOL_CANON:
     return bool_canon(a, n);
+  case TLSF_NORM_PASS_OR_TO_IMPL_PATTERN:
+    return or_to_impl(a, n);
+  case TLSF_NORM_PASS_EQUIV_OUTPUT_SIDE:
+    return equiv_output_side(a, n);
+  case TLSF_NORM_PASS_MUTEX_DEMORGAN:
+    return mutex_demorgan(a, n);
   case TLSF_NORM_PASS_PRE_INDEXED_X:
     return pre_indexed_x(a, n);
   case TLSF_NORM_PASS_PRE_BOUNDED_BOOL:
@@ -835,8 +958,8 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
   case TLSF_NORM_PASS_PRE_WEAK:
     return pre_weak(a, n);
   default:
-    return n; // split + pre-spine-split are list-level; pattern/route/sickert
-              // land in later PRs
+    return n; // split + pre-spine-split are list-level; route/sickert land in
+              // later PRs
   }
 }
 

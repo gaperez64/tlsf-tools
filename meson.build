@@ -879,6 +879,12 @@ test('norm_match_safe', check,
   args: [files('test/cases/normalization_match.matchsafe.tlsf'),
          tlsfnorm_exe, '--passes', 'match-safe:1',
          files('test/cases/normalization_match.tlsf')])
+# match-safe pattern rules (PR6): or-to-impl exposes guarded-next, mutex-demorgan
+# exposes mutex, equiv-output-side canonicalises the definition orientation.
+test('norm_match_patterns', check,
+  args: [files('test/cases/normalization_patterns.matchsafe.tlsf'),
+         tlsfnorm_exe, '--passes', 'match-safe:1',
+         files('test/cases/normalization_patterns.tlsf')])
 # Sickert passes are infinite-word-only: they must be rejected on Finite specs.
 test('norm_finite_rejects_sickert', xfail,
   args: [tlsfnorm_exe, '--passes', 'sickert-stage2:1',
