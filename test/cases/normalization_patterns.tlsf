@@ -1,0 +1,7 @@
+INFO{TITLE:"p" DESCRIPTION:"match-safe patterns" SEMANTICS:Mealy TARGET:Mealy}
+MAIN{INPUTS{r;s;} OUTPUTS{o;p;q;}
+GUARANTEE{
+  G (!r || X o);
+  G (!o || !p);
+  G ((s && r) <-> q);
+}}

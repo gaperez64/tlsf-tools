@@ -1,0 +1,6 @@
+schedule	n_ok	n_fail	candidate_delta_total	certified_delta	solved_delta	fully_solved_delta	elim_constraints_delta	owned_outputs_delta	limit_under_temporal_after	w_under_gf_after	u_under_fg_after	formula_growth_percent	new_fail	soundness_eligible	recommendation
+off	2545	0	0	0	0	0	0	0	118	10	0	0.0	0	1	baseline
+match-safe:1	2545	0	23	18	-57	0	-57	0	118	10	0	0.0	0	1	review (solved/elim regressed; verify with solver)
+match-safe:2	2545	0	23	18	-57	0	-57	0	118	10	0	0.0	0	1	review (solved/elim regressed; verify with solver)
+pre-safe:1+match-safe:1	2545	0	23	18	-57	0	-57	0	118	10	0	0.0	0	1	review (solved/elim regressed; verify with solver)
+route-safe:1	2545	0	-658	-14	-349	-2	-222	-165	118	10	0	0.0	0	1	review (solved/elim regressed; verify with solver)

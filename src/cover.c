@@ -2,6 +2,7 @@
 
 #include "tlsf/classify.h"
 #include "tlsf/nnf.h"
+#include "tlsf/normalize.h"
 #include "tlsf/rewrite.h"
 
 #include <assert.h>
@@ -191,6 +192,8 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   c->guarantee_side = !d->assumption;
   c->invariant_wrapped = d->invariant;
   c->formula = formula;
+  c->match_formula = formula; // identity until match normalization runs
+  c->route_formula = nullptr;
   c->nnf = to_nnf(a, formula, true);
   if (!c->nnf)
     return false;
@@ -269,4 +272,36 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
   cov->template_candidate_count = 0;
   cov->template_candidate_cap = 0;
   return cov;
+}
+
+bool cover_apply_match_normalization(ConstraintCover *cov,
+                                     const TlsfNormOptions *opts,
+                                     TlsfNormStats *stats) {
+  if (!opts || opts->schedule.count == 0)
+    return true;
+  for (uint32_t i = 0; i < cov->count; i++) {
+    Constraint *c = &cov->items[i];
+    Node *m = tlsf_normalize_formula(cov->arena, c->formula, opts, stats);
+    c->match_formula = m ? m : c->formula; // never mutates c->formula
+  }
+  return true;
+}
+
+bool cover_match_normalize(ConstraintCover *cov, const char *schedule,
+                           bool finite, const char *tool,
+                           TlsfNormStats *stats) {
+  if (!schedule || !*schedule)
+    return true;
+  TlsfNormSchedule sch;
+  if (!tlsf_norm_parse_schedule(cov->arena, schedule, tool, &sch))
+    return false;
+  TlsfNormOptions o;
+  tlsf_norm_options_default(&o, TLSF_NORM_PHASE_MATCH);
+  o.schedule = sch;
+  o.finite_word = finite;
+  o.record_stats = stats != nullptr;
+  TlsfNormRejectReason reason;
+  if (!tlsf_norm_schedule_check(&sch, &o, tool, &reason))
+    return false;
+  return cover_apply_match_normalization(cov, &o, stats);
 }

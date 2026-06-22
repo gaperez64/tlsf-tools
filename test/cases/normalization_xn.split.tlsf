@@ -1,0 +1,24 @@
+INFO {
+  TITLE:       "xn";
+  DESCRIPTION: "indexed next";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+MAIN {
+
+  INPUTS {
+    r;
+  }
+
+  OUTPUTS {
+    g;
+  }
+
+    GUARANTEE {
+      G ((r -> X (X (X (X (X (g)))))));
+      G ((r -> X (X (g))));
+      G ((r -> g));
+    }
+
+}

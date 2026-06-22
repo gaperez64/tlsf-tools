@@ -39,10 +39,12 @@ reproducibility, but not part of the stable preprocessing API.
 
 | Tool | Purpose |
 |---|---|
-| `tlsfgraph` | Inspect GSNF/template candidates. |
-| `tlsfwl` | Compute WL graph fingerprints/similarity. |
 | `tlsftemplates` | Inspect template certificates and CSNF output. |
 | `tlsfbenchgraph` | Generate corpus-level benchmark/shape reports. |
+
+The preprocessor uses equivalence-preserving normalization followed by exact
+syntactic recognizers and conservative certification. It does not use graph
+similarity or approximate matching in the synthesis path.
 
 ```
 TLSF file ──parse──► raw AST ──expand──► ground AST ──► tlsf2tlsf  (basic TLSF)
@@ -88,9 +90,8 @@ Sanitizers are available for development builds with
 
 ## Usage
 
-Each tool reads a `FILE` argument (`tlsfwl` takes several) or stdin, writes to
-stdout or `--output FILE`, and accepts `--version`/`--help`. Options are long
-(`--`) only.
+Each tool reads a `FILE` argument or stdin, writes to stdout or `--output FILE`,
+and accepts `--version`/`--help`. Options are long (`--`) only.
 
 ```sh
 # convert
@@ -105,15 +106,16 @@ tlsfinfo  spec.tlsf                        # all metadata (--semantics, --title,
 tlsfinfo  --input-signals|--output-signals spec.tlsf
 tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 
-# structure / templates / similarity
-tlsfgraph --split --templates spec.tlsf    # synthesis graph + candidate census
-tlsfgraph --format dot spec.tlsf | dot -Tsvg > spec.svg
+# structure / templates
 tlsftemplates --certify --solve --format csnf spec.tlsf   # certified controllers
-tlsfwl    --nearest 5 --wl 3 *.tlsf        # k-NN by structural fingerprint
 tlsfbenchgraph --input-dir specs/ --split --summary       # corpus shape census
 
 # normalize / decompose / synthesize
 tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized TLSF
+tlsfnorm  --pre-passes pre-safe --passes match-safe:1 spec.tlsf  # exact-recognition normalization
+tlsfnorm  --passes route-safe:1 spec.tlsf                 # routing normalization
+tlsfnorm  --passes sickert-stage2:1 --norm-max-growth 300 spec.tlsf  # experimental, infinite-word-only
+tlsfnorm  --norm-stats --passes match-safe:1 spec.tlsf    # per-rule normalization stats
 tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl per cluster
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers + clusters + compose.sh
 tlsfcompose --split --aiger spec.tlsf                     # one merged AIGER controller (OxiDD + ltlsynt)
@@ -186,21 +188,16 @@ outs=$(tlsfinfo --output-signals spec.norm.tlsf | lc)
 ltlsynt --ins="$ins" --outs="$outs" -f "$(tlsf2ltl spec.norm.tlsf)"   # ltlxba
 ```
 
-### 4 · Cluster a benchmark set by type / template
+### 4 · Census a benchmark set by type / template
 
-Census the structural shapes across a corpus, then group specs by similarity.
+Census the structural shapes across a corpus.
 
 ```sh
 # per-spec shape/template metrics + an aggregate distribution (mutex/response/…)
 tlsfbenchgraph --input-dir benchmarks/tlsf --split --summary > shapes.tsv
 
-# group by structural similarity (Weisfeiler-Lehman fingerprints of the graph)
-tlsfwl --matrix  --wl 3 benchmarks/tlsf/*.tlsf > sim.matrix   # all-pairs cosine
-tlsfwl --nearest 5 --wl 3 benchmarks/tlsf/*.tlsf              # k-NN per spec
-tlsfwl --compare ref.tlsf cand/*.tlsf                         # rank vs a reference
-
-# look at one spec's recognized templates (response / mutex / arbiter / …)
-tlsfgraph --split --templates spec.tlsf
+# look at one spec's certified templates (response / mutex / arbiter / …)
+tlsftemplates --certify --solve --format csnf spec.tlsf
 ```
 
 ### 5 · Measure the self-contained / fast-preprocessor slice
@@ -231,15 +228,17 @@ scripts/benchgraph.py --corpus benchmarks/tlsf \
 
 ## How the synthesis layer works
 
-`tlsfgraph` works on TLSF *structure* — the expanded constraint cover, before
-flattening to one LTL formula — as a **Graph Structural Normal Form (GSNF)**:
-each section formula keeps its role, side, invariant wrapping, syntactic
-safety/liveness class, and signal support. Over it, syntactic **template
-candidates** are recognized (response `G(r→F g)`, mutex, recurrence `G F x`,
-persistence `F G x`, reaction, definition, guarded-next, arbiter, …). Output is
-*candidate-only* — nothing is rewritten or proved. `--split` first decomposes
-each constraint into its top-level `&&` conjuncts (distributing `G`/`X` along the
-spine, equivalence-preserving), which is what makes most templates visible.
+The preprocessor works on TLSF *structure* — the expanded constraint cover,
+before flattening to one LTL formula: each section formula keeps its role, side,
+invariant wrapping, syntactic safety/liveness class, and signal support. Over it,
+exact syntactic **template candidates** are recognized (response `G(r→F g)`,
+mutex, recurrence `G F x`, persistence `F G x`, reaction, definition,
+guarded-next, arbiter, …). `--split` first decomposes each constraint into its
+top-level `&&` conjuncts (distributing `G`/`X` along the spine,
+equivalence-preserving), which is what makes most templates visible. Optional
+equivalence-preserving normalization (`tlsfnorm`, or the `--match-normalize` /
+`--route-normalize` flags) can expose more of these exact shapes before
+recognition without changing the spec's meaning.
 
 `tlsftemplates` promotes candidates to a **Certified Strategy Normal Form
 (CSNF)** along the ladder *candidate → checked → certified → solved*: a block is
@@ -257,12 +256,13 @@ parallelisable sub-problems. `tlsfcompose` turns that into a runnable plan or a
 single merged AIGER, routing safety and GR(1) clusters to OxiDD (in-process BDD
 solver) and pure liveness to `ltlsynt`. The spec is **realizable iff every
 cluster is**, so the certified controllers ⊕ one controller per cluster realise
-the whole spec. The machine formats (`gsnf`/`csnf`) are DIMACS-style line records
+the whole spec. The machine format (`csnf`) is DIMACS-style line records
 (`fgets`/`strtok`, no JSON).
 
 Corpus shape distributions and the templates+OxiDD solve-rate / speed numbers
-live in [`BENCHGRAPH.md`](BENCHGRAPH.md); WL similarity is a heuristic, templates
-are the proof.
+live in [`BENCHGRAPH.md`](BENCHGRAPH.md); exact recognizers plus conservative
+certification are the proof — there is no approximate matching in the synthesis
+path.
 
 ## What `tlsf2ltl` emits
 

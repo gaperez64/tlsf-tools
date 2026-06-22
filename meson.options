@@ -32,5 +32,5 @@ option(
   'research_tools',
   type: 'boolean',
   value: false,
-  description: 'Build graph/WL/bench/template research CLIs',
+  description: 'Build bench/template research CLIs',
 )

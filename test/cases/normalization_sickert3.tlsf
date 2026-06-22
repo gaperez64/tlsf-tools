@@ -1,0 +1,5 @@
+INFO{TITLE:"s3" DESCRIPTION:"sickert stage 3" SEMANTICS:Mealy TARGET:Mealy}
+MAIN{INPUTS{a;c;} OUTPUTS{b;}
+GUARANTEE{
+  G F (c -> (a W b));
+}}

@@ -1,0 +1,24 @@
+INFO {
+  TITLE:       "rt";
+  DESCRIPTION: "route-safe";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+MAIN {
+
+  INPUTS {
+    a;
+    b;
+  }
+
+  OUTPUTS {
+    x;
+    y;
+  }
+
+    GUARANTEE {
+      (G ((!(a) || x)) && G ((!(b) || X (y))));
+    }
+
+}

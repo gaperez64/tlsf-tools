@@ -134,7 +134,7 @@ typedef struct {
 // Top-level specification
 // ---------------------------------------------------------------------------
 
-typedef struct {
+typedef struct TlsfSpec {
   Arena *arena;
   InternTable *intern;
 

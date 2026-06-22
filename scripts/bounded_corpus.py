@@ -40,7 +40,6 @@ BENCH_COLUMNS = [
     "largest_output_component",
     "formula_size_raw",
     "formula_size_norm",
-    "wl_stab_depth",
     "fully_solved",
     "conflicts",
     "eliminated_constraints",
@@ -50,6 +49,10 @@ BENCH_COLUMNS = [
     "largest_residual_cluster_outputs",
     "residual_liveness_clusters",
     "residual_size_norm",
+    "u_under_w",
+    "limit_under_temporal",
+    "w_under_gf",
+    "u_under_fg",
 ]
 
 HARNESS_COLUMNS = ["process_status", "returncode"] + BENCH_COLUMNS
@@ -138,8 +141,6 @@ def run_one(args, path):
     with tempfile.TemporaryDirectory() as td:
         tsv = os.path.join(td, "bench.tsv")
         cmd = [args.benchgraph, "--output", tsv]
-        if args.wl is not None:
-            cmd.extend(["--wl", str(args.wl)])
         if args.split:
             cmd.append("--split")
         cmd.append(path)
@@ -332,8 +333,6 @@ def parse_args(argv):
                         help="address-space cap per spec in MB (default 3000)")
     parser.add_argument("--timeout", type=float, default=1800,
                         help="wall-clock timeout per spec in seconds")
-    parser.add_argument("--wl", type=int,
-                        help="pass --wl N through to tlsfbenchgraph")
     parser.add_argument("--split", action="store_true",
                         help="pass --split through to tlsfbenchgraph")
     parser.add_argument("--quiet", action="store_true",

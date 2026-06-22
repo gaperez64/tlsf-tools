@@ -107,7 +107,6 @@ def aggregate(label, rows):
         "elim_total": sum(col_int(parsed, "eliminated_constraints")),
         "outputs_total": sum(col_int(parsed, "outputs")),
         "owned_total": sum(col_int(parsed, "owned_outputs")),
-        "wl_stab": col_int(parsed, "wl_stab_depth"),
         "comp": col_int(parsed, "largest_output_component"),
     }
     # per-shape: how many specs exhibit it, and total candidates
@@ -250,25 +249,6 @@ def plot_split_effect(aggs_raw, aggs_split, out):
     plt.close(fig)
 
 
-def plot_wl(aggs, out):
-    if not any(a["wl_stab"] for a in aggs):
-        return False
-    fig, ax = plt.subplots(figsize=(7, 4.2))
-    maxd = max((max(a["wl_stab"]) for a in aggs if a["wl_stab"]), default=1)
-    bins = [b - 0.5 for b in range(0, maxd + 2)]
-    for a in aggs:
-        if a["wl_stab"]:
-            ax.hist(a["wl_stab"], bins=bins, alpha=0.55, label=a["label"])
-    ax.set_xlabel("WL stabilisation depth")
-    ax.set_ylabel("# specs")
-    ax.set_title("Weisfeiler-Lehman stabilisation depth")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(os.path.join(out, "wl_stab.png"), dpi=120)
-    plt.close(fig)
-    return True
-
-
 def plot_residual_class(aggs, out):
     """Per corpus: residual independent games (clusters) by synthesis class.
 
@@ -345,7 +325,7 @@ def plot_residual_gamesize(aggs, out):
 
 # --------------------------------------------------------------------------
 
-def stats_markdown(aggs_raw, aggs, wl_ok):
+def stats_markdown(aggs_raw, aggs):
     # `aggs` are the decomposed (--split) aggregates used for the primary tables.
     def fmt(xs):
         return f"{median(xs):.0f} / {mean(xs):.1f} / {max(xs)}" if xs else "-"
@@ -378,12 +358,6 @@ def stats_markdown(aggs_raw, aggs, wl_ok):
         lines.append(
             f"| `{a['label']}` | {a['solved_total']} | {a['certified_total']} | "
             f"{a['specs_with_solved']} | {a['specs_fully_solved']} | {ep} | {op} |")
-    if wl_ok:
-        lines.append("")
-        lines.append("| corpus | WL stabilisation depth (med/mean/max) |")
-        lines.append("|---|---|")
-        for a in aggs:
-            lines.append(f"| `{a['label']}` | {fmt(a['wl_stab'])} |")
 
     # Residual complexity (monolith -> residual) after all template work.
     if any(a.get("has_residual") for a in aggs):
@@ -472,11 +446,10 @@ def main():
     plot_split_effect(aggs_raw, aggs_split, args.out)
     plot_residual_class(aggs_split, args.out)
     plot_residual_gamesize(aggs_split, args.out)
-    wl_ok = plot_wl(aggs_split, args.out)
     print(f"plots written to {args.out}/", file=sys.stderr)
 
     # Markdown stats to stdout (paste into BENCHGRAPH.md).
-    print(stats_markdown(aggs_raw, aggs_split, wl_ok))
+    print(stats_markdown(aggs_raw, aggs_split))
 
 
 if __name__ == "__main__":
