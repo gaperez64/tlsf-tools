@@ -31,6 +31,10 @@ static void usage(const char *prog) {
           "  --input-dir DIR    recursively add every *.tlsf under DIR\n"
           "  --file-list FILE   add the paths listed in FILE (one per line)\n"
           "  --split            split constraints at top-level &&\n"
+          "  --pre-normalize SCHEDULE   pre-expansion normalization (e.g. "
+          "pre-safe)\n"
+          "  --match-normalize SCHEDULE recognition normalization (e.g. "
+          "match-safe:1)\n"
           "  --summary          append an aggregate summary\n"
           "  --output FILE      write to FILE (default stdout)\n"
           "  --version, --help\n",
@@ -209,7 +213,8 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
   free(keys);
 }
 
-static Metrics measure(const char *path, bool split) {
+static Metrics measure(const char *path, bool split, const char *pre_norm,
+                       const char *match_norm) {
   Metrics m = {0};
   FILE *fp = cli_open_input(path, "tlsfbenchgraph");
   if (!fp)
@@ -218,12 +223,33 @@ static Metrics measure(const char *path, bool split) {
   fclose(fp);
   if (!spec)
     return m;
+  bool finite = semantics_is_finite(spec->info.semantics);
+  if (pre_norm && *pre_norm) {
+    TlsfNormSchedule sch;
+    TlsfNormOptions o;
+    tlsf_norm_options_default(&o, TLSF_NORM_PHASE_PRE_EXPAND);
+    o.finite_word = finite;
+    TlsfNormRejectReason rr;
+    if (!tlsf_norm_parse_schedule(spec->arena, pre_norm, "tlsfbenchgraph",
+                                  &sch) ||
+        (o.schedule = sch,
+         !tlsf_norm_schedule_check(&sch, &o, "tlsfbenchgraph", &rr))) {
+      spec_free(spec);
+      return m;
+    }
+    tlsf_prenorm_spec(spec, &o, nullptr);
+  }
   if (expand(spec, nullptr, 0) != 0) {
     spec_free(spec);
     return m;
   }
   ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
+    spec_free(spec);
+    return m;
+  }
+  if (!cover_match_normalize(cov, match_norm, finite, "tlsfbenchgraph",
+                             nullptr)) {
     spec_free(spec);
     return m;
   }
@@ -295,6 +321,7 @@ static const char *basename_of(const char *p) {
 int main(int argc, char *argv[]) {
   bool summary = false, split = false;
   const char *output_file = nullptr;
+  const char *pre_norm = nullptr, *match_norm = nullptr;
 
 #define NEED_ARG()                                                             \
   (++i >= argc ? (fprintf(stderr, "tlsfbenchgraph: %s requires an argument\n", \
@@ -323,6 +350,10 @@ int main(int argc, char *argv[]) {
       fclose(fl);
     } else if (strcmp(a, "--split") == 0) {
       split = true;
+    } else if (strcmp(a, "--pre-normalize") == 0) {
+      pre_norm = NEED_ARG();
+    } else if (strcmp(a, "--match-normalize") == 0) {
+      match_norm = NEED_ARG();
     } else if (strcmp(a, "--summary") == 0) {
       summary = true;
     } else if (strcmp(a, "--output") == 0) {
@@ -389,7 +420,7 @@ int main(int argc, char *argv[]) {
   uint32_t lc_strictly_smaller = 0, drop_to_safety = 0, factored = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
-    Metrics m = measure(g_files[i], split);
+    Metrics m = measure(g_files[i], split, pre_norm, match_norm);
     const char *fn = basename_of(g_files[i]);
     if (!m.ok) {
       nfail++;

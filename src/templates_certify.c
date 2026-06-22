@@ -135,9 +135,9 @@ static const Node *next_chain_target(const Node *n, uint32_t *steps,
 static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
                                const Node **alpha, int32_t *out, bool *neg,
                                bool *strong) {
-  if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_IMPL)
+  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (!is_next_kind(body->rhs->kind))
     return false;
   *strong = body->rhs->kind == NODE_X_STRONG;
@@ -161,9 +161,9 @@ static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
 // index, and whether the next operator is strong.
 static bool parse_toggle(ConstraintCover *cov, const Constraint *c,
                          const Node **trigger, int32_t *out, bool *strong) {
-  if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_IMPL)
+  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->rhs->kind != NODE_EQUIV)
     return false;
   const Node *eq = body->rhs;
@@ -192,9 +192,9 @@ static bool parse_fixed_delay_response(ConstraintCover *cov,
                                        const Constraint *c, const Node **guard,
                                        int32_t *out, uint32_t *steps,
                                        bool *strong) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return false;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   const Node *cons = nullptr;
   if (body->kind == NODE_IMPL) {
     *guard = body->lhs;
@@ -317,9 +317,9 @@ static bool has_output_ref(ConstraintCover *cov, const Node *n) {
 // Parse G(alpha -> o) / G(alpha -> !o); returns guard, output index, sign.
 static bool parse_reaction(ConstraintCover *cov, const Constraint *c,
                            const Node **alpha, int32_t *out, bool *neg) {
-  if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_IMPL)
+  if (constraint_match_formula(c)->kind != NODE_G || constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   const Node *t = body->rhs;
   *neg = false;
   if (t->kind == NODE_NOT) {
@@ -339,10 +339,10 @@ static bool parse_reaction(ConstraintCover *cov, const Constraint *c,
 static bool parse_global_recurrence_switch(ConstraintCover *cov,
                                            const Constraint *c,
                                            const Node **guard, int32_t *out) {
-  if (c->formula->kind != NODE_EQUIV)
+  if (constraint_match_formula(c)->kind != NODE_EQUIV)
     return false;
-  const Node *lhs = c->formula->lhs;
-  const Node *rhs = c->formula->rhs;
+  const Node *lhs = constraint_match_formula(c)->lhs;
+  const Node *rhs = constraint_match_formula(c)->rhs;
   const Node *rec = nullptr;
   const Node *gside = nullptr;
   if (lhs->kind == NODE_G && lhs->arg->kind == NODE_F) {
@@ -448,7 +448,7 @@ void certify_definition(Csnf *c, unsigned want, bool certify) {
     int32_t def_output = candidate_output(cov, cc, CAND_DEFINITION);
     if (c->claimed[i] || !has_cand(cc, "definition") || def_output < 0)
       continue;
-    const Node *eq = cc->formula->arg; // G(<eq>)
+    const Node *eq = constraint_match_formula(cc)->arg; // G(<eq>)
     const char *oname = ap_table_name(&cov->aps, (uint32_t)def_output);
     const Node *theta = (eq->lhs->kind == NODE_AP && eq->lhs->name == oname)
                             ? eq->rhs
@@ -1100,7 +1100,7 @@ void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
     int32_t ddef_output = candidate_output(cov, cc, CAND_DELAYED_DEF);
     if (c->claimed[i] || !has_cand(cc, "delayed-definition") || ddef_output < 0)
       continue;
-    const Node *eq = cc->formula->arg; // G(<eq>)
+    const Node *eq = constraint_match_formula(cc)->arg; // G(<eq>)
     bool strong =
         eq->lhs->kind == NODE_X_STRONG || eq->rhs->kind == NODE_X_STRONG;
     const Node *theta = is_next_kind(eq->lhs->kind) ? eq->rhs : eq->lhs;
@@ -1243,7 +1243,7 @@ void certify_invariant(Csnf *c, unsigned want, bool certify) {
     Constraint *cc = &cov->items[i];
     if (c->claimed[i] || !has_cand(cc, "safety-invariant"))
       continue;
-    const Node *B = cc->formula->arg; // G(B)
+    const Node *B = constraint_match_formula(cc)->arg; // G(B)
     uint32_t outs[8];
     uint32_t ins[64];
     uint32_t no = 0, ni = 0;

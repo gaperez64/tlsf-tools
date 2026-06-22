@@ -546,6 +546,13 @@ test('tmpl_param', check_wl,
          '--param', 'n=5', '--param', 'k=2',
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/param_demo.tlsf')])
+# match-normalize (PR3/PR4): equivalence-preserving recognition normalization
+# lifts a guarded-next to solved and a mutex to certified.
+test('tmpl_match_normalize', check,
+  args: [files('test/cases/normalization_patterns.tmpl_matchsafe.txt'),
+         tlsftemplates_exe, '--certify', '--solve', '--format', 'text',
+         '--match-normalize', 'match-safe:1',
+         files('test/cases/normalization_patterns.tlsf')])
 # Composition soundness: tlsftemplates --check (whole-spec verdict) and
 # tlsfresidual (leftover LTL after the accepted blocks).
 foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',

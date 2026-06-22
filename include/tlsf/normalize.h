@@ -255,4 +255,12 @@ bool tlsf_norm_schedule_check(const TlsfNormSchedule *sch,
 /// an arena array of conjuncts to `*out` and returns the count (>= 1).
 [[nodiscard]] uint32_t tlsf_prenorm_spine_split(Arena *a, Node *f, Node ***out);
 
+// Forward declaration; full definition in spec.h (pulled in by .c users).
+typedef struct TlsfSpec TlsfSpec;
+
+/// Apply `opts->schedule` (pre-expansion passes) to every section formula of
+/// `spec`, before expand().  No-op when the schedule is empty.
+bool tlsf_prenorm_spec(TlsfSpec *spec, const TlsfNormOptions *opts,
+                       TlsfNormStats *stats);
+
 #endif // TLSF_NORMALIZE_H

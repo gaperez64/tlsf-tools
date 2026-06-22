@@ -26,6 +26,9 @@ static void usage(const char *prog) {
           "  --solve                      include controller/decoder "
           "artifacts\n"
           "  --split                      split constraints at top-level &&\n"
+          "  --pre-normalize SCHEDULE     pre-expansion normalization\n"
+          "  --match-normalize SCHEDULE   recognition normalization (e.g. "
+          "match-safe:1)\n"
           "  --check                      report whole-spec composition "
           "soundness\n"
           "  --template NAME              restrict to one certifiable "
@@ -140,6 +143,7 @@ int main(int argc, char *argv[]) {
   unsigned want = TPL_ALL;
   const char *input_file = nullptr, *output_file = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;
+  const char *pre_norm = nullptr, *match_norm = nullptr;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
 
@@ -157,6 +161,10 @@ int main(int argc, char *argv[]) {
       certify = true;
     } else if (strcmp(a, "--split") == 0) {
       split = true;
+    } else if (strcmp(a, "--pre-normalize") == 0) {
+      pre_norm = NEED_ARG();
+    } else if (strcmp(a, "--match-normalize") == 0) {
+      match_norm = NEED_ARG();
     } else if (strcmp(a, "--check") == 0) {
       check = true;
       certify = true;
@@ -262,6 +270,25 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+  bool finite = semantics_is_finite(spec->info.semantics);
+  if (pre_norm) {
+    TlsfNormSchedule sch;
+    TlsfNormOptions o;
+    tlsf_norm_options_default(&o, TLSF_NORM_PHASE_PRE_EXPAND);
+    o.finite_word = finite;
+    TlsfNormRejectReason rr;
+    if (!tlsf_norm_parse_schedule(spec->arena, pre_norm, "tlsftemplates",
+                                  &sch)) {
+      spec_free(spec);
+      return 1;
+    }
+    o.schedule = sch;
+    if (!tlsf_norm_schedule_check(&sch, &o, "tlsftemplates", &rr)) {
+      spec_free(spec);
+      return 1;
+    }
+    tlsf_prenorm_spec(spec, &o, nullptr);
+  }
   if (expand(spec, overrides, n_overrides) != 0) {
     spec_free(spec);
     return 1;
@@ -272,6 +299,11 @@ int main(int argc, char *argv[]) {
   ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
     fprintf(stderr, "tlsftemplates: out of memory\n");
+    spec_free(spec);
+    return 1;
+  }
+  if (!cover_match_normalize(cov, match_norm, finite, "tlsftemplates",
+                             nullptr)) {
     spec_free(spec);
     return 1;
   }

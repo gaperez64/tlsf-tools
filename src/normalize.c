@@ -4,6 +4,7 @@
 
 #include "tlsf/nnf.h"
 #include "tlsf/rewrite.h"
+#include "tlsf/spec.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -874,6 +875,43 @@ uint32_t tlsf_prenorm_spine_split(Arena *a, Node *f, Node ***out) {
   prenorm_spine(a, f, &v);
   *out = v.v;
   return v.n;
+}
+
+bool tlsf_prenorm_spec(TlsfSpec *spec, const TlsfNormOptions *opts,
+                       TlsfNormStats *stats) {
+  if (!opts || opts->schedule.count == 0)
+    return true;
+  FormulaList *lists[] = {&spec->initially, &spec->require, &spec->assume,
+                          &spec->preset,    &spec->assert_, &spec->guarantee};
+  for (uint32_t pi = 0; pi < opts->schedule.count; pi++) {
+    TlsfNormPassSpec one = opts->schedule.items[pi];
+    for (int s = 0; s < 6; s++) {
+      FormulaList *L = lists[s];
+      if (one.pass == TLSF_NORM_PASS_PRE_SPINE_SPLIT) {
+        FormulaList nl = {0};
+        for (uint32_t k = 0; k < L->count; k++) {
+          Node **parts;
+          uint32_t np =
+              tlsf_prenorm_spine_split(spec->arena, L->formulas[k], &parts);
+          if (stats) {
+            stats->rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].attempts++;
+            if (np > 1)
+              stats->rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].fired += np - 1;
+          }
+          for (uint32_t p = 0; p < np; p++)
+            (void)formula_list_push(spec, &nl, parts[p]);
+        }
+        *L = nl;
+        continue;
+      }
+      TlsfNormOptions o = *opts;
+      o.schedule = (TlsfNormSchedule){.items = &one, .count = 1};
+      for (uint32_t k = 0; k < L->count; k++)
+        L->formulas[k] =
+            tlsf_normalize_formula(spec->arena, L->formulas[k], &o, stats);
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
