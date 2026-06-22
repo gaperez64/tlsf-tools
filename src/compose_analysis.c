@@ -509,8 +509,7 @@ static bool mentions_env_input(const TlsfSpec *spec, const Node *n) {
   case NODE_W:
   case NODE_R:
   case NODE_M:
-    return mentions_env_input(spec, n->lhs) ||
-           mentions_env_input(spec, n->rhs);
+    return mentions_env_input(spec, n->lhs) || mentions_env_input(spec, n->rhs);
   default:
     return false;
   }
@@ -551,9 +550,7 @@ static bool response_monitor_collect(Arena *a, const Node *n, Gr1Parts *p) {
     if (p->njustice >= GR1_MAX_JUSTICE)
       return false;
     p->justice[p->njustice++] =
-        (Gr1Justice){.req = req,
-                     .target = grant,
-                     .kind = GR1_JUSTICE_RESPONSE};
+        (Gr1Justice){.req = req, .target = grant, .kind = GR1_JUSTICE_RESPONSE};
     return true;
   }
 
@@ -594,10 +591,8 @@ static bool eventual_monitor_collect(TlsfSpec *spec, const Node *n,
   if (target) {
     if (p->njustice >= GR1_MAX_JUSTICE)
       return false;
-    p->justice[p->njustice++] =
-        (Gr1Justice){.req = nullptr,
-                     .target = target,
-                     .kind = GR1_JUSTICE_EVENTUAL};
+    p->justice[p->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = target, .kind = GR1_JUSTICE_EVENTUAL};
     return true;
   }
 
@@ -622,8 +617,8 @@ bool aig_eventual_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p) {
 
 static bool match_until(const TlsfSpec *spec, const Node *n, const Node **p,
                         const Node **q) {
-  if (n->kind != NODE_U || !aig_initial_ok(n->lhs) ||
-      !aig_initial_ok(n->rhs) || mentions_env_input(spec, n->rhs))
+  if (n->kind != NODE_U || !aig_initial_ok(n->lhs) || !aig_initial_ok(n->rhs) ||
+      mentions_env_input(spec, n->rhs))
     return false;
   *p = n->lhs;
   *q = n->rhs;
@@ -650,9 +645,7 @@ static bool until_monitor_collect(TlsfSpec *spec, const Node *n,
       return false;
     parts->weak[parts->nweak++] = (Gr1WeakUntil){p, q};
     parts->justice[parts->njustice++] =
-        (Gr1Justice){.req = nullptr,
-                     .target = q,
-                     .kind = GR1_JUSTICE_EVENTUAL};
+        (Gr1Justice){.req = nullptr, .target = q, .kind = GR1_JUSTICE_EVENTUAL};
     return true;
   }
 
@@ -700,20 +693,16 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   } else if (gf) {
     if (p->njustice >= GR1_MAX_JUSTICE)
       return false;
-    p->justice[p->njustice++] =
-        (Gr1Justice){.req = nullptr,
-                     .target = gf,
-                     .kind = GR1_JUSTICE_RECURRENCE};
+    p->justice[p->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = gf, .kind = GR1_JUSTICE_RECURRENCE};
     return true;
   } else {
     const Node *req = nullptr, *grant = nullptr;
     if (match_response(n, &req, &grant)) {
       if (p->njustice >= GR1_MAX_JUSTICE)
         return false;
-      p->justice[p->njustice++] =
-          (Gr1Justice){.req = req,
-                       .target = grant,
-                       .kind = GR1_JUSTICE_RESPONSE};
+      p->justice[p->njustice++] = (Gr1Justice){
+          .req = req, .target = grant, .kind = GR1_JUSTICE_RESPONSE};
       return true;
     }
     // A weak-until `a W b` (Boolean a, b) is a pure-safety guarantee: a holds
@@ -787,10 +776,8 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
     if (*found_impl || p->njustice >= GR1_MAX_JUSTICE)
       return false; // don't mix unconditional justice with env fairness
     *found_bare_justice = true;
-    p->justice[p->njustice++] =
-        (Gr1Justice){.req = nullptr,
-                     .target = gf,
-                     .kind = GR1_JUSTICE_RECURRENCE};
+    p->justice[p->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = gf, .kind = GR1_JUSTICE_RECURRENCE};
     return true;
   }
   if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
