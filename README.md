@@ -5,7 +5,9 @@ Small, fast, Unix-style command-line tools for working with
 Format) specifications, sharing a common C library.
 
 The normal release build uses OxiDD (<https://github.com/OxiDD/oxidd>) as the
-in-process BDD backend for safety and GR(1) games. `ltlsynt` is not a library
+in-process BDD backend for safety and GR(1) games. 
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) is mentioned below, it
+is not a library
 dependency of this project; it is an optional fallback executable used by
 `tlsfcompose --aiger` and by the Docker wrapper image.
 
