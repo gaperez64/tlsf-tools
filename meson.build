@@ -234,6 +234,7 @@ lib_sources = [
   'src/expand.c',
   'src/nnf.c',
   'src/rewrite.c',
+  'src/normalize.c',
   'src/classify.c',
   'src/liveness_class.c',
   'src/apset.c',
@@ -872,6 +873,16 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
+# Normalization API (PR2): bool-canon sorts/dedups boolean operands; the
+# match-safe profile re-emits valid, equivalent TLSF.
+test('norm_match_safe', check,
+  args: [files('test/cases/normalization_match.matchsafe.tlsf'),
+         tlsfnorm_exe, '--passes', 'match-safe:1',
+         files('test/cases/normalization_match.tlsf')])
+# Sickert passes are infinite-word-only: they must be rejected on Finite specs.
+test('norm_finite_rejects_sickert', xfail,
+  args: [tlsfnorm_exe, '--passes', 'sickert-stage2:1',
+         files('test/cases/Patterns_Uright_uright06.tlsf')])
 
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.

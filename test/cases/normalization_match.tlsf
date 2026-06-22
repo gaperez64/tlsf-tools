@@ -1,0 +1,6 @@
+INFO{TITLE:"m" DESCRIPTION:"bool-canon" SEMANTICS:Mealy TARGET:Mealy}
+MAIN{INPUTS{a;b;c;} OUTPUTS{o;}
+GUARANTEE{
+  G ((c && a && b) -> o);
+  G (o -> (b && a && a && c));
+}}
