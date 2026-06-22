@@ -1,0 +1,6 @@
+INFO { TITLE: "liveness_nested" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { i; }
+  OUTPUTS { g; }
+  GUARANTEE { G F X g; }
+}

@@ -1,0 +1,6 @@
+INFO { TITLE: "liveness_eventual" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { i; }
+  OUTPUTS { g; }
+  GUARANTEE { F (i && g); }
+}

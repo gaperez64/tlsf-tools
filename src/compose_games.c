@@ -858,8 +858,9 @@ Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
 // fairness records for AbsSynthe's GR(1) solver rather than bounded counters.
 // Each justice goal `J` becomes a deterministic pending monitor
 // (`pending' = !violated & !grant & (pending | req)`, with `req = true` for a
-// recurrence `G F J`) so its justice literal `!pending` is a STATE predicate
-// and G F !pending <=> the goal is met infinitely often.  The fairness
+// recurrence `G F J`, and with initial pending/no re-arm for one-shot `F J`) so
+// its justice literal `!pending` is a STATE predicate and G F !pending <=> the
+// obligation is met.  The fairness
 // assumption `a` is sampled into a latch (`fa' = a`) so its fairness literal is
 // a state predicate too.  State predicates are required: AbsSynthe's
 // controllable predecessor (and its multi-goal justice-counter
@@ -975,13 +976,22 @@ Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
     uint32_t tgt = compile_at_lag(&ctx, parts->justice[j].target, depth);
     if (tgt == UINT32_MAX)
       UGR1_FAIL();
-    uint32_t req = AIG_TRUE; // recurrence G F J == response with req = true
-    if (parts->justice[j].req) {
+    uint32_t req = AIG_FALSE;
+    uint32_t pending_init = AIG_FALSE;
+    switch (parts->justice[j].kind) {
+    case GR1_JUSTICE_RECURRENCE:
+      req = AIG_TRUE;
+      break;
+    case GR1_JUSTICE_RESPONSE:
       req = compile_at_lag(&ctx, parts->justice[j].req, depth);
       if (req == UINT32_MAX)
         UGR1_FAIL();
+      break;
+    case GR1_JUSTICE_EVENTUAL:
+      pending_init = AIG_TRUE;
+      break;
     }
-    uint32_t p = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    uint32_t p = aig_latch(g, pending_init, AIG_FALSE);
     uint32_t next = aig_and(g, aig_not(violated),
                             aig_and(g, aig_not(tgt), aig_or(g, p, req)));
     if (!aig_set_latch_next(g, p, next))

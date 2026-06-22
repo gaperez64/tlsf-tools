@@ -1,2 +1,2 @@
 spec	cluster_id	n_inputs	n_outputs	formula_nodes	formula_bytes	gr_level	has_liveness	has_weak_until	has_release	liveness_class	n_response	n_recurrence	n_eventual	n_until	has_nested_temporal	route	backend	exact	uses_oxidd	reason
-	0	1	1	5	13	-1	0	0	0	none	0	0	0	0	0	wr-safety	OxiDD (W/R safety)	1	1	selected exact fast path
+	0	0	1	4	8	1	1	0	0	nested_unsupported	0	0	0	0	1	ltlsynt	ltlsynt fallback	1	0	GR(1) residual with liveness; no GR backend is available without ltlsynt

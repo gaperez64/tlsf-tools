@@ -236,6 +236,7 @@ lib_sources = [
   'src/nnf.c',
   'src/rewrite.c',
   'src/classify.c',
+  'src/liveness_class.c',
   'src/apset.c',
   'src/cover.c',
   'src/recognize.c',
@@ -677,20 +678,58 @@ if have_oxidd
            files('test/cases/aiger_unclassified_atom.tlsf')])
   test('compose_route_stats_gr1', check,
     args: [files('test/cases/gr1_spec.route_stats'), tlsfcompose_exe,
-           '--route-stats', files('test/cases/gr1_spec.tlsf')])
+           '--split', '--route-stats', files('test/cases/gr1_spec.tlsf')])
   test('compose_route_stats_bounded', check,
     args: [files('test/cases/compose_demo.route_stats'), tlsfcompose_exe,
-           '--route-stats', '--experimental-bounded', '4',
+           '--split', '--route-stats', '--experimental-bounded', '4',
+           files('test/cases/compose_demo.tlsf')])
+  test('compose_route_stats_response_monitor', check,
+    args: [files('test/cases/compose_demo.response_monitor.route_stats'),
+           tlsfcompose_exe, '--split', '--route-stats',
            files('test/cases/compose_demo.tlsf')])
   test('compose_route_stats_initial_x_assume', check,
     args: [files('test/cases/initial_x_assume.route_stats'), tlsfcompose_exe,
-           '--route-stats', files('test/cases/initial_x_assume.tlsf')])
+           '--split', '--route-stats', files('test/cases/initial_x_assume.tlsf')])
   test('compose_route_stats_delayed_global', check,
     args: [files('test/cases/delayed_global.route_stats'), tlsfcompose_exe,
-           '--route-stats', files('test/cases/delayed_global.tlsf')])
+           '--split', '--route-stats', files('test/cases/delayed_global.tlsf')])
   test('compose_route_stats_gr1_recurrence', check,
     args: [files('test/cases/gr1_recurrence.route_stats'), tlsfcompose_exe,
-           '--route-stats', files('test/cases/gr1_recurrence.tlsf')])
+           '--split', '--route-stats', files('test/cases/gr1_recurrence.tlsf')])
+  test('compose_route_stats_wr_response', check,
+    args: [files('test/cases/wr_response.route_stats'), tlsfcompose_exe,
+           '--split', '--route-stats', files('test/cases/wr_response.tlsf')])
+  test('compose_route_stats_reaction_ok', check,
+    args: [files('test/cases/reaction_ok.route_stats'), tlsfcompose_exe,
+           '--split', '--route-stats', files('test/cases/reaction_ok.tlsf')])
+  test('compose_route_stats_response_same_cycle', check,
+    args: [files('test/cases/response_same_cycle.route_stats'),
+           tlsfcompose_exe, '--split', '--route-stats',
+           files('test/cases/response_same_cycle.tlsf')])
+  test('compose_route_stats_eventual_output', check,
+    args: [files('test/cases/eventual_output.route_stats'),
+           tlsfcompose_exe, '--split', '--route-stats',
+           files('test/cases/eventual_output.tlsf')])
+  test('compose_route_stats_until_input_target', check,
+    args: [files('test/cases/until_input_target.route_stats'),
+           tlsfcompose_exe, '--split', '--route-stats',
+           files('test/cases/until_input_target.tlsf')])
+  test('compose_route_stats_policy_off', check,
+    args: [files('test/cases/gr1_spec.policy_off.route_stats'),
+           tlsfcompose_exe, '--split', '--route-stats',
+           '--preprocess-policy', 'off', files('test/cases/gr1_spec.tlsf')])
+  test('compose_route_stats_policy_profitable_skip', check,
+    args: [files('test/cases/policy_profitable_skip.route_stats'),
+           tlsfcompose_exe, '--split', '--route-stats',
+           '--preprocess-policy', 'profitable',
+           files('test/cases/policy_profitable_skip.tlsf')])
+  foreach name : ['liveness_eventual', 'liveness_until', 'liveness_mixed',
+                  'liveness_nested']
+    test('compose_route_stats_' + name, check,
+      args: [files('test/cases/' + name + '.route_stats'), tlsfcompose_exe,
+             '--split', '--route-stats',
+             files('test/cases/' + name + '.tlsf')])
+  endforeach
   # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
   foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
     test('aiger_' + name, check,
@@ -732,6 +771,25 @@ if have_oxidd
     args: [files('test/cases/upper_atoms.merged.aag'), tlsfcompose_exe,
            '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
            files('test/cases/upper_atoms.tlsf')])
+  test('aiger_fallback_mode_auto_monolithic', check,
+    args: [files('test/cases/policy_profitable_skip.monolithic.aag'),
+           tlsfcompose_exe, '--split', '--aiger',
+           '--preprocess-policy', 'profitable',
+           '--fallback-mode', 'auto',
+           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           files('test/cases/policy_profitable_skip.tlsf')])
+  test('aiger_fallback_mode_auto_retries_clusters', check,
+    args: [files('test/cases/policy_profitable_skip.cluster_retry.aag'),
+           tlsfcompose_exe, '--split', '--aiger',
+           '--fallback-mode', 'auto',
+           '--ltlsynt', files('test/fake_ltlsynt_fail_monolithic.sh'),
+           files('test/cases/policy_profitable_skip.tlsf')])
+  test('aiger_fallback_mode_auto_finite', check,
+    args: [files('test/cases/Random_Lydia_case_03_50_05.fallback_auto.aag'),
+           tlsfcompose_exe, '--split', '--aiger',
+           '--fallback-mode', 'auto',
+           '--ltlsynt', files('test/fake_ltlsynt.sh'),
+           files('test/cases/Random_Lydia_case_03_50_05.tlsf')])
   # NOT(G(w)) is liveness: G(w)->false is simplified to NOT(G(w)) by the parser;
   # cluster_shape_visit must detect this as liveness (not W/R-safety).
   test('aiger_not_g_is_liveness', check_fail_stderr,
@@ -750,6 +808,18 @@ if have_oxidd
   test('aiger_gr1_recurrence_self_contained', tlsfcompose_exe,
     args: ['--aiger', '--ltlsynt', '/bin/false',
            files('test/cases/gr1_recurrence.tlsf')])
+  test('aiger_response_monitor_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/compose_demo.tlsf')])
+  test('aiger_response_same_cycle_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/response_same_cycle.tlsf')])
+  test('aiger_eventual_output_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/eventual_output.tlsf')])
+  test('aiger_until_self_contained', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/liveness_until.tlsf')])
   test('aiger_verify_gate_falls_back', xfail,
     args: [tlsfcompose_exe, '--aiger',
            '--ltlsynt', '/bin/false', '--verify', '/bin/false',
@@ -818,7 +888,9 @@ if python3.found() and spot_python_found
                     'strict_safety',
                     'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
                     'wr_assume', 'wr_distributable_impl', 'wr_gated_nox',
-                    'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body']
+                    'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body',
+                    'compose_demo', 'response_same_cycle', 'eventual_output',
+                    'liveness_until']
       test('verify_aiger_oxidd_' + name, python3,
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,
@@ -831,7 +903,7 @@ if python3.found() and spot_python_found
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,
                '--ltlsynt', '/bin/false',
-               '--compose-arg', '--experimental-bounded',
+               '--compose-arg=--experimental-bounded',
                '--compose-arg', '4',
                '--tlsf2ltl', tlsf2ltl_path,
                '--tlsf', files('test/cases/' + name + '.tlsf')])

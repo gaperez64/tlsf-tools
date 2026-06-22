@@ -115,6 +115,8 @@ tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized T
 tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl per cluster
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers + clusters + compose.sh
 tlsfcompose --split --aiger spec.tlsf                     # one merged AIGER controller (OxiDD + ltlsynt)
+tlsfcompose --split --aiger --preprocess-policy always spec.tlsf
+tlsfcompose --split --aiger --fallback-mode auto spec.tlsf
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
 
@@ -142,9 +144,22 @@ ltlsynt --ins=… --outs=… --formula="$(grep -v '^c ' out/cluster.0.ltl)"
 ### 2 · One merged controller circuit (AIGER)
 
 `--aiger` closes the loop: certified controllers become and-inverter gates,
-eligible safety clusters go to OxiDD (in-process BDD safety + GR(1) solver),
-everything else to `ltlsynt`, and the output-disjoint strategies are merged into
-one `aag` over the full interface.
+eligible safety clusters and narrow exact liveness monitors go to OxiDD
+(in-process BDD safety + GR(1) solver), everything else to `ltlsynt`, and the
+output-disjoint strategies are merged into one `aag` over the full interface.
+The monitor routes currently cover standalone `G(req -> F grant)` response
+obligations, output-only `F goal` eventualities, and output-progress `p U q`
+until obligations with current-state Boolean goals. `--preprocess-policy`
+controls OxiDD routing:
+`profitable` is the default: it skips small OxiDD clusters when they do not
+remove a fallback cluster, fallback output dimension, or at least 20% of
+residual formula nodes. `always` keeps every selected OxiDD route, `off` sends
+residual synthesis clusters to `ltlsynt`, and `diagnose` prints what the
+profitability rule would do. `--fallback-mode auto` is the default: it keeps
+the per-cluster fallback behavior unless the effective routing plan has no
+exact OxiDD work, multiple fallback clusters, and no output-dimension benefit
+from clustering; then it tries the full residual with one `ltlsynt` call and
+retries the per-cluster path if that monolithic call fails without a verdict.
 
 ```sh
 tlsfcompose --split --aiger spec.tlsf > ctrl.aag          # OxiDD build required
@@ -200,6 +215,16 @@ tlsfcompose --split --aiger --ltlsynt /bin/false spec.tlsf
 # full corpus speed + complexity (rerunnable; --from-data re-renders the report)
 scripts/benchgraph.py --corpus benchmarks/tlsf \
         --tlsfcompose build-oxidd/tlsfcompose --ltlsynt ltlsynt
+
+# route-only corpus census; writes rows incrementally and skips slow specs
+scripts/collect_route_stats.py --compose build-oxidd/tlsfcompose \
+        --timeout 5 --out route_stats.tsv benchmarks/tlsf
+
+# compare auto fallback against the default profitable cluster mode
+scripts/benchgraph.py --corpus benchmarks/tlsf \
+        --tlsfcompose build-oxidd/tlsfcompose --ltlsynt ltlsynt \
+        --compose-extra-arg=--fallback-mode \
+        --compose-extra-arg=auto
 ```
 
 ## How the synthesis layer works

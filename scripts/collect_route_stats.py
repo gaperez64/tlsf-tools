@@ -53,16 +53,22 @@ def discover(items):
 
 def run_one(args, path):
     cmd = [args.compose, "--split", "--route-stats"]
+    for extra in args.compose_extra_arg:
+        cmd.append(extra)
     if args.experimental_bounded is not None:
         cmd.extend(["--experimental-bounded", str(args.experimental_bounded)])
     cmd.append(path)
-    return subprocess.run(
-        cmd,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    try:
+        return subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=args.timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return exc
 
 
 def parse_rows(text):
@@ -81,8 +87,12 @@ def parse_args(argv):
     parser.add_argument("--compose", default=default_compose(),
                         help="path to tlsfcompose")
     parser.add_argument("--out", required=True, help="write TSV to FILE")
+    parser.add_argument("--compose-extra-arg", action="append", default=[],
+                        help="extra argument passed to tlsfcompose; repeatable")
     parser.add_argument("--experimental-bounded", type=int,
                         help="pass --experimental-bounded N")
+    parser.add_argument("--timeout", type=float,
+                        help="per-spec timeout in seconds")
     return parser.parse_args(argv)
 
 
@@ -94,32 +104,47 @@ def main(argv):
         return 2
 
     fieldnames = None
-    rows = []
+    writer = None
     failed = False
-    for path in files:
-        proc = run_one(args, path)
-        if proc.returncode != 0:
-            failed = True
-            err = proc.stderr.strip().splitlines()
-            msg = err[0] if err else "failed"
-            print(f"collect_route_stats: {path}: {msg}", file=sys.stderr)
-            continue
-        header, parsed = parse_rows(proc.stdout)
-        if fieldnames is None:
-            fieldnames = ["file"] + header
-        for row in parsed:
-            out = {"file": path}
-            out.update(row)
-            rows.append(out)
-
-    if fieldnames is None:
-        fieldnames = ["file"]
     with open(args.out, "w", newline="", encoding="utf-8") as fp:
-        writer = csv.DictWriter(fp, fieldnames=fieldnames, delimiter="\t",
-                                lineterminator="\n", extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+        for path in files:
+            proc = run_one(args, path)
+            if isinstance(proc, subprocess.TimeoutExpired):
+                failed = True
+                print(
+                    f"collect_route_stats: {path}: timed out after "
+                    f"{args.timeout:g}s",
+                    file=sys.stderr,
+                )
+                continue
+            if proc.returncode != 0:
+                failed = True
+                err = proc.stderr.strip().splitlines()
+                msg = err[0] if err else "failed"
+                print(f"collect_route_stats: {path}: {msg}", file=sys.stderr)
+                continue
+            header, parsed = parse_rows(proc.stdout)
+            if fieldnames is None:
+                fieldnames = ["file"] + header
+                if "spec" not in fieldnames:
+                    fieldnames.append("spec")
+                writer = csv.DictWriter(fp, fieldnames=fieldnames,
+                                        delimiter="\t", lineterminator="\n",
+                                        extrasaction="ignore")
+                writer.writeheader()
+            if writer is None:
+                continue
+            for row in parsed:
+                out = {"file": path}
+                out.update(row)
+                if not out.get("spec"):
+                    out["spec"] = path
+                writer.writerow(out)
+            fp.flush()
+        if fieldnames is None:
+            writer = csv.DictWriter(fp, fieldnames=["file"], delimiter="\t",
+                                    lineterminator="\n")
+            writer.writeheader()
 
     return 1 if failed else 0
 

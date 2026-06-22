@@ -256,6 +256,7 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
   for (uint32_t a = 0; a < A; a++)
     parent[a] = a;
 
+  bool output_dependent_assumption = false;
   // Union outputs that co-occur in one constraint.
   for (uint32_t i = 0; i < n; i++) {
     if (!rf[i])
@@ -266,6 +267,8 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
     for (uint32_t a = 0; a < A; a++) {
       if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
         continue;
+      if (cov->items[i].assumption_side)
+        output_dependent_assumption = true;
       if (first < 0)
         first = (int64_t)a;
       else {
@@ -275,11 +278,34 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
       }
     }
   }
+
+  int64_t collapse_root = -1;
+  if (output_dependent_assumption) {
+    // An assumption mentioning outputs couples the residual games through the
+    // antecedent.  If we left the guarantee clusters independent, each cluster
+    // would either drop that assumption or synthesize with another cluster's
+    // output treated as locally controllable.  Both are unsound, so collapse
+    // all output components and attach input-only guarantees to that component.
+    for (uint32_t a = 0; a < A; a++)
+      if (ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT) {
+        if (collapse_root < 0)
+          collapse_root = (int64_t)a;
+        else {
+          uint32_t ra = uf_find(parent, a);
+          uint32_t rb = uf_find(parent, (uint32_t)collapse_root);
+          if (ra != rb)
+            parent[ra] = rb;
+        }
+      }
+  }
+
   // Per-constraint key: output component, sentinel A for an input-only system
   // obligation, or UINT32_MAX for global environment / skipped.
   for (uint32_t i = 0; i < n; i++) {
     key[i] = UINT32_MAX;
     if (!rf[i])
+      continue;
+    if (cov->items[i].assumption_side)
       continue;
     memset(seen, 0, A);
     residual_collect_aps(rf[i], cov, seen);
@@ -291,6 +317,12 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
       }
     if (first >= 0)
       key[i] = uf_find(parent, (uint32_t)first);
+    else if (collapse_root >= 0)
+      // If an assumption constrains outputs, independent clusters no longer
+      // have a local assumption environment.  Keep input-only guarantees in
+      // the same conservative residual cluster instead of checking them with
+      // those outputs treated as freshly controllable.
+      key[i] = uf_find(parent, (uint32_t)collapse_root);
     else if (!cov->items[i].assumption_side)
       key[i] = A;
   }

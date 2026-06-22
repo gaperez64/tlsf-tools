@@ -9,6 +9,9 @@ typedef enum {
   ROUTE_STRICT_SAFETY,
   ROUTE_WR_SAFETY,
   ROUTE_BOUNDED_EXPERIMENTAL,
+  ROUTE_RESPONSE_MONITOR_GR1,
+  ROUTE_EVENTUAL_MONITOR_GR1,
+  ROUTE_UNTIL_MONITOR_GR1,
   ROUTE_GR1,
   ROUTE_LTLSYNT,
 } ComposeRouteKind;
@@ -18,6 +21,7 @@ typedef struct {
   bool uses_oxidd;
   bool exact;
   const char *label;
+  const char *reason_override;
   ClusterShape shape;
   const Node *root;
   const Node *bounded_root;

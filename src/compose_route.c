@@ -57,6 +57,33 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
   }
 
   Gr1Parts gp = {0};
+  if (!finite && aig_response_monitor_parts(spec->arena, root, &gp)) {
+    out->kind = ROUTE_RESPONSE_MONITOR_GR1;
+    out->uses_oxidd = true;
+    out->label = "OxiDD (response monitor)";
+    out->gr1 = gp;
+    return true;
+  }
+
+  gp = (Gr1Parts){0};
+  if (!finite && aig_eventual_monitor_parts(spec, root, &gp)) {
+    out->kind = ROUTE_EVENTUAL_MONITOR_GR1;
+    out->uses_oxidd = true;
+    out->label = "OxiDD (eventual monitor)";
+    out->gr1 = gp;
+    return true;
+  }
+
+  gp = (Gr1Parts){0};
+  if (!finite && aig_until_monitor_parts(spec, root, &gp)) {
+    out->kind = ROUTE_UNTIL_MONITOR_GR1;
+    out->uses_oxidd = true;
+    out->label = "OxiDD (until monitor)";
+    out->gr1 = gp;
+    return true;
+  }
+
+  gp = (Gr1Parts){0};
   if (!finite && aig_gr1_parts(spec->arena, root, &gp)) {
     out->kind = ROUTE_GR1;
     out->uses_oxidd = true;
@@ -148,6 +175,26 @@ Aig *compose_route_solve(const ComposeRoute *route, const char *ltlsynt_prog,
       local_unreal = 0;
       use_oxidd = false;
       backend = "ltlsynt fallback (GR(1) miss)";
+      sub = run_ltlsynt_cluster(ltlsynt_prog, cov, seen, root, fmt, finite,
+                                &local_unreal);
+    }
+    break;
+
+  case ROUTE_RESPONSE_MONITOR_GR1:
+  case ROUTE_EVENTUAL_MONITOR_GR1:
+  case ROUTE_UNTIL_MONITOR_GR1:
+    sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &route->gr1),
+                         &local_unreal);
+    if (!sub) {
+      // These monitors are exact for recognized fragments, but still fall back
+      // on any solver/build miss until this path has broad coverage.
+      local_unreal = 0;
+      use_oxidd = false;
+      backend = route->kind == ROUTE_RESPONSE_MONITOR_GR1
+                    ? "ltlsynt fallback (response monitor miss)"
+                : route->kind == ROUTE_EVENTUAL_MONITOR_GR1
+                    ? "ltlsynt fallback (eventual monitor miss)"
+                    : "ltlsynt fallback (until monitor miss)";
       sub = run_ltlsynt_cluster(ltlsynt_prog, cov, seen, root, fmt, finite,
                                 &local_unreal);
     }

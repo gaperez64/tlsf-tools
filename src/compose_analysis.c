@@ -462,25 +462,209 @@ bool aig_strict_safety_parts(const Node *root, const Node **sys,
 
 // ---- GR(1): G F a fairness + recurrence/response justice decomposition ----
 
-// `G F x` with `x` AbsSynthe-Boolean -> x, else nullptr.
+// `G F x` with `x` current-state Boolean -> x, else nullptr.
 static const Node *match_gf(const Node *n) {
-  if (n->kind == NODE_G && n->arg->kind == NODE_F && aig_body_ok(n->arg->arg))
+  if (n->kind == NODE_G && n->arg->kind == NODE_F &&
+      aig_initial_ok(n->arg->arg))
     return n->arg->arg;
   return nullptr;
 }
 
-// `G(req -> F grant)` with req, grant AbsSynthe-Boolean.
+// `G(req -> F grant)` with current-state Boolean req/grant.
 static bool match_response(const Node *n, const Node **req,
                            const Node **grant) {
   if (n->kind != NODE_G || n->arg->kind != NODE_IMPL)
     return false;
   const Node *body = n->arg;
-  if (body->rhs->kind != NODE_F || !aig_body_ok(body->lhs) ||
-      !aig_body_ok(body->rhs->arg))
+  if (body->rhs->kind != NODE_F || !aig_initial_ok(body->lhs) ||
+      !aig_initial_ok(body->rhs->arg))
     return false;
   *req = body->lhs;
   *grant = body->rhs->arg;
   return true;
+}
+
+static bool spec_has_input(const TlsfSpec *spec, const char *name) {
+  for (uint32_t i = 0; i < spec->input_count; i++)
+    if (!strcmp(spec->inputs[i].name, name))
+      return true;
+  return false;
+}
+
+static bool mentions_env_input(const TlsfSpec *spec, const Node *n) {
+  switch (n->kind) {
+  case NODE_AP:
+    return spec_has_input(spec, n->name);
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_G:
+  case NODE_F:
+    return mentions_env_input(spec, n->arg);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_W:
+  case NODE_R:
+  case NODE_M:
+    return mentions_env_input(spec, n->lhs) || mentions_env_input(spec, n->rhs);
+  default:
+    return false;
+  }
+}
+
+// `F goal` with current-state Boolean goal controlled by outputs/constants.
+static const Node *match_eventual(const TlsfSpec *spec, const Node *n) {
+  return n->kind == NODE_F && aig_initial_ok(n->arg) &&
+                 !mentions_env_input(spec, n->arg)
+             ? n->arg
+             : nullptr;
+}
+
+static void gr1_parts_init(Arena *a, Gr1Parts *p) {
+  *p = (Gr1Parts){.nfairness = 0,
+                  .env_init = node_true(a),
+                  .sys_init = node_true(a),
+                  .safety_assume = node_true(a),
+                  .safety_gua = node_true(a),
+                  .njustice = 0,
+                  .nweak = 0};
+}
+
+static bool response_monitor_collect(Arena *a, const Node *n, Gr1Parts *p) {
+  if (n->kind == NODE_AND)
+    return response_monitor_collect(a, n->lhs, p) &&
+           response_monitor_collect(a, n->rhs, p);
+
+  if (aig_initial_ok(n)) {
+    p->sys_init = p->sys_init->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->sys_init, (Node *)n);
+    return true;
+  }
+
+  const Node *req = nullptr, *grant = nullptr;
+  if (match_response(n, &req, &grant)) {
+    if (p->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    p->justice[p->njustice++] =
+        (Gr1Justice){.req = req, .target = grant, .kind = GR1_JUSTICE_RESPONSE};
+    return true;
+  }
+
+  if (!global_ok(n))
+    return false;
+  p->safety_gua = p->safety_gua->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->safety_gua, (Node *)n);
+  return true;
+}
+
+// Recognize standalone exact response-monitor clusters:
+// `AND(G(req -> F grant), safety..., init...)`, with req/grant current-state
+// Boolean formulas.  This deliberately excludes unconditional `F`, `U`, and
+// nested/next-bearing liveness bodies; those need a different monitor contract.
+bool aig_response_monitor_parts(Arena *a, const Node *root, Gr1Parts *p) {
+  gr1_parts_init(a, p);
+  if (!response_monitor_collect(a, root, p))
+    return false;
+  return p->njustice > 0 && aig_global_x_depth(p->safety_gua) != UINT32_MAX;
+}
+
+static bool eventual_monitor_collect(TlsfSpec *spec, const Node *n,
+                                     Gr1Parts *p) {
+  Arena *a = spec->arena;
+  if (n->kind == NODE_AND)
+    return eventual_monitor_collect(spec, n->lhs, p) &&
+           eventual_monitor_collect(spec, n->rhs, p);
+
+  if (aig_initial_ok(n)) {
+    p->sys_init = p->sys_init->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->sys_init, (Node *)n);
+    return true;
+  }
+
+  const Node *target = match_eventual(spec, n);
+  if (target) {
+    if (p->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    p->justice[p->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = target, .kind = GR1_JUSTICE_EVENTUAL};
+    return true;
+  }
+
+  if (!global_ok(n))
+    return false;
+  p->safety_gua = p->safety_gua->kind == NODE_TRUE
+                      ? n
+                      : node_and(a, (Node *)p->safety_gua, (Node *)n);
+  return true;
+}
+
+// Recognize standalone exact one-shot eventuality clusters:
+// `AND(F(goal), safety..., init...)`, where goal is current-state Boolean and
+// does not mention environment inputs.  A pending monitor starts armed and
+// clears forever once goal holds.
+bool aig_eventual_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p) {
+  gr1_parts_init(spec->arena, p);
+  if (!eventual_monitor_collect(spec, root, p))
+    return false;
+  return p->njustice > 0 && aig_global_x_depth(p->safety_gua) != UINT32_MAX;
+}
+
+static bool match_until(const TlsfSpec *spec, const Node *n, const Node **p,
+                        const Node **q) {
+  if (n->kind != NODE_U || !aig_initial_ok(n->lhs) || !aig_initial_ok(n->rhs) ||
+      mentions_env_input(spec, n->rhs))
+    return false;
+  *p = n->lhs;
+  *q = n->rhs;
+  return true;
+}
+
+static bool until_monitor_collect(TlsfSpec *spec, const Node *n,
+                                  Gr1Parts *parts) {
+  Arena *a = spec->arena;
+  if (n->kind == NODE_AND)
+    return until_monitor_collect(spec, n->lhs, parts) &&
+           until_monitor_collect(spec, n->rhs, parts);
+
+  if (aig_initial_ok(n)) {
+    parts->sys_init = parts->sys_init->kind == NODE_TRUE
+                          ? n
+                          : node_and(a, (Node *)parts->sys_init, (Node *)n);
+    return true;
+  }
+
+  const Node *p = nullptr, *q = nullptr;
+  if (match_until(spec, n, &p, &q)) {
+    if (parts->nweak >= GR1_MAX_WEAK || parts->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    parts->weak[parts->nweak++] = (Gr1WeakUntil){p, q};
+    parts->justice[parts->njustice++] =
+        (Gr1Justice){.req = nullptr, .target = q, .kind = GR1_JUSTICE_EVENTUAL};
+    return true;
+  }
+
+  if (!global_ok(n))
+    return false;
+  parts->safety_gua = parts->safety_gua->kind == NODE_TRUE
+                          ? n
+                          : node_and(a, (Node *)parts->safety_gua, (Node *)n);
+  return true;
+}
+
+// Recognize positive guarantee-side until clusters.  `p U q` is compiled as
+// the safety obligation `p W q` plus the one-shot eventuality `F q`; q must not
+// mention environment inputs because the system must be able to force progress.
+bool aig_until_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p) {
+  gr1_parts_init(spec->arena, p);
+  if (!until_monitor_collect(spec, root, p))
+    return false;
+  return p->njustice > 0 && aig_global_x_depth(p->safety_gua) != UINT32_MAX;
 }
 
 // Classify each top-level conjunct of an assume/guarantee side into the
@@ -509,14 +693,16 @@ static bool gr1_collect(Arena *a, const Node *n, bool assume, Gr1Parts *p) {
   } else if (gf) {
     if (p->njustice >= GR1_MAX_JUSTICE)
       return false;
-    p->justice[p->njustice++] = (Gr1Justice){nullptr, gf};
+    p->justice[p->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = gf, .kind = GR1_JUSTICE_RECURRENCE};
     return true;
   } else {
     const Node *req = nullptr, *grant = nullptr;
     if (match_response(n, &req, &grant)) {
       if (p->njustice >= GR1_MAX_JUSTICE)
         return false;
-      p->justice[p->njustice++] = (Gr1Justice){req, grant};
+      p->justice[p->njustice++] = (Gr1Justice){
+          .req = req, .target = grant, .kind = GR1_JUSTICE_RESPONSE};
       return true;
     }
     // A weak-until `a W b` (Boolean a, b) is a pure-safety guarantee: a holds
@@ -590,7 +776,8 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
     if (*found_impl || p->njustice >= GR1_MAX_JUSTICE)
       return false; // don't mix unconditional justice with env fairness
     *found_bare_justice = true;
-    p->justice[p->njustice++] = (Gr1Justice){nullptr, gf};
+    p->justice[p->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = gf, .kind = GR1_JUSTICE_RECURRENCE};
     return true;
   }
   if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
@@ -618,12 +805,7 @@ static bool gr1_collect_consequent(Arena *a, const Node *n, Gr1Parts *p,
 // as a nested `EnvInit -> (SysInit & (assume -> guarantee))`, so peel the
 // initial Boolean antecedents/conjuncts first.
 bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
-  *p = (Gr1Parts){.nfairness = 0,
-                  .env_init = node_true(a),
-                  .sys_init = node_true(a),
-                  .safety_assume = node_true(a),
-                  .safety_gua = node_true(a),
-                  .njustice = 0};
+  gr1_parts_init(a, p);
   // Peel env-init: `EnvInit -> rest` where the antecedent is purely initial
   // (a `G`/`G F` antecedent is the real assume side, so it is not peeled).
   while (root->kind == NODE_IMPL && aig_initial_ok(root->lhs)) {

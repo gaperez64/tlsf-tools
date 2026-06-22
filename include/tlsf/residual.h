@@ -44,11 +44,13 @@ bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag);
                                            uint32_t kk, bool all, bool prune,
                                            uint32_t n, bool *seen);
 
-/// Cluster `rf[0..n)` by shared output (union-find).  Fills `key[i]` (caller
-/// array, length `n`): the output-component root, `cov->aps.count` for an
-/// input-only system obligation, or UINT32_MAX for global environment /
-/// skipped. Returns the distinct non-global keys in `*keys_out` (malloc'd;
-/// caller frees) and their count.
+/// Cluster `rf[0..n)` by shared output (union-find).  Assumptions are global;
+/// when any assumption mentions an output, every residual guarantee is kept in
+/// one conservative cluster because independent clusters would no longer have a
+/// local environment.  Fills `key[i]` (caller array, length `n`): the
+/// output-component root, `cov->aps.count` for an input-only system obligation,
+/// or UINT32_MAX for global environment / skipped. Returns the distinct
+/// non-global keys in `*keys_out` (malloc'd; caller frees) and their count.
 [[nodiscard]] uint32_t residual_cluster_keys(ConstraintCover *cov,
                                              const Node **rf, uint32_t n,
                                              uint32_t *key,

@@ -1,0 +1,19 @@
+INFO {
+  TITLE: "policy_profitable_skip"
+  DESCRIPTION: "tiny safety cluster plus larger unsupported liveness fallback for policy tests"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r1; r2; r3; r4; r5; r6; }
+  OUTPUTS { g; h; }
+  GUARANTEE {
+    G (h <-> X r1);
+    F (r1 && g);
+    F (r2 && g);
+    F (r3 && g);
+    F (r4 && g);
+    F (r5 && g);
+    F (r6 && g);
+  }
+}

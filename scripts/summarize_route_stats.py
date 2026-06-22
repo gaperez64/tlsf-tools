@@ -14,10 +14,19 @@ def to_int(row, key, default=0):
 
 
 def is_fallback(row):
-    return row.get("route") == "ltlsynt"
+    uses_oxidd = row.get("uses_oxidd")
+    if uses_oxidd in ("0", "1"):
+        return uses_oxidd == "0"
+    if row.get("route") in {"ltlsynt", "output-free"}:
+        return True
+    backend = row.get("backend", "")
+    return bool(backend) and not backend.startswith("OxiDD")
 
 
 def is_exact_oxidd(row):
+    uses_oxidd = row.get("uses_oxidd")
+    if uses_oxidd in ("0", "1"):
+        return row.get("exact") == "1" and uses_oxidd == "1"
     return row.get("exact") == "1" and row.get("backend", "").startswith("OxiDD")
 
 
@@ -36,14 +45,22 @@ def main(argv):
         return 2
 
     rows = read_rows(argv[0])
-    specs = len({row.get("file", "") for row in rows if row.get("file", "")})
+    specs = len({
+        row.get("spec") or row.get("file", "")
+        for row in rows
+        if row.get("spec") or row.get("file", "")
+    })
     if not specs and rows:
         specs = 1
 
     routes = Counter(row.get("route", "") or "-" for row in rows)
     fallback = [row for row in rows if is_fallback(row)]
-    fallback_outs = [to_int(row, "n_outs") for row in fallback]
-    fallback_nodes = sum(to_int(row, "nodes") for row in fallback)
+    fallback_outs = [
+        to_int(row, "n_outputs", to_int(row, "n_outs")) for row in fallback
+    ]
+    fallback_nodes = sum(
+        to_int(row, "formula_nodes", to_int(row, "nodes")) for row in fallback
+    )
     fallback_burden = sum(2 ** min(out, 20) for out in fallback_outs)
     fallback_mean = (
         sum(fallback_outs) / len(fallback_outs) if fallback_outs else 0.0
