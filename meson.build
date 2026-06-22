@@ -455,6 +455,7 @@ test('ltl_enum', check,
          tlsf2ltl_exe, files('test/cases/enum_demo.tlsf')])
 
 check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
+check_contains = files('test/check_contains.sh')  # asserts output matches a regex
 
 test('tlsf_enum_basic', check,
   args: [files('test/cases/enum_demo.basic.tlsf'),
@@ -778,6 +779,14 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
+  # norm_sweep (PR11): match-safe:1 is soundness-eligible and lifts a block to
+  # solved on the crafted pattern spec.
+  test('norm_sweep_match_safe', check_contains,
+    args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+1',
+           python3, files('scripts/norm_sweep.py'),
+           '--tlsfbenchgraph', tlsfbenchgraph_exe,
+           files('test/cases/normalization_patterns.tlsf'),
+           '--schedules', 'off', 'match-safe:1'])
 endif
 endif
 if python3.found()
@@ -910,6 +919,7 @@ test('norm_sickert3', check,
 # Soundness gate (Spot-verified; auto-skips when ltlfilt is absent, e.g. in CI):
 # each schedule must preserve the spec's LTL meaning.
 check_norm_equiv = files('scripts/check_norm_equiv.sh')
+# (check_contains is defined near the top of the test section)
 foreach case : [
     ['match-safe:1', 'normalization_patterns.tlsf'],
     ['route-safe:1', 'normalization_route.tlsf'],
@@ -929,7 +939,6 @@ test('norm_finite_rejects_sickert', xfail,
 # Pre-expansion passes (PR5).  The expanded output is unchanged (expand() also
 # performs these simplifications); the value is the recorded pre-pass firing,
 # so these assert the stats line rather than a byte-identical re-emission.
-check_contains = files('test/check_contains.sh')
 test('norm_pre_indexed_x', check_contains,
   args: ['pre-xn-flatten: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
          'pre-indexed-x', '--norm-stats',

@@ -109,6 +109,25 @@ node), `w_under_gf` (`W` inside a `GF`), and `u_under_fg` (`U` inside an `FG`).
 These quantify the obstacle tail that the bounded Sickert passes target; a corpus
 with near-zero counts will not benefit from those passes.
 
+## Effect of exact recognition normalization
+
+`scripts/norm_sweep.py` runs the structural/certification pipeline once per
+normalization schedule (via `tlsfbenchgraph --pre-normalize` /
+`--match-normalize`) and reports, per schedule, the deltas vs the `off`
+baseline: extra template candidates, certified/solved blocks, eliminated
+constraints, and owned outputs, plus formula growth and a soundness-eligibility
+flag (a schedule is **not** eligible if it introduces any new parse failure vs
+`off` — e.g. an infinite-word-only pass on a `Finite` spec). Only eligible rows
+should be ranked; prefer the smallest eligible schedule on the Pareto frontier
+(e.g. `match-safe:1` over `match-safe:2` when the second iteration adds nothing).
+
+```sh
+scripts/norm_sweep.py --corpus benchmarks/tlsf \
+    --tlsfbenchgraph build-research/tlsfbenchgraph \
+    --schedules off match-safe:1 match-safe:2 pre-safe:1+match-safe:1 \
+    --out docs/benchgraph/norm_sweep.tsv --markdown docs/benchgraph/norm_sweep.md
+```
+
 ## Normalisation (formula size under `--strong-simplify`)
 
 ![Formula size under strong-simplify](docs/benchgraph/reduction.png)
