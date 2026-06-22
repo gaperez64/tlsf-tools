@@ -295,20 +295,36 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Pre-expansion passes operate on the high-level section formulas.  The
-  // pre-pass rewrites land in PR5; the plumbing/guard is active now.
+  // Pre-expansion passes operate on the high-level section formulas (before
+  // expand(), while X[n]/&&[..]/buses/params are still present).
   if (pre.count) {
     FormulaList *plists[] = {&spec->initially, &spec->require,
                              &spec->assume,    &spec->preset,
                              &spec->assert_,   &spec->guarantee};
     for (uint32_t pi = 0; pi < pre.count; pi++) {
       TlsfNormPassSpec one = pre.items[pi];
-      TlsfNormOptions o = pre_opts;
-      o.schedule = (TlsfNormSchedule){.items = &one, .count = 1};
-      for (int s = 0; s < 6; s++)
+      for (int s = 0; s < 6; s++) {
+        if (one.pass == TLSF_NORM_PASS_PRE_SPINE_SPLIT) {
+          FormulaList nl = {0};
+          for (uint32_t k = 0; k < plists[s]->count; k++) {
+            Node **parts;
+            uint32_t np = tlsf_prenorm_spine_split(
+                spec->arena, plists[s]->formulas[k], &parts);
+            pre_stats.rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].attempts++;
+            if (np > 1)
+              pre_stats.rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].fired += np - 1;
+            for (uint32_t p = 0; p < np; p++)
+              (void)formula_list_push(spec, &nl, parts[p]);
+          }
+          *plists[s] = nl;
+          continue;
+        }
+        TlsfNormOptions o = pre_opts;
+        o.schedule = (TlsfNormSchedule){.items = &one, .count = 1};
         for (uint32_t k = 0; k < plists[s]->count; k++)
           plists[s]->formulas[k] = tlsf_normalize_formula(
               spec->arena, plists[s]->formulas[k], &o, &pre_stats);
+      }
     }
   }
 

@@ -1,0 +1,7 @@
+INFO{TITLE:"bb" DESCRIPTION:"bounded bool" SEMANTICS:Mealy TARGET:Mealy}
+GLOBAL{ PARAMETERS{ n = 3; } }
+MAIN{INPUTS{r[0..n-1];} OUTPUTS{g[0..n-1];}
+GUARANTEE{
+  G (r[0] -> ( &&[2 <= i < 1] g[i] ));
+  G (r[0] -> ( ||[5 <= i < 2] g[i] ));
+}}

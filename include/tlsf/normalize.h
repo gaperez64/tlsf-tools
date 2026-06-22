@@ -234,4 +234,9 @@ bool tlsf_norm_schedule_check(const TlsfNormSchedule *sch,
                                            const TlsfNormOptions *opts,
                                            TlsfNormStats *stats);
 
+/// Pre-expansion spine split (high-level analog of rewrite_decompose): splits
+/// top-level &&, distributing G / X / X[k] over && along the spine only. Writes
+/// an arena array of conjuncts to `*out` and returns the count (>= 1).
+[[nodiscard]] uint32_t tlsf_prenorm_spine_split(Arena *a, Node *f, Node ***out);
+
 #endif // TLSF_NORMALIZE_H

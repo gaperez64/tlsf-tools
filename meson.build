@@ -883,6 +883,28 @@ test('norm_match_safe', check,
 test('norm_finite_rejects_sickert', xfail,
   args: [tlsfnorm_exe, '--passes', 'sickert-stage2:1',
          files('test/cases/Patterns_Uright_uright06.tlsf')])
+# Pre-expansion passes (PR5).  The expanded output is unchanged (expand() also
+# performs these simplifications); the value is the recorded pre-pass firing,
+# so these assert the stats line rather than a byte-identical re-emission.
+check_contains = files('test/check_contains.sh')
+test('norm_pre_indexed_x', check_contains,
+  args: ['pre-xn-flatten: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
+         'pre-indexed-x', '--norm-stats',
+         files('test/cases/normalization_xn.tlsf')])
+test('norm_pre_bounded_bool', check_contains,
+  args: ['pre-bounded-empty: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
+         'pre-bounded-bool', '--norm-stats',
+         files('test/cases/normalization_bounded_bool.tlsf')])
+test('norm_pre_spine_split', check_contains,
+  args: ['pre-spine-split: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
+         'pre-spine-split', '--norm-stats',
+         files('test/cases/normalization_pre_split.tlsf')])
+# Cross-check: a pre-normalized spec expands to the same TLSF as the original
+# (expand(original) == expand(pre_normalize(original))).
+test('norm_pre_indexed_x_equiv', check,
+  args: [files('test/cases/normalization_xn.split.tlsf'), tlsfnorm_exe,
+         '--pre-passes', 'pre-indexed-x', '--passes', 'split',
+         files('test/cases/normalization_xn.tlsf')])
 
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.

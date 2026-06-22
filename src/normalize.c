@@ -187,12 +187,13 @@ static uint32_t pass_rules(TlsfNormPass p, TlsfNormRule out[4]) {
     out[1] = TLSF_NORM_RULE_SICKERT_FG_U;
     return 2;
   case TLSF_NORM_PASS_PRE_INDEXED_X:
-    out[0] = TLSF_NORM_RULE_PRE_X0;
-    out[1] = TLSF_NORM_RULE_PRE_XN_FLATTEN;
+    // out[0] is the stats-representative rule for the pass.
+    out[0] = TLSF_NORM_RULE_PRE_XN_FLATTEN;
+    out[1] = TLSF_NORM_RULE_PRE_X0;
     return 2;
   case TLSF_NORM_PASS_PRE_BOUNDED_BOOL:
-    out[0] = TLSF_NORM_RULE_PRE_BOUNDED_SINGLETON;
-    out[1] = TLSF_NORM_RULE_PRE_BOUNDED_EMPTY;
+    out[0] = TLSF_NORM_RULE_PRE_BOUNDED_EMPTY;
+    out[1] = TLSF_NORM_RULE_PRE_BOUNDED_SINGLETON;
     out[2] = TLSF_NORM_RULE_PRE_BOUNDED_CONST_FOLD;
     return 3;
   case TLSF_NORM_PASS_PRE_SPINE_SPLIT:
@@ -562,6 +563,263 @@ static Node *bool_canon(Arena *a, Node *n) {
 // report attempts so observability is available before the rewrite lands.
 // ---------------------------------------------------------------------------
 
+static bool node_eq(const Node *x, const Node *y);
+
+static bool is_int_lit(const Node *n, int64_t *v) {
+  if (n->kind == NODE_INT) {
+    *v = n->ival;
+    return true;
+  }
+  return false;
+}
+
+// pre-indexed-x: collapse indexed/unary next chains (concrete counts only).
+//   X[0] p = p ; X[m](X[n] p)=X[m+n] p ; X[m](X p)=X[m+1] p ; X(X[n] p)=X[n+1]
+//   p
+// Recursion simplifies the body first, so a chain collapses in one traversal.
+// Finite-word-safe: counts are merged, never folded over true/false.
+static Node *pre_indexed_x(Arena *a, Node *n) {
+  switch (n->kind) {
+  case NODE_NEXT_N: {
+    Node *body = pre_indexed_x(a, n->rhs);
+    int64_t c;
+    if (is_int_lit(n->lhs, &c)) {
+      if (c == 0)
+        return body; // X[0] p = p
+      if (body->kind == NODE_X)
+        return node_next_n(a, node_int(a, c + 1), body->arg);
+      int64_t d;
+      if (body->kind == NODE_NEXT_N && is_int_lit(body->lhs, &d))
+        return node_next_n(a, node_int(a, c + d), body->rhs);
+    }
+    return body == n->rhs ? n : node_next_n(a, n->lhs, body);
+  }
+  case NODE_X: {
+    Node *arg = pre_indexed_x(a, n->arg);
+    int64_t d;
+    if (arg->kind == NODE_NEXT_N && is_int_lit(arg->lhs, &d))
+      return node_next_n(a, node_int(a, d + 1), arg->rhs);
+    return arg == n->arg ? n : node_x(a, arg);
+  }
+  case NODE_X_STRONG: {
+    Node *arg = pre_indexed_x(a, n->arg);
+    return arg == n->arg ? n : node_x_strong(a, arg);
+  }
+  case NODE_NOT: {
+    Node *x = pre_indexed_x(a, n->arg);
+    return x == n->arg ? n : node_not(a, x);
+  }
+  case NODE_G: {
+    Node *x = pre_indexed_x(a, n->arg);
+    return x == n->arg ? n : node_g(a, x);
+  }
+  case NODE_F: {
+    Node *x = pre_indexed_x(a, n->arg);
+    return x == n->arg ? n : node_f(a, x);
+  }
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV: {
+    Node *l = pre_indexed_x(a, n->lhs), *r = pre_indexed_x(a, n->rhs);
+    if (l == n->lhs && r == n->rhs)
+      return n;
+    return n->kind == NODE_AND    ? node_and(a, l, r)
+           : n->kind == NODE_OR   ? node_or(a, l, r)
+           : n->kind == NODE_IMPL ? node_impl(a, l, r)
+                                  : node_equiv(a, l, r);
+  }
+  default:
+    return n; // leave U/R/W/M and other high-level nodes intact
+  }
+}
+
+// pre-bounded-bool: collapse bounded &&[..]/||[..] (NODE_FORALL/EXISTS) when
+// the body or range makes them constant.  Finite-word-safe.
+static Node *pre_bounded_bool(Arena *a, Node *n) {
+  switch (n->kind) {
+  case NODE_FORALL:
+  case NODE_EXISTS: {
+    bool all = n->kind == NODE_FORALL;
+    if (all && n->qbody->kind == NODE_TRUE)
+      return node_true(a); // &&[..] true = true
+    if (!all && n->qbody->kind == NODE_FALSE)
+      return node_false(a); // ||[..] false = false
+    int64_t lo, hi;
+    if (is_int_lit(n->qlo, &lo) && is_int_lit(n->qhi, &hi)) {
+      int64_t l = lo + (n->qlo_strict ? 1 : 0);
+      int64_t h = hi - (n->qhi_strict ? 1 : 0);
+      if (l > h)
+        return all ? node_true(a) : node_false(a); // empty range
+    }
+    return n; // no public FORALL/EXISTS constructor: leave body intact
+  }
+  case NODE_NOT: {
+    Node *x = pre_bounded_bool(a, n->arg);
+    return x == n->arg ? n : node_not(a, x);
+  }
+  case NODE_G: {
+    Node *x = pre_bounded_bool(a, n->arg);
+    return x == n->arg ? n : node_g(a, x);
+  }
+  case NODE_F: {
+    Node *x = pre_bounded_bool(a, n->arg);
+    return x == n->arg ? n : node_f(a, x);
+  }
+  case NODE_X: {
+    Node *x = pre_bounded_bool(a, n->arg);
+    return x == n->arg ? n : node_x(a, x);
+  }
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV: {
+    Node *l = pre_bounded_bool(a, n->lhs), *r = pre_bounded_bool(a, n->rhs);
+    if (l == n->lhs && r == n->rhs)
+      return n;
+    return n->kind == NODE_AND    ? node_and(a, l, r)
+           : n->kind == NODE_OR   ? node_or(a, l, r)
+           : n->kind == NODE_IMPL ? node_impl(a, l, r)
+                                  : node_equiv(a, l, r);
+  }
+  default:
+    return n;
+  }
+}
+
+// pre-weak: high-level weak simplifier (boolean + G/F/X constant folding).
+// Finite-word-safe: never folds (weak/strong) next over true.
+static Node *pre_weak(Arena *a, Node *n) {
+  switch (n->kind) {
+  case NODE_NOT: {
+    Node *x = pre_weak(a, n->arg);
+    if (x->kind == NODE_TRUE)
+      return node_false(a);
+    if (x->kind == NODE_FALSE)
+      return node_true(a);
+    if (x->kind == NODE_NOT)
+      return x->arg;
+    return x == n->arg ? n : node_not(a, x);
+  }
+  case NODE_AND: {
+    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    if (l->kind == NODE_FALSE || r->kind == NODE_FALSE)
+      return node_false(a);
+    if (l->kind == NODE_TRUE)
+      return r;
+    if (r->kind == NODE_TRUE)
+      return l;
+    if (node_eq(l, r))
+      return l;
+    return (l == n->lhs && r == n->rhs) ? n : node_and(a, l, r);
+  }
+  case NODE_OR: {
+    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    if (l->kind == NODE_TRUE || r->kind == NODE_TRUE)
+      return node_true(a);
+    if (l->kind == NODE_FALSE)
+      return r;
+    if (r->kind == NODE_FALSE)
+      return l;
+    if (node_eq(l, r))
+      return l;
+    return (l == n->lhs && r == n->rhs) ? n : node_or(a, l, r);
+  }
+  case NODE_IMPL: {
+    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    if (l->kind == NODE_FALSE || r->kind == NODE_TRUE)
+      return node_true(a);
+    if (l->kind == NODE_TRUE)
+      return r;
+    return (l == n->lhs && r == n->rhs) ? n : node_impl(a, l, r);
+  }
+  case NODE_EQUIV: {
+    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    return (l == n->lhs && r == n->rhs) ? n : node_equiv(a, l, r);
+  }
+  case NODE_G: {
+    Node *x = pre_weak(a, n->arg);
+    if (x->kind == NODE_TRUE)
+      return node_true(a);
+    if (x->kind == NODE_FALSE)
+      return node_false(a);
+    return x == n->arg ? n : node_g(a, x);
+  }
+  case NODE_F: {
+    Node *x = pre_weak(a, n->arg);
+    if (x->kind == NODE_TRUE)
+      return node_true(a);
+    if (x->kind == NODE_FALSE)
+      return node_false(a);
+    return x == n->arg ? n : node_f(a, x);
+  }
+  case NODE_X: {
+    Node *x = pre_weak(a, n->arg);
+    if (x->kind == NODE_FALSE)
+      return node_false(a); // X false = false (also on finite words)
+    return x == n->arg ? n : node_x(a, x);
+  }
+  case NODE_NEXT_N: {
+    Node *b = pre_weak(a, n->rhs);
+    return b == n->rhs ? n : node_next_n(a, n->lhs, b);
+  }
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M: {
+    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    if (l == n->lhs && r == n->rhs)
+      return n;
+    return n->kind == NODE_U   ? node_u(a, l, r)
+           : n->kind == NODE_R ? node_r(a, l, r)
+           : n->kind == NODE_W ? node_w(a, l, r)
+                               : node_m(a, l, r);
+  }
+  default:
+    return n;
+  }
+}
+
+// pre-spine-split (list-level): high-level analog of rewrite_decompose.  Splits
+// top-level &&, distributes G / X / X[k] over && along the spine only (never
+// descending through F/U/R/W/M).  Finite-word-safe.
+static void prenorm_spine(Arena *a, Node *f, NodeVec *out) {
+  switch (f->kind) {
+  case NODE_AND:
+    prenorm_spine(a, f->lhs, out);
+    prenorm_spine(a, f->rhs, out);
+    return;
+  case NODE_G:
+  case NODE_X:
+  case NODE_X_STRONG: {
+    NodeVec sub = {0};
+    prenorm_spine(a, f->arg, &sub);
+    for (uint32_t i = 0; i < sub.n; i++)
+      nv_push(a, out,
+              f->kind == NODE_G   ? node_g(a, sub.v[i])
+              : f->kind == NODE_X ? node_x(a, sub.v[i])
+                                  : node_x_strong(a, sub.v[i]));
+    return;
+  }
+  case NODE_NEXT_N: {
+    NodeVec sub = {0};
+    prenorm_spine(a, f->rhs, &sub);
+    for (uint32_t i = 0; i < sub.n; i++)
+      nv_push(a, out, node_next_n(a, f->lhs, sub.v[i]));
+    return;
+  }
+  default:
+    nv_push(a, out, f);
+  }
+}
+
+uint32_t tlsf_prenorm_spine_split(Arena *a, Node *f, Node ***out) {
+  NodeVec v = {0};
+  prenorm_spine(a, f, &v);
+  *out = v.v;
+  return v.n;
+}
+
 static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
   switch (p) {
   case TLSF_NORM_PASS_NNF:
@@ -570,8 +828,15 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
     return apply_rewrites(a, n, RW_SIMPLIFY_WEAK);
   case TLSF_NORM_PASS_BOOL_CANON:
     return bool_canon(a, n);
+  case TLSF_NORM_PASS_PRE_INDEXED_X:
+    return pre_indexed_x(a, n);
+  case TLSF_NORM_PASS_PRE_BOUNDED_BOOL:
+    return pre_bounded_bool(a, n);
+  case TLSF_NORM_PASS_PRE_WEAK:
+    return pre_weak(a, n);
   default:
-    return n; // split + pre-* handled by callers; others land in later PRs
+    return n; // split + pre-spine-split are list-level; pattern/route/sickert
+              // land in later PRs
   }
 }
 
@@ -655,8 +920,8 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
 
   for (uint32_t i = 0; i < opts->schedule.count; i++) {
     TlsfNormPass pass = opts->schedule.items[i].pass;
-    if (pass == TLSF_NORM_PASS_SPLIT || pass_is_pre(pass))
-      continue; // list-level / pre-expansion: handled by the caller
+    if (pass == TLSF_NORM_PASS_SPLIT || pass == TLSF_NORM_PASS_PRE_SPINE_SPLIT)
+      continue; // list-level: handled by the caller
 
     uint32_t iters = opts->schedule.items[i].max_iter;
     if (iters == 0)
