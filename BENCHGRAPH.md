@@ -128,6 +128,18 @@ scripts/norm_sweep.py --corpus benchmarks/tlsf \
     --out docs/benchgraph/norm_sweep.tsv --markdown docs/benchgraph/norm_sweep.md
 ```
 
+Snapshot over `benchmarks/tlsf` (2545 specs, see
+[`docs/benchgraph/norm_sweep.md`](docs/benchgraph/norm_sweep.md)):
+`match-safe:1` exposes **+23 candidates / +18 certified** but shows **−57
+solved / −57 eliminated**. The solved regression is *not* a real loss of
+synthesis power: it is dominated by `weak`-simplify dropping vacuous `G(true)`
+invariants (e.g. `G mutual_exclusion(WL)` over an empty index range) that the
+baseline was over-counting as solved blocks. `match-safe:2` adds nothing over
+`:1`; `route-safe` on the match axis regresses (it is a *routing* pass — wrong
+axis). The sweep is structural only, so it flags such rows `review (verify with
+solver)`; the decision to default a schedule must come from a `tlsfcompose`
+solver run, not these structural counts. Defaults remain `off`.
+
 ## Normalisation (formula size under `--strong-simplify`)
 
 ![Formula size under strong-simplify](docs/benchgraph/reduction.png)

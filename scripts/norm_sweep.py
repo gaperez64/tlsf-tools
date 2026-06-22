@@ -160,6 +160,11 @@ def main(argv=None):
             rec = "baseline"
         elif not eligible:
             rec = "revert (new soundness failures)"
+        elif solvd < 0 or elimd < 0:
+            # Fewer solved/eliminated blocks: needs a solver-level check before
+            # trusting (it may be benign — e.g. weak-simplify dropping vacuous
+            # G(true) invariants — or a real recognizer regression).
+            rec = "review (solved/elim regressed; verify with solver)"
         elif solvd > 0 or certd > 0 or elimd > 0:
             rec = "keep (more certified/solved)" if growth < 25 else \
                 "opt-in (helps but grows)"
