@@ -1,6 +1,0 @@
-p wlcompare 2 cosine
-m ref resp1.tlsf
-m file 0 arbiter2.tlsf
-x 0 0.6405
-m file 1 resp1.tlsf
-x 1 1.0000

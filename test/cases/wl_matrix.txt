@@ -1,4 +1,0 @@
-p wlmatrix 2 cosine
-m file 0 arbiter2.tlsf
-m file 1 resp1.tlsf
-x 0 1 0.6405

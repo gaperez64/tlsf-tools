@@ -18,7 +18,6 @@ fs = import('fs')
 # ---------------------------------------------------------------------------
 
 cc = meson.get_compiler('c')
-m_dep = cc.find_library('m', required: false)  # WL kernels (sqrt)
 research_tools = get_option('research_tools')
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
@@ -254,13 +253,6 @@ lib_sources = [
                   # (which #includes it) is compiled only after it exists.
 ]
 
-if research_tools
-  lib_sources += [
-    'src/graph.c',
-    'src/wl.c',
-  ]
-endif
-
 if have_oxidd
   lib_sources += ['src/residual_plan.c']
 endif
@@ -269,7 +261,6 @@ tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: inc,
-  dependencies: m_dep,
   pic: false,
 )
 
@@ -310,22 +301,6 @@ tlsfnorm_exe = executable(
 )
 
 if research_tools
-  tlsfgraph_exe = executable(
-    'tlsfgraph',
-    sources: ['src/main_tlsfgraph.c', bison_out[1]],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
-
-  tlsfwl_exe = executable(
-    'tlsfwl',
-    sources: ['src/main_tlsfwl.c', bison_out[1]],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
-
   tlsftemplates_exe = executable(
     'tlsftemplates',
     sources: ['src/main_tlsftemplates.c', bison_out[1]],
@@ -485,66 +460,6 @@ test('tlsf_enum_basic', check,
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
 
 if research_tools
-# tlsfgraph: GSNF text/gsnf/dot/tsv + template candidates (arbiter pattern).
-test('graph_text', check,
-  args: [files('test/cases/arbiter2.graph.txt'),
-         tlsfgraph_exe, '--templates', files('test/cases/arbiter2.tlsf')])
-test('graph_gsnf', check,
-  args: [files('test/cases/arbiter2.graph.gsnf'),
-         tlsfgraph_exe, '--format', 'gsnf', '--templates',
-         files('test/cases/arbiter2.tlsf')])
-test('graph_tsv', check,
-  args: [files('test/cases/arbiter2.graph.tsv'),
-         tlsfgraph_exe, '--format', 'tsv', '--templates',
-         files('test/cases/arbiter2.tlsf')])
-test('graph_dot', check,
-  args: [files('test/cases/arbiter2.graph.dot'),
-         tlsfgraph_exe, '--format', 'dot', files('test/cases/arbiter2.tlsf')])
-test('graph_filter', check,
-  args: [files('test/cases/arbiter2.graph.live.tsv'),
-         tlsfgraph_exe, '--format', 'tsv', '--guarantees', '--liveness',
-         files('test/cases/arbiter2.tlsf')])
-test('graph_constraint_kind', check,
-  args: [files('test/cases/arbiter2.graph.cons.gsnf'),
-         tlsfgraph_exe, '--format', 'gsnf', '--graph', 'constraint',
-         files('test/cases/arbiter2.tlsf')])
-
-# WL features (M4): tlsfgraph --wl and the tlsfwl comparison tool.
-test('graph_wl', check_wl,
-  args: [files('test/cases/arbiter2.graph.wl'),
-         tlsfgraph_exe, '--wl', '2', files('test/cases/arbiter2.tlsf')])
-test('wl_matrix', check_wl,
-  args: [files('test/cases/wl_matrix.txt'),
-         tlsfwl_exe, '--matrix', files('test/cases/arbiter2.tlsf'),
-         files('test/cases/resp1.tlsf')])
-test('wl_compare', check_wl,
-  args: [files('test/cases/wl_compare.txt'),
-         tlsfwl_exe, '--compare', files('test/cases/resp1.tlsf'),
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
-test('wl_nearest', check,   # output is index-only, no paths to normalize
-  args: [files('test/cases/wl_nearest.txt'),
-         tlsfwl_exe, '--nearest', '1', '--kernel', 'jaccard',
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf'),
-         files('test/cases/arbiter2.tlsf')])
-test('wl_version', check,
-  args: [files('test/cases/wl_version.txt'), tlsfwl_exe, '--version'])
-test('wl_labels_basic', check_wl,
-  args: [files('test/cases/wl_labels_basic.txt'), tlsfwl_exe,
-         '--labels', 'basic', '--matrix',
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
-test('wl_kernel_dot', check_wl,
-  args: [files('test/cases/wl_kernel_dot.txt'), tlsfwl_exe,
-         '--kernel', 'dot', '--compare', files('test/cases/resp1.tlsf'),
-         files('test/cases/arbiter2.tlsf')])
-test('wl_split', check_wl,
-  args: [files('test/cases/wl_split_matrix.txt'), tlsfwl_exe,
-         '--split', '--matrix',
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
-test('graph_wl_template', check_wl,
-  args: [files('test/cases/arbiter2.graph.wltmpl'),
-         tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
-         'template', files('test/cases/arbiter2.tlsf')])
-
 # tlsftemplates (M5): certify CSNF for template blocks + soundness declines.
 test('tmpl_definition', check_wl,
   args: [files('test/cases/def_demo.csnf'), tlsftemplates_exe,
@@ -842,7 +757,7 @@ if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
 # golden is path-independent).
 test('benchgraph_tsv', check,
-  args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe, '--wl', '4',
+  args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe,
          '--summary', files('test/cases/arbiter1formula.tlsf'),
          files('test/cases/arbiter2.tlsf'),
          files('test/cases/cluster_split.tlsf'),
@@ -852,7 +767,7 @@ if python3.found()
   test('bounded_corpus_harness', check,
     args: [files('test/cases/bounded_corpus.tsv'),
            files('scripts/bounded_corpus.py'), '--benchgraph', tlsfbenchgraph_exe,
-           '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
+           '--mem-mb', '512', '--timeout', '5', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
 endif
@@ -938,44 +853,6 @@ if python3.found() and spot_python_found
     test('tlsfsolve_unreal', xfail,
       args: [tlsfsolve_exe, files('test/cases/solve_unreal.aag')])
   endif
-endif
-
-if research_tools
-# Constraint decomposition: cover --split exposes shapes inside a single
-# conjunctive formula for graph/template inspection.
-test('graph_split_off', check,
-  args: [files('test/cases/arbiter1formula.graph.txt'),
-         tlsfgraph_exe, '--templates', files('test/cases/arbiter1formula.tlsf')])
-test('graph_split_on', check,
-  args: [files('test/cases/arbiter1formula.split.txt'),
-         tlsfgraph_exe, '--split', '--templates',
-         files('test/cases/arbiter1formula.tlsf')])
-# CLI option coverage: --version, --param, --safety, --assumptions, --liveness.
-test('graph_version', check,
-  args: [files('test/cases/graph_version.txt'), tlsfgraph_exe, '--version'])
-test('graph_param', check,
-  args: [files('test/cases/graph_param_demo.graph.txt'), tlsfgraph_exe,
-         '--param', 'n=5', '--param', 'k=2',
-         files('test/cases/param_demo.tlsf')])
-test('graph_safety_filter', check,
-  args: [files('test/cases/graph_arbiter2_safety.txt'), tlsfgraph_exe,
-         '--safety', files('test/cases/arbiter2.tlsf')])
-test('graph_assumptions_filter', check,
-  args: [files('test/cases/graph_arbiter2_assumptions.txt'), tlsfgraph_exe,
-         '--assumptions', files('test/cases/arbiter2.tlsf')])
-test('graph_liveness_filter', check,
-  args: [files('test/cases/graph_param_demo_liveness.txt'), tlsfgraph_exe,
-         '--liveness', '--param', 'n=5', '--param', 'k=2',
-         files('test/cases/param_demo.tlsf')])
-test('graph_roles_guarantee', check,
-  args: [files('test/cases/arbiter2.no_tmpl.txt'), tlsfgraph_exe,
-         '--roles', 'GUARANTEE', files('test/cases/arbiter2.tlsf')])
-test('graph_wl_labels_basic', check_wl,
-  args: [files('test/cases/arbiter2.wl0_basic.txt'), tlsfgraph_exe,
-         '--wl', '0', '--wl-labels', 'basic', files('test/cases/arbiter2.tlsf')])
-test('graph_template_named', check,
-  args: [files('test/cases/arbiter1formula.tmpl_reaction.txt'), tlsfgraph_exe,
-         '--template', 'reaction', files('test/cases/arbiter1formula.tlsf')])
 endif
 
 # tlsfnorm is stable preprocessing functionality.

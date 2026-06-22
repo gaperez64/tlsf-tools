@@ -1,7 +1,7 @@
 /// tlsfbenchgraph — run the synthesis-graph pipeline over a corpus of TLSF
 /// specs and emit per-spec metrics (TSV) describing their form/template shapes,
 /// plus an optional aggregate summary.  A research/benchmarking driver: it
-/// reuses cover/recognize/certify(/WL) and adds no new analysis.
+/// reuses cover/recognize/certify and adds no new analysis.
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
 #include "tlsf/ast.h"
@@ -15,7 +15,6 @@
 #include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
-#include "tlsf/wl.h"
 
 #include <ftw.h>
 #include <stdio.h>
@@ -30,7 +29,6 @@ static void usage(const char *prog) {
           "Per-spec form/template-shape metrics (TSV) over a TLSF corpus.\n"
           "  --input-dir DIR    recursively add every *.tlsf under DIR\n"
           "  --file-list FILE   add the paths listed in FILE (one per line)\n"
-          "  --wl N             also report WL stabilisation depth (<=N)\n"
           "  --split            split constraints at top-level &&\n"
           "  --summary          append an aggregate summary\n"
           "  --output FILE      write to FILE (default stdout)\n"
@@ -139,7 +137,6 @@ typedef struct {
   uint32_t residual_clusters, residual_outputs,
       largest_residual_cluster_outputs;
   uint32_t residual_liveness_clusters, residual_size_norm;
-  int wl_stab;
 } Metrics;
 
 // Measure the residual the synthesis backends still face after every template
@@ -209,9 +206,8 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
   free(keys);
 }
 
-static Metrics measure(const char *path, int wl_depth, bool split) {
+static Metrics measure(const char *path, bool split) {
   Metrics m = {0};
-  m.wl_stab = -1;
   FILE *fp = cli_open_input(path, "tlsfbenchgraph");
   if (!fp)
     return m;
@@ -282,8 +278,6 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
     csnf_free(csnf);
   }
   m.comp = largest_output_component(cov);
-  if (wl_depth > 0)
-    m.wl_stab = wl_stabilization_depth(cov, WL_SYNTHESIS, wl_depth);
 
   spec_free(spec);
   return m;
@@ -295,7 +289,6 @@ static const char *basename_of(const char *p) {
 }
 
 int main(int argc, char *argv[]) {
-  int wl_depth = 0;
   bool summary = false, split = false;
   const char *output_file = nullptr;
 
@@ -324,8 +317,6 @@ int main(int argc, char *argv[]) {
           add_file(line);
       }
       fclose(fl);
-    } else if (strcmp(a, "--wl") == 0) {
-      wl_depth = (int)strtol(NEED_ARG(), nullptr, 10);
     } else if (strcmp(a, "--split") == 0) {
       split = true;
     } else if (strcmp(a, "--summary") == 0) {
@@ -377,7 +368,7 @@ int main(int argc, char *argv[]) {
           "global_recurrence\tguarded_next\tdefinition\t"
           "template_candidates\tsolved_blocks\tcertified_blocks\t"
           "dependent_outputs\tresidual_constraints\tlargest_output_component"
-          "\tformula_size_raw\tformula_size_norm\twl_stab_depth\t"
+          "\tformula_size_raw\tformula_size_norm\t"
           "fully_solved\tconflicts\t"
           "eliminated_constraints\towned_outputs\t"
           "residual_clusters\tresidual_outputs\t"
@@ -393,29 +384,24 @@ int main(int argc, char *argv[]) {
   uint32_t lc_strictly_smaller = 0, drop_to_safety = 0, factored = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
-    Metrics m = measure(g_files[i], wl_depth, split);
+    Metrics m = measure(g_files[i], split);
     const char *fn = basename_of(g_files[i]);
     if (!m.ok) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
     nok++;
-    char wl[16];
-    if (m.wl_stab >= 0)
-      snprintf(wl, sizeof wl, "%d", m.wl_stab);
-    else
-      snprintf(wl, sizeof wl, "-");
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            "\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
             m.response, m.mutex, m.recurrence, m.persistence, m.global_rec,
             m.gnext, m.definition, m.tcands, m.solved, m.certified, m.dependent,
-            m.residual, m.comp, m.size_raw, m.size_norm, wl, m.fully_solved,
+            m.residual, m.comp, m.size_raw, m.size_norm, m.fully_solved,
             m.conflicts, m.elim_constraints, m.owned_outputs,
             m.residual_clusters, m.residual_outputs,
             m.largest_residual_cluster_outputs, m.residual_liveness_clusters,

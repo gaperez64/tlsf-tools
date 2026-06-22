@@ -1,4 +1,0 @@
-id	role	side	invariant	class	inputs	outputs	candidates
-c0	GUARANTEE	guarantee	no	liveness	1	1	response
-c1	GUARANTEE	guarantee	no	liveness	1	1	response
-c2	GUARANTEE	guarantee	no	safety	0	2	mutex;safety-invariant

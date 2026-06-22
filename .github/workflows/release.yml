@@ -89,7 +89,7 @@ jobs:
           stage="dist/${archive}"
           mkdir -p "$stage"
 
-          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm tlsfresidual tlsfcompose tlsfsolve tlsfgraph tlsfwl tlsftemplates tlsfbenchgraph"
+          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm tlsfresidual tlsfcompose tlsfsolve tlsftemplates tlsfbenchgraph"
           for tool in $tools; do
             cp "build-release/${tool}" "$stage/"
           done
