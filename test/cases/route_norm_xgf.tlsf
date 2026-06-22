@@ -1,0 +1,5 @@
+INFO{TITLE:"rn" DESCRIPTION:"route-normalize lifts X(GFg) to a GR(1) cluster" SEMANTICS:Mealy TARGET:Mealy}
+MAIN{INPUTS{r;} OUTPUTS{g;}
+GUARANTEE{
+  X (G F g);
+}}
