@@ -600,6 +600,17 @@ if have_oxidd
   test('compose_aiger_unclassified_atom', check,
     args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
            files('test/cases/aiger_unclassified_atom.tlsf')])
+  # Route normalization: X(G F g) matches no in-process recognizer as-is and
+  # would fall back to ltlsynt, but route-safe/Sickert lifts it to a GR(1)
+  # cluster OxiDD solves in-process (the controller is still self-verified
+  # against the original cluster).
+  test('compose_route_normalize', check_contains,
+    args: ['route-normalized -> OxiDD \\(GR\\(1\\)\\)', tlsfcompose_exe,
+           '--split', '--aiger', '--preprocess-policy', 'always',
+           '--route-normalize', 'route-safe:1,sickert-bounded',
+           '--ltlsynt', '/bin/false',
+           files('test/cases/route_norm_xgf.tlsf')],
+    env: ['TLSFCOMPOSE_DEBUG=1'])
   test('compose_route_stats_gr1', check,
     args: [files('test/cases/gr1_spec.route_stats'), tlsfcompose_exe,
            '--split', '--route-stats', files('test/cases/gr1_spec.tlsf')])
