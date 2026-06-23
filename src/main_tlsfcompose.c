@@ -85,6 +85,10 @@ static void usage(const char *prog) {
       "  --pre-normalize SCHEDULE     pre-expansion normalization (opt-in)\n"
       "  --match-normalize SCHEDULE   recognition normalization, e.g. "
       "match-safe:1 (opt-in)\n"
+      "  --route-normalize SCHEDULE   normalize a cluster before the ltlsynt "
+      "fallback,\n"
+      "                               e.g. route-safe:1,sickert-bounded "
+      "(opt-in)\n"
       "  --experimental-bounded N     enable bounded-liveness heuristic with "
       "step bound N\n"
       "  --preprocess-policy MODE     OxiDD routing policy: always, "
@@ -471,7 +475,7 @@ int main(int argc, char *argv[]) {
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
   const char *verify_path = nullptr;
-  const char *pre_norm = nullptr, *match_norm = nullptr;
+  const char *pre_norm = nullptr, *match_norm = nullptr, *route_norm = nullptr;
   unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
   PreprocessPolicy preprocess_policy = PREPROCESS_PROFITABLE;
   FallbackMode fallback_mode = FALLBACK_AUTO;
@@ -496,6 +500,8 @@ int main(int argc, char *argv[]) {
       pre_norm = NEED_ARG();
     } else if (strcmp(a, "--match-normalize") == 0) {
       match_norm = NEED_ARG();
+    } else if (strcmp(a, "--route-normalize") == 0) {
+      route_norm = NEED_ARG();
     } else if (strcmp(a, "--verify") == 0) {
       verify_path = NEED_ARG();
     } else if (strcmp(a, "--experimental-bounded") == 0) {
@@ -617,6 +623,37 @@ int main(int argc, char *argv[]) {
     }
     tlsf_prenorm_spec(spec, &o, nullptr);
   }
+
+  // Route normalization (opt-in): a cluster that matches none of the in-process
+  // route recognizers is normalized (route-safe/Sickert, growth-capped) and
+  // re-routed before the ltlsynt fallback.  Parsed once per spec; applied per
+  // cluster in the loop below.  Sound because every OxiDD controller is still
+  // self-verified against the ORIGINAL cluster.
+  TlsfNormSchedule route_sched = {0};
+  TlsfNormOptions route_opts;
+  tlsf_norm_options_default(&route_opts, TLSF_NORM_PHASE_ROUTE);
+  route_opts.finite_word = norm_finite;
+  bool route_norm_on = false;
+  if (route_norm) {
+    if (!tlsf_norm_parse_schedule(spec->arena, route_norm, "tlsfcompose",
+                                  &route_sched)) {
+      spec_free(spec);
+      return 1;
+    }
+    route_opts.schedule = route_sched;
+    TlsfNormRejectReason rr;
+    if (tlsf_norm_schedule_check(&route_sched, &route_opts, "tlsfcompose",
+                                 &rr)) {
+      route_norm_on = true;
+    } else if (rr == TLSF_NORM_REJECT_FINITE_WORD) {
+      fprintf(stderr, "tlsfcompose: route-normalize disabled on this "
+                      "finite-word spec\n");
+    } else {
+      spec_free(spec);
+      return 1;
+    }
+  }
+
   if (expand(spec, overrides, n_overrides) != 0) {
     spec_free(spec);
     return 1;
@@ -850,6 +887,27 @@ int main(int argc, char *argv[]) {
       int unreal = 0;
       ComposeRoute route;
       (void)compose_route_select(spec, root, finite, bound_k, &route);
+      // Route normalization: a cluster that matched no in-process recognizer
+      // (bare ltlsynt fallback) is normalized and re-routed.  The equivalent
+      // `root_norm` may hit a GR(1)/monitor/safety recognizer the original
+      // shape missed; the controller is still verified against the original
+      // `root` below, so this can only convert a fallback into a verified
+      // in-process solve, never produce a wrong controller.
+      if (route_norm_on && route.kind == ROUTE_LTLSYNT) {
+        Node *root_norm =
+            tlsf_normalize_formula(spec->arena, root, &route_opts, nullptr);
+        if (root_norm && root_norm != root) {
+          ComposeRoute route2;
+          (void)compose_route_select(spec, root_norm, finite, bound_k, &route2);
+          if (route2.kind != ROUTE_LTLSYNT) {
+            route = route2;
+            if (getenv("TLSFCOMPOSE_DEBUG"))
+              fprintf(stderr,
+                      "tlsfcompose: cluster %u route-normalized -> %s\n", k,
+                      route.label ? route.label : "?");
+          }
+        }
+      }
       apply_preprocess_policy(&route, preprocess_policy, policy_stats_ptr);
       bool use_oxidd = false;
       const char *backend = nullptr;

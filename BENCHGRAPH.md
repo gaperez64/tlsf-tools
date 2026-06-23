@@ -166,6 +166,43 @@ stays opt-in (`tlsfnorm`, `--pre-normalize` / `--match-normalize`); none meets
 the release gate's "≥1 meaningful coverage/speed metric improves" bar at the
 synthesis level.
 
+### Route normalization (liveness re-routing) and the GR(1) expressiveness wall
+
+`match-safe` is neutral because OxiDD *safety* is a shape-insensitive catch-all.
+The *liveness* router is shape-sensitive — a cluster reaches OxiDD GR(1) only if
+a syntactic recognizer (`aig_gr1_parts` / response/eventual/until monitors)
+matches its exact shape, else it falls to `ltlsynt`. `tlsfcompose
+--route-normalize SCHEDULE` (opt-in) normalizes a cluster that matched nothing
+and re-routes it before the fallback; the controller is still self-verified
+against the original cluster, so it can only turn a fallback into a verified
+in-process solve. The mechanism works in isolation (e.g. `X(G F g)` lifts to a
+GR(1) cluster OxiDD solves — `compose_route_normalize` test), but over the corpus
+(2545 specs, `--preprocess-policy always`, `route-safe:1,sickert-bounded`,
+`docs/benchgraph/norm_route_selfcontained.tsv`):
+
+| metric | `off` | `--route-normalize` |
+|---|--:|--:|
+| self-contained | 418 (16.4%) | 418 (16.4%) |
+| gained / lost | — | 0 / 0 |
+| REALIZABLE↔UNREALIZABLE flips | — | 0 |
+
+It is **synthesis-neutral**, and the firing rate explains why: over 150 sampled
+non-self-contained specs the route-normalize retry fired **0 times**. The
+ltlsynt-bound residuals are not *mis-shaped* GR(1) — they are *beyond* the
+recognizers' expressiveness. Inspecting them (e.g. AMBA) shows
+`G F assume → G(big safety body + F responses + deeply nested `W` chains + `↔`
+definitions)` implications: GR(1)-*natured* (env fairness → system
+fairness+safety) but with no `GF`/`FG`-under-temporal obstacle for Sickert to
+lift and far too complex for the exact-shape GR(1) recognizer to parse.
+
+**This is the validated signal for the one big lever left:** the liveness tail
+needs a *general* GR(1)/generalized-reactivity game backend that builds the game
+directly from the assumption/guarantee decomposition (extending `gr1_oxidd.c`),
+**not** more normalization. Normalization can only reshape for recognizers that
+already exist; it cannot close an expressiveness gap. Route-normalize stays a
+sound opt-in; the next investment is the backend, sized at the ~2100
+non-self-contained specs (many of which are these reactive `A → G(B)` problems).
+
 ## Normalisation (formula size under `--strong-simplify`)
 
 ![Formula size under strong-simplify](docs/benchgraph/reduction.png)
