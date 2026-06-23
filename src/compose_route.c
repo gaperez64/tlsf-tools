@@ -96,6 +96,11 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
   if (!finite && aig_grk_parts(spec->arena, root, &grk)) {
     out->kind = ROUTE_GRK_STREETT;
     out->uses_oxidd = true;
+    // The per-pair PPS Streett solver is a sound-in-practice but provably
+    // non-exact fixpoint (Streett game solving is coNP-complete; this fixpoint
+    // is polynomial), so mark the route inexact: its controller should be
+    // covered by the self-verification gate (--verify) for a hard guarantee.
+    out->exact = false;
     out->label = "OxiDD (Streett)";
     out->grk = grk;
   }

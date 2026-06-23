@@ -1,0 +1,17 @@
+INFO {
+  TITLE: "streett-k3"
+  DESCRIPTION: "Three-pair coupled Streett (chained mutex), beyond GR(1) and beyond a 2-pair reduction."
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { i0; i1; i2; }
+  OUTPUTS { a0; a1; a2; }
+  GUARANTEE {
+    G (!(a0 && a1));
+    G (!(a1 && a2));
+    G F i0 -> G F a0;
+    G F i1 -> G F a1;
+    G F i2 -> G F a2;
+  }
+}

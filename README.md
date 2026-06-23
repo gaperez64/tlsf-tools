@@ -5,7 +5,8 @@ Small, fast, Unix-style command-line tools for working with
 Format) specifications, sharing a common C library.
 
 The normal release build uses OxiDD (<https://github.com/OxiDD/oxidd>) as the
-in-process BDD backend for safety and GR(1) games. 
+in-process BDD backend for safety, GR(1), and generalized-reactivity (Streett)
+games (see [Backend algorithms](#backend-algorithms)). 
 [ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) is mentioned below, it
 is not a library
 dependency of this project; it is an optional fallback executable used by
@@ -15,8 +16,27 @@ The tools fully expand parameterised TLSF (parameters, definitions including
 recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
 `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
 TLSF spec or equivalent LTL. The synthesis layer adds structure-aware
-decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
-routes, and optional fallback to `ltlsynt`.
+decomposition, certified local controllers, exact OxiDD-backed
+safety/GR(1)/Streett routes, and optional fallback to `ltlsynt`.
+
+## Backend algorithms
+
+The in-process OxiDD solvers implement published symbolic fixpoint algorithms:
+
+- **Safety** games: the standard controllable-predecessor `νZ` fixpoint with
+  sequential Skolem strategy extraction.
+- **GR(1)** games (`solve_gr1_oxidd`): the Piterman–Pnueli–Sa'ar tri-nested
+  fixpoint — N. Piterman, A. Pnueli, Y. Sa'ar, *Synthesis of Reactive(1)
+  Designs*, VMCAI 2006 (JCSS 78(3), 2012).
+- **Generalized-reactivity / Streett** games (`solve_grk_oxidd`): the symbolic
+  Piterman–Pnueli Rabin/Streett fixpoint as formulated by T. Banerjee,
+  R. Majumdar, K. Mallik, A.-K. Schmuck, S. Soudjani, *Fast Symbolic Algorithms
+  for ω-Regular Games under Strong Transition Fairness*, TheoretiCS 2 (2023),
+  [arXiv:2202.07480](https://arxiv.org/abs/2202.07480) (eq. 7; no live edges, so
+  `Apre = Cpre`), building on N. Piterman, A. Pnueli, *Faster Solutions of Rabin
+  and Streett Games*, LICS 2006. A coupled multi-pair `⋀ₖ (GF aₖ → GF gₖ)`
+  cluster is a Streett game the GR(1) fixpoint cannot solve; it is reduced to a
+  generalized-Rabin condition and solved over that fixpoint.
 
 ## Status
 
