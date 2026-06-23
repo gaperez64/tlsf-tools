@@ -89,6 +89,15 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
     out->uses_oxidd = true;
     out->label = "OxiDD (GR(1))";
     out->gr1 = gp;
+    return true;
+  }
+
+  GrkParts grk = {0};
+  if (!finite && aig_grk_parts(spec->arena, root, &grk)) {
+    out->kind = ROUTE_GRK_STREETT;
+    out->uses_oxidd = true;
+    out->label = "OxiDD (Streett)";
+    out->grk = grk;
   }
   return true;
 }
@@ -175,6 +184,49 @@ Aig *compose_route_solve(const ComposeRoute *route, const char *ltlsynt_prog,
       local_unreal = 0;
       use_oxidd = false;
       backend = "ltlsynt fallback (GR(1) miss)";
+      sub = run_ltlsynt_cluster(ltlsynt_prog, cov, seen, root, fmt, finite,
+                                &local_unreal);
+    }
+    break;
+
+  case ROUTE_GRK_STREETT:
+    // The full symbolic Streett solver computes the winning region; its
+    // finite-memory strategy extraction is staged (returns nullptr meanwhile).
+    sub = solve_grk_game(cov, seen, build_aig_grk_game(cov, seen, &route->grk),
+                         &local_unreal);
+    if (!sub) {
+      // Sound sufficient strategy: if the system can satisfy every guarantee
+      // `G F g_k` unconditionally (a generalized-Büchi game over all goals,
+      // with no fairness escape), that strategy wins the Streett condition
+      // outright (each implication's consequent holds).  Reuse the proven GR(1)
+      // solver.
+      Gr1Parts gb = {0};
+      gb.env_init = route->grk.env_init;
+      gb.sys_init = route->grk.sys_init;
+      gb.safety_assume = route->grk.safety_assume;
+      gb.safety_gua = route->grk.safety_gua;
+      gb.nfairness = 0;
+      gb.njustice = 0;
+      for (uint32_t k = 0; k < route->grk.npairs; k++)
+        for (uint32_t j = 0;
+             j < route->grk.pairs[k].njustice && gb.njustice < GR1_MAX_JUSTICE;
+             j++)
+          gb.justice[gb.njustice++] = route->grk.pairs[k].justice[j];
+      gb.nweak = route->grk.nweak;
+      for (uint32_t w = 0; w < route->grk.nweak && w < GR1_MAX_WEAK; w++)
+        gb.weak[w] = route->grk.weak[w];
+      local_unreal = 0;
+      sub = solve_gr1_game(cov, seen, build_aig_gr1_game(cov, seen, &gb),
+                           &local_unreal);
+      if (sub)
+        backend = "OxiDD (Streett via gen-Büchi)";
+    }
+    if (!sub) {
+      // Assumption-dependent Streett (or recognizer over-constraint): defer to
+      // ltlsynt (sound: self-verification + authoritative oracle).
+      local_unreal = 0;
+      use_oxidd = false;
+      backend = "ltlsynt fallback (Streett miss)";
       sub = run_ltlsynt_cluster(ltlsynt_prog, cov, seen, root, fmt, finite,
                                 &local_unreal);
     }

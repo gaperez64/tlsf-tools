@@ -24,10 +24,12 @@ typedef struct {
   char *name;
   uint32_t *lits; // generalized-Buchi set (each lit holds infinitely often)
   uint32_t n;
+  uint32_t pair; // Streett/Rabin pair index (0 = conventional GR(1))
 } Justice;
 typedef struct {
   char *name;
   uint32_t lit;
+  uint32_t pair; // Streett/Rabin pair index (0 = conventional GR(1))
 } Fairness;
 
 struct Aig {
@@ -213,6 +215,7 @@ void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
   g->just[g->njust].name = name ? aig_xstrdup(name) : nullptr;
   g->just[g->njust].lits = copy;
   g->just[g->njust].n = n;
+  g->just[g->njust].pair = 0;
   g->njust++;
 }
 
@@ -220,6 +223,7 @@ void aig_add_fairness(Aig *g, uint32_t lit, const char *name) {
   GROW(g->fair, g->fair_cap, g->nfair);
   g->fair[g->nfair].name = name ? aig_xstrdup(name) : nullptr;
   g->fair[g->nfair].lit = lit;
+  g->fair[g->nfair].pair = 0;
   g->nfair++;
 }
 
@@ -307,6 +311,29 @@ void aig_justice_at(const Aig *g, uint32_t j, const uint32_t **lits,
 uint32_t aig_num_fairness(const Aig *g) { return g->nfair; }
 
 uint32_t aig_fairness_at(const Aig *g, uint32_t i) { return g->fair[i].lit; }
+
+uint32_t aig_justice_pair(const Aig *g, uint32_t j) { return g->just[j].pair; }
+
+void aig_set_justice_pair(Aig *g, uint32_t j, uint32_t pair) {
+  g->just[j].pair = pair;
+}
+
+uint32_t aig_fairness_pair(const Aig *g, uint32_t i) { return g->fair[i].pair; }
+
+void aig_set_fairness_pair(Aig *g, uint32_t i, uint32_t pair) {
+  g->fair[i].pair = pair;
+}
+
+uint32_t aig_num_pairs(const Aig *g) {
+  uint32_t mx = 0;
+  for (uint32_t j = 0; j < g->njust; j++)
+    if (g->just[j].pair > mx)
+      mx = g->just[j].pair;
+  for (uint32_t i = 0; i < g->nfair; i++)
+    if (g->fair[i].pair > mx)
+      mx = g->fair[i].pair;
+  return mx + 1;
+}
 
 static void rename_in(char **slot, const char *from, const char *to) {
   if (strcmp(*slot, from) != 0)

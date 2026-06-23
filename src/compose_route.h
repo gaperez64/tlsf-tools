@@ -13,6 +13,7 @@ typedef enum {
   ROUTE_EVENTUAL_MONITOR_GR1,
   ROUTE_UNTIL_MONITOR_GR1,
   ROUTE_GR1,
+  ROUTE_GRK_STREETT,
   ROUTE_LTLSYNT,
 } ComposeRouteKind;
 
@@ -28,6 +29,7 @@ typedef struct {
   const Node *strict_sys;
   const Node *strict_env;
   Gr1Parts gr1;
+  GrkParts grk;
 } ComposeRoute;
 
 bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,

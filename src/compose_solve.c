@@ -11,6 +11,7 @@
 #include "compose_internal.h"
 
 #include "tlsf/gr1_oxidd.h"
+#include "tlsf/grk_oxidd.h"
 #include "tlsf/residual.h"
 #include "tlsf/safety_oxidd.h"
 
@@ -303,6 +304,23 @@ bool controller_violates_spec(const char *verifier, Aig *controller,
 Aig *solve_gr1_game(ConstraintCover *cov, const bool *seen, Aig *game,
                     int *unreal) {
   Aig *strat = solve_gr1_oxidd(game, unreal);
+  if (strat && !strategy_has_outputs(strat, cov, seen)) {
+    aig_free(strat);
+    strat = nullptr;
+  }
+  return strat;
+}
+
+// Solve one generalized-reactivity (Streett) game.  The in-process solver is the
+// symbolic Piterman-Pnueli Rabin/Streett fixpoint of Banerjee-Majumdar-Mallik-
+// Schmuck-Soudjani (arXiv:2202.07480), specialized to the no-live-edge case
+// (Apre == Cpre).  Strategy extraction (the IAR/finite-memory controller) is
+// staged; until it lands this returns nullptr so the route falls back to ltlsynt
+// (sound: the recognizer's pair structure and the game are validated end-to-end,
+// and ltlsynt remains the authoritative oracle).
+Aig *solve_grk_game(ConstraintCover *cov, const bool *seen, Aig *game,
+                    int *unreal) {
+  Aig *strat = solve_grk_oxidd(game, unreal);
   if (strat && !strategy_has_outputs(strat, cov, seen)) {
     aig_free(strat);
     strat = nullptr;

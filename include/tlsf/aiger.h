@@ -107,6 +107,19 @@ uint32_t aig_num_fairness(const Aig *g);
 /// Literal of fairness constraint `i`.
 uint32_t aig_fairness_at(const Aig *g, uint32_t i);
 
+/// Streett/Rabin pair grouping.  Each justice/fairness record carries a pair
+/// index (default 0, the conventional single-pair GR(1) case): the generalized
+/// game pairs each justice goal with the fairness escape of its own pair.  This
+/// is in-memory metadata only — it is never serialized to AIGER, so it survives
+/// only while the `Aig` is passed by pointer (as the compose pipeline does).
+uint32_t aig_justice_pair(const Aig *g, uint32_t j);
+void aig_set_justice_pair(Aig *g, uint32_t j, uint32_t pair);
+uint32_t aig_fairness_pair(const Aig *g, uint32_t i);
+void aig_set_fairness_pair(Aig *g, uint32_t i, uint32_t pair);
+/// Number of distinct pairs = (max pair index over all justice and fairness
+/// records) + 1.  Returns 1 for a conventional single-pair game.
+uint32_t aig_num_pairs(const Aig *g);
+
 /// Parse an ASCII `aag` from `in` (inputs/latches/outputs/ands + i/o symbols).
 /// Returns nullptr on a malformed file.
 [[nodiscard]] Aig *aig_read_aag(FILE *in);

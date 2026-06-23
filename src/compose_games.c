@@ -1038,3 +1038,170 @@ Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
   free(hist);
   return g;
 }
+
+// Generalized-reactivity (Streett) game.  Identical safety skeleton to the
+// conventional GR(1) game, but each justice goal and fairness assumption is
+// tagged with its pair index (aig_set_justice_pair / aig_set_fairness_pair) so
+// solve_grk_oxidd can pair each justice goal with its own fairness escape. Only
+// the *shared* safety assumption drives the `violated` latch; per-pair fairness
+// is honoured by the solver fixpoint, never by `violated` (just as in GR(1)).
+Aig *build_aig_grk_game(ConstraintCover *cov, const bool *seen,
+                        const GrkParts *parts) {
+  Aig *g = aig_new();
+  if (!g)
+    return nullptr;
+  const Node *assume = parts->safety_assume, *guarantee = parts->safety_gua;
+  uint32_t ass_depth = aig_global_x_depth(assume);
+  uint32_t gua_depth = aig_global_x_depth(guarantee);
+  if (ass_depth == UINT32_MAX || gua_depth == UINT32_MAX) {
+    aig_free(g);
+    return nullptr;
+  }
+  uint32_t A = cov->aps.count;
+  uint32_t depth = ass_depth > gua_depth ? ass_depth : gua_depth;
+  for (uint32_t w = 0; w < parts->nweak; w++) {
+    uint32_t da = aig_x_depth(parts->weak[w].a);
+    uint32_t db = aig_x_depth(parts->weak[w].b);
+    if (da > depth)
+      depth = da;
+    if (db > depth)
+      depth = db;
+  }
+  uint32_t hist_count = (depth + 1) * (A ? A : 1);
+  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
+  if (!hist) {
+    aig_free(g);
+    return nullptr;
+  }
+  memset(hist, 0xff, hist_count * sizeof(uint32_t));
+  AigCtx ctx = {g, cov, hist, A ? A : 1};
+  for (uint32_t a = 0; a < cov->aps.count; a++)
+    if (seen[a] && residual_signal_matches(cov, a, AP_FLAG_INPUT))
+      hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+      continue;
+    char *cname = controllable_name(ap_table_name(&cov->aps, a));
+    if (!cname) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    hist_set(&ctx, 0, a, aig_input(g, cname));
+    free(cname);
+  }
+  for (uint32_t d = 1; d <= depth; d++)
+    for (uint32_t a = 0; a < A; a++) {
+      uint32_t prev = hist_lit(&ctx, d - 1, a);
+      if (prev != UINT32_MAX)
+        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
+    }
+  uint32_t valid = AIG_TRUE;
+  for (uint32_t d = 0; d < depth; d++)
+    valid = aig_latch(g, valid, AIG_FALSE);
+  uint32_t past_first = aig_latch(g, AIG_TRUE, AIG_FALSE);
+  uint32_t first = aig_not(past_first);
+
+#define UGRK_FAIL()                                                            \
+  do {                                                                         \
+    free(hist);                                                                \
+    aig_free(g);                                                               \
+    return nullptr;                                                            \
+  } while (0)
+
+  uint32_t gua_ok = compile_global(&ctx, guarantee, depth);
+  if (gua_ok == UINT32_MAX)
+    UGRK_FAIL();
+  uint32_t bad = aig_and(g, valid, aig_not(gua_ok));
+
+  uint32_t env_init_ok = compile_at_lag(&ctx, parts->env_init, 0);
+  uint32_t sys_init_ok = compile_at_lag(&ctx, parts->sys_init, 0);
+  if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX)
+    UGRK_FAIL();
+  bool has_env_init = parts->env_init->kind != NODE_TRUE;
+  bool has_sys_init = parts->sys_init->kind != NODE_TRUE;
+
+  uint32_t violated = AIG_FALSE;
+  uint32_t ass_window_ok = AIG_TRUE;
+  if (assume->kind != NODE_TRUE || has_env_init) {
+    uint32_t vnext;
+    violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    vnext = violated;
+    if (assume->kind != NODE_TRUE) {
+      uint32_t ass_ok = compile_global(&ctx, assume, depth);
+      ass_window_ok = compile_assumption_window(&ctx, assume, depth);
+      if (ass_ok == UINT32_MAX || ass_window_ok == UINT32_MAX)
+        UGRK_FAIL();
+      vnext = aig_or(g, vnext, aig_and(g, valid, aig_not(ass_ok)));
+    }
+    if (has_env_init)
+      vnext = aig_or(g, vnext, aig_and(g, first, aig_not(env_init_ok)));
+    if (!aig_set_latch_next(g, violated, vnext))
+      UGRK_FAIL();
+  }
+
+  // Per-pair justice goals and fairness assumptions, each tagged with its pair.
+  for (uint32_t k = 0; k < parts->npairs; k++) {
+    const GrPair *pair = &parts->pairs[k];
+    for (uint32_t j = 0; j < pair->njustice; j++) {
+      uint32_t tgt = compile_at_lag(&ctx, pair->justice[j].target, depth);
+      if (tgt == UINT32_MAX)
+        UGRK_FAIL();
+      uint32_t req = AIG_FALSE;
+      uint32_t pending_init = AIG_FALSE;
+      switch (pair->justice[j].kind) {
+      case GR1_JUSTICE_RECURRENCE:
+        req = AIG_TRUE;
+        break;
+      case GR1_JUSTICE_RESPONSE:
+        req = compile_at_lag(&ctx, pair->justice[j].req, depth);
+        if (req == UINT32_MAX)
+          UGRK_FAIL();
+        break;
+      case GR1_JUSTICE_EVENTUAL:
+        pending_init = AIG_TRUE;
+        break;
+      }
+      uint32_t p = aig_latch(g, pending_init, AIG_FALSE);
+      uint32_t next = aig_and(g, aig_not(violated),
+                              aig_and(g, aig_not(tgt), aig_or(g, p, req)));
+      if (!aig_set_latch_next(g, p, next))
+        UGRK_FAIL();
+      uint32_t jlit = aig_not(p);
+      aig_add_justice(g, &jlit, 1, "grk_justice");
+      aig_set_justice_pair(g, aig_num_justice(g) - 1, k);
+    }
+    for (uint32_t i = 0; i < pair->nfairness; i++) {
+      uint32_t fair = compile_at_lag(&ctx, pair->fairness[i], depth);
+      if (fair == UINT32_MAX)
+        UGRK_FAIL();
+      uint32_t fa = aig_latch(g, fair, AIG_FALSE);
+      aig_add_fairness(g, fa, "grk_fairness");
+      aig_set_fairness_pair(g, aig_num_fairness(g) - 1, k);
+    }
+  }
+
+  for (uint32_t w = 0; w < parts->nweak; w++) {
+    uint32_t a_ok = compile_at_lag(&ctx, parts->weak[w].a, depth);
+    uint32_t b_ok = compile_at_lag(&ctx, parts->weak[w].b, depth);
+    if (a_ok == UINT32_MAX || b_ok == UINT32_MAX)
+      UGRK_FAIL();
+    uint32_t released = aig_latch(g, AIG_FALSE, AIG_FALSE);
+    if (!aig_set_latch_next(g, released,
+                            aig_or(g, released, aig_and(g, valid, b_ok))))
+      UGRK_FAIL();
+    uint32_t weak_bad =
+        aig_and(g, valid,
+                aig_and(g, aig_not(released),
+                        aig_and(g, aig_not(a_ok), aig_not(b_ok))));
+    bad = aig_or(g, bad, weak_bad);
+  }
+
+  if (has_sys_init)
+    bad = aig_or(g, bad, aig_and(g, first, aig_not(sys_init_ok)));
+  bad = aig_and(g, bad, aig_and(g, aig_not(violated), ass_window_ok));
+#undef UGRK_FAIL
+  aig_set_output(g, "bad", bad);
+  free(hist);
+  return g;
+}

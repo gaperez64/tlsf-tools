@@ -62,6 +62,36 @@ typedef struct {
   uint32_t nweak;
 } Gr1Parts;
 
+// ---- Generalized reactivity (Streett / generalized-Rabin) ----------------
+//
+// A cluster `(... & AND_k ((AND G F a_k) -> (AND G F g_k)))` carries several
+// independent fairness->justice implications.  Each implication is one
+// `GrPair`: its justice goals are won by reaching them infinitely often unless
+// the env breaks one of the pair's own fairness assumptions.  Safety / init /
+// weak-until parts are pair-independent (they hold unconditionally) and live
+// once in `GrkParts`.  `Gr1Parts` is the `npairs == 1` special case.
+
+#define GR1_MAX_PAIRS 8
+
+typedef struct {
+  const Node *fairness[GR1_MAX_FAIRNESS]; // env `G F a` assumptions of the pair
+  uint32_t nfairness;
+  Gr1Justice justice[GR1_MAX_JUSTICE]; // system justice goals of the pair
+  uint32_t njustice;
+} GrPair;
+
+typedef struct {
+  const Node *env_init;      // shared env initial assumption (TRUE if none)
+  const Node *sys_init;      // shared sys initial guarantee (TRUE if none)
+  const Node *safety_assume; // shared AND of safety assume conjuncts
+  const Node *safety_gua;    // shared AND of safety guarantee conjuncts
+  Gr1WeakUntil weak[GR1_MAX_WEAK]; // shared guarantee-side `a W b` monitors
+  uint32_t nweak;
+  GrPair pairs[GR1_MAX_PAIRS];
+  uint32_t npairs;
+  bool rabin; // false: conjunctive Streett (AND_k); true: disjunctive Rabin
+} GrkParts;
+
 typedef struct {
   int gr_level;
   bool has_liveness;
@@ -95,6 +125,7 @@ bool aig_response_monitor_parts(Arena *a, const Node *root, Gr1Parts *p);
 bool aig_eventual_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p);
 bool aig_until_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p);
 bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p);
+bool aig_grk_parts(Arena *a, const Node *root, GrkParts *p);
 Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos);
 ClusterShape cluster_shape(TlsfSpec *spec, const Node *root);
 const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
@@ -112,6 +143,8 @@ const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
                                                 const Node *env);
 [[nodiscard]] Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
                                       const Gr1Parts *parts);
+[[nodiscard]] Aig *build_aig_grk_game(ConstraintCover *cov, const bool *seen,
+                                      const GrkParts *parts);
 bool wr_structural_supported(const Node *n);
 
 // ---- compose_solve.c / oxidd_common.c ------------------------------------
@@ -127,6 +160,8 @@ void oxidd_session_free(void);
 [[nodiscard]] Aig *solve_safety_game(ConstraintCover *cov, const bool *seen,
                                      Aig *game, int *unreal);
 [[nodiscard]] Aig *solve_gr1_game(ConstraintCover *cov, const bool *seen,
+                                  Aig *game, int *unreal);
+[[nodiscard]] Aig *solve_grk_game(ConstraintCover *cov, const bool *seen,
                                   Aig *game, int *unreal);
 bool controller_violates_spec(const char *verifier, Aig *controller,
                               const Node *root, LtlFormat fmt, bool finite);

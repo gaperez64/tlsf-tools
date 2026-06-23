@@ -333,7 +333,7 @@ if have_oxidd
     sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
               'src/compose_games.c', 'src/compose_solve.c',
               'src/compose_route.c',
-              'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+              'src/safety_oxidd.c', 'src/gr1_oxidd.c', 'src/grk_oxidd.c',
               'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],
     dependencies: [oxidd_dep],
@@ -850,6 +850,17 @@ if python3.found() and spot_python_found
                     'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
                     'gr1_strict_multi']
       test('verify_aiger_oxidd_gr1_' + name, python3,
+        args: [files('scripts/verify_aiger_ltl.py'),
+               '--compose', tlsfcompose_path,
+               '--ltlsynt', '/bin/false',
+               '--tlsf2ltl', tlsf2ltl_path,
+               '--tlsf', files('test/cases/' + name + '.tlsf')])
+    endforeach
+    # Generalized-reactivity (Streett): coupled multi-pair GF->GF clusters that
+    # GR(1)'s PPS cannot solve.  In-process OxiDD (symbolic Rabin winning region
+    # + gen-Büchi sufficient strategy), Spot-verified.
+    foreach name : ['gr1_streett']
+      test('verify_aiger_oxidd_streett_' + name, python3,
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,
                '--ltlsynt', '/bin/false',

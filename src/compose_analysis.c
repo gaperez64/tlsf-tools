@@ -829,6 +829,193 @@ bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p) {
          aig_global_x_depth(p->safety_assume) != UINT32_MAX;
 }
 
+// ---- Generalized reactivity (Streett) recognition -------------------------
+//
+// A generalized-reactivity cluster carries several independent
+// `(AND G F a_k) -> (AND G F/response g_k)` implications (Streett pairs) that
+// share one safety/init/weak skeleton.  aig_gr1_parts rejects the second
+// implication; aig_grk_parts instead opens a new GrPair per implication,
+// leaving the single-pair (ordinary GR(1)) shape to aig_gr1_parts.
+
+static void grk_parts_init(Arena *a, GrkParts *p) {
+  *p = (GrkParts){.env_init = node_true(a),
+                  .sys_init = node_true(a),
+                  .safety_assume = node_true(a),
+                  .safety_gua = node_true(a),
+                  .nweak = 0,
+                  .npairs = 0,
+                  .rabin = false};
+}
+
+// Bucket one conjunct of a pair's fairness antecedent: `G F a` -> pair
+// fairness, initial Booleans -> shared env-init, `G(...)` safety -> shared
+// safety assume.
+static bool grk_collect_assume(Arena *a, const Node *n, GrkParts *gp,
+                               GrPair *pair) {
+  if (n->kind == NODE_AND)
+    return grk_collect_assume(a, n->lhs, gp, pair) &&
+           grk_collect_assume(a, n->rhs, gp, pair);
+  if (aig_initial_ok(n)) {
+    gp->env_init = gp->env_init->kind == NODE_TRUE
+                       ? n
+                       : node_and(a, (Node *)gp->env_init, (Node *)n);
+    return true;
+  }
+  const Node *gf = match_gf(n);
+  if (gf) {
+    if (pair->nfairness >= GR1_MAX_FAIRNESS)
+      return false;
+    pair->fairness[pair->nfairness++] = gf;
+    return true;
+  }
+  if (!global_ok(n))
+    return false;
+  gp->safety_assume = gp->safety_assume->kind == NODE_TRUE
+                          ? n
+                          : node_and(a, (Node *)gp->safety_assume, (Node *)n);
+  return true;
+}
+
+// Bucket one conjunct of a pair's justice consequent: `G F g`/response -> pair
+// justice, `a W b` -> shared weak monitor, init -> shared sys-init, `G(...)`
+// safety -> shared safety guarantee.
+static bool grk_collect_guarantee(Arena *a, const Node *n, GrkParts *gp,
+                                  GrPair *pair) {
+  if (n->kind == NODE_AND)
+    return grk_collect_guarantee(a, n->lhs, gp, pair) &&
+           grk_collect_guarantee(a, n->rhs, gp, pair);
+  if (aig_initial_ok(n)) {
+    gp->sys_init = gp->sys_init->kind == NODE_TRUE
+                       ? n
+                       : node_and(a, (Node *)gp->sys_init, (Node *)n);
+    return true;
+  }
+  const Node *gf = match_gf(n);
+  if (gf) {
+    if (pair->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    pair->justice[pair->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = gf, .kind = GR1_JUSTICE_RECURRENCE};
+    return true;
+  }
+  const Node *req = nullptr, *grant = nullptr;
+  if (match_response(n, &req, &grant)) {
+    if (pair->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    pair->justice[pair->njustice++] =
+        (Gr1Justice){.req = req, .target = grant, .kind = GR1_JUSTICE_RESPONSE};
+    return true;
+  }
+  if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
+    if (gp->nweak >= GR1_MAX_WEAK)
+      return false;
+    gp->weak[gp->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
+    return true;
+  }
+  if (!global_ok(n))
+    return false;
+  gp->safety_gua = gp->safety_gua->kind == NODE_TRUE
+                       ? n
+                       : node_and(a, (Node *)gp->safety_gua, (Node *)n);
+  return true;
+}
+
+// The shared no-fairness pair collects bare (unconditional) justice goals that
+// appear outside any implication; they must all be met infinitely often.
+static GrPair *grk_bare_pair(GrkParts *gp) {
+  for (uint32_t k = 0; k < gp->npairs; k++)
+    if (gp->pairs[k].nfairness == 0)
+      return &gp->pairs[k];
+  if (gp->npairs >= GR1_MAX_PAIRS)
+    return nullptr;
+  GrPair *pr = &gp->pairs[gp->npairs++];
+  *pr = (GrPair){0};
+  return pr;
+}
+
+// Walk the top-level conjuncts of the (env-init-peeled) cluster, opening a pair
+// per `... -> ...` implication and bucketing the shared safety skeleton.
+static bool grk_collect_top(Arena *a, const Node *n, GrkParts *gp) {
+  if (n->kind == NODE_AND)
+    return grk_collect_top(a, n->lhs, gp) && grk_collect_top(a, n->rhs, gp);
+  if (aig_initial_ok(n)) {
+    gp->sys_init = gp->sys_init->kind == NODE_TRUE
+                       ? n
+                       : node_and(a, (Node *)gp->sys_init, (Node *)n);
+    return true;
+  }
+  if (n->kind == NODE_IMPL) {
+    if (gp->npairs >= GR1_MAX_PAIRS)
+      return false;
+    GrPair *pr = &gp->pairs[gp->npairs];
+    *pr = (GrPair){0};
+    if (!grk_collect_assume(a, n->lhs, gp, pr) ||
+        !grk_collect_guarantee(a, n->rhs, gp, pr))
+      return false;
+    // A genuine reactive pair must contribute at least one justice goal; a
+    // pure-safety consequent is not generalized reactivity.
+    if (pr->njustice == 0)
+      return false;
+    gp->npairs++;
+    return true;
+  }
+  const Node *gf = match_gf(n);
+  if (gf) {
+    GrPair *pr = grk_bare_pair(gp);
+    if (!pr || pr->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    pr->justice[pr->njustice++] = (Gr1Justice){
+        .req = nullptr, .target = gf, .kind = GR1_JUSTICE_RECURRENCE};
+    return true;
+  }
+  const Node *req = nullptr, *grant = nullptr;
+  if (match_response(n, &req, &grant)) {
+    GrPair *pr = grk_bare_pair(gp);
+    if (!pr || pr->njustice >= GR1_MAX_JUSTICE)
+      return false;
+    pr->justice[pr->njustice++] =
+        (Gr1Justice){.req = req, .target = grant, .kind = GR1_JUSTICE_RESPONSE};
+    return true;
+  }
+  if (n->kind == NODE_W && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
+    if (gp->nweak >= GR1_MAX_WEAK)
+      return false;
+    gp->weak[gp->nweak++] = (Gr1WeakUntil){n->lhs, n->rhs};
+    return true;
+  }
+  if (!global_ok(n))
+    return false;
+  gp->safety_gua = gp->safety_gua->kind == NODE_TRUE
+                       ? n
+                       : node_and(a, (Node *)gp->safety_gua, (Node *)n);
+  return true;
+}
+
+// Recognize a generalized-reactivity (Streett) cluster: >= 2 fairness->justice
+// pairs over a shared safety skeleton, with at least one genuine env-fairness
+// pair (otherwise it is plain conjunctive recurrence, handled by GR(1)).
+bool aig_grk_parts(Arena *a, const Node *root, GrkParts *p) {
+  grk_parts_init(a, p);
+  while (root->kind == NODE_IMPL && aig_initial_ok(root->lhs)) {
+    p->env_init = p->env_init->kind == NODE_TRUE
+                      ? root->lhs
+                      : node_and(a, (Node *)p->env_init, (Node *)root->lhs);
+    root = root->rhs;
+  }
+  if (!grk_collect_top(a, root, p))
+    return false;
+  uint32_t total_justice = 0;
+  bool any_fair = false;
+  for (uint32_t k = 0; k < p->npairs; k++) {
+    total_justice += p->pairs[k].njustice;
+    if (p->pairs[k].nfairness > 0)
+      any_fair = true;
+  }
+  return p->npairs >= 2 && total_justice > 0 && any_fair &&
+         aig_global_x_depth(p->safety_assume) != UINT32_MAX &&
+         aig_global_x_depth(p->safety_gua) != UINT32_MAX;
+}
+
 // Bounded eventually: `x | Xx | ... | X^k x` ("x within the next k steps").
 static Node *bounded_eventually(Arena *a, Node *x, uint32_t k) {
   Node *r = x, *xi = x;

@@ -156,6 +156,8 @@ static const char *route_kind_name(ComposeRouteKind kind) {
     return "until-monitor-gr1";
   case ROUTE_GR1:
     return "gr1";
+  case ROUTE_GRK_STREETT:
+    return "grk-streett";
   case ROUTE_LTLSYNT:
     return "ltlsynt";
   default:
@@ -184,6 +186,12 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     break;
   case ROUTE_BOUNDED_EXPERIMENTAL:
     snprintf(buf, buf_sz, "selected explicit experimental bounded path");
+    break;
+  case ROUTE_GRK_STREETT:
+    snprintf(buf, buf_sz,
+             "recognized generalized-Streett (%u pairs); in-process solver "
+             "staged, ltlsynt fallback",
+             route->grk.npairs);
     break;
   case ROUTE_LTLSYNT:
   default:
