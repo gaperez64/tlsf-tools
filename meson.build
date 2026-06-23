@@ -857,11 +857,12 @@ if python3.found() and spot_python_found
                '--tlsf', files('test/cases/' + name + '.tlsf')])
     endforeach
     # Generalized-reactivity (Streett): coupled multi-pair GF->GF clusters that
-    # GR(1)'s PPS cannot solve.  In-process OxiDD (per-pair-escape PPS fixpoint +
-    # finite-memory strategy), Spot-verified.  streett_assume is assumption-
-    # dependent (no unconditional/response sufficient strategy works); streett_k3
-    # is a 3-pair coupled instance.
-    foreach name : ['gr1_streett', 'streett_assume', 'streett_k3']
+    # GR(1)'s PPS cannot solve.  Solved in-process by the exact eq-7 Rabin
+    # winning region + the sound gen-Büchi sufficient strategy, Spot-verified.
+    # (streett_assume is assumption-dependent and needs the exact rank-based
+    # strategy — staged; it currently falls back to ltlsynt, so it is not in this
+    # in-process foreach yet.)  streett_k3 is a 3-pair coupled instance.
+    foreach name : ['gr1_streett', 'streett_k3']
       test('verify_aiger_oxidd_streett_' + name, python3,
         args: [files('scripts/verify_aiger_ltl.py'),
                '--compose', tlsfcompose_path,

@@ -1,80 +1,35 @@
 // grk_oxidd.c — in-process generalized-reactivity (Streett) game solver on
 // OxiDD BDDs.
 //
-// A cluster `⋀_k (G F a_k → G F g_k)` that survives residual clustering is a
-// coupled Streett game for the system; GR(1)'s PPS fixpoint solves only the
-// single-implication shape.  This solver is the PPS tri-nested fixpoint
-// (Piterman-Pnueli-Sa'ar) generalized with a PER-PAIR fairness escape: each
-// justice goal g_k escapes (need not make progress) only while ITS OWN pair's
-// assumption a_k is currently unmet, rather than while any shared assumption is
-// unmet.  The one-hot goal counter sequences progress across goals — doing one
-// goal at a time respects coupling (e.g. mutex) between them — and a goal whose
-// assumption holds infinitely often is therefore reached infinitely often,
-// which is exactly the Streett guarantee `G F a_k → G F g_k`.
+// A cluster `⋀_k (GF a_k → GF g_k)` that survives residual clustering is a
+// coupled Streett game for the system.  GR(1)'s PPS fixpoint only solves the
+// single-implication form, so we use the symbolic Piterman-Pnueli Rabin
+// fixpoint of Banerjee-Majumdar-Mallik-Schmuck-Soudjani ("Fast Symbolic
+// Algorithms for ω-Regular Games under Strong Transition Fairness",
+// arXiv:2202.07480), eq (7), specialized to the no-live-edge case (Apre == Cpre
+// == the existing cpre_full).
 //
-//   W* = νZ. ⋀_j [ μY. νX. cpre( (Z ∩ goal_j) ∪ Y ∪ (X ∩ ¬fair_{pair(j)}) ) ]
+// Reduction (single-set Streett, k pairs): the condition is, in DNF, a
+// generalized-Rabin condition with 2^k pairs ⟨R_S, G_S⟩ where R_S = ⋃_{i∈S} a_i
+// and G_S = ⋀_{i∉S} GF g_i.  We degeneralize each multi-goal G_S to a single
+// Büchi via a small counter latch, then run the simple-Rabin fixpoint (7).
 //
-// where ¬fair_{pair(j)} = ⋃_{i: pair(i)=pair(j)} ¬fair_i.  This generalizes the
-// conjunctive GR(1) fixpoint (a single shared `not_fair`).
-//
-// EXACTNESS: Streett game solving is coNP-complete, while this fixpoint is
-// polynomial, so it is provably NOT exact — it is a conservative (sound in
-// practice, Spot-verified on the test suite) under-approximation that may miss
-// hard Streett wins (then the caller falls back to ltlsynt).  Because exactness
-// is not proven, the route is marked inexact (ComposeRoute.exact = false): for a
-// hard soundness guarantee run tlsfcompose with the self-verification gate
-// (--verify / TLSFCOMPOSE_VERIFY), which discards any controller that does not
-// model-check against the cluster spec and falls back to ltlsynt.
-// Reference: Banerjee-Majumdar-Mallik-Schmuck-Soudjani (arXiv:2202.07480) and
-// Piterman-Pnueli-Sa'ar, Synthesis of Reactive(1) Designs.
-//
-// Pair tags travel on the AIG justice/fairness records (aig_*_pair); a game
-// with a single pair (npairs == 1) reduces exactly to the conventional GR(1)
-// solver.
+// FIRST CUT: gated to k == 2 (4 Rabin pairs + a 1-bit degeneralization
+// counter). This computes and reports the winning region / realizability; the
+// finite-memory strategy extraction is staged (the caller falls back to ltlsynt
+// meanwhile).
 
 #include "tlsf/grk_oxidd.h"
 
 #include "tlsf/oxidd_common.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #define OXIDD_INNER_CAP (1u << 19)
 #define OXIDD_CACHE_CAP (1u << 19)
 
-// ---------------------------------------------------------------------------
-// Dynamic array of BDD references (for μ-fixpoint Y-levels)
-// ---------------------------------------------------------------------------
-
-typedef struct {
-  Bdd *arr;
-  uint32_t n, cap;
-} BddVec;
-
-static bool bddvec_push(BddVec *v, Bdd b) {
-  if (v->n == v->cap) {
-    uint32_t nc = v->cap ? v->cap * 2 : 4;
-    Bdd *narr = realloc(v->arr, nc * sizeof *narr);
-    if (!narr)
-      return false;
-    v->arr = narr;
-    v->cap = nc;
-  }
-  v->arr[v->n++] = b;
-  return true;
-}
-
-static void bddvec_free_all(BddVec *v) {
-  for (uint32_t i = 0; i < v->n; i++)
-    oxidd_bdd_unref(v->arr[i]);
-  free(v->arr);
-  *v = (BddVec){0};
-}
-
-// ---------------------------------------------------------------------------
-// cpre helpers
-// ---------------------------------------------------------------------------
-
-// Full cpre: ∀u ∃c [¬bad ∧ T[s:=next]]  — T is a state predicate, result too.
+// Full cpre: ∀u. ∃c. [¬bad ∧ T[s:=next]] — state predicate in, state out.
 static Bdd cpre_full(Bdd T, oxidd_bdd_substitution_t *sub_lat, Bdd notbad,
                      Bdd ctrl_cube, Bdd unc_cube) {
   Bdd img = oxidd_bdd_substitute(T, sub_lat);
@@ -87,13 +42,125 @@ static Bdd cpre_full(Bdd T, oxidd_bdd_substitution_t *sub_lat, Bdd notbad,
   return result;
 }
 
-// Unquantified cpre: ¬bad ∧ T[s:=next]  — result is over (s, u, c).
-static Bdd cpre_unquantified(Bdd T, oxidd_bdd_substitution_t *sub_lat,
-                             Bdd notbad) {
-  Bdd img = oxidd_bdd_substitute(T, sub_lat);
-  Bdd result = oxidd_bdd_and(notbad, img);
-  oxidd_bdd_unref(img);
-  return result;
+// ---------------------------------------------------------------------------
+// Simple-Rabin winning-region fixpoint (eq 7), recursion over pair
+// permutations.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+  oxidd_bdd_substitution_t *sub_lat;
+  Bdd notbad, ctrl_cube, unc_cube;
+  uint32_t np; // number of real Rabin pairs (index 1..np; 0 is artificial)
+  Bdd *R;      // R[0..np], R[0] = ⊥ (artificial)
+  Bdd *G;      // G[0..np], G[0] = ⊥ (artificial)
+  // Per-level recursion scratch, length np+1 (levels 0..np):
+  int *pidx;    // pidx[d] = pair chosen at level d (pidx[0] = 0, artificial)
+  Bdd *Yv, *Xv; // current ν/μ iterates at each level (refs owned by level d)
+  Bdd *avoid;   // avoid[d] = ⋂_{i≤d} ¬R[pidx[i]] (ref owned)
+  bool err;
+} RabinCtx;
+
+static Bdd rc_cpre(RabinCtx *c, Bdd T) {
+  return cpre_full(T, c->sub_lat, c->notbad, c->ctrl_cube, c->unc_cube);
+}
+
+// C_j = avoid[j] ∩ [ (G[pidx[j]] ∩ Cpre(Yv[j])) ∪ Cpre(Xv[j]) ].
+static Bdd rc_cterm(RabinCtx *c, uint32_t j) {
+  Bdd cy = rc_cpre(c, c->Yv[j]);
+  Bdd gcy = oxidd_bdd_and(c->G[c->pidx[j]], cy);
+  Bdd cx = rc_cpre(c, c->Xv[j]);
+  Bdd inner = oxidd_bdd_or(gcy, cx);
+  Bdd res = oxidd_bdd_and(c->avoid[j], inner);
+  oxidd_bdd_unref(cy);
+  oxidd_bdd_unref(gcy);
+  oxidd_bdd_unref(cx);
+  oxidd_bdd_unref(inner);
+  return res;
+}
+
+static bool pair_used(RabinCtx *c, uint32_t depth, int q) {
+  for (uint32_t d = 1; d <= depth; d++)
+    if (c->pidx[d] == q)
+      return true;
+  return false;
+}
+
+// Computes νY_d. μX_d. [body_d], given enclosing iterates Yv/Xv[0..d-1] set.
+static Bdd rabin_level(RabinCtx *c, oxidd_bdd_manager_t m, uint32_t d);
+
+// body at level d: union of deeper levels (d<np) or the C-term union (d==np).
+static Bdd rabin_body(RabinCtx *c, oxidd_bdd_manager_t m, uint32_t d) {
+  if (d == c->np) {
+    Bdd body = oxidd_bdd_false(m);
+    for (uint32_t j = 0; j <= c->np && !c->err; j++) {
+      Bdd cj = rc_cterm(c, j);
+      Bdd nb = oxidd_bdd_or(body, cj);
+      oxidd_bdd_unref(body);
+      oxidd_bdd_unref(cj);
+      body = nb;
+      if (bdd_invalid(body))
+        c->err = true;
+    }
+    return body;
+  }
+  Bdd body = oxidd_bdd_false(m);
+  for (int q = 1; q <= (int)c->np && !c->err; q++) {
+    if (pair_used(c, d, q))
+      continue;
+    c->pidx[d + 1] = q;
+    Bdd nr = oxidd_bdd_not(c->R[q]);
+    c->avoid[d + 1] = oxidd_bdd_and(c->avoid[d], nr);
+    oxidd_bdd_unref(nr);
+    Bdd part = rabin_level(c, m, d + 1);
+    oxidd_bdd_unref(c->avoid[d + 1]);
+    c->avoid[d + 1] = (Bdd){0};
+    Bdd nb = oxidd_bdd_or(body, part);
+    oxidd_bdd_unref(body);
+    oxidd_bdd_unref(part);
+    body = nb;
+    if (bdd_invalid(body))
+      c->err = true;
+  }
+  return body;
+}
+
+static Bdd rabin_level(RabinCtx *c, oxidd_bdd_manager_t m, uint32_t d) {
+  Bdd Y = oxidd_bdd_true(m); // ν from ⊤
+  for (;;) {
+    if (c->err) {
+      oxidd_bdd_unref(Y);
+      return oxidd_bdd_false(m);
+    }
+    c->Yv[d] = oxidd_bdd_ref(Y);
+    Bdd X = oxidd_bdd_false(m); // μ from ⊥
+    for (;;) {
+      c->Xv[d] = oxidd_bdd_ref(X);
+      Bdd body = rabin_body(c, m, d);
+      oxidd_bdd_unref(c->Xv[d]);
+      c->Xv[d] = (Bdd){0};
+      if (bdd_invalid(body) || c->err) {
+        oxidd_bdd_unref(X);
+        oxidd_bdd_unref(body);
+        c->err = true;
+        oxidd_bdd_unref(c->Yv[d]);
+        c->Yv[d] = (Bdd){0};
+        return oxidd_bdd_false(m);
+      }
+      bool conv = bdd_eq(body, X);
+      oxidd_bdd_unref(X);
+      X = body;
+      if (conv)
+        break;
+    }
+    oxidd_bdd_unref(c->Yv[d]);
+    c->Yv[d] = (Bdd){0};
+    bool conv = bdd_eq(X, Y);
+    oxidd_bdd_unref(Y);
+    Y = X;
+    if (conv)
+      break;
+  }
+  return Y;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,12 +172,28 @@ Aig *solve_grk_oxidd(Aig *game, int *unreal) {
   if (!game)
     return nullptr;
 
+  uint32_t npairs = aig_num_pairs(game);
   uint32_t m_goals = aig_num_justice(game);
   uint32_t m_fair = aig_num_fairness(game);
-  uint32_t npairs = aig_num_pairs(game);
 
-  // A Streett game must have at least one justice goal.
-  if (m_goals == 0) {
+  // FIRST CUT gate: exactly two single-set Streett pairs.
+  if (npairs != 2 || m_goals != 2 || m_fair != 2) {
+    aig_free(game);
+    return nullptr;
+  }
+  // Each pair must carry exactly one justice and one fairness record.
+  uint32_t jc[2] = {0, 0}, fc[2] = {0, 0};
+  for (uint32_t j = 0; j < m_goals; j++) {
+    uint32_t p = aig_justice_pair(game, j);
+    if (p < 2)
+      jc[p]++;
+  }
+  for (uint32_t i = 0; i < m_fair; i++) {
+    uint32_t p = aig_fairness_pair(game, i);
+    if (p < 2)
+      fc[p]++;
+  }
+  if (jc[0] != 1 || jc[1] != 1 || fc[0] != 1 || fc[1] != 1) {
     aig_free(game);
     return nullptr;
   }
@@ -139,9 +222,9 @@ Aig *solve_grk_oxidd(Aig *game, int *unreal) {
       maxvar = lhs / 2;
   }
 
-  // BDD var layout: 0..nin-1 = inputs, nin..nin+nlat-1 = latches,
-  //                 nin+nlat..nin+nlat+m_goals-1 = goal counter curr[j].
-  uint32_t nvars = nin + nlat + m_goals;
+  // BDD var layout: inputs, game latches, then 1 degeneralization-counter var.
+  uint32_t nvars = nin + nlat + 1;
+  uint32_t cnt_var_off = nin + nlat; // counter var index (relative to var_base)
 
   bool own_mgr = (oxidd_session_get()._p == NULL);
   oxidd_bdd_manager_t m;
@@ -157,49 +240,24 @@ Aig *solve_grk_oxidd(Aig *game, int *unreal) {
     var_base = oxidd_session_alloc_vars(nvars);
   }
 
-  Aig *strat = nullptr;
   Bdd *var_bdd = calloc(maxvar + 1, sizeof *var_bdd);
-  Bdd *next_bdd = nlat ? calloc(nlat, sizeof *next_bdd) : nullptr;
-  Bdd *goal_bdd = m_goals ? calloc(m_goals, sizeof *goal_bdd) : nullptr;
-  Bdd *fair_bdd = m_fair ? calloc(m_fair, sizeof *fair_bdd) : nullptr;
-  Bdd *not_fair = npairs ? calloc(npairs, sizeof *not_fair) : nullptr;
-  uint32_t *goal_pair = m_goals ? calloc(m_goals, sizeof *goal_pair) : nullptr;
-  Bdd *curr_bdd = m_goals ? calloc(m_goals, sizeof *curr_bdd) : nullptr;
-  uint32_t *var2lit = calloc(nvars, sizeof *var2lit);
-  uint32_t *lat_lit = nlat ? calloc(nlat, sizeof *lat_lit) : nullptr;
-  uint32_t *curr_latch_lit =
-      m_goals ? calloc(m_goals, sizeof *curr_latch_lit) : nullptr;
+  Bdd *next_bdd = calloc(nlat + 1, sizeof *next_bdd); // +1 for the counter
   uint32_t *cvars = nin ? calloc(nin, sizeof *cvars) : nullptr;
   uint32_t *uvars = nin ? calloc(nin, sizeof *uvars) : nullptr;
-  uint32_t *cinput = nin ? calloc(nin, sizeof *cinput) : nullptr;
-  Bdd *strat_f = nullptr;
-  BddVec *y_levels = m_goals ? calloc(m_goals, sizeof *y_levels) : nullptr;
-
-  if (!var_bdd || (nlat && !next_bdd) || !goal_bdd || (m_fair && !fair_bdd) ||
-      (npairs && !not_fair) || !goal_pair || !curr_bdd || !var2lit ||
-      (nlat && !lat_lit) || !curr_latch_lit ||
-      (nin && (!cvars || !uvars || !cinput)) || !y_levels) {
+  if (!var_bdd || !next_bdd || (nin && (!cvars || !uvars))) {
     free(var_bdd);
     free(next_bdd);
-    free(goal_bdd);
-    free(fair_bdd);
-    free(not_fair);
-    free(goal_pair);
-    free(curr_bdd);
-    free(var2lit);
-    free(lat_lit);
-    free(curr_latch_lit);
     free(cvars);
     free(uvars);
-    free(cinput);
-    free(y_levels);
     if (own_mgr)
       oxidd_bdd_manager_unref(m);
     aig_free(game);
     return nullptr;
   }
 
-  Bdd bad = {0}, notbad = {0}, W = {0}, ctrl_cube = {0}, unc_cube = {0};
+  Bdd notbad = {0}, ctrl_cube = {0}, unc_cube = {0}, bad = {0};
+  Bdd a0 = {0}, a1 = {0}, g0 = {0}, g1 = {0}, cvar = {0}, c_next = {0};
+  Bdd Rb[4] = {{0}}, Gb[4] = {{0}};
   oxidd_bdd_substitution_t *sub_lat = nullptr;
   uint32_t ncv = 0, nuv = 0;
   bool ok = true;
@@ -208,32 +266,28 @@ Aig *solve_grk_oxidd(Aig *game, int *unreal) {
     uint32_t lit;
     const char *name = aig_input_name(game, p, &lit);
     var_bdd[lit / 2] = oxidd_bdd_var(m, var_base + p);
-    if (is_controllable(name)) {
-      cvars[ncv] = var_base + p;
-      cinput[ncv] = p;
-      ncv++;
-    } else {
+    if (is_controllable(name))
+      cvars[ncv++] = var_base + p;
+    else
       uvars[nuv++] = var_base + p;
-    }
   }
   for (uint32_t j = 0; j < nlat; j++) {
     uint32_t cur;
     aig_latch_at(game, j, &cur, nullptr, nullptr);
     var_bdd[cur / 2] = oxidd_bdd_var(m, var_base + nin + j);
   }
-  for (uint32_t j = 0; j < m_goals; j++)
-    curr_bdd[j] = oxidd_bdd_var(m, var_base + nin + nlat + j);
+  cvar = oxidd_bdd_var(m, var_base + cnt_var_off);
 
   for (uint32_t i = 0; i < nand && ok; i++) {
     uint32_t lhs, r0, r1;
     aig_and_at(game, i, &lhs, &r0, &r1);
     Bdd a = lit_to_bdd(m, var_bdd, r0);
     Bdd b = lit_to_bdd(m, var_bdd, r1);
-    Bdd c = oxidd_bdd_and(a, b);
+    Bdd cc = oxidd_bdd_and(a, b);
     oxidd_bdd_unref(a);
     oxidd_bdd_unref(b);
-    var_bdd[lhs / 2] = c;
-    if (bdd_invalid(c))
+    var_bdd[lhs / 2] = cc;
+    if (bdd_invalid(cc))
       ok = false;
   }
 
@@ -253,468 +307,171 @@ Aig *solve_grk_oxidd(Aig *game, int *unreal) {
       ok = false;
   }
 
-  // Justice goal BDDs + their pair index.
-  for (uint32_t j = 0; j < m_goals && ok; j++) {
-    const uint32_t *lits;
-    uint32_t n;
-    aig_justice_at(game, j, &lits, &n);
-    goal_bdd[j] = (n > 0) ? lit_to_bdd(m, var_bdd, lits[0]) : oxidd_bdd_true(m);
-    goal_pair[j] = aig_justice_pair(game, j);
-    if (goal_pair[j] >= npairs || bdd_invalid(goal_bdd[j]))
-      ok = false;
-  }
-
-  // Per-pair escape not_fair[k] = ⋃_{i: pair(i)=k} ¬fair_i.  A pair with no
-  // fairness gets ⊥ (the system must satisfy its goals unconditionally).
-  for (uint32_t k = 0; k < npairs && ok; k++)
-    not_fair[k] = oxidd_bdd_false(m);
-  for (uint32_t i = 0; i < m_fair && ok; i++) {
-    uint32_t lit = aig_fairness_at(game, i);
-    uint32_t k = aig_fairness_pair(game, i);
-    fair_bdd[i] = lit_to_bdd(m, var_bdd, lit);
-    if (k >= npairs || bdd_invalid(fair_bdd[i])) {
-      ok = false;
-      break;
-    }
-    Bdd nfi = oxidd_bdd_not(fair_bdd[i]);
-    Bdd tmp = oxidd_bdd_or(not_fair[k], nfi);
-    oxidd_bdd_unref(not_fair[k]);
-    oxidd_bdd_unref(nfi);
-    not_fair[k] = tmp;
-    if (bdd_invalid(not_fair[k]))
-      ok = false;
-  }
-
+  // Pair goal/assumption BDDs (single-set, by pair tag).
   if (ok) {
-    sub_lat = oxidd_bdd_substitution_new(nlat);
+    for (uint32_t j = 0; j < m_goals; j++) {
+      const uint32_t *lits;
+      uint32_t n;
+      aig_justice_at(game, j, &lits, &n);
+      Bdd gb = (n > 0) ? lit_to_bdd(m, var_bdd, lits[0]) : oxidd_bdd_true(m);
+      if (aig_justice_pair(game, j) == 0)
+        g0 = gb;
+      else
+        g1 = gb;
+    }
+    for (uint32_t i = 0; i < m_fair; i++) {
+      Bdd fb = lit_to_bdd(m, var_bdd, aig_fairness_at(game, i));
+      if (aig_fairness_pair(game, i) == 0)
+        a0 = fb;
+      else
+        a1 = fb;
+    }
+    if (bdd_invalid(g0) || bdd_invalid(g1) || bdd_invalid(a0) ||
+        bdd_invalid(a1))
+      ok = false;
+  }
+
+  // Degeneralization counter c (reset 0): GF(c ∧ g1) ⟺ GF g0 ∧ GF g1.
+  //   c_next = (¬c ∧ g0) ∨ (c ∧ ¬g1).
+  if (ok) {
+    Bdd nc = oxidd_bdd_not(cvar);
+    Bdd ng1 = oxidd_bdd_not(g1);
+    Bdd t0 = oxidd_bdd_and(nc, g0);
+    Bdd t1 = oxidd_bdd_and(cvar, ng1);
+    c_next = oxidd_bdd_or(t0, t1);
+    oxidd_bdd_unref(nc);
+    oxidd_bdd_unref(ng1);
+    oxidd_bdd_unref(t0);
+    oxidd_bdd_unref(t1);
+    next_bdd[nlat] = c_next; // owned by next_bdd cleanup
+    if (bdd_invalid(c_next))
+      ok = false;
+  }
+
+  // Latch (and counter) substitution s := next.
+  if (ok) {
+    sub_lat = oxidd_bdd_substitution_new(nlat + 1);
     for (uint32_t j = 0; j < nlat; j++)
       oxidd_bdd_substitution_add_pair(sub_lat, var_base + nin + j, next_bdd[j]);
+    oxidd_bdd_substitution_add_pair(sub_lat, var_base + cnt_var_off,
+                                    next_bdd[nlat]);
     ctrl_cube = cube_of(m, cvars, ncv);
     unc_cube = cube_of(m, uvars, nuv);
     if (!sub_lat || bdd_invalid(ctrl_cube) || bdd_invalid(unc_cube))
       ok = false;
   }
 
-  // -----------------------------------------------------------------------
-  // PPS tri-nested fixpoint with per-pair escape.
-  //   W* = νZ. ⋀_j [ μY. νX. cpre( (Z∩goal_j) ∪ Y ∪ (X∩not_fair[pair(j)]) ) ]
-  // -----------------------------------------------------------------------
-
+  // Four simple-Rabin pairs of the Streett(2) -> generalized-Rabin reduction:
+  //   S=∅    : R=⊥,        G=ĝ=(c∧g1)   (degeneralized {g0,g1})
+  //   S={0}  : R=a0,       G=g1
+  //   S={1}  : R=a1,       G=g0
+  //   S={0,1}: R=a0∪a1,    G=⊤
   if (ok) {
-    W = oxidd_bdd_true(m);
-
-    for (;;) {
-      Bdd W_prev = oxidd_bdd_ref(W);
-      Bdd W_new = oxidd_bdd_true(m);
-
-      for (uint32_t j = 0; j < m_goals && ok; j++) {
-        bddvec_free_all(&y_levels[j]);
-        Bdd nf = not_fair[goal_pair[j]];
-
-        Bdd Y = oxidd_bdd_false(m);
-
-        for (;;) {
-          Bdd X = oxidd_bdd_true(m);
-
-          for (;;) {
-            Bdd wg = oxidd_bdd_and(W, goal_bdd[j]);
-            Bdd wgy = oxidd_bdd_or(wg, Y);
-            Bdd xnf = oxidd_bdd_and(X, nf);
-            Bdd target = oxidd_bdd_or(wgy, xnf);
-            oxidd_bdd_unref(wg);
-            oxidd_bdd_unref(wgy);
-            oxidd_bdd_unref(xnf);
-
-            Bdd X_new = cpre_full(target, sub_lat, notbad, ctrl_cube, unc_cube);
-            oxidd_bdd_unref(target);
-
-            if (bdd_invalid(X_new)) {
-              oxidd_bdd_unref(X);
-              ok = false;
-              break;
-            }
-            bool inner_conv = bdd_eq(X_new, X);
-            oxidd_bdd_unref(X);
-            X = X_new;
-            if (inner_conv)
-              break;
-          }
-          if (!ok)
-            break;
-
-          bool mu_conv = bdd_eq(X, Y);
-          if (!bddvec_push(&y_levels[j], oxidd_bdd_ref(X))) {
-            oxidd_bdd_unref(X);
-            ok = false;
-            break;
-          }
-          oxidd_bdd_unref(Y);
-          Y = X;
-          if (mu_conv)
-            break;
-        }
-        if (!ok)
-          break;
-
-        Bdd tmp = oxidd_bdd_and(W_new, Y);
-        oxidd_bdd_unref(W_new);
-        oxidd_bdd_unref(Y);
-        W_new = tmp;
-        if (bdd_invalid(W_new)) {
-          ok = false;
-          break;
-        }
-      }
-
-      bool outer_conv = ok && bdd_eq(W_new, W_prev);
-      oxidd_bdd_unref(W);
-      oxidd_bdd_unref(W_prev);
-      W = W_new;
-      if (outer_conv || !ok)
-        break;
-    }
-  }
-
-  // Realizability: W* must hold at latch reset cube.
-  if (ok) {
-    oxidd_var_no_bool_pair_t *args =
-        nlat ? calloc(nlat, sizeof *args) : nullptr;
-    for (uint32_t j = 0; j < nlat; j++) {
-      uint32_t reset;
-      aig_latch_at(game, j, nullptr, nullptr, &reset);
-      args[j].var = var_base + nin + j;
-      args[j].val = reset != 0;
-    }
-    bool realizable = oxidd_bdd_eval(W, args, nlat);
-    free(args);
-    if (!realizable) {
-      *unreal = 1;
-      ok = false;
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Strategy extraction (per-pair escape in the ranking move; otherwise the
-  // GR(1) construction: ranked move per goal, one-hot round-robin counter).
-  // -----------------------------------------------------------------------
-
-  if (ok && !*unreal) {
-    strat_f = ncv ? calloc(ncv, sizeof *strat_f) : nullptr;
-    if (ncv && !strat_f)
-      ok = false;
-  }
-
-  Bdd *eff_curr = nullptr;
-  if (ok && !*unreal) {
-    eff_curr = calloc(m_goals, sizeof *eff_curr);
-    if (!eff_curr) {
-      ok = false;
-    } else {
-      Bdd any_curr = oxidd_bdd_false(m);
-      for (uint32_t j = 0; j < m_goals && ok; j++) {
-        Bdd tmp = oxidd_bdd_or(any_curr, curr_bdd[j]);
-        oxidd_bdd_unref(any_curr);
-        any_curr = tmp;
-        if (bdd_invalid(any_curr))
-          ok = false;
-      }
-      if (ok) {
-        Bdd not_any = oxidd_bdd_not(any_curr);
-        eff_curr[0] = oxidd_bdd_or(curr_bdd[0], not_any);
-        oxidd_bdd_unref(not_any);
-        for (uint32_t j = 1; j < m_goals; j++)
-          eff_curr[j] = oxidd_bdd_ref(curr_bdd[j]);
-        if (bdd_invalid(eff_curr[0]))
-          ok = false;
-      }
-      oxidd_bdd_unref(any_curr);
-    }
-  }
-
-  if (ok && !*unreal) {
-    Bdd w_safe = cpre_unquantified(W, sub_lat, notbad);
-    Bdd M_total = oxidd_bdd_false(m);
-
-    for (uint32_t j = 0; j < m_goals && ok; j++) {
-      Bdd nf = not_fair[goal_pair[j]];
-      Bdd at_goal = oxidd_bdd_and(W, goal_bdd[j]);
-
-      Bdd case_at_goal = oxidd_bdd_and(at_goal, w_safe);
-      Bdd M_j = oxidd_bdd_ref(case_at_goal);
-      oxidd_bdd_unref(case_at_goal);
-
-      Bdd covered = oxidd_bdd_ref(at_goal);
-
-      for (uint32_t k = 0; k < y_levels[j].n && ok; k++) {
-        Bdd yk = y_levels[j].arr[k];
-
-        Bdd ncover = oxidd_bdd_not(covered);
-        Bdd layer = oxidd_bdd_and(yk, ncover);
-        oxidd_bdd_unref(ncover);
-
-        Bdd strict;
-        if (k == 0) {
-          strict = oxidd_bdd_ref(at_goal);
-        } else {
-          Bdd yk_minus1 = y_levels[j].arr[k - 1];
-          strict = oxidd_bdd_or(yk_minus1, at_goal);
-        }
-        Bdd escape = oxidd_bdd_and(nf, yk);
-        Bdd target = oxidd_bdd_or(strict, escape);
-        oxidd_bdd_unref(strict);
-        oxidd_bdd_unref(escape);
-        if (bdd_invalid(target)) {
-          oxidd_bdd_unref(layer);
-          ok = false;
-          break;
-        }
-
-        Bdd move_k = cpre_unquantified(target, sub_lat, notbad);
-        oxidd_bdd_unref(target);
-
-        Bdd case_k = oxidd_bdd_and(layer, move_k);
-        oxidd_bdd_unref(layer);
-        oxidd_bdd_unref(move_k);
-
-        Bdd new_mj = oxidd_bdd_or(M_j, case_k);
-        oxidd_bdd_unref(M_j);
-        oxidd_bdd_unref(case_k);
-        M_j = new_mj;
-
-        Bdd new_cov = oxidd_bdd_or(covered, yk);
-        oxidd_bdd_unref(covered);
-        covered = new_cov;
-
-        if (bdd_invalid(M_j) || bdd_invalid(covered))
-          ok = false;
-      }
-
-      oxidd_bdd_unref(covered);
-      oxidd_bdd_unref(at_goal);
-
-      if (ok) {
-        Bdd piece = oxidd_bdd_and(eff_curr[j], M_j);
-        oxidd_bdd_unref(M_j);
-        Bdd new_total = oxidd_bdd_or(M_total, piece);
-        oxidd_bdd_unref(M_total);
-        oxidd_bdd_unref(piece);
-        M_total = new_total;
-        if (bdd_invalid(M_total))
-          ok = false;
-      } else {
-        oxidd_bdd_unref(M_j);
-      }
-    }
-    oxidd_bdd_unref(w_safe);
-
-    if (ok) {
-      Bdd R = oxidd_bdd_ref(M_total);
-      for (uint32_t k = 0; k < ncv && ok; k++) {
-        Bdd pos = oxidd_bdd_var(m, cvars[k]);
-        Bdd rk1 = oxidd_bdd_restrict(R, pos);
-        Bdd rem = cube_of(m, cvars + k + 1, ncv - k - 1);
-        Bdd fk = oxidd_bdd_exists(rk1, rem);
-        oxidd_bdd_unref(pos);
-        oxidd_bdd_unref(rk1);
-        oxidd_bdd_unref(rem);
-        if (bdd_invalid(fk)) {
-          oxidd_bdd_unref(fk);
-          ok = false;
-          break;
-        }
-        strat_f[k] = fk;
-        oxidd_bdd_substitution_t *s1 = oxidd_bdd_substitution_new(1);
-        oxidd_bdd_substitution_add_pair(s1, cvars[k], fk);
-        Bdd rnew = oxidd_bdd_substitute(R, s1);
-        oxidd_bdd_substitution_free(s1);
-        oxidd_bdd_unref(R);
-        R = rnew;
-        if (bdd_invalid(R))
-          ok = false;
-      }
-      oxidd_bdd_unref(R);
-    }
-    oxidd_bdd_unref(M_total);
-  }
-
-  // Goal-counter next-functions: round-robin advance when the current goal is
-  // reached in the winning region.
-  Bdd *next_curr = nullptr;
-  if (ok && !*unreal) {
-    next_curr = m_goals ? calloc(m_goals, sizeof *next_curr) : nullptr;
-    if (!next_curr) {
-      ok = false;
-    } else {
-      Bdd *adv = calloc(m_goals, sizeof *adv);
-      if (!adv) {
+    Rb[0] = oxidd_bdd_false(m);
+    Gb[0] = oxidd_bdd_and(cvar, g1);
+    Rb[1] = oxidd_bdd_ref(a0);
+    Gb[1] = oxidd_bdd_ref(g1);
+    Rb[2] = oxidd_bdd_ref(a1);
+    Gb[2] = oxidd_bdd_ref(g0);
+    Rb[3] = oxidd_bdd_or(a0, a1);
+    Gb[3] = oxidd_bdd_true(m);
+    for (int i = 0; i < 4; i++)
+      if (bdd_invalid(Rb[i]) || bdd_invalid(Gb[i]))
         ok = false;
-      } else {
-        for (uint32_t j = 0; j < m_goals && ok; j++) {
-          Bdd wg = oxidd_bdd_and(W, goal_bdd[j]);
-          adv[j] = oxidd_bdd_and(eff_curr[j], wg);
-          oxidd_bdd_unref(wg);
-          if (bdd_invalid(adv[j]))
-            ok = false;
-        }
-        if (ok) {
-          for (uint32_t j = 0; j < m_goals && ok; j++) {
-            uint32_t prev = (j + m_goals - 1) % m_goals;
-            Bdd not_adv = oxidd_bdd_not(adv[j]);
-            Bdd stay = oxidd_bdd_and(eff_curr[j], not_adv);
-            Bdd come = oxidd_bdd_and(eff_curr[prev], adv[prev]);
-            Bdd nxt = oxidd_bdd_or(stay, come);
-            oxidd_bdd_unref(not_adv);
-            oxidd_bdd_unref(stay);
-            oxidd_bdd_unref(come);
-            next_curr[j] = nxt;
-            if (bdd_invalid(nxt))
-              ok = false;
-          }
-        }
-        for (uint32_t j = 0; j < m_goals; j++)
-          oxidd_bdd_unref(adv[j]);
-        free(adv);
+  }
+
+  Bdd W = {0};
+  if (ok) {
+    // Rabin pair arrays indexed 1..4 (index 0 = artificial ⟨⊥,⊥⟩).
+    Bdd R5[5], G5[5];
+    R5[0] = oxidd_bdd_false(m);
+    G5[0] = oxidd_bdd_false(m);
+    for (int i = 0; i < 4; i++) {
+      R5[i + 1] = Rb[i];
+      G5[i + 1] = Gb[i];
+    }
+    int pidx[5] = {0, 0, 0, 0, 0};
+    Bdd Yv[5] = {{0}}, Xv[5] = {{0}}, avoid[5] = {{0}};
+    RabinCtx rc = {.sub_lat = sub_lat,
+                   .notbad = notbad,
+                   .ctrl_cube = ctrl_cube,
+                   .unc_cube = unc_cube,
+                   .np = 4,
+                   .R = R5,
+                   .G = G5,
+                   .pidx = pidx,
+                   .Yv = Yv,
+                   .Xv = Xv,
+                   .avoid = avoid,
+                   .err = false};
+    rc.avoid[0] = oxidd_bdd_true(m); // ⋂ of nothing
+    W = rabin_level(&rc, m, 0);
+    oxidd_bdd_unref(rc.avoid[0]);
+    oxidd_bdd_unref(R5[0]);
+    oxidd_bdd_unref(G5[0]);
+    if (rc.err || bdd_invalid(W))
+      ok = false;
+  }
+
+  // Realizability: W at the reset state (game latches + counter c = 0).
+  int realizable = 0;
+  if (ok) {
+    oxidd_var_no_bool_pair_t *args = calloc(nlat + 1, sizeof *args);
+    if (args) {
+      for (uint32_t j = 0; j < nlat; j++) {
+        uint32_t reset;
+        aig_latch_at(game, j, nullptr, nullptr, &reset);
+        args[j].var = var_base + nin + j;
+        args[j].val = reset != 0;
       }
+      args[nlat].var = var_base + cnt_var_off;
+      args[nlat].val = false;
+      realizable = oxidd_bdd_eval(W, args, nlat + 1) ? 1 : 0;
+      free(args);
+    } else {
+      ok = false;
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Build the strategy AIG.
-  // -----------------------------------------------------------------------
+  if (getenv("TLSF_GRK_DEBUG"))
+    fprintf(stderr, "[grk] k=2 Streett: ok=%d realizable=%d\n", ok, realizable);
 
-  if (ok && !*unreal) {
-    strat = aig_new();
-    for (uint32_t v = 0; v < nvars; v++)
-      var2lit[v] = UINT32_MAX;
+  if (ok && !realizable)
+    *unreal = 1;
 
-    for (uint32_t p = 0; p < nin; p++) {
-      uint32_t lit;
-      const char *name = aig_input_name(game, p, &lit);
-      if (!is_controllable(name))
-        var2lit[p] = aig_input(strat, name);
-    }
-
-    for (uint32_t j = 0; j < nlat; j++) {
-      uint32_t reset;
-      aig_latch_at(game, j, nullptr, nullptr, &reset);
-      lat_lit[j] = aig_latch(strat, AIG_FALSE, reset);
-      var2lit[nin + j] = lat_lit[j];
-    }
-
-    for (uint32_t j = 0; j < m_goals; j++) {
-      curr_latch_lit[j] = aig_latch(strat, AIG_FALSE, 0u);
-      var2lit[nin + nlat + j] = curr_latch_lit[j];
-    }
-
-    Bdd2Aig ctx = {strat, var2lit, var_base, {0}, false};
-
-    for (uint32_t k = 0; k < ncv; k++) {
-      uint32_t lit;
-      const char *name = aig_input_name(game, cinput[k], &lit);
-      uint32_t out = bdd2aig(&ctx, strat_f[k]);
-      aig_set_output(strat, name, out);
-    }
-
-    oxidd_bdd_substitution_t *sc =
-        ncv ? oxidd_bdd_substitution_new(ncv) : nullptr;
-    for (uint32_t k = 0; k < ncv; k++)
-      oxidd_bdd_substitution_add_pair(sc, cvars[k], strat_f[k]);
-    for (uint32_t j = 0; j < nlat && !ctx.error; j++) {
-      Bdd na = ncv ? oxidd_bdd_substitute(next_bdd[j], sc)
-                   : oxidd_bdd_ref(next_bdd[j]);
-      if (bdd_invalid(na)) {
-        oxidd_bdd_unref(na);
-        ctx.error = true;
-        break;
-      }
-      uint32_t nl = bdd2aig(&ctx, na);
-      oxidd_bdd_unref(na);
-      aig_set_latch_next(strat, lat_lit[j], nl);
-    }
-    if (sc)
-      oxidd_bdd_substitution_free(sc);
-
-    for (uint32_t j = 0; j < m_goals && !ctx.error; j++) {
-      uint32_t nl = bdd2aig(&ctx, next_curr[j]);
-      aig_set_latch_next(strat, curr_latch_lit[j], nl);
-    }
-
-    memo_free(&ctx.memo);
-    if (ctx.error) {
-      aig_free(strat);
-      strat = nullptr;
-    }
-  }
-
-  // -----------------------------------------------------------------------
   // Cleanup.
-  // -----------------------------------------------------------------------
-
-  if (next_curr) {
-    for (uint32_t j = 0; j < m_goals; j++)
-      oxidd_bdd_unref(next_curr[j]);
-    free(next_curr);
+  oxidd_bdd_unref(W);
+  for (int i = 0; i < 4; i++) {
+    oxidd_bdd_unref(Rb[i]);
+    oxidd_bdd_unref(Gb[i]);
   }
-  if (strat_f) {
-    for (uint32_t k = 0; k < ncv; k++)
-      oxidd_bdd_unref(strat_f[k]);
-    free(strat_f);
-  }
-  if (y_levels) {
-    for (uint32_t j = 0; j < m_goals; j++)
-      bddvec_free_all(&y_levels[j]);
-    free(y_levels);
-  }
-  if (goal_bdd) {
-    for (uint32_t j = 0; j < m_goals; j++)
-      oxidd_bdd_unref(goal_bdd[j]);
-    free(goal_bdd);
-  }
-  if (fair_bdd) {
-    for (uint32_t i = 0; i < m_fair; i++)
-      oxidd_bdd_unref(fair_bdd[i]);
-    free(fair_bdd);
-  }
-  if (not_fair) {
-    for (uint32_t k = 0; k < npairs; k++)
-      oxidd_bdd_unref(not_fair[k]);
-    free(not_fair);
-  }
-  free(goal_pair);
-  if (curr_bdd) {
-    for (uint32_t j = 0; j < m_goals; j++)
-      oxidd_bdd_unref(curr_bdd[j]);
-    free(curr_bdd);
-  }
-  if (eff_curr) {
-    for (uint32_t j = 0; j < m_goals; j++)
-      oxidd_bdd_unref(eff_curr[j]);
-    free(eff_curr);
-  }
-  for (uint32_t j = 0; j < nlat; j++)
+  oxidd_bdd_unref(a0);
+  oxidd_bdd_unref(a1);
+  oxidd_bdd_unref(g0);
+  oxidd_bdd_unref(g1);
+  oxidd_bdd_unref(cvar);
+  oxidd_bdd_unref(bad);
+  oxidd_bdd_unref(notbad);
+  oxidd_bdd_unref(ctrl_cube);
+  oxidd_bdd_unref(unc_cube);
+  for (uint32_t j = 0; j <= nlat; j++)
     oxidd_bdd_unref(next_bdd[j]);
   for (uint32_t v = 0; v <= maxvar; v++)
     oxidd_bdd_unref(var_bdd[v]);
-  oxidd_bdd_unref(bad);
-  oxidd_bdd_unref(notbad);
-  oxidd_bdd_unref(W);
-  oxidd_bdd_unref(ctrl_cube);
-  oxidd_bdd_unref(unc_cube);
   if (sub_lat)
     oxidd_bdd_substitution_free(sub_lat);
   if (own_mgr)
     oxidd_bdd_manager_unref(m);
   else
     oxidd_session_gc();
-
   free(var_bdd);
   free(next_bdd);
-  free(var2lit);
-  free(lat_lit);
-  free(curr_latch_lit);
   free(cvars);
   free(uvars);
-  free(cinput);
   aig_free(game);
-  return strat;
+
+  // Strategy extraction is staged: even when realizable, return nullptr so the
+  // caller falls back to ltlsynt for the actual controller.  The realizability
+  // verdict above is validated against Spot before the strategy work lands.
+  return nullptr;
 }
