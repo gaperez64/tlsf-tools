@@ -1,4 +1,4 @@
-c composition: residual=1/2 constraints (50% eliminated), outputs owned=1, conflicts=0
+c composition: residual=2/2 constraints (0% eliminated), outputs owned=0, conflicts=0
 c clusters 1
-c cluster 0 outs= ins=a
-G (true -> a)
+c cluster 0 outs=o ins=a
+F o && G (o -> a)

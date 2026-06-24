@@ -190,6 +190,20 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
   return buf;
 }
 
+// Verdict-trust: does the spec carry a liveness assumption (e.g. `G F a`)?  The
+// per-cluster decomposition may DROP such an assumption from a safety-only
+// cluster (cluster_assumption_mask) — a *strengthening* of the cluster: sound
+// for a REALIZABLE verdict (E ⟹ E_i), but its UNREALIZABLE verdict is NOT
+// trustworthy, since the dropped fairness assumption can rule out exactly the
+// env behaviours that force the violation.  When this holds we re-validate any
+// self-contained UNREAL with all assumptions kept before trusting it.
+static bool cover_has_liveness_assumption(const ConstraintCover *cov) {
+  for (uint32_t i = 0; i < cov->count; i++)
+    if (cov->items[i].assumption_side && !cov->items[i].is_safety)
+      return true;
+  return false;
+}
+
 static uint32_t count_seen_aps(const ConstraintCover *cov, const bool *seen,
                                uint32_t flag) {
   uint32_t count = 0;
@@ -842,6 +856,32 @@ int main(int argc, char *argv[]) {
       if (getenv("TLSFCOMPOSE_DEBUG"))
         fprintf(stderr, "tlsfcompose: cluster %u nodes=%u routed to %s\n", k,
                 ast_node_count(root), backend);
+      // Don't trust a self-contained UNREALIZABLE that a dropped liveness
+      // assumption could have caused: re-solve the cluster with all assumptions
+      // kept (prune=false) via the authoritative ltlsynt.  The drop only happens
+      // for a *safety-only* cluster (cluster_assumption_mask), so a liveness
+      // cluster cannot be tainted this way — gate on !has_liveness to avoid
+      // re-running ltlsynt on the slow liveness tail.  Only flips the verdict
+      // when ltlsynt actually produces a controller, so a genuine UNREAL (or an
+      // unavailable ltlsynt) is left intact.  See lily/lilydemo23.
+      if (unreal && !route.shape.has_liveness &&
+          cover_has_liveness_assumption(cov)) {
+        Node *full = residual_plan_build_cluster(
+            spec, cov, rplan, rplan->keys[k], /*all=*/false, /*prune=*/false,
+            seen);
+        if (full) {
+          int u2 = 0;
+          Aig *re =
+              run_ltlsynt_cluster(prog, cov, seen, full, fmt, finite, &u2);
+          if (re) {
+            aig_free(sub);
+            sub = re;
+            unreal = 0;
+            use_oxidd = false;
+            backend = "ltlsynt (re-validated, all assumptions kept)";
+          }
+        }
+      }
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
                 backend);

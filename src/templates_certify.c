@@ -953,6 +953,23 @@ void certify_response(Csnf *c, unsigned want, bool certify) {
   }
 }
 
+// A constant-style certification (reachability `F o` or persistence `FG o`,
+// which pin `o` to a fixed value forever) is sound only if `o` is otherwise
+// FREE.  If `o` is referenced by any OTHER constraint — a mutex `!(o & p)`, a
+// safety `o -> …`, etc. — pinning it can over-constrain the rest, so we decline
+// and leave `o` to the game.  (Found via lily/lilydemo19: `hl := true` for
+// `F hl` collapsed the invariant `!(hl & fl)` to `!fl`, falsely making the `fl`
+// response cluster UNREALIZABLE.  Note the mutex there is an INVARIANT, stored
+// without an explicit `G`, so a CAND_MUTEX check would miss it — hence the
+// direct support check.)
+static bool output_constrained_elsewhere(ConstraintCover *cov, uint32_t o,
+                                         uint32_t self) {
+  for (uint32_t j = 0; j < cov->count; j++)
+    if (j != self && apset_test(&cov->items[j].outputs, o))
+      return true;
+  return false;
+}
+
 // Persistence FG o: a free controllable output is held true forever.
 void certify_persistence(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_PERSISTENCE))
@@ -964,6 +981,8 @@ void certify_persistence(Csnf *c, unsigned want, bool certify) {
     if (c->claimed[i] || !has_cand(cc, "persistence") || pers_output < 0)
       continue;
     uint32_t o = (uint32_t)pers_output;
+    if (output_constrained_elsewhere(cov, o, i))
+      continue; // not free: pinning the output would over-constrain the rest
     Block *blk = new_block(c);
     if (!blk)
       return;
@@ -994,6 +1013,8 @@ void certify_reachability(Csnf *c, unsigned want, bool certify) {
     if (c->claimed[i] || !has_cand(cc, "reachability") || reach_output < 0)
       continue;
     uint32_t o = (uint32_t)reach_output;
+    if (output_constrained_elsewhere(cov, o, i))
+      continue; // not free: pinning the output would over-constrain the rest
     Block *blk = new_block(c);
     if (!blk)
       return;
