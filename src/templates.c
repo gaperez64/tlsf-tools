@@ -362,6 +362,22 @@ static bool block_is_comb(const Csnf *c, const Block *b) {
   return false;
 }
 
+// Verdict-trust registry: which certifiers are under-approximations (strategy
+// commitments for a liveness obligation) vs exact (forced-value substitution).
+// See templates_internal.h.  Liveness strategy families strengthen the residual;
+// the rest substitute a value the constraint forces.
+VerdictTrust block_trust(const Block *b) {
+  static const char *const under[] = {
+      "reachability", "persistence",          "response", "server",
+      "arbiter",      "round-robin",          "global-recurrence-switch",
+      "safety-invariant",
+  };
+  for (size_t i = 0; i < sizeof under / sizeof *under; i++)
+    if (b->name && !strcmp(b->name, under[i]))
+      return TRUST_UNDER;
+  return TRUST_EXACT; // definition / registers / reaction / mutex invariant
+}
+
 CsnfComposition *csnf_compose(const Csnf *c) {
   CsnfComposition *r = calloc(1, sizeof *r);
   if (!r)
@@ -480,8 +496,11 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   }
 
   for (uint32_t b = 0; b < B; b++)
-    if (r->accepted_block[b])
+    if (r->accepted_block[b]) {
       r->naccepted++;
+      if (block_trust(&c->blocks[b]) == TRUST_UNDER)
+        r->may_strengthen = true;
+    }
   for (uint32_t i = 0; i < N; i++)
     if (r->residual_constraint[i])
       r->nresidual++;

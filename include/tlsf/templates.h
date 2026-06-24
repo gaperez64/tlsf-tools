@@ -94,6 +94,11 @@ typedef struct {
   bool *elim_constraint; ///< per constraint: discharged by a combinational ctrl
   uint32_t neliminated;  ///< constraints discharged (not in the residual)
   uint32_t nowned_outputs; ///< outputs determined by a sound controller
+  bool may_strengthen; ///< an accepted block is an under-approximation (a
+                       ///< strategy commitment): the residual is strengthened,
+                       ///< so any self-contained UNREALIZABLE verdict it yields
+                       ///< is not trustworthy without re-validation.  (See the
+                       ///< VerdictTrust registry, block_trust.)
 } CsnfComposition;
 
 /// Substitute `value` for every leaf occurrence of the AP named `name` in `n`,
