@@ -73,12 +73,16 @@ struct Csnf {
 // one STRENGTHENS the residual: sound for a REALIZABLE verdict, but its
 // UNREALIZABLE verdict is not trustworthy.  An EXACT certifier extracts the
 // value the constraint *forces* (a definition/register/exclusive reaction) and
-// substitutes it, which is equivalence-preserving.  No certifier weakens
-// (OVER-approximates); false-REALs would come from OVER paths and are caught by
-// the `--verify` controller model-check.
+// substitutes it, which is equivalence-preserving.  An OVER-approximation
+// instead *weakens* the spec: its REALIZABLE verdict is not trustworthy
+// (false-REALs are caught by the `--verify` controller model-check), but its
+// UNREALIZABLE verdict is sound.  No template certifier is OVER (none weakens);
+// `TRUST_OVER` is used by the spec-level boolean-fragment UNREAL pre-check
+// (precheck_unreal.c) and by the W/R-safety route, which drop guarantees.
 typedef enum {
   TRUST_EXACT, // forced-value substitution (equivalence-preserving)
   TRUST_UNDER, // strategy commitment (strengthening): UNREAL not trustworthy
+  TRUST_OVER,  // weakening (drops guarantees): REAL not trustworthy, UNREAL is
 } VerdictTrust;
 
 // Classify a block's certifier by name.  UNDER certifiers rely on a coupling

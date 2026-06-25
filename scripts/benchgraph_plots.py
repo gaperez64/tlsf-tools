@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the aggregate plots and numbers behind BENCHGRAPH.md.
+"""STALE (unmaintained): generates the structural-census plots for the top of
+BENCHGRAPH.md.  Those plots were last refreshed 2026-06-21 over the
+`tlsf-selection-2026` / `tlsf-fin-selection-2026` corpora, which are no longer
+present, and have been removed from the repo.  The maintained benchmark is the
+ltlsynt-vs-preprocessor head-to-head in `scripts/benchgraph.py` (survival plot).
+Re-point this at an existing corpus before relying on its output.
+
+Generate the aggregate plots and numbers behind BENCHGRAPH.md.
 
 Runs `tlsfbenchgraph` over one or more TLSF corpora, aggregates the per-spec
 metrics TSV, and writes a set of PNG plots plus a markdown stats snippet.  The

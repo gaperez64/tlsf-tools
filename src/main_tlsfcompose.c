@@ -22,6 +22,7 @@
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
 #include "tlsf/liveness_class.h"
+#include "tlsf/precheck_unreal.h"
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
@@ -689,6 +690,26 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+
+  // Verdict-trust class TRUST_OVER (see precheck_unreal.h): a sound,
+  // OVER-approximation UNREALIZABLE pre-check over the boolean fragment.  It
+  // refutes a weakening of the spec (drops temporal guarantees, keeps every
+  // assumption, bails on any temporal assumption), so its UNREALIZABLE is
+  // trustworthy and it never claims REALIZABLE.  The temporal-assumption bail
+  // is a strict superset of the cover_has_liveness_assumption UNREAL-trust
+  // concern, so this verdict needs no re-validation.  Fires before the heavy
+  // recognize/certify/residual stages, matching ltlsynt's whole-formula fast
+  // path for trivially unrealizable inputs.
+  if (precheck_trivially_unreal(cov)) {
+    if (route_stats)
+      fprintf(stderr, "route-stats: unreal_precheck=1 "
+                      "(boolean fragment; over-approx, trusted UNREAL)\n");
+    fprintf(stderr, "tlsfcompose: spec is UNREALIZABLE "
+                    "(boolean-fragment pre-check; over-approx, trusted)\n");
+    spec_free(spec);
+    return 1;
+  }
+
   // Match normalization (opt-in) rewrites match_formula only; residual/routing
   // and the self-verification gate still use the original formula, so a wrong
   // normalization stays sound (it can only fail to recognize, never mis-solve).

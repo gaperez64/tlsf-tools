@@ -96,8 +96,8 @@ and accepts `--version`/`--help`. Options are long (`--`) only.
 ```sh
 # convert
 tlsf2ltl  spec.tlsf                       # spec's LTL (ltlxba, minimal parens)
-tlsf2ltl  --format ltl|latex spec.tlsf    # syfco-style LTL / LaTeX math
-tlsf2ltl  --strong-simplify spec.tlsf     # syfco -s1 (NNF + push/pull, etc.)
+tlsf2ltl  --format ltl|latex spec.tlsf    # plain LTL / LaTeX math
+tlsf2ltl  --strong-simplify spec.tlsf     # NNF + push/pull simplification, etc.
 tlsf2ltl  --safety | --liveness spec.tlsf # syntactic split of the formula
 tlsf2tlsf --basic spec.tlsf               # fully expanded basic TLSF
 
@@ -180,9 +180,9 @@ python3 scripts/verify_aiger_ltl.py --compose build-oxidd/tlsfcompose \
 `tlsfnorm` re-emits clean TLSF (split conjunctions, NNF, boolean simplify);
 `tlsf2ltl` gives the formula and `tlsfinfo --expanded-ins/--expanded-outs` the
 scalar interface, so any spot/Strix-style tool can take over. The `ltlxba`
-dialect lowercases atoms (spot/ltl2ba read uppercase letters as operators — as
-`syfco -f ltlxba` does), so lowercase the interface to match; the faithful `ltl`
-dialect keeps the original case.
+dialect lowercases atoms (spot/ltl2ba read uppercase letters as operators), so
+lowercase the interface to match; the faithful `ltl` dialect keeps the original
+case.
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
@@ -278,7 +278,7 @@ INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE)
 ```
 
 `REQUIRE`/`ASSERT` are wrapped in `G`; `PRESET` sits *outside* the
-assumption→guarantee implication (matching `syfco`); empty sections drop out. The
+assumption→guarantee implication; empty sections drop out. The
 shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
 
 - **Strict** (`Strict,*`) — the safety weak-until form
@@ -293,11 +293,10 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
 Output is minimally parenthesised by the spot/ltl2ba precedence
 (`! X F G` > `U R W M` > `&&` > `||` > `-> <->`); `--parenthesize` fully
 parenthesises. `--format` picks the spelling (`ltlxba`/`ltl`/`latex`).
-Equivalence-preserving rewrites mirror `syfco`'s flags
+Equivalence-preserving rewrites are exposed as flags
 (`--weak-simplify`=`-s0`, `--strong-simplify`=`-s1`, `--nnf`,
 `--no-{weak-until,release,finally,globally}`, `--{push,pull}-{globally,finally,next}-{in,out}`);
-every result is `ltlfilt --equivalent-to` the input. Check against syfco with
-`ltlfilt --equivalent-to="$(syfco -f ltlxba spec.tlsf)" -f "$(tlsf2ltl spec.tlsf)"`.
+every result is `ltlfilt --equivalent-to` the input.
 
 > The `--safety`/`--liveness` split is **syntactic**: after NNF, *safety* iff the
 > tree has no `F`/`U`/`M` node. A safety property written with liveness operators
@@ -310,19 +309,12 @@ meson test -C build                                  # fast golden-output suite
 meson setup build-cov -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
 clang-format -i src/*.c include/tlsf/*.h             # style (LLVM, 2-space, 80col)
 clang-tidy -p build src/*.c                          # lint
-bench/bench.sh [--baseline|--check]                  # wall/RSS vs syfco / guard
+bench/bench.sh [--baseline|--check]                  # wall/RSS perf-regression guard
 ```
 
 CI (`.github/workflows/ci.yml`) checks formatting, builds with gcc and clang,
 runs the suite + a valgrind no-leak check, gates line coverage at 75 %, and runs
-the `bench.sh --check` regression guard. On a ~100 KB spec `tlsf2ltl` is ~20×
-faster and uses ~7× less memory than `syfco -f ltlxba`.
-
-## Limitations
-
-Relative to `syfco`, not implemented: structured synthesis outputs
-(`smv`/`slugs`/`promela`/…), partition (`.part`) and config (`-r`/`-w`) files.
-Unsupported options fail through each tool's ordinary option validation.
+the `bench.sh --check` regression guard.
 
 ## License
 

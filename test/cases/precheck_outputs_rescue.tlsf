@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "precheck_outputs_rescue"
+  DESCRIPTION: "control case: the boolean-G guarantee mentions an output that can always satisfy it (the controller plays o := a), so the pre-check must stay silent and the spec is REALIZABLE via the OxiDD safety solver (no ltlsynt)."
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (a -> o);
+  }
+}

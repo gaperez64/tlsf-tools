@@ -1,5 +1,13 @@
 # SYNTCOMP selection form / template-shape statistics
 
+> **⚠️ STALE — structural census.** The statistics and plots in this section
+> were generated over `tlsf-selection-2026` / `tlsf-fin-selection-2026`, corpora
+> no longer present in the repo; the plots have been removed and the numbers are
+> not regenerable as-is (`scripts/benchgraph_plots.py` is marked stale).
+> Retained for design rationale only. The maintained benchmark is the **ltlsynt
+> vs preprocessor head-to-head** at the bottom of this file
+> (`scripts/benchgraph.py`, survival plot).
+>
 > Generated benchmark snapshot. This file records measurements; it is not a
 > roadmap. Regenerate it with the benchmark scripts before relying on the
 > numbers.
@@ -49,7 +57,6 @@ scripts/benchgraph.py \
 | `tlsf` | 1586 | 1586 | 15 / 40.4 / 5154 | 7 | 3 |
 | `tlsf-fin` | 748 | 748 | 13 / 19.0 / 162 | 13 | 35 |
 
-![Constraint-count distribution](docs/benchgraph/constraints_hist.png)
 
 ## Template-shape prevalence (decomposed)
 
@@ -60,7 +67,6 @@ scripts/benchgraph.py \
 
 _(cells: # specs with the shape, and total candidate count)_
 
-![Template-shape prevalence](docs/benchgraph/shape_prevalence.png)
 
 ## Template-solvable coverage (decomposed)
 
@@ -72,15 +78,12 @@ _(cells: # specs with the shape, and total candidate count)_
 `constraints eliminated` and `outputs owned` are residual-reduction metrics:
 constraints discharged and outputs determined by certified composable blocks.
 
-![Residual reduction](docs/benchgraph/coverage.png)
 
 ## Residual complexity (monolith -> residual)
 
 Residual complexity after all template work — per-spec residual = the games the synthesis backends still face (every accepted SOLVED block removed):
 
-![Residual independent games by synthesis class](docs/benchgraph/residual_class.png)
 
-![Hardest game dimensionality: monolith vs residual](docs/benchgraph/residual_gamesize.png)
 
 | corpus | fully solved | specs factoring ≥2 clusters | residual clusters (safety→OxiDD / liveness→ltlsynt) | hardest game outs monolith→residual (mean) | residual size / monolith |
 |---|--:|--:|--:|--:|--:|
@@ -98,7 +101,6 @@ Effect of `--split` (specs with the shape: raw → decomposed):
 | `tlsf` | 14686→64136 | 23→383 | 2→5 | 484→556 | 19→19 | 2→2 | 23→36 | 15→55 |
 | `tlsf-fin` | 1036→14243 | 0→26 | 0→46 | 0→0 | 0→0 | 0→0 | 22→77 | 22→22 |
 
-![Decomposition effect](docs/benchgraph/split_effect.png)
 
 ## Normalization obstacles before matching
 
@@ -205,7 +207,6 @@ non-self-contained specs (many of which are these reactive `A → G(B)` problems
 
 ## Normalisation (formula size under `--strong-simplify`)
 
-![Formula size under strong-simplify](docs/benchgraph/reduction.png)
 
 ## Key takeaways
 

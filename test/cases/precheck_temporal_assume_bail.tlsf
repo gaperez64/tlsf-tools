@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "precheck_temporal_assume_bail"
+  DESCRIPTION: "soundness bail: a temporal (liveness) assumption G F a is present, so the pre-check must NOT claim UNREAL from the boolean fragment even though the input-only guarantee G(a) is violable.  The downstream ltlsynt path still decides it (here: UNREALIZABLE)."
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  ASSUME {
+    G F (a);
+  }
+  GUARANTEE {
+    G (a);
+  }
+}

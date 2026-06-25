@@ -332,7 +332,7 @@ if have_oxidd
     'tlsfcompose',
     sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
               'src/compose_games.c', 'src/compose_solve.c',
-              'src/compose_route.c',
+              'src/compose_route.c', 'src/precheck_unreal.c',
               'src/safety_oxidd.c', 'src/gr1_oxidd.c',
               'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],
@@ -759,8 +759,34 @@ if have_oxidd
     args: [tlsfcompose_exe, '--aiger',
            '--ltlsynt', '/bin/false', '--verify', '/bin/false',
            files('test/cases/gr1_spec.tlsf')])
+  # TRUST_OVER boolean-fragment UNREAL pre-check: an input-only G guarantee is
+  # caught without ltlsynt (--ltlsynt /bin/false would fail if reached).
+  test('precheck_input_only_unreal', check_contains,
+    args: ['UNREALIZABLE \\(boolean-fragment pre-check', tlsfcompose_exe,
+           '--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/precheck_input_only.tlsf')])
+  test('precheck_route_stats', check_contains,
+    args: ['unreal_precheck=1', tlsfcompose_exe, '--split', '--aiger',
+           '--route-stats', '--ltlsynt', '/bin/false',
+           files('test/cases/precheck_input_only.tlsf')])
+  # Control: the boolean-G guarantee mentions an output that can satisfy it, so
+  # the pre-check stays silent and the OxiDD safety solver realizes it (exit 0,
+  # no ltlsynt).
+  test('precheck_outputs_rescue_real', tlsfcompose_exe,
+    args: ['--aiger', '--ltlsynt', '/bin/false',
+           files('test/cases/precheck_outputs_rescue.tlsf')])
   # --aiger cluster path needs real ltlsynt: only run where it is available.
   if ltlsynt.found()
+    # Soundness guard: a boolean assumption that forces the input rescues the
+    # otherwise input-only guarantee, so the pre-check must NOT fire and the
+    # spec is REALIZABLE (exit 0).
+    test('precheck_assume_rescues_real', tlsfcompose_exe,
+      args: ['--aiger', files('test/cases/precheck_assume_rescues.tlsf')])
+    # Soundness bail: a temporal assumption is present, so the pre-check bails
+    # and the downstream output-free ltlsynt check decides (UNREALIZABLE here).
+    test('precheck_temporal_assume_bail', check_contains,
+      args: ['output-free guarantee cluster is UNREALIZABLE', tlsfcompose_exe,
+             '--aiger', files('test/cases/precheck_temporal_assume_bail.tlsf')])
     test('aiger_cluster', tlsfcompose_exe,
       args: ['--aiger', files('test/cases/compose_demo.tlsf')])
     test('aiger_unrealizable', xfail,
