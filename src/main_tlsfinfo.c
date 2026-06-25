@@ -58,6 +58,15 @@ static void print_signals(FILE *out, const SignalDecl *sigs, uint32_t count) {
   fprintf(out, "\n");
 }
 
+// Comma-separated (no spaces) scalar signal names — ready to paste into
+// `ltlsynt --ins=…/--outs=…`.  Expects the post-expansion spec, where buses are
+// unrolled and parameters resolved so every SignalDecl is scalar.
+static void print_signals_csv(FILE *out, const SignalDecl *sigs, uint32_t n) {
+  for (uint32_t i = 0; i < n; i++)
+    fprintf(out, "%s%s", i ? "," : "", sigs[i].name);
+  fprintf(out, "\n");
+}
+
 static void print_tags(FILE *out, const TlsfSpec *s) {
   for (uint16_t i = 0; i < s->info.tag_count; i++) {
     if (i > 0)
@@ -188,6 +197,8 @@ typedef enum {
   SEL_INFO,
   SEL_INPUTS,
   SEL_OUTPUTS,
+  SEL_INS,  // expanded scalar inputs, ltlsynt --ins format
+  SEL_OUTS, // expanded scalar outputs, ltlsynt --outs format
   SEL_GR,
   SEL_BOUNDED_TEMPORAL,
   SEL_CHECK,
@@ -199,6 +210,8 @@ static void usage(const char *prog) {
           "Reads FILE (or stdin) and prints the requested metadata.\n"
           "  --title, --description, --semantics, --target, --tags\n"
           "  --parameters, --info, --input-signals, --output-signals\n"
+          "  --expanded-ins, --expanded-outs   expanded scalar signal CSV "
+          "(buses unrolled, params resolved; for ltlsynt --ins/--outs)\n"
           "  --generalized-reactivity   the GR(k) level (or NOT in GR)\n"
           "  --bounded-temporal         expanded X[k]/G[lo:hi]/F[lo:hi] "
           "origins\n"
@@ -223,6 +236,8 @@ static Selection parse_selection(const char *arg) {
       {"--info", SEL_INFO},
       {"--input-signals", SEL_INPUTS},
       {"--output-signals", SEL_OUTPUTS},
+      {"--expanded-ins", SEL_INS},
+      {"--expanded-outs", SEL_OUTS},
       {"--generalized-reactivity", SEL_GR},
       {"--bounded-temporal", SEL_BOUNDED_TEMPORAL},
       {"--check", SEL_CHECK},
@@ -316,6 +331,20 @@ int main(int argc, char *argv[]) {
     break;
   case SEL_OUTPUTS:
     print_signals(out, spec->outputs, spec->output_count);
+    break;
+  case SEL_INS:
+  case SEL_OUTS:
+    // Expanded scalar signal list (buses unrolled, parameters resolved) — what
+    // the synthesis atoms actually are, ready for `ltlsynt --ins/--outs`.
+    if (expand(spec, nullptr, 0) != 0) {
+      fprintf(stderr, "tlsfinfo: cannot expand spec for signal listing\n");
+      rc = 1;
+      break;
+    }
+    if (sel == SEL_INS)
+      print_signals_csv(out, spec->inputs, spec->input_count);
+    else
+      print_signals_csv(out, spec->outputs, spec->output_count);
     break;
   case SEL_CHECK:
     // Parsing succeeded, so the spec conforms to the TLSF grammar.
