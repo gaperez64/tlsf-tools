@@ -621,28 +621,80 @@ def main():
     print(f"wrote {args.out} and {data_path}", file=sys.stderr)
 
 
-def write_report(args, rows, total, data_path):
-    sc = [r for r in rows if r["self_contained"]]
-    sc_abs = [r for r in sc if r["abs_clusters"] > 0]
-    reach = [r for r in rows if r["abs_clusters"] > 0]
-    # complexity: residual class among non-self-contained
-    from collections import Counter
-    resid = Counter(r["residual_class"] for r in rows if not r["self_contained"])
+def write_survival_plot(rows, png_path, timeout):
+    """Cactus/survival plot: for each engine, the i-th fastest definitive solve.
+    A curve further RIGHT solves more instances; LOWER means faster.  "Solved" =
+    produced a controller (SOLVED) or a verdict (UNREAL) within the timeout."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return False
 
-    # speed: only specs we actually timed
+    def solved_times(st_key, t_key):
+        return sorted(r[t_key] for r in rows
+                      if r[st_key] in ("SOLVED", "UNREAL") and r[t_key] > 0)
+
+    base = solved_times("base_st", "base_t")
+    ours = solved_times("ours_st", "ours_t")
+    if not base and not ours:
+        return False
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    ax.step(range(1, len(base) + 1), base, where="post", color="#c44e52",
+            lw=1.8, label=f"ltlsynt ({len(base)} solved)")
+    ax.step(range(1, len(ours) + 1), ours, where="post", color="#4c72b0",
+            lw=1.8, label=f"preprocessor + ltlsynt ({len(ours)} solved)")
+    ax.axhline(timeout, color="k", lw=0.8, ls="--")
+    ax.set_yscale("log")
+    ax.set_xlabel("instances solved (cumulative)")
+    ax.set_ylabel("time per instance (s, log)")
+    ax.set_title("Survival: ltlsynt vs preprocessor + ltlsynt")
+    ax.grid(True, which="both", ls=":", lw=0.4, alpha=0.5)
+    ax.legend(loc="upper left", fontsize=9)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(png_path), exist_ok=True)
+    fig.savefig(png_path, dpi=120)
+    plt.close(fig)
+    return True
+
+
+def write_report(args, rows, total, data_path):
+    from collections import Counter
+    sc = [r for r in rows if r["self_contained"]]
     timed = [r for r in rows if r["ours_st"]]
-    both = [r for r in timed if r["ours_st"] == "SOLVED" and r["base_st"] == "SOLVED"]
-    speedups = [r["base_t"] / r["ours_t"] for r in both if r["ours_t"] > 1e-6]
-    ours_win_base_to = [r for r in timed if r["ours_st"] == "SOLVED" and r["base_st"] == "TIMEOUT"]
-    gap = [r for r in timed if r["ours_st"] == "FAILED" and r["base_st"] == "SOLVED"]
-    ours_to = [r for r in timed if r["ours_st"] == "TIMEOUT" and r["base_st"] == "SOLVED"]
-    false_unreal = [r for r in timed if r["ours_st"] == "UNREAL" and r["base_st"] == "SOLVED"]
-    ours_statuses = Counter(r["ours_st"] for r in timed)
-    base_statuses = Counter(r["base_st"] for r in timed)
-    # the honest completeness deficit: ltlsynt produced a controller, we did not
-    less_complete = gap + false_unreal + ours_to
-    sum_ours = sum(r["ours_t"] for r in both)
-    sum_base = sum(r["base_t"] for r in both)
+
+    def ok(st):
+        return st in ("SOLVED", "UNREAL")  # definitive answer within timeout
+
+    both = [r for r in timed if ok(r["ours_st"]) and ok(r["base_st"])]
+    only_ours = [r for r in timed if ok(r["ours_st"]) and not ok(r["base_st"])]
+    only_base = [r for r in timed if ok(r["base_st"]) and not ok(r["ours_st"])]
+    neither = [r for r in timed if not ok(r["ours_st"]) and not ok(r["base_st"])]
+    n_ours = sum(1 for r in timed if ok(r["ours_st"]))
+    n_base = sum(1 for r in timed if ok(r["base_st"]))
+    # Wall-time speedup where BOTH produced a controller (fair comparison).
+    both_ctrl = [r for r in timed if r["ours_st"] == "SOLVED"
+                 and r["base_st"] == "SOLVED" and r["ours_t"] > 1e-6]
+    speedups = [r["base_t"] / r["ours_t"] for r in both_ctrl]
+    sum_ours = sum(r["ours_t"] for r in both_ctrl)
+    sum_base = sum(r["base_t"] for r in both_ctrl)
+    # Realizability disagreements (ltlsynt is authoritative).
+    false_unreal = [r for r in timed
+                    if r["ours_st"] == "UNREAL" and r["base_st"] == "SOLVED"]
+    false_real = [r for r in timed
+                  if r["ours_st"] == "SOLVED" and r["base_st"] == "UNREAL"]
+    win_fam = Counter(os.path.dirname(r["name"]) or "." for r in only_ours)
+
+    def fam_summary(counter):
+        parts = [f"{d.split('/')[-1]}×{n}" for d, n in counter.most_common()
+                 if d != "."]
+        return ", ".join(parts[:6])
+
+    png_rel = "docs/benchgraph/survival.png"
+    png_abs = os.path.join(os.path.dirname(os.path.abspath(args.out)) or ".",
+                           png_rel)
+    have_plot = write_survival_plot(timed, png_abs, args.timeout)
 
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                             capture_output=True, text=True).stdout.strip()
@@ -654,149 +706,54 @@ def write_report(args, rows, total, data_path):
     def geo(xs):
         return statistics.geometric_mean(xs) if xs else float("nan")
 
+    cap_how = ("UNENFORCED (--allow-uncapped)" if FORCE_NO_CGROUP else
+               "systemd cgroup hard cap" if HAVE_SYSTEMD_RUN else
+               "UNENFORCED (no usable systemd-run)")
+
     L = []
     L.append(SENTINEL_START + "\n")
-    L.append("## Preprocessor speed & complexity vs ltlsynt (`scripts/benchgraph.py`)\n")
-    L.append("Is templates+OxiDD a FAST preprocessor? Two metrics: residual **complexity**\n"
-             "(what's left after templates+OxiDD) and **speed** (our full pipeline vs a standalone\n"
-             "`ltlsynt` baseline for the whole spec). Goal: carve off safety with OxiDD, forward\n"
-             "only the hard liveness residual to ltlsynt, and never be slower or less complete.\n"
-             "Regenerate: `scripts/benchgraph.py --corpus DIR --tlsfcompose … --ltlsynt …`\n"
-             "(or `--from-data benchgraph.tsv` to re-render this section without re-running).\n")
+    L.append("## ltlsynt vs preprocessor + ltlsynt (`scripts/benchgraph.py`)\n")
+    L.append("Head-to-head synthesis: standalone **ltlsynt** vs the **preprocessor** "
+             "(templates + OxiDD + `--split` decomposition) that carves off safety/GR(1) "
+             "in-process and forwards the residual to ltlsynt. Each (engine, spec) pair "
+             "gets the same timeout. Regenerate with `scripts/benchgraph.py` "
+             "(or `--from-data benchgraph.tsv` to re-render).\n")
     L.append(f"\n### Run: {now} · commit `{commit}`\n")
-    if FORCE_NO_CGROUP:
-        cap_how = "UNENFORCED (--allow-uncapped)"
-    elif HAVE_SYSTEMD_RUN:
-        cap_how = "systemd cgroup hard cap"
-    else:
-        cap_how = "UNENFORCED (no usable systemd-run)"
-    L.append(f"- Corpus: `{args.corpus}` ({total} specs)\n"
-             f"- Caps: timeout {args.timeout}s/run, "
-             f"{MEM_GB} GB RAM/run ({cap_how}), sequential\n"
-             f"- Baseline: {baseline_description(args)}\n"
-             f"- Ours: `tlsfcompose --split --aiger --ltlsynt …`\n"
-             f"- Per-spec data: `{os.path.basename(data_path)}`\n")
-    if args.compose_extra_arg:
-        L.append("- Extra tlsfcompose args: `"
-                 + " ".join(args.compose_extra_arg) + "`\n")
+    L.append(f"- Corpus `{args.corpus}` ({total} specs); timeout **{args.timeout}s**, "
+             f"{MEM_GB} GB/run ({cap_how}), sequential.\n"
+             f"- ltlsynt: {baseline_description(args)}\n"
+             f"- preprocessor + ltlsynt: `tlsfcompose --split --aiger --ltlsynt …`"
+             + (f" {' '.join(args.compose_extra_arg)}" if args.compose_extra_arg else "")
+             + f"\n- Self-contained without ltlsynt (templates+OxiDD): "
+             f"**{len(sc)}/{total} = {100*len(sc)/total:.1f}%**.\n")
 
-    L.append("\n### Complexity\n")
-    L.append(f"- **Self-contained (templates+OxiDD, no ltlsynt): {len(sc)}/{total} "
-             f"= {100*len(sc)/total:.1f}%** ({len(sc_abs)} use OxiDD).\n")
-    L.append(f"- **OxiDD reach (≥1 cluster): {len(reach)}/{total} = {100*len(reach)/total:.1f}%**.\n")
-    L.append("- Residual shape (specs not self-contained), hardest cluster:\n\n")
-    L.append("  | residual class | specs |\n  |---|---|\n")
-    for cls, n in resid.most_common():
-        L.append(f"  | {cls} | {n} |\n")
+    L.append("\n### Solved within timeout\n")
+    L.append(f"| engine | solved | only this engine |\n|---|--:|--:|\n")
+    L.append(f"| ltlsynt | {n_base}/{len(timed)} | {len(only_base)} |\n")
+    L.append(f"| preprocessor + ltlsynt | {n_ours}/{len(timed)} | {len(only_ours)} |\n")
+    net = n_ours - n_base
+    L.append(f"\n- Both: {len(both)}; neither: {len(neither)}. "
+             f"**Net gain from the preprocessor: {net:+d}** "
+             f"({len(only_ours)} won, {len(only_base)} lost).\n")
+    if win_fam:
+        L.append(f"- Preprocessor-only solves by family: {fam_summary(win_fam)}.\n")
 
-    # Residual reduction: of the synthesis clusters that survive templating, how
-    # much formula mass (node count) OxiDD peels off before ltlsynt.  A cluster
-    # routed to "OxiDD*" is solved in-process; everything else is forwarded.
-    nz = [r for r in rows if r["full_nodes"] > 0]
-    L.append("\n### Residual reduction (complexity)\n")
-    if nz:
-        tot_full = sum(r["full_nodes"] for r in nz)
-        tot_resid = sum(r["residual_nodes"] for r in nz)
-        tot_full_bytes = sum(r.get("full_bytes", 0) for r in nz)
-        tot_resid_bytes = sum(r.get("residual_bytes", 0) for r in nz)
-        n_ox = sum(r["n_oxidd"] for r in nz)
-        n_lt = sum(r["n_ltlsynt"] for r in nz)
-        carved_per = [1 - r["residual_nodes"] / r["full_nodes"] for r in nz]
-        fully = sum(1 for r in nz if r["residual_nodes"] == 0)
-        agg = 1 - tot_resid / tot_full if tot_full else float("nan")
-        dist = Counter(r["n_ltlsynt"] for r in nz)
-        L.append(f"- Specs with ≥1 synthesis cluster: {len(nz)}; "
-                 f"{n_ox + n_lt} clusters total "
-                 f"({n_ox} peeled by OxiDD, {n_lt} forwarded to ltlsynt).\n")
-        L.append(f"- **Formula mass OxiDD carves off the residual before ltlsynt: "
-                 f"aggregate {100*agg:.1f}%** "
-                 f"(residual {tot_resid}/{tot_full} nodes), "
-                 f"median per spec **{100*med(carved_per):.1f}%**.\n")
-        if tot_full_bytes:
-            byte_agg = 1 - tot_resid_bytes / tot_full_bytes
-            L.append(f"- Fallback formula bytes: {tot_resid_bytes}/{tot_full_bytes} "
-                     f"remain after preprocessing "
-                     f"(**{100*byte_agg:.1f}% carved off**).\n")
-        max_fb_out = max(r.get("max_outputs_fallback", 0) for r in nz)
-        L.append(f"- Max controllable outputs in any forwarded fallback cluster: "
-                 f"{max_fb_out}.\n")
-        L.append(f"- OxiDD peels the **entire** synthesis residual (nothing left "
-                 f"for ltlsynt): {fully}/{len(nz)} specs.\n")
-        L.append("- Residual clusters still forwarded to ltlsynt (count → specs): "
-                 + ", ".join(f"{k}→{v}" for k, v in sorted(dist.items())) + ".\n")
-    else:
-        L.append("- (no per-cluster node data in this dataset — re-run the corpus "
-                 "with an instrumented `tlsfcompose`)\n")
-
-    med_ours = med([r["ours_t"] for r in both])
-    med_base = med([r["base_t"] for r in both])
-    from collections import Counter
-    win_fam = Counter(os.path.dirname(r["name"]) or "." for r in ours_win_base_to)
-    gap_fam = Counter(os.path.dirname(r["name"]) or "." for r in gap)
-
-    def fam_summary(counter):
-        parts = []
-        for d, n in counter.most_common():
-            if d == ".":
-                continue
-            parts.append(f"{d.split('/')[-1]}×{n}")
-        return ", ".join(parts)
-
-    L.append("\n### Speed (OxiDD-contributing specs)\n")
-    L.append(f"- Timed: {len(timed)} specs. Both produced a controller: {len(both)}.\n")
-    if timed:
-        L.append("- Status breakdown on timed specs: "
-                 f"ours SOLVED {ours_statuses['SOLVED']}, "
-                 f"UNREAL {ours_statuses['UNREAL']}, "
-                 f"TIMEOUT {ours_statuses['TIMEOUT']}, "
-                 f"FAILED {ours_statuses['FAILED']}; "
-                 f"baseline SOLVED {base_statuses['SOLVED']}, "
-                 f"UNREAL {base_statuses['UNREAL']}, "
-                 f"TIMEOUT {base_statuses['TIMEOUT']}, "
-                 f"ERROR {base_statuses['ERROR']}.\n")
-    if base_statuses["ERROR"]:
-        L.append("- Baseline ERROR rows are excluded from speedup statistics; "
-                 "they are cases where standalone `ltlsynt` did not produce a "
-                 "verdict for the expanded formula/signals.\n")
     if speedups:
-        L.append(f"- **Both-solved speedup `base/ours`: median ×{med(speedups):.2f}, "
+        L.append("\n### Speed (both produced a controller)\n")
+        L.append(f"- {len(both_ctrl)} specs both SOLVED. "
+                 f"**Speedup `ltlsynt/preproc`: median ×{med(speedups):.2f}, "
                  f"geomean ×{geo(speedups):.2f}** "
-                 f"(faster: {sum(1 for s in speedups if s>1)}, slower: {sum(1 for s in speedups if s<1)}).\n")
-        L.append(f"- Absolute wall on both-solved: **median ours {med_ours*1000:.0f} ms vs base "
-                 f"{med_base*1000:.0f} ms** (near parity); mean ours {sum_ours/len(both)*1000:.0f} ms "
-                 f"vs base {sum_base/len(both)*1000:.0f} ms.\n")
-        L.append(f"- Total wall on both-solved: ours {sum_ours:.1f}s vs base {sum_base:.1f}s "
-                 f"(**×{sum_base/sum_ours:.2f}** aggregate).\n")
-    wins_word = "win" if len(ours_win_base_to) == 1 else "wins"
-    win_fams = fam_summary(win_fam)
-    L.append(f"- Ours solves where **base times out** (≥{args.timeout}s): {len(ours_win_base_to)} clear {wins_word}"
-             + (f" — {win_fams}" if win_fams else "")
-             + ".\n")
+                 f"(faster {sum(1 for s in speedups if s>1)}, "
+                 f"slower {sum(1 for s in speedups if s<1)}); "
+                 f"aggregate wall ×{sum_base/sum_ours:.2f}.\n")
 
-    fu_fam = Counter(os.path.dirname(r["name"]) or "." for r in false_unreal)
-    L.append("\n### Completeness vs ltlsynt\n")
-    L.append(f"- **ltlsynt produced a controller but we did not: {len(less_complete)}** — the honest "
-             f"deficit (we are *less complete* on these). Breakdown: {len(false_unreal)} we wrongly call "
-             f"**UNREALIZABLE**, {len(gap)} backend **FAILED**, {len(ours_to)} **timed out**.\n")
-    if fu_fam:
-        L.append("- The false-UNREALs are dominated by "
-                 + ", ".join(f"{d.split('/')[-1] or d}×{n}" for d, n in fu_fam.most_common(4))
-                 + " — output-free assumption clusters synthesised standalone.\n")
+    if have_plot:
+        L.append(f"\n![Survival: ltlsynt vs preprocessor + ltlsynt]({png_rel})\n")
 
-    L.append("\n### Verdict\n")
-    if both:
-        agg = sum_base / sum_ours if sum_ours else float("nan")
-        agg_dir = "faster" if agg >= 1 else "slower"
-        L.append(
-            f"On the **median** OxiDD-contributing spec where both engines synthesize, tlsf-tools is "
-            f"at **rough parity** ({med_ours*1000:.0f} ms vs {med_base*1000:.0f} ms). "
-            f"In **aggregate we are ×{agg:.2f} {agg_dir}** than ltlsynt. "
-            f"The genuine value is the **{len(ours_win_base_to)} "
-            f"{'spec' if len(ours_win_base_to) == 1 else 'specs'} ltlsynt cannot "
-            f"synthesize in {args.timeout}s that we do**. The "
-            f"completeness blocker is **{len(less_complete)} specs ltlsynt solves that we don't** — now "
-            f"dominated by **{len(false_unreal)} false-UNREALs** from output-free assumption clusters, "
-            f"not parse bugs.\n")
+    if false_unreal or false_real:
+        L.append(f"\n- Correctness check (ltlsynt authoritative): "
+                 f"{len(false_unreal)} false-UNREAL, {len(false_real)} false-REAL "
+                 f"from the preprocessor.\n")
     L.append(SENTINEL_END + "\n")
     section = "".join(L)
 

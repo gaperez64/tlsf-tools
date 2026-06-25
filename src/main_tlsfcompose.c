@@ -98,7 +98,8 @@ static void usage(const char *prog) {
       "  --route-stats                print residual-cluster route diagnostics "
       "and exit\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
-      "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
+      "controller (PROG --aiger F --formula-file L; exit 1 = violation) and "
+      "fall "
       "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
@@ -179,12 +180,15 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     break;
   case ROUTE_DIRECT_SAFETY:
   case ROUTE_STRICT_SAFETY:
-  case ROUTE_WR_SAFETY:
   case ROUTE_RESPONSE_MONITOR_GR1:
   case ROUTE_EVENTUAL_MONITOR_GR1:
   case ROUTE_UNTIL_MONITOR_GR1:
   case ROUTE_GR1:
     snprintf(buf, buf_sz, "selected exact fast path");
+    break;
+  case ROUTE_WR_SAFETY:
+    snprintf(buf, buf_sz,
+             "selected over-approx fast path (W/R safety; verified)");
     break;
   case ROUTE_BOUNDED_EXPERIMENTAL:
     snprintf(buf, buf_sz, "selected explicit experimental bounded path");
@@ -195,6 +199,20 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     break;
   }
   return buf;
+}
+
+// Verdict-trust: does the spec carry a liveness assumption (e.g. `G F a`)?  The
+// per-cluster decomposition may DROP such an assumption from a safety-only
+// cluster (cluster_assumption_mask) — a *strengthening* of the cluster: sound
+// for a REALIZABLE verdict (E ⟹ E_i), but its UNREALIZABLE verdict is NOT
+// trustworthy, since the dropped fairness assumption can rule out exactly the
+// env behaviours that force the violation.  When this holds we re-validate any
+// self-contained UNREAL with all assumptions kept before trusting it.
+static bool cover_has_liveness_assumption(const ConstraintCover *cov) {
+  for (uint32_t i = 0; i < cov->count; i++)
+    if (cov->items[i].assumption_side && !cov->items[i].is_safety)
+      return true;
+  return false;
 }
 
 static uint32_t count_seen_aps(const ConstraintCover *cov, const bool *seen,
@@ -459,13 +477,17 @@ static void compose_sh_header(FILE *sh) {
           "dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
           "ok=1\n"
           "run() {\n"
-          "  ltl=$(grep -v '^c ' \"$dir/$1\")\n"
-          "  if ltlsynt --ins=\"$2\" --outs=\"$3\" --formula=\"$ltl\" "
+          // Pass the formula via a file (-F), not --formula= on the command
+          // line: large clusters exceed the shell/exec argument limit (E2BIG).
+          "  f=$(mktemp)\n"
+          "  grep -v '^c ' \"$dir/$1\" > \"$f\"\n"
+          "  if ltlsynt --ins=\"$2\" --outs=\"$3\" -F \"$f\" "
           "--realizability >/dev/null 2>&1; then\n"
           "    echo \"$1: REALIZABLE\"\n"
           "  else\n"
           "    echo \"$1: UNREALIZABLE\"; ok=0\n"
           "  fi\n"
+          "  rm -f \"$f\"\n"
           "}\n");
 }
 
@@ -931,9 +953,56 @@ int main(int argc, char *argv[]) {
         backend = "ltlsynt fallback (self-verification)";
         sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
       }
+      // Over-approximation routes (W/R safety) can emit a WRONG controller
+      // (false-REAL: the encoding can weaken the spec — box/evasion/follow).
+      // When no --verify model-check is available, confirm with the
+      // authoritative ltlsynt before trusting the controller; if ltlsynt is
+      // unavailable/inconclusive the OxiDD controller is kept (best effort, so
+      // the Spot-verified /bin/false W/R tests still solve self-contained).
+      if (!verifier && use_oxidd && sub && route.over_approx) {
+        int u2 = 0;
+        Aig *re = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &u2);
+        if (re) {
+          aig_free(sub);
+          sub = re;
+          use_oxidd = false;
+          backend = "ltlsynt (over-approx re-validated)";
+        } else if (u2) {
+          aig_free(sub);
+          sub = nullptr;
+          unreal = 1;
+        }
+      }
       if (getenv("TLSFCOMPOSE_DEBUG"))
         fprintf(stderr, "tlsfcompose: cluster %u nodes=%u routed to %s\n", k,
                 ast_node_count(root), backend);
+      // Don't trust a self-contained UNREALIZABLE that a dropped liveness
+      // assumption could have caused: re-solve the cluster with all assumptions
+      // kept (prune=false) via the authoritative ltlsynt.  The drop only
+      // happens for a *safety-only* cluster (cluster_assumption_mask), so a
+      // liveness cluster cannot be tainted this way — gate on !has_liveness to
+      // avoid re-running ltlsynt on the slow liveness tail.  Only flips the
+      // verdict when ltlsynt actually produces a controller, so a genuine
+      // UNREAL (or an unavailable ltlsynt) is left intact.  See
+      // lily/lilydemo23.
+      if (unreal && !route.shape.has_liveness &&
+          cover_has_liveness_assumption(cov)) {
+        Node *full =
+            residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                        /*all=*/false, /*prune=*/false, seen);
+        if (full) {
+          int u2 = 0;
+          Aig *re =
+              run_ltlsynt_cluster(prog, cov, seen, full, fmt, finite, &u2);
+          if (re) {
+            aig_free(sub);
+            sub = re;
+            unreal = 0;
+            use_oxidd = false;
+            backend = "ltlsynt (re-validated, all assumptions kept)";
+          }
+        }
+      }
       if (unreal) {
         fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
                 backend);

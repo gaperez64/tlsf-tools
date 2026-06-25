@@ -39,6 +39,12 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
   if (use_wr) {
     out->kind = ROUTE_WR_SAFETY;
     out->uses_oxidd = true;
+    // OVER-approximation: the W/R game encoding is not exact — it can WEAKEN
+    // the spec and so produce a wrong controller (false-REAL, e.g. box/evasion/
+    // follow).  Mark it so its REALIZABLE verdict is verified, never trusted
+    // blind (see the over-approx re-validation in main_tlsfcompose.c).
+    out->exact = false;
+    out->over_approx = true;
     out->label = "OxiDD (W/R safety)";
     return true;
   }

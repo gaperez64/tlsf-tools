@@ -67,6 +67,27 @@ struct Csnf {
   uint32_t nconstraints;
 };
 
+// Verdict-trust class of a certifier (the registry; see block_trust).  An
+// UNDER-approximation commits a *strategy* for a liveness obligation — the
+// eliminated output has several valid strategies, so substituting the chosen
+// one STRENGTHENS the residual: sound for a REALIZABLE verdict, but its
+// UNREALIZABLE verdict is not trustworthy.  An EXACT certifier extracts the
+// value the constraint *forces* (a definition/register/exclusive reaction) and
+// substitutes it, which is equivalence-preserving.  No certifier weakens
+// (OVER-approximates); false-REALs would come from OVER paths and are caught by
+// the `--verify` controller model-check.
+typedef enum {
+  TRUST_EXACT, // forced-value substitution (equivalence-preserving)
+  TRUST_UNDER, // strategy commitment (strengthening): UNREAL not trustworthy
+} VerdictTrust;
+
+// Classify a block's certifier by name.  UNDER certifiers rely on a coupling
+// guard to stay sound: reachability/persistence on the output being free
+// (output_constrained_elsewhere); the scheduler families (round-robin / arbiter
+// / server / global-recurrence) on the grants being free outside the block;
+// safety-invariant on a memoryless Skolem choice.
+VerdictTrust block_trust(const Block *b);
+
 // Shared AST helper (defined in templates.c; used by the certifiers).
 bool occurs_in(const Node *n, const char *name);
 

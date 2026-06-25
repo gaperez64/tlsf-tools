@@ -103,7 +103,8 @@ tlsf2tlsf --basic spec.tlsf               # fully expanded basic TLSF
 
 # inspect
 tlsfinfo  spec.tlsf                        # all metadata (--semantics, --title, …)
-tlsfinfo  --input-signals|--output-signals spec.tlsf
+tlsfinfo  --input-signals|--output-signals spec.tlsf    # declared (bus notation)
+tlsfinfo  --expanded-ins|--expanded-outs   spec.tlsf    # scalar CSV for ltlsynt --ins/--outs
 tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 
 # structure / templates
@@ -141,8 +142,10 @@ independent — several small `ltlsynt`/`strix` calls instead of one giant one.
 ```sh
 mkdir out && tlsfcompose --split --output-dir out/ spec.tlsf
 sh out/compose.sh                                  # ltlsynt per cluster -> verdict
-# or drive a backend yourself, per cluster (strip the 'c ' header lines):
-ltlsynt --ins=… --outs=… --formula="$(grep -v '^c ' out/cluster.0.ltl)"
+# or drive a backend yourself, per cluster (strip the 'c ' header lines to a
+# file and read it with -F; a large cluster overflows ltlsynt's --formula= arg):
+grep -v '^c ' out/cluster.0.ltl > out/cluster.0.f
+ltlsynt --ins=… --outs=… -F out/cluster.0.f
 ```
 
 ### 2 · One merged controller circuit (AIGER)
@@ -175,17 +178,19 @@ python3 scripts/verify_aiger_ltl.py --compose build-oxidd/tlsfcompose \
 ### 3 · Normalize, then feed any LTL synthesizer
 
 `tlsfnorm` re-emits clean TLSF (split conjunctions, NNF, boolean simplify);
-`tlsf2ltl` gives the formula and `tlsfinfo` the interface, so any spot/Strix-style
-tool can take over. The `ltlxba` dialect lowercases atoms (spot/ltl2ba read
-uppercase letters as operators — as `syfco -f ltlxba` does), so lowercase the
-interface to match; the faithful `ltl` dialect keeps the original case.
+`tlsf2ltl` gives the formula and `tlsfinfo --expanded-ins/--expanded-outs` the
+scalar interface, so any spot/Strix-style tool can take over. The `ltlxba`
+dialect lowercases atoms (spot/ltl2ba read uppercase letters as operators — as
+`syfco -f ltlxba` does), so lowercase the interface to match; the faithful `ltl`
+dialect keeps the original case.
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
-lc() { tr 'A-Z' 'a-z' | tr -d ' '; }
-ins=$(tlsfinfo  --input-signals  spec.norm.tlsf | lc)
-outs=$(tlsfinfo --output-signals spec.norm.tlsf | lc)
-ltlsynt --ins="$ins" --outs="$outs" -f "$(tlsf2ltl spec.norm.tlsf)"   # ltlxba
+lc() { tr 'A-Z' 'a-z'; }                                  # ltlxba lowercases atoms
+ins=$(tlsfinfo  --expanded-ins  spec.norm.tlsf | lc)      # scalar CSV, buses unrolled
+outs=$(tlsfinfo --expanded-outs spec.norm.tlsf | lc)
+tlsf2ltl spec.norm.tlsf > spec.norm.ltl                   # read via -F (a big
+ltlsynt --ins="$ins" --outs="$outs" -F spec.norm.ltl      # formula overflows -f)
 ```
 
 ### 4 · Census a benchmark set by type / template
@@ -204,8 +209,8 @@ tlsftemplates --certify --solve --format csnf spec.tlsf
 
 How much do templates+OxiDD solve *without* `ltlsynt`, and is the pipeline
 faster than `ltlsynt` alone? `scripts/benchgraph.py` answers both over a corpus
-and writes the [`BENCHGRAPH.md`](BENCHGRAPH.md) "Preprocessor speed & complexity"
-section.
+and writes the [`BENCHGRAPH.md`](BENCHGRAPH.md) "ltlsynt vs preprocessor +
+ltlsynt" head-to-head section (solved counts, net gain, and a survival plot).
 
 ```sh
 # self-contained slice only: forbid the ltlsynt fallback
