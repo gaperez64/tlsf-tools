@@ -775,6 +775,22 @@ if have_oxidd
   test('precheck_outputs_rescue_real', tlsfcompose_exe,
     args: ['--aiger', '--ltlsynt', '/bin/false',
            files('test/cases/precheck_outputs_rescue.tlsf')])
+  # Dual TRUST_UNDER early-REAL via the --realizability oracle (self-contained,
+  # no ltlsynt): outputs satisfy the boolean guarantees -> REALIZABLE; an
+  # input-only contradiction -> UNREALIZABLE (always-on UNREAL check); a temporal
+  # guarantee -> UNKNOWN (oracle inconclusive).
+  test('precheck_real_oracle_real', check_contains,
+    args: ['REALIZABLE \\(boolean-fragment pre-check', tlsfcompose_exe,
+           '--split', '--realizability', '--ltlsynt', '/bin/false',
+           files('test/cases/precheck_outputs_rescue.tlsf')])
+  test('precheck_real_oracle_unreal', check_contains,
+    args: ['UNREALIZABLE \\(boolean-fragment pre-check', tlsfcompose_exe,
+           '--split', '--realizability', '--ltlsynt', '/bin/false',
+           files('test/cases/precheck_input_only.tlsf')])
+  test('precheck_real_oracle_unknown', check_contains,
+    args: ['realizability UNKNOWN', tlsfcompose_exe,
+           '--split', '--realizability', '--ltlsynt', '/bin/false',
+           files('test/cases/precheck_real_unknown.tlsf')])
   # --aiger cluster path needs real ltlsynt: only run where it is available.
   if ltlsynt.found()
     # Soundness guard: a boolean assumption that forces the input rescues the

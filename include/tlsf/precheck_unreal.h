@@ -37,4 +37,20 @@
 /// reports realizable.
 [[nodiscard]] bool precheck_trivially_unreal(const ConstraintCover *cov);
 
+/// Dual of the above: true iff the spec is provably *realizable* by a one-step
+/// combinational-controller win.  When every guarantee is boolean-`G` (no
+/// temporal guarantee) and `∃outputs. G_bool` is valid over all inputs, the
+/// Skolem function `o = f(i)` is a memoryless Mealy controller that satisfies
+/// the guarantees regardless of the environment.
+///
+/// Verdict-trust class: UNDER-approximation (`TRUST_UNDER`).  It refutes
+/// unrealizability of a *strengthening* of the spec — it drops every assumption
+/// (env unrestricted) and bails on any temporal guarantee — so its REALIZABLE
+/// verdict is trustworthy (the harder, assumption-free spec being realizable
+/// implies the original is) and it never claims UNREALIZABLE.  Mealy-only: the
+/// Skolem controller reads the current input, so it bails on Moore (and on
+/// finite) semantics.  Emits only a verdict (no controller), so the caller
+/// short-circuits in plan mode, not under `--aiger`.
+[[nodiscard]] bool precheck_trivially_real(const ConstraintCover *cov);
+
 #endif // TLSF_PRECHECK_UNREAL_H

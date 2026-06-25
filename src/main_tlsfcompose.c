@@ -81,6 +81,9 @@ static void usage(const char *prog) {
       "  --split                      decompose constraints first\n"
       "  --aiger                      emit one merged controller (AIGER aag)"
       " via OxiDD + ltlsynt backends\n"
+      "  --realizability              fast verdict oracle: print REALIZABLE / "
+      "UNREALIZABLE / UNKNOWN via the boolean-fragment pre-checks (exit 0/1/2; "
+      "no plan or controller).  Pair with --split.\n"
       "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
       "$LTLSYNT or PATH)\n"
       "  --pre-normalize SCHEDULE     pre-expansion normalization (opt-in)\n"
@@ -494,6 +497,7 @@ static void compose_sh_header(FILE *sh) {
 
 int main(int argc, char *argv[]) {
   bool split = false, aiger = false, route_stats = false;
+  bool realizability = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
@@ -517,6 +521,8 @@ int main(int argc, char *argv[]) {
       split = true;
     } else if (strcmp(a, "--aiger") == 0) {
       aiger = true;
+    } else if (strcmp(a, "--realizability") == 0) {
+      realizability = true;
     } else if (strcmp(a, "--ltlsynt") == 0) {
       ltlsynt_path = NEED_ARG();
     } else if (strcmp(a, "--pre-normalize") == 0) {
@@ -708,6 +714,30 @@ int main(int argc, char *argv[]) {
                     "(boolean-fragment pre-check; over-approx, trusted)\n");
     spec_free(spec);
     return 1;
+  }
+
+  // --realizability: a fast verdict oracle.  The always-on UNREAL pre-check
+  // above already settled UNREALIZABLE; here the dual TRUST_UNDER REALIZABLE
+  // pre-check (a memoryless Mealy Skolem controller of the conjoined boolean
+  // guarantees; see precheck_unreal.h) settles REALIZABLE, else UNKNOWN.  It is
+  // gated behind the flag because, unlike UNREAL, it yields only a verdict —
+  // not the plan or AIGER controller the default modes emit — so
+  // short-circuiting those would drop their deliverable.
+  if (realizability) {
+    if (precheck_trivially_real(cov)) {
+      if (route_stats)
+        fprintf(stderr, "route-stats: real_precheck=1 "
+                        "(boolean fragment; under-approx, trusted REAL)\n");
+      fprintf(stderr, "tlsfcompose: spec is REALIZABLE "
+                      "(boolean-fragment pre-check; under-approx, trusted)\n");
+      spec_free(spec);
+      return 0;
+    }
+    fprintf(
+        stderr,
+        "tlsfcompose: realizability UNKNOWN (fast pre-checks inconclusive)\n");
+    spec_free(spec);
+    return 2;
   }
 
   // Match normalization (opt-in) rewrites match_formula only; residual/routing

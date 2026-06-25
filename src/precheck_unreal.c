@@ -229,3 +229,98 @@ bool precheck_trivially_unreal(const ConstraintCover *cov) {
   oxidd_bdd_manager_unref(m);
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Dual: combinational-controller REAL pre-check (TRUST_UNDER)
+// ---------------------------------------------------------------------------
+
+bool precheck_trivially_real(const ConstraintCover *cov) {
+  if (!cov || cov->count == 0)
+    return false;
+  const TlsfSpec *spec = cov->spec;
+  // The Skolem controller reads the current input (Mealy); a Moore controller
+  // cannot, so its existence would not follow.  Infinite-word only, as above.
+  if (spec && (semantics_is_finite(spec->info.semantics) ||
+               semantics_is_moore(spec->info.semantics)))
+    return false;
+
+  const ApTable *aps = &cov->aps;
+  const uint32_t nap = aps->count;
+  if (nap == 0)
+    return false;
+  for (uint32_t i = 0; i < nap; i++) {
+    bool in = ap_table_flags(aps, i) & AP_FLAG_INPUT;
+    bool out = ap_table_flags(aps, i) & AP_FLAG_OUTPUT;
+    if (in == out)
+      return false;
+  }
+
+  // Every guarantee must be a step-0 boolean (a memoryless controller cannot
+  // certify a temporal one); assumptions are dropped (strengthening, sound for
+  // a REAL verdict).  Bail unless there is at least one boolean guarantee.
+  bool any_guarantee = false;
+  for (uint32_t i = 0; i < cov->count; i++) {
+    const Constraint *c = &cov->items[i];
+    if (!c->guarantee_side)
+      continue;
+    if (!step0_bool_body(c))
+      return false; // temporal guarantee
+    any_guarantee = true;
+  }
+  if (!any_guarantee)
+    return false;
+
+  uint32_t exp = nap + 6 < 22 ? nap + 6 : 22;
+  uint32_t inner_cap = (1u << exp) < (1u << 10) ? (1u << 10) : (1u << exp);
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(inner_cap, inner_cap, 1);
+  if (m._p == nullptr)
+    return false;
+  oxidd_bdd_manager_add_vars(m, nap);
+  BoolCtx ctx = {.m = m, .aps = aps, .bail = false};
+
+  // G = ⋀ all (boolean) guarantee bodies.
+  oxidd_bdd_t G = oxidd_bdd_true(m);
+  for (uint32_t i = 0; i < cov->count && !ctx.bail; i++) {
+    const Constraint *c = &cov->items[i];
+    if (!c->guarantee_side)
+      continue;
+    const Node *b = step0_bool_body(c);
+    if (!b)
+      continue; // unreachable (would have bailed), but stay safe
+    oxidd_bdd_t bb = node_to_bdd(&ctx, b);
+    oxidd_bdd_t ng = oxidd_bdd_and(G, bb);
+    oxidd_bdd_unref(G);
+    oxidd_bdd_unref(bb);
+    G = ng;
+  }
+
+  bool result = false;
+  if (!ctx.bail && !invalid(G)) {
+    // REAL iff ∃outputs. G is valid over all inputs, i.e. ¬∃outputs.G is unsat.
+    oxidd_bdd_t out_cube = oxidd_bdd_true(m);
+    for (uint32_t i = 0; i < nap; i++) {
+      if (!(ap_table_flags(aps, i) & AP_FLAG_OUTPUT))
+        continue;
+      oxidd_bdd_t v = oxidd_bdd_var(m, (oxidd_var_no_t)i);
+      oxidd_bdd_t nc = oxidd_bdd_and(out_cube, v);
+      oxidd_bdd_unref(out_cube);
+      oxidd_bdd_unref(v);
+      out_cube = nc;
+    }
+    if (!invalid(out_cube)) {
+      oxidd_bdd_t proj = oxidd_bdd_exists(G, out_cube); // ∃outputs. G
+      if (!invalid(proj)) {
+        oxidd_bdd_t nproj = oxidd_bdd_not(proj);
+        if (!invalid(nproj))
+          result = !oxidd_bdd_satisfiable(nproj);
+        oxidd_bdd_unref(nproj);
+      }
+      oxidd_bdd_unref(proj);
+    }
+    oxidd_bdd_unref(out_cube);
+  }
+
+  oxidd_bdd_unref(G);
+  oxidd_bdd_manager_unref(m);
+  return result;
+}
