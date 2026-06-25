@@ -172,12 +172,14 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     break;
   case ROUTE_DIRECT_SAFETY:
   case ROUTE_STRICT_SAFETY:
-  case ROUTE_WR_SAFETY:
   case ROUTE_RESPONSE_MONITOR_GR1:
   case ROUTE_EVENTUAL_MONITOR_GR1:
   case ROUTE_UNTIL_MONITOR_GR1:
   case ROUTE_GR1:
     snprintf(buf, buf_sz, "selected exact fast path");
+    break;
+  case ROUTE_WR_SAFETY:
+    snprintf(buf, buf_sz, "selected over-approx fast path (W/R safety; verified)");
     break;
   case ROUTE_BOUNDED_EXPERIMENTAL:
     snprintf(buf, buf_sz, "selected explicit experimental bounded path");
@@ -852,6 +854,26 @@ int main(int argc, char *argv[]) {
         use_oxidd = false;
         backend = "ltlsynt fallback (self-verification)";
         sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
+      }
+      // Over-approximation routes (W/R safety) can emit a WRONG controller
+      // (false-REAL: the encoding can weaken the spec — box/evasion/follow).
+      // When no --verify model-check is available, confirm with the
+      // authoritative ltlsynt before trusting the controller; if ltlsynt is
+      // unavailable/inconclusive the OxiDD controller is kept (best effort, so
+      // the Spot-verified /bin/false W/R tests still solve self-contained).
+      if (!verifier && use_oxidd && sub && route.over_approx) {
+        int u2 = 0;
+        Aig *re = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &u2);
+        if (re) {
+          aig_free(sub);
+          sub = re;
+          use_oxidd = false;
+          backend = "ltlsynt (over-approx re-validated)";
+        } else if (u2) {
+          aig_free(sub);
+          sub = nullptr;
+          unreal = 1;
+        }
       }
       if (getenv("TLSFCOMPOSE_DEBUG"))
         fprintf(stderr, "tlsfcompose: cluster %u nodes=%u routed to %s\n", k,

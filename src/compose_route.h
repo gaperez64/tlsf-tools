@@ -20,6 +20,10 @@ typedef struct {
   ComposeRouteKind kind;
   bool uses_oxidd;
   bool exact;
+  bool over_approx; ///< the encoding can WEAKEN the spec (over-approximation):
+                    ///< its REALIZABLE verdict is not trustworthy, so the
+                    ///< controller must be --verify model-checked (or, absent a
+                    ///< verifier, re-confirmed by ltlsynt).  Set for W/R safety.
   const char *label;
   const char *reason_override;
   ClusterShape shape;
