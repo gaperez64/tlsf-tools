@@ -96,15 +96,23 @@ OxiDD-in-CI; persistent BDD manager (one alloc per run); Gamelogic false-UNREAL
 fix (bare-W/R + G X over-constraint → ltlsynt fallback); output-free guarantee
 soundness fix (`--split` now realizability-checks input-only guarantees with all
 assumptions instead of dropping them — e.g. `G(o&&a)` correctly UNREALIZABLE);
-`spot-syntcomp` Docker image (Spot ltlsynt + preprocessor) + GHCR CD job.
+`spot-syntcomp` Docker image (Spot ltlsynt + preprocessor) + GHCR CD job;
+**verdict-trust framework** (under/over/exact certifier classes) + two
+false-UNREAL fixes (certifier freedom check + assumption-drop re-validation; 0
+false-UNREAL corpus-wide); **W/R-safety marked OVER-approximation** + ltlsynt
+re-validation of its REALIZABLE verdict (fixes the box/evasion/follow/square
+false-REALs); **E2BIG fix** (ltlsynt/verifier formulas passed via file, not the
+command line — re-enables the fallback/verify on large clusters); `tlsfinfo
+--expanded-ins/--expanded-outs` (scalar signal CSV).
 
-Benchmark baseline (first accurate run *after* the W/R-UNREALIZABLE fallback;
-ltlsynt/Spot 2.14.1): **31.8% self-contained** (809/2545), **25.8% OxiDD reach**,
-**0 false-UNREALs**, **77 specs solved that ltlsynt times out on**; both-solved
-aggregate ≈ parity (×1.08). The older ×35 / 151-solve figures were a *stale*
-pre-fallback render that trusted W/R UNREALIZABLE verdicts (some unsound); the
-sound fallback trades that inflated reach for correctness. Recovering reach needs
-the over-constraint analysis to *trust* W/R UNREALIZABLE selectively (open).
+Benchmark (2026-06-25; 30s base + 60s re-run of the losses, ltlsynt/Spot):
+**16.5% self-contained** (419/2545 at 30s), **0 false-UNREAL, 0 false-REAL**,
+**net +12** preprocessor head-to-head (21 specs solved that ltlsynt times out on,
+9 lost), both-solved aggregate ×1.11. The earlier **31.8%/×35** numbers were a
+looser/older setup; at a tight 30s budget the decomposition overhead costs the
+timeout race, so the preprocessor's edge is the specs ltlsynt *can't* do, not raw
+speed. See `BENCHGRAPH.md` (note: the head-to-head mixes a 30s base with a 60s
+re-run of the loss set after the E2BIG fix).
 
 Open (reach — solve more residuals):
 - **Liveness backend** (biggest lever): ~2/3 of residuals are pure liveness
