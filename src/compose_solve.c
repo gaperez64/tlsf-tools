@@ -28,7 +28,7 @@
 extern char **environ;
 
 // Render a (Boolean/LTL) node to a heap string in the ltlxba/ltl dialect, with
-// any trailing newline stripped (for ltlsynt --formula=).
+// any trailing newline stripped (written to a file for ltlsynt -F).
 static char *ltl_string(const Node *n, LtlFormat fmt, bool finite, bool lower) {
   char *buf = nullptr;
   size_t sz = 0;
@@ -50,19 +50,42 @@ static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
   FILE *cap = tmpfile();
   if (!cap)
     return nullptr;
-  char *ai = malloc(strlen(ins) + 8), *ao = malloc(strlen(outs) + 9),
-       *af = malloc(strlen(ltl) + 12);
-  if (!ai || !ao || !af) {
+  // The formula goes to ltlsynt via a *file* (`-F`), never `--formula=` on the
+  // command line: a large cluster's formula can exceed the per-argument limit
+  // (Linux MAX_ARG_STRLEN, 128 KiB), making posix_spawnp fail with E2BIG and
+  // silently disabling the ltlsynt fallback / re-validation (a wrong OxiDD
+  // controller would then be kept — e.g. the big robot-motion specs).
+  const char *tdir = getenv("TMPDIR");
+  char fpath[4096];
+  snprintf(fpath, sizeof fpath, "%s/tlsfcompose-ltlXXXXXX",
+           tdir && *tdir ? tdir : "/tmp");
+  int ffd = mkstemp(fpath);
+  if (ffd < 0) {
+    fclose(cap);
+    return nullptr;
+  }
+  FILE *ff = fdopen(ffd, "w");
+  if (!ff) {
+    close(ffd);
+    unlink(fpath);
+    fclose(cap);
+    return nullptr;
+  }
+  fputs(ltl, ff);
+  fputc('\n', ff);
+  fclose(ff);
+  char *ai = malloc(strlen(ins) + 8), *ao = malloc(strlen(outs) + 9);
+  if (!ai || !ao) {
     free(ai);
     free(ao);
-    free(af);
+    unlink(fpath);
     fclose(cap);
     return nullptr;
   }
   sprintf(ai, "--ins=%s", ins);
   sprintf(ao, "--outs=%s", outs);
-  sprintf(af, "--formula=%s", ltl);
-  char *argv[] = {(char *)prog, ai, ao, af, (char *)"--aiger", nullptr};
+  char *argv[] = {(char *)prog, ai,          ao, (char *)"-F",
+                  fpath,        (char *)"--aiger", nullptr};
   posix_spawn_file_actions_t fa;
   posix_spawn_file_actions_init(&fa);
   posix_spawn_file_actions_adddup2(&fa, fileno(cap), 1);
@@ -71,13 +94,14 @@ static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
   posix_spawn_file_actions_destroy(&fa);
   free(ai);
   free(ao);
-  free(af);
   if (rc != 0) {
+    unlink(fpath);
     fclose(cap);
     return nullptr; // ltlsynt not found / not executable
   }
   int status;
   waitpid(pid, &status, 0);
+  unlink(fpath);
   char line[64];
   fseek(cap, 0, SEEK_SET);
   if (fgets(line, sizeof line, cap) && strncmp(line, "UNREALIZABLE", 12) == 0) {
@@ -225,8 +249,9 @@ Aig *solve_safety_game(ConstraintCover *cov, const bool *seen, Aig *game,
   return strat;
 }
 
-// Self-verification: run the external verifier (PROG --aiger FILE --formula
-// LTL) on a synthesized controller against the original cluster spec.  Returns
+// Self-verification: run the external verifier (PROG --aiger FILE
+// --formula-file LTLFILE) on a synthesized controller against the original
+// cluster spec.  Returns
 // true ONLY when the verifier reports a definite violation (exit 1).  On
 // "verified" (0), an AP mismatch, a verifier error/timeout/OOM, or any other
 // code it returns false (keep the controller) -- an inconclusive check never
@@ -256,9 +281,31 @@ bool controller_violates_spec(const char *verifier, Aig *controller,
   aig_write_aag(f, controller);
   fclose(f);
 
-  char *argv[] = {
-      (char *)verifier, (char *)"--aiger", tmp, (char *)"--formula", ltl,
-      nullptr};
+  // Hand the formula to the verifier via a *file* (`--formula-file`), never on
+  // the command line: a large cluster's formula exceeds the per-argument limit
+  // (E2BIG) and the spawn fails, which would make the verification inconclusive
+  // and silently keep a wrong controller.
+  char ftmp[] = "/tmp/tlsfcompose-vformula-XXXXXX";
+  int ffd = mkstemp(ftmp);
+  if (ffd < 0) {
+    unlink(tmp);
+    free(ltl);
+    return false;
+  }
+  FILE *ff = fdopen(ffd, "w");
+  if (!ff) {
+    close(ffd);
+    unlink(ftmp);
+    unlink(tmp);
+    free(ltl);
+    return false;
+  }
+  fputs(ltl, ff);
+  fputc('\n', ff);
+  fclose(ff);
+
+  char *argv[] = {(char *)verifier,         (char *)"--aiger", tmp,
+                  (char *)"--formula-file", ftmp,              nullptr};
   posix_spawn_file_actions_t fa;
   posix_spawn_file_actions_init(&fa);
   posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
@@ -294,6 +341,7 @@ bool controller_violates_spec(const char *verifier, Aig *controller,
     }
     violates = status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 1;
   }
+  unlink(ftmp);
   unlink(tmp);
   free(ltl);
   return violates;

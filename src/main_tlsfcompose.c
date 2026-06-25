@@ -91,7 +91,8 @@ static void usage(const char *prog) {
       "  --route-stats                print residual-cluster route diagnostics "
       "and exit\n"
       "  --verify PROG                self-verify each OxiDD-synthesized "
-      "controller (PROG --aiger F --formula L; exit 1 = violation) and fall "
+      "controller (PROG --aiger F --formula-file L; exit 1 = violation) and "
+      "fall "
       "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
@@ -468,13 +469,17 @@ static void compose_sh_header(FILE *sh) {
           "dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
           "ok=1\n"
           "run() {\n"
-          "  ltl=$(grep -v '^c ' \"$dir/$1\")\n"
-          "  if ltlsynt --ins=\"$2\" --outs=\"$3\" --formula=\"$ltl\" "
+          // Pass the formula via a file (-F), not --formula= on the command
+          // line: large clusters exceed the shell/exec argument limit (E2BIG).
+          "  f=$(mktemp)\n"
+          "  grep -v '^c ' \"$dir/$1\" > \"$f\"\n"
+          "  if ltlsynt --ins=\"$2\" --outs=\"$3\" -F \"$f\" "
           "--realizability >/dev/null 2>&1; then\n"
           "    echo \"$1: REALIZABLE\"\n"
           "  else\n"
           "    echo \"$1: UNREALIZABLE\"; ok=0\n"
           "  fi\n"
+          "  rm -f \"$f\"\n"
           "}\n");
 }
 
