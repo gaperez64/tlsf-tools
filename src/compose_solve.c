@@ -84,8 +84,8 @@ static Aig *run_ltlsynt(const char *prog, const char *ins, const char *outs,
   }
   sprintf(ai, "--ins=%s", ins);
   sprintf(ao, "--outs=%s", outs);
-  char *argv[] = {(char *)prog, ai,          ao, (char *)"-F",
-                  fpath,        (char *)"--aiger", nullptr};
+  char *argv[] = {(char *)prog,      ai,     ao, (char *)"-F", fpath,
+                  (char *)"--aiger", nullptr};
   posix_spawn_file_actions_t fa;
   posix_spawn_file_actions_init(&fa);
   posix_spawn_file_actions_adddup2(&fa, fileno(cap), 1);
@@ -304,8 +304,9 @@ bool controller_violates_spec(const char *verifier, Aig *controller,
   fputc('\n', ff);
   fclose(ff);
 
-  char *argv[] = {(char *)verifier,         (char *)"--aiger", tmp,
-                  (char *)"--formula-file", ftmp,              nullptr};
+  char *argv[] = {
+      (char *)verifier, (char *)"--aiger", tmp, (char *)"--formula-file", ftmp,
+      nullptr};
   posix_spawn_file_actions_t fa;
   posix_spawn_file_actions_init(&fa);
   posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);

@@ -1035,6 +1035,8 @@ foreach sel : [['--title', 'title'], ['--description', 'description'],
                ['--semantics', 'semantics'], ['--target', 'target'],
                ['--tags', 'tags'], ['--parameters', 'params'],
                ['--input-signals', 'inputs'], ['--output-signals', 'outputs'],
+               ['--expanded-ins', 'expanded_ins'],
+               ['--expanded-outs', 'expanded_outs'],
                ['--info', 'info']]
   test('info_' + sel[1], check,
     args: [files('test/cases/meta.' + sel[1]),

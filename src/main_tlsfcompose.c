@@ -187,7 +187,8 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     snprintf(buf, buf_sz, "selected exact fast path");
     break;
   case ROUTE_WR_SAFETY:
-    snprintf(buf, buf_sz, "selected over-approx fast path (W/R safety; verified)");
+    snprintf(buf, buf_sz,
+             "selected over-approx fast path (W/R safety; verified)");
     break;
   case ROUTE_BOUNDED_EXPERIMENTAL:
     snprintf(buf, buf_sz, "selected explicit experimental bounded path");
@@ -977,17 +978,18 @@ int main(int argc, char *argv[]) {
                 ast_node_count(root), backend);
       // Don't trust a self-contained UNREALIZABLE that a dropped liveness
       // assumption could have caused: re-solve the cluster with all assumptions
-      // kept (prune=false) via the authoritative ltlsynt.  The drop only happens
-      // for a *safety-only* cluster (cluster_assumption_mask), so a liveness
-      // cluster cannot be tainted this way — gate on !has_liveness to avoid
-      // re-running ltlsynt on the slow liveness tail.  Only flips the verdict
-      // when ltlsynt actually produces a controller, so a genuine UNREAL (or an
-      // unavailable ltlsynt) is left intact.  See lily/lilydemo23.
+      // kept (prune=false) via the authoritative ltlsynt.  The drop only
+      // happens for a *safety-only* cluster (cluster_assumption_mask), so a
+      // liveness cluster cannot be tainted this way — gate on !has_liveness to
+      // avoid re-running ltlsynt on the slow liveness tail.  Only flips the
+      // verdict when ltlsynt actually produces a controller, so a genuine
+      // UNREAL (or an unavailable ltlsynt) is left intact.  See
+      // lily/lilydemo23.
       if (unreal && !route.shape.has_liveness &&
           cover_has_liveness_assumption(cov)) {
-        Node *full = residual_plan_build_cluster(
-            spec, cov, rplan, rplan->keys[k], /*all=*/false, /*prune=*/false,
-            seen);
+        Node *full =
+            residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                        /*all=*/false, /*prune=*/false, seen);
         if (full) {
           int u2 = 0;
           Aig *re =

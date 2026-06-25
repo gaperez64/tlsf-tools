@@ -233,8 +233,8 @@ non-self-contained specs (many of which are these reactive `A → G(B)` problems
 ## ltlsynt vs preprocessor + ltlsynt (`scripts/benchgraph.py`)
 Head-to-head synthesis: standalone **ltlsynt** vs the **preprocessor** (templates + OxiDD + `--split` decomposition) that carves off safety/GR(1) in-process and forwards the residual to ltlsynt. Each (engine, spec) pair gets the same timeout. Regenerate with `scripts/benchgraph.py` (or `--from-data benchgraph.tsv` to re-render).
 
-### Run: 2026-06-24 21:58 UTC · commit `52a7980`
-- Corpus `../benchmarks/tlsf` (2545 specs); timeout **30s**, 6 GB/run (systemd cgroup hard cap), sequential.
+### Run: 2026-06-25 04:29 UTC · commit `f204561`
+- Corpus `../benchmarks/tlsf` (2545 specs); timeout **60s**, 6 GB/run (systemd cgroup hard cap), sequential.
 - ltlsynt: `ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)
 - preprocessor + ltlsynt: `tlsfcompose --split --aiger --ltlsynt …`
 - Self-contained without ltlsynt (templates+OxiDD): **419/2545 = 16.5%**.
@@ -242,16 +242,14 @@ Head-to-head synthesis: standalone **ltlsynt** vs the **preprocessor** (template
 ### Solved within timeout
 | engine | solved | only this engine |
 |---|--:|--:|
-| ltlsynt | 1970/2545 | 59 |
-| preprocessor + ltlsynt | 1932/2545 | 21 |
+| ltlsynt | 1970/2545 | 9 |
+| preprocessor + ltlsynt | 1982/2545 | 21 |
 
-- Both: 1911; neither: 554. **Net gain from the preprocessor: -38** (21 won, 59 lost).
+- Both: 1961; neither: 554. **Net gain from the preprocessor: +12** (21 won, 9 lost).
 - Preprocessor-only solves by family: selection-ltl-2025×13, generated_TLSF×5, sweap×2, specs×1.
 
 ### Speed (both produced a controller)
-- 903 specs both SOLVED. **Speedup `ltlsynt/preproc`: median ×0.95, geomean ×0.87** (faster 388, slower 515); aggregate wall ×1.12.
+- 908 specs both SOLVED. **Speedup `ltlsynt/preproc`: median ×0.95, geomean ×0.87** (faster 392, slower 516); aggregate wall ×1.11.
 
 ![Survival: ltlsynt vs preprocessor + ltlsynt](docs/benchgraph/survival.png)
-
-- Correctness check (ltlsynt authoritative): 0 false-UNREAL, 20 false-REAL from the preprocessor.
 <!-- BENCHGRAPH:PREPROCESSOR END -->

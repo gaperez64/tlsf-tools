@@ -364,12 +364,17 @@ static bool block_is_comb(const Csnf *c, const Block *b) {
 
 // Verdict-trust registry: which certifiers are under-approximations (strategy
 // commitments for a liveness obligation) vs exact (forced-value substitution).
-// See templates_internal.h.  Liveness strategy families strengthen the residual;
-// the rest substitute a value the constraint forces.
+// See templates_internal.h.  Liveness strategy families strengthen the
+// residual; the rest substitute a value the constraint forces.
 VerdictTrust block_trust(const Block *b) {
   static const char *const under[] = {
-      "reachability", "persistence",          "response", "server",
-      "arbiter",      "round-robin",          "global-recurrence-switch",
+      "reachability",
+      "persistence",
+      "response",
+      "server",
+      "arbiter",
+      "round-robin",
+      "global-recurrence-switch",
       "safety-invariant",
   };
   for (size_t i = 0; i < sizeof under / sizeof *under; i++)
