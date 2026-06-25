@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Benchmark tlsf-tools against syfco: wall-clock time (median of N runs) and
-# peak resident memory, over the specs in bench/specs/.
+# Benchmark tlsf-tools' own wall-clock time (median of N runs) and peak resident
+# memory, over the specs in bench/specs/.
 #
 #   bench/bench.sh [--build DIR] [--runs N] [--baseline] [--check]
 #   bench/bench.sh --matrix CORPUS [--runs N] [--matrix-timeout SECONDS]
@@ -9,7 +9,7 @@
 #   --check      compare our numbers to bench/baseline.tsv and fail on a
 #                regression beyond the tolerance (TIME_TOL / MEM_TOL)
 #
-# With neither flag, prints a comparison table (ours vs syfco when available).
+# With neither flag, prints a timing table for the current build.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -207,8 +207,6 @@ peak_kib() {
 }
 
 ours="$build/tlsf2ltl"
-have_syfco=0
-command -v syfco >/dev/null 2>&1 && have_syfco=1
 
 mapfile -t specs < <(find "$here/specs" -name '*.tlsf' | sort)
 [ ${#specs[@]} -gt 0 ] || { echo "no specs in $here/specs" >&2; exit 2; }
@@ -216,9 +214,8 @@ mapfile -t specs < <(find "$here/specs" -name '*.tlsf' | sort)
 baseline="$here/baseline.tsv"
 
 if [ "$mode" = report ]; then
-  printf '%-28s | %10s | %10s | %10s | %10s\n' \
-    spec "ours ms" "syfco ms" "ours KiB" "syfco KiB"
-  printf -- '-%.0s' {1..86}; echo
+  printf '%-28s | %10s | %10s\n' spec "ms" "KiB"
+  printf -- '-%.0s' {1..54}; echo
 fi
 
 declare -A ms_of kib_of
@@ -232,13 +229,7 @@ for spec in "${specs[@]}"; do
   kib_of[$name]=$o_kib
 
   if [ "$mode" = report ]; then
-    s_ms="-"; s_kib="-"
-    if [ "$have_syfco" = 1 ] && syfco -f ltlxba "$spec" >/dev/null 2>&1; then
-      s_ms=$(median_ms syfco -f ltlxba "$spec")
-      s_kib=$(peak_kib syfco -f ltlxba "$spec")
-    fi
-    printf '%-28s | %10s | %10s | %10s | %10s\n' \
-      "$name" "$o_ms" "$s_ms" "$o_kib" "$s_kib"
+    printf '%-28s | %10s | %10s\n' "$name" "$o_ms" "$o_kib"
   fi
 done
 

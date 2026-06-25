@@ -423,25 +423,13 @@ def base_status_via_tlsf_tools(spec, args):
 
 
 def base_status(spec, args):
-    if args.baseline_mode == "tlsf-tools":
-        return base_status_via_tlsf_tools(spec, args)
-    rc, _, secs, to = run_timed([args.ltlsynt, "--tlsf=" + spec, "--aiger"], args.timeout)
-    if to:
-        st = "TIMEOUT"
-    elif rc == 0:
-        st = "SOLVED"
-    elif rc == 1:
-        st = "UNREAL"
-    else:
-        st = "ERROR"
-    return st, secs
+    # Baseline: standalone ltlsynt fed our own TLSF->LTL translation (syfco-free).
+    return base_status_via_tlsf_tools(spec, args)
 
 
 def baseline_description(args):
-    if args.baseline_mode == "tlsf-tools":
-        return ("`tlsf2tlsf --basic` + `tlsf2ltl --format ltlxba` + "
-                "`ltlsynt -F … --ins … --outs … --aiger`")
-    return "`ltlsynt --tlsf=SPEC --aiger` (syfco translation, full synthesis)"
+    return ("`tlsf2tlsf --basic` + `tlsf2ltl --format ltlxba` + "
+            "`ltlsynt -F … --ins … --outs … --aiger`")
 
 
 def load_rows(path):
@@ -495,12 +483,13 @@ def main():
     ap.add_argument("--tlsfcompose", required=True)
     ap.add_argument("--ltlsynt", default=shutil.which("ltlsynt") or "ltlsynt")
     ap.add_argument("--tlsf2ltl", default=None,
-                    help="tlsf2ltl path for syfco-free baseline mode")
+                    help="tlsf2ltl path for the ltlsynt baseline translation")
     ap.add_argument("--tlsf2tlsf", default=None,
-                    help="tlsf2tlsf path for syfco-free baseline mode")
-    ap.add_argument("--baseline-mode", choices=["auto", "syfco", "tlsf-tools"],
+                    help="tlsf2tlsf path for the ltlsynt baseline translation")
+    ap.add_argument("--baseline-mode", choices=["auto", "tlsf-tools"],
                     default="auto",
-                    help="baseline translation path for standalone ltlsynt")
+                    help="baseline translation path for standalone ltlsynt "
+                         "(tlsf-tools only; the legacy syfco path was removed)")
     ap.add_argument("--out", default="BENCHGRAPH.md")
     ap.add_argument("--data", default=None, help="per-spec TSV (default: alongside --out)")
     ap.add_argument("--timeout", type=int, default=15)
@@ -532,7 +521,7 @@ def main():
     args.tlsf2ltl = absolutize_tool(args.tlsf2ltl)
     args.tlsf2tlsf = absolutize_tool(args.tlsf2tlsf)
     if args.baseline_mode == "auto":
-        args.baseline_mode = "syfco" if shutil.which("syfco") else "tlsf-tools"
+        args.baseline_mode = "tlsf-tools"
 
     global MEM_GB, FORCE_NO_CGROUP
     MEM_GB = args.mem_gb
