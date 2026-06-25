@@ -69,8 +69,8 @@ struct Csnf {
 
 // Verdict-trust class of a certifier (the registry; see block_trust).  An
 // UNDER-approximation commits a *strategy* for a liveness obligation — the
-// eliminated output has several valid strategies, so substituting the chosen one
-// STRENGTHENS the residual: sound for a REALIZABLE verdict, but its
+// eliminated output has several valid strategies, so substituting the chosen
+// one STRENGTHENS the residual: sound for a REALIZABLE verdict, but its
 // UNREALIZABLE verdict is not trustworthy.  An EXACT certifier extracts the
 // value the constraint *forces* (a definition/register/exclusive reaction) and
 // substitutes it, which is equivalence-preserving.  No certifier weakens
