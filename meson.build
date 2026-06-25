@@ -18,7 +18,6 @@ fs = import('fs')
 # ---------------------------------------------------------------------------
 
 cc = meson.get_compiler('c')
-m_dep = cc.find_library('m', required: false)  # WL kernels (sqrt)
 research_tools = get_option('research_tools')
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
@@ -235,6 +234,7 @@ lib_sources = [
   'src/expand.c',
   'src/nnf.c',
   'src/rewrite.c',
+  'src/normalize.c',
   'src/classify.c',
   'src/liveness_class.c',
   'src/apset.c',
@@ -254,13 +254,6 @@ lib_sources = [
                   # (which #includes it) is compiled only after it exists.
 ]
 
-if research_tools
-  lib_sources += [
-    'src/graph.c',
-    'src/wl.c',
-  ]
-endif
-
 if have_oxidd
   lib_sources += ['src/residual_plan.c']
 endif
@@ -269,7 +262,6 @@ tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: inc,
-  dependencies: m_dep,
   pic: false,
 )
 
@@ -310,22 +302,6 @@ tlsfnorm_exe = executable(
 )
 
 if research_tools
-  tlsfgraph_exe = executable(
-    'tlsfgraph',
-    sources: ['src/main_tlsfgraph.c', bison_out[1]],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
-
-  tlsfwl_exe = executable(
-    'tlsfwl',
-    sources: ['src/main_tlsfwl.c', bison_out[1]],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
-
   tlsftemplates_exe = executable(
     'tlsftemplates',
     sources: ['src/main_tlsftemplates.c', bison_out[1]],
@@ -479,72 +455,13 @@ test('ltl_enum', check,
          tlsf2ltl_exe, files('test/cases/enum_demo.tlsf')])
 
 check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
+check_contains = files('test/check_contains.sh')  # asserts output matches a regex
 
 test('tlsf_enum_basic', check,
   args: [files('test/cases/enum_demo.basic.tlsf'),
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
 
 if research_tools
-# tlsfgraph: GSNF text/gsnf/dot/tsv + template candidates (arbiter pattern).
-test('graph_text', check,
-  args: [files('test/cases/arbiter2.graph.txt'),
-         tlsfgraph_exe, '--templates', files('test/cases/arbiter2.tlsf')])
-test('graph_gsnf', check,
-  args: [files('test/cases/arbiter2.graph.gsnf'),
-         tlsfgraph_exe, '--format', 'gsnf', '--templates',
-         files('test/cases/arbiter2.tlsf')])
-test('graph_tsv', check,
-  args: [files('test/cases/arbiter2.graph.tsv'),
-         tlsfgraph_exe, '--format', 'tsv', '--templates',
-         files('test/cases/arbiter2.tlsf')])
-test('graph_dot', check,
-  args: [files('test/cases/arbiter2.graph.dot'),
-         tlsfgraph_exe, '--format', 'dot', files('test/cases/arbiter2.tlsf')])
-test('graph_filter', check,
-  args: [files('test/cases/arbiter2.graph.live.tsv'),
-         tlsfgraph_exe, '--format', 'tsv', '--guarantees', '--liveness',
-         files('test/cases/arbiter2.tlsf')])
-test('graph_constraint_kind', check,
-  args: [files('test/cases/arbiter2.graph.cons.gsnf'),
-         tlsfgraph_exe, '--format', 'gsnf', '--graph', 'constraint',
-         files('test/cases/arbiter2.tlsf')])
-
-# WL features (M4): tlsfgraph --wl and the tlsfwl comparison tool.
-test('graph_wl', check_wl,
-  args: [files('test/cases/arbiter2.graph.wl'),
-         tlsfgraph_exe, '--wl', '2', files('test/cases/arbiter2.tlsf')])
-test('wl_matrix', check_wl,
-  args: [files('test/cases/wl_matrix.txt'),
-         tlsfwl_exe, '--matrix', files('test/cases/arbiter2.tlsf'),
-         files('test/cases/resp1.tlsf')])
-test('wl_compare', check_wl,
-  args: [files('test/cases/wl_compare.txt'),
-         tlsfwl_exe, '--compare', files('test/cases/resp1.tlsf'),
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
-test('wl_nearest', check,   # output is index-only, no paths to normalize
-  args: [files('test/cases/wl_nearest.txt'),
-         tlsfwl_exe, '--nearest', '1', '--kernel', 'jaccard',
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf'),
-         files('test/cases/arbiter2.tlsf')])
-test('wl_version', check,
-  args: [files('test/cases/wl_version.txt'), tlsfwl_exe, '--version'])
-test('wl_labels_basic', check_wl,
-  args: [files('test/cases/wl_labels_basic.txt'), tlsfwl_exe,
-         '--labels', 'basic', '--matrix',
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
-test('wl_kernel_dot', check_wl,
-  args: [files('test/cases/wl_kernel_dot.txt'), tlsfwl_exe,
-         '--kernel', 'dot', '--compare', files('test/cases/resp1.tlsf'),
-         files('test/cases/arbiter2.tlsf')])
-test('wl_split', check_wl,
-  args: [files('test/cases/wl_split_matrix.txt'), tlsfwl_exe,
-         '--split', '--matrix',
-         files('test/cases/arbiter2.tlsf'), files('test/cases/resp1.tlsf')])
-test('graph_wl_template', check_wl,
-  args: [files('test/cases/arbiter2.graph.wltmpl'),
-         tlsfgraph_exe, '--format', 'gsnf', '--wl', '1', '--wl-labels',
-         'template', files('test/cases/arbiter2.tlsf')])
-
 # tlsftemplates (M5): certify CSNF for template blocks + soundness declines.
 test('tmpl_definition', check_wl,
   args: [files('test/cases/def_demo.csnf'), tlsftemplates_exe,
@@ -630,6 +547,13 @@ test('tmpl_param', check_wl,
          '--param', 'n=5', '--param', 'k=2',
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/param_demo.tlsf')])
+# match-normalize (PR3/PR4): equivalence-preserving recognition normalization
+# lifts a guarded-next to solved and a mutex to certified.
+test('tmpl_match_normalize', check,
+  args: [files('test/cases/normalization_patterns.tmpl_matchsafe.txt'),
+         tlsftemplates_exe, '--certify', '--solve', '--format', 'text',
+         '--match-normalize', 'match-safe:1',
+         files('test/cases/normalization_patterns.tlsf')])
 # Composition soundness: tlsftemplates --check (whole-spec verdict) and
 # tlsfresidual (leftover LTL after the accepted blocks).
 foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
@@ -676,6 +600,17 @@ if have_oxidd
   test('compose_aiger_unclassified_atom', check,
     args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
            files('test/cases/aiger_unclassified_atom.tlsf')])
+  # Route normalization: X(G F g) matches no in-process recognizer as-is and
+  # would fall back to ltlsynt, but route-safe/Sickert lifts it to a GR(1)
+  # cluster OxiDD solves in-process (the controller is still self-verified
+  # against the original cluster).
+  test('compose_route_normalize', check_contains,
+    args: ['route-normalized -> OxiDD \\(GR\\(1\\)\\)', tlsfcompose_exe,
+           '--split', '--aiger', '--preprocess-policy', 'always',
+           '--route-normalize', 'route-safe:1,sickert-bounded',
+           '--ltlsynt', '/bin/false',
+           files('test/cases/route_norm_xgf.tlsf')],
+    env: ['TLSFCOMPOSE_DEBUG=1'])
   test('compose_route_stats_gr1', check,
     args: [files('test/cases/gr1_spec.route_stats'), tlsfcompose_exe,
            '--split', '--route-stats', files('test/cases/gr1_spec.tlsf')])
@@ -842,7 +777,7 @@ if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
 # golden is path-independent).
 test('benchgraph_tsv', check,
-  args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe, '--wl', '4',
+  args: [files('test/cases/bench.tsv'), tlsfbenchgraph_exe,
          '--summary', files('test/cases/arbiter1formula.tlsf'),
          files('test/cases/arbiter2.tlsf'),
          files('test/cases/cluster_split.tlsf'),
@@ -852,9 +787,17 @@ if python3.found()
   test('bounded_corpus_harness', check,
     args: [files('test/cases/bounded_corpus.tsv'),
            files('scripts/bounded_corpus.py'), '--benchgraph', tlsfbenchgraph_exe,
-           '--mem-mb', '512', '--timeout', '5', '--wl', '4', '--quiet',
+           '--mem-mb', '512', '--timeout', '5', '--quiet',
            files('test/cases/def_demo.tlsf'),
            files('test/cases/reaction_ok.tlsf')])
+  # norm_sweep (PR11): match-safe:1 is soundness-eligible and lifts a block to
+  # solved on the crafted pattern spec.
+  test('norm_sweep_match_safe', check_contains,
+    args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+1',
+           files('scripts/norm_sweep.py'),
+           '--tlsfbenchgraph', tlsfbenchgraph_exe,
+           files('test/cases/normalization_patterns.tlsf'),
+           '--schedules', 'off', 'match-safe:1'])
 endif
 endif
 if python3.found()
@@ -940,44 +883,6 @@ if python3.found() and spot_python_found
   endif
 endif
 
-if research_tools
-# Constraint decomposition: cover --split exposes shapes inside a single
-# conjunctive formula for graph/template inspection.
-test('graph_split_off', check,
-  args: [files('test/cases/arbiter1formula.graph.txt'),
-         tlsfgraph_exe, '--templates', files('test/cases/arbiter1formula.tlsf')])
-test('graph_split_on', check,
-  args: [files('test/cases/arbiter1formula.split.txt'),
-         tlsfgraph_exe, '--split', '--templates',
-         files('test/cases/arbiter1formula.tlsf')])
-# CLI option coverage: --version, --param, --safety, --assumptions, --liveness.
-test('graph_version', check,
-  args: [files('test/cases/graph_version.txt'), tlsfgraph_exe, '--version'])
-test('graph_param', check,
-  args: [files('test/cases/graph_param_demo.graph.txt'), tlsfgraph_exe,
-         '--param', 'n=5', '--param', 'k=2',
-         files('test/cases/param_demo.tlsf')])
-test('graph_safety_filter', check,
-  args: [files('test/cases/graph_arbiter2_safety.txt'), tlsfgraph_exe,
-         '--safety', files('test/cases/arbiter2.tlsf')])
-test('graph_assumptions_filter', check,
-  args: [files('test/cases/graph_arbiter2_assumptions.txt'), tlsfgraph_exe,
-         '--assumptions', files('test/cases/arbiter2.tlsf')])
-test('graph_liveness_filter', check,
-  args: [files('test/cases/graph_param_demo_liveness.txt'), tlsfgraph_exe,
-         '--liveness', '--param', 'n=5', '--param', 'k=2',
-         files('test/cases/param_demo.tlsf')])
-test('graph_roles_guarantee', check,
-  args: [files('test/cases/arbiter2.no_tmpl.txt'), tlsfgraph_exe,
-         '--roles', 'GUARANTEE', files('test/cases/arbiter2.tlsf')])
-test('graph_wl_labels_basic', check_wl,
-  args: [files('test/cases/arbiter2.wl0_basic.txt'), tlsfgraph_exe,
-         '--wl', '0', '--wl-labels', 'basic', files('test/cases/arbiter2.tlsf')])
-test('graph_template_named', check,
-  args: [files('test/cases/arbiter1formula.tmpl_reaction.txt'), tlsfgraph_exe,
-         '--template', 'reaction', files('test/cases/arbiter1formula.tlsf')])
-endif
-
 # tlsfnorm is stable preprocessing functionality.
 test('norm_split', check,
   args: [files('test/cases/arbiter1formula.norm.tlsf'),
@@ -995,6 +900,74 @@ test('norm_param', check,
   args: [files('test/cases/mutual_exclusion.norm3.tlsf'),
          tlsfnorm_exe, '--passes', 'split', '--param', 'n=3',
          files('test/cases/mutual_exclusion.tlsf')])
+# Normalization API (PR2): bool-canon sorts/dedups boolean operands; the
+# match-safe profile re-emits valid, equivalent TLSF.
+test('norm_match_safe', check,
+  args: [files('test/cases/normalization_match.matchsafe.tlsf'),
+         tlsfnorm_exe, '--passes', 'match-safe:1',
+         files('test/cases/normalization_match.tlsf')])
+# match-safe pattern rules (PR6): or-to-impl exposes guarded-next, mutex-demorgan
+# exposes mutex, equiv-output-side canonicalises the definition orientation.
+test('norm_match_patterns', check,
+  args: [files('test/cases/normalization_patterns.matchsafe.tlsf'),
+         tlsfnorm_exe, '--passes', 'match-safe:1',
+         files('test/cases/normalization_patterns.tlsf')])
+# route-safe (PR7): NNF + push G/X inward exposes independent safety invariants.
+test('norm_route_safe', check,
+  args: [files('test/cases/normalization_route.routesafe.tlsf'),
+         tlsfnorm_exe, '--passes', 'route-safe:1',
+         files('test/cases/normalization_route.tlsf')])
+# Sickert Stage 2 (PR9): lift a GF/FG limit node out of its temporal context.
+test('norm_sickert2', check,
+  args: [files('test/cases/normalization_sickert2.s2.tlsf'),
+         tlsfnorm_exe, '--passes', 'sickert-stage2:2', '--norm-max-growth',
+         '400', files('test/cases/normalization_sickert2.tlsf')])
+# Sickert Stage 3 (PR10): W inside GF -> U inside GF (+ FG-tail disjunct).
+test('norm_sickert3', check,
+  args: [files('test/cases/normalization_sickert3.s3.tlsf'),
+         tlsfnorm_exe, '--passes', 'sickert-stage3:1', '--norm-max-growth',
+         '800', files('test/cases/normalization_sickert3.tlsf')])
+# Soundness gate (Spot-verified; auto-skips when ltlfilt is absent, e.g. in CI):
+# each schedule must preserve the spec's LTL meaning.
+check_norm_equiv = files('scripts/check_norm_equiv.sh')
+# (check_contains is defined near the top of the test section)
+foreach case : [
+    ['match-safe:1', 'normalization_patterns.tlsf'],
+    ['route-safe:1', 'normalization_route.tlsf'],
+    ['sickert-stage2:2', 'normalization_sickert2.tlsf'],
+    ['sickert-stage3:1', 'normalization_sickert3.tlsf'],
+    ['sickert-bounded', 'normalization_sickert3.tlsf'],
+  ]
+  test('norm_equiv_' + case[0].underscorify() + '_' + case[1].underscorify(),
+    check_norm_equiv,
+    args: [tlsfnorm_exe, tlsf2ltl_exe, case[0],
+           files('test/cases/' + case[1])])
+endforeach
+# Sickert passes are infinite-word-only: they must be rejected on Finite specs.
+test('norm_finite_rejects_sickert', xfail,
+  args: [tlsfnorm_exe, '--passes', 'sickert-stage2:1',
+         files('test/cases/Patterns_Uright_uright06.tlsf')])
+# Pre-expansion passes (PR5).  The expanded output is unchanged (expand() also
+# performs these simplifications); the value is the recorded pre-pass firing,
+# so these assert the stats line rather than a byte-identical re-emission.
+test('norm_pre_indexed_x', check_contains,
+  args: ['pre-xn-flatten: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
+         'pre-indexed-x', '--norm-stats',
+         files('test/cases/normalization_xn.tlsf')])
+test('norm_pre_bounded_bool', check_contains,
+  args: ['pre-bounded-empty: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
+         'pre-bounded-bool', '--norm-stats',
+         files('test/cases/normalization_bounded_bool.tlsf')])
+test('norm_pre_spine_split', check_contains,
+  args: ['pre-spine-split: fired=[1-9]', tlsfnorm_exe, '--pre-passes',
+         'pre-spine-split', '--norm-stats',
+         files('test/cases/normalization_pre_split.tlsf')])
+# Cross-check: a pre-normalized spec expands to the same TLSF as the original
+# (expand(original) == expand(pre_normalize(original))).
+test('norm_pre_indexed_x_equiv', check,
+  args: [files('test/cases/normalization_xn.split.tlsf'), tlsfnorm_exe,
+         '--pre-passes', 'pre-indexed-x', '--passes', 'split',
+         files('test/cases/normalization_xn.tlsf')])
 
 # Constant folding (--weak-simplify): non-collapsing, collapse-to-false, and
 # collapse-to-true cases exercise every simplify_weak_local rule.

@@ -1,0 +1,7 @@
+INFO{TITLE:"xn" DESCRIPTION:"indexed next" SEMANTICS:Mealy TARGET:Mealy}
+MAIN{INPUTS{r;} OUTPUTS{g;}
+GUARANTEE{
+  G (r -> X[2] (X[3] g));
+  G (r -> X (X[1] g));
+  G (r -> X[0] g);
+}}

@@ -12,6 +12,7 @@
 
 #include "tlsf/apset.h"
 #include "tlsf/ast.h"
+#include "tlsf/normalize.h"
 #include "tlsf/spec.h"
 
 typedef enum {
@@ -96,8 +97,11 @@ typedef struct {
   bool invariant_wrapped; ///< REQUIRE/ASSERT (implicitly under G)
   bool is_safety;         ///< syntactic class (classify_formula on nnf)
 
-  Node *formula; ///< original (expanded) AST
-  Node *nnf;     ///< NNF copy (original is left intact)
+  Node *formula;       ///< original (expanded) AST; semantic source
+  Node *nnf;           ///< NNF copy (original is left intact)
+  Node *match_formula; ///< equivalent formula for recognizers/certifiers
+  Node
+      *route_formula; ///< equivalent formula for residual/routing (may be NULL)
 
   ApSet inputs, outputs;
   ApSet pos_outputs, neg_outputs;  ///< output occurrence polarity (in NNF)
@@ -129,10 +133,35 @@ typedef struct {
   uint32_t template_candidate_cap;
 } ConstraintCover;
 
+/// The formula recognizers/certifiers should parse: the normalized
+/// `match_formula` when set, else the original.  Equivalence-preserving, so a
+/// candidate found here is valid for the original constraint.
+static inline Node *constraint_match_formula(const Constraint *c) {
+  return c->match_formula ? c->match_formula : c->formula;
+}
+
+/// The formula residual/routing should use: the normalized `route_formula` when
+/// set, else the original.
+static inline Node *constraint_route_formula(const Constraint *c) {
+  return c->route_formula ? c->route_formula : c->formula;
+}
+
 /// Build the constraint cover from an already-expanded spec.  When `split` is
 /// true each section formula is decomposed into its top-level conjuncts (one
 /// constraint each, equivalence-preserving).  Returns nullptr on OOM.
 [[nodiscard]] ConstraintCover *cover_build(TlsfSpec *spec, bool split);
+
+/// Set each constraint's `match_formula` to the normalization of its `formula`
+/// under `opts` (does not mutate `formula`).  No-op when the schedule is empty.
+bool cover_apply_match_normalization(ConstraintCover *cov,
+                                     const TlsfNormOptions *opts,
+                                     TlsfNormStats *stats);
+
+/// Parse `schedule`, soundness-check it for the match phase (rejecting unsafe /
+/// finite-word-incompatible rules via `tool`), and apply it to the cover's
+/// `match_formula`.  Returns false on a parse or soundness error.
+bool cover_match_normalize(ConstraintCover *cov, const char *schedule,
+                           bool finite, const char *tool, TlsfNormStats *stats);
 
 /// Append a candidate template name to a constraint (used by recognize.c).
 void constraint_add_candidate(ConstraintCover *cov, Constraint *c,

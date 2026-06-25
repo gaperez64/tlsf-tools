@@ -1,7 +1,0 @@
-semantics: Mealy
-target: Mealy
-inputs: 2
-outputs: 2
-constraints: 3
-syntactic safety: 1
-syntactic liveness: 2

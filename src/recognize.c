@@ -79,9 +79,9 @@ static const Node *next_chain_target(const Node *n, uint32_t *steps,
 
 // G(r -> F g)  or  G(!r || F g)
 static void match_response(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   const Node *guard = nullptr, *cons = nullptr;
   if (body->kind == NODE_IMPL) {
     guard = body->lhs;
@@ -105,10 +105,11 @@ static void match_response(ConstraintCover *cov, Constraint *c) {
 
 // G F x  (records the target output when x is a plain output AP)
 static void match_recurrence(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G || c->formula->arg->kind != NODE_F)
+  if (constraint_match_formula(c)->kind != NODE_G ||
+      constraint_match_formula(c)->arg->kind != NODE_F)
     return;
   constraint_add_candidate(cov, c, "pure-recurrence");
-  const Node *x = c->formula->arg->arg;
+  const Node *x = constraint_match_formula(c)->arg->arg;
   if (is_output(cov, x)) {
     TemplateCandidate *tc =
         constraint_add_candidate_payload(cov, c, CAND_RECURRENCE);
@@ -119,10 +120,11 @@ static void match_recurrence(ConstraintCover *cov, Constraint *c) {
 
 // F G x  (records the target output when x is a plain output AP)
 static void match_persistence(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_F || c->formula->arg->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_F ||
+      constraint_match_formula(c)->arg->kind != NODE_G)
     return;
   constraint_add_candidate(cov, c, "persistence");
-  const Node *x = c->formula->arg->arg;
+  const Node *x = constraint_match_formula(c)->arg->arg;
   if (is_output(cov, x)) {
     TemplateCandidate *tc =
         constraint_add_candidate_payload(cov, c, CAND_PERSISTENCE);
@@ -133,9 +135,9 @@ static void match_persistence(ConstraintCover *cov, Constraint *c) {
 
 // F g  (one-shot reachability of an output)
 static void match_reachability(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_F)
+  if (constraint_match_formula(c)->kind != NODE_F)
     return;
-  const Node *g = c->formula->arg;
+  const Node *g = constraint_match_formula(c)->arg;
   if (!is_output(cov, g))
     return;
   constraint_add_candidate(cov, c, "reachability");
@@ -148,9 +150,9 @@ static void match_reachability(ConstraintCover *cov, Constraint *c) {
 // G(alpha -> o) / G(alpha -> !o)  (immediate reaction; o an output literal,
 // consequent neither F nor X — those are response/guarded-next).
 static void match_reaction(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_IMPL)
     return;
   const Node *o = body->rhs;
@@ -163,9 +165,9 @@ static void match_reaction(ConstraintCover *cov, Constraint *c) {
 
 // G(alpha -> X^k o), k >= 2.  The k=1 case is handled by guarded-next.
 static void match_fixed_delay_response(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_IMPL &&
       !(body->kind == NODE_OR && body->lhs->kind == NODE_NOT))
     return;
@@ -198,16 +200,16 @@ static const Node *global_guard_side(const Node *n) {
 // G(phi) <-> G F o: a one-bit controller can output o until phi first fails.
 static void match_global_recurrence_switch(ConstraintCover *cov,
                                            Constraint *c) {
-  if (c->formula->kind != NODE_EQUIV)
+  if (constraint_match_formula(c)->kind != NODE_EQUIV)
     return;
   const Node *rec = nullptr;
   const Node *guard = nullptr;
-  if (recurrence_side(cov, c->formula->lhs)) {
-    rec = c->formula->lhs;
-    guard = global_guard_side(c->formula->rhs);
-  } else if (recurrence_side(cov, c->formula->rhs)) {
-    rec = c->formula->rhs;
-    guard = global_guard_side(c->formula->lhs);
+  if (recurrence_side(cov, constraint_match_formula(c)->lhs)) {
+    rec = constraint_match_formula(c)->lhs;
+    guard = global_guard_side(constraint_match_formula(c)->rhs);
+  } else if (recurrence_side(cov, constraint_match_formula(c)->rhs)) {
+    rec = constraint_match_formula(c)->rhs;
+    guard = global_guard_side(constraint_match_formula(c)->lhs);
   }
   if (!rec || !guard || has_temporal(guard) || has_output_ref(cov, guard))
     return;
@@ -217,9 +219,9 @@ static void match_global_recurrence_switch(ConstraintCover *cov,
 // G(X o <-> theta) / G(theta <-> X o)  (also X[!]); delayed definition /
 // register, o output.
 static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_EQUIV)
     return;
   const Node *xside = is_next_kind(body->lhs->kind)   ? body->lhs
@@ -236,9 +238,9 @@ static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
 
 // G(alpha -> X o) / G(alpha -> X !o)  (also X[!])
 static void match_guarded_next(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_IMPL)
     return;
   const Node *cons = body->rhs;
@@ -253,9 +255,9 @@ static void match_guarded_next(ConstraintCover *cov, Constraint *c) {
 
 // G(t -> (X o <-> !o)) / G(t -> (!o <-> X o))
 static void match_toggle_register(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_IMPL || body->rhs->kind != NODE_EQUIV)
     return;
   const Node *eq = body->rhs;
@@ -278,9 +280,9 @@ static void match_toggle_register(ConstraintCover *cov, Constraint *c) {
 
 // G(o <-> theta), o an output
 static void match_definition(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  const Node *body = c->formula->arg;
+  const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_EQUIV)
     return;
   if (is_output(cov, body->lhs)) {
@@ -300,9 +302,9 @@ static void match_definition(ConstraintCover *cov, Constraint *c) {
 
 // G(B) with B a temporal-free Boolean body: a stateless safety invariant.
 static void match_invariant(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  if (has_temporal(c->formula->arg))
+  if (has_temporal(constraint_match_formula(c)->arg))
     return;
   constraint_add_candidate(cov, c, "safety-invariant");
 }
@@ -325,11 +327,11 @@ static bool mutex_leaves(ConstraintCover *cov, ApSet *members, const Node *n) {
 }
 
 static void match_mutex(ConstraintCover *cov, Constraint *c) {
-  if (c->formula->kind != NODE_G)
+  if (constraint_match_formula(c)->kind != NODE_G)
     return;
   ApSet members;
   apset_init(&members, cov->arena, cov->aps.count);
-  if (!mutex_leaves(cov, &members, c->formula->arg))
+  if (!mutex_leaves(cov, &members, constraint_match_formula(c)->arg))
     return;
   if (apset_count(&members) < 2)
     return;

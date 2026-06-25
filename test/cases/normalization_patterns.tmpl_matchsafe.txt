@@ -1,0 +1,6 @@
+blocks: 3  (solved 2, certified 1, candidate 0)
+residual constraints: 1
+  [solved] definition  (1 constraint)  cert=definition_decoder
+      decoder: q := r && s
+  [solved] guarded-next-assignment  (1 constraint)  cert=guarded_assignment_consistency
+  [certified] mutex  (1 constraint)  cert=mutex_safety

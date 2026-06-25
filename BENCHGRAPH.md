@@ -22,7 +22,7 @@ Regenerate structural plots and tables:
 ```sh
 python3 scripts/benchgraph_plots.py \
     --benchgraph build-release-local/tlsfbenchgraph \
-    --out docs/benchgraph --wl 6 \
+    --out docs/benchgraph \
     tlsf-selection-2026:tlsf \
     tlsf-fin-selection-2026:tlsf-fin
 ```
@@ -100,14 +100,108 @@ Effect of `--split` (specs with the shape: raw → decomposed):
 
 ![Decomposition effect](docs/benchgraph/split_effect.png)
 
-## Weisfeiler-Lehman stabilisation depth (decomposed)
+## Normalization obstacles before matching
 
-| corpus | WL stabilisation depth (med/mean/max) |
-|---|---|
-| `tlsf` | 2 / 2.6 / 6 |
-| `tlsf-fin` | 3 / 3.0 / 6 |
+Structural indicators (from `tlsfbenchgraph`, summed over the raw constraint
+formulas) of where a Sickert-style normalization would have to fire: `u_under_w`
+(`U` under `W`), `limit_under_temporal` (a `GF`/`FG` limit node under a temporal
+node), `w_under_gf` (`W` inside a `GF`), and `u_under_fg` (`U` inside an `FG`).
+These quantify the obstacle tail that the bounded Sickert passes target; a corpus
+with near-zero counts will not benefit from those passes.
 
-![WL stabilisation depth](docs/benchgraph/wl_stab.png)
+## Effect of exact recognition normalization
+
+`scripts/norm_sweep.py` runs the structural/certification pipeline once per
+normalization schedule (via `tlsfbenchgraph --pre-normalize` /
+`--match-normalize`) and reports, per schedule, the deltas vs the `off`
+baseline: extra template candidates, certified/solved blocks, eliminated
+constraints, and owned outputs, plus formula growth and a soundness-eligibility
+flag (a schedule is **not** eligible if it introduces any new parse failure vs
+`off` — e.g. an infinite-word-only pass on a `Finite` spec). Only eligible rows
+should be ranked; prefer the smallest eligible schedule on the Pareto frontier
+(e.g. `match-safe:1` over `match-safe:2` when the second iteration adds nothing).
+
+```sh
+scripts/norm_sweep.py --corpus benchmarks/tlsf \
+    --tlsfbenchgraph build-research/tlsfbenchgraph \
+    --schedules off match-safe:1 match-safe:2 pre-safe:1+match-safe:1 \
+    --out docs/benchgraph/norm_sweep.tsv --markdown docs/benchgraph/norm_sweep.md
+```
+
+Snapshot over `benchmarks/tlsf` (2545 specs, see
+[`docs/benchgraph/norm_sweep.md`](docs/benchgraph/norm_sweep.md)):
+`match-safe:1` exposes **+23 candidates / +18 certified** but shows **−57
+solved / −57 eliminated**. The solved regression is *not* a real loss of
+synthesis power: it is dominated by `weak`-simplify dropping vacuous `G(true)`
+invariants (e.g. `G mutual_exclusion(WL)` over an empty index range) that the
+baseline was over-counting as solved blocks. `match-safe:2` adds nothing over
+`:1`; `route-safe` on the match axis regresses (it is a *routing* pass — wrong
+axis). The sweep is structural only, so it flags such rows `review (verify with
+solver)`.
+
+### Solver-backed default decision (`tlsf`, templates+OxiDD, no ltlsynt)
+
+The structural deltas above do not settle whether a schedule should be the
+default — that needs the backend solver. Running `tlsfcompose --split --aiger
+--ltlsynt /bin/false` (self-contained = a verified controller without the
+ltlsynt fallback) over all 2545 `tlsf` specs, off vs `match-safe:1`, at a 10 s /
+4 GB cap (`docs/benchgraph/norm_selfcontained.tsv`):
+
+| metric | `off` | `match-safe:1` |
+|---|--:|--:|
+| self-contained | 418 (16.4%) | 418 (16.4%) |
+| self-contained gained / lost | — | 0 / 0 |
+| REALIZABLE↔UNREALIZABLE flips | — | 0 |
+
+`match-safe:1` is **sound but synthesis-neutral**: zero self-contained change,
+zero verdict flips (the only two rc differences were 10 s-timeout flakiness — at
+a 60 s cap both specs give the same verdict under off and match-safe). The
+recognition wins do not convert to synthesis wins because the constraints
+match-safe newly recognizes (OR-form guarded-next, De-Morgan mutex) are *safety*
+constraints OxiDD already solves directly — recognition only helps when it leads
+to combinational elimination or a liveness certificate, which these do not.
+
+**Conclusion: no normalization schedule is enabled by default.** Every schedule
+stays opt-in (`tlsfnorm`, `--pre-normalize` / `--match-normalize`); none meets
+the release gate's "≥1 meaningful coverage/speed metric improves" bar at the
+synthesis level.
+
+### Route normalization (liveness re-routing) and the GR(1) expressiveness wall
+
+`match-safe` is neutral because OxiDD *safety* is a shape-insensitive catch-all.
+The *liveness* router is shape-sensitive — a cluster reaches OxiDD GR(1) only if
+a syntactic recognizer (`aig_gr1_parts` / response/eventual/until monitors)
+matches its exact shape, else it falls to `ltlsynt`. `tlsfcompose
+--route-normalize SCHEDULE` (opt-in) normalizes a cluster that matched nothing
+and re-routes it before the fallback; the controller is still self-verified
+against the original cluster, so it can only turn a fallback into a verified
+in-process solve. The mechanism works in isolation (e.g. `X(G F g)` lifts to a
+GR(1) cluster OxiDD solves — `compose_route_normalize` test), but over the corpus
+(2545 specs, `--preprocess-policy always`, `route-safe:1,sickert-bounded`,
+`docs/benchgraph/norm_route_selfcontained.tsv`):
+
+| metric | `off` | `--route-normalize` |
+|---|--:|--:|
+| self-contained | 418 (16.4%) | 418 (16.4%) |
+| gained / lost | — | 0 / 0 |
+| REALIZABLE↔UNREALIZABLE flips | — | 0 |
+
+It is **synthesis-neutral**, and the firing rate explains why: over 150 sampled
+non-self-contained specs the route-normalize retry fired **0 times**. The
+ltlsynt-bound residuals are not *mis-shaped* GR(1) — they are *beyond* the
+recognizers' expressiveness. Inspecting them (e.g. AMBA) shows
+`G F assume → G(big safety body + F responses + deeply nested `W` chains + `↔`
+definitions)` implications: GR(1)-*natured* (env fairness → system
+fairness+safety) but with no `GF`/`FG`-under-temporal obstacle for Sickert to
+lift and far too complex for the exact-shape GR(1) recognizer to parse.
+
+**This is the validated signal for the one big lever left:** the liveness tail
+needs a *general* GR(1)/generalized-reactivity game backend that builds the game
+directly from the assumption/guarantee decomposition (extending `gr1_oxidd.c`),
+**not** more normalization. Normalization can only reshape for recognizers that
+already exist; it cannot close an expressiveness gap. Route-normalize stays a
+sound opt-in; the next investment is the backend, sized at the ~2100
+non-self-contained specs (many of which are these reactive `A → G(B)` problems).
 
 ## Normalisation (formula size under `--strong-simplify`)
 

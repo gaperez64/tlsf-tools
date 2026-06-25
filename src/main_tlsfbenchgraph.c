@@ -1,7 +1,7 @@
 /// tlsfbenchgraph — run the synthesis-graph pipeline over a corpus of TLSF
 /// specs and emit per-spec metrics (TSV) describing their form/template shapes,
 /// plus an optional aggregate summary.  A research/benchmarking driver: it
-/// reuses cover/recognize/certify(/WL) and adds no new analysis.
+/// reuses cover/recognize/certify and adds no new analysis.
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
 #include "tlsf/ast.h"
@@ -10,12 +10,12 @@
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/nnf.h"
+#include "tlsf/normalize.h"
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
 #include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
-#include "tlsf/wl.h"
 
 #include <ftw.h>
 #include <stdio.h>
@@ -30,8 +30,11 @@ static void usage(const char *prog) {
           "Per-spec form/template-shape metrics (TSV) over a TLSF corpus.\n"
           "  --input-dir DIR    recursively add every *.tlsf under DIR\n"
           "  --file-list FILE   add the paths listed in FILE (one per line)\n"
-          "  --wl N             also report WL stabilisation depth (<=N)\n"
           "  --split            split constraints at top-level &&\n"
+          "  --pre-normalize SCHEDULE   pre-expansion normalization (e.g. "
+          "pre-safe)\n"
+          "  --match-normalize SCHEDULE recognition normalization (e.g. "
+          "match-safe:1)\n"
           "  --summary          append an aggregate summary\n"
           "  --output FILE      write to FILE (default stdout)\n"
           "  --version, --help\n",
@@ -139,7 +142,8 @@ typedef struct {
   uint32_t residual_clusters, residual_outputs,
       largest_residual_cluster_outputs;
   uint32_t residual_liveness_clusters, residual_size_norm;
-  int wl_stab;
+  // Sickert-style normalization obstacles over the raw constraint formulas.
+  TlsfObstacles obstacles;
 } Metrics;
 
 // Measure the residual the synthesis backends still face after every template
@@ -209,9 +213,9 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
   free(keys);
 }
 
-static Metrics measure(const char *path, int wl_depth, bool split) {
+static Metrics measure(const char *path, bool split, const char *pre_norm,
+                       const char *match_norm) {
   Metrics m = {0};
-  m.wl_stab = -1;
   FILE *fp = cli_open_input(path, "tlsfbenchgraph");
   if (!fp)
     return m;
@@ -219,12 +223,33 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
   fclose(fp);
   if (!spec)
     return m;
+  bool finite = semantics_is_finite(spec->info.semantics);
+  if (pre_norm && *pre_norm) {
+    TlsfNormSchedule sch;
+    TlsfNormOptions o;
+    tlsf_norm_options_default(&o, TLSF_NORM_PHASE_PRE_EXPAND);
+    o.finite_word = finite;
+    TlsfNormRejectReason rr;
+    if (!tlsf_norm_parse_schedule(spec->arena, pre_norm, "tlsfbenchgraph",
+                                  &sch) ||
+        (o.schedule = sch,
+         !tlsf_norm_schedule_check(&sch, &o, "tlsfbenchgraph", &rr))) {
+      spec_free(spec);
+      return m;
+    }
+    tlsf_prenorm_spec(spec, &o, nullptr);
+  }
   if (expand(spec, nullptr, 0) != 0) {
     spec_free(spec);
     return m;
   }
   ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
+    spec_free(spec);
+    return m;
+  }
+  if (!cover_match_normalize(cov, match_norm, finite, "tlsfbenchgraph",
+                             nullptr)) {
     spec_free(spec);
     return m;
   }
@@ -264,6 +289,7 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
     m.size_raw += ast_node_count(c->formula);
     Node *nf = apply_rewrites(spec->arena, c->formula, RW_STRONG_SIMPLIFY);
     m.size_norm += nf ? ast_node_count(nf) : ast_node_count(c->formula);
+    tlsf_norm_count_obstacles(c->formula, &m.obstacles);
   }
 
   Csnf *csnf = templates_certify(cov, TPL_ALL, true);
@@ -282,8 +308,6 @@ static Metrics measure(const char *path, int wl_depth, bool split) {
     csnf_free(csnf);
   }
   m.comp = largest_output_component(cov);
-  if (wl_depth > 0)
-    m.wl_stab = wl_stabilization_depth(cov, WL_SYNTHESIS, wl_depth);
 
   spec_free(spec);
   return m;
@@ -295,9 +319,9 @@ static const char *basename_of(const char *p) {
 }
 
 int main(int argc, char *argv[]) {
-  int wl_depth = 0;
   bool summary = false, split = false;
   const char *output_file = nullptr;
+  const char *pre_norm = nullptr, *match_norm = nullptr;
 
 #define NEED_ARG()                                                             \
   (++i >= argc ? (fprintf(stderr, "tlsfbenchgraph: %s requires an argument\n", \
@@ -324,10 +348,12 @@ int main(int argc, char *argv[]) {
           add_file(line);
       }
       fclose(fl);
-    } else if (strcmp(a, "--wl") == 0) {
-      wl_depth = (int)strtol(NEED_ARG(), nullptr, 10);
     } else if (strcmp(a, "--split") == 0) {
       split = true;
+    } else if (strcmp(a, "--pre-normalize") == 0) {
+      pre_norm = NEED_ARG();
+    } else if (strcmp(a, "--match-normalize") == 0) {
+      match_norm = NEED_ARG();
     } else if (strcmp(a, "--summary") == 0) {
       summary = true;
     } else if (strcmp(a, "--output") == 0) {
@@ -377,12 +403,13 @@ int main(int argc, char *argv[]) {
           "global_recurrence\tguarded_next\tdefinition\t"
           "template_candidates\tsolved_blocks\tcertified_blocks\t"
           "dependent_outputs\tresidual_constraints\tlargest_output_component"
-          "\tformula_size_raw\tformula_size_norm\twl_stab_depth\t"
+          "\tformula_size_raw\tformula_size_norm\t"
           "fully_solved\tconflicts\t"
           "eliminated_constraints\towned_outputs\t"
           "residual_clusters\tresidual_outputs\t"
           "largest_residual_cluster_outputs\tresidual_liveness_clusters\t"
-          "residual_size_norm\n");
+          "residual_size_norm\t"
+          "u_under_w\tlimit_under_temporal\tw_under_gf\tu_under_fg\n");
 
   // Aggregates.
   uint32_t nok = 0, nfail = 0;
@@ -393,33 +420,32 @@ int main(int argc, char *argv[]) {
   uint32_t lc_strictly_smaller = 0, drop_to_safety = 0, factored = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
-    Metrics m = measure(g_files[i], wl_depth, split);
+    Metrics m = measure(g_files[i], split, pre_norm, match_norm);
     const char *fn = basename_of(g_files[i]);
     if (!m.ok) {
       nfail++;
       fprintf(out,
               "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
+              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
               fn);
       continue;
     }
     nok++;
-    char wl[16];
-    if (m.wl_stab >= 0)
-      snprintf(wl, sizeof wl, "%d", m.wl_stab);
-    else
-      snprintf(wl, sizeof wl, "-");
     fprintf(out,
             "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            "\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu"
+            "\t%llu\t%llu\t%llu\n",
             fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
             m.response, m.mutex, m.recurrence, m.persistence, m.global_rec,
             m.gnext, m.definition, m.tcands, m.solved, m.certified, m.dependent,
-            m.residual, m.comp, m.size_raw, m.size_norm, wl, m.fully_solved,
+            m.residual, m.comp, m.size_raw, m.size_norm, m.fully_solved,
             m.conflicts, m.elim_constraints, m.owned_outputs,
             m.residual_clusters, m.residual_outputs,
             m.largest_residual_cluster_outputs, m.residual_liveness_clusters,
-            m.residual_size_norm);
+            m.residual_size_norm, (unsigned long long)m.obstacles.u_under_w,
+            (unsigned long long)m.obstacles.limit_under_temporal,
+            (unsigned long long)m.obstacles.w_under_gf,
+            (unsigned long long)m.obstacles.u_under_fg);
 
     tot[0] += m.response;
     tot[1] += m.mutex;

@@ -378,6 +378,27 @@ VerdictTrust block_trust(const Block *b) {
   return TRUST_EXACT; // definition / registers / reaction / mutex invariant
 }
 
+// A *definition* elimination `o := theta` (from G(o <-> theta)) makes `o`
+// logically equal to `theta`, so substituting it away is equivalence-preserving
+// regardless of any other constraint on `o`.  Reaction / reachability /
+// persistence / safety-invariant Skolem values, by contrast, pick *one*
+// satisfying value for a constraint that only partially determines `o`;
+// eliminating those is sound only when `o` is not constrained elsewhere.
+static bool is_definition_elim(const Block *b, int32_t o) {
+  return b->dec_output == o && b->dec_theta;
+}
+
+// Outputs a block drives or eliminates (block_writes plus safety-invariant
+// Skolem outputs, which block_writes does not list).
+static bool block_drives(const Block *b, int32_t o) {
+  if (block_writes(b, o))
+    return true;
+  for (uint32_t k = 0; k < b->inv_n; k++)
+    if (b->inv_outputs[k] == o)
+      return true;
+  return false;
+}
+
 CsnfComposition *csnf_compose(const Csnf *c) {
   CsnfComposition *r = calloc(1, sizeof *r);
   if (!r)
@@ -391,11 +412,17 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   r->elim_constraint = calloc(N ? N : 1, sizeof(bool));
   int32_t *provider = malloc((A ? A : 1) * sizeof(int32_t));
   bool *elim_excluded = calloc(B ? B : 1, sizeof(bool));
+  // Blocks whose combinational output(s) were eliminated in Phase A because
+  // they are *definitions* (always sound); these are exempt from the Phase-B
+  // guard.
+  bool *def_committed = calloc(B ? B : 1, sizeof(bool));
   bool *eliminated = r->elim_constraint;
   if (!r->accepted_block || !r->residual_constraint || !r->conflicts ||
-      !r->elim || !eliminated || !provider || !elim_excluded) {
+      !r->elim || !eliminated || !provider || !elim_excluded ||
+      !def_committed) {
     free(provider);
     free(elim_excluded);
+    free(def_committed);
     csnf_composition_free(r);
     return nullptr;
   }
@@ -426,14 +453,22 @@ CsnfComposition *csnf_compose(const Csnf *c) {
           block_comb_value(c, &c->blocks[b], (int32_t)o))
         provider[o] = (int32_t)b;
   }
+  // Phase A commits only *definition* eliminations (o := theta), which are
+  // sound regardless of other constraints.  Non-definition combinational
+  // providers (reaction / reachability / persistence / invariant Skolem) are
+  // deferred: their `o := value` is only valid when `o` is not constrained by a
+  // surviving residual, so they are tested by the Phase-B shared-output guard
+  // and committed afterwards if they survive.
   for (uint32_t o = 0; o < A; o++) {
     if (provider[o] < 0)
       continue;
     const Block *pb = &c->blocks[provider[o]];
-    r->elim[r->nelim++] =
-        (Elim){(int32_t)o, block_comb_value(c, pb, (int32_t)o)};
+    if (!is_definition_elim(pb, (int32_t)o))
+      continue;
+    r->elim[r->nelim++] = (Elim){(int32_t)o, pb->dec_theta};
     for (uint32_t k = 0; k < pb->ncids; k++)
       eliminated[pb->cids[k]] = true;
+    def_committed[provider[o]] = true;
   }
 
   // A combinational block is accepted only as the chosen provider; a duplicate
@@ -450,9 +485,11 @@ CsnfComposition *csnf_compose(const Csnf *c) {
       r->accepted_block[b] = false;
   }
 
-  // Phase B: ownership fixpoint for the remaining (non-combinational) blocks --
-  // servers/registers.  Eject one whose output is driven twice or constrained
-  // in the residual.  Combinational providers are eliminated, never ejected.
+  // Phase B: ownership fixpoint.  Eject any block (server/register *or* a
+  // deferred non-definition combinational provider) whose output is driven
+  // twice or constrained by a surviving residual.  Definition providers
+  // (committed in Phase A) are exempt -- `o := theta` is
+  // equivalence-preserving.
   bool changed = true;
   while (changed) {
     changed = false;
@@ -464,16 +501,16 @@ CsnfComposition *csnf_compose(const Csnf *c) {
           r->residual_constraint[c->blocks[b].cids[k]] = false;
 
     for (uint32_t b = 0; b < B && !changed; b++) {
-      if (!r->accepted_block[b] || block_is_comb(c, &c->blocks[b]))
+      if (!r->accepted_block[b] || def_committed[b])
         continue;
       for (uint32_t o = 0; o < A && !changed; o++) {
         if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) ||
-            !block_writes(&c->blocks[b], (int32_t)o))
+            !block_drives(&c->blocks[b], (int32_t)o))
           continue;
         bool dup = false;
         for (uint32_t b2 = 0; b2 < B; b2++)
           if (b2 != b && r->accepted_block[b2] &&
-              block_writes(&c->blocks[b2], (int32_t)o)) {
+              block_drives(&c->blocks[b2], (int32_t)o)) {
             dup = true;
             break;
           }
@@ -494,6 +531,28 @@ CsnfComposition *csnf_compose(const Csnf *c) {
       }
     }
   }
+
+  // Commit the deferred non-definition combinational eliminations that survived
+  // the guard (their output is not shared with any residual constraint).
+  for (uint32_t o = 0; o < A; o++) {
+    if (provider[o] < 0 || def_committed[provider[o]] ||
+        !r->accepted_block[provider[o]])
+      continue;
+    const Block *pb = &c->blocks[provider[o]];
+    if (is_definition_elim(pb, (int32_t)o))
+      continue; // already committed in Phase A
+    r->elim[r->nelim++] =
+        (Elim){(int32_t)o, block_comb_value(c, pb, (int32_t)o)};
+    for (uint32_t k = 0; k < pb->ncids; k++)
+      eliminated[pb->cids[k]] = true;
+  }
+  // Recompute the residual after the deferred eliminations are committed.
+  for (uint32_t i = 0; i < N; i++)
+    r->residual_constraint[i] = !eliminated[i];
+  for (uint32_t b = 0; b < B; b++)
+    if (r->accepted_block[b])
+      for (uint32_t k = 0; k < c->blocks[b].ncids; k++)
+        r->residual_constraint[c->blocks[b].cids[k]] = false;
 
   for (uint32_t b = 0; b < B; b++)
     if (r->accepted_block[b]) {
@@ -522,6 +581,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
 
   free(provider);
   free(elim_excluded);
+  free(def_committed);
   r->fully_solved = r->nresidual == 0;
   return r;
 }
