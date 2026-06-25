@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "precheck_input_only"
+  DESCRIPTION: "input-only boolean-G guarantee (both APs are inputs): the controller has no influence, so the spec is trivially UNREALIZABLE.  The TRUST_OVER boolean-fragment pre-check must report UNREAL without ltlsynt (cf. Light/Warnlight, acacia-bonsai issue #109)."
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    G (!(a <-> b));
+  }
+}

@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "precheck_assume_rescues"
+  DESCRIPTION: "false-UNREAL guard: the input-only guarantee G(a) alone would look unrealizable, but the boolean assumption G(a) forces the input, so the spec is REALIZABLE.  The pre-check keeps all assumptions and must NOT fire here (H = A and not G = a and not a = false)."
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  ASSUME {
+    G (a);
+  }
+  GUARANTEE {
+    G (a);
+  }
+}
