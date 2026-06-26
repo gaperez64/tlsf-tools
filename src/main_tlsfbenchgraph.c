@@ -137,8 +137,8 @@ typedef struct {
   uint32_t conflicts, fully_solved;
   uint32_t elim_constraints, owned_outputs;
   uint32_t size_raw, size_norm;
-  // Residual (post-all-templates `--aiger` residual): the genuine games the
-  // synthesis backends still face after every template controller is applied.
+  // Residual after all template work: the genuine games external synthesis
+  // backends still face after every template controller is applied.
   uint32_t residual_clusters, residual_outputs,
       largest_residual_cluster_outputs;
   uint32_t residual_liveness_clusters, residual_size_norm;

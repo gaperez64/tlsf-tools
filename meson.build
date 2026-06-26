@@ -1,6 +1,7 @@
 project(
   'tlsf-tools',
   'c',
+  'cpp',
   version: '0.1.0',
   license: 'MIT',
   default_options: [
@@ -11,6 +12,7 @@ project(
 )
 
 fs = import('fs')
+pkg = import('pkgconfig')
 
 # ---------------------------------------------------------------------------
 # Compiler: force C23 via -std=c23 (meson's c_std enum doesn't map 'c23'
@@ -97,8 +99,7 @@ endif
 
 flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
-# Optional: only used to test `tlsfcompose --aiger`'s cluster path; CI skips
-# those tests when ltlsynt is absent.
+# Optional: used by wrapper/benchmark tests that shell out to ltlsynt.
 ltlsynt = find_program('ltlsynt', required: false)
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
@@ -241,9 +242,11 @@ lib_sources = [
   'src/cover.c',
   'src/recognize.c',
   'src/pipeline.c',
+  'src/decompose.c',
   'src/templates.c',
   'src/templates_certify.c',
   'src/residual.c',
+  'src/residual_plan.c',
   'src/aiger.c',
   'src/gr.c',
   'src/print_ltlxba.c',
@@ -255,14 +258,41 @@ lib_sources = [
 ]
 
 if have_oxidd
-  lib_sources += ['src/residual_plan.c']
+  lib_sources += ['src/precheck_unreal.c']
 endif
+
+lib_c_args = have_oxidd ? ['-DHAVE_OXIDD'] : []
+lib_deps = have_oxidd ? [oxidd_dep] : []
+pkg_private_libs = have_oxidd ? oxidd_link_args : []
 
 tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: inc,
+  c_args: lib_c_args,
+  dependencies: lib_deps,
+  install: true,
   pic: false,
+)
+
+tlsf_dep = declare_dependency(
+  include_directories: inc,
+  link_with: tlsf_lib,
+  dependencies: lib_deps,
+)
+
+install_headers(
+  'include/tlsf/decompose.h',
+  'include/tlsf/decompose.hpp',
+  subdir: 'tlsf',
+)
+
+pkg.generate(
+  tlsf_lib,
+  name: 'tlsf',
+  filebase: 'tlsf',
+  description: 'TLSF decomposition and preprocessing library',
+  libraries_private: pkg_private_libs,
 )
 
 # ---------------------------------------------------------------------------
@@ -331,10 +361,9 @@ if have_oxidd
   tlsfcompose_exe = executable(
     'tlsfcompose',
     sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
-              'src/compose_games.c', 'src/compose_solve.c',
-              'src/compose_route.c', 'src/precheck_unreal.c',
-              'src/safety_oxidd.c', 'src/gr1_oxidd.c',
-              'src/oxidd_common.c', bison_out[1]],
+              'src/compose_games.c', 'src/compose_oxidd.c',
+              'src/compose_route.c', 'src/safety_oxidd.c',
+              'src/gr1_oxidd.c', 'src/oxidd_common.c', bison_out[1]],
     c_args: ['-DHAVE_OXIDD'],
     dependencies: [oxidd_dep],
     link_with: tlsf_lib,
@@ -361,6 +390,15 @@ simd_check_exe = executable(
 )
 test('simd_kernels', simd_check_exe)
 
+decompose_cpp_exe = executable(
+  'decompose_cpp',
+  sources: ['test/decompose_cpp.cpp'],
+  include_directories: inc,
+  link_with: tlsf_lib,
+  dependencies: lib_deps,
+)
+test('decompose_cpp', decompose_cpp_exe)
+
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
 #
@@ -372,6 +410,9 @@ test('simd_kernels', simd_check_exe)
 check = files('test/check.sh')
 xfail = files('test/expect_fail.sh')
 check_fail_stderr = files('test/check_fail_stderr.sh')
+check_solve_wrapper = files('test/check_solve_wrapper.sh')
+check_output_dir = files('test/check_output_dir.sh')
+check_output_dir_fail = files('test/check_output_dir_fail.sh')
 
 # Cases converted with `tlsf2ltl` (default, minimal parentheses).
 ltl_cases = [
@@ -587,6 +628,9 @@ test('residual_ltlxba_format', check,
 test('residual_split', check,
   args: [files('test/cases/cluster_split.residual'), tlsfresidual_exe,
          '--split', files('test/cases/cluster_split.tlsf')])
+test('residual_lowercase', check,
+  args: [files('test/cases/upper_atoms.lower.residual'), tlsfresidual_exe,
+         '--split', '--lowercase', files('test/cases/upper_atoms.tlsf')])
 test('residual_param', check,
   args: [files('test/cases/residual_param_demo.residual'), tlsfresidual_exe,
          '--param', 'n=5', '--param', 'k=2',
@@ -597,20 +641,31 @@ if have_oxidd
       args: [files('test/cases/' + name + '.compose'), tlsfcompose_exe,
              files('test/cases/' + name + '.tlsf')])
   endforeach
+  test('compose_lowercase', check,
+    args: [files('test/cases/upper_atoms.lower.compose'), tlsfcompose_exe,
+           '--split', '--lowercase', files('test/cases/upper_atoms.tlsf')])
+  test('compose_merge_mode', check,
+    args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe,
+           '--merge', files('test/cases/compose_demo.merged.aag')])
+  test('solve_wrapper_oxidd_presolve', check_solve_wrapper,
+    args: [files('test/cases/solve_wrapper_fake.aag'),
+           files('scripts/solve.sh'), tlsfcompose_exe,
+           files('test/fake_ltlsynt.sh'),
+           files('test/cases/compose_demo.tlsf')])
+  test('solve_wrapper_fake_ltlsynt', check_solve_wrapper,
+    args: [files('test/cases/solve_wrapper_fake_liveness.aag'),
+           files('scripts/solve.sh'), tlsfcompose_exe,
+           files('test/fake_ltlsynt.sh'),
+           files('test/cases/liveness_nested.tlsf')])
+  test('compose_output_dir_under_real_wr', check_output_dir,
+    args: [files('test/cases/wr_under_real.output_dir'),
+           tlsfcompose_exe, '--split', files('test/cases/wr_under_real.tlsf')])
+  test('compose_output_dir_over_unreal_wr', check_output_dir_fail,
+    args: ['trusted one-sided OxiDD verdict', tlsfcompose_exe, '--split',
+           files('test/cases/wr_gated_collapse.tlsf')])
   test('compose_aiger_unclassified_atom', check,
     args: [files('test/cases/aiger_unclassified_atom.compose'), tlsfcompose_exe,
            files('test/cases/aiger_unclassified_atom.tlsf')])
-  # Route normalization: X(G F g) matches no in-process recognizer as-is and
-  # would fall back to ltlsynt, but route-safe/Sickert lifts it to a GR(1)
-  # cluster OxiDD solves in-process (the controller is still self-verified
-  # against the original cluster).
-  test('compose_route_normalize', check_contains,
-    args: ['route-normalized -> OxiDD \\(GR\\(1\\)\\)', tlsfcompose_exe,
-           '--split', '--aiger', '--preprocess-policy', 'always',
-           '--route-normalize', 'route-safe:1,sickert-bounded',
-           '--ltlsynt', '/bin/false',
-           files('test/cases/route_norm_xgf.tlsf')],
-    env: ['TLSFCOMPOSE_DEBUG=1'])
   test('compose_route_stats_gr1', check,
     args: [files('test/cases/gr1_spec.route_stats'), tlsfcompose_exe,
            '--split', '--route-stats', files('test/cases/gr1_spec.tlsf')])
@@ -665,155 +720,34 @@ if have_oxidd
              '--split', '--route-stats',
              files('test/cases/' + name + '.tlsf')])
   endforeach
-  # --aiger local-controller path (no cluster -> no ltlsynt): golden-testable in CI.
-  foreach name : ['def_demo', 'inv_skolem', 'reaction_ok', 'dbuchi_switch']
-    test('aiger_' + name, check,
-      args: [files('test/cases/' + name + '.aag'), tlsfcompose_exe, '--aiger',
-             '--ltlsynt', '/bin/false',
-             files('test/cases/' + name + '.tlsf')])
-  endforeach
-  # --aiger merge path: OxiDD solves the bounded-liveness cluster, the
-  # combinational controller drives 'o', and the merged AIGER is golden-tested.
-  # fake_ltlsynt is passed but not invoked when the experimental bounded route
-  # handles the only cluster.
-  test('aiger_merge', check,
-    args: [files('test/cases/compose_demo.merged.aag'), tlsfcompose_exe, '--aiger',
-           '--experimental-bounded', '4', '--ltlsynt',
-           files('test/fake_ltlsynt.sh'),
-           files('test/cases/compose_demo.tlsf')])
-  # Output-free (input-only) guarantee cluster: no controller is merged, but it
-  # is realizability-checked via (fake) ltlsynt -- here G F req is realizable
-  # given the assumptions, so the merged AIGER is unchanged.
-  test('aiger_input_gua_skip', check,
-    args: [files('test/cases/input_gua_skip.aag'), tlsfcompose_exe, '--aiger',
-           '--ltlsynt', files('test/fake_ltlsynt.sh'),
-           files('test/cases/input_gua_skip.tlsf')])
-  # Bare W in IMPL antecedent where release is sys output must NOT be encoded as
-  # W/R safety (would be a false UNREAL); falls through to ltlsynt.
-  test('aiger_wr_impl_bare_w_antecedent', check,
-    args: [files('test/cases/wr_impl_bare_w_antecedent.aag'), tlsfcompose_exe,
-           '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
-           files('test/cases/wr_impl_bare_w_antecedent.tlsf')])
-  # aiger_unclassified_atom: OxiDD correctly identifies this spec as unrealizable
-  # (BURST4 is env input; system cannot force req to be true in the consequent).
-  test('aiger_unclassified_atom', xfail,
-    args: [tlsfcompose_exe, '--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/aiger_unclassified_atom.tlsf')])
-  # Uppercase atom names: ltlsynt's parser mishandles them, so the cluster is
-  # lowercased for the (fake) ltlsynt call and the returned controller is renamed
-  # back -- the merged AIGER must carry the spec's ORIGINAL-case symbols.
-  test('aiger_upper_atoms_rename', check,
-    args: [files('test/cases/upper_atoms.merged.aag'), tlsfcompose_exe,
-           '--aiger', '--ltlsynt', files('test/fake_ltlsynt.sh'),
-           files('test/cases/upper_atoms.tlsf')])
-  test('aiger_fallback_mode_auto_monolithic', check,
-    args: [files('test/cases/policy_profitable_skip.monolithic.aag'),
-           tlsfcompose_exe, '--split', '--aiger',
-           '--preprocess-policy', 'profitable',
-           '--fallback-mode', 'auto',
-           '--ltlsynt', files('test/fake_ltlsynt.sh'),
-           files('test/cases/policy_profitable_skip.tlsf')])
-  test('aiger_fallback_mode_auto_retries_clusters', check,
-    args: [files('test/cases/policy_profitable_skip.cluster_retry.aag'),
-           tlsfcompose_exe, '--split', '--aiger',
-           '--fallback-mode', 'auto',
-           '--ltlsynt', files('test/fake_ltlsynt_fail_monolithic.sh'),
-           files('test/cases/policy_profitable_skip.tlsf')])
-  test('aiger_fallback_mode_auto_finite', check,
-    args: [files('test/cases/Random_Lydia_case_03_50_05.fallback_auto.aag'),
-           tlsfcompose_exe, '--split', '--aiger',
-           '--fallback-mode', 'auto',
-           '--ltlsynt', files('test/fake_ltlsynt.sh'),
-           files('test/cases/Random_Lydia_case_03_50_05.tlsf')])
-  # NOT(G(w)) is liveness: G(w)->false is simplified to NOT(G(w)) by the parser;
-  # cluster_shape_visit must detect this as liveness (not W/R-safety).
-  test('aiger_not_g_is_liveness', check_fail_stderr,
-    args: [files('test/cases/compose_not_g_is_liveness.err'), tlsfcompose_exe,
-           '--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/compose_not_g_is_liveness.tlsf')])
-  # Self-verification gate mechanism (trivial verifiers; no AbsSynthe needed).
-  # /bin/true = "verified" -> controller kept (exit 0);
-  # /bin/false = "violation" -> fall back to ltlsynt (here /bin/false -> failure).
-  test('aiger_verify_gate_keeps', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false', '--verify', '/bin/true',
-           files('test/cases/gr1_spec.tlsf')])
-  test('aiger_delayed_global_self_contained', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/delayed_global.tlsf')])
-  test('aiger_gr1_recurrence_self_contained', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/gr1_recurrence.tlsf')])
-  test('aiger_response_monitor_self_contained', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/compose_demo.tlsf')])
-  test('aiger_response_same_cycle_self_contained', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/response_same_cycle.tlsf')])
-  test('aiger_eventual_output_self_contained', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/eventual_output.tlsf')])
-  test('aiger_until_self_contained', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/liveness_until.tlsf')])
-  test('aiger_verify_gate_falls_back', xfail,
-    args: [tlsfcompose_exe, '--aiger',
-           '--ltlsynt', '/bin/false', '--verify', '/bin/false',
-           files('test/cases/gr1_spec.tlsf')])
   # TRUST_OVER boolean-fragment UNREAL pre-check: an input-only G guarantee is
-  # caught without ltlsynt (--ltlsynt /bin/false would fail if reached).
+  # caught before plan emission.
   test('precheck_input_only_unreal', check_contains,
     args: ['UNREALIZABLE \\(boolean-fragment pre-check', tlsfcompose_exe,
-           '--aiger', '--ltlsynt', '/bin/false',
            files('test/cases/precheck_input_only.tlsf')])
   test('precheck_route_stats', check_contains,
-    args: ['unreal_precheck=1', tlsfcompose_exe, '--split', '--aiger',
-           '--route-stats', '--ltlsynt', '/bin/false',
+    args: ['unreal_precheck=1', tlsfcompose_exe, '--split', '--route-stats',
            files('test/cases/precheck_input_only.tlsf')])
   # Control: the boolean-G guarantee mentions an output that can satisfy it, so
-  # the pre-check stays silent and the OxiDD safety solver realizes it (exit 0,
-  # no ltlsynt).
+  # the pre-check stays silent and normal plan emission succeeds.
   test('precheck_outputs_rescue_real', tlsfcompose_exe,
-    args: ['--aiger', '--ltlsynt', '/bin/false',
-           files('test/cases/precheck_outputs_rescue.tlsf')])
+    args: [files('test/cases/precheck_outputs_rescue.tlsf')])
   # Dual TRUST_UNDER early-REAL via the --realizability oracle (self-contained,
-  # no ltlsynt): outputs satisfy the boolean guarantees -> REALIZABLE; an
-  # input-only contradiction -> UNREALIZABLE (always-on UNREAL check); a temporal
-  # guarantee -> UNKNOWN (oracle inconclusive).
+  # no solver): outputs satisfy the boolean guarantees -> REALIZABLE; an
+  # input-only contradiction -> UNREALIZABLE (always-on UNREAL check); a
+  # temporal guarantee -> UNKNOWN (oracle inconclusive).
   test('precheck_real_oracle_real', check_contains,
     args: ['REALIZABLE \\(boolean-fragment pre-check', tlsfcompose_exe,
-           '--split', '--realizability', '--ltlsynt', '/bin/false',
+           '--split', '--realizability',
            files('test/cases/precheck_outputs_rescue.tlsf')])
   test('precheck_real_oracle_unreal', check_contains,
     args: ['UNREALIZABLE \\(boolean-fragment pre-check', tlsfcompose_exe,
-           '--split', '--realizability', '--ltlsynt', '/bin/false',
+           '--split', '--realizability',
            files('test/cases/precheck_input_only.tlsf')])
   test('precheck_real_oracle_unknown', check_contains,
     args: ['realizability UNKNOWN', tlsfcompose_exe,
-           '--split', '--realizability', '--ltlsynt', '/bin/false',
+           '--split', '--realizability',
            files('test/cases/precheck_real_unknown.tlsf')])
-  # --aiger cluster path needs real ltlsynt: only run where it is available.
-  if ltlsynt.found()
-    # Soundness guard: a boolean assumption that forces the input rescues the
-    # otherwise input-only guarantee, so the pre-check must NOT fire and the
-    # spec is REALIZABLE (exit 0).
-    test('precheck_assume_rescues_real', tlsfcompose_exe,
-      args: ['--aiger', files('test/cases/precheck_assume_rescues.tlsf')])
-    # Soundness bail: a temporal assumption is present, so the pre-check bails
-    # and the downstream output-free ltlsynt check decides (UNREALIZABLE here).
-    test('precheck_temporal_assume_bail', check_contains,
-      args: ['output-free guarantee cluster is UNREALIZABLE', tlsfcompose_exe,
-             '--aiger', files('test/cases/precheck_temporal_assume_bail.tlsf')])
-    test('aiger_cluster', tlsfcompose_exe,
-      args: ['--aiger', files('test/cases/compose_demo.tlsf')])
-    test('aiger_unrealizable', xfail,
-      args: [tlsfcompose_exe, '--aiger', files('test/cases/inv_decline.tlsf')])
-    # Regression: with --split, G(o && a) decomposes into G(o) and the
-    # input-only G(a); the output-free G(a) must be realizability-checked (not
-    # skipped) so the genuinely unrealizable spec is reported UNREALIZABLE.
-    test('aiger_unrealizable_split', xfail,
-      args: [tlsfcompose_exe, '--split', '--aiger',
-             files('test/cases/inv_decline.tlsf')])
-  endif
 endif
 if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
@@ -842,80 +776,10 @@ if python3.found()
            '--schedules', 'off', 'match-safe:1'])
 endif
 endif
-if python3.found()
-  if have_oxidd
-    test('bounded_synthesis_harness', python3,
-      args: [files('scripts/bounded_synthesis.py'),
-             '--compose', tlsfcompose_exe,
-             '--ltlsynt', files('test/fake_ltlsynt.sh'),
-             '--mem-mb', '512', '--timeout', '5', '--quiet',
-             files('test/cases/assume_delay_real.tlsf'),
-             files('test/cases/inv_valid.tlsf')])
-  endif
-endif
 if python3.found() and spot_python_found
   tlsf2ltl_path = join_paths(meson.current_build_dir(), 'tlsf2ltl')
   if have_oxidd
     tlsfcompose_path = join_paths(meson.current_build_dir(), 'tlsfcompose')
-    test('verify_aiger_reaction_ok', python3,
-      args: [files('scripts/verify_aiger_ltl.py'),
-             '--compose', tlsfcompose_path,
-             '--tlsf2ltl', tlsf2ltl_path,
-             '--tlsf', files('test/cases/reaction_ok.tlsf')])
-    test('verify_aiger_dbuchi_switch', python3,
-      args: [files('scripts/verify_aiger_ltl.py'),
-             '--compose', tlsfcompose_path,
-             '--ltlsynt', '/bin/false',
-             '--tlsf2ltl', tlsf2ltl_path,
-             '--tlsf', files('test/cases/dbuchi_switch.tlsf')])
-    # OxiDD in-process safety + GR(1) solver: Spot-verify controllers.
-    foreach name : ['assume_delay_real', 'cluster_prune_safe',
-                    'strict_safety',
-                    'wr_response', 'wr_release', 'wr_resp_nox', 'wr_rel_resp',
-                    'wr_assume', 'wr_distributable_impl', 'wr_gated_nox',
-                    'wr_xdelay2', 'wr_r_collapse', 'wr_r_x_in_body',
-                    'compose_demo', 'response_same_cycle', 'eventual_output',
-                    'liveness_until']
-      test('verify_aiger_oxidd_' + name, python3,
-        args: [files('scripts/verify_aiger_ltl.py'),
-               '--compose', tlsfcompose_path,
-               '--ltlsynt', '/bin/false',
-               '--tlsf2ltl', tlsf2ltl_path,
-               '--tlsf', files('test/cases/' + name + '.tlsf')])
-    endforeach
-    foreach name : ['bounded_resp', 'bounded_until', 'bounded_wuntil']
-      test('verify_aiger_oxidd_' + name, python3,
-        args: [files('scripts/verify_aiger_ltl.py'),
-               '--compose', tlsfcompose_path,
-               '--ltlsynt', '/bin/false',
-               '--compose-arg=--experimental-bounded',
-               '--compose-arg', '4',
-               '--tlsf2ltl', tlsf2ltl_path,
-               '--tlsf', files('test/cases/' + name + '.tlsf')])
-    endforeach
-    # wr_gated_collapse is unrealizable; OxiDD correctly exits non-zero.
-    test('verify_aiger_oxidd_wr_gated_collapse_unreal', xfail,
-      args: [tlsfcompose_exe,
-             '--aiger', '--ltlsynt', '/bin/false',
-             files('test/cases/wr_gated_collapse.tlsf')])
-    # GR(1): in-process OxiDD PPS fixpoint solver, Spot-verified.
-    foreach name : ['gr1_spec', 'gr1_response', 'gr1_multifair', 'gr1_init',
-                    'gr1_preset', 'gr1_weak', 'gr1_strict', 'gr1_strict_sticky',
-                    'gr1_strict_multi']
-      test('verify_aiger_oxidd_gr1_' + name, python3,
-        args: [files('scripts/verify_aiger_ltl.py'),
-               '--compose', tlsfcompose_path,
-               '--ltlsynt', '/bin/false',
-               '--tlsf2ltl', tlsf2ltl_path,
-               '--tlsf', files('test/cases/' + name + '.tlsf')])
-    endforeach
-    # OxiDD correctly identifies these specs as unrealizable.
-    foreach name : ['inv_decline', 'cluster_assume']
-      test('verify_aiger_oxidd_' + name + '_unreal', xfail,
-        args: [tlsfcompose_exe,
-               '--aiger', '--ltlsynt', '/bin/false',
-               files('test/cases/' + name + '.tlsf')])
-    endforeach
     # tlsfsolve: standalone AIGER game solver.
     test('tlsfsolve_real', check,
       args: [files('test/cases/solve_real.out.aag'),

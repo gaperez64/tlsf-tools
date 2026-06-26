@@ -8,10 +8,10 @@
 #   unrealizable  -> "UNREALIZABLE",                                exit 1
 #   inconclusive  -> diagnostics on stderr, no verdict,            exit 2
 #
-# tlsfcompose itself emits the raw AIGER on stdout (exit 0) and signals an
-# unrealizable cluster on stderr (exit 1); this wrapper adds the REALIZABLE /
-# UNREALIZABLE line the competition expects.  A backend failure or timeout is
-# reported as inconclusive rather than a (possibly wrong) verdict.
+# tlsf-solve emits the raw AIGER file (exit 0) and signals an unrealizable
+# cluster on stderr (exit 1); this wrapper adds the REALIZABLE / UNREALIZABLE
+# line the competition expects.  A backend failure or timeout is reported as
+# inconclusive rather than a (possibly wrong) verdict.
 #
 # Usage: spot-syntcomp-syn SPEC.tlsf
 set -u
@@ -21,13 +21,13 @@ aig=$(mktemp)
 err=$(mktemp)
 trap 'rm -f "$aig" "$err"' EXIT INT TERM
 
-if tlsfcompose --split --aiger --ltlsynt "$LTLSYNT" "$@" >"$aig" 2>"$err"; then
+if tlsf-solve --solver "$LTLSYNT" --output "$aig" "$@" 2>"$err"; then
   echo REALIZABLE
   cat "$aig"
   exit 0
 fi
 
-if grep -q 'is UNREALIZABLE' "$err"; then
+if grep -q 'UNREALIZABLE' "$err"; then
   echo UNREALIZABLE
   exit 1
 fi

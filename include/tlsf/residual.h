@@ -27,7 +27,7 @@ void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
 
 /// True when AP `idx` belongs in a residual interface list for `flag`.
 /// Unflagged APs are treated as environment inputs: they can survive expansion
-/// from enum/bus syntax or undeclared legacy atoms, and every AP in a cluster
+/// from enum/bus syntax or undeclared atoms, and every AP in a cluster
 /// formula must be advertised to the backend as either input or output.
 bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag);
 

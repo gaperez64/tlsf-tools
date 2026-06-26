@@ -573,8 +573,10 @@ bool aig_merge(Aig *dst, const Aig *src) {
     dst->ands[dst->nand++] = (And){
         vmap[src->ands[i].var], REMAP(src->ands[i].r0), REMAP(src->ands[i].r1)};
   }
-  for (uint32_t i = 0; i < src->nout; i++)
+  for (uint32_t i = 0; i < src->nout; i++) {
+    aig_remove_output(dst, src->outs[i].name);
     aig_set_output(dst, src->outs[i].name, REMAP(src->outs[i].lit));
+  }
 #undef REMAP
   free(vmap);
   return true;

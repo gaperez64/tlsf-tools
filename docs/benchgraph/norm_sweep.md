@@ -2,6 +2,8 @@
 
 Corpus: 2545 specs. Structural/certification sweep (no solver). Only soundness-eligible rows (no new parse failures) should be ranked.
 
+Provenance: generated over `benchmarks/tlsf` at commit `6c56b55`.
+
 | schedule | cand Δ | certified Δ | solved Δ | elim Δ | growth % | eligible | recommendation |
 |---|--:|--:|--:|--:|--:|:--:|---|
 | `off` | +0 | +0 | +0 | +0 | +0.0 | yes | baseline |

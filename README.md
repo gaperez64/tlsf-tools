@@ -6,17 +6,16 @@ Format) specifications, sharing a common C library.
 
 The normal release build uses OxiDD (<https://github.com/OxiDD/oxidd>) as the
 in-process BDD backend for safety and GR(1) games. 
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) is mentioned below, it
-is not a library
-dependency of this project; it is an optional fallback executable used by
-`tlsfcompose --aiger` and by the Docker wrapper image.
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) is mentioned below, but it is
+not a library dependency of this project; it is an optional executable used by
+`scripts/solve.sh` and by the Docker wrapper image.
 
 The tools fully expand parameterised TLSF (parameters, definitions including
 recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
 `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
 TLSF spec or equivalent LTL. The synthesis layer adds structure-aware
 decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
-routes, and optional fallback to `ltlsynt`.
+routes, and an external residual-solving wrapper for `ltlsynt`.
 
 ## Status
 
@@ -29,7 +28,7 @@ routes, and optional fallback to `ltlsynt`.
 | `tlsfinfo` | Inspect metadata, signals, and GR level. |
 | `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
 | `tlsfresidual` | Emit residual clusters after sound decomposition. |
-| `tlsfcompose` | Build a decomposed synthesis plan or merged AIGER controller. |
+| `tlsfcompose` | Build a decomposed synthesis plan; merge AIGER strategy files. |
 | `tlsfsolve` | Solve [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER safety/GR(1) games with OxiDD. |
 
 ### Research and diagnostic tools
@@ -51,7 +50,7 @@ TLSF file ──parse──► raw AST ──expand──► ground AST ──�
                   (flex+bison)  (params→defs→buses→quantifiers)  └──► tlsf2ltl  (LTL)
 ground AST ──► tlsfnorm      (normalized TLSF)
            ├──► tlsfresidual (residual clusters)
-           └──► tlsfcompose  (residual clusters + backends → plan / AIGER)
+           └──► tlsfcompose  (residual clusters + controllers.aag → plan)
 ```
 
 ## Building
@@ -118,10 +117,11 @@ tlsfnorm  --passes route-safe:1 spec.tlsf                 # routing normalizatio
 tlsfnorm  --passes sickert-stage2:1 --norm-max-growth 300 spec.tlsf  # experimental, infinite-word-only
 tlsfnorm  --norm-stats --passes match-safe:1 spec.tlsf    # per-rule normalization stats
 tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl per cluster
-tlsfcompose --split --output-dir out/ spec.tlsf           # controllers + clusters + compose.sh
-tlsfcompose --split --aiger spec.tlsf                     # one merged AIGER controller (OxiDD + ltlsynt)
-tlsfcompose --split --aiger --preprocess-policy always spec.tlsf
-tlsfcompose --split --aiger --fallback-mode auto spec.tlsf
+tlsfresidual --split --lowercase spec.tlsf                # lowercase formulas + interfaces
+tlsfcompose --split --output-dir out/ spec.tlsf           # controllers.aag + clusters + exact OxiDD solves
+tlsfcompose --split --realizability spec.tlsf             # fast REAL/UNREAL/UNKNOWN oracle
+tlsfcompose --merge out/controllers.aag out/cluster.*.aag # recombine external strategies
+scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf  # external-solver flow
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
 
@@ -129,6 +129,38 @@ tlsfsolve game.aag > strategy.aag                         # solve an AIGER safet
 ordinary inputs, controllable inputs are prefixed `controllable_`, safety games
 use a `bad` output, and GR(1) games may use AIGER 1.9 `justice`/`fairness`
 records. It emits a strategy AAG on stdout or exits nonzero with `UNREALIZABLE`.
+
+## Embeddable API
+
+The installed library exposes decomposition/preprocessing without AIGER structs
+or internal AST types:
+
+- C header: `#include <tlsf/decompose.h>`
+- C++ wrapper: `#include <tlsf/decompose.hpp>`
+- Meson: `dependency('tlsf')`
+- pkg-config: `pkg-config --cflags --libs tlsf`
+
+`tlsf_decompose_string()` / `tlsf_decompose_file()` return duplicated strings:
+preprocessed LTL, global inputs/outputs, residual clusters
+`{ltl, inputs, outputs}`, semantics/target, GR level, a fast pre-check verdict,
+and trust tags. Free the C result with `tlsf_decompose_result_free()`. The C++
+wrapper returns `std::string` / `std::vector` values and frees the C handle via
+RAII.
+
+```cpp
+#include <tlsf/decompose.hpp>
+
+tlsf::Options opt;
+opt.split = true;
+tlsf::Result r = tlsf::decompose(spec_text, opt);
+for (const tlsf::Cluster &c : r.clusters) {
+  // c.ltl, c.inputs, c.outputs
+}
+```
+
+No `Aig`, OxiDD, AST, cover, CSNF, or arena type crosses this API. AIGER
+strategies cross process boundaries as files and are recombined with
+`tlsfcompose --merge`.
 
 ## Example pipelines
 
@@ -148,30 +180,33 @@ grep -v '^c ' out/cluster.0.ltl > out/cluster.0.f
 ltlsynt --ins=… --outs=… -F out/cluster.0.f
 ```
 
-### 2 · One merged controller circuit (AIGER)
-
-`--aiger` closes the loop: certified controllers become and-inverter gates,
-eligible safety clusters and narrow exact liveness monitors go to OxiDD
-(in-process BDD safety + GR(1) solver), everything else to `ltlsynt`, and the
-output-disjoint strategies are merged into one `aag` over the full interface.
-The monitor routes currently cover standalone `G(req -> F grant)` response
-obligations, output-only `F goal` eventualities, and output-progress `p U q`
-until obligations with current-state Boolean goals. `--preprocess-policy`
-controls OxiDD routing:
-`profitable` is the default: it skips small OxiDD clusters when they do not
-remove a fallback cluster, fallback output dimension, or at least 20% of
-residual formula nodes. `always` keeps every selected OxiDD route, `off` sends
-residual synthesis clusters to `ltlsynt`, and `diagnose` prints what the
-profitability rule would do. `--fallback-mode auto` is the default: it keeps
-the per-cluster fallback behavior unless the effective routing plan has no
-exact OxiDD work, multiple fallback clusters, and no output-dimension benefit
-from clustering; then it tries the full residual with one `ltlsynt` call and
-retries the per-cluster path if that monolithic call fails without a verdict.
+`--output-dir` also writes `controllers.aag`, a mergeable AIGER strategy for
+the certified part. Trusted OxiDD-eligible residual outcomes are handled in
+process with one persistent BDD session: exact routes and strengthened/UNDER
+routes can emit `cluster.k.aag`, while weakened/OVER routes can stop early on
+trusted UNREAL. The remaining clusters stay as `cluster.k.ltl`.
+`scripts/solve.sh` automates the full flow:
 
 ```sh
-tlsfcompose --split --aiger spec.tlsf > ctrl.aag          # OxiDD build required
+scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
+```
+
+For the `ltlsynt` backend the script passes `--lowercase` so the emitted
+cluster formulas, `c ins=`, `c outs=`, and AIGER symbols agree. The `acacia`
+backend block is explicit in the script and is the intended swap-in point for
+an acacia-bonsai invocation. Pre-solved and external strategies are recombined
+with `tlsfcompose --merge`.
+
+### 2 · One merged controller circuit (AIGER)
+
+The supported controller flow is file-based: decompose, solve every emitted
+cluster with the backend of your choice, then merge those AIGER strategies with
+the certified part.
+
+```sh
+scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
 # verify it against the spec (Spot):
-python3 scripts/verify_aiger_ltl.py --compose build-oxidd/tlsfcompose \
+python3 scripts/verify_aiger_ltl.py --aiger ctrl.aag \
         --tlsf2ltl build/tlsf2ltl --tlsf spec.tlsf
 ```
 
@@ -182,7 +217,8 @@ python3 scripts/verify_aiger_ltl.py --compose build-oxidd/tlsfcompose \
 scalar interface, so any spot/Strix-style tool can take over. The `ltlxba`
 dialect lowercases atoms (spot/ltl2ba read uppercase letters as operators), so
 lowercase the interface to match; the faithful `ltl` dialect keeps the original
-case.
+case. `tlsfcompose` and `tlsfresidual` keep original case by default and apply
+lowercasing to formulas and interfaces only with `--lowercase`.
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
@@ -205,17 +241,15 @@ tlsfbenchgraph --input-dir benchmarks/tlsf --split --summary > shapes.tsv
 tlsftemplates --certify --solve --format csnf spec.tlsf
 ```
 
-### 5 · Measure the self-contained / fast-preprocessor slice
+### 5 · Measure route shape and wrapper performance
 
-How much do templates+OxiDD solve *without* `ltlsynt`, and is the pipeline
-faster than `ltlsynt` alone? `scripts/benchgraph.py` answers both over a corpus
-and writes the [`BENCHGRAPH.md`](BENCHGRAPH.md) "ltlsynt vs preprocessor +
-ltlsynt" head-to-head section (solved counts, net gain, and a survival plot).
+How much does decomposition change the residual shape, and how does the wrapper
+pipeline compare with `ltlsynt` alone? `scripts/benchgraph.py` writes the
+[`BENCHGRAPH.md`](BENCHGRAPH.md) head-to-head section (solved counts, net gain,
+and a survival plot). `scripts/collect_route_stats.py` records route diagnostics
+without running a solver.
 
 ```sh
-# self-contained slice only: forbid the ltlsynt fallback
-tlsfcompose --split --aiger --ltlsynt /bin/false spec.tlsf
-
 # full corpus speed + complexity (rerunnable; --from-data re-renders the report)
 scripts/benchgraph.py --corpus benchmarks/tlsf \
         --tlsfcompose build-oxidd/tlsfcompose --ltlsynt ltlsynt
@@ -223,12 +257,6 @@ scripts/benchgraph.py --corpus benchmarks/tlsf \
 # route-only corpus census; writes rows incrementally and skips slow specs
 scripts/collect_route_stats.py --compose build-oxidd/tlsfcompose \
         --timeout 5 --out route_stats.tsv benchmarks/tlsf
-
-# compare auto fallback against the default profitable cluster mode
-scripts/benchgraph.py --corpus benchmarks/tlsf \
-        --tlsfcompose build-oxidd/tlsfcompose --ltlsynt ltlsynt \
-        --compose-extra-arg=--fallback-mode \
-        --compose-extra-arg=auto
 ```
 
 ## How the synthesis layer works
@@ -241,8 +269,8 @@ mutex, recurrence `G F x`, persistence `F G x`, reaction, definition,
 guarded-next, arbiter, …). `--split` first decomposes each constraint into its
 top-level `&&` conjuncts (distributing `G`/`X` along the spine,
 equivalence-preserving), which is what makes most templates visible. Optional
-equivalence-preserving normalization (`tlsfnorm`, or the `--match-normalize` /
-`--route-normalize` flags) can expose more of these exact shapes before
+equivalence-preserving normalization (`tlsfnorm` or `--match-normalize`) can
+expose more of these exact shapes before
 recognition without changing the spec's meaning.
 
 `tlsftemplates` promotes candidates to a **Certified Strategy Normal Form
@@ -257,12 +285,24 @@ certificate, and stay `candidate`.
 `tlsfresidual` then substitutes the solved combinational outputs away and emits
 the residual over a *smaller* alphabet, **clustering** it by shared output
 (`E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)` when output sets are disjoint) into independent,
-parallelisable sub-problems. `tlsfcompose` turns that into a runnable plan or a
-single merged AIGER, routing safety and GR(1) clusters to OxiDD (in-process BDD
-solver) and pure liveness to `ltlsynt`. The spec is **realizable iff every
-cluster is**, so the certified controllers ⊕ one controller per cluster realise
-the whole spec. The machine format (`csnf`) is DIMACS-style line records
-(`fgets`/`strtok`, no JSON).
+parallelisable sub-problems. Reached assumptions are kept regardless of
+safety/liveness class; pruning drops only assumptions over disjoint signals, so
+the residual decomposition is labelled **TRUST_EXACT**. The emitted cluster
+formula is the formula solved and trusted.
+
+`tlsfcompose` turns that into a runnable plan: `controllers.aag` carries the
+certified part; trusted OxiDD residual controllers may also appear as
+`cluster.k.aag`; each `cluster.k.ltl` carries an exact residual formula plus
+`c ins=`/`c outs=` comments; and `--merge` recombines AIGER strategy files. The
+spec is **realizable iff every cluster is**, so the certified controllers ⊕ one
+trusted controller per cluster realise the whole spec. The machine format
+(`csnf`) is DIMACS-style line records (`fgets`/`strtok`, no JSON).
+
+`tlsfcompose --realizability` is a fast verdict-only oracle. The always-on
+UNREAL pre-check is **TRUST_OVER**: it refutes a weakening, so UNREAL is trusted
+and REAL is never claimed. The REAL pre-check is **TRUST_UNDER**: it proves a
+strengthening, so REAL is trusted and UNREAL is never claimed. If neither fires,
+the command exits `2` with `UNKNOWN`.
 
 Corpus shape distributions and the templates+OxiDD solve-rate / speed numbers
 live in [`BENCHGRAPH.md`](BENCHGRAPH.md); exact recognizers plus conservative

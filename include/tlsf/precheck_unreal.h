@@ -21,9 +21,7 @@
 /// direction (fewer guarantees still UNREAL ⟹ original UNREAL) and it never
 /// claims REALIZABLE.  It bails (returns false) whenever an assumption is
 /// temporal, since dropping such an assumption would instead *strengthen* the
-/// environment and risk a false UNREAL — a strict superset of the
-/// `cover_has_liveness_assumption` UNREAL-trust concern, so no re-validation of
-/// its verdict is needed.
+/// environment and risk a false UNREAL.
 ///
 /// Only compiled into `tlsfcompose`, which is built only with OxiDD.
 
@@ -50,7 +48,7 @@
 /// implies the original is) and it never claims UNREALIZABLE.  Mealy-only: the
 /// Skolem controller reads the current input, so it bails on Moore (and on
 /// finite) semantics.  Emits only a verdict (no controller), so the caller
-/// short-circuits in plan mode, not under `--aiger`.
+/// short-circuits in plan mode.
 [[nodiscard]] bool precheck_trivially_real(const ConstraintCover *cov);
 
 #endif // TLSF_PRECHECK_UNREAL_H

@@ -36,29 +36,10 @@ def read_formula(args):
 
 
 def read_aiger(args):
-    if args.aiger is not None:
-        with open(args.aiger, encoding="utf-8") as fp:
-            return fp.read()
-    if args.tlsf is None:
-        raise SystemExit("--compose requires --tlsf")
-    cmd = [args.compose, "--aiger"]
-    if args.split:
-        cmd.append("--split")
-    if args.ltlsynt is not None:
-        cmd.extend(["--ltlsynt", args.ltlsynt])
-    cmd.extend(args.compose_arg)
-    cmd.append(args.tlsf)
-    proc = subprocess.run(
-        cmd,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if proc.returncode != 0:
-        sys.stderr.write(proc.stderr)
-        raise SystemExit(proc.returncode)
-    return proc.stdout
+    if args.aiger is None:
+        raise SystemExit("--aiger FILE is required")
+    with open(args.aiger, encoding="utf-8") as fp:
+        return fp.read()
 
 
 def parse_args(argv):
@@ -66,16 +47,7 @@ def parse_args(argv):
         description="Verify an AIGER controller against an LTL formula."
     )
     parser.add_argument("--aiger", help="read AIGER from FILE")
-    parser.add_argument("--compose", default="tlsfcompose",
-                        help="tlsfcompose path used when --aiger is omitted")
-    parser.add_argument("--ltlsynt",
-                        help="ltlsynt path for tlsfcompose; use /bin/false to "
-                             "assert no fallback is used")
-    parser.add_argument("--split", action="store_true",
-                        help="pass --split to tlsfcompose")
-    parser.add_argument("--compose-arg", action="append", default=[],
-                        help="additional tlsfcompose argument (repeatable)")
-    parser.add_argument("--tlsf", help="TLSF spec to translate and/or compose")
+    parser.add_argument("--tlsf", help="TLSF spec to translate")
     parser.add_argument("--tlsf2ltl", default="tlsf2ltl",
                         help="tlsf2ltl path used with --tlsf")
     group = parser.add_mutually_exclusive_group()

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Minimal ltlsynt stand-in for the test suite: parses --ins=/--outs= and emits a
 # trivial REALIZABLE strategy (every output driven to constant true) as ASCII
-# AIGER.  This exercises tlsfcompose's --aiger reader/merge path deterministically
-# without depending on a real ltlsynt (CI has none).
+# AIGER.  This exercises wrapper merge paths deterministically without
+# depending on a real ltlsynt (CI has none).
 ins=""
 outs=""
 for a in "$@"; do

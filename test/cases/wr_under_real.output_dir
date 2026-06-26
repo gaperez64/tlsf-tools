@@ -1,4 +1,3 @@
 c compose: controllers=0 clusters=1
-c cluster 0 outs=grant ins=req
-G (grant -> X req) -> G F grant && G F req
+c cluster 0 file=cluster.0.ltl outs=p,q ins= aiger=cluster.0.aag backend=OxiDD
 c realizable iff every cluster is realizable (controllers are trusted)
