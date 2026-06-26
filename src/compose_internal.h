@@ -1,16 +1,16 @@
 #ifndef TLSF_COMPOSE_INTERNAL_H
 #define TLSF_COMPOSE_INTERNAL_H
 
-/// compose_internal.h — shared declarations for the tlsfcompose synthesis
-/// orchestrator, split across:
+/// compose_internal.h — shared declarations for the tlsfcompose decomposition
+/// diagnostics, split across:
 ///   * compose_analysis.c — pure AST/arena cluster analysis (eligibility gates,
 ///     x-depth, W/R + GR(1) decomposition, cluster-shape classification);
 ///   * compose_games.c     — `Aig` game builders (direct / W/R / strict-safety
 ///   /
-///     unbounded GR(1)) and their AbsSynthe-format encoders;
-///   * compose_solve.c     — ltlsynt subprocess fallback, the OxiDD solver
-///     dispatchers, and the self-verification gate.
-/// main_tlsfcompose.c keeps CLI parsing and the per-cluster routing in `main`.
+///     unbounded GR(1)) and structural helpers reused by route stats.
+///   * compose_oxidd.c     — exact OxiDD residual-cluster pre-solving for
+///     output-dir plans.
+/// main_tlsfcompose.c keeps CLI parsing and plan emission in `main`.
 ///
 /// Internal to the tlsfcompose executable; not part of libtlsf's public API.
 /// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
@@ -114,21 +114,11 @@ const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
                                       const Gr1Parts *parts);
 bool wr_structural_supported(const Node *n);
 
-// ---- compose_solve.c / oxidd_common.c ------------------------------------
+// ---- compose_oxidd.c / oxidd_common.c ------------------------------------
 
 // Persistent BDD manager session: call init before the cluster loop, free
 // after.  Both are no-ops when the OxiDD build is not active.
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
 void oxidd_session_free(void);
-
-[[nodiscard]] Aig *run_ltlsynt_cluster(const char *prog, ConstraintCover *cov,
-                                       const bool *seen, const Node *root,
-                                       LtlFormat fmt, bool finite, int *unreal);
-[[nodiscard]] Aig *solve_safety_game(ConstraintCover *cov, const bool *seen,
-                                     Aig *game, int *unreal);
-[[nodiscard]] Aig *solve_gr1_game(ConstraintCover *cov, const bool *seen,
-                                  Aig *game, int *unreal);
-bool controller_violates_spec(const char *verifier, Aig *controller,
-                              const Node *root, LtlFormat fmt, bool finite);
 
 #endif // TLSF_COMPOSE_INTERNAL_H

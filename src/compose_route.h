@@ -22,9 +22,8 @@ typedef struct {
   bool exact;
   bool
       over_approx; ///< the encoding can WEAKEN the spec (over-approximation):
-                   ///< its REALIZABLE verdict is not trustworthy, so the
-                   ///< controller must be --verify model-checked (or, absent a
-                   ///< verifier, re-confirmed by ltlsynt).  Set for W/R safety.
+                   ///< its REALIZABLE verdict is not trustworthy.  Set for W/R
+                   ///< safety diagnostics.
   const char *label;
   const char *reason_override;
   ClusterShape shape;
@@ -37,12 +36,11 @@ typedef struct {
 
 bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
                           uint32_t bound_k, ComposeRoute *out);
-
-[[nodiscard]] Aig *compose_route_solve(const ComposeRoute *route,
-                                       const char *ltlsynt_prog,
-                                       ConstraintCover *cov, const bool *seen,
-                                       LtlFormat fmt, bool finite, int *unreal,
-                                       bool *used_oxidd,
-                                       const char **backend_label);
+bool compose_route_can_presolve_oxidd(const ComposeRoute *route);
+[[nodiscard]] Aig *compose_route_try_oxidd(const ComposeRoute *route,
+                                           ConstraintCover *cov,
+                                           const bool *seen, int *unreal,
+                                           bool *trusted_unreal,
+                                           const char **backend_label);
 
 #endif // TLSF_COMPOSE_ROUTE_H

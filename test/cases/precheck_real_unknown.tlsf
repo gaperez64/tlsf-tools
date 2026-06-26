@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "precheck_real_unknown"
+  DESCRIPTION: "a temporal guarantee G(r -> X g) cannot be certified by a memoryless controller, so the REAL pre-check bails and --realizability reports UNKNOWN (the fast oracle is inconclusive; the spec is actually realizable, decidable only by the full backend)."
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { r; }
+  OUTPUTS { g; }
+  GUARANTEE {
+    G (r -> X g);
+  }
+}

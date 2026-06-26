@@ -1,6 +1,6 @@
 INFO {
   TITLE: "cluster_prune"
-  DESCRIPTION: "liveness assumption G F !r dropped from the safety cluster (class lever, even though it shares r) and from the disjoint liveness cluster (cone of influence)"
+  DESCRIPTION: "liveness assumption G F !r is kept on the safety cluster that shares r and pruned only from disjoint clusters"
   SEMANTICS: Mealy
   TARGET: Mealy
 }

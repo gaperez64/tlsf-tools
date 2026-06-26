@@ -20,10 +20,11 @@ All take a TLSF file and follow the SYNTCOMP contract (`REALIZABLE` /
 | `spot-syntcomp-syn  SPEC.tlsf` | synthesis | `REALIZABLE` + AIGER, or `UNREALIZABLE` |
 | `spot-syntcomp-real SPEC.tlsf` | realizability | `REALIZABLE` / `UNREALIZABLE` |
 
-Both run `tlsfcompose --split --aiger --ltlsynt ltlsynt SPEC.tlsf` under the
-hood. `ltlsynt`, `ltlfsynt`, and the stable preprocessing utilities
+Both run `tlsf-solve --solver ltlsynt SPEC.tlsf` under the hood. `ltlsynt`,
+`ltlfsynt`, and the stable preprocessing utilities
 (`tlsfcompose`, `tlsfsolve`, `tlsfresidual`, `tlsfnorm`, `tlsf2ltl`,
-`tlsf2tlsf`, `tlsfinfo`) are also on `PATH` for non-preprocessed configs.
+`tlsf2tlsf`, `tlsfinfo`, `tlsf-solve`) are also on `PATH` for
+non-preprocessed configs.
 
 Exit codes: `0` realizable, `1` unrealizable, `2` inconclusive (backend
 failure/timeout — no verdict claimed).

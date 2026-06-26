@@ -1,7 +1,7 @@
 #!/bin/sh
 # spot-syntcomp-real — TLSF *realizability* via the tlsf-tools decomposed-
 # synthesis preprocessor (templates + in-process OxiDD) with ltlsynt as the
-# residual backend.  tlsfcompose has no realizability-only mode, so it runs the
+# residual backend.  tlsf-solve has no realizability-only mode, so it runs the
 # full decomposed synthesis and this wrapper reports only the verdict (the AIGER
 # controller is discarded).  SYNTCOMP contract:
 #
@@ -16,12 +16,12 @@ set -u
 err=$(mktemp)
 trap 'rm -f "$err"' EXIT INT TERM
 
-if tlsfcompose --split --aiger --ltlsynt "$LTLSYNT" "$@" >/dev/null 2>"$err"; then
+if tlsf-solve --solver "$LTLSYNT" --output /dev/null "$@" 2>"$err"; then
   echo REALIZABLE
   exit 0
 fi
 
-if grep -q 'is UNREALIZABLE' "$err"; then
+if grep -q 'UNREALIZABLE' "$err"; then
   echo UNREALIZABLE
   exit 1
 fi

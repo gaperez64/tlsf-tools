@@ -10,7 +10,6 @@
 /// cluster.
 ///
 /// Text plans do not spawn processes: backend calls live in compose.sh.
-/// `--aiger` runs the selected synthesis backend immediately for each cluster.
 
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
@@ -19,6 +18,7 @@
 #include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
+#include "tlsf/decompose.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
 #include "tlsf/liveness_class.h"
@@ -32,20 +32,13 @@
 
 #include "compose_internal.h"
 #include "compose_route.h"
+#include "decompose_internal.h"
 
 #include <ctype.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <unistd.h>
-
-extern char **environ;
 
 typedef enum {
   PREPROCESS_ALWAYS,
@@ -53,12 +46,6 @@ typedef enum {
   PREPROCESS_OFF,
   PREPROCESS_DIAGNOSE,
 } PreprocessPolicy;
-
-typedef enum {
-  FALLBACK_CLUSTERS,
-  FALLBACK_MONOLITHIC,
-  FALLBACK_AUTO,
-} FallbackMode;
 
 typedef struct {
   uint32_t n_oxidd_clusters;
@@ -79,29 +66,22 @@ static void usage(const char *prog) {
       "Decomposed-synthesis plan: certified controllers + residual "
       "clusters.\n"
       "  --split                      decompose constraints first\n"
-      "  --aiger                      emit one merged controller (AIGER aag)"
-      " via OxiDD + ltlsynt backends\n"
-      "  --ltlsynt PATH               ltlsynt to use for --aiger (default: "
-      "$LTLSYNT or PATH)\n"
+      "  --merge FILE.aag...          merge AIGER strategies and write one "
+      ".aag\n"
+      "  --realizability              fast verdict oracle: print REALIZABLE / "
+      "UNREALIZABLE / UNKNOWN via the boolean-fragment pre-checks (exit 0/1/2; "
+      "no plan or controller).  Pair with --split.\n"
+      "  --lowercase                  lowercase emitted cluster formulas and "
+      "interfaces\n"
       "  --pre-normalize SCHEDULE     pre-expansion normalization (opt-in)\n"
       "  --match-normalize SCHEDULE   recognition normalization, e.g. "
       "match-safe:1 (opt-in)\n"
-      "  --route-normalize SCHEDULE   normalize a cluster before the ltlsynt "
-      "fallback,\n"
-      "                               e.g. route-safe:1,sickert-bounded "
-      "(opt-in)\n"
       "  --experimental-bounded N     enable bounded-liveness heuristic with "
-      "step bound N\n"
-      "  --preprocess-policy MODE     OxiDD routing policy: always, "
+      "step bound N in route diagnostics\n"
+      "  --preprocess-policy MODE     route diagnostic policy: always, "
       "profitable, off, diagnose (default profitable)\n"
-      "  --fallback-mode MODE         fallback policy: auto, clusters, "
-      "monolithic (default auto)\n"
       "  --route-stats                print residual-cluster route diagnostics "
       "and exit\n"
-      "  --verify PROG                self-verify each OxiDD-synthesized "
-      "controller (PROG --aiger F --formula-file L; exit 1 = violation) and "
-      "fall "
-      "back to ltlsynt ($TLSFCOMPOSE_VERIFY)\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --output-dir DIR             write controllers.txt, cluster.<k>"
       ".ltl, compose.sh\n"
@@ -123,19 +103,6 @@ static bool parse_preprocess_policy(const char *s, PreprocessPolicy *out) {
     *out = PREPROCESS_OFF;
   } else if (!strcmp(s, "diagnose")) {
     *out = PREPROCESS_DIAGNOSE;
-  } else {
-    return false;
-  }
-  return true;
-}
-
-static bool parse_fallback_mode(const char *s, FallbackMode *out) {
-  if (!strcmp(s, "clusters")) {
-    *out = FALLBACK_CLUSTERS;
-  } else if (!strcmp(s, "monolithic")) {
-    *out = FALLBACK_MONOLITHIC;
-  } else if (!strcmp(s, "auto")) {
-    *out = FALLBACK_AUTO;
   } else {
     return false;
   }
@@ -200,20 +167,6 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     break;
   }
   return buf;
-}
-
-// Verdict-trust: does the spec carry a liveness assumption (e.g. `G F a`)?  The
-// per-cluster decomposition may DROP such an assumption from a safety-only
-// cluster (cluster_assumption_mask) — a *strengthening* of the cluster: sound
-// for a REALIZABLE verdict (E ⟹ E_i), but its UNREALIZABLE verdict is NOT
-// trustworthy, since the dropped fairness assumption can rule out exactly the
-// env behaviours that force the violation.  When this holds we re-validate any
-// self-contained UNREAL with all assumptions kept before trusting it.
-static bool cover_has_liveness_assumption(const ConstraintCover *cov) {
-  for (uint32_t i = 0; i < cov->count; i++)
-    if (cov->items[i].assumption_side && !cov->items[i].is_safety)
-      return true;
-  return false;
 }
 
 static uint32_t count_seen_aps(const ConstraintCover *cov, const bool *seen,
@@ -304,56 +257,6 @@ static void apply_preprocess_policy(ComposeRoute *route,
     force_ltlsynt_policy_route(route, "ltlsynt fallback (policy profitable)",
                                "preprocess policy profitable skipped OxiDD");
   }
-}
-
-static bool preprocess_policy_skips_oxidd(PreprocessPolicy policy,
-                                          const RoutePolicyStats *stats) {
-  if (policy == PREPROCESS_OFF)
-    return true;
-  return policy == PREPROCESS_PROFITABLE && stats &&
-         !stats->profitable_use_oxidd;
-}
-
-static uint32_t effective_exact_oxidd_clusters(PreprocessPolicy policy,
-                                               const RoutePolicyStats *stats) {
-  if (!stats)
-    return 0;
-  return preprocess_policy_skips_oxidd(policy, stats)
-             ? 0
-             : stats->n_exact_oxidd_clusters;
-}
-
-static uint32_t effective_fallback_clusters(PreprocessPolicy policy,
-                                            const RoutePolicyStats *stats) {
-  if (!stats)
-    return 0;
-  return stats->n_fallback_clusters +
-         (preprocess_policy_skips_oxidd(policy, stats) ? stats->n_oxidd_clusters
-                                                       : 0);
-}
-
-static uint32_t effective_max_outputs_fallback(PreprocessPolicy policy,
-                                               const RoutePolicyStats *stats) {
-  if (!stats)
-    return 0;
-  return preprocess_policy_skips_oxidd(policy, stats)
-             ? stats->max_outputs_any_cluster
-             : stats->max_outputs_fallback;
-}
-
-static bool fallback_mode_uses_monolithic(FallbackMode mode,
-                                          PreprocessPolicy policy,
-                                          const RoutePolicyStats *stats) {
-  if (mode == FALLBACK_CLUSTERS)
-    return false;
-  if (mode == FALLBACK_MONOLITHIC)
-    return true;
-  if (!stats)
-    return false;
-  return effective_exact_oxidd_clusters(policy, stats) == 0 &&
-         effective_fallback_clusters(policy, stats) > 1 &&
-         effective_max_outputs_fallback(policy, stats) ==
-             stats->max_outputs_any_cluster;
 }
 
 static bool compute_route_policy_stats(TlsfSpec *spec, ConstraintCover *cov,
@@ -473,11 +376,17 @@ static void compose_sh_header(FILE *sh) {
   fprintf(sh,
           "#!/bin/sh\n"
           "# Generated by tlsfcompose: synthesize each residual cluster with\n"
-          "# ltlsynt.  controllers.txt holds the combinational part (already\n"
-          "# solved, exact).  The spec is realizable iff every cluster is.\n"
+          "# ltlsynt unless cluster.N.aag was already solved in process.\n"
+          "# controllers.txt holds the combinational part (already solved,\n"
+          "# exact).  The spec is realizable iff every cluster is.\n"
           "dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
           "ok=1\n"
           "run() {\n"
+          "  base=${1%%.ltl}\n"
+          "  if [ -f \"$dir/$base.aag\" ]; then\n"
+          "    echo \"$base.aag: SOLVED\"\n"
+          "    return\n"
+          "  fi\n"
           // Pass the formula via a file (-F), not --formula= on the command
           // line: large clusters exceed the shell/exec argument limit (E2BIG).
           "  f=$(mktemp)\n"
@@ -492,18 +401,214 @@ static void compose_sh_header(FILE *sh) {
           "}\n");
 }
 
+static void fputs_maybe_lower(FILE *out, const char *s, bool lower) {
+  if (!lower) {
+    fputs(s, out);
+    return;
+  }
+  for (const char *p = s; *p; p++)
+    fputc(tolower((unsigned char)*p), out);
+}
+
+static void print_string_list(FILE *out, char *const *items, uint32_t count) {
+  for (uint32_t i = 0; i < count; i++)
+    fprintf(out, "%s%s", i ? "," : "", items[i]);
+}
+
+static TlsfDecomposeFormat decompose_format_from_ltl(LtlFormat fmt) {
+  return fmt == LTL_FMT_LTL ? TLSF_DECOMPOSE_FORMAT_LTL
+                            : TLSF_DECOMPOSE_FORMAT_LTLXBA;
+}
+
+static int merge_aiger_files(char *const *files, uint32_t count,
+                             const char *output_file) {
+  if (count == 0) {
+    fprintf(stderr, "tlsfcompose: --merge requires at least one .aag file\n");
+    return 1;
+  }
+  Aig *merged = nullptr;
+  int rc = 0;
+  for (uint32_t i = 0; i < count && rc == 0; i++) {
+    FILE *fp = fopen(files[i], "r");
+    if (!fp) {
+      fprintf(stderr, "tlsfcompose: cannot read %s\n", files[i]);
+      rc = 1;
+      break;
+    }
+    Aig *sub = aig_read_aag(fp);
+    fclose(fp);
+    if (!sub) {
+      fprintf(stderr, "tlsfcompose: invalid AIGER file %s\n", files[i]);
+      rc = 1;
+      break;
+    }
+    if (!merged) {
+      merged = sub;
+    } else if (!aig_merge(merged, sub)) {
+      fprintf(stderr, "tlsfcompose: AIGER merge failed for %s\n", files[i]);
+      aig_free(sub);
+      rc = 1;
+    } else {
+      aig_free(sub);
+    }
+  }
+  if (rc == 0) {
+    FILE *out = cli_open_output(output_file, "tlsfcompose");
+    if (!out) {
+      rc = 1;
+    } else {
+      aig_write_aag(out, merged);
+      if (output_file)
+        fclose(out);
+    }
+  }
+  aig_free(merged);
+  return rc;
+}
+
+static char *strdup_lowercase(const char *s) {
+  size_t n = strlen(s);
+  char *out = malloc(n + 1);
+  if (!out)
+    return nullptr;
+  for (size_t i = 0; i < n; i++)
+    out[i] = (char)tolower((unsigned char)s[i]);
+  out[n] = '\0';
+  return out;
+}
+
+static bool lowercase_aig_signals(Aig *g, ConstraintCover *cov) {
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    const char *orig = ap_table_name(&cov->aps, a);
+    char *lower = strdup_lowercase(orig);
+    if (!lower)
+      return false;
+    if (strcmp(orig, lower) != 0)
+      aig_rename_signal(g, orig, lower);
+    free(lower);
+  }
+  return true;
+}
+
+static bool emit_certified_aiger(FILE *out, TlsfSpec *spec,
+                                 ConstraintCover *cov, const Csnf *csnf,
+                                 const CsnfComposition *comp, bool lowercase) {
+  Aig *g = aig_new();
+  if (!g)
+    return false;
+  uint32_t A = cov->aps.count;
+  for (uint32_t o = 0; o < A; o++)
+    if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
+      (void)aig_input(g, ap_table_name(&cov->aps, o));
+
+  bool ok = true;
+  for (uint32_t k = 0; k < comp->nelim && ok; k++) {
+    const Node *v =
+        residual_apply_elims(spec->arena, comp->elim[k].value, comp, cov);
+    uint32_t lit = aig_compile(g, v);
+    if (lit == UINT32_MAX) {
+      ok = false;
+      break;
+    }
+    aig_set_output(g, ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output),
+                   lit);
+  }
+  if (ok)
+    ok = csnf_emit_local_aiger(csnf, comp, g);
+  for (uint32_t o = 0; o < A && ok; o++)
+    if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) &&
+        !aig_has_output(g, ap_table_name(&cov->aps, o)))
+      aig_set_output(g, ap_table_name(&cov->aps, o), AIG_FALSE);
+  if (ok && lowercase)
+    ok = lowercase_aig_signals(g, cov);
+  if (ok)
+    aig_write_aag(out, g);
+  aig_free(g);
+  return ok;
+}
+
+static bool emit_oxidd_cluster_aiger(const char *out_dir, uint32_t k,
+                                     TlsfSpec *spec, ConstraintCover *cov,
+                                     const ResidualPlan *rplan, bool finite,
+                                     uint32_t bound_k, PreprocessPolicy policy,
+                                     const RoutePolicyStats *policy_stats,
+                                     bool *seen, bool lowercase, bool *solved,
+                                     const char **backend_label) {
+  *solved = false;
+  if (backend_label)
+    *backend_label = nullptr;
+  if (!out_dir || rplan->keys[k] == cov->aps.count)
+    return true;
+
+  Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                           /*all=*/false, /*prune=*/true, seen);
+  if (!root) {
+    fprintf(stderr, "tlsfcompose: out of memory\n");
+    return false;
+  }
+
+  ComposeRoute route;
+  (void)compose_route_select(spec, root, finite, bound_k, &route);
+  apply_preprocess_policy(&route, policy, policy_stats);
+  if (!route.uses_oxidd)
+    return true;
+
+  int unreal = 0;
+  bool trusted_unreal = false;
+  const char *backend = nullptr;
+  Aig *sub = compose_route_try_oxidd(&route, cov, seen, &unreal,
+                                     &trusted_unreal, &backend);
+  if (!sub && trusted_unreal) {
+    fprintf(stderr,
+            "tlsfcompose: cluster %u is UNREALIZABLE (%s; trusted "
+            "one-sided OxiDD verdict)\n",
+            k, backend ? backend : "OxiDD");
+    return false;
+  }
+  if (!sub)
+    return true;
+  if (lowercase && !lowercase_aig_signals(sub, cov)) {
+    aig_free(sub);
+    return false;
+  }
+
+  char path[4096];
+  snprintf(path, sizeof path, "%s/cluster.%u.aag", out_dir, k);
+  FILE *af = fopen(path, "w");
+  if (!af) {
+    fprintf(stderr, "tlsfcompose: cannot write %s\n", path);
+    aig_free(sub);
+    return false;
+  }
+  aig_write_aag(af, sub);
+  fclose(af);
+  aig_free(sub);
+  *solved = true;
+  if (backend_label)
+    *backend_label = backend ? backend : "OxiDD";
+  (void)unreal;
+  return true;
+}
+
 int main(int argc, char *argv[]) {
-  bool split = false, aiger = false, route_stats = false;
+  bool split = false, route_stats = false;
+  bool realizability = false;
+  bool lowercase = false, merge_mode = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
-  const char *os_arg = nullptr, *ot_arg = nullptr, *ltlsynt_path = nullptr;
-  const char *verify_path = nullptr;
-  const char *pre_norm = nullptr, *match_norm = nullptr, *route_norm = nullptr;
+  const char *os_arg = nullptr, *ot_arg = nullptr;
+  const char *pre_norm = nullptr, *match_norm = nullptr;
   unsigned long bound_opt = 0; // 0 = bounded-liveness heuristic disabled
   PreprocessPolicy preprocess_policy = PREPROCESS_PROFITABLE;
-  FallbackMode fallback_mode = FALLBACK_AUTO;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
+  char **merge_files =
+      calloc((size_t)argc ? (size_t)argc : 1, sizeof *merge_files);
+  uint32_t n_merge_files = 0;
+  if (!merge_files) {
+    fprintf(stderr, "tlsfcompose: out of memory\n");
+    return 1;
+  }
 
 #define NEED_ARG()                                                             \
   (++i >= argc ? (fprintf(stderr, "tlsfcompose: %s requires an argument\n",    \
@@ -515,18 +620,16 @@ int main(int argc, char *argv[]) {
     const char *a = argv[i];
     if (strcmp(a, "--split") == 0) {
       split = true;
-    } else if (strcmp(a, "--aiger") == 0) {
-      aiger = true;
-    } else if (strcmp(a, "--ltlsynt") == 0) {
-      ltlsynt_path = NEED_ARG();
+    } else if (strcmp(a, "--merge") == 0) {
+      merge_mode = true;
+    } else if (strcmp(a, "--realizability") == 0) {
+      realizability = true;
+    } else if (strcmp(a, "--lowercase") == 0) {
+      lowercase = true;
     } else if (strcmp(a, "--pre-normalize") == 0) {
       pre_norm = NEED_ARG();
     } else if (strcmp(a, "--match-normalize") == 0) {
       match_norm = NEED_ARG();
-    } else if (strcmp(a, "--route-normalize") == 0) {
-      route_norm = NEED_ARG();
-    } else if (strcmp(a, "--verify") == 0) {
-      verify_path = NEED_ARG();
     } else if (strcmp(a, "--experimental-bounded") == 0) {
       const char *v = NEED_ARG();
       char *end;
@@ -543,15 +646,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr,
                 "tlsfcompose: unknown --preprocess-policy '%s' "
                 "(expected always, profitable, off, diagnose)\n",
-                v);
-        return 1;
-      }
-    } else if (strcmp(a, "--fallback-mode") == 0) {
-      const char *v = NEED_ARG();
-      if (!parse_fallback_mode(v, &fallback_mode)) {
-        fprintf(stderr,
-                "tlsfcompose: unknown --fallback-mode '%s' "
-                "(expected clusters, monolithic, auto)\n",
                 v);
         return 1;
       }
@@ -587,23 +681,38 @@ int main(int argc, char *argv[]) {
       printf("tlsfcompose %s oxidd=%s research=%s simd=%s\n",
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
              tlsf_build_simd());
+      free(merge_files);
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
+      free(merge_files);
       return 0;
     } else if (a[0] != '-') {
+      if (merge_mode) {
+        merge_files[n_merge_files++] = argv[i];
+        continue;
+      }
       if (input_file) {
         fprintf(stderr, "tlsfcompose: multiple input files not supported\n");
+        free(merge_files);
         return 1;
       }
       input_file = a;
     } else {
       fprintf(stderr, "tlsfcompose: unknown option '%s'\n", a);
       usage(argv[0]);
+      free(merge_files);
       return 1;
     }
   }
 #undef NEED_ARG
+
+  if (merge_mode) {
+    int mrc = merge_aiger_files(merge_files, n_merge_files, output_file);
+    free(merge_files);
+    return mrc;
+  }
+  free(merge_files);
 
   FILE *fp = cli_open_input(input_file, "tlsfcompose");
   if (!fp)
@@ -647,36 +756,6 @@ int main(int argc, char *argv[]) {
     tlsf_prenorm_spec(spec, &o, nullptr);
   }
 
-  // Route normalization (opt-in): a cluster that matches none of the in-process
-  // route recognizers is normalized (route-safe/Sickert, growth-capped) and
-  // re-routed before the ltlsynt fallback.  Parsed once per spec; applied per
-  // cluster in the loop below.  Sound because every OxiDD controller is still
-  // self-verified against the ORIGINAL cluster.
-  TlsfNormSchedule route_sched = {0};
-  TlsfNormOptions route_opts;
-  tlsf_norm_options_default(&route_opts, TLSF_NORM_PHASE_ROUTE);
-  route_opts.finite_word = norm_finite;
-  bool route_norm_on = false;
-  if (route_norm) {
-    if (!tlsf_norm_parse_schedule(spec->arena, route_norm, "tlsfcompose",
-                                  &route_sched)) {
-      spec_free(spec);
-      return 1;
-    }
-    route_opts.schedule = route_sched;
-    TlsfNormRejectReason rr;
-    if (tlsf_norm_schedule_check(&route_sched, &route_opts, "tlsfcompose",
-                                 &rr)) {
-      route_norm_on = true;
-    } else if (rr == TLSF_NORM_REJECT_FINITE_WORD) {
-      fprintf(stderr, "tlsfcompose: route-normalize disabled on this "
-                      "finite-word spec\n");
-    } else {
-      spec_free(spec);
-      return 1;
-    }
-  }
-
   if (expand(spec, overrides, n_overrides) != 0) {
     spec_free(spec);
     return 1;
@@ -695,9 +774,7 @@ int main(int argc, char *argv[]) {
   // OVER-approximation UNREALIZABLE pre-check over the boolean fragment.  It
   // refutes a weakening of the spec (drops temporal guarantees, keeps every
   // assumption, bails on any temporal assumption), so its UNREALIZABLE is
-  // trustworthy and it never claims REALIZABLE.  The temporal-assumption bail
-  // is a strict superset of the cover_has_liveness_assumption UNREAL-trust
-  // concern, so this verdict needs no re-validation.  Fires before the heavy
+  // trustworthy and it never claims REALIZABLE.  Fires before the heavy
   // recognize/certify/residual stages, matching ltlsynt's whole-formula fast
   // path for trivially unrealizable inputs.
   if (precheck_trivially_unreal(cov)) {
@@ -708,6 +785,30 @@ int main(int argc, char *argv[]) {
                     "(boolean-fragment pre-check; over-approx, trusted)\n");
     spec_free(spec);
     return 1;
+  }
+
+  // --realizability: a fast verdict oracle.  The always-on UNREAL pre-check
+  // above already settled UNREALIZABLE; here the dual TRUST_UNDER REALIZABLE
+  // pre-check (a memoryless Mealy Skolem controller of the conjoined boolean
+  // guarantees; see precheck_unreal.h) settles REALIZABLE, else UNKNOWN.  It is
+  // gated behind the flag because, unlike UNREAL, it yields only a verdict —
+  // not the plan or AIGER controller the default modes emit — so
+  // short-circuiting those would drop their deliverable.
+  if (realizability) {
+    if (precheck_trivially_real(cov)) {
+      if (route_stats)
+        fprintf(stderr, "route-stats: real_precheck=1 "
+                        "(boolean fragment; under-approx, trusted REAL)\n");
+      fprintf(stderr, "tlsfcompose: spec is REALIZABLE "
+                      "(boolean-fragment pre-check; under-approx, trusted)\n");
+      spec_free(spec);
+      return 0;
+    }
+    fprintf(
+        stderr,
+        "tlsfcompose: realizability UNKNOWN (fast pre-checks inconclusive)\n");
+    spec_free(spec);
+    return 2;
   }
 
   // Match normalization (opt-in) rewrites match_formula only; residual/routing
@@ -741,7 +842,7 @@ int main(int argc, char *argv[]) {
   bool finite = semantics_is_finite(spec->info.semantics);
   int rc = 0;
 
-  ResidualPlanOptions ropts = {.skip_local_aiger = aiger,
+  ResidualPlanOptions ropts = {.skip_local_aiger = out_dir != nullptr,
                                .simplify_weak = true};
   ResidualPlan *rplan = residual_plan_build(spec, cov, csnf, comp, ropts);
   if (!rplan) {
@@ -753,7 +854,6 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  uint32_t K = rplan->nclusters;
   bool *seen = calloc(A ? A : 1, sizeof(bool));
   if (!seen) {
     fprintf(stderr, "tlsfcompose: out of memory\n");
@@ -766,20 +866,29 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  if (route_stats) {
-    uint32_t bound_k = (uint32_t)bound_opt;
-    RoutePolicyStats policy_stats;
+  uint32_t bound_k = (uint32_t)bound_opt;
+  RoutePolicyStats policy_stats = {0};
+  const RoutePolicyStats *policy_stats_ptr = nullptr;
+  bool need_policy_stats =
+      route_stats || (out_dir && (preprocess_policy == PREPROCESS_PROFITABLE ||
+                                  preprocess_policy == PREPROCESS_DIAGNOSE));
+  if (need_policy_stats) {
     if (!compute_route_policy_stats(spec, cov, rplan, finite, bound_k, seen,
-                                    &policy_stats)) {
+                                    &policy_stats))
       rc = 1;
-    } else {
-      if (preprocess_policy == PREPROCESS_DIAGNOSE)
-        print_policy_diagnosis(&policy_stats);
+    else
+      policy_stats_ptr = &policy_stats;
+  }
+
+  if (preprocess_policy == PREPROCESS_DIAGNOSE && policy_stats_ptr)
+    print_policy_diagnosis(policy_stats_ptr);
+
+  if (route_stats) {
+    if (rc == 0)
       rc = emit_route_stats(out, spec, cov, rplan, finite, bound_k, seen, fmt,
-                            input_file, preprocess_policy, &policy_stats)
+                            input_file, preprocess_policy, policy_stats_ptr)
                ? 0
                : 1;
-    }
     free(seen);
     residual_plan_free(rplan);
     if (output_file)
@@ -790,301 +899,19 @@ int main(int argc, char *argv[]) {
     return rc;
   }
 
-  // --aiger: synthesize each cluster with ltlsynt and merge with the
-  // combinational controllers into one AIGER controller over the full
-  // interface.
-  if (aiger) {
-    const char *env = getenv("LTLSYNT");
-    const char *prog = ltlsynt_path    ? ltlsynt_path
-                       : (env && *env) ? env
-                                       : "ltlsynt";
-    // Optional self-verification: when set, each OxiDD-synthesized cluster
-    // controller is model-checked against the cluster spec and, if it provably
-    // violates it, discarded in favour of the ltlsynt fallback.
-    const char *verify_env = getenv("TLSFCOMPOSE_VERIFY");
-    const char *verifier = verify_path                   ? verify_path
-                           : (verify_env && *verify_env) ? verify_env
-                                                         : nullptr;
-    uint32_t bound_k = (uint32_t)bound_opt;
-    RoutePolicyStats policy_stats = {0};
-    const RoutePolicyStats *policy_stats_ptr = nullptr;
-    bool need_policy_stats = preprocess_policy == PREPROCESS_PROFITABLE ||
-                             preprocess_policy == PREPROCESS_DIAGNOSE ||
-                             fallback_mode == FALLBACK_AUTO;
-    if (need_policy_stats) {
-      if (!compute_route_policy_stats(spec, cov, rplan, finite, bound_k, seen,
-                                      &policy_stats)) {
-        free(seen);
-        residual_plan_free(rplan);
-        if (output_file)
-          fclose(out);
-        csnf_composition_free(comp);
-        csnf_free(csnf);
-        spec_free(spec);
-        return 1;
-      }
-      policy_stats_ptr = &policy_stats;
-      if (preprocess_policy == PREPROCESS_DIAGNOSE)
-        print_policy_diagnosis(&policy_stats);
-    }
-    bool use_monolithic_fallback =
-        K > 0 && fallback_mode_uses_monolithic(fallback_mode, preprocess_policy,
-                                               policy_stats_ptr);
-    bool oxidd_session_started = false;
-    // Persistent BDD manager: one allocation shared across all clusters,
-    // amortising oxidd_bdd_manager_new overhead on multi-cluster specs.
-    // Variables accumulate with per-cluster base offsets; GC reclaims dead
-    // nodes between clusters.  Cap at 1<<21 (2M nodes) to keep peak RSS low
-    // while still covering the measured self-contained OxiDD corpus.
-    if (!use_monolithic_fallback) {
-      oxidd_session_init(1u << 21, 1u << 21);
-      oxidd_session_started = true;
-    }
+  TlsfDecomposeOptions dopts = {
+      .split = split,
+      .lowercase = lowercase,
+      .format = decompose_format_from_ltl(fmt),
+  };
+  TlsfDecomposeResult *dres =
+      tlsf_decompose_result_from_plan(spec, cov, csnf, comp, rplan, &dopts);
+  if (!dres)
+    rc = 1;
 
-    Aig *g = aig_new();
-    for (uint32_t o = 0; o < A; o++) // all declared and residual env inputs
-      if (residual_signal_matches(cov, o, AP_FLAG_INPUT))
-        (void)aig_input(g, ap_table_name(&cov->aps, o));
-
-    if (use_monolithic_fallback) {
-      Node *root =
-          residual_plan_build_cluster(spec, cov, rplan, 0, /*all=*/true,
-                                      /*prune=*/true, seen);
-      if (!root) {
-        rc = 1;
-      } else {
-        int unreal = 0;
-        Aig *sub =
-            run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-        if (getenv("TLSFCOMPOSE_DEBUG"))
-          fprintf(stderr, "tlsfcompose: residual routed to monolithic %s\n",
-                  prog);
-        if (unreal) {
-          fprintf(stderr, "tlsfcompose: monolithic fallback is UNREALIZABLE "
-                          "(ltlsynt)\n");
-          rc = 1;
-        } else if (!sub) {
-          if (fallback_mode == FALLBACK_AUTO) {
-            fprintf(stderr,
-                    "tlsfcompose: monolithic fallback failed (ltlsynt); "
-                    "retrying per-cluster fallback\n");
-            use_monolithic_fallback = false;
-            oxidd_session_init(1u << 21, 1u << 21);
-            oxidd_session_started = true;
-          } else {
-            fprintf(stderr,
-                    "tlsfcompose: monolithic fallback failed (ltlsynt)\n");
-            rc = 1;
-          }
-        } else if (!aig_merge(g, sub)) {
-          fprintf(stderr, "tlsfcompose: AIGER merge failed for monolithic "
-                          "fallback\n");
-          rc = 1;
-        }
-        aig_free(sub);
-      }
-    }
-
-    // Clusters first (so a decoder reading a synthesized output resolves).
-    for (uint32_t k = 0; !use_monolithic_fallback && k < K && rc == 0; k++) {
-      if (rplan->keys[k] == A) {
-        // Output-free cluster: input-only system guarantees with no controller
-        // to emit.  These are NOT trivially satisfiable -- the system meets
-        // them only if the assumptions entail them -- so check realizability
-        // rather than dropping the cluster.  Dropping is unsound: e.g.
-        // G(o && a) splits into G(o) and the input-only G(a); skipping G(a)
-        // reports a genuinely unrealizable spec as realizable.  In isolation
-        // the system has full control of any outputs this cluster references
-        // via assumptions, so UNREALIZABLE here soundly implies the whole spec
-        // is unrealizable.  We use only the verdict: any referenced outputs are
-        // driven by their owning clusters, so nothing is merged.
-        Node *ofree = residual_plan_build_cluster(
-            spec, cov, rplan, A, /*all=*/false, /*prune=*/false, seen);
-        if (!ofree) {
-          rc = 1;
-          break;
-        }
-        int of_unreal = 0;
-        Aig *of_sub = run_ltlsynt_cluster(prog, cov, seen, ofree, fmt, finite,
-                                          &of_unreal);
-        if (getenv("TLSFCOMPOSE_DEBUG"))
-          fprintf(stderr, "tlsfcompose: output-free cluster checked (%s)\n",
-                  of_unreal ? "UNREALIZABLE"
-                  : of_sub  ? "realizable"
-                            : "realizable/unknown");
-        if (of_unreal) {
-          fprintf(stderr, "tlsfcompose: output-free guarantee cluster is "
-                          "UNREALIZABLE (ltlsynt)\n");
-          rc = 1;
-        }
-        aig_free(of_sub);
-        continue;
-      }
-      Node *root =
-          residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                      /*all=*/false, /*prune=*/true, seen);
-      if (!root) {
-        rc = 1;
-        break;
-      }
-      int unreal = 0;
-      ComposeRoute route;
-      (void)compose_route_select(spec, root, finite, bound_k, &route);
-      // Route normalization: a cluster that matched no in-process recognizer
-      // (bare ltlsynt fallback) is normalized and re-routed.  The equivalent
-      // `root_norm` may hit a GR(1)/monitor/safety recognizer the original
-      // shape missed; the controller is still verified against the original
-      // `root` below, so this can only convert a fallback into a verified
-      // in-process solve, never produce a wrong controller.
-      if (route_norm_on && route.kind == ROUTE_LTLSYNT) {
-        Node *root_norm =
-            tlsf_normalize_formula(spec->arena, root, &route_opts, nullptr);
-        if (root_norm && root_norm != root) {
-          ComposeRoute route2;
-          (void)compose_route_select(spec, root_norm, finite, bound_k, &route2);
-          if (route2.kind != ROUTE_LTLSYNT) {
-            route = route2;
-            if (getenv("TLSFCOMPOSE_DEBUG"))
-              fprintf(stderr,
-                      "tlsfcompose: cluster %u route-normalized -> %s\n", k,
-                      route.label ? route.label : "?");
-          }
-        }
-      }
-      apply_preprocess_policy(&route, preprocess_policy, policy_stats_ptr);
-      bool use_oxidd = false;
-      const char *backend = nullptr;
-      Aig *sub = compose_route_solve(&route, prog, cov, seen, fmt, finite,
-                                     &unreal, &use_oxidd, &backend);
-      // Self-verification gate: a synthesized controller must satisfy the
-      // ORIGINAL cluster spec (`root`, not a bounded/strict surrogate).  If it
-      // provably violates it, discard it and fall back to ltlsynt, so a
-      // recognizer/encoder bug becomes a sound fallback rather than a wrong
-      // controller.  Inconclusive checks (verifier error/OOM) keep the result.
-      if (verifier && use_oxidd && sub &&
-          controller_violates_spec(verifier, sub, root, fmt, finite)) {
-        fprintf(stderr,
-                "tlsfcompose: cluster %u controller failed self-verification "
-                "(%s); falling back to ltlsynt\n",
-                k, backend);
-        aig_free(sub);
-        sub = nullptr;
-        unreal = 0;
-        use_oxidd = false;
-        backend = "ltlsynt fallback (self-verification)";
-        sub = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &unreal);
-      }
-      // Over-approximation routes (W/R safety) can emit a WRONG controller
-      // (false-REAL: the encoding can weaken the spec — box/evasion/follow).
-      // When no --verify model-check is available, confirm with the
-      // authoritative ltlsynt before trusting the controller; if ltlsynt is
-      // unavailable/inconclusive the OxiDD controller is kept (best effort, so
-      // the Spot-verified /bin/false W/R tests still solve self-contained).
-      if (!verifier && use_oxidd && sub && route.over_approx) {
-        int u2 = 0;
-        Aig *re = run_ltlsynt_cluster(prog, cov, seen, root, fmt, finite, &u2);
-        if (re) {
-          aig_free(sub);
-          sub = re;
-          use_oxidd = false;
-          backend = "ltlsynt (over-approx re-validated)";
-        } else if (u2) {
-          aig_free(sub);
-          sub = nullptr;
-          unreal = 1;
-        }
-      }
-      if (getenv("TLSFCOMPOSE_DEBUG"))
-        fprintf(stderr, "tlsfcompose: cluster %u nodes=%u routed to %s\n", k,
-                ast_node_count(root), backend);
-      // Don't trust a self-contained UNREALIZABLE that a dropped liveness
-      // assumption could have caused: re-solve the cluster with all assumptions
-      // kept (prune=false) via the authoritative ltlsynt.  The drop only
-      // happens for a *safety-only* cluster (cluster_assumption_mask), so a
-      // liveness cluster cannot be tainted this way — gate on !has_liveness to
-      // avoid re-running ltlsynt on the slow liveness tail.  Only flips the
-      // verdict when ltlsynt actually produces a controller, so a genuine
-      // UNREAL (or an unavailable ltlsynt) is left intact.  See
-      // lily/lilydemo23.
-      if (unreal && !route.shape.has_liveness &&
-          cover_has_liveness_assumption(cov)) {
-        Node *full =
-            residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                        /*all=*/false, /*prune=*/false, seen);
-        if (full) {
-          int u2 = 0;
-          Aig *re =
-              run_ltlsynt_cluster(prog, cov, seen, full, fmt, finite, &u2);
-          if (re) {
-            aig_free(sub);
-            sub = re;
-            unreal = 0;
-            use_oxidd = false;
-            backend = "ltlsynt (re-validated, all assumptions kept)";
-          }
-        }
-      }
-      if (unreal) {
-        fprintf(stderr, "tlsfcompose: cluster %u is UNREALIZABLE (%s)\n", k,
-                backend);
-        rc = 1;
-      } else if (!sub) {
-        char reason[192];
-        const char *detail =
-            use_oxidd ? "OxiDD returned no usable strategy"
-                      : cluster_ltlsynt_reason(&route.shape, finite, reason,
-                                               sizeof reason);
-        fprintf(stderr,
-                "tlsfcompose: synthesis backend failed for cluster %u (%s: "
-                "%s)\n",
-                k, backend, detail);
-        rc = 1;
-      } else if (!aig_merge(g, sub)) {
-        fprintf(stderr, "tlsfcompose: AIGER merge failed for cluster %u\n", k);
-        rc = 1;
-      }
-      aig_free(sub);
-    }
-    // Combinational controllers: ground their values, compile, drive outputs.
-    for (uint32_t k = 0; k < comp->nelim && rc == 0; k++) {
-      const Node *v =
-          residual_apply_elims(spec->arena, comp->elim[k].value, comp, cov);
-      uint32_t lit = aig_compile(g, v);
-      if (lit == UINT32_MAX) {
-        fprintf(stderr, "tlsfcompose: cannot encode controller for %s\n",
-                ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output));
-        rc = 1;
-        break;
-      }
-      aig_set_output(
-          g, ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output), lit);
-    }
-    if (rc == 0 && !csnf_emit_local_aiger(csnf, comp, g)) {
-      fprintf(stderr, "tlsfcompose: cannot encode local template controller\n");
-      rc = 1;
-    }
-    // Any unconstrained output: drive to false.
-    for (uint32_t o = 0; o < A && rc == 0; o++)
-      if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) &&
-          aig_lookup(g, ap_table_name(&cov->aps, o)) == UINT32_MAX)
-        aig_set_output(g, ap_table_name(&cov->aps, o), AIG_FALSE);
-
-    if (rc == 0)
-      aig_write_aag(out, g);
-    aig_free(g);
-    if (oxidd_session_started)
-      oxidd_session_free();
-    free(seen);
-    residual_plan_free(rplan);
-    if (output_file)
-      fclose(out);
-    csnf_composition_free(comp);
-    csnf_free(csnf);
-    spec_free(spec);
-    return rc;
-  }
-
-  fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim, K);
+  if (rc == 0)
+    fprintf(out, "c compose: controllers=%u clusters=%u\n", comp->nelim,
+            dres->n_clusters);
 
   // Combinational controllers (exact): o := value.
   FILE *ctlf = nullptr;
@@ -1101,12 +928,30 @@ int main(int argc, char *argv[]) {
     const char *oname =
         ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output);
     FILE *dst = ctlf ? ctlf : out;
-    fprintf(dst, "ctl %s := ", oname);
+    fputs("ctl ", dst);
+    fputs_maybe_lower(dst, oname, lowercase);
+    fputs(" := ", dst);
     print_ltl(dst, comp->elim[k].value, fmt, /*full_parens=*/false, finite,
-              /*lower_atoms=*/false);
+              /*lower_atoms=*/lowercase);
   }
   if (ctlf)
     fclose(ctlf);
+
+  if (out_dir && rc == 0) {
+    char path[4096];
+    snprintf(path, sizeof path, "%s/controllers.aag", out_dir);
+    FILE *caf = fopen(path, "w");
+    if (!caf) {
+      fprintf(stderr, "tlsfcompose: cannot write %s\n", path);
+      rc = 1;
+    } else {
+      if (!emit_certified_aiger(caf, spec, cov, csnf, comp, lowercase)) {
+        fprintf(stderr, "tlsfcompose: cannot encode %s\n", path);
+        rc = 1;
+      }
+      fclose(caf);
+    }
+  }
 
   // compose.sh driver (only with --output-dir).
   FILE *shf = nullptr;
@@ -1122,22 +967,17 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  for (uint32_t k = 0, ck = 0; k < K && rc == 0; k++) {
-    // Output-free (input-only) guarantee clusters carry no controller, but they
-    // are NOT trivially realizable -- emit them too so compose.sh's per-cluster
-    // realizability check covers them (built with all assumptions, prune=false,
-    // so coupling assumptions that mention other clusters' outputs survive).
-    bool output_free = rplan->keys[k] == A;
-    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                             /*all=*/false,
-                                             /*prune=*/!output_free, seen);
-    if (!root) {
-      rc = 1;
-      break;
-    }
+  bool oxidd_session_started = false;
+  if (out_dir && rc == 0 && preprocess_policy != PREPROCESS_OFF) {
+    oxidd_session_init(1u << 21, 1u << 21);
+    oxidd_session_started = true;
+  }
+
+  for (uint32_t k = 0; dres && k < dres->n_clusters && rc == 0; k++) {
+    TlsfDecomposeCluster *cluster = &dres->clusters[k];
     if (out_dir) {
       char path[4096];
-      snprintf(path, sizeof path, "%s/cluster.%u.ltl", out_dir, ck);
+      snprintf(path, sizeof path, "%s/cluster.%u.ltl", out_dir, k);
       FILE *cf = fopen(path, "w");
       if (!cf) {
         fprintf(stderr, "tlsfcompose: cannot write %s\n", path);
@@ -1145,40 +985,54 @@ int main(int argc, char *argv[]) {
         break;
       }
       fprintf(cf, "c outs=");
-      residual_print_signals(cf, cov, seen, AP_FLAG_OUTPUT);
+      print_string_list(cf, cluster->outputs, cluster->n_outputs);
       fprintf(cf, "\nc ins=");
-      residual_print_signals(cf, cov, seen, AP_FLAG_INPUT);
-      fprintf(cf, "\n");
-      print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/false);
+      print_string_list(cf, cluster->inputs, cluster->n_inputs);
+      fprintf(cf, "\n%s\n", cluster->ltl);
       fclose(cf);
-      fprintf(shf, "run cluster.%u.ltl \"", ck);
-      residual_print_signals(shf, cov, seen, AP_FLAG_INPUT);
+      bool oxidd_solved = false;
+      const char *oxidd_backend = nullptr;
+      if (!emit_oxidd_cluster_aiger(out_dir, k, spec, cov, rplan, finite,
+                                    bound_k, preprocess_policy,
+                                    policy_stats_ptr, seen, lowercase,
+                                    &oxidd_solved, &oxidd_backend)) {
+        rc = 1;
+        break;
+      }
+      fprintf(shf, "run cluster.%u.ltl \"", k);
+      print_string_list(shf, cluster->inputs, cluster->n_inputs);
       fprintf(shf, "\" \"");
-      residual_print_signals(shf, cov, seen, AP_FLAG_OUTPUT);
+      print_string_list(shf, cluster->outputs, cluster->n_outputs);
       fprintf(shf, "\"\n");
-      fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", ck, ck);
-      residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+      fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", k, k);
+      print_string_list(out, cluster->outputs, cluster->n_outputs);
       fprintf(out, " ins=");
-      residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
+      print_string_list(out, cluster->inputs, cluster->n_inputs);
+      if (oxidd_solved)
+        fprintf(out, " aiger=cluster.%u.aag backend=%s", k,
+                oxidd_backend ? oxidd_backend : "OxiDD");
       fprintf(out, "\n");
     } else {
-      fprintf(out, "c cluster %u outs=", ck);
-      residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+      fprintf(out, "c cluster %u outs=", k);
+      print_string_list(out, cluster->outputs, cluster->n_outputs);
       fprintf(out, " ins=");
-      residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
-      fprintf(out, "\n");
-      print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/false);
+      print_string_list(out, cluster->inputs, cluster->n_inputs);
+      fprintf(out, "\n%s\n", cluster->ltl);
     }
-    ck++;
   }
   if (shf) {
     fprintf(shf, "[ \"$ok\" = 1 ] && echo \"SPEC REALIZABLE\" || echo \"SPEC "
                  "UNREALIZABLE\"\n");
     fclose(shf);
   }
-  fprintf(out, "c realizable iff every cluster is realizable (controllers are "
-               "exact)\n");
+  if (rc == 0)
+    fprintf(out,
+            "c realizable iff every cluster is realizable (controllers are "
+            "trusted)\n");
 
+  if (oxidd_session_started)
+    oxidd_session_free();
+  tlsf_decompose_result_free(dres);
   free(seen);
   residual_plan_free(rplan);
   if (rc)

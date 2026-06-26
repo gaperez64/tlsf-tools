@@ -127,11 +127,11 @@ static bool residual_aps_hit(const Node *n, ConstraintCover *cov,
 // `kk`. The cluster's own constraints (`key==kk`) are always kept; the global
 // (input-only) assumption pool (`key==UINT32_MAX`) is pruned to those
 // *relevant* to the cluster — a transitive cone of influence over shared
-// signals — and a liveness assumption is dropped from a safety-only cluster (it
-// can never prevent a finite-time safety violation).  Attaching a subset E_i of
-// the assumptions is sound because E => E_i, so a controller for `E_i -> G_i`
-// also satisfies `E -> G_i`.  Fills `include` (length n); returns false on OOM,
-// in which case the caller keeps the old (include-all-global) behavior.
+// signals.  Assumptions over disjoint signals may be dropped exactly: the
+// environment's behavior on those signals cannot help win or lose this cluster,
+// while every reached assumption is retained regardless of safety/liveness
+// class.  Fills `include` (length n); returns false on OOM, in which case the
+// caller keeps the old (include-all-global) behavior.
 static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
                                     const uint32_t *key, uint32_t kk,
                                     uint32_t n, bool *include) {
@@ -144,8 +144,7 @@ static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
     return false;
   }
   // Cluster core: every key==kk constraint stays; seed the cone with its
-  // signals and fix the synthesis class from the guarantee-side constraints.
-  bool cluster_safety = true, any_guarantee = false;
+  // signals.
   for (uint32_t i = 0; i < n; i++) {
     include[i] = false;
     if (!rf[i] || key[i] != kk)
@@ -153,18 +152,9 @@ static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
     include[i] = true;
     reached[i] = true;
     residual_collect_aps(rf[i], cov, gsig);
-    if (!cov->items[i].assumption_side) {
-      any_guarantee = true;
-      if (!cov->items[i].is_safety)
-        cluster_safety = false;
-    }
   }
-  if (!any_guarantee)
-    cluster_safety = false; // no guarantee to fix the class: keep all relevant
   // Transitive cone of influence over the global assumption pool.  A reached
-  // assumption grows the cone regardless of class (so liveness bridges still
-  // propagate); it is *attached* only if it is not a liveness assumption on a
-  // safety-only cluster.
+  // assumption grows the cone and is attached regardless of class.
   bool changed = true;
   while (changed) {
     changed = false;
@@ -176,8 +166,6 @@ static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
       reached[i] = true;
       changed = true;
       residual_collect_aps(rf[i], cov, gsig);
-      if (cluster_safety && !cov->items[i].is_safety)
-        continue; // liveness assumption is irrelevant to a safety-only cluster
       include[i] = true;
     }
   }

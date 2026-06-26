@@ -4,14 +4,14 @@
 #   * ltlsynt / ltlfsynt from Spot (the synthesis backend), and
 #   * the tlsf-tools decomposed-synthesis PREPROCESSOR (templates + in-process
 #     OxiDD safety/GR(1) solvers) which carves clusters off a TLSF spec and
-#     forwards only the hard liveness residual to ltlsynt.
+#     forwards residual clusters to ltlsynt through scripts/solve.sh.
 #
 # Derived from the upstream spot-syntcomp image
 # (https://gitlab.lre.epita.fr/spot/syntcomp25); the Spot build stage mirrors it.
 #
 # Entry points (SYNTCOMP contract: REALIZABLE / UNREALIZABLE on stdout, AIGER
 # model after REALIZABLE for the synthesis track):
-#   spot-syntcomp-syn  SPEC.tlsf   — preprocessor + ltlsynt, emits a controller
+#   spot-syntcomp-syn  SPEC.tlsf   — solve.sh + ltlsynt, emits a controller
 #   spot-syntcomp-real SPEC.tlsf   — realizability only
 # ltlsynt / ltlfsynt remain available directly for the non-preprocessed configs.
 #
@@ -70,6 +70,8 @@ COPY --from=tlsf-build \
      /src/build-oxidd/tlsf2ltl /src/build-oxidd/tlsf2tlsf \
      /src/build-oxidd/tlsfinfo \
      /usr/bin/
+COPY scripts/solve.sh /usr/bin/tlsf-solve
 COPY docker/spot-syntcomp-syn docker/spot-syntcomp-real /usr/bin/
-RUN chmod +x /usr/bin/spot-syntcomp-syn /usr/bin/spot-syntcomp-real
+RUN chmod +x /usr/bin/tlsf-solve /usr/bin/spot-syntcomp-syn \
+      /usr/bin/spot-syntcomp-real
 CMD ["/bin/bash"]

@@ -11,6 +11,7 @@
 #include "tlsf/print_ltlxba.h"
 #include "tlsf/residual.h"
 
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,8 @@ static void usage(const char *prog) {
       "  --split                      decompose constraints first\n"
       "  --single                     emit the whole residual as one formula\n"
       "  --output-dir DIR             write one residual.<k>.ltl per cluster\n"
+      "  --lowercase                  lowercase emitted formulas and "
+      "interfaces\n"
       "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
       "  --overwrite-semantics VALUE  replace SEMANTICS\n"
       "  --overwrite-target VALUE     replace TARGET\n"
@@ -59,8 +62,27 @@ static bool parse_override(const char *s, ParamOverride *out) {
   return true;
 }
 
+static void residual_print_signals_case(FILE *out, ConstraintCover *cov,
+                                        const bool *seen, uint8_t flag,
+                                        bool lower) {
+  bool first = true;
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !residual_signal_matches(cov, a, flag))
+      continue;
+    fputs(first ? "" : ",", out);
+    const char *name = ap_table_name(&cov->aps, a);
+    if (lower) {
+      for (const char *p = name; *p; p++)
+        fputc(tolower((unsigned char)*p), out);
+    } else {
+      fputs(name, out);
+    }
+    first = false;
+  }
+}
+
 int main(int argc, char *argv[]) {
-  bool split = false, single = false;
+  bool split = false, single = false, lowercase = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;
@@ -79,6 +101,8 @@ int main(int argc, char *argv[]) {
       split = true;
     } else if (strcmp(a, "--single") == 0) {
       single = true;
+    } else if (strcmp(a, "--lowercase") == 0) {
+      lowercase = true;
     } else if (strcmp(a, "--output-dir") == 0) {
       out_dir = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -186,12 +210,12 @@ int main(int argc, char *argv[]) {
       rc = 1;
     } else {
       fprintf(out, "c outs=");
-      residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+      residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
       fprintf(out, "\nc ins=");
-      residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
+      residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
       fprintf(out, "\n");
       print_ltl(out, root, fmt, /*full_parens=*/false, finite,
-                /*lower_atoms=*/false);
+                /*lower_atoms=*/lowercase);
     }
   } else {
     // Cluster residual constraints by shared output (output-disjoint
@@ -219,24 +243,24 @@ int main(int argc, char *argv[]) {
           break;
         }
         fprintf(cf, "c outs=");
-        residual_print_signals(cf, cov, seen, AP_FLAG_OUTPUT);
+        residual_print_signals_case(cf, cov, seen, AP_FLAG_OUTPUT, lowercase);
         fprintf(cf, "\nc ins=");
-        residual_print_signals(cf, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals_case(cf, cov, seen, AP_FLAG_INPUT, lowercase);
         fprintf(cf, "\n");
-        print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/false);
+        print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/lowercase);
         fclose(cf);
         fprintf(out, "c cluster %u file=residual.%u.ltl outs=", k, k);
-        residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+        residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
         fprintf(out, " ins=");
-        residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
         fprintf(out, "\n");
       } else {
         fprintf(out, "c cluster %u outs=", k);
-        residual_print_signals(out, cov, seen, AP_FLAG_OUTPUT);
+        residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
         fprintf(out, " ins=");
-        residual_print_signals(out, cov, seen, AP_FLAG_INPUT);
+        residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
         fprintf(out, "\n");
-        print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/false);
+        print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/lowercase);
       }
     }
     free(key);

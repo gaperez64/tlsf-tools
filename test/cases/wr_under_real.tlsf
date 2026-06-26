@@ -1,0 +1,12 @@
+INFO {
+  TITLE: "wr_under_real"
+  DESCRIPTION: "bare weak-until residual whose strengthened OxiDD game is realizable"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  OUTPUTS { p; q; }
+  GUARANTEE {
+    p W q;
+  }
+}

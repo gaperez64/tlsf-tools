@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Benchmark tlsf-tools (templates + OxiDD) as a FAST preprocessor for
+"""Benchmark tlsf-tools as a decomposition preprocessor for
 synthesis, against standalone ltlsynt.
 
 Two metrics, both rerunnable over the corpus and summarised into BENCHGRAPH.md:
 
-  COMPLEXITY (whole corpus, ltlsynt disabled): how many specs are fully
-  self-contained via templates+OxiDD, and what shape are the residual
-  clusters that still need a liveness backend.
+  COMPLEXITY (whole corpus): how many residual clusters are classified for
+  in-process routes, and what shape are the residual clusters that still need
+  an external backend.
 
-  SPEED (focus: specs where OxiDD handles >=1 cluster): wall time of the full
-  tlsf-tools pipeline (templates + OxiDD + ltlsynt on residuals) vs a standalone
-  `ltlsynt` baseline for the whole spec.  Solve STATUS is tracked too -- a fast
-  failure is not a speedup, so speedups are only computed where both engines
-  actually produced a controller.
+  SPEED: wall time of the wrapper pipeline (decompose + external ltlsynt per
+  cluster + merge) vs a standalone `ltlsynt` baseline for the whole spec.  Solve
+  STATUS is tracked too -- a fast failure is not a speedup, so speedups are only
+  computed where both engines actually produced a controller.
 
 Usage:
   scripts/benchgraph.py --corpus DIR --tlsfcompose PATH \
       --ltlsynt PATH [--out BENCHGRAPH.md] [--data data.tsv] \
-      [--timeout 15] [--mem-gb 8] [--speed all|oxidd]
+      [--timeout 15] [--mem-gb 8] [--speed all|routed]
 """
 import argparse
 import csv
@@ -129,6 +128,10 @@ def compose_cmd(args, *parts):
     return [args.tlsfcompose, *parts, *args.compose_extra_arg]
 
 
+def solve_script_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "solve.sh")
+
+
 def classify_residual(reasons):
     """Pick the hardest residual class from a spec's cluster failure reasons."""
     joined = " ".join(reasons)
@@ -177,46 +180,6 @@ def parse_failure_reasons(err):
     return reasons, unreal
 
 
-def probe_debug(spec, args):
-    """Compatibility path for older tlsfcompose binaries without --route-stats."""
-    env = dict(os.environ, TLSFCOMPOSE_DEBUG="1")
-    cmd = compose_cmd(args, "--split", "--aiger", "--ltlsynt", "/bin/false")
-    cmd.append(spec)
-    rc, err, _, _ = run_timed(cmd, args.timeout, env)
-    routes, reasons, unreal = [], [], 0
-    for line in err.splitlines():
-        if "routed to " in line:
-            backend = line.split("routed to ", 1)[1]
-            nodes = 0
-            if "nodes=" in line:  # per-cluster residual formula size
-                tok = line.split("nodes=", 1)[1].split(" ", 1)[0]
-                nodes = int(tok) if tok.isdigit() else 0
-            routes.append((nodes, backend))
-        elif "synthesis backend failed for cluster" in line and "(" in line:
-            inner = line[line.index("(") + 1:line.rindex(")")]
-            reasons.append(inner.split(": ", 1)[1] if ": " in inner else inner)
-        elif "is UNREALIZABLE" in line:
-            unreal += 1
-    # A cluster routed to a backend starting with "OxiDD" was peeled in-process;
-    # anything else is forwarded to ltlsynt (liveness/GR(1)/OxiDD-miss fallback).
-    oxidd = [n for n, b in routes if b.startswith("OxiDD")]
-    ltl = [n for n, b in routes if not b.startswith("OxiDD")]
-    return {
-        "self_contained": rc == 0,
-        "abs_clusters": len(oxidd),
-        "residual_class": classify_residual(reasons),
-        "probe_unreal": unreal,
-        "full_nodes": sum(oxidd) + sum(ltl),   # all synthesis clusters
-        "residual_nodes": sum(ltl),            # forwarded to ltlsynt
-        "full_bytes": 0,
-        "residual_bytes": 0,
-        "max_outputs_any_cluster": 0,
-        "max_outputs_fallback": 0,
-        "n_oxidd": len(oxidd),
-        "n_ltlsynt": len(ltl),
-    }
-
-
 def route_row_int(row, *keys, default=0):
     for key in keys:
         val = row.get(key, "")
@@ -244,15 +207,11 @@ def parse_route_stats(text):
 
 
 def probe(spec, args):
-    """ltlsynt-disabled run: self-contained? which OxiDD backends? residual shape."""
+    """Route diagnostics: which clusters match in-process route recognizers."""
     stats_cmd = compose_cmd(args, "--split", "--route-stats")
     stats_cmd.append(spec)
     s_rc, s_out, s_err, _, s_to = run_capture(stats_cmd, args.timeout)
     if s_to or s_rc != 0:
-        # Keep old binaries usable, but new benchmark runs should take this path
-        # only when --route-stats is unavailable or broken.
-        if "unknown option" in s_err or "unrecognized option" in s_err:
-            return probe_debug(spec, args)
         return {
             "self_contained": False,
             "abs_clusters": 0,
@@ -273,13 +232,6 @@ def probe(spec, args):
     oxidd_rows = [r for r in rows if route_row_uses_oxidd(r)]
     reasons = [r.get("reason", "") for r in fallback_rows if r.get("reason", "")]
 
-    cmd = compose_cmd(args, "--split", "--aiger", "--ltlsynt", "/bin/false")
-    cmd.append(spec)
-    rc, err, _, _ = run_timed(cmd, args.timeout, dict(os.environ))
-    failed_reasons, unreal = parse_failure_reasons(err)
-    if not reasons:
-        reasons = failed_reasons
-
     full_nodes = sum(route_row_int(r, "formula_nodes", "nodes") for r in rows)
     residual_nodes = sum(
         route_row_int(r, "formula_nodes", "nodes") for r in fallback_rows
@@ -292,10 +244,10 @@ def probe(spec, args):
     ]
 
     return {
-        "self_contained": rc == 0,
+        "self_contained": len(fallback_rows) == 0,
         "abs_clusters": len(oxidd_rows),
         "residual_class": classify_structured_residual(fallback_rows, reasons),
-        "probe_unreal": unreal,
+        "probe_unreal": 0,
         "full_nodes": full_nodes,
         "residual_nodes": residual_nodes,
         "full_bytes": full_bytes,
@@ -309,9 +261,15 @@ def probe(spec, args):
 
 def ours_status(spec, args):
     env = dict(os.environ)
-    cmd = compose_cmd(args, "--split", "--aiger", "--ltlsynt", args.ltlsynt)
-    cmd.append(spec)
-    rc, err, secs, to = run_timed(cmd, args.timeout, env)
+    with tempfile.TemporaryDirectory() as td:
+        cmd = [
+            solve_script_path(),
+            "--tlsfcompose", args.tlsfcompose,
+            "--solver", args.ltlsynt,
+            "--output", os.path.join(td, "strategy.aag"),
+            spec,
+        ]
+        rc, err, secs, to = run_timed(cmd, args.timeout, env)
     if to:
         st = "TIMEOUT"
     elif rc == 0:
@@ -489,7 +447,7 @@ def main():
     ap.add_argument("--baseline-mode", choices=["auto", "tlsf-tools"],
                     default="auto",
                     help="baseline translation path for standalone ltlsynt "
-                         "(tlsf-tools only; the legacy syfco path was removed)")
+                         "(tlsf-tools only)")
     ap.add_argument("--out", default="BENCHGRAPH.md")
     ap.add_argument("--data", default=None, help="per-spec TSV (default: alongside --out)")
     ap.add_argument("--timeout", type=int, default=15)
@@ -499,8 +457,8 @@ def main():
     ap.add_argument("--allow-uncapped", action="store_true",
                     help="run without the systemd memory cgroup when unavailable; "
                          "intended only for small smoke runs")
-    ap.add_argument("--speed", choices=["oxidd", "all"], default="oxidd",
-                    help="which specs to time (default: only OxiDD-contributing)")
+    ap.add_argument("--speed", choices=["routed", "all"], default="routed",
+                    help="which specs to time (default: only route-contributing)")
     ap.add_argument("--compose-extra-arg", action="append", default=[],
                     help="extra argument passed to every tlsfcompose invocation; repeatable")
     ap.add_argument("--limit", type=int, default=0, help="cap #specs (0 = all; for smoke tests)")
@@ -703,17 +661,17 @@ def write_report(args, rows, total, data_path):
     L.append(SENTINEL_START + "\n")
     L.append("## ltlsynt vs preprocessor + ltlsynt (`scripts/benchgraph.py`)\n")
     L.append("Head-to-head synthesis: standalone **ltlsynt** vs the **preprocessor** "
-             "(templates + OxiDD + `--split` decomposition) that carves off safety/GR(1) "
-             "in-process and forwards the residual to ltlsynt. Each (engine, spec) pair "
+             "(`--split` decomposition + external cluster solving + merge) that "
+             "forwards exact residual clusters to ltlsynt. Each (engine, spec) pair "
              "gets the same timeout. Regenerate with `scripts/benchgraph.py` "
              "(or `--from-data benchgraph.tsv` to re-render).\n")
     L.append(f"\n### Run: {now} · commit `{commit}`\n")
     L.append(f"- Corpus `{args.corpus}` ({total} specs); timeout **{args.timeout}s**, "
              f"{MEM_GB} GB/run ({cap_how}), sequential.\n"
              f"- ltlsynt: {baseline_description(args)}\n"
-             f"- preprocessor + ltlsynt: `tlsfcompose --split --aiger --ltlsynt …`"
+             f"- preprocessor + ltlsynt: `scripts/solve.sh --solver …`"
              + (f" {' '.join(args.compose_extra_arg)}" if args.compose_extra_arg else "")
-             + f"\n- Self-contained without ltlsynt (templates+OxiDD): "
+             + f"\n- Specs with no fallback-classified residual clusters: "
              f"**{len(sc)}/{total} = {100*len(sc)/total:.1f}%**.\n")
 
     L.append("\n### Solved within timeout\n")

@@ -3,4 +3,4 @@ c cluster 0 outs=x ins=a
 G (x <-> X a)
 c cluster 1 outs=y ins=b
 G (y <-> X b)
-c realizable iff every cluster is realizable (controllers are exact)
+c realizable iff every cluster is realizable (controllers are trusted)

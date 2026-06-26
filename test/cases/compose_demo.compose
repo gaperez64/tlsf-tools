@@ -2,4 +2,4 @@ c compose: controllers=1 clusters=1
 ctl o := a && b
 c cluster 0 outs=g ins=r
 G (r -> F g)
-c realizable iff every cluster is realizable (controllers are exact)
+c realizable iff every cluster is realizable (controllers are trusted)
