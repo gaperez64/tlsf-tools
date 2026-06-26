@@ -147,8 +147,7 @@ static void fill_verdict(TlsfDecomposeResult *r, ConstraintCover *cov) {
 
 TlsfDecomposeResult *
 tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
-                                const Csnf *csnf,
-                                const CsnfComposition *comp,
+                                const Csnf *csnf, const CsnfComposition *comp,
                                 const ResidualPlan *rplan,
                                 const TlsfDecomposeOptions *opts) {
   (void)csnf;
@@ -190,9 +189,9 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
     goto fail;
   for (uint32_t k = 0; k < rplan->nclusters; k++) {
     bool output_free = rplan->keys[k] == cov->aps.count;
-    Node *root = residual_plan_build_cluster(
-        spec, cov, rplan, rplan->keys[k], /*all=*/false,
-        /*prune=*/!output_free, seen);
+    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
+                                             /*all=*/false,
+                                             /*prune=*/!output_free, seen);
     if (!root) {
       free(seen);
       goto fail;
@@ -244,8 +243,8 @@ TlsfDecomposeResult *tlsf_decompose_file(FILE *fp,
   return r;
 }
 
-TlsfDecomposeResult *
-tlsf_decompose_string(const char *spec_text, const TlsfDecomposeOptions *opts) {
+TlsfDecomposeResult *tlsf_decompose_string(const char *spec_text,
+                                           const TlsfDecomposeOptions *opts) {
   if (!spec_text)
     return nullptr;
   FILE *fp = fmemopen((void *)spec_text, strlen(spec_text), "r");

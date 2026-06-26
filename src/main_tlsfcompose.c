@@ -510,8 +510,8 @@ static bool emit_certified_aiger(FILE *out, TlsfSpec *spec,
       ok = false;
       break;
     }
-    aig_set_output(
-        g, ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output), lit);
+    aig_set_output(g, ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output),
+                   lit);
   }
   if (ok)
     ok = csnf_emit_local_aiger(csnf, comp, g);
@@ -527,11 +527,13 @@ static bool emit_certified_aiger(FILE *out, TlsfSpec *spec,
   return ok;
 }
 
-static bool emit_oxidd_cluster_aiger(
-    const char *out_dir, uint32_t k, TlsfSpec *spec, ConstraintCover *cov,
-    const ResidualPlan *rplan, bool finite, uint32_t bound_k,
-    PreprocessPolicy policy, const RoutePolicyStats *policy_stats, bool *seen,
-    bool lowercase, bool *solved, const char **backend_label) {
+static bool emit_oxidd_cluster_aiger(const char *out_dir, uint32_t k,
+                                     TlsfSpec *spec, ConstraintCover *cov,
+                                     const ResidualPlan *rplan, bool finite,
+                                     uint32_t bound_k, PreprocessPolicy policy,
+                                     const RoutePolicyStats *policy_stats,
+                                     bool *seen, bool lowercase, bool *solved,
+                                     const char **backend_label) {
   *solved = false;
   if (backend_label)
     *backend_label = nullptr;
@@ -539,8 +541,7 @@ static bool emit_oxidd_cluster_aiger(
     return true;
 
   Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                           /*all=*/false, /*prune=*/true,
-                                           seen);
+                                           /*all=*/false, /*prune=*/true, seen);
   if (!root) {
     fprintf(stderr, "tlsfcompose: out of memory\n");
     return false;
@@ -601,7 +602,8 @@ int main(int argc, char *argv[]) {
   PreprocessPolicy preprocess_policy = PREPROCESS_PROFITABLE;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
-  char **merge_files = calloc((size_t)argc ? (size_t)argc : 1, sizeof *merge_files);
+  char **merge_files =
+      calloc((size_t)argc ? (size_t)argc : 1, sizeof *merge_files);
   uint32_t n_merge_files = 0;
   if (!merge_files) {
     fprintf(stderr, "tlsfcompose: out of memory\n");
@@ -868,9 +870,8 @@ int main(int argc, char *argv[]) {
   RoutePolicyStats policy_stats = {0};
   const RoutePolicyStats *policy_stats_ptr = nullptr;
   bool need_policy_stats =
-      route_stats ||
-      (out_dir && (preprocess_policy == PREPROCESS_PROFITABLE ||
-                   preprocess_policy == PREPROCESS_DIAGNOSE));
+      route_stats || (out_dir && (preprocess_policy == PREPROCESS_PROFITABLE ||
+                                  preprocess_policy == PREPROCESS_DIAGNOSE));
   if (need_policy_stats) {
     if (!compute_route_policy_stats(spec, cov, rplan, finite, bound_k, seen,
                                     &policy_stats))

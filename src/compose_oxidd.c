@@ -23,8 +23,8 @@ static bool strategy_has_outputs(Aig *g, ConstraintCover *cov,
   return true;
 }
 
-static Aig *solve_safety_game(ConstraintCover *cov, const bool *seen,
-                              Aig *game, int *unreal) {
+static Aig *solve_safety_game(ConstraintCover *cov, const bool *seen, Aig *game,
+                              int *unreal) {
   if (!game)
     return nullptr;
   Aig *strat = solve_safety_oxidd(game, unreal);
@@ -69,8 +69,7 @@ static bool compose_route_unreal_trusted(const ComposeRoute *route) {
 
 Aig *compose_route_try_oxidd(const ComposeRoute *route, ConstraintCover *cov,
                              const bool *seen, int *unreal,
-                             bool *trusted_unreal,
-                             const char **backend_label) {
+                             bool *trusted_unreal, const char **backend_label) {
   if (unreal)
     *unreal = 0;
   if (trusted_unreal)
