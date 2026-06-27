@@ -78,7 +78,7 @@ jobs:
           for tool in $tools; do
             cp "build-release/${tool}" "$stage/"
           done
-          cp README.md LICENSE THIRD_PARTY_NOTICES.md "$stage/"
+          cp README.md LICENSE "$stage/"
           {
             printf 'version=%s\n' "$version"
             printf 'commit=%s\n' "$GITHUB_SHA"
@@ -90,7 +90,7 @@ jobs:
 
           (
             cd "$stage"
-            for file in $tools README.md LICENSE THIRD_PARTY_NOTICES.md BUILD_INFO.txt; do
+            for file in $tools README.md LICENSE BUILD_INFO.txt; do
               if command -v sha256sum >/dev/null 2>&1; then
                 sha256sum "$file"
               else

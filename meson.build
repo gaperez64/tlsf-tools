@@ -8,6 +8,7 @@ project(
     'warning_level=3',
     'werror=false',
     'b_ndebug=if-release',
+    'cpp_std=c++17',
   ],
 )
 
