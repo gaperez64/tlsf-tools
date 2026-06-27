@@ -40,3 +40,32 @@ Head-to-head synthesis: standalone **acacia-bonsai** vs the **preprocessor** (`-
 
 ![Survival: acacia-bonsai vs preprocessor + acacia-bonsai](docs/benchgraph/survival.png)
 <!-- BENCHGRAPH:PREPROCESSOR END -->
+
+## Diagnosis
+
+The current preprocessor is slower than standalone acacia-bonsai overall.  The
+main cause is not a verdict-soundness problem: among the 1262 specs where both
+engines produced a definitive verdict, there were **0 verdict disagreements**.
+
+The dominant performance issue is that the residual sent to acacia is usually
+not meaningfully smaller than the original problem.  In this run, **2062/2545**
+specs left exactly one external residual cluster, and external residuals had a
+median residual/full node ratio of **1.0**.  That means the preprocessor often
+pays decomposition, routing, and merge overhead and then still asks acacia to
+solve essentially the same formula.
+
+Coverage is the second issue.  Only **454/2545** specs finished without an
+external residual solver, and most unsupported residuals are still liveness
+heavy, especially `liveness: nested_unsupported`.  More useful template/OxiDD
+coverage would matter most when it shrinks or eliminates these residuals, not
+when it only recognizes easy fragments that acacia already solves quickly.
+
+The local routes also need to be cost-aware.  Some fully-local OxiDD cases are
+much slower than standalone acacia on the original spec; for example large
+`shift_pb_*` instances create many local OxiDD clusters and lose by orders of
+magnitude.  Fully-local solving is therefore not automatically a speed win.
+
+The practical conclusion is: prioritize residual reduction and valuable
+fragment coverage first, add routing cutoffs for expensive low-value local
+plans second, and treat wrapper micro-optimization as secondary until the
+external residual is usually smaller than the original problem.

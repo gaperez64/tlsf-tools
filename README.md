@@ -6,16 +6,17 @@ Format) specifications, sharing a common C library.
 
 The normal release build uses OxiDD (<https://github.com/OxiDD/oxidd>) as the
 in-process BDD backend for safety and GR(1) games. 
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) is mentioned below, but it is
-not a library dependency of this project; it is an optional executable used by
-`scripts/solve.sh` and by the Docker wrapper image.
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
+mentioned below, but neither is a library dependency of this project; they are
+optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
 The tools fully expand parameterised TLSF (parameters, definitions including
 recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
 `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
 TLSF spec or equivalent LTL. The synthesis layer adds structure-aware
 decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
-routes, and an external residual-solving wrapper for `ltlsynt`.
+routes, and an external residual-solving wrapper for `ltlsynt` or
+acacia-bonsai.
 
 ## Status
 
@@ -121,7 +122,9 @@ tlsfresidual --split --lowercase spec.tlsf                # lowercase formulas +
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers.aag + clusters + exact OxiDD solves
 tlsfcompose --split --realizability spec.tlsf             # fast REAL/UNREAL/UNKNOWN oracle
 tlsfcompose --merge out/controllers.aag out/cluster.*.aag # recombine external strategies
-scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf  # external-solver flow
+scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf  # ltlsynt backend
+scripts/solve.sh --backend acacia --solver acacia-bonsai \
+        --output ctrl.aag spec.tlsf                            # acacia backend
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
 
@@ -193,9 +196,9 @@ scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
 
 For the `ltlsynt` backend the script passes `--lowercase` so the emitted
 cluster formulas, `c ins=`, `c outs=`, and AIGER symbols agree. The `acacia`
-backend block is explicit in the script and is the intended swap-in point for
-an acacia-bonsai invocation. Pre-solved and external strategies are recombined
-with `tlsfcompose --merge`.
+backend uses the same lowercase convention and calls acacia-bonsai with
+`-F/-i/-o/-s`. Pre-solved and external strategies are recombined with
+`tlsfcompose --merge`.
 
 ### 2 · One merged controller circuit (AIGER)
 
@@ -305,8 +308,10 @@ and REAL is never claimed. The REAL pre-check is **TRUST_UNDER**: it proves a
 strengthening, so REAL is trusted and UNREAL is never claimed. If neither fires,
 the command exits `2` with `UNKNOWN`.
 
-Corpus shape distributions and the templates+OxiDD solve-rate / speed numbers
-live in [`BENCHGRAPH.md`](BENCHGRAPH.md); exact recognizers plus conservative
+Route and shape diagnostics come from `tlsfbenchgraph`,
+`scripts/collect_route_stats.py`, and the per-run TSVs.  The maintained
+head-to-head wrapper numbers and benchmark diagnosis live in
+[`BENCHGRAPH.md`](BENCHGRAPH.md). Exact recognizers plus conservative
 certification are the proof — there is no approximate matching in the synthesis
 path.
 
