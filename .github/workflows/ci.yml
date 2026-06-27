@@ -25,10 +25,9 @@ jobs:
           clang-format --dry-run --Werror src/*.c include/tlsf/*.h
 
   # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
-  # once and share it with the OxiDD-enabled jobs as an artifact, so cargo runs
-  # a single time per CI run. The frontend-only jobs (build-test, build-clang,
-  # coverage, perf-regression) pass -Doxidd=disabled deliberately to keep
-  # proving the reduced no-Rust developer build path stays alive.
+  # once and share it with the explicit OxiDD research job as an artifact, so
+  # cargo runs a single time per CI run. The stable jobs stay on the default
+  # no-Rust production path.
   oxidd:
     runs-on: ubuntu-24.04
     steps:
@@ -142,7 +141,7 @@ jobs:
 
   # OxiDD-enabled build: links the shared FFI artifact, compiles the in-process
   # safety + GR(1) solvers (src/safety_oxidd.c, src/gr1_oxidd.c, src/aiger.c via
-  # tlsfcompose/tlsfsolve) and runs the full suite. The Spot-verified
+  # tlsfcompose/tlsfsolve) and runs the full research suite. The Spot-verified
   # verify_aiger_oxidd* tests auto-gate on Spot (absent here) and run locally;
   # bounded_synthesis_harness still exercises a real in-process solve.
   build-oxidd:
@@ -166,7 +165,7 @@ jobs:
         run: |
           # GitHub x86 runners are Haswell+ (AVX2-safe); exercises the
           # compile-time SIMD path in include/tlsf/simd.h.
-          meson setup build-oxidd -Doxidd=enabled -Dcpu=avx2
+          meson setup build-oxidd -Doxidd=enabled -Dresearch_tools=true -Dcpu=avx2
           ninja -C build-oxidd
           meson test -C build-oxidd --print-errorlogs
 

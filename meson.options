@@ -11,10 +11,10 @@ option(
 option(
   'oxidd',
   type: 'feature',
-  value: 'enabled',
-  description: 'In-process OxiDD BDD safety/GR(1) solver for tlsfcompose ' +
-               '(normal release builds require external/oxidd artifacts; ' +
-               'use -Doxidd=disabled for a reduced developer build)',
+  value: 'disabled',
+  description: 'Build OxiDD-backed research solver tools; use ' +
+               '-Doxidd=enabled with -Dresearch_tools=true after building ' +
+               'external/oxidd artifacts',
 )
 
 option(
@@ -32,5 +32,5 @@ option(
   'research_tools',
   type: 'boolean',
   value: false,
-  description: 'Build bench/template research CLIs',
+  description: 'Build decomposition, solver, bench, and template research CLIs',
 )

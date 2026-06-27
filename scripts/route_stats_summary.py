@@ -33,7 +33,7 @@ def repo_root():
 
 
 def default_compose():
-    candidate = repo_root() / "build" / "tlsfcompose"
+    candidate = repo_root() / "build-research" / "tlsfcompose"
     if candidate.exists():
         return str(candidate)
     return "tlsfcompose"
