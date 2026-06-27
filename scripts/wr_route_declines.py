@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize W/R-safety residuals that still fall back to ltlsynt."""
+"""Summarize W/R-safety residuals that still need an external solver."""
 
 import argparse
 import collections
@@ -7,7 +7,7 @@ import csv
 import sys
 
 
-def is_wr_fallback(row):
+def is_wr_external(row):
     return (
         row.get("route") == "ltlsynt"
         and row.get("has_liveness") == "0"
@@ -17,7 +17,7 @@ def is_wr_fallback(row):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Report W/R-safety fallback reasons from route-stats TSV."
+        description="Report external W/R-safety residual reasons from route-stats TSV."
     )
     parser.add_argument("route_stats", help="TSV from collect_route_stats.py")
     parser.add_argument("--examples", type=int, default=5,
@@ -30,11 +30,11 @@ def main(argv):
     by_reason = collections.defaultdict(list)
     with open(args.route_stats, encoding="utf-8", newline="") as fp:
         for row in csv.DictReader(fp, delimiter="\t"):
-            if is_wr_fallback(row):
+            if is_wr_external(row):
                 by_reason[row.get("reason", "")].append(row)
 
     total = sum(len(rows) for rows in by_reason.values())
-    print(f"wr_fallback_rows\t{total}")
+    print(f"wr_external_rows\t{total}")
     for reason, rows in sorted(by_reason.items(), key=lambda item: -len(item[1])):
         specs = {row.get("spec") or row.get("file") for row in rows}
         nodes = sum(int(row.get("formula_nodes") or 0) for row in rows)

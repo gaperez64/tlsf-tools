@@ -13,18 +13,18 @@ from pathlib import Path
 FIELDS = [
     "spec",
     "n_clusters",
-    "n_oxidd_exact_clusters",
-    "n_fallback_clusters",
+    "n_oxidd_clusters",
+    "n_external_clusters",
     "total_nodes",
     "oxidd_nodes",
-    "fallback_nodes",
+    "external_nodes",
     "total_bytes",
     "oxidd_bytes",
-    "fallback_bytes",
+    "external_bytes",
     "max_outputs_any_cluster",
-    "max_outputs_fallback",
-    "self_contained_candidate",
-    "dominant_fallback_reason",
+    "max_outputs_external",
+    "preprocessor_only_candidate",
+    "dominant_external_reason",
 ]
 
 
@@ -83,18 +83,6 @@ def uses_oxidd(row):
     return row.get("backend", "").startswith("OxiDD")
 
 
-def exact(row):
-    return row.get("exact") == "1"
-
-
-def selected_oxidd(row, include_experimental):
-    return uses_oxidd(row) and (exact(row) or include_experimental)
-
-
-def fallback(row, include_experimental):
-    return not selected_oxidd(row, include_experimental)
-
-
 def parse_rows(text):
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:
@@ -121,31 +109,30 @@ def run_one(args, path):
         return exc
 
 
-def summarize(path, rows, include_experimental):
-    oxidd = [r for r in rows if selected_oxidd(r, include_experimental)]
-    exact_oxidd = [r for r in rows if uses_oxidd(r) and exact(r)]
-    fallbacks = [r for r in rows if fallback(r, include_experimental)]
+def summarize(path, rows):
+    oxidd = [r for r in rows if uses_oxidd(r)]
+    external = [r for r in rows if not uses_oxidd(r)]
     outputs = [to_int(r, "n_outputs", "n_outs") for r in rows]
-    fallback_outputs = [to_int(r, "n_outputs", "n_outs") for r in fallbacks]
-    reasons = Counter(r.get("reason", "") or "-" for r in fallbacks)
+    external_outputs = [to_int(r, "n_outputs", "n_outs") for r in external]
+    reasons = Counter(r.get("reason", "") or "-" for r in external)
     dominant_reason = "-"
     if reasons:
         dominant_reason = sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
     return {
         "spec": path,
         "n_clusters": len(rows),
-        "n_oxidd_exact_clusters": len(exact_oxidd),
-        "n_fallback_clusters": len(fallbacks),
+        "n_oxidd_clusters": len(oxidd),
+        "n_external_clusters": len(external),
         "total_nodes": sum(to_int(r, "formula_nodes", "nodes") for r in rows),
         "oxidd_nodes": sum(to_int(r, "formula_nodes", "nodes") for r in oxidd),
-        "fallback_nodes": sum(to_int(r, "formula_nodes", "nodes") for r in fallbacks),
+        "external_nodes": sum(to_int(r, "formula_nodes", "nodes") for r in external),
         "total_bytes": sum(to_int(r, "formula_bytes") for r in rows),
         "oxidd_bytes": sum(to_int(r, "formula_bytes") for r in oxidd),
-        "fallback_bytes": sum(to_int(r, "formula_bytes") for r in fallbacks),
+        "external_bytes": sum(to_int(r, "formula_bytes") for r in external),
         "max_outputs_any_cluster": max(outputs) if outputs else 0,
-        "max_outputs_fallback": max(fallback_outputs) if fallback_outputs else 0,
-        "self_contained_candidate": 1 if not fallbacks else 0,
-        "dominant_fallback_reason": dominant_reason,
+        "max_outputs_external": max(external_outputs) if external_outputs else 0,
+        "preprocessor_only_candidate": 1 if not external else 0,
+        "dominant_external_reason": dominant_reason,
     }
 
 
@@ -156,8 +143,6 @@ def parse_args(argv):
     parser.add_argument("paths", nargs="+", help="TLSF files or directories")
     parser.add_argument("--compose", default=default_compose(),
                         help="path to tlsfcompose")
-    parser.add_argument("--include-experimental", action="store_true",
-                        help="count experimental OxiDD routes as self-contained candidates")
     parser.add_argument("--experimental-bounded", type=int,
                         help="pass --experimental-bounded N")
     parser.add_argument("--compose-extra-arg", action="append", default=[],
@@ -194,8 +179,7 @@ def main(argv):
             msg = err[0] if err else "failed"
             print(f"route_stats_summary: {path}: {msg}", file=sys.stderr)
             continue
-        writer.writerow(summarize(path, parse_rows(proc.stdout),
-                                  args.include_experimental))
+        writer.writerow(summarize(path, parse_rows(proc.stdout)))
     return 1 if failed else 0
 
 

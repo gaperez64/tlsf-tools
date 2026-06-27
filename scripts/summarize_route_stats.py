@@ -13,7 +13,7 @@ def to_int(row, key, default=0):
     return int(val)
 
 
-def is_fallback(row):
+def is_external_residual(row):
     uses_oxidd = row.get("uses_oxidd")
     if uses_oxidd in ("0", "1"):
         return uses_oxidd == "0"
@@ -54,27 +54,27 @@ def main(argv):
         specs = 1
 
     routes = Counter(row.get("route", "") or "-" for row in rows)
-    fallback = [row for row in rows if is_fallback(row)]
-    fallback_outs = [
-        to_int(row, "n_outputs", to_int(row, "n_outs")) for row in fallback
+    external = [row for row in rows if is_external_residual(row)]
+    external_outs = [
+        to_int(row, "n_outputs", to_int(row, "n_outs")) for row in external
     ]
-    fallback_nodes = sum(
-        to_int(row, "formula_nodes", to_int(row, "nodes")) for row in fallback
+    external_nodes = sum(
+        to_int(row, "formula_nodes", to_int(row, "nodes")) for row in external
     )
-    fallback_burden = sum(2 ** min(out, 20) for out in fallback_outs)
-    fallback_mean = (
-        sum(fallback_outs) / len(fallback_outs) if fallback_outs else 0.0
+    external_burden = sum(2 ** min(out, 20) for out in external_outs)
+    external_mean = (
+        sum(external_outs) / len(external_outs) if external_outs else 0.0
     )
 
     print(f"specs={specs}")
     print(f"clusters={len(rows)}")
     for route, count in sorted(routes.items()):
         print(f"route.{route}={count}")
-    print(f"fallback.clusters={len(fallback)}")
-    print(f"fallback.nodes={fallback_nodes}")
-    print(f"fallback.max_outs={max(fallback_outs) if fallback_outs else 0}")
-    print(f"fallback.mean_outs={fallback_mean:.2f}")
-    print(f"fallback.burden_pow2={fallback_burden}")
+    print(f"external.clusters={len(external)}")
+    print(f"external.nodes={external_nodes}")
+    print(f"external.max_outs={max(external_outs) if external_outs else 0}")
+    print(f"external.mean_outs={external_mean:.2f}")
+    print(f"external.burden_pow2={external_burden}")
     print(f"exact_oxidd.clusters={sum(1 for row in rows if is_exact_oxidd(row))}")
     print(f"experimental.clusters={sum(1 for row in rows if is_experimental(row))}")
     return 0
