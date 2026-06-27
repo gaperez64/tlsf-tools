@@ -244,7 +244,7 @@ tlsftemplates --certify --solve --format csnf spec.tlsf
 ### 5 · Measure route shape and wrapper performance
 
 How much does decomposition change the residual shape, and how does the wrapper
-pipeline compare with `ltlsynt` alone? `scripts/benchgraph.py` writes the
+pipeline compare with `acacia-bonsai` alone? `scripts/benchgraph.py` writes the
 [`BENCHGRAPH.md`](BENCHGRAPH.md) head-to-head section (solved counts, net gain,
 and a survival plot). `scripts/collect_route_stats.py` records route diagnostics
 without running a solver.
@@ -252,7 +252,8 @@ without running a solver.
 ```sh
 # full corpus speed + complexity (rerunnable; --from-data re-renders the report)
 scripts/benchgraph.py --corpus benchmarks/tlsf \
-        --tlsfcompose build-oxidd/tlsfcompose --ltlsynt ltlsynt
+        --tlsfcompose build-oxidd/tlsfcompose \
+        --solver ../acacia-bonsai/build_best_decomp_mona/src/acacia-bonsai
 
 # route-only corpus census; writes rows incrementally and skips slow specs
 scripts/collect_route_stats.py --compose build-oxidd/tlsfcompose \

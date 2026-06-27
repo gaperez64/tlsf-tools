@@ -94,7 +94,7 @@ case "$backend" in
     lowercase=1
     ;;
   acacia)
-    lowercase=0
+    lowercase=1
     ;;
   *)
     echo "solve.sh: unknown backend '$backend' (expected ltlsynt or acacia)" >&2
@@ -134,16 +134,30 @@ for cluster in "$work_dir"/cluster.*.ltl; do
       fi
       ;;
     acacia)
-      cat >&2 <<'EOF'
-solve.sh: acacia backend hook is intentionally explicit.
-Replace this block with the acacia invocation that reads:
-  - formula file: $formula
-  - inputs:       $ins
-  - outputs:      $outs
-and writes the controller AIGER to:
-  - $aag
-EOF
-      exit 2
+      status=0
+      outlog="$work_dir/cluster.$id.acacia.out"
+      errlog="$work_dir/cluster.$id.acacia.err"
+      "$solver" -F "$formula" -i "$ins" -o "$outs" -s "$aag" \
+        >"$outlog" 2>"$errlog" || status=$?
+      case "$status" in
+        0)
+          if [ ! -s "$aag" ]; then
+            echo "solve.sh: acacia produced no controller for cluster $id" >&2
+            cat "$outlog" "$errlog" >&2
+            exit 3
+          fi
+          ;;
+        1)
+          echo "solve.sh: cluster $id is UNREALIZABLE" >&2
+          cat "$outlog" "$errlog" >&2
+          exit 1
+          ;;
+        *)
+          echo "solve.sh: acacia failed for cluster $id (status $status)" >&2
+          cat "$outlog" "$errlog" >&2
+          exit "$status"
+          ;;
+      esac
       ;;
   esac
   cluster_aags+=("$aag")
