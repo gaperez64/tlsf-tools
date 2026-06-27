@@ -115,9 +115,9 @@ if python3.found()
 endif
 
 # ---------------------------------------------------------------------------
-# In-process safety + GR(1) solver: OxiDD (Rust + C FFI), vendored as a
-# submodule and built before OxiDD-enabled Meson configuration. Reduced
-# developer/frontend-only builds can pass -Doxidd=disabled.
+# Optional in-process safety + GR(1) solver backend: OxiDD (Rust + C FFI),
+# vendored as a submodule and built before explicit OxiDD-enabled research
+# configuration. The default production build is dependency-free.
 # ---------------------------------------------------------------------------
 
 oxidd_feature = get_option('oxidd')
@@ -149,8 +149,8 @@ if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
       'OxiDD artifacts are missing. Run:\n' +
       '  git submodule update --init --recursive\n' +
       '  scripts/build_oxidd.sh\n' +
-      '  meson setup build -Doxidd=enabled --buildtype=release\n' +
-      'or configure a frontend-only developer build with -Doxidd=disabled.',
+      '  meson setup build-research -Dresearch_tools=true ' +
+      '-Doxidd=enabled --buildtype=release',
     )
   endif
   # Rust staticlib pulls in the system threading/dl/math runtime.
@@ -347,40 +347,40 @@ if research_tools
     include_directories: inc,
     install: true,
   )
-endif
 
-tlsfresidual_exe = executable(
-  'tlsfresidual',
-  sources: ['src/main_tlsfresidual.c', bison_out[1]],
-  link_with: tlsf_lib,
-  include_directories: inc,
-  install: true,
-)
-
-if have_oxidd
-  tlsfcompose_exe = executable(
-    'tlsfcompose',
-    sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
-              'src/compose_games.c', 'src/compose_oxidd.c',
-              'src/compose_route.c', 'src/safety_oxidd.c',
-              'src/gr1_oxidd.c', 'src/oxidd_common.c', bison_out[1]],
-    c_args: ['-DHAVE_OXIDD'],
-    dependencies: [oxidd_dep],
+  tlsfresidual_exe = executable(
+    'tlsfresidual',
+    sources: ['src/main_tlsfresidual.c', bison_out[1]],
     link_with: tlsf_lib,
     include_directories: inc,
     install: true,
   )
 
-  tlsfsolve_exe = executable(
-    'tlsfsolve',
-    sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c',
-              'src/oxidd_common.c'],
-    c_args: ['-DHAVE_OXIDD'],
-    dependencies: [oxidd_dep],
-    link_with: tlsf_lib,
-    include_directories: inc,
-    install: true,
-  )
+  if have_oxidd
+    tlsfcompose_exe = executable(
+      'tlsfcompose',
+      sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
+                'src/compose_games.c', 'src/compose_oxidd.c',
+                'src/compose_route.c', 'src/safety_oxidd.c',
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', bison_out[1]],
+      c_args: ['-DHAVE_OXIDD'],
+      dependencies: [oxidd_dep],
+      link_with: tlsf_lib,
+      include_directories: inc,
+      install: true,
+    )
+
+    tlsfsolve_exe = executable(
+      'tlsfsolve',
+      sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c',
+                'src/gr1_oxidd.c', 'src/oxidd_common.c'],
+      c_args: ['-DHAVE_OXIDD'],
+      dependencies: [oxidd_dep],
+      link_with: tlsf_lib,
+      include_directories: inc,
+      install: true,
+    )
+  endif
 endif
 
 simd_check_exe = executable(
@@ -605,6 +605,7 @@ foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
            '--check', '--format', 'csnf', files('test/cases/' + name + '.tlsf')])
 endforeach
 endif
+if research_tools
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
                 'server_merge', 'arbiter_nomutex', 'cluster_split',
@@ -749,6 +750,7 @@ if have_oxidd
            '--split', '--realizability',
            files('test/cases/precheck_real_unknown.tlsf')])
 endif
+endif
 if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
 # golden is path-independent).
@@ -776,10 +778,9 @@ if python3.found()
            '--schedules', 'off', 'match-safe:1'])
 endif
 endif
-if python3.found() and spot_python_found
+if research_tools and python3.found() and spot_python_found
   tlsf2ltl_path = join_paths(meson.current_build_dir(), 'tlsf2ltl')
   if have_oxidd
-    tlsfcompose_path = join_paths(meson.current_build_dir(), 'tlsfcompose')
     # tlsfsolve: standalone AIGER game solver.
     test('tlsfsolve_real', check,
       args: [files('test/cases/solve_real.out.aag'),

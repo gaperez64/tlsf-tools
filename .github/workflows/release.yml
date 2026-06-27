@@ -23,8 +23,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          submodules: recursive
 
       - name: Verify runner platform
         run: |
@@ -48,34 +46,21 @@ jobs:
             echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           fi
 
-      - name: Install Rust and cbindgen
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          command -v cbindgen >/dev/null || cargo install cbindgen --locked --force
-
-      - name: Build OxiDD FFI
-        run: scripts/build_oxidd.sh
-
-      - name: Configure and build all tools
+      - name: Configure and build stable tools
         run: |
           meson setup build-release \
-            -Doxidd=enabled \
-            -Dresearch_tools=true \
+            -Doxidd=disabled \
+            -Dresearch_tools=false \
             -Dcpu=${{ matrix.cpu }} \
             --buildtype=release
           ninja -C build-release
 
-      - name: Smoke test release binaries
+      - name: Smoke test stable release binaries
         run: |
           ./build-release/tlsf2ltl --version
           ./build-release/tlsf2tlsf --version
           ./build-release/tlsfinfo --version
           ./build-release/tlsfnorm --version
-          ./build-release/tlsfresidual --version
-          ./build-release/tlsfcompose --version
-          ./build-release/tlsfsolve --help
-          ./build-release/tlsfsolve test/cases/solve_real.aag >/tmp/strategy.aag
 
       - name: Package archive
         run: |
@@ -89,7 +74,7 @@ jobs:
           stage="dist/${archive}"
           mkdir -p "$stage"
 
-          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm tlsfresidual tlsfcompose tlsfsolve tlsftemplates tlsfbenchgraph"
+          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm"
           for tool in $tools; do
             cp "build-release/${tool}" "$stage/"
           done
@@ -98,8 +83,8 @@ jobs:
             printf 'version=%s\n' "$version"
             printf 'commit=%s\n' "$GITHUB_SHA"
             printf 'platform=%s\n' "${{ matrix.platform }}"
-            printf 'oxidd=enabled\n'
-            printf 'research_tools=true\n'
+            printf 'oxidd=disabled\n'
+            printf 'research_tools=false\n'
             printf 'cpu=%s\n' "${{ matrix.cpu }}"
           } > "$stage/BUILD_INFO.txt"
 

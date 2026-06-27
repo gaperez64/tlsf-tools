@@ -4,16 +4,16 @@ Small, fast, Unix-style command-line tools for working with
 [TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
 Format) specifications, sharing a common C library.
 
-The normal release build uses OxiDD (<https://github.com/OxiDD/oxidd>) as the
-in-process BDD backend for safety and GR(1) games. 
+The default production build is OxiDD-free and packages only the stable TLSF
+preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
+research-build dependency for the in-process safety/GR(1) solver tools.
 [ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
-mentioned below, but neither is a library dependency of this project; they are
 optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
 The tools fully expand parameterised TLSF (parameters, definitions including
 recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
 `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
-TLSF spec or equivalent LTL. The synthesis layer adds structure-aware
+TLSF spec or equivalent LTL. The optional research synthesis layer adds structure-aware
 decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
 routes, and an external residual-solving wrapper for `ltlsynt` or
 acacia-bonsai.
@@ -28,19 +28,19 @@ acacia-bonsai.
 | `tlsf2tlsf` | Emit expanded/basic TLSF. |
 | `tlsfinfo` | Inspect metadata, signals, and GR level. |
 | `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
-| `tlsfresidual` | Emit residual clusters after sound decomposition. |
-| `tlsfcompose` | Build a decomposed synthesis plan; merge AIGER strategy files. |
-| `tlsfsolve` | Solve [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER safety/GR(1) games with OxiDD. |
 
 ### Research and diagnostic tools
 
-Built with `-Dresearch_tools=true`; included in release archives for
-reproducibility, but not part of the stable preprocessing API.
+Built with `-Dresearch_tools=true`; not included in stable release archives and
+not part of the stable preprocessing API.
 
 | Tool | Purpose |
 |---|---|
 | `tlsftemplates` | Inspect template certificates and CSNF output. |
 | `tlsfbenchgraph` | Generate corpus-level benchmark/shape reports. |
+| `tlsfresidual` | Emit residual clusters after sound decomposition. |
+| `tlsfcompose` | Build a decomposed synthesis plan; merge AIGER strategy files. |
+| `tlsfsolve` | Solve [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER safety/GR(1) games with OxiDD. |
 
 The preprocessor uses equivalence-preserving normalization followed by exact
 syntactic recognizers and conservative certification. It does not use graph
@@ -57,26 +57,18 @@ ground AST ──► tlsfnorm      (normalized TLSF)
 ## Building
 
 Requires a C23 compiler, [meson](https://mesonbuild.com/),
-[ninja](https://ninja-build.org/), `flex`, `bison`, Rust/cargo, and
-`cbindgen` for release-quality OxiDD-enabled builds.
+[ninja](https://ninja-build.org/), `flex`, and `bison`. OxiDD-enabled research
+builds also require Rust/cargo and `cbindgen`.
 
-Release-quality build:
+Release-quality stable build:
 
 ```sh
-git submodule update --init --recursive
-scripts/build_oxidd.sh
-meson setup build -Doxidd=enabled --buildtype=release
+meson setup build --buildtype=release
 ninja -C build
 ```
 
-Reduced developer/frontend-only build:
-
-```sh
-meson setup build-min -Doxidd=disabled
-ninja -C build-min
-```
-
-Research/diagnostic tools:
+Research/diagnostic tools, including `tlsfresidual`, `tlsfcompose`, and
+`tlsfsolve`:
 
 ```sh
 git submodule update --init --recursive
@@ -107,7 +99,7 @@ tlsfinfo  --input-signals|--output-signals spec.tlsf    # declared (bus notation
 tlsfinfo  --expanded-ins|--expanded-outs   spec.tlsf    # scalar CSV for ltlsynt --ins/--outs
 tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 
-# structure / templates
+# research / diagnostics
 tlsftemplates --certify --solve --format csnf spec.tlsf   # certified controllers
 tlsfbenchgraph --input-dir specs/ --split --summary       # corpus shape census
 
@@ -255,11 +247,11 @@ without running a solver.
 ```sh
 # full corpus speed + complexity (rerunnable; --from-data re-renders the report)
 scripts/benchgraph.py --corpus benchmarks/tlsf \
-        --tlsfcompose build-oxidd/tlsfcompose \
+        --tlsfcompose build-research/tlsfcompose \
         --solver ../acacia-bonsai/build_best_decomp_mona/src/acacia-bonsai
 
 # route-only corpus census; writes rows incrementally and skips slow specs
-scripts/collect_route_stats.py --compose build-oxidd/tlsfcompose \
+scripts/collect_route_stats.py --compose build-research/tlsfcompose \
         --timeout 5 --out route_stats.tsv benchmarks/tlsf
 ```
 
@@ -352,7 +344,7 @@ every result is `ltlfilt --equivalent-to` the input.
 
 ```sh
 meson test -C build                                  # fast golden-output suite
-meson setup build-cov -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
+meson setup build-cov -Dresearch_tools=true -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
 clang-format -i src/*.c include/tlsf/*.h             # style (LLVM, 2-space, 80col)
 clang-tidy -p build src/*.c                          # lint
 bench/bench.sh [--baseline|--check]                  # wall/RSS perf-regression guard
