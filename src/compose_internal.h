@@ -3,12 +3,11 @@
 
 /// compose_internal.h — shared declarations for the tlsfcompose decomposition
 /// diagnostics, split across:
-///   * compose_analysis.c — pure AST/arena cluster analysis (eligibility gates,
+///   * compose_analysis.c - pure AST/arena cluster analysis (eligibility gates,
 ///     x-depth, W/R + GR(1) decomposition, cluster-shape classification);
-///   * compose_games.c     — `Aig` game builders (direct / W/R / strict-safety
-///   /
+///   * compose_games.c - `Aig` game builders (direct, W/R, strict-safety,
 ///     unbounded GR(1)) and structural helpers reused by route stats.
-///   * compose_oxidd.c     — exact OxiDD residual-cluster pre-solving for
+///   * compose_oxidd.c - exact OxiDD residual-cluster pre-solving for
 ///     output-dir plans.
 /// main_tlsfcompose.c keeps CLI parsing and plan emission in `main`.
 ///
@@ -110,6 +109,10 @@ const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
                                                 const bool *seen,
                                                 const Node *sys,
                                                 const Node *env);
+[[nodiscard]] Aig *
+build_aig_tlsf_strict_safety_game(ConstraintCover *cov, const bool *seen,
+                                  const Node *env_init, const Node *env_require,
+                                  const Node *sys_init, const Node *sys_assert);
 [[nodiscard]] Aig *build_aig_gr1_game(ConstraintCover *cov, const bool *seen,
                                       const Gr1Parts *parts);
 bool wr_structural_supported(const Node *n);

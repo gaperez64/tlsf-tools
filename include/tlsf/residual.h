@@ -7,6 +7,7 @@
 /// (`E -> AND_i Gi == AND_i (E -> Gi)`) and assemble each cluster's LTL.
 
 #include "tlsf/cover.h"
+#include "tlsf/section_pattern.h"
 #include "tlsf/templates.h"
 
 #include <stdint.h>
@@ -31,18 +32,25 @@ void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
 /// formula must be advertised to the backend as either input or output.
 bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag);
 
-/// Rebuild `spec`'s section lists from the substituted residual formulas `rf`
-/// (`rf[i] == nullptr` => skip) belonging to cluster `kk` (or all when `all`),
-/// always including the global environment (key == UINT32_MAX), and assemble
-/// the cluster's LTL formula.  Fills `seen` with the APs it mentions.  nullptr
-/// on OOM.  When `prune` is true the global assumption pool is narrowed to each
-/// cluster's cone of influence; pass false to keep *all* assumptions (needed
-/// for the output-free realizability check, whose cone-of-influence seed has no
-/// outputs and would otherwise drop the coupling assumptions).
+/// Build the cluster's monolithic LTL formula from the substituted residual
+/// formulas `rf` (`rf[i] == nullptr` => skip) belonging to cluster `kk` (or all
+/// when `all`).  Fills `seen` with the APs it mentions.  nullptr on OOM.  When
+/// `prune` is true the global assumption pool is narrowed to each cluster's
+/// cone of influence; pass false to keep *all* assumptions (needed for the
+/// output-free realizability check, whose cone-of-influence seed has no outputs
+/// and would otherwise drop the coupling assumptions).
 [[nodiscard]] Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
                                            const Node **rf, const uint32_t *key,
                                            uint32_t kk, bool all, bool prune,
                                            uint32_t n, bool *seen);
+
+/// Build the same cluster as a section-preserving view.  This keeps TLSF roles
+/// intact for internal recognizers; callers can lower the view to LTL with
+/// section_pattern_to_ltl() when a monolithic formula is needed.
+bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
+                                 const Node **rf, const uint32_t *key,
+                                 uint32_t kk, bool all, bool prune, uint32_t n,
+                                 bool *seen, SectionPatternView *view);
 
 /// Cluster `rf[0..n)` by shared output (union-find).  Assumptions are global;
 /// when any assumption mentions an output, every residual guarantee is kept in

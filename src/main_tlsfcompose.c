@@ -27,6 +27,7 @@
 #include "tlsf/recognize.h"
 #include "tlsf/residual.h"
 #include "tlsf/residual_plan.h"
+#include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
 
@@ -266,18 +267,24 @@ static bool compute_route_policy_stats(TlsfSpec *spec, ConstraintCover *cov,
   *stats = (RoutePolicyStats){0};
   for (uint32_t k = 0; k < rplan->nclusters; k++) {
     bool output_free = rplan->keys[k] == cov->aps.count;
-    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                             /*all=*/false,
-                                             /*prune=*/!output_free, seen);
-    if (!root) {
+    SectionPatternView view;
+    if (!residual_plan_build_cluster_view(spec, cov, rplan, rplan->keys[k],
+                                          /*all=*/false,
+                                          /*prune=*/!output_free, seen,
+                                          &view)) {
       fprintf(stderr, "tlsfcompose: out of memory\n");
       return false;
     }
+    Node *root = section_pattern_to_ltl(&view, true, true);
+    if (finite)
+      root = apply_rewrites(spec->arena, root,
+                            RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
     ComposeRoute route;
     if (output_free)
       output_free_route(spec, root, &route);
     else
-      (void)compose_route_select(spec, root, finite, bound_k, &route);
+      (void)compose_route_select_sections(spec, root, &view, finite, bound_k,
+                                          &route);
 
     route_policy_stats_add(stats, &route, ast_node_count(root),
                            count_seen_aps(cov, seen, AP_FLAG_OUTPUT));
@@ -315,18 +322,24 @@ static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
           "uses_oxidd\treason\n");
   for (uint32_t k = 0; k < rplan->nclusters; k++) {
     bool output_free = rplan->keys[k] == cov->aps.count;
-    Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                             /*all=*/false,
-                                             /*prune=*/!output_free, seen);
-    if (!root) {
+    SectionPatternView view;
+    if (!residual_plan_build_cluster_view(spec, cov, rplan, rplan->keys[k],
+                                          /*all=*/false,
+                                          /*prune=*/!output_free, seen,
+                                          &view)) {
       fprintf(stderr, "tlsfcompose: out of memory\n");
       return false;
     }
+    Node *root = section_pattern_to_ltl(&view, true, true);
+    if (finite)
+      root = apply_rewrites(spec->arena, root,
+                            RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
     ComposeRoute route;
     if (output_free)
       output_free_route(spec, root, &route);
     else {
-      (void)compose_route_select(spec, root, finite, bound_k, &route);
+      (void)compose_route_select_sections(spec, root, &view, finite, bound_k,
+                                          &route);
       apply_preprocess_policy(&route, policy, policy_stats);
     }
     char reason[192];
@@ -540,15 +553,21 @@ static bool emit_oxidd_cluster_aiger(const char *out_dir, uint32_t k,
   if (!out_dir || rplan->keys[k] == cov->aps.count)
     return true;
 
-  Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
-                                           /*all=*/false, /*prune=*/true, seen);
-  if (!root) {
+  SectionPatternView view;
+  if (!residual_plan_build_cluster_view(spec, cov, rplan, rplan->keys[k],
+                                        /*all=*/false, /*prune=*/true, seen,
+                                        &view)) {
     fprintf(stderr, "tlsfcompose: out of memory\n");
     return false;
   }
+  Node *root = section_pattern_to_ltl(&view, true, true);
+  if (finite)
+    root = apply_rewrites(spec->arena, root,
+                          RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
 
   ComposeRoute route;
-  (void)compose_route_select(spec, root, finite, bound_k, &route);
+  (void)compose_route_select_sections(spec, root, &view, finite, bound_k,
+                                      &route);
   apply_preprocess_policy(&route, policy, policy_stats);
   if (!route.uses_oxidd)
     return true;

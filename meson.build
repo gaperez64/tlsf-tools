@@ -248,6 +248,7 @@ lib_sources = [
   'src/templates_certify.c',
   'src/residual.c',
   'src/residual_plan.c',
+  'src/section_pattern.c',
   'src/aiger.c',
   'src/gr.c',
   'src/print_ltlxba.c',
@@ -688,6 +689,9 @@ if have_oxidd
   test('compose_route_stats_gr1_recurrence', check,
     args: [files('test/cases/gr1_recurrence.route_stats'), tlsfcompose_exe,
            '--split', '--route-stats', files('test/cases/gr1_recurrence.tlsf')])
+  test('compose_route_stats_strict_safety', check,
+    args: [files('test/cases/strict_safety.route_stats'), tlsfcompose_exe,
+           '--split', '--route-stats', files('test/cases/strict_safety.tlsf')])
   test('compose_route_stats_wr_response', check,
     args: [files('test/cases/wr_response.route_stats'), tlsfcompose_exe,
            '--split', '--route-stats', files('test/cases/wr_response.tlsf')])

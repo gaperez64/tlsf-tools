@@ -1,5 +1,7 @@
 #include "tlsf/print_ltlxba.h"
 
+#include "tlsf/section_pattern.h"
+
 #include <assert.h>
 #include <ctype.h>
 
@@ -317,57 +319,6 @@ void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
 // Spec-level formula assembly
 // ---------------------------------------------------------------------------
 
-// Fold formulas into a conjunction; returns nullptr for the empty set
-// (meaning "absent", so it drops out of the surrounding structure).
-static Node *conj_of(Arena *a, Node *const *xs, uint32_t n) {
-  if (n == 0)
-    return nullptr;
-  Node *acc = xs[0];
-  for (uint32_t i = 1; i < n; i++)
-    acc = node_and(a, acc, xs[i]);
-  return acc;
-}
-
-static Node *and_opt(Arena *a, Node *x, Node *y) {
-  if (!x)
-    return y;
-  if (!y)
-    return x;
-  return node_and(a, x, y);
-}
-
-// Conjunction of the guarantee-section formulas whose class is selected.
-static Node *guarantees_of(Arena *a, const ClassifiedSpec *cs, bool safety,
-                           bool liveness) {
-  if (cs->guarantee_count == 0)
-    return nullptr;
-  Node **gb = ARENA_ALLOC_N(a, Node *, cs->guarantee_count);
-  uint32_t gn = 0;
-  for (uint32_t i = 0; i < cs->guarantee_count; i++) {
-    FormulaClass cls = cs->guarantees[i].cls;
-    if ((cls == FCLASS_SAFETY && safety) ||
-        (cls == FCLASS_LIVENESS && liveness))
-      gb[gn++] = cs->guarantees[i].formula;
-  }
-  return conj_of(a, gb, gn);
-}
-
-// Conjunction of ASSERT formulas, or nullptr if there are none.
-static Node *assert_conj(Arena *a, const ClassifiedSpec *cs) {
-  if (cs->assert_count == 0)
-    return nullptr;
-  Node **ab = ARENA_ALLOC_N(a, Node *, cs->assert_count);
-  for (uint32_t i = 0; i < cs->assert_count; i++)
-    ab[i] = cs->asserts[i].formula;
-  return conj_of(a, ab, cs->assert_count);
-}
-
-// G(conj of ASSERT formulas), or nullptr if there are none.
-static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
-  Node *asserts = assert_conj(a, cs);
-  return asserts ? node_g(a, asserts) : nullptr;
-}
-
 // Build the TLSF specification formula.
 //
 // Standard (non-strict) semantics — the TLSF default (matches syfco):
@@ -389,61 +340,12 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
 // non-strict one.
 Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
                          PrintMode mode) {
-  Arena *a = spec->arena;
-  bool strict = semantics_is_strict(spec->info.semantics);
   bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
-
-  // Environment antecedent pieces.  REQUIRE is used both raw (strict W) and
-  // G-wrapped (assumption antecedent).
-  Node *e_init = conj_of(a, cs->initially, cs->initially_count);
-  Node *req_raw = conj_of(a, cs->require, cs->require_count);
-  Node *e_req = req_raw ? node_g(a, req_raw) : nullptr;
-  Node *a_live = conj_of(a, cs->assume, cs->assume_count);
-  Node *s_pre = conj_of(a, cs->preset, cs->preset_count);
-
-  Node *root;
-  if (strict) {
-    // Safety: ASSERT W ¬REQUIRE, dropped if there are no ASSERT invariants.
-    Node *safety_part = nullptr;
-    Node *assert_raw = want_safety ? assert_conj(a, cs) : nullptr;
-    if (want_safety && assert_raw)
-      safety_part = req_raw ? node_w(a, assert_raw, node_not(a, req_raw))
-                            : node_g(a, assert_raw);
-
-    // Guarantees: (G REQUIRE ∧ ASSUME) → GUARANTEE.
-    Node *env = and_opt(a, e_req, a_live);
-    Node *g_gua = guarantees_of(a, cs, want_safety, want_liveness);
-    Node *gua_part = g_gua ? (env ? node_impl(a, env, g_gua) : g_gua) : nullptr;
-
-    Node *sys_safety = and_opt(a, want_safety ? s_pre : nullptr, safety_part);
-    Node *body = and_opt(a, sys_safety, gua_part);
-    if (body)
-      root = e_init ? node_impl(a, e_init, body) : body;
-    else
-      root = node_true(a);
-  } else {
-    // Non-strict (the TLSF section semantics, as implemented by syfco):
-    //   INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE)
-    //   ) )
-    // INITIALLY is the outer guard and PRESET sits *outside* the
-    // assumption→guarantee implication, so the system's PRESET/initial
-    // obligations stand even on inputs where the environment violates an
-    // assumption.  (Lumping INITIALLY into the antecedent and PRESET into the
-    // consequent — `(I ∧ G R ∧ As) → (P ∧ G A ∧ Gu)` — drops that obligation
-    // and is *not* equivalent.)
-    Node *env = and_opt(a, e_req, a_live); // G REQUIRE ∧ ASSUME (no INITIALLY)
-    Node *g_assert = want_safety ? assert_inv(a, cs) : nullptr; // G ASSERT
-    Node *g_gua = guarantees_of(a, cs, want_safety, want_liveness);
-    Node *sys = and_opt(a, g_assert, g_gua); // G ASSERT ∧ GUARANTEE
-    Node *inner = sys ? (env ? node_impl(a, env, sys) : sys) : nullptr;
-    Node *body = and_opt(a, want_safety ? s_pre : nullptr, inner); // PRESET ∧ …
-    if (e_init)
-      root = body ? node_impl(a, e_init, body) : node_true(a);
-    else
-      root = body ? body : node_true(a);
-  }
-  return root;
+  SectionPatternView view;
+  if (!section_pattern_from_classified(&view, spec, cs))
+    return node_true(spec->arena);
+  return section_pattern_to_ltl(&view, want_safety, want_liveness);
 }
 
 void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,

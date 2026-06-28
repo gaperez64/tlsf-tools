@@ -1,30 +1,9 @@
 #include "tlsf/residual.h"
 
-#include "tlsf/classify.h"
-#include "tlsf/print_ltlxba.h"
 #include "tlsf/rewrite.h"
 
 #include <stdlib.h>
 #include <string.h>
-
-// Map a constraint Role to its destination section list in the spec.
-static FormulaList *role_list(TlsfSpec *spec, Role role) {
-  switch (role) {
-  case TLSF_ROLE_INITIALLY:
-    return &spec->initially;
-  case TLSF_ROLE_PRESET:
-    return &spec->preset;
-  case TLSF_ROLE_REQUIRE:
-    return &spec->require;
-  case TLSF_ROLE_ASSERT:
-    return &spec->assert_;
-  case TLSF_ROLE_ASSUME:
-    return &spec->assume;
-  case TLSF_ROLE_GUARANTEE:
-  default:
-    return &spec->guarantee;
-  }
-}
 
 static uint32_t uf_find(uint32_t *p, uint32_t x) {
   while (p[x] != x) {
@@ -174,11 +153,11 @@ static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
   return true;
 }
 
-Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
-                             const Node **rf, const uint32_t *key, uint32_t kk,
-                             bool all, bool prune, uint32_t n, bool *seen) {
-  spec->initially.count = spec->require.count = spec->assume.count = 0;
-  spec->preset.count = spec->assert_.count = spec->guarantee.count = 0;
+bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
+                                 const Node **rf, const uint32_t *key,
+                                 uint32_t kk, bool all, bool prune, uint32_t n,
+                                 bool *seen, SectionPatternView *view) {
+  section_pattern_init(view, spec->arena, spec);
   memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
   // Finer clustering prunes the global assumption pool per cluster.  Skip it
   // under strict semantics: there the assumption/guarantee `W` structure drives
@@ -214,14 +193,24 @@ Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
     if (!inc)
       continue;
     residual_collect_aps(rf[i], cov, seen);
-    (void)formula_list_push(spec, role_list(spec, cov->items[i].role),
-                            (Node *)rf[i]);
+    if (!section_pattern_add_classified(view, cov->items[i].role,
+                                        (Node *)rf[i])) {
+      free(include);
+      return false;
+    }
   }
   free(include);
-  ClassifiedSpec *cs = classify_spec(spec);
-  if (!cs)
+  return true;
+}
+
+Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
+                             const Node **rf, const uint32_t *key, uint32_t kk,
+                             bool all, bool prune, uint32_t n, bool *seen) {
+  SectionPatternView view;
+  if (!residual_build_cluster_view(spec, cov, rf, key, kk, all, prune, n, seen,
+                                   &view))
     return nullptr;
-  Node *root = build_spec_formula(spec, cs, PRINT_ALL);
+  Node *root = section_pattern_to_ltl(&view, true, true);
   if (semantics_is_finite(spec->info.semantics))
     root = apply_rewrites(spec->arena, root,
                           RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);

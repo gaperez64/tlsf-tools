@@ -58,3 +58,12 @@ Node *residual_plan_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
   return residual_build_cluster(spec, cov, p->rf, p->key, cluster_key, all,
                                 prune, p->nconstraints, seen);
 }
+
+bool residual_plan_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
+                                      const ResidualPlan *p,
+                                      uint32_t cluster_key, bool all,
+                                      bool prune, bool *seen,
+                                      SectionPatternView *view) {
+  return residual_build_cluster_view(spec, cov, p->rf, p->key, cluster_key, all,
+                                     prune, p->nconstraints, seen, view);
+}

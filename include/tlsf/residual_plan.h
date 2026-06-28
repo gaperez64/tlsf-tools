@@ -2,6 +2,7 @@
 #define TLSF_RESIDUAL_PLAN_H
 
 #include "tlsf/cover.h"
+#include "tlsf/section_pattern.h"
 #include "tlsf/templates.h"
 
 #include <stdbool.h>
@@ -31,5 +32,11 @@ void residual_plan_free(ResidualPlan *p);
                                                 const ResidualPlan *p,
                                                 uint32_t cluster_key, bool all,
                                                 bool prune, bool *seen);
+
+bool residual_plan_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
+                                      const ResidualPlan *p,
+                                      uint32_t cluster_key, bool all,
+                                      bool prune, bool *seen,
+                                      SectionPatternView *view);
 
 #endif // TLSF_RESIDUAL_PLAN_H

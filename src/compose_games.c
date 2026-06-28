@@ -852,6 +852,93 @@ Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
   return g;
 }
 
+Aig *build_aig_tlsf_strict_safety_game(ConstraintCover *cov, const bool *seen,
+                                       const Node *env_init,
+                                       const Node *env_require,
+                                       const Node *sys_init,
+                                       const Node *sys_assert) {
+  Aig *g = aig_new();
+  if (!g)
+    return nullptr;
+
+  uint32_t req_depth = aig_x_depth(env_require);
+  uint32_t assert_depth = aig_x_depth(sys_assert);
+  uint32_t depth = req_depth > assert_depth ? req_depth : assert_depth;
+  uint32_t A = cov->aps.count;
+  uint32_t hist_count = (depth + 1) * (A ? A : 1);
+  uint32_t *hist = malloc(hist_count * sizeof(uint32_t));
+  if (!hist) {
+    aig_free(g);
+    return nullptr;
+  }
+  memset(hist, 0xff, hist_count * sizeof(uint32_t));
+  AigCtx ctx = {g, cov, hist, A ? A : 1};
+
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
+      continue;
+    hist_set(&ctx, 0, a, aig_input(g, ap_table_name(&cov->aps, a)));
+  }
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !(ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT))
+      continue;
+    char *cname = controllable_name(ap_table_name(&cov->aps, a));
+    if (!cname) {
+      free(hist);
+      aig_free(g);
+      return nullptr;
+    }
+    hist_set(&ctx, 0, a, aig_input(g, cname));
+    free(cname);
+  }
+  for (uint32_t d = 1; d <= depth; d++) {
+    for (uint32_t a = 0; a < A; a++) {
+      uint32_t prev = hist_lit(&ctx, d - 1, a);
+      if (prev != UINT32_MAX)
+        hist_set(&ctx, d, a, aig_latch(g, prev, AIG_FALSE));
+    }
+  }
+
+  uint32_t valid = AIG_TRUE;
+  for (uint32_t d = 0; d < depth; d++)
+    valid = aig_latch(g, valid, AIG_FALSE);
+  uint32_t past_first = aig_latch(g, AIG_TRUE, AIG_FALSE);
+  uint32_t first = aig_not(past_first);
+
+  uint32_t env_init_ok = compile_at_lag(&ctx, env_init, 0);
+  uint32_t sys_init_ok = compile_at_lag(&ctx, sys_init, 0);
+  uint32_t req_ok = compile_at_lag(&ctx, env_require, depth);
+  uint32_t assert_ok = compile_at_lag(&ctx, sys_assert, depth);
+  if (env_init_ok == UINT32_MAX || sys_init_ok == UINT32_MAX ||
+      req_ok == UINT32_MAX || assert_ok == UINT32_MAX) {
+    free(hist);
+    aig_free(g);
+    return nullptr;
+  }
+
+  uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
+  uint32_t init_failed = aig_and(g, first, aig_not(env_init_ok));
+  uint32_t req_failed = aig_and(g, valid, aig_not(req_ok));
+  uint32_t violated_next =
+      aig_or(g, violated, aig_or(g, init_failed, req_failed));
+  if (!aig_set_latch_next(g, violated, violated_next)) {
+    free(hist);
+    aig_free(g);
+    return nullptr;
+  }
+
+  uint32_t env_enabled =
+      aig_and(g, aig_not(violated), guarded_current_ok(g, first, env_init_ok));
+  uint32_t bad_init =
+      aig_and(g, first, aig_and(g, env_init_ok, aig_not(sys_init_ok)));
+  uint32_t bad_assert =
+      aig_and(g, env_enabled,
+              aig_and(g, valid, aig_and(g, req_ok, aig_not(assert_ok))));
+  aig_set_output(g, "bad", aig_or(g, bad_init, bad_assert));
+  free(hist);
+  return g;
+}
+
 // Complete (unbounded) GR(1): the safety part (history latches, the valid
 // window, the guarantee/assumption masking) is encoded exactly like
 // build_aig_game, but liveness is emitted as real AIGER justice /

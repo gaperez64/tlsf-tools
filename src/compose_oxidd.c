@@ -87,11 +87,20 @@ Aig *compose_route_try_oxidd(const ComposeRoute *route, ConstraintCover *cov,
                             &local_unreal);
     break;
   case ROUTE_STRICT_SAFETY:
-    sub =
-        solve_safety_game(cov, seen,
-                          build_aig_strict_safety_game(
-                              cov, seen, route->strict_sys, route->strict_env),
-                          &local_unreal);
+    if (route->strict_env_init) {
+      sub = solve_safety_game(
+          cov, seen,
+          build_aig_tlsf_strict_safety_game(
+              cov, seen, route->strict_env_init, route->strict_env_require,
+              route->strict_sys_init, route->strict_sys_assert),
+          &local_unreal);
+    } else {
+      sub = solve_safety_game(cov, seen,
+                              build_aig_strict_safety_game(cov, seen,
+                                                           route->strict_sys,
+                                                           route->strict_env),
+                              &local_unreal);
+    }
     break;
   case ROUTE_RESPONSE_MONITOR_GR1:
   case ROUTE_EVENTUAL_MONITOR_GR1:

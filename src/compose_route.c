@@ -1,11 +1,46 @@
 #include "compose_route.h"
 
-bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
-                          uint32_t bound_k, ComposeRoute *out) {
+static Node *true_if_absent(Arena *a, Node *n) { return n ? n : node_true(a); }
+
+static bool
+strict_sections_safety_parts(TlsfSpec *spec, const SectionPatternView *view,
+                             const Node **env_init, const Node **env_require,
+                             const Node **sys_init, const Node **sys_assert) {
+  if (!view || !semantics_is_strict(spec->info.semantics))
+    return false;
+  if (!section_pattern_role_empty(view, TLSF_ROLE_ASSUME) ||
+      !section_pattern_role_empty(view, TLSF_ROLE_GUARANTEE))
+    return false;
+
+  Arena *a = spec->arena;
+  const Node *ei =
+      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_INITIALLY));
+  const Node *er =
+      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_REQUIRE));
+  const Node *si =
+      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_PRESET));
+  const Node *sa =
+      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_ASSERT));
+  if (!aig_initial_ok(ei) || !aig_initial_ok(si) || !aig_body_ok(er) ||
+      !aig_body_ok(sa))
+    return false;
+
+  *env_init = ei;
+  *env_require = er;
+  *sys_init = si;
+  *sys_assert = sa;
+  return true;
+}
+
+bool compose_route_select_sections(TlsfSpec *spec, const Node *root,
+                                   const SectionPatternView *view, bool finite,
+                                   uint32_t bound_k, ComposeRoute *out) {
   if (!out)
     return false;
 
   ClusterShape shape = cluster_shape(spec, root);
+  if (view)
+    shape.gr_level = section_pattern_gr_level(view);
   *out = (ComposeRoute){
       .kind = ROUTE_LTLSYNT,
       .uses_oxidd = false,
@@ -14,6 +49,24 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
       .shape = shape,
       .root = root,
   };
+
+  const Node *strict_env_init = nullptr, *strict_env_require = nullptr;
+  const Node *strict_sys_init = nullptr, *strict_sys_assert = nullptr;
+  bool use_section_strict =
+      !finite && shape.gr_level == 0 && !shape.has_liveness &&
+      strict_sections_safety_parts(spec, view, &strict_env_init,
+                                   &strict_env_require, &strict_sys_init,
+                                   &strict_sys_assert);
+  if (use_section_strict) {
+    out->kind = ROUTE_STRICT_SAFETY;
+    out->uses_oxidd = true;
+    out->label = "OxiDD";
+    out->strict_env_init = strict_env_init;
+    out->strict_env_require = strict_env_require;
+    out->strict_sys_init = strict_sys_init;
+    out->strict_sys_assert = strict_sys_assert;
+    return true;
+  }
 
   bool use_direct = aig_eligible(root, finite);
   if (use_direct) {
@@ -97,4 +150,10 @@ bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
     out->gr1 = gp;
   }
   return true;
+}
+
+bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
+                          uint32_t bound_k, ComposeRoute *out) {
+  return compose_route_select_sections(spec, root, nullptr, finite, bound_k,
+                                       out);
 }

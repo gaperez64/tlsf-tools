@@ -3,6 +3,8 @@
 
 #include "compose_internal.h"
 
+#include "tlsf/section_pattern.h"
+
 typedef enum {
   ROUTE_OUTPUT_FREE_LTLSYNT,
   ROUTE_DIRECT_SAFETY,
@@ -20,10 +22,9 @@ typedef struct {
   ComposeRouteKind kind;
   bool uses_oxidd;
   bool exact;
-  bool
-      over_approx; ///< the encoding can WEAKEN the spec (over-approximation):
-                   ///< its REALIZABLE verdict is not trustworthy.  Set for W/R
-                   ///< safety diagnostics.
+  bool over_approx; ///< the encoding can WEAKEN the spec (over-approximation):
+                    ///< its REALIZABLE verdict is not trustworthy.  Set for W/R
+                    ///< safety diagnostics.
   const char *label;
   const char *reason_override;
   ClusterShape shape;
@@ -31,11 +32,18 @@ typedef struct {
   const Node *bounded_root;
   const Node *strict_sys;
   const Node *strict_env;
+  const Node *strict_env_init;
+  const Node *strict_env_require;
+  const Node *strict_sys_init;
+  const Node *strict_sys_assert;
   Gr1Parts gr1;
 } ComposeRoute;
 
 bool compose_route_select(TlsfSpec *spec, const Node *root, bool finite,
                           uint32_t bound_k, ComposeRoute *out);
+bool compose_route_select_sections(TlsfSpec *spec, const Node *root,
+                                   const SectionPatternView *view, bool finite,
+                                   uint32_t bound_k, ComposeRoute *out);
 bool compose_route_can_presolve_oxidd(const ComposeRoute *route);
 [[nodiscard]] Aig *compose_route_try_oxidd(const ComposeRoute *route,
                                            ConstraintCover *cov,
