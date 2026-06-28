@@ -1081,11 +1081,15 @@ test('semantics_sections', check,
   args: [files('test/cases/sections.ltl'),
          tlsf2ltl_exe, files('test/cases/sections.tlsf')])
 
-# A strict (Strict,*) spec emits the strict weak-until form:
-# (PRESET & G ASSERT) W !(INITIALLY & G REQUIRE), plus the liveness implication.
+# Strict semantics follows TLSF §3.2: INITIALLY guards the consequent, PRESET is
+# a step-0 conjunct, and raw ASSERT/REQUIRE invariants form the weak-until.
 test('semantics_strict', check,
   args: [files('test/cases/sections.strict.ltl'),
          tlsf2ltl_exe, files('test/cases/sections_strict.tlsf')])
+
+test('semantics_strict_preset_liveness', check,
+  args: [files('test/cases/strict_preset_liveness.ltl'),
+         tlsf2ltl_exe, files('test/cases/strict_preset_liveness.tlsf')])
 
 # Relax a strict spec by overwriting its semantics to non-strict: plain E -> S.
 test('semantics_relax_via_override', check,

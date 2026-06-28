@@ -1,1 +1,1 @@
-(x && G y) W !(a && G b) && (a && G b && c -> z)
+a -> x && y W !b && (G b && c -> z)

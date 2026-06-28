@@ -1,0 +1,12 @@
+INFO {
+  TITLE: "strict_preset_liveness"
+  DESCRIPTION: "strict PRESET remains an initial conjunct"
+  SEMANTICS: Mealy,Strict
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { x; }
+  PRESET { x; }
+  GUARANTEE { G(F(!x)); }
+}

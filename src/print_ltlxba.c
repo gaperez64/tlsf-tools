@@ -352,14 +352,20 @@ static Node *guarantees_of(Arena *a, const ClassifiedSpec *cs, bool safety,
   return conj_of(a, gb, gn);
 }
 
-// G(conj of ASSERT formulas), or nullptr if there are none.
-static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
+// Conjunction of ASSERT formulas, or nullptr if there are none.
+static Node *assert_conj(Arena *a, const ClassifiedSpec *cs) {
   if (cs->assert_count == 0)
     return nullptr;
   Node **ab = ARENA_ALLOC_N(a, Node *, cs->assert_count);
   for (uint32_t i = 0; i < cs->assert_count; i++)
     ab[i] = cs->asserts[i].formula;
-  return node_g(a, conj_of(a, ab, cs->assert_count));
+  return conj_of(a, ab, cs->assert_count);
+}
+
+// G(conj of ASSERT formulas), or nullptr if there are none.
+static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
+  Node *asserts = assert_conj(a, cs);
+  return asserts ? node_g(a, asserts) : nullptr;
 }
 
 // Build the TLSF specification formula.
@@ -367,20 +373,20 @@ static Node *assert_inv(Arena *a, const ClassifiedSpec *cs) {
 // Standard (non-strict) semantics — the TLSF default (matches syfco):
 //   INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE) ) )
 //
-// Strict semantics — the system's safety must hold at least until the
-// environment first violates a safety assumption:
-//   ((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)
-// with E = INITIALLY ∧ G REQUIRE ∧ ASSUME.  If there are no safety
-// assumptions, ¬A_safety is false and the weak-until becomes G(PRESET ∧
-// G ASSERT).
+// Strict semantics — TLSF §3.2:
+//   INITIALLY → ( PRESET ∧ (ASSERT W ¬REQUIRE) ∧
+//                 ( (G REQUIRE ∧ ASSUME) → GUARANTEE ) )
+// The weak-until is over the raw ASSERT/REQUIRE invariants; PRESET is a plain
+// step-0 conjunct.  If there is no REQUIRE, ¬REQUIRE is false and the
+// weak-until collapses to G ASSERT.
 //
 // Each section is the conjunction of its formulas; empty parts drop out and
 // trivial implications collapse.  The safety/liveness mode selects which
 // guarantees appear (and, for liveness, drops the safety-only sections).
 //
-// Strict-vs-non-strict follows the (possibly overridden) SEMANTICS field.  A
-// strict spec is emitted as the safety weak-until form; to relax it to the
-// plain E -> S formula, overwrite the semantics to a non-strict one.
+// Strict-vs-non-strict follows the (possibly overridden) SEMANTICS field.  To
+// relax a strict spec to the plain E -> S formula, overwrite the semantics to a
+// non-strict one.
 Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
                          PrintMode mode) {
   Arena *a = spec->arena;
@@ -388,32 +394,33 @@ Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
   bool want_safety = (mode == PRINT_ALL || mode == PRINT_SAFETY);
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
 
-  // Environment antecedent E = INITIALLY ∧ G(REQUIRE) ∧ ASSUME.
+  // Environment antecedent pieces.  REQUIRE is used both raw (strict W) and
+  // G-wrapped (assumption antecedent).
   Node *e_init = conj_of(a, cs->initially, cs->initially_count);
-  Node *e_req = conj_of(a, cs->require, cs->require_count);
-  if (e_req)
-    e_req = node_g(a, e_req);
-  Node *a_safety = and_opt(a, e_init, e_req);
+  Node *req_raw = conj_of(a, cs->require, cs->require_count);
+  Node *e_req = req_raw ? node_g(a, req_raw) : nullptr;
   Node *a_live = conj_of(a, cs->assume, cs->assume_count);
-  Node *e = and_opt(a, a_safety, a_live);
-
-  // System safety invariants S_safety = PRESET ∧ G(ASSERT).
   Node *s_pre = conj_of(a, cs->preset, cs->preset_count);
-  Node *s_safety = and_opt(a, s_pre, assert_inv(a, cs));
 
   Node *root;
   if (strict) {
-    // Safety: (S_safety W ¬A_safety), dropped if there is no system safety.
+    // Safety: ASSERT W ¬REQUIRE, dropped if there are no ASSERT invariants.
     Node *safety_part = nullptr;
-    if (want_safety && s_safety)
-      safety_part = a_safety ? node_w(a, s_safety, node_not(a, a_safety))
-                             : node_g(a, s_safety);
-    // Liveness: E → GUARANTEE.
-    Node *g_all = want_liveness ? guarantees_of(a, cs, true, true) : nullptr;
-    Node *live_part = g_all ? (e ? node_impl(a, e, g_all) : g_all) : nullptr;
+    Node *assert_raw = want_safety ? assert_conj(a, cs) : nullptr;
+    if (want_safety && assert_raw)
+      safety_part = req_raw ? node_w(a, assert_raw, node_not(a, req_raw))
+                            : node_g(a, assert_raw);
 
-    root = and_opt(a, safety_part, live_part);
-    if (!root)
+    // Guarantees: (G REQUIRE ∧ ASSUME) → GUARANTEE.
+    Node *env = and_opt(a, e_req, a_live);
+    Node *g_gua = guarantees_of(a, cs, want_safety, want_liveness);
+    Node *gua_part = g_gua ? (env ? node_impl(a, env, g_gua) : g_gua) : nullptr;
+
+    Node *sys_safety = and_opt(a, want_safety ? s_pre : nullptr, safety_part);
+    Node *body = and_opt(a, sys_safety, gua_part);
+    if (body)
+      root = e_init ? node_impl(a, e_init, body) : body;
+    else
       root = node_true(a);
   } else {
     // Non-strict (the TLSF section semantics, as implemented by syfco):
