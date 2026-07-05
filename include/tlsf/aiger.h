@@ -89,6 +89,9 @@ uint32_t aig_num_latches(const Aig *g);
 /// latch `i`.
 void aig_latch_at(const Aig *g, uint32_t i, uint32_t *cur, uint32_t *next,
                   uint32_t *reset);
+uint32_t aig_num_outputs(const Aig *g);
+/// Name (borrowed; valid until `g` is freed) and literal of output `i`.
+const char *aig_output_at(const Aig *g, uint32_t i, uint32_t *lit);
 uint32_t aig_num_ands(const Aig *g);
 /// Output literal and the two input literals of and-gate `i` (`lhs = r0 & r1`).
 void aig_and_at(const Aig *g, uint32_t i, uint32_t *lhs, uint32_t *r0,

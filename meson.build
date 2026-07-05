@@ -333,6 +333,14 @@ tlsfnorm_exe = executable(
   install: true,
 )
 
+mealy2moore_exe = executable(
+  'mealy2moore',
+  sources: ['src/main_mealy2moore.c'],
+  link_with: tlsf_lib,
+  include_directories: inc,
+  install: true,
+)
+
 if research_tools
   tlsftemplates_exe = executable(
     'tlsftemplates',
@@ -436,6 +444,13 @@ foreach c : ltl_cases
 endforeach
 
 # Targeted feature tests.
+foreach c : ['simple', 'latch', 'const']
+  test('mealy2moore_' + c, check,
+    args: [files('test/cases/mealy2moore_' + c + '.out.aag'),
+           mealy2moore_exe,
+           files('test/cases/mealy2moore_' + c + '.in.aag')])
+endforeach
+
 test('ltl_full_parens', check,
   args: [files('test/cases/Patterns_Uright_uright06.full.ltl'),
          tlsf2ltl_exe, '--parenthesize',

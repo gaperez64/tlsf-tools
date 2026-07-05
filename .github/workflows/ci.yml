@@ -95,6 +95,7 @@ jobs:
             "tlsf2ltl test/cases/operators.tlsf" \
             "tlsf2tlsf test/cases/defs.tlsf" \
             "tlsfinfo --generalized-reactivity test/cases/gr4_spec.tlsf" \
+            "mealy2moore test/cases/mealy2moore_simple.in.aag" \
             "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf"; do
             echo "valgrind: $args"
             valgrind --error-exitcode=1 --leak-check=full \

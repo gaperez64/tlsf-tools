@@ -61,6 +61,7 @@ jobs:
           ./build-release/tlsf2tlsf --version
           ./build-release/tlsfinfo --version
           ./build-release/tlsfnorm --version
+          ./build-release/mealy2moore --version
 
       - name: Package archive
         run: |
@@ -74,7 +75,7 @@ jobs:
           stage="dist/${archive}"
           mkdir -p "$stage"
 
-          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm"
+          tools="tlsf2ltl tlsf2tlsf tlsfinfo tlsfnorm mealy2moore"
           for tool in $tools; do
             cp "build-release/${tool}" "$stage/"
           done

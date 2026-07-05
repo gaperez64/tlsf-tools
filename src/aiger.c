@@ -275,6 +275,14 @@ void aig_latch_at(const Aig *g, uint32_t i, uint32_t *cur, uint32_t *next,
     *reset = g->lat[i].reset;
 }
 
+uint32_t aig_num_outputs(const Aig *g) { return g->nout; }
+
+const char *aig_output_at(const Aig *g, uint32_t i, uint32_t *lit) {
+  if (lit)
+    *lit = g->outs[i].lit;
+  return g->outs[i].name;
+}
+
 uint32_t aig_num_ands(const Aig *g) { return g->nand; }
 
 void aig_and_at(const Aig *g, uint32_t i, uint32_t *lhs, uint32_t *r0,

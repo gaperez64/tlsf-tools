@@ -28,6 +28,7 @@ acacia-bonsai.
 | `tlsf2tlsf` | Emit expanded/basic TLSF. |
 | `tlsfinfo` | Inspect metadata, signals, and GR level. |
 | `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
+| `mealy2moore` | Delay AIGER strategy outputs for Moore-target specs. |
 
 ### Research and diagnostic tools
 
@@ -92,6 +93,7 @@ tlsf2ltl  --format ltl|latex spec.tlsf    # plain LTL / LaTeX math
 tlsf2ltl  --strong-simplify spec.tlsf     # NNF + push/pull simplification, etc.
 tlsf2ltl  --safety | --liveness spec.tlsf # syntactic split of the formula
 tlsf2tlsf --basic spec.tlsf               # fully expanded basic TLSF
+mealy2moore strategy.aag > strategy.moore.aag  # delay Mealy outputs one step
 
 # inspect
 tlsfinfo  spec.tlsf                        # all metadata (--semantics, --title, …)
