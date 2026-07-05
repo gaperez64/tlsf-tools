@@ -1120,3 +1120,6 @@ test('semantics_relax_via_override', check,
 test('semantics_moore_to_mealy', check,
   args: [files('test/cases/conv_moore_mealy.ltl'),
          tlsf2ltl_exe, files('test/cases/conv_moore_mealy.tlsf')])
+test('semantics_mealy_to_moore', check,
+  args: [files('test/cases/conv_mealy_moore.ltl'),
+         tlsf2ltl_exe, files('test/cases/conv_mealy_moore.tlsf')])

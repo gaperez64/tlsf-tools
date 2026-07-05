@@ -328,7 +328,7 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
   and `W`/`M` are rewritten with LTLf-valid identities so spot's `ltlfsynt`
   accepts it.
 - **Mealy/Moore** — from `SEMANTICS`; a `TARGET` mismatch is converted
-  (Moore→Mealy delays outputs `o↦X o`, Mealy→Moore delays inputs `i↦X i`).
+  (Moore→Mealy delays inputs `i↦X i`, Mealy→Moore delays outputs `o↦X o`).
 
 Output is minimally parenthesised by the spot/ltl2ba precedence
 (`! X F G` > `U R W M` > `&&` > `||` > `-> <->`); `--parenthesize` fully

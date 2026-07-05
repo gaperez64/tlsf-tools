@@ -93,8 +93,8 @@ static bool parse_override(const char *s, ParamOverride *out) {
 //
 // The SEMANTICS field says which timing the spec is written in; the TARGET
 // says which machine to produce.  When they disagree the formula is converted
-// (TLSF v1.x): Moore->Mealy delays the outputs (o becomes X o), Mealy->Moore
-// delays the inputs (i becomes X i).  Applied to the expanded (scalar) spec.
+// (TLSF v1.x): Moore->Mealy delays the inputs (i becomes X i), Mealy->Moore
+// delays the outputs (o becomes X o).  Applied to the expanded (scalar) spec.
 // ---------------------------------------------------------------------------
 
 // True if `name` (interned) is one of the listed signals.
@@ -142,9 +142,9 @@ static void adapt_mealy_moore(TlsfSpec *spec) {
   if (sem_moore == tgt_moore)
     return; // frames already agree
 
-  // Moore spec -> Mealy target: delay outputs.  Mealy spec -> Moore: inputs.
-  const SignalDecl *sigs = sem_moore ? spec->outputs : spec->inputs;
-  uint32_t count = sem_moore ? spec->output_count : spec->input_count;
+  // Moore spec -> Mealy target: delay inputs.  Mealy spec -> Moore: outputs.
+  const SignalDecl *sigs = sem_moore ? spec->inputs : spec->outputs;
+  uint32_t count = sem_moore ? spec->input_count : spec->output_count;
 
 #define WRAP_LIST(list)                                                        \
   for (uint32_t _i = 0; _i < (list).count; _i++)                               \
