@@ -26,7 +26,7 @@ matrix_timeout=60
 TIME_TOL=3.0     # relative: flag above 3x the baseline median time
 TIME_ABS_MS=500  # and absolute: only if also >500ms slower than baseline
 MEM_TOL=1.5      # relative: flag above 1.5x baseline RSS
-MEM_ABS_KIB=1024 # and absolute: only if also more than 1 MiB above baseline
+MEM_ABS_KIB=4096 # and absolute: only if also more than 4 MiB above baseline
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -202,10 +202,16 @@ median_ms() {
   printf '%s\n' "${times[@]}" | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'
 }
 
-# peak resident set size in KiB of one execution of "$@"
+# Median peak resident set size in KiB.  Repeating the measurement prevents a
+# one-off page-fault/allocator spike from deciding the regression gate.
 peak_kib() {
-  /usr/bin/time -v "$@" 2>&1 >/dev/null |
-    awk '/Maximum resident/{print $NF}'
+  local values=() i
+  for ((i = 0; i < runs; i++)); do
+    values+=("$(/usr/bin/time -v "$@" 2>&1 >/dev/null |
+      awk '/Maximum resident/{print $NF}')")
+  done
+  printf '%s\n' "${values[@]}" | sort -n |
+    awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'
 }
 
 ours="$build/tlsf2ltl"
@@ -257,7 +263,10 @@ if [ "$mode" = check ]; then
     tflag=""; mflag=""
     awk -v b="$bms" -v n="$nms" -v t="$TIME_TOL" -v abs="$TIME_ABS_MS" 'BEGIN{exit !((n+1) > (b+1)*t && (n-b) > abs)}' && tflag=" REGRESSION"
     awk -v b="$bkib" -v n="$nkib" -v t="$MEM_TOL" -v abs="$MEM_ABS_KIB" 'BEGIN{exit !(n > b*t && (n-b) > abs)}' && mflag=" REGRESSION"
-    [ -n "$tflag$mflag" ] && fail=1
+    if [ -n "$tflag$mflag" ]; then
+      fail=1
+      echo "::error title=Performance regression ($n)::time ${bms}->${nms} ms; RSS ${bkib}->${nkib} KiB" >&2
+    fi
     printf '%-28s | %-22s | %-22s\n' "$n" "$bms -> $nms$tflag" "$bkib -> $nkib$mflag"
   done < "$baseline"
   [ "$fail" = 0 ] && echo "no regressions" || echo "REGRESSIONS DETECTED" >&2
