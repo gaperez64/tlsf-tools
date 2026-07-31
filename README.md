@@ -12,14 +12,6 @@ adds structure-aware decomposition, certified local controllers, exact
 OxiDD-backed safety/GR(1) routes, and an external residual-solving wrapper for
 `ltlsynt` or acacia-bonsai.
 
-## Dependencies
-
-The default production build is OxiDD-free and packages only the stable TLSF
-preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
-research-build dependency for the in-process safety/GR(1) solver tools.
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
-optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
-
 ## Status
 
 ### Stable tools
@@ -85,6 +77,15 @@ ninja -C build-research
 
 Sanitizers are available for development builds with
 `-Dsanitize=address,undefined`.
+
+
+### Dependencies
+
+The default production build is OxiDD-free and packages only the stable TLSF
+preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
+research-build dependency for the in-process safety/GR(1) solver tools.
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
+optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
 ## Usage
 
