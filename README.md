@@ -82,7 +82,7 @@ Sanitizers are available for development builds with
 The default production build is OxiDD-free and packages only the stable TLSF
 preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
 research-build dependency for the in-process safety/GR(1) solver tools.
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and [acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are
 optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
 ## Usage
