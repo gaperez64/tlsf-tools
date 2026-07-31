@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -33,6 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           submodules: recursive
       - name: Install Rust
         run: |
@@ -73,6 +76,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -106,6 +111,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -127,6 +134,8 @@ jobs:
         cpu: [baseline, x86-64-v2, avx2]
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -150,6 +159,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -174,6 +185,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -212,6 +225,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install toolchain
         run: |
           sudo apt-get update

@@ -2,7 +2,10 @@ project(
   'tlsf-tools',
   'c',
   'cpp',
-  version: '0.1.0',
+  version: run_command(
+    'sh', 'scripts/project-version.sh',
+    check: true,
+  ).stdout().strip(),
   license: 'MIT',
   default_options: [
     'warning_level=3',
@@ -668,11 +671,23 @@ test('tmpl_arbiter', check_wl,
          files('test/cases/arbiter2.tlsf')])
 # CLI option coverage: --list-templates, --version, --template/--templates
 # filter, --param.  These reuse existing goldens where possible.
+version_test_conf = configuration_data()
+version_test_conf.set('VERSION', meson.project_version())
+tmpl_version_expected = configure_file(
+  input: 'test/cases/tmpl_version.txt',
+  output: 'tmpl_version.expected',
+  configuration: version_test_conf,
+)
+residual_version_expected = configure_file(
+  input: 'test/cases/residual_version.txt',
+  output: 'residual_version.expected',
+  configuration: version_test_conf,
+)
 test('tmpl_list_templates', check,
   args: [files('test/cases/tmpl_list_templates.txt'), tlsftemplates_exe,
          '--list-templates'])
 test('tmpl_version', check,
-  args: [files('test/cases/tmpl_version.txt'), tlsftemplates_exe, '--version'])
+  args: [tmpl_version_expected, tlsftemplates_exe, '--version'])
 test('tmpl_template_filter', check_wl,
   args: [files('test/cases/reaction_ok.csnf'), tlsftemplates_exe,
          '--template', 'reaction', '--certify', '--solve', '--format', 'csnf',
@@ -717,7 +732,7 @@ test('residual_single', check,
          '--single', files('test/cases/cluster_split.tlsf')])
 # CLI option coverage: --version, --format ltl/ltlxba, --split, --param.
 test('residual_version', check,
-  args: [files('test/cases/residual_version.txt'), tlsfresidual_exe, '--version'])
+  args: [residual_version_expected, tlsfresidual_exe, '--version'])
 test('residual_ltl_format', check,
   args: [files('test/cases/residual_ltl_format.residual'), tlsfresidual_exe,
          '--format', 'ltl', files('test/cases/cluster_split.tlsf')])

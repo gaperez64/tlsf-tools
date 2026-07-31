@@ -21,10 +21,12 @@ matrix_corpus=""
 matrix_timeout=60
 # Time is machine-dependent (the committed baseline is from one host), so the
 # time tolerance is generous and catches only gross algorithmic regressions;
-# peak RSS is far more stable across machines.
+# peak RSS is more stable across machines, but one-shot measurements of tiny
+# processes still vary by allocator and runner image.
 TIME_TOL=3.0     # relative: flag above 3x the baseline median time
 TIME_ABS_MS=500  # and absolute: only if also >500ms slower than baseline
-MEM_TOL=1.5      # peak RSS is machine-independent: flag above 1.5x baseline
+MEM_TOL=1.5      # relative: flag above 1.5x baseline RSS
+MEM_ABS_KIB=1024 # and absolute: only if also more than 1 MiB above baseline
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -254,7 +256,7 @@ if [ "$mode" = check ]; then
     # +1 ms floor avoids divide-by-zero noise on tiny specs
     tflag=""; mflag=""
     awk -v b="$bms" -v n="$nms" -v t="$TIME_TOL" -v abs="$TIME_ABS_MS" 'BEGIN{exit !((n+1) > (b+1)*t && (n-b) > abs)}' && tflag=" REGRESSION"
-    awk -v b="$bkib" -v n="$nkib" -v t="$MEM_TOL" 'BEGIN{exit !(n > b*t)}' && mflag=" REGRESSION"
+    awk -v b="$bkib" -v n="$nkib" -v t="$MEM_TOL" -v abs="$MEM_ABS_KIB" 'BEGIN{exit !(n > b*t && (n-b) > abs)}' && mflag=" REGRESSION"
     [ -n "$tflag$mflag" ] && fail=1
     printf '%-28s | %-22s | %-22s\n' "$n" "$bms -> $nms$tflag" "$bkib -> $nkib$mflag"
   done < "$baseline"

@@ -23,6 +23,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Verify runner platform
         run: |
@@ -69,7 +71,7 @@ jobs:
             version="${GITHUB_REF_NAME}"
           else
             short_sha="$(git rev-parse --short HEAD)"
-            version="0.1.0-${short_sha}"
+            version="v$(scripts/project-version.sh)-${short_sha}"
           fi
           archive="tlsf-tools-${version}-${{ matrix.platform }}"
           stage="dist/${archive}"

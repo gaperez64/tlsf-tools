@@ -5,6 +5,7 @@
 /// normalize.h): pre-expansion passes run before expand(), post-expansion
 /// passes run on the expanded formulas before re-emission.
 
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/normalize.h"
@@ -15,8 +16,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(stderr,
@@ -180,7 +179,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(a, "--version") == 0) {
-      printf("tlsfnorm %s\n", TLSF_VERSION);
+      printf("tlsfnorm %s\n", TLSF_PROJECT_VERSION);
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);

@@ -6,6 +6,7 @@
 /// an external synthesizer (e.g. `ltlsynt --ins=.. --outs=..`).  The certified
 /// controllers plus a controller for this residual realise the whole spec.
 
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/pipeline.h"
 #include "tlsf/print_ltlxba.h"
@@ -16,8 +17,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(
@@ -130,7 +129,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(a, "--version") == 0) {
-      printf("tlsfresidual %s\n", TLSF_VERSION);
+      printf("tlsfresidual %s\n", TLSF_PROJECT_VERSION);
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);

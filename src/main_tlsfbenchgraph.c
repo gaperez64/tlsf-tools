@@ -5,6 +5,7 @@
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
 #include "tlsf/ast.h"
+#include "tlsf/build_info.h"
 #include "tlsf/classify.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
@@ -21,8 +22,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(stderr,
@@ -365,7 +364,7 @@ int main(int argc, char *argv[]) {
         return 1;
       }
     } else if (strcmp(a, "--version") == 0) {
-      printf("tlsfbenchgraph %s\n", TLSF_VERSION);
+      printf("tlsfbenchgraph %s\n", TLSF_PROJECT_VERSION);
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);

@@ -4,6 +4,7 @@
 /// no selection flag it prints the full INFO section followed by the signal
 /// and parameter lists.  See --help for the options.
 
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/gr.h"
@@ -13,8 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSFINFO_VERSION "0.1.0"
 
 // ---------------------------------------------------------------------------
 // Enum → string helpers (kept in sync with print_tlsf.c)
@@ -258,7 +257,7 @@ int main(int argc, char *argv[]) {
       usage(argv[0]);
       return 0;
     } else if (strcmp(argv[i], "--version") == 0) {
-      printf("tlsfinfo %s\n", TLSFINFO_VERSION);
+      printf("tlsfinfo %s\n", TLSF_PROJECT_VERSION);
       return 0;
     } else if (strcmp(argv[i], "--output") == 0) {
       if (++i >= argc) {

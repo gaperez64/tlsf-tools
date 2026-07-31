@@ -8,6 +8,7 @@
 ///   --output FILE       Write output to FILE (default: stdout).
 ///   --help
 
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/print_tlsf.h"
@@ -16,8 +17,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(stderr,
@@ -92,7 +91,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(argv[i], "--version") == 0) {
-      printf("tlsf2tlsf %s\n", TLSF_VERSION);
+      printf("tlsf2tlsf %s\n", TLSF_PROJECT_VERSION);
       return 0;
     } else if (strcmp(argv[i], "--help") == 0) {
       usage(argv[0]);

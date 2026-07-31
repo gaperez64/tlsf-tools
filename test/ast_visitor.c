@@ -60,9 +60,27 @@ static bool ast_contains_kind(const TlsfAst *ast, TlsfAstKind kind) {
 }
 
 int main(void) {
-  const char *text = "INFO { TITLE: \"ast\" SEMANTICS: Mealy TARGET: Mealy }\n"
-                     "MAIN { INPUTS { a; b; } OUTPUTS { x; y; }\n"
-                     "GUARANTEE { G (x <-> X a); F (y && (a U b)); } }\n";
+  TlsfAstVisitor empty_visitor = {0};
+  tlsf_ast_free(nullptr);
+  assert(tlsf_ast_from_file(nullptr, nullptr) == nullptr);
+  assert(tlsf_ast_from_file_ex(nullptr, nullptr, nullptr) == nullptr);
+  assert(tlsf_ast_from_string(nullptr, nullptr) == nullptr);
+  assert(tlsf_ast_from_string_ex(nullptr, nullptr, nullptr) == nullptr);
+  assert(tlsf_ast_root(nullptr) == nullptr);
+  assert(tlsf_ast_cluster_count(nullptr) == 0);
+  assert(tlsf_ast_cluster_root(nullptr, 0) == nullptr);
+  assert(tlsf_ast_result(nullptr) == nullptr);
+  assert(tlsf_ast_node_kind(nullptr) == TLSF_AST_KIND_COUNT);
+  assert(tlsf_ast_node_ap_name(nullptr) == nullptr);
+  assert(tlsf_ast_node_child_count(nullptr) == 0);
+  assert(tlsf_ast_node_child(nullptr, 0) == nullptr);
+  assert(tlsf_ast_accept(nullptr, &empty_visitor, nullptr) == nullptr);
+
+  const char *text =
+      "INFO { TITLE: \"ast\" SEMANTICS: Finite,Mealy TARGET: Mealy }\n"
+      "MAIN { INPUTS { a; b; } OUTPUTS { x; y; }\n"
+      "GUARANTEE { G (x <-> X a); F (y && (a U b));\n"
+      "X[!] x; a R b; !x; } }\n";
   TlsfDecomposeOptions options = {.split = true};
   TlsfAst *ast = tlsf_ast_from_string(text, &options);
   assert(ast);
@@ -73,8 +91,12 @@ int main(void) {
   assert(result->n_outputs == 2);
   assert(result->n_clusters == tlsf_ast_cluster_count(ast));
   assert(tlsf_ast_root(ast));
+  assert(ast_contains_kind(ast, TLSF_AST_NOT));
+  assert(ast_contains_kind(ast, TLSF_AST_X_STRONG));
+  assert(ast_contains_kind(ast, TLSF_AST_R));
   for (uint32_t i = 0; i < tlsf_ast_cluster_count(ast); i++)
     assert(tlsf_ast_cluster_root(ast, i));
+  assert(tlsf_ast_cluster_root(ast, tlsf_ast_cluster_count(ast)) == nullptr);
 
   TlsfAstVisitor visitor = {
       .visit_true = visit_leaf,
@@ -101,6 +123,7 @@ int main(void) {
   assert(callbacks == decoded(visited));
 
   const TlsfAstNode *root = tlsf_ast_root(ast);
+  assert(tlsf_ast_accept(root, nullptr, nullptr) == nullptr);
   assert(tlsf_ast_node_kind(root) < TLSF_AST_KIND_COUNT);
   assert(tlsf_ast_node_child(root, tlsf_ast_node_child_count(root)) == nullptr);
   assert(tlsf_ast_node_ap_name(root) == nullptr ||

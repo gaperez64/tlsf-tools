@@ -3,6 +3,7 @@
 /// -> solved): a block is SOLVED only after a side condition passes and a
 /// controller/decoder + certificate is produced.  Nothing is removed here.
 
+#include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
@@ -13,8 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TLSF_VERSION "0.1.0"
 
 static void usage(const char *prog) {
   fprintf(stderr,
@@ -228,7 +227,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(a, "--version") == 0) {
-      printf("tlsftemplates %s\n", TLSF_VERSION);
+      printf("tlsftemplates %s\n", TLSF_PROJECT_VERSION);
       return 0;
     } else if (strcmp(a, "--help") == 0) {
       usage(argv[0]);
