@@ -4,12 +4,6 @@ Small, fast, Unix-style command-line tools for working with
 [TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
 Format) specifications, sharing a common C library.
 
-The default production build is OxiDD-free and packages only the stable TLSF
-preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
-research-build dependency for the in-process safety/GR(1) solver tools.
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
-optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
-
 The tools fully expand parameterised TLSF (parameters, definitions including
 recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
 `X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
@@ -17,6 +11,14 @@ TLSF spec or equivalent LTL. The optional research synthesis layer adds structur
 decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
 routes, and an external residual-solving wrapper for `ltlsynt` or
 acacia-bonsai.
+
+## Dependencies
+
+The default production build is OxiDD-free and packages only the stable TLSF
+preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
+research-build dependency for the in-process safety/GR(1) solver tools.
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and acacia-bonsai are
+optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
 ## Status
 
