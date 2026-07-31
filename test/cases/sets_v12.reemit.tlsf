@@ -1,0 +1,61 @@
+INFO {
+  TITLE:       "sets_v12";
+  DESCRIPTION: "TLSF v1.2 sets, aliases, membership, and reductions";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+GLOBAL {
+
+  DEFINITIONS {
+    S = {1, 2 .. 5};
+    T = {2, 3, 7};
+    U0 = (S (+) T);
+    I0 = (S (*) T);
+    D0 = (S (-) T);
+    U1 = (S (+) T);
+    I1 = (S (*) T);
+    D1 = (S (-) T);
+    D2 = (S (-) T);
+    total = +[i IN S] i;
+    product = *[i IN {1, 2, 3}] i;
+    unions = (+)[i IN {{1, 2}, {2, 3}}] i;
+    intersections = (*)[i IN {{1, 2}, {2, 3}}] i;
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    @a;
+  }
+
+  OUTPUTS {
+    p[0..(8 - 1)];
+  }
+
+    GUARANTEE {
+      &&[i IN S] &&[j IN {0, 1}] p[(i + j)];
+      ||[i IN {1}] p[i];
+      (3 IN S);
+      (SIZE (U0) == 6);
+      (SIZE (S) == 5);
+      (SIZE (U1) == 6);
+      (SIZE (I1) == 2);
+      (SIZE (D1) == 3);
+      (SIZE (D2) == 3);
+      (MIN (D0) == 1);
+      (MAX (D0) == 5);
+      (total == 15);
+      (product == 6);
+      (SIZE (unions) == 3);
+      (SIZE (intersections) == 1);
+      !(false);
+      (true && true);
+      (true || false);
+      (false -> true);
+      (true <-> true);
+    }
+
+}

@@ -1,0 +1,28 @@
+INFO {
+  TITLE: "aliases_v12"
+  DESCRIPTION: "TLSF v1.2 alternative operator names"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE {
+    NOT false;
+    true AND true;
+    true OR false;
+    false IMPLIES true;
+    true EQUIV true;
+    1 PLUS 2 EQ 3;
+    4 MINUS 1 NEQ 2;
+    2 MUL 3 GEQ 6;
+    8 DIV 2 GE 3;
+    7 MOD 4 LEQ 3;
+    2 LE 3;
+    3 ELEM {1, 2, 3};
+    3 <- {1, 2, 3};
+    3 /= 2;
+    NOT 1 EQ 2;
+    NOT 0 IN {1};
+  }
+}

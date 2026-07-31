@@ -34,9 +34,9 @@ static int comment_depth = 0;
  * literal like 01 or 10 would otherwise be lexed as a decimal integer). */
 %x ENUM
 
-ALPHA       [a-zA-Z_]
+ALPHA       [a-zA-Z_@]
 /* Identifiers may contain primes (syfco's default prime symbol) and @, as in
- * value' or req@i; they still must start with a letter or underscore. */
+ * value' or req@i; TLSF also permits @ as the first character. */
 ALNUM       [a-zA-Z0-9_'@]
 DIGIT       [0-9]
 INT         {DIGIT}+
@@ -114,6 +114,18 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 
   /* --- Keyword operators --- */
 "SIZEOF"            { return TOK_SIZEOF; }
+"SIZE"              { return TOK_SET_SIZE; }
+"MIN"               { return TOK_SET_MIN; }
+"MAX"               { return TOK_SET_MAX; }
+"SUM"               { return TOK_PLUS; }
+"PROD"              { return TOK_STAR; }
+"CUP"               { return TOK_SET_UNION; }
+"CAP"               { return TOK_SET_INTER; }
+"SETMINUS"          { return TOK_SET_DIFF; }
+"FORALL"            { return TOK_AND; }
+"EXISTS"            { return TOK_OR; }
+"IN"                { return TOK_IN; }
+"ELEM"              { return TOK_IN; }
 "otherwise"         { return TOK_OTHERWISE; }
 
   /* --- LTL operators (single-char temporal first to avoid prefix match) ---
@@ -125,9 +137,13 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 "U"                 { return TOK_UNTIL; }
 "R"                 { return TOK_RELEASE; }
 "W"                 { return TOK_WEAK; }
-"M"                 { return TOK_STRONG_REL; }
 
   /* --- Boolean operators --- */
+"NOT"               { return TOK_NOT; }
+"AND"               { return TOK_AND; }
+"OR"                { return TOK_OR; }
+"IMPLIES"           { return TOK_IMPL; }
+"EQUIV"             { return TOK_EQUIV; }
 "!"                 { return TOK_NOT; }
 "&&"                { return TOK_AND; }
 "||"                { return TOK_OR; }
@@ -135,9 +151,27 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 "<->"               { return TOK_EQUIV; }
 
   /* --- Integer / comparison operators --- */
+"(+)"               { return TOK_SET_UNION; }
+"(*)"               { return TOK_SET_INTER; }
+"(-)"               { return TOK_SET_DIFF; }
+[(][\\][)]          { return TOK_SET_DIFF; }
+"PLUS"              { return TOK_PLUS; }
+"MINUS"             { return TOK_MINUS; }
+"MUL"               { return TOK_STAR; }
+"DIV"               { return TOK_SLASH; }
+"MOD"               { return TOK_PERCENT; }
+"EQ"                { return TOK_EQ; }
+"NEQ"               { return TOK_NEQ; }
+"LEQ"               { return TOK_LEQ; }
+"GEQ"               { return TOK_GEQ; }
+"GEG"               { return TOK_GEQ; }
+"LE"                { return TOK_LT; }
+"GE"                { return TOK_GT; }
+"<-"                { return TOK_IN; }
 "+"                 { return TOK_PLUS; }
 "-"                 { return TOK_MINUS; }
 "*"                 { return TOK_STAR; }
+"/="                { return TOK_NEQ; }
 "/"                 { return TOK_SLASH; }
 "%"                 { return TOK_PERCENT; }
 "=="                { return TOK_EQ; }
@@ -146,8 +180,11 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 ">="                { return TOK_GEQ; }
 "<"                 { return TOK_LT; }
 ">"                 { return TOK_GT; }
+"~"                 { return TOK_MATCH; }
 
   /* --- Punctuation --- */
+"[!"                { return TOK_LBRACKET_STRONG; }
+"!]"                { return TOK_RBRACKET_STRONG; }
 "{"                 { return TOK_LBRACE; }
 "}"                 { return TOK_RBRACE; }
 "("                 { return TOK_LPAREN; }
@@ -157,6 +194,7 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 ","                 { return TOK_COMMA; }
 ";"                 { return TOK_SEMI; }
 ":"                 { return TOK_COLON; }
+"|"                 { return TOK_BAR; }
 "="                 { return TOK_ASSIGN; }
 ".."                { return TOK_DOTDOT; }
 

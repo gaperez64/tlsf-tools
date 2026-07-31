@@ -1,0 +1,11 @@
+INFO {
+  TITLE: "precedence_v12"
+  DESCRIPTION: "TLSF v1.2 temporal precedence and associativity"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; c; }
+  OUTPUTS { o; }
+  GUARANTEE { a U b W c; a R b R c; }
+}

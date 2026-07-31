@@ -1,0 +1,3 @@
+INFO { TITLE: "ident_m_enum" DESCRIPTION: "M as an enum label" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { DEFINITIONS { enum Choice = M: 0 N: 1; } }
+MAIN { INPUTS { Choice state; } OUTPUTS { o; } GUARANTEE { state == M; } }

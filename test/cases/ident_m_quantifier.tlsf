@@ -1,0 +1,2 @@
+INFO { TITLE: "ident_m_quantifier" DESCRIPTION: "M as a quantifier variable" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { a; } OUTPUTS { p[2]; } GUARANTEE { &&[M IN {0, 1}] p[M]; } }

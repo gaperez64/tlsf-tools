@@ -152,8 +152,20 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
   case NODE_PATTERN:
   case NODE_SET:
   case NODE_SET_ENUM:
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+  case NODE_IN:
+  case NODE_MATCH:
   case NODE_FORALL:
   case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
   case NODE_KIND_COUNT:
     assert(false && "to_nnf: unexpected node kind (call expand() first)");
     return nullptr;

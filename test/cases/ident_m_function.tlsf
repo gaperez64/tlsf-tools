@@ -1,0 +1,3 @@
+INFO { TITLE: "ident_m_function" DESCRIPTION: "M as a function name" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { DEFINITIONS { M(a, b) = b U (a && b); } }
+MAIN { INPUTS { a; b; } OUTPUTS { o; } GUARANTEE { G M(a, b); } }

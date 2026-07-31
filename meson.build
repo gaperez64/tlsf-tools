@@ -90,8 +90,8 @@ endif
 sanitize = get_option('sanitize')
 if sanitize != 'none'
   san_flags = ['-fsanitize=' + sanitize, '-fno-omit-frame-pointer']
-  add_project_arguments(san_flags, language: 'c')
-  add_project_link_arguments(san_flags, language: 'c')
+  add_project_arguments(san_flags, language: ['c', 'cpp'])
+  add_project_link_arguments(san_flags, language: ['c', 'cpp'])
 endif
 
 # ---------------------------------------------------------------------------
@@ -102,6 +102,7 @@ flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
 # Optional: used by wrapper/benchmark tests that shell out to ltlsynt.
 ltlsynt = find_program('ltlsynt', required: false)
+spot_dep = dependency('libspot', required: false)
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
 python3 = find_program('python3', required: false)
@@ -231,6 +232,7 @@ lib_sources = [
   'src/arena.c',
   'src/intern.c',
   'src/ast.c',
+  'src/ast_api.c',
   'src/spec.c',
   'src/cli.c',
   'src/expand.c',
@@ -274,7 +276,7 @@ tlsf_lib = static_library(
   c_args: lib_c_args,
   dependencies: lib_deps,
   install: true,
-  pic: false,
+  pic: true,
 )
 
 tlsf_dep = declare_dependency(
@@ -284,6 +286,8 @@ tlsf_dep = declare_dependency(
 )
 
 install_headers(
+  'include/tlsf/ast_api.h',
+  'include/tlsf/ast_api.hpp',
   'include/tlsf/decompose.h',
   'include/tlsf/decompose.hpp',
   subdir: 'tlsf',
@@ -409,6 +413,36 @@ decompose_cpp_exe = executable(
 )
 test('decompose_cpp', decompose_cpp_exe)
 
+ast_visitor_exe = executable(
+  'ast_visitor',
+  sources: ['test/ast_visitor.c'],
+  include_directories: inc,
+  link_with: tlsf_lib,
+  dependencies: lib_deps,
+)
+test('ast_visitor', ast_visitor_exe)
+
+visitor_cpp_exe = executable(
+  'visitor_cpp',
+  sources: ['test/visitor_cpp.cpp'],
+  include_directories: inc,
+  link_with: tlsf_lib,
+  dependencies: lib_deps,
+)
+test('visitor_cpp', visitor_cpp_exe)
+
+if spot_dep.found()
+  tlsf2spot_exe = executable(
+    'tlsf2spot',
+    sources: ['examples/tlsf2spot.cpp'],
+    include_directories: inc,
+    link_with: tlsf_lib,
+    dependencies: [spot_dep] + lib_deps,
+  )
+  test('tlsf2spot', tlsf2spot_exe,
+    args: [files('test/cases/cluster_split.tlsf')])
+endif
+
 # ---------------------------------------------------------------------------
 # Integration / regression tests (golden-output diffs)
 #
@@ -505,6 +539,53 @@ test('tlsf_ranges_reemit', check,
 test('ltl_ident_m', check,
   args: [files('test/cases/ident_m.ltl'),
          tlsf2ltl_exe, files('test/cases/ident_m.tlsf')])
+
+foreach c : ['ident_m_function', 'ident_m_signal', 'ident_m_formal',
+             'ident_m_enum', 'ident_m_quantifier']
+  test('ltl_' + c, check,
+    args: [files('test/cases/' + c + '.ltl'),
+           tlsf2ltl_exe, files('test/cases/' + c + '.tlsf')])
+endforeach
+
+test('err_infix_m_v12', check_fail_stderr,
+  args: [files('test/cases/bad_infix_m.stderr'), tlsf2ltl_exe,
+         files('test/cases/bad_infix_m.tlsf')])
+
+test('ltl_precedence_v12', check,
+  args: [files('test/cases/precedence_v12.ltl'), tlsf2ltl_exe,
+         '--parenthesize', files('test/cases/precedence_v12.tlsf')])
+
+test('ltl_sets_v12', check,
+  args: [files('test/cases/sets_v12.ltl'), tlsf2ltl_exe,
+         files('test/cases/sets_v12.tlsf')])
+test('tlsf_sets_v12_reemit', check,
+  args: [files('test/cases/sets_v12.reemit.tlsf'), tlsf2tlsf_exe,
+         files('test/cases/sets_v12.tlsf')])
+test('ltl_aliases_v12', check,
+  args: [files('test/cases/aliases_v12.ltl'), tlsf2ltl_exe,
+         files('test/cases/aliases_v12.tlsf')])
+test('ltl_strong_bounds_v12', check,
+  args: [files('test/cases/strong_bounds_v12.ltl'), tlsf2ltl_exe,
+         files('test/cases/strong_bounds_v12.tlsf')])
+test('ltl_pattern_v12', check,
+  args: [files('test/cases/pattern_v12.ltl'), tlsf2ltl_exe,
+         files('test/cases/pattern_v12.tlsf')])
+test('err_pattern_conflict_v12', check_fail_stderr,
+  args: [files('test/cases/pattern_conflict_v12.stderr'), tlsf2ltl_exe,
+         files('test/cases/pattern_conflict_v12.tlsf')])
+
+test('ltl_nnf_m_v12', check,
+  args: [files('test/cases/nnf_m_v12.nnf.ltl'), tlsf2ltl_exe, '--nnf',
+         files('test/cases/nnf_m_v12.tlsf')])
+test('ltl_nnf_m_lowered_v12', check,
+  args: [files('test/cases/nnf_m_v12.nsr.ltl'), tlsf2ltl_exe, '--nnf',
+         '--no-strong-release', files('test/cases/nnf_m_v12.tlsf')])
+test('tlsf_nnf_m_v12', check,
+  args: [files('test/cases/nnf_m_v12.norm.tlsf'), tlsfnorm_exe,
+         '--passes', 'nnf', files('test/cases/nnf_m_v12.tlsf')])
+test('tlsf_nnf_m_roundtrip_v12', files('test/check_roundtrip.sh'),
+  args: [tlsfnorm_exe, tlsf2ltl_exe,
+         files('test/cases/nnf_m_v12.tlsf')])
 
 # enum definitions: typed-bus declaration, bus == LABEL bit match, and the
 # implicit validity invariant.

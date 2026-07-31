@@ -1,0 +1,11 @@
+INFO {
+  TITLE: "strong_bounds_v12"
+  DESCRIPTION: "TLSF v1.2 strong bounded temporal sugar"
+  SEMANTICS: Finite,Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { b; }
+  GUARANTEE { X[!2] a; X[2!] b; F[0:2!] b; G[!1:2] b; }
+}

@@ -11,8 +11,6 @@ MAIN {
     a;
     a U false;
     b R false;
-    c M false;
-    false M d;
     !true;
   }
 }

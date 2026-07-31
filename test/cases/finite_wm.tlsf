@@ -9,7 +9,6 @@ MAIN {
   OUTPUTS { g; }
   GUARANTEE {
     g W r;
-    g M r;
     X[!] g;
     X g
   }

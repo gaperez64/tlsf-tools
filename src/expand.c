@@ -112,12 +112,17 @@ static Node *subst(Arena *a, const Node *n, const char *const *formals,
     return m;
   }
   case NODE_FORALL:
-  case NODE_EXISTS: {
+  case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER: {
     Node *m = ARENA_ALLOC(a, Node);
     m->kind = n->kind;
     m->qvar = n->qvar;
-    m->qlo = subst(a, n->qlo, formals, actuals, nf);
-    m->qhi = subst(a, n->qhi, formals, actuals, nf);
+    m->qlo = n->qlo ? subst(a, n->qlo, formals, actuals, nf) : nullptr;
+    m->qhi = n->qhi ? subst(a, n->qhi, formals, actuals, nf) : nullptr;
+    m->qset = n->qset ? subst(a, n->qset, formals, actuals, nf) : nullptr;
     m->qbody = subst(a, n->qbody, formals, actuals, nf);
     m->qlo_strict = n->qlo_strict;
     m->qhi_strict = n->qhi_strict;
@@ -131,6 +136,17 @@ static Node *subst(Arena *a, const Node *n, const char *const *formals,
     m->qlo = subst(a, n->qlo, formals, actuals, nf);
     m->qhi = subst(a, n->qhi, formals, actuals, nf);
     m->qbody = subst(a, n->qbody, formals, actuals, nf);
+    m->bounded.strong = n->bounded.strong;
+    return m;
+  }
+  case NODE_SET:
+  case NODE_SET_ENUM: {
+    Node *m = ARENA_ALLOC(a, Node);
+    m->kind = n->kind;
+    m->set_size = n->set_size;
+    m->set_elems = ARENA_ALLOC_N(a, Node *, n->set_size);
+    for (uint16_t i = 0; i < n->set_size; i++)
+      m->set_elems[i] = subst(a, n->set_elems[i], formals, actuals, nf);
     return m;
   }
   case NODE_NOT:
@@ -142,6 +158,22 @@ static Node *subst(Arena *a, const Node *n, const char *const *formals,
     Node *m = ARENA_ALLOC(a, Node);
     m->kind = n->kind;
     m->arg = subst(a, n->arg, formals, actuals, nf);
+    return m;
+  }
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX: {
+    Node *m = ARENA_ALLOC(a, Node);
+    m->kind = n->kind;
+    m->arg = subst(a, n->arg, formals, actuals, nf);
+    return m;
+  }
+  case NODE_NEXT_N: {
+    Node *m = ARENA_ALLOC(a, Node);
+    m->kind = n->kind;
+    m->lhs = subst(a, n->lhs, formals, actuals, nf);
+    m->rhs = subst(a, n->rhs, formals, actuals, nf);
+    m->bounded.strong = n->bounded.strong;
     return m;
   }
   default: { // all binary nodes (boolean / temporal / arithmetic / compare)
@@ -180,6 +212,41 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
                      int64_t *out, int depth);
 static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
                       bool *out, int depth);
+static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
+                         bool *ok, int depth);
+static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
+                              const Env *env, Node **out, int depth);
+
+typedef enum EvalValueKind {
+  EVAL_VALUE_INT,
+  EVAL_VALUE_NODE,
+  EVAL_VALUE_SET,
+} EvalValueKind;
+
+typedef struct EvalSet EvalSet;
+
+typedef struct EvalValue {
+  EvalValueKind kind;
+  int64_t integer;
+  const Node *node;
+  EvalSet *set;
+  const Node *source;
+} EvalValue;
+
+struct EvalSet {
+  EvalValue *items;
+  uint32_t count;
+};
+
+static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
+                       EvalValue *out, int depth);
+static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
+                     EvalSet **out, int depth);
+static bool eval_int_reduction(const TlsfSpec *spec, const Node *n,
+                               const Env *env, int64_t *out, int depth);
+static bool eval_set_reduction(const TlsfSpec *spec, const Node *n,
+                               const Env *env, EvalSet **out, int depth);
+static bool value_equal(const EvalValue *lhs, const EvalValue *rhs);
 
 static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
                      int64_t *out, int depth) {
@@ -209,6 +276,42 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
       return false;
     }
     return true;
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX: {
+    EvalSet *set;
+    if (!eval_set(spec, n->arg, env, &set, depth + 1))
+      return false;
+    if (n->kind == NODE_SET_SIZE) {
+      *out = (int64_t)set->count;
+      return true;
+    }
+    if (set->count == 0) {
+      fprintf(stderr, "expand: %s of an empty set\n",
+              n->kind == NODE_SET_MIN ? "MIN" : "MAX");
+      return false;
+    }
+    int64_t value;
+    if (set->items[0].kind != EVAL_VALUE_INT) {
+      fprintf(stderr, "expand: %s requires a set of integers\n",
+              n->kind == NODE_SET_MIN ? "MIN" : "MAX");
+      return false;
+    }
+    value = set->items[0].integer;
+    for (uint32_t i = 1; i < set->count; i++) {
+      if (set->items[i].kind != EVAL_VALUE_INT) {
+        fprintf(stderr, "expand: %s requires a set of integers\n",
+                n->kind == NODE_SET_MIN ? "MIN" : "MAX");
+        return false;
+      }
+      int64_t x = set->items[i].integer;
+      if ((n->kind == NODE_SET_MIN && x < value) ||
+          (n->kind == NODE_SET_MAX && x > value))
+        value = x;
+    }
+    *out = value;
+    return true;
+  }
   case NODE_INT_NEG: {
     int64_t a;
     if (!eval_int(spec, n->arg, env, &a, depth))
@@ -228,11 +331,14 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
     return eval_int(spec, body, env, out, depth + 1);
   }
   case NODE_ITE: {
-    bool c;
-    if (!eval_bool(spec, n->if_cond, env, &c, depth))
+    Node *branch;
+    if (!select_ite_branch(spec, n, env, &branch, depth + 1))
       return false;
-    return eval_int(spec, c ? n->if_then : n->if_else, env, out, depth);
+    return eval_int(spec, branch, env, out, depth + 1);
   }
+  case NODE_SUM:
+  case NODE_PRODUCT:
+    return eval_int_reduction(spec, n, env, out, depth + 1);
   case NODE_INT_ADD:
   case NODE_INT_SUB:
   case NODE_INT_MUL:
@@ -285,7 +391,15 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
     *out = false;
     return true;
   case NODE_CMP_EQ:
-  case NODE_CMP_NE:
+  case NODE_CMP_NE: {
+    EvalValue a, b;
+    if (!eval_value(spec, n->lhs, env, &a, depth + 1) ||
+        !eval_value(spec, n->rhs, env, &b, depth + 1))
+      return false;
+    bool equal = value_equal(&a, &b);
+    *out = n->kind == NODE_CMP_EQ ? equal : !equal;
+    return true;
+  }
   case NODE_CMP_LT:
   case NODE_CMP_LE:
   case NODE_CMP_GT:
@@ -295,12 +409,6 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
         !eval_int(spec, n->rhs, env, &b, depth))
       return false;
     switch (n->kind) {
-    case NODE_CMP_EQ:
-      *out = a == b;
-      break;
-    case NODE_CMP_NE:
-      *out = a != b;
-      break;
     case NODE_CMP_LT:
       *out = a < b;
       break;
@@ -314,6 +422,20 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
       *out = a >= b;
       break;
     }
+    return true;
+  }
+  case NODE_IN: {
+    EvalValue value;
+    EvalSet *set;
+    if (!eval_value(spec, n->lhs, env, &value, depth + 1) ||
+        !eval_set(spec, n->rhs, env, &set, depth + 1))
+      return false;
+    *out = false;
+    for (uint32_t i = 0; i < set->count; i++)
+      if (value_equal(&value, &set->items[i])) {
+        *out = true;
+        break;
+      }
     return true;
   }
   case NODE_NOT: {
@@ -348,10 +470,10 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
     return true;
   }
   case NODE_ITE: {
-    bool c;
-    if (!eval_bool(spec, n->if_cond, env, &c, depth))
+    Node *branch;
+    if (!select_ite_branch(spec, n, env, &branch, depth + 1))
       return false;
-    return eval_bool(spec, c ? n->if_then : n->if_else, env, out, depth);
+    return eval_bool(spec, branch, env, out, depth + 1);
   }
   case NODE_DEF_CALL: {
     const DefDecl *d = find_def(spec, n->callee, n->call_argc);
@@ -371,11 +493,555 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
 }
 
 // ===========================================================================
-// Formula expansion
+// General values and sets
 // ===========================================================================
 
-static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
-                         bool *ok, int depth);
+static bool node_structural_equal(const Node *lhs, const Node *rhs) {
+  if (lhs == rhs)
+    return true;
+  if (!lhs || !rhs || lhs->kind != rhs->kind)
+    return false;
+  switch (lhs->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+    return true;
+  case NODE_INT:
+    return lhs->ival == rhs->ival;
+  case NODE_AP:
+  case NODE_INT_VAR:
+    return lhs->name == rhs->name;
+  case NODE_SIZEOF:
+    return lhs->sizeof_name == rhs->sizeof_name;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+  case NODE_INT_NEG:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+    return node_structural_equal(lhs->arg, rhs->arg);
+  case NODE_BUS_INDEX:
+    return lhs->bus_name == rhs->bus_name &&
+           node_structural_equal(lhs->bus_index, rhs->bus_index);
+  case NODE_DEF_CALL:
+  case NODE_PATTERN:
+    if (lhs->callee != rhs->callee || lhs->call_argc != rhs->call_argc)
+      return false;
+    for (uint16_t i = 0; i < lhs->call_argc; i++)
+      if (!node_structural_equal(lhs->call_args[i], rhs->call_args[i]))
+        return false;
+    return true;
+  case NODE_ITE:
+    return node_structural_equal(lhs->if_cond, rhs->if_cond) &&
+           node_structural_equal(lhs->if_then, rhs->if_then) &&
+           node_structural_equal(lhs->if_else, rhs->if_else);
+  case NODE_FORALL:
+  case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
+    return lhs->qvar == rhs->qvar &&
+           node_structural_equal(lhs->qlo, rhs->qlo) &&
+           node_structural_equal(lhs->qhi, rhs->qhi) &&
+           node_structural_equal(lhs->qset, rhs->qset) &&
+           node_structural_equal(lhs->qbody, rhs->qbody) &&
+           lhs->qlo_strict == rhs->qlo_strict &&
+           lhs->qhi_strict == rhs->qhi_strict;
+  case NODE_G_RANGE:
+  case NODE_F_RANGE:
+    return node_structural_equal(lhs->qlo, rhs->qlo) &&
+           node_structural_equal(lhs->qhi, rhs->qhi) &&
+           node_structural_equal(lhs->qbody, rhs->qbody) &&
+           lhs->bounded.strong == rhs->bounded.strong;
+  case NODE_SET:
+  case NODE_SET_ENUM:
+    if (lhs->set_size != rhs->set_size)
+      return false;
+    for (uint16_t i = 0; i < lhs->set_size; i++)
+      if (!node_structural_equal(lhs->set_elems[i], rhs->set_elems[i]))
+        return false;
+    return true;
+  default:
+    return node_structural_equal(lhs->lhs, rhs->lhs) &&
+           node_structural_equal(lhs->rhs, rhs->rhs);
+  }
+}
+
+static bool value_equal(const EvalValue *lhs, const EvalValue *rhs) {
+  if (lhs->kind != rhs->kind)
+    return false;
+  switch (lhs->kind) {
+  case EVAL_VALUE_INT:
+    return lhs->integer == rhs->integer;
+  case EVAL_VALUE_NODE:
+    return node_structural_equal(lhs->node, rhs->node);
+  case EVAL_VALUE_SET:
+    if (lhs->set->count != rhs->set->count)
+      return false;
+    for (uint32_t i = 0; i < lhs->set->count; i++) {
+      bool found = false;
+      for (uint32_t j = 0; j < rhs->set->count; j++)
+        if (value_equal(&lhs->set->items[i], &rhs->set->items[j])) {
+          found = true;
+          break;
+        }
+      if (!found)
+        return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+static EvalSet *set_new(Arena *arena) { return ARENA_ALLOC(arena, EvalSet); }
+
+static bool set_add(Arena *arena, EvalSet *set, EvalValue value) {
+  for (uint32_t i = 0; i < set->count; i++)
+    if (value_equal(&set->items[i], &value))
+      return true;
+  EvalValue *items = ARENA_ALLOC_N(arena, EvalValue, set->count + 1);
+  if (!items)
+    return false;
+  for (uint32_t i = 0; i < set->count; i++)
+    items[i] = set->items[i];
+  items[set->count++] = value;
+  set->items = items;
+  return true;
+}
+
+static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
+                       EvalValue *out, int depth) {
+  if (depth > MAX_DEPTH) {
+    fprintf(stderr, "expand: recursion too deep\n");
+    return false;
+  }
+  out->source = n;
+  switch (n->kind) {
+  case NODE_INT:
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD:
+  case NODE_INT_NEG:
+  case NODE_SIZEOF:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+    out->kind = EVAL_VALUE_INT;
+    return eval_int(spec, n, env, &out->integer, depth + 1);
+  case NODE_SET:
+  case NODE_SET_ENUM:
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
+    out->kind = EVAL_VALUE_SET;
+    return eval_set(spec, n, env, &out->set, depth + 1);
+  case NODE_AP:
+  case NODE_INT_VAR:
+    if (env_lookup(env, n->name, &out->integer)) {
+      out->kind = EVAL_VALUE_INT;
+      return true;
+    }
+    {
+      const DefDecl *d = find_def(spec, n->name, 0);
+      if (d)
+        return eval_value(spec, d->body, env, out, depth + 1);
+    }
+    out->kind = EVAL_VALUE_NODE;
+    out->node = n;
+    return true;
+  case NODE_DEF_CALL: {
+    const DefDecl *d = find_def(spec, n->callee, n->call_argc);
+    if (!d) {
+      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
+              n->call_argc);
+      return false;
+    }
+    Node *body =
+        subst(spec->arena, d->body, d->params, n->call_args, d->param_count);
+    return eval_value(spec, body, env, out, depth + 1);
+  }
+  case NODE_ITE: {
+    Node *branch;
+    if (!select_ite_branch(spec, n, env, &branch, depth + 1))
+      return false;
+    return eval_value(spec, branch, env, out, depth + 1);
+  }
+  default:
+    out->kind = EVAL_VALUE_NODE;
+    out->node = n;
+    return true;
+  }
+}
+
+static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
+                     EvalSet **out, int depth) {
+  if (depth > MAX_DEPTH) {
+    fprintf(stderr, "expand: recursion too deep\n");
+    return false;
+  }
+  Arena *arena = spec->arena;
+  if (n->kind == NODE_SET) {
+    EvalSet *set = set_new(arena);
+    if (!set)
+      return false;
+    for (uint16_t i = 0; i < n->set_size; i++) {
+      EvalValue value;
+      if (!eval_value(spec, n->set_elems[i], env, &value, depth + 1) ||
+          !set_add(arena, set, value))
+        return false;
+    }
+    *out = set;
+    return true;
+  }
+  if (n->kind == NODE_SET_ENUM) {
+    int64_t first, second, last;
+    if (n->set_size != 3 ||
+        !eval_int(spec, n->set_elems[0], env, &first, depth + 1) ||
+        !eval_int(spec, n->set_elems[1], env, &second, depth + 1) ||
+        !eval_int(spec, n->set_elems[2], env, &last, depth + 1))
+      return false;
+    int64_t step = second - first;
+    if (step == 0) {
+      fprintf(stderr, "expand: zero step in set range\n");
+      return false;
+    }
+    EvalSet *set = set_new(arena);
+    if (!set)
+      return false;
+    for (int64_t value = first;
+         (step > 0 && value <= last) || (step < 0 && value >= last);) {
+      Node *source = node_int(arena, value);
+      EvalValue item = {
+          .kind = EVAL_VALUE_INT, .integer = value, .source = source};
+      if (!set_add(arena, set, item))
+        return false;
+      if ((step > 0 && value > INT64_MAX - step) ||
+          (step < 0 && value < INT64_MIN - step))
+        break;
+      value += step;
+    }
+    *out = set;
+    return true;
+  }
+  if (n->kind == NODE_SET_UNION || n->kind == NODE_SET_INTER ||
+      n->kind == NODE_SET_DIFF) {
+    EvalSet *lhs, *rhs;
+    if (!eval_set(spec, n->lhs, env, &lhs, depth + 1) ||
+        !eval_set(spec, n->rhs, env, &rhs, depth + 1))
+      return false;
+    EvalSet *set = set_new(arena);
+    if (!set)
+      return false;
+    for (uint32_t i = 0; i < lhs->count; i++) {
+      bool in_rhs = false;
+      for (uint32_t j = 0; j < rhs->count; j++)
+        if (value_equal(&lhs->items[i], &rhs->items[j])) {
+          in_rhs = true;
+          break;
+        }
+      if ((n->kind == NODE_SET_INTER && in_rhs) ||
+          (n->kind == NODE_SET_DIFF && !in_rhs) || n->kind == NODE_SET_UNION)
+        if (!set_add(arena, set, lhs->items[i]))
+          return false;
+    }
+    if (n->kind == NODE_SET_UNION)
+      for (uint32_t i = 0; i < rhs->count; i++)
+        if (!set_add(arena, set, rhs->items[i]))
+          return false;
+    *out = set;
+    return true;
+  }
+  if (n->kind == NODE_AP || n->kind == NODE_INT_VAR) {
+    const DefDecl *d = find_def(spec, n->name, 0);
+    if (d)
+      return eval_set(spec, d->body, env, out, depth + 1);
+  }
+  if (n->kind == NODE_DEF_CALL) {
+    const DefDecl *d = find_def(spec, n->callee, n->call_argc);
+    if (!d) {
+      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
+              n->call_argc);
+      return false;
+    }
+    Node *body = subst(arena, d->body, d->params, n->call_args, d->param_count);
+    return eval_set(spec, body, env, out, depth + 1);
+  }
+  if (n->kind == NODE_ITE) {
+    Node *branch;
+    if (!select_ite_branch(spec, n, env, &branch, depth + 1))
+      return false;
+    return eval_set(spec, branch, env, out, depth + 1);
+  }
+  if (n->kind == NODE_SET_BIG_UNION || n->kind == NODE_SET_BIG_INTER) {
+    return eval_set_reduction(spec, n, env, out, depth + 1);
+  }
+  fprintf(stderr, "expand: non-set expression in set context\n");
+  return false;
+}
+
+static bool eval_domain(const TlsfSpec *spec, const Node *n, const Env *env,
+                        EvalSet **out, int depth) {
+  if (n->qset)
+    return eval_set(spec, n->qset, env, out, depth + 1);
+  int64_t lo, hi;
+  if (!eval_int(spec, n->qlo, env, &lo, depth + 1) ||
+      !eval_int(spec, n->qhi, env, &hi, depth + 1))
+    return false;
+  int64_t first = n->qlo_strict ? lo + 1 : lo;
+  int64_t last = n->qhi_strict ? hi - 1 : hi;
+  EvalSet *set = set_new(spec->arena);
+  if (!set)
+    return false;
+  for (int64_t value = first; value <= last;) {
+    EvalValue item = {.kind = EVAL_VALUE_INT,
+                      .integer = value,
+                      .source = node_int(spec->arena, value)};
+    if (!set_add(spec->arena, set, item))
+      return false;
+    if (value == INT64_MAX)
+      break;
+    value++;
+  }
+  *out = set;
+  return true;
+}
+
+static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
+                                const Env *env, const EvalValue *value,
+                                Env *child, const Env **body_env, Node **body) {
+  *body = n->qbody;
+  *body_env = env;
+  if (value->kind == EVAL_VALUE_INT) {
+    *child =
+        (Env){.b = {.name = n->qvar, .value = value->integer}, .parent = env};
+    *body_env = child;
+    return true;
+  }
+  if (!value->source) {
+    fprintf(stderr, "expand: set binder value cannot be substituted\n");
+    return false;
+  }
+  const char *formal = n->qvar;
+  Node *actual = (Node *)value->source;
+  *body = subst(spec->arena, n->qbody, &formal, &actual, 1);
+  return *body != nullptr;
+}
+
+static bool eval_int_reduction(const TlsfSpec *spec, const Node *n,
+                               const Env *env, int64_t *out, int depth) {
+  EvalSet *domain;
+  if (!eval_domain(spec, n, env, &domain, depth + 1))
+    return false;
+  int64_t acc = n->kind == NODE_PRODUCT ? 1 : 0;
+  for (uint32_t i = 0; i < domain->count; i++) {
+    Env child;
+    const Env *body_env;
+    Node *body;
+    int64_t value;
+    if (!bind_reduction_body(spec, n, env, &domain->items[i], &child, &body_env,
+                             &body) ||
+        !eval_int(spec, body, body_env, &value, depth + 1))
+      return false;
+    acc = n->kind == NODE_PRODUCT ? acc * value : acc + value;
+  }
+  *out = acc;
+  return true;
+}
+
+static bool eval_set_reduction(const TlsfSpec *spec, const Node *n,
+                               const Env *env, EvalSet **out, int depth) {
+  EvalSet *domain;
+  if (!eval_domain(spec, n, env, &domain, depth + 1))
+    return false;
+  if (n->kind == NODE_SET_BIG_INTER && domain->count == 0) {
+    fprintf(stderr, "expand: intersection over an empty domain\n");
+    return false;
+  }
+  EvalSet *acc = set_new(spec->arena);
+  if (!acc)
+    return false;
+  bool first = true;
+  for (uint32_t i = 0; i < domain->count; i++) {
+    Env child;
+    const Env *body_env;
+    Node *body;
+    EvalSet *term;
+    if (!bind_reduction_body(spec, n, env, &domain->items[i], &child, &body_env,
+                             &body) ||
+        !eval_set(spec, body, body_env, &term, depth + 1))
+      return false;
+    if (n->kind == NODE_SET_BIG_UNION) {
+      for (uint32_t j = 0; j < term->count; j++)
+        if (!set_add(spec->arena, acc, term->items[j]))
+          return false;
+    } else if (first) {
+      for (uint32_t j = 0; j < term->count; j++)
+        if (!set_add(spec->arena, acc, term->items[j]))
+          return false;
+    } else {
+      EvalSet *next = set_new(spec->arena);
+      if (!next)
+        return false;
+      for (uint32_t j = 0; j < acc->count; j++)
+        for (uint32_t k = 0; k < term->count; k++)
+          if (value_equal(&acc->items[j], &term->items[k])) {
+            if (!set_add(spec->arena, next, acc->items[j]))
+              return false;
+            break;
+          }
+      acc = next;
+    }
+    first = false;
+  }
+  *out = acc;
+  return true;
+}
+
+// ===========================================================================
+// Structural pattern guards
+// ===========================================================================
+
+typedef struct PatternBinding {
+  const char *name;
+  Node *value;
+  struct PatternBinding *next;
+} PatternBinding;
+
+static bool name_is_declared(const TlsfSpec *spec, const char *name) {
+  for (uint16_t i = 0; i < spec->param_count; i++)
+    if (spec->params[i].name == name)
+      return true;
+  for (uint16_t i = 0; i < spec->def_count; i++)
+    if (spec->defs[i].name == name)
+      return true;
+  for (uint32_t i = 0; i < spec->input_count; i++)
+    if (spec->inputs[i].name == name)
+      return true;
+  for (uint32_t i = 0; i < spec->output_count; i++)
+    if (spec->outputs[i].name == name)
+      return true;
+  return false;
+}
+
+static bool match_pattern(const TlsfSpec *spec, Node *subject,
+                          const Node *pattern, PatternBinding **bindings,
+                          bool *ok) {
+  if (pattern->kind == NODE_AP) {
+    if (strcmp(pattern->name, "_") == 0)
+      return true;
+    if (name_is_declared(spec, pattern->name)) {
+      fprintf(stderr,
+              "expand: Binding Error: pattern identifier '%s' has a "
+              "conflicting definition\n",
+              pattern->name);
+      *ok = false;
+      return false;
+    }
+    for (PatternBinding *b = *bindings; b; b = b->next)
+      if (b->name == pattern->name)
+        return node_structural_equal(b->value, subject);
+    PatternBinding *binding = ARENA_ALLOC(spec->arena, PatternBinding);
+    if (!binding) {
+      *ok = false;
+      return false;
+    }
+    binding->name = pattern->name;
+    binding->value = subject;
+    binding->next = *bindings;
+    *bindings = binding;
+    return true;
+  }
+  if (subject->kind != pattern->kind)
+    return false;
+  switch (pattern->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+    return true;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return match_pattern(spec, subject->arg, pattern->arg, bindings, ok);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return match_pattern(spec, subject->lhs, pattern->lhs, bindings, ok) &&
+           match_pattern(spec, subject->rhs, pattern->rhs, bindings, ok);
+  case NODE_DEF_CALL:
+    fprintf(stderr,
+            "expand: Binding Error: pattern identifier '%s' has a "
+            "conflicting definition\n",
+            pattern->callee);
+    *ok = false;
+    return false;
+  default:
+    return false;
+  }
+}
+
+static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
+                              const Env *env, Node **out, int depth) {
+  if (n->if_cond->kind != NODE_MATCH) {
+    bool condition;
+    if (!eval_bool(spec, n->if_cond, env, &condition, depth + 1))
+      return false;
+    *out = condition ? n->if_then : n->if_else;
+    return true;
+  }
+
+  bool ok = true;
+  Node *subject =
+      expand_node((TlsfSpec *)spec, n->if_cond->lhs, env, &ok, depth + 1);
+  if (!ok)
+    return false;
+  PatternBinding *bindings = nullptr;
+  bool matched = match_pattern(spec, subject, n->if_cond->rhs, &bindings, &ok);
+  if (!ok)
+    return false;
+  if (!matched) {
+    *out = n->if_else;
+    return true;
+  }
+
+  uint16_t count = 0;
+  for (PatternBinding *b = bindings; b; b = b->next)
+    count++;
+  if (count == 0) {
+    *out = n->if_then;
+    return true;
+  }
+  const char **formals = ARENA_ALLOC_N(spec->arena, const char *, count);
+  Node **actuals = ARENA_ALLOC_N(spec->arena, Node *, count);
+  if (!formals || !actuals)
+    return false;
+  uint16_t i = 0;
+  for (PatternBinding *b = bindings; b; b = b->next) {
+    formals[i] = b->name;
+    actuals[i] = b->value;
+    i++;
+  }
+  *out = subst(spec->arena, n->if_then, formals, actuals, count);
+  return *out != nullptr;
+}
+
+// ===========================================================================
+// Formula expansion
+// ===========================================================================
 
 static const char *bus_elem_name(TlsfSpec *spec, const char *bus, int64_t idx) {
   char buf[256];
@@ -385,23 +1051,27 @@ static const char *bus_elem_name(TlsfSpec *spec, const char *bus, int64_t idx) {
 
 static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
                                bool *ok, int depth) {
-  int64_t lo, hi;
-  if (!eval_int(spec, n->qlo, env, &lo, depth) ||
-      !eval_int(spec, n->qhi, env, &hi, depth)) {
+  EvalSet *domain;
+  if (!eval_domain(spec, n, env, &domain, depth + 1)) {
     *ok = false;
     return nullptr;
   }
-  int64_t start = n->qlo_strict ? lo + 1 : lo;
-  int64_t end = n->qhi_strict ? hi - 1 : hi;
   bool is_all = (n->kind == NODE_FORALL);
 
-  if (start > end)
+  if (domain->count == 0)
     return is_all ? node_true(spec->arena) : node_false(spec->arena);
 
   Node *acc = nullptr;
-  for (int64_t v = start; v <= end; v++) {
-    Env child = {.b = {.name = n->qvar, .value = v}, .parent = env};
-    Node *term = expand_node(spec, n->qbody, &child, ok, depth);
+  for (uint32_t i = 0; i < domain->count; i++) {
+    Env child;
+    const Env *body_env;
+    Node *body;
+    if (!bind_reduction_body(spec, n, env, &domain->items[i], &child, &body_env,
+                             &body)) {
+      *ok = false;
+      return nullptr;
+    }
+    Node *term = expand_node(spec, body, body_env, ok, depth + 1);
     if (!*ok)
       return nullptr;
     acc = !acc ? term
@@ -521,6 +1191,18 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     }
     return b ? node_true(a) : node_false(a);
   }
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_IN: {
+    bool value;
+    if (!eval_bool(spec, n, env, &value, depth + 1)) {
+      *ok = false;
+      return nullptr;
+    }
+    return value ? node_true(a) : node_false(a);
+  }
 
   case NODE_BUS_INDEX: {
     int64_t idx;
@@ -552,7 +1234,8 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
       return nullptr;
     Node *body = expanded_body;
     for (int64_t i = 0; i < count; i++)
-      body = node_x(a, body);
+      body = n->bounded.strong ? node_x_strong(a, body) : node_x(a, body);
+    body->bounded.strong = n->bounded.strong;
     node_set_bounded(body, BOUNDED_NEXT, count, count, expanded_body);
     return body;
   }
@@ -583,7 +1266,7 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
       if (!meta_body)
         meta_body = body;
       for (int64_t i = 0; i < k; i++)
-        body = node_x(a, body);
+        body = n->bounded.strong ? node_x_strong(a, body) : node_x(a, body);
       acc =
           acc ? (conj ? node_and(a, acc, body) : node_or(a, acc, body)) : body;
     }
@@ -591,6 +1274,7 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     // false.
     if (!acc)
       acc = conj ? node_true(a) : node_false(a);
+    acc->bounded.strong = n->bounded.strong;
     node_set_bounded(acc, conj ? BOUNDED_G_RANGE : BOUNDED_F_RANGE, lo, hi,
                      meta_body);
     return acc;
@@ -598,12 +1282,12 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
 
   // Definition guard: evaluate the condition, expand the chosen branch.
   case NODE_ITE: {
-    bool c;
-    if (!eval_bool(spec, n->if_cond, env, &c, depth)) {
+    Node *branch;
+    if (!select_ite_branch(spec, n, env, &branch, depth + 1)) {
       *ok = false;
       return nullptr;
     }
-    return expand_node(spec, c ? n->if_then : n->if_else, env, ok, depth);
+    return expand_node(spec, branch, env, ok, depth + 1);
   }
 
   // Definition call: substitute the actuals into the body and expand.

@@ -97,11 +97,11 @@ static void print_formula(FILE *out, const Node *n) {
     fprintf(out, ")");
     return;
   case NODE_M:
-    fprintf(out, "(");
+    fprintf(out, "!((!(");
     print_formula(out, n->lhs);
-    fprintf(out, " M ");
+    fprintf(out, ")) W (!(");
     print_formula(out, n->rhs);
-    fprintf(out, ")");
+    fprintf(out, ")))");
     return;
 
   // -- High-level nodes (present when the GLOBAL section is preserved, i.e.
@@ -157,6 +157,41 @@ static void print_formula(FILE *out, const Node *n) {
     fprintf(out, "SIZEOF %s", n->sizeof_name);
     return;
 
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+    fprintf(out, "%s (",
+            n->kind == NODE_SET_SIZE  ? "SIZE"
+            : n->kind == NODE_SET_MIN ? "MIN"
+                                      : "MAX");
+    print_formula(out, n->arg);
+    fprintf(out, ")");
+    return;
+
+  case NODE_SET:
+  case NODE_SET_ENUM:
+    fprintf(out, "{");
+    for (uint16_t i = 0; i < n->set_size; i++) {
+      if (i > 0)
+        fprintf(out, i == 2 && n->kind == NODE_SET_ENUM ? " .. " : ", ");
+      print_formula(out, n->set_elems[i]);
+    }
+    fprintf(out, "}");
+    return;
+
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " %s ",
+            n->kind == NODE_SET_UNION   ? "(+)"
+            : n->kind == NODE_SET_INTER ? "(*)"
+                                        : "(-)");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
+
   case NODE_BUS_INDEX:
     fprintf(out, "%s[", n->bus_name);
     print_formula(out, n->bus_index);
@@ -165,14 +200,30 @@ static void print_formula(FILE *out, const Node *n) {
 
   case NODE_FORALL:
   case NODE_EXISTS:
-    fprintf(out, "%s[", n->kind == NODE_FORALL ? "&&" : "||");
-    print_formula(out, n->qlo);
-    fprintf(out, " %s %s %s ", n->qlo_strict ? "<" : "<=", n->qvar,
-            n->qhi_strict ? "<" : "<=");
-    print_formula(out, n->qhi);
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER: {
+    const char *op = n->kind == NODE_FORALL          ? "&&"
+                     : n->kind == NODE_EXISTS        ? "||"
+                     : n->kind == NODE_SUM           ? "+"
+                     : n->kind == NODE_PRODUCT       ? "*"
+                     : n->kind == NODE_SET_BIG_UNION ? "(+)"
+                                                     : "(*)";
+    fprintf(out, "%s[", op);
+    if (n->qset) {
+      fprintf(out, "%s IN ", n->qvar);
+      print_formula(out, n->qset);
+    } else {
+      print_formula(out, n->qlo);
+      fprintf(out, " %s %s %s ", n->qlo_strict ? "<" : "<=", n->qvar,
+              n->qhi_strict ? "<" : "<=");
+      print_formula(out, n->qhi);
+    }
     fprintf(out, "] ");
     print_formula(out, n->qbody);
     return;
+  }
 
   case NODE_DEF_CALL:
     fprintf(out, "%s(", n->callee);
@@ -199,6 +250,15 @@ static void print_formula(FILE *out, const Node *n) {
     return;
   }
 
+  case NODE_IN:
+  case NODE_MATCH:
+    fprintf(out, "(");
+    print_formula(out, n->lhs);
+    fprintf(out, " %s ", n->kind == NODE_IN ? "IN" : "~");
+    print_formula(out, n->rhs);
+    fprintf(out, ")");
+    return;
+
   case NODE_ITE:
     print_formula(out, n->if_cond);
     fprintf(out, " : ");
@@ -208,7 +268,7 @@ static void print_formula(FILE *out, const Node *n) {
     return;
 
   case NODE_NEXT_N:
-    fprintf(out, "X[");
+    fprintf(out, n->bounded.strong ? "X[!" : "X[");
     print_formula(out, n->lhs);
     fprintf(out, "] (");
     print_formula(out, n->rhs);
@@ -217,7 +277,8 @@ static void print_formula(FILE *out, const Node *n) {
 
   case NODE_G_RANGE:
   case NODE_F_RANGE:
-    fprintf(out, "%c[", n->kind == NODE_G_RANGE ? 'G' : 'F');
+    fprintf(out, n->bounded.strong ? "%c[!" : "%c[",
+            n->kind == NODE_G_RANGE ? 'G' : 'F');
     print_formula(out, n->qlo);
     fprintf(out, ":");
     print_formula(out, n->qhi);

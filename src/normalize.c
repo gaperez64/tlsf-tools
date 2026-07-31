@@ -705,7 +705,7 @@ static Node *pre_bounded_bool(Arena *a, Node *n) {
     if (!all && n->qbody->kind == NODE_FALSE)
       return node_false(a); // ||[..] false = false
     int64_t lo, hi;
-    if (is_int_lit(n->qlo, &lo) && is_int_lit(n->qhi, &hi)) {
+    if (!n->qset && is_int_lit(n->qlo, &lo) && is_int_lit(n->qhi, &hi)) {
       int64_t l = lo + (n->qlo_strict ? 1 : 0);
       int64_t h = hi - (n->qhi_strict ? 1 : 0);
       if (l > h)

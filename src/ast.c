@@ -121,11 +121,13 @@ Node *node_m(Arena *a, Node *lhs, Node *rhs) {
 void node_set_bounded(Node *n, BoundedTemporalOrigin origin, int64_t lo,
                       int64_t hi, Node *body) {
   assert(n);
+  bool strong = n->bounded.strong;
   n->bounded = (BoundedTemporalMeta){
       .origin = origin,
       .lo = lo,
       .hi = hi,
       .body = body,
+      .strong = strong,
   };
 }
 

@@ -2,5 +2,5 @@ INFO { TITLE: "ops" DESCRIPTION: "operator coverage" SEMANTICS: Mealy TARGET: Me
 MAIN {
   INPUTS { a; } OUTPUTS { b; }
   ASSUME { !(a R b); }
-  GUARANTEE { a W b; a M b; a U b; a <-> b; !(F a); !(a U b); }
+  GUARANTEE { a W b; a U b; a <-> b; !(F a); !(a U b); }
 }

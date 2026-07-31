@@ -17,8 +17,6 @@ MAIN {
     false R b;
     a W false;
     false W b;
-    a M true;
-    true M b;
     a <-> a;
   }
 }

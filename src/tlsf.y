@@ -82,6 +82,42 @@
     return n;
   }
 
+  static Node *mk_unary(Arena *a, NodeKind kind, Node *arg) {
+    Node *n = ARENA_ALLOC(a, Node);
+    n->kind = kind;
+    n->arg = arg;
+    return n;
+  }
+
+  static Node *mk_binary(Arena *a, NodeKind kind, Node *lhs, Node *rhs) {
+    Node *n = ARENA_ALLOC(a, Node);
+    n->kind = kind;
+    n->lhs = lhs;
+    n->rhs = rhs;
+    return n;
+  }
+
+  static Node *mk_set(Arena *a, NodeKind kind, Node **elems) {
+    Node *n = ARENA_ALLOC(a, Node);
+    n->kind = kind;
+    n->set_elems = elems;
+    n->set_size = node_list_len(elems);
+    return n;
+  }
+
+  /* Turn a comma-separated binder head into nested reductions, with the
+   * leftmost binder outermost. */
+  static Node *mk_reduction(NodeKind kind, Node **binders, Node *body) {
+    uint16_t count = node_list_len(binders);
+    for (uint16_t i = count; i > 0; i--) {
+      Node *b = binders[i - 1];
+      b->kind = kind;
+      b->qbody = body;
+      body = b;
+    }
+    return body;
+  }
+
   /* Implicit invariant for an enum-typed signal: it always holds one of the
    * type's labels, i.e. G( (sig == L1) || (sig == L2) || ... ).  Each (sig ==
    * Li) expands to the positional bit match during expansion. */
@@ -118,8 +154,8 @@
  * reduce/reduce on the binary-vs-unary `-` boundary) are asserted below so the
  * build stays clean and bison errors out if the grammar ever drifts. */
 %glr-parser
-%expect 13
-%expect-rr 12
+%expect 53
+%expect-rr 19
 
 %param  { yyscan_t scanner }
 %parse-param { TlsfSpec *spec }
@@ -161,28 +197,30 @@
 %token TOK_TRUE TOK_FALSE
 %token TOK_NOT TOK_AND TOK_OR TOK_IMPL TOK_EQUIV
 %token TOK_NEXT TOK_SNEXT TOK_FINALLY TOK_GLOBALLY
-%token TOK_UNTIL TOK_RELEASE TOK_WEAK TOK_STRONG_REL
+%token TOK_UNTIL TOK_RELEASE TOK_WEAK
 
 /* Integer / comparison operators */
 %token TOK_PLUS TOK_MINUS TOK_STAR TOK_SLASH TOK_PERCENT
 %token TOK_EQ TOK_NEQ TOK_LT TOK_LEQ TOK_GT TOK_GEQ
 
 /* Keyword operators */
-%token TOK_SIZEOF TOK_OTHERWISE
+%token TOK_SIZEOF TOK_SET_SIZE TOK_SET_MIN TOK_SET_MAX TOK_OTHERWISE
+%token TOK_SET_UNION TOK_SET_INTER TOK_SET_DIFF TOK_IN TOK_MATCH
 
 /* Punctuation */
 %token TOK_LPAREN TOK_RPAREN TOK_LBRACKET TOK_RBRACKET
+%token TOK_LBRACKET_STRONG TOK_RBRACKET_STRONG
 %token TOK_LBRACE TOK_RBRACE
-%token TOK_COMMA TOK_SEMI TOK_COLON TOK_ASSIGN TOK_DOTDOT
+%token TOK_COMMA TOK_SEMI TOK_COLON TOK_ASSIGN TOK_DOTDOT TOK_BAR
 
 /* -------------------------------------------------------------------------
  * Type declarations for non-terminals
  * --------------------------------------------------------------------- */
-%type <node>      ltl_expr bound_spec cond cases
+%type <node>      ltl_expr bound_spec cond cases set_literal
 %type <ival>      lt_or_leq cmp_op
 %type <sval>      signal_name
 %type <slist>     ident_list
-%type <node_list> call_arg_list
+%type <node_list> call_arg_list nonempty_expr_list bound_list
 
 /* -------------------------------------------------------------------------
  * Operator precedence (lowest → highest) — matches syfco / TLSF paper.
@@ -191,20 +229,22 @@
  *   a && b W c  parses as  (a && b) W c
  *   a -> b W c  parses as  (a -> b) W c
  * --------------------------------------------------------------------- */
-%right TOK_UNTIL TOK_RELEASE TOK_WEAK TOK_STRONG_REL
+%right TOK_WEAK
+%right TOK_UNTIL
+%left  TOK_RELEASE
 %right TOK_IMPL TOK_EQUIV
 %left  TOK_OR
 %left  TOK_AND
-/* Formula-level equality (e.g. a bus matched against an enum label) binds
- * tighter than the boolean connectives but looser than the temporal ops. */
-%left  TOK_EQ TOK_NEQ
-%right TOK_GLOBALLY TOK_FINALLY TOK_NEXT TOK_SNEXT
-%right TOK_NOT
-
-/* Integer expression precedence */
+%precedence TOK_NOT TOK_GLOBALLY TOK_FINALLY TOK_NEXT TOK_SNEXT
+%left  TOK_IN
+%left  TOK_EQ TOK_NEQ TOK_LT TOK_LEQ TOK_GT TOK_GEQ
+%left  TOK_SET_UNION
+%left  TOK_SET_INTER
+%right TOK_SET_DIFF
 %left  TOK_PLUS TOK_MINUS
-%left  TOK_STAR TOK_SLASH TOK_PERCENT
-%right TOK_UMINUS   /* pseudo-token for unary minus */
+%right TOK_SLASH TOK_PERCENT
+%left  TOK_STAR
+%precedence TOK_UMINUS TOK_SET_SIZE TOK_SET_MIN TOK_SET_MAX
 
 %%
 
@@ -315,11 +355,6 @@ param_item
     { if (!spec_add_param(spec, $1, false, 0)) YYNOMEM; }
   | TOK_IDENT TOK_ASSIGN TOK_INTEGER
     { if (!spec_add_param(spec, $1, true, $3)) YYNOMEM; }
-  /* 'M' reused as a parameter name (see the atom rule above). */
-  | TOK_STRONG_REL
-    { if (!spec_add_param(spec, intern(spec->intern, "M"), false, 0)) YYNOMEM; }
-  | TOK_STRONG_REL TOK_ASSIGN TOK_INTEGER
-    { if (!spec_add_param(spec, intern(spec->intern, "M"), true, $3)) YYNOMEM; }
   ;
 
 /* DEFINITIONS { name [ ( params ) ] = body ; ... } */
@@ -389,6 +424,8 @@ cases
 cond
   : ltl_expr cmp_op ltl_expr
     { $$ = mk_cmp(spec->arena, (int)$2, $1, $3); }
+  | ltl_expr TOK_MATCH ltl_expr
+    { $$ = mk_binary(spec->arena, NODE_MATCH, $1, $3); }
   | TOK_OTHERWISE
     { $$ = node_true(spec->arena); } /* catch-all default guard */
   ;
@@ -565,10 +602,6 @@ ltl_expr
     { $$ = node_false(spec->arena); }
   | TOK_IDENT
     { $$ = node_ap(spec->arena, $1); }
-  /* 'M' (strong release) doubles as a common identifier (e.g. a parameter
-     named M); it is infix-only, so accepting it as an atom is unambiguous. */
-  | TOK_STRONG_REL
-    { $$ = node_ap(spec->arena, intern(spec->intern, "M")); }
 
   /* Integer atoms / arithmetic.  TLSF has a single untyped expression
      grammar; numeric vs. boolean use is resolved during expansion.  An
@@ -579,6 +612,14 @@ ltl_expr
   | TOK_SIZEOF TOK_IDENT
     { Node *n = ARENA_ALLOC(spec->arena, Node);
       n->kind = NODE_SIZEOF; n->sizeof_name = $2; $$ = n; }
+  | TOK_SET_SIZE ltl_expr %prec TOK_SET_SIZE
+    { $$ = mk_unary(spec->arena, NODE_SET_SIZE, $2); }
+  | TOK_SET_MIN ltl_expr %prec TOK_SET_MIN
+    { $$ = mk_unary(spec->arena, NODE_SET_MIN, $2); }
+  | TOK_SET_MAX ltl_expr %prec TOK_SET_MAX
+    { $$ = mk_unary(spec->arena, NODE_SET_MAX, $2); }
+  | TOK_BAR ltl_expr TOK_BAR
+    { $$ = mk_unary(spec->arena, NODE_SET_SIZE, $2); }
   | ltl_expr TOK_PLUS ltl_expr
     { $$ = ARENA_ALLOC(spec->arena, Node);
       $$->kind = NODE_INT_ADD; $$->lhs = $1; $$->rhs = $3; }
@@ -597,6 +638,16 @@ ltl_expr
   | TOK_MINUS ltl_expr %prec TOK_UMINUS
     { $$ = ARENA_ALLOC(spec->arena, Node);
       $$->kind = NODE_INT_NEG; $$->arg = $2; }
+
+  /* Set expressions. */
+  | set_literal
+    { $$ = $1; }
+  | ltl_expr TOK_SET_UNION ltl_expr
+    { $$ = mk_binary(spec->arena, NODE_SET_UNION, $1, $3); }
+  | ltl_expr TOK_SET_INTER ltl_expr
+    { $$ = mk_binary(spec->arena, NODE_SET_INTER, $1, $3); }
+  | ltl_expr TOK_SET_DIFF ltl_expr
+    { $$ = mk_binary(spec->arena, NODE_SET_DIFF, $1, $3); }
 
   /* Bus signal indexing: name[expr] */
   | TOK_IDENT TOK_LBRACKET ltl_expr TOK_RBRACKET
@@ -643,12 +694,36 @@ ltl_expr
     { $$ = mk_cmp(spec->arena, NODE_CMP_EQ, $1, $3); }
   | ltl_expr TOK_NEQ ltl_expr
     { $$ = mk_cmp(spec->arena, NODE_CMP_NE, $1, $3); }
+  | ltl_expr TOK_LT ltl_expr
+    { $$ = mk_cmp(spec->arena, NODE_CMP_LT, $1, $3); }
+  | ltl_expr TOK_LEQ ltl_expr
+    { $$ = mk_cmp(spec->arena, NODE_CMP_LE, $1, $3); }
+  | ltl_expr TOK_GT ltl_expr
+    { $$ = mk_cmp(spec->arena, NODE_CMP_GT, $1, $3); }
+  | ltl_expr TOK_GEQ ltl_expr
+    { $$ = mk_cmp(spec->arena, NODE_CMP_GE, $1, $3); }
+  | ltl_expr TOK_IN ltl_expr
+    { $$ = mk_binary(spec->arena, NODE_IN, $1, $3); }
 
   /* Unary temporal */
   | TOK_NEXT ltl_expr
     { $$ = node_x(spec->arena, $2); }
   | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
     { $$ = node_next_n(spec->arena, $3, $5); }
+  | TOK_NEXT TOK_LBRACKET_STRONG ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr, "%d:%d: parse error: strong bounded X is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_next_n(spec->arena, $3, $5); $$->bounded.strong = true; }
+  | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET_STRONG ltl_expr %prec TOK_NEXT
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr, "%d:%d: parse error: strong bounded X is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_next_n(spec->arena, $3, $5); $$->bounded.strong = true; }
   | TOK_SNEXT ltl_expr
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(stderr,
@@ -663,11 +738,43 @@ ltl_expr
   | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_FINALLY
     { $$ = node_f_range(spec->arena, $3, $5, $7); }
+  | TOK_FINALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
+    %prec TOK_FINALLY
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr, "%d:%d: parse error: strong bounded F is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_f_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
+  | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
+    %prec TOK_FINALLY
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr, "%d:%d: parse error: strong bounded F is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_f_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
   | TOK_GLOBALLY ltl_expr
     { $$ = node_g(spec->arena, $2); }
   | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_GLOBALLY
     { $$ = node_g_range(spec->arena, $3, $5, $7); }
+  | TOK_GLOBALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
+    %prec TOK_GLOBALLY
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr, "%d:%d: parse error: strong bounded G is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_g_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
+  | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
+    %prec TOK_GLOBALLY
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(stderr, "%d:%d: parse error: strong bounded G is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      $$ = node_g_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
 
   /* Binary temporal */
   | ltl_expr TOK_UNTIL ltl_expr
@@ -676,14 +783,46 @@ ltl_expr
     { $$ = node_r(spec->arena, $1, $3); }
   | ltl_expr TOK_WEAK ltl_expr
     { $$ = node_w(spec->arena, $1, $3); }
-  | ltl_expr TOK_STRONG_REL ltl_expr
-    { $$ = node_m(spec->arena, $1, $3); }
 
-  /* Bounded big-operators:  &&[lo R v R hi] body  /  ||[lo R v R hi] body */
-  | TOK_AND TOK_LBRACKET bound_spec TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
-    { $3->kind = NODE_FORALL; $3->qbody = $5; $$ = $3; }
-  | TOK_OR TOK_LBRACKET bound_spec TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
-    { $3->kind = NODE_EXISTS; $3->qbody = $5; $$ = $3; }
+  /* Generalized reductions over one or more range/set binders. */
+  | TOK_AND TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $$ = mk_reduction(NODE_FORALL, $3, $5); }
+  | TOK_OR TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $$ = mk_reduction(NODE_EXISTS, $3, $5); }
+  | TOK_PLUS TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $$ = mk_reduction(NODE_SUM, $3, $5); }
+  | TOK_STAR TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $$ = mk_reduction(NODE_PRODUCT, $3, $5); }
+  | TOK_SET_UNION TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $$ = mk_reduction(NODE_SET_BIG_UNION, $3, $5); }
+  | TOK_SET_INTER TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+    { $$ = mk_reduction(NODE_SET_BIG_INTER, $3, $5); }
+  ;
+
+set_literal
+  : TOK_LBRACE TOK_RBRACE
+    { $$ = mk_set(spec->arena, NODE_SET, nullptr); }
+  | TOK_LBRACE nonempty_expr_list TOK_RBRACE
+    { $$ = mk_set(spec->arena, NODE_SET, $2); }
+  | TOK_LBRACE ltl_expr TOK_COMMA ltl_expr TOK_DOTDOT ltl_expr TOK_RBRACE
+    { Node **xs = node_list_append(spec->arena, nullptr, $2);
+      xs = node_list_append(spec->arena, xs, $4);
+      xs = node_list_append(spec->arena, xs, $6);
+      $$ = mk_set(spec->arena, NODE_SET_ENUM, xs); }
+  ;
+
+nonempty_expr_list
+  : ltl_expr
+    { $$ = node_list_append(spec->arena, nullptr, $1); }
+  | nonempty_expr_list TOK_COMMA ltl_expr
+    { $$ = node_list_append(spec->arena, $1, $3); }
+  ;
+
+bound_list
+  : bound_spec
+    { $$ = node_list_append(spec->arena, nullptr, $1); }
+  | bound_list TOK_COMMA bound_spec
+    { $$ = node_list_append(spec->arena, $1, $3); }
   ;
 
 /* Quantifier bound: lo (<|<=) var (<|<=) hi.  Builds a partial quantifier
@@ -699,6 +838,11 @@ bound_spec
       n->qhi_strict = $hiS;
       $$ = n;
     }
+  | TOK_IDENT[v] TOK_IN ltl_expr
+    { Node *n = ARENA_ALLOC(spec->arena, Node);
+      n->qvar = $v;
+      n->qset = $3;
+      $$ = n; }
   ;
 
 lt_or_leq

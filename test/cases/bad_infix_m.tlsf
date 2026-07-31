@@ -1,0 +1,11 @@
+INFO {
+  TITLE: "bad_infix_m"
+  DESCRIPTION: "TLSF v1.2 has no infix M operator"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { o; }
+  GUARANTEE { a M b; }
+}

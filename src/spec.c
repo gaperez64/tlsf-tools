@@ -231,6 +231,9 @@ static bool node_has_strong_next(const Node *n) {
   case NODE_F:
   case NODE_G:
   case NODE_INT_NEG:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
     return node_has_strong_next(n->arg);
   case NODE_AND:
   case NODE_OR:
@@ -252,6 +255,11 @@ static bool node_has_strong_next(const Node *n) {
   case NODE_CMP_GT:
   case NODE_CMP_GE:
   case NODE_NEXT_N:
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+  case NODE_IN:
+  case NODE_MATCH:
     return node_has_strong_next(n->lhs) || node_has_strong_next(n->rhs);
   case NODE_DEF_CALL:
   case NODE_PATTERN:
@@ -266,9 +274,14 @@ static bool node_has_strong_next(const Node *n) {
            node_has_strong_next(n->if_then) || node_has_strong_next(n->if_else);
   case NODE_FORALL:
   case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
   case NODE_G_RANGE:
   case NODE_F_RANGE:
-    return node_has_strong_next(n->qlo) || node_has_strong_next(n->qhi) ||
+    return n->bounded.strong || node_has_strong_next(n->qlo) ||
+           node_has_strong_next(n->qhi) || node_has_strong_next(n->qset) ||
            node_has_strong_next(n->qbody);
   case NODE_SET:
   case NODE_SET_ENUM:

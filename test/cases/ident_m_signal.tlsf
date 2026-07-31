@@ -1,0 +1,2 @@
+INFO { TITLE: "ident_m_signal" DESCRIPTION: "M as a signal name" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { M; } OUTPUTS { o; } GUARANTEE { G M; } }

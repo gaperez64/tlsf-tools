@@ -1,0 +1,18 @@
+INFO {
+  TITLE: "pattern_v12"
+  DESCRIPTION: "TLSF v1.2 structural pattern guards"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL {
+  DEFINITIONS {
+    strip(f) = f ~ G x : x otherwise : false;
+    repeated(f) = f ~ (x && x) : x otherwise : false;
+    wildcard(f) = f ~ (_ U x) : x otherwise : false;
+  }
+}
+MAIN {
+  INPUTS { a; b; }
+  OUTPUTS { o; }
+  GUARANTEE { strip(G a); repeated(b && b); wildcard(a U b); }
+}

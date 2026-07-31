@@ -1,0 +1,8 @@
+INFO {
+  TITLE: "pattern_conflict_v12"
+  DESCRIPTION: "declared identifiers cannot bind in patterns"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL { DEFINITIONS { bad(f) = f ~ G a : true otherwise : false; } }
+MAIN { INPUTS { a; } OUTPUTS { o; } GUARANTEE { bad(G a); } }

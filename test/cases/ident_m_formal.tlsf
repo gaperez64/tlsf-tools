@@ -1,0 +1,3 @@
+INFO { TITLE: "ident_m_formal" DESCRIPTION: "M as a formal name" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { DEFINITIONS { identity(M) = M; } }
+MAIN { INPUTS { a; } OUTPUTS { o; } GUARANTEE { G identity(a); } }

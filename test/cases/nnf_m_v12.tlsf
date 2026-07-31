@@ -1,0 +1,7 @@
+INFO {
+  TITLE: "nnf_m_v12"
+  DESCRIPTION: "NNF derives strong release without spelling infix M in TLSF"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN { INPUTS { a; b; } OUTPUTS { o; } GUARANTEE { !(a W b); } }

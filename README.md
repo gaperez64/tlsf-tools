@@ -5,12 +5,12 @@ Small, fast, Unix-style command-line tools for working with
 Format) specifications, sharing a common C library.
 
 The tools fully expand parameterised TLSF (parameters, definitions including
-recursive case definitions, bus unrolling, bounded `&&[..]`/`||[..]`, indexed
-`X[n]` and bounded `G[i:j]`/`F[i:j]`, `enum` types, `SIZEOF`) and emit a ground
-TLSF spec or equivalent LTL. The optional research synthesis layer adds structure-aware
-decomposition, certified local controllers, exact OxiDD-backed safety/GR(1)
-routes, and an external residual-solving wrapper for `ltlsynt` or
-acacia-bonsai.
+recursive case definitions, sets and reductions, structural pattern guards,
+bus unrolling, bounded temporal operators, `enum` types, and `SIZEOF`) and emit
+a ground TLSF spec or equivalent LTL. The optional research synthesis layer
+adds structure-aware decomposition, certified local controllers, exact
+OxiDD-backed safety/GR(1) routes, and an external residual-solving wrapper for
+`ltlsynt` or acacia-bonsai.
 
 ## Dependencies
 
@@ -49,12 +49,15 @@ The preprocessor uses equivalence-preserving normalization followed by exact
 syntactic recognizers and conservative certification. It does not use graph
 similarity or approximate matching in the synthesis path.
 
-```
-TLSF file ──parse──► raw AST ──expand──► ground AST ──► tlsf2tlsf  (basic TLSF)
-                  (flex+bison)  (params→defs→buses→quantifiers)  └──► tlsf2ltl  (LTL)
-ground AST ──► tlsfnorm      (normalized TLSF)
-           ├──► tlsfresidual (residual clusters)
-           └──► tlsfcompose  (residual clusters + controllers.aag → plan)
+```mermaid
+flowchart LR
+    tlsf["TLSF file"] -->|"parse<br/>flex + bison"| raw["Raw AST"]
+    raw -->|"expand<br/>parameters, definitions, sets, buses, reductions"| ground["Ground AST"]
+    ground --> basic["tlsf2tlsf<br/>basic TLSF"]
+    ground --> ltl["tlsf2ltl<br/>LTL"]
+    ground --> norm["tlsfnorm<br/>normalized TLSF"]
+    ground --> residual["tlsfresidual<br/>residual clusters"]
+    ground --> compose["tlsfcompose<br/>clusters + controllers.aag → plan"]
 ```
 
 ## Building
@@ -132,10 +135,12 @@ records. It emits a strategy AAG on stdout or exits nonzero with `UNREALIZABLE`.
 ## Embeddable API
 
 The installed library exposes decomposition/preprocessing without AIGER structs
-or internal AST types:
+or internal AST layouts:
 
 - C header: `#include <tlsf/decompose.h>`
 - C++ wrapper: `#include <tlsf/decompose.hpp>`
+- opaque AST: `#include <tlsf/ast_api.h>`
+- typed C++ visitor: `#include <tlsf/ast_api.hpp>`
 - Meson: `dependency('tlsf')`
 - pkg-config: `pkg-config --cflags --libs tlsf`
 
@@ -146,8 +151,16 @@ and trust tags. Free the C result with `tlsf_decompose_result_free()`. The C++
 wrapper returns `std::string` / `std::vector` values and frees the C handle via
 RAII.
 
+`TlsfAst` retains the expanded specification, residual plan, cluster roots,
+and the same `TlsfDecomposeResult` metadata under one lifetime. Consumers can
+walk the opaque 16-kind post-expansion tree manually or use
+`tlsf_ast_accept()`'s children-first callback table. The header-only C++ API
+provides `tlsf::ast::Ast`, non-owning `Tree` values, and an ANTLR-style
+`Visitor<T>` whose methods build any consumer-defined result type.
+
 ```cpp
 #include <tlsf/decompose.hpp>
+#include <tlsf/ast_api.hpp>
 
 tlsf::Options opt;
 opt.split = true;
@@ -155,11 +168,20 @@ tlsf::Result r = tlsf::decompose(spec_text, opt);
 for (const tlsf::Cluster &c : r.clusters) {
   // c.ltl, c.inputs, c.outputs
 }
+
+tlsf::ast::Ast ast(spec_text, opt);
+MyFormulaBuilder builder;  // derives from tlsf::ast::Visitor<MyFormula>
+MyFormula formula = builder.visit(ast.root());
+for (tlsf::ast::Tree cluster : ast.clusters()) {
+  MyFormula residual = builder.visit(cluster);
+}
 ```
 
-No `Aig`, OxiDD, AST, cover, CSNF, or arena type crosses this API. AIGER
-strategies cross process boundaries as files and are recombined with
-`tlsfcompose --merge`.
+No `Aig`, OxiDD, internal `Node`, cover, CSNF, or arena type crosses this API.
+The visitor-based [`ast_api` Spot example](examples/tlsf2spot.cpp) builds each
+tree directly as a `spot::formula` and checks it against the string API.
+Configure a local `/usr/local` Spot installation with
+`meson setup build -Dpkg_config_path=/usr/local/lib/pkgconfig`.
 
 ## Example pipelines
 
@@ -327,22 +349,23 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
   `((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)`;
   `--overwrite-semantics Mealy` relaxes it to plain `E → S`.
 - **Finite-word** (`Finite,*`) — emits `ltlxba-fin`: strong-next prints `X[!]`,
-  and `W`/`M` are rewritten with LTLf-valid identities so spot's `ltlfsynt`
-  accepts it.
+  and `W` plus any internally derived strong release are rewritten with
+  LTLf-valid identities so spot's `ltlfsynt` accepts them.
 - **Mealy/Moore** — from `SEMANTICS`; a `TARGET` mismatch is converted
   (Moore→Mealy delays inputs `i↦X i`, Mealy→Moore delays outputs `o↦X o`).
 
 Output is minimally parenthesised by the spot/ltl2ba precedence
-(`! X F G` > `U R W M` > `&&` > `||` > `-> <->`); `--parenthesize` fully
-parenthesises. `--format` picks the spelling (`ltlxba`/`ltl`/`latex`).
+(`! X F G` > `U R W` > `&&` > `||` > `-> <->`). `--parenthesize` fully
+parenthesises; `--format` picks the spelling (`ltlxba`/`ltl`/`latex`).
 Equivalence-preserving rewrites are exposed as flags
 (`--weak-simplify`=`-s0`, `--strong-simplify`=`-s1`, `--nnf`,
-`--no-{weak-until,release,finally,globally}`, `--{push,pull}-{globally,finally,next}-{in,out}`);
+`--no-{weak-until,release,strong-release,finally,globally}`,
+`--{push,pull}-{globally,finally,next}-{in,out}`);
 every result is `ltlfilt --equivalent-to` the input.
 
 > The `--safety`/`--liveness` split is **syntactic**: after NNF, *safety* iff the
-> tree has no `F`/`U`/`M` node. A safety property written with liveness operators
-> is classified as liveness.
+> tree has no `F`, `U`, or internally derived strong-release node. A safety
+> property written with liveness operators is classified as liveness.
 
 ## Tests, formatting, benchmarking
 

@@ -11,7 +11,7 @@
 ///   Liveness          :  F, U (until), M (strong release / dual of W)
 ///
 /// Pre-expansion nodes (not present after expand()):
-///   NODE_DEF_CALL, NODE_BUS_INDEX, NODE_PATTERN
+///   NODE_DEF_CALL, NODE_BUS_INDEX, NODE_PATTERN and the set/reduction kinds
 
 #include "tlsf/arena.h"
 #include <stdbool.h>
@@ -86,10 +86,22 @@ typedef enum NodeKind {
   NODE_F_RANGE, ///< qlo = lo, qhi = hi, qbody = body
 
   // -- Set expressions (pre-expansion) --
-  NODE_SET,      ///< { e, e, ... }  — set literal (children = elements)
-  NODE_SET_ENUM, ///< set comprehension: { x : range }
-  NODE_FORALL,   ///< bounded big-conjunction  &&[lo <|<= v <|<= hi] body
-  NODE_EXISTS,   ///< bounded big-disjunction   ||[lo <|<= v <|<= hi] body
+  NODE_SET,           ///< { e, e, ... }  — set literal (children = elements)
+  NODE_SET_ENUM,      ///< stepped range { first, second .. last }
+  NODE_SET_UNION,     ///< set union: a (+) b
+  NODE_SET_INTER,     ///< set intersection: a (*) b
+  NODE_SET_DIFF,      ///< set difference: a (\) b / a (-) b
+  NODE_SET_SIZE,      ///< set cardinality: |S| / SIZE S
+  NODE_SET_MIN,       ///< minimum set element: MIN S
+  NODE_SET_MAX,       ///< maximum set element: MAX S
+  NODE_IN,            ///< membership: element IN set
+  NODE_MATCH,         ///< structural pattern guard: formula ~ pattern
+  NODE_FORALL,        ///< generalized conjunction: &&[binders] body
+  NODE_EXISTS,        ///< generalized disjunction: ||[binders] body
+  NODE_SUM,           ///< generalized integer sum: +[binders] body
+  NODE_PRODUCT,       ///< generalized integer product: *[binders] body
+  NODE_SET_BIG_UNION, ///< generalized set union: (+)[binders] body
+  NODE_SET_BIG_INTER, ///< generalized set intersection: (*)[binders] body
 
   NODE_KIND_COUNT, ///< sentinel — keep last
 } NodeKind;
@@ -112,6 +124,7 @@ typedef struct {
   int64_t lo;
   int64_t hi;
   Node *body;
+  bool strong;
 } BoundedTemporalMeta;
 
 struct Node {
@@ -160,18 +173,23 @@ struct Node {
       Node *if_else;
     };
 
-    // NODE_FORALL / NODE_EXISTS: bounded quantifier
-    //   &&[ qlo (<|<=) qvar (<|<=) qhi ] qbody
+    // Generalized reductions.  A binder is either a range
+    //   qlo (<|<=) qvar (<|<=) qhi
+    // or set membership
+    //   qvar IN qset
+    // (qset is null for a range binder).
     struct {
       const char *qvar; ///< interned bound-variable name
       Node *qlo;        ///< lower-bound integer expression
       Node *qhi;        ///< upper-bound integer expression
+      Node *qset;       ///< set expression for a membership binder
       Node *qbody;      ///< quantified formula
       bool qlo_strict;  ///< true if the lower relation is '<' (else '<=')
       bool qhi_strict;  ///< true if the upper relation is '<' (else '<=')
     };
 
-    // NODE_SET / NODE_SET_ENUM
+    // NODE_SET / NODE_SET_ENUM.  A range has exactly three children:
+    // first value, second value, and inclusive last value.
     struct {
       Node **set_elems;  ///< arena-allocated array of child nodes
       uint16_t set_size; ///< element / child count
@@ -243,8 +261,8 @@ static inline bool node_kind_is_high_level(NodeKind k) {
   return k == NODE_DEF_CALL || k == NODE_BUS_INDEX || k == NODE_PATTERN ||
          k == NODE_INT_VAR || k == NODE_SIZEOF || k == NODE_ITE ||
          k == NODE_NEXT_N || k == NODE_G_RANGE || k == NODE_F_RANGE ||
-         (k >= NODE_CMP_EQ && k <= NODE_CMP_GE) || k == NODE_SET ||
-         k == NODE_SET_ENUM || k == NODE_FORALL || k == NODE_EXISTS;
+         (k >= NODE_CMP_EQ && k <= NODE_CMP_GE) ||
+         (k >= NODE_SET && k <= NODE_SET_BIG_INTER);
 }
 
 #endif // TLSF_AST_H
