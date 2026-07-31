@@ -12,9 +12,7 @@ adds structure-aware decomposition, certified local controllers, exact
 OxiDD-backed safety/GR(1) routes, and an external residual-solving wrapper for
 `ltlsynt` or acacia-bonsai.
 
-## Status
-
-### Stable tools
+## Stable tools
 
 | Tool | Purpose |
 |---|---|
@@ -24,7 +22,7 @@ OxiDD-backed safety/GR(1) routes, and an external residual-solving wrapper for
 | `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
 | `mealy2moore` | Delay AIGER strategy outputs for Moore-target specs. |
 
-### Research and diagnostic tools
+## Research and diagnostic tools
 
 Built with `-Dresearch_tools=true`; not included in stable release archives and
 not part of the stable preprocessing API.
