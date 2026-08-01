@@ -71,7 +71,7 @@ jobs:
             version="${GITHUB_REF_NAME}"
           else
             short_sha="$(git rev-parse --short HEAD)"
-            version="v$(scripts/project-version.sh)-${short_sha}"
+            version="${short_sha}"
           fi
           archive="tlsf-tools-${version}-${{ matrix.platform }}"
           stage="dist/${archive}"

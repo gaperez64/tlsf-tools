@@ -1,0 +1,6 @@
+#ifndef TLSF_VERSION_H
+#define TLSF_VERSION_H
+
+#define TLSF_PROJECT_VERSION "@VCS_TAG@"
+
+#endif // TLSF_VERSION_H

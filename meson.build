@@ -3,7 +3,7 @@ project(
   'c',
   'cpp',
   version: run_command(
-    'sh', 'scripts/project-version.sh',
+    'scripts/git-version.py',
     check: true,
   ).stdout().strip(),
   license: 'MIT',
@@ -175,12 +175,19 @@ elif oxidd_feature.auto()
 endif
 
 build_info_conf = configuration_data()
-build_info_conf.set_quoted('TLSF_PROJECT_VERSION', meson.project_version())
 build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
 configure_file(
   output: 'build_config.h',
   configuration: build_info_conf,
+)
+
+version_h = vcs_tag(
+  command: ['scripts/git-version.py', '--dirty'],
+  input: 'include/tlsf/version.h.in',
+  output: 'version.h',
+  fallback: meson.project_version(),
+  replace_string: '@VCS_TAG@',
 )
 
 # ---------------------------------------------------------------------------
@@ -310,7 +317,7 @@ pkg.generate(
 
 tlsf2ltl_exe = executable(
   'tlsf2ltl',
-  sources: ['src/main_tlsf2ltl.c', bison_out[1]],
+  sources: ['src/main_tlsf2ltl.c', bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -318,7 +325,7 @@ tlsf2ltl_exe = executable(
 
 tlsf2tlsf_exe = executable(
   'tlsf2tlsf',
-  sources: ['src/main_tlsf2tlsf.c', bison_out[1]],
+  sources: ['src/main_tlsf2tlsf.c', bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -326,7 +333,7 @@ tlsf2tlsf_exe = executable(
 
 tlsfinfo_exe = executable(
   'tlsfinfo',
-  sources: ['src/main_tlsfinfo.c', bison_out[1]],
+  sources: ['src/main_tlsfinfo.c', bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -334,7 +341,7 @@ tlsfinfo_exe = executable(
 
 tlsfnorm_exe = executable(
   'tlsfnorm',
-  sources: ['src/main_tlsfnorm.c', bison_out[1]],
+  sources: ['src/main_tlsfnorm.c', bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -342,7 +349,7 @@ tlsfnorm_exe = executable(
 
 mealy2moore_exe = executable(
   'mealy2moore',
-  sources: ['src/main_mealy2moore.c'],
+  sources: ['src/main_mealy2moore.c', version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -351,7 +358,7 @@ mealy2moore_exe = executable(
 if research_tools
   tlsftemplates_exe = executable(
     'tlsftemplates',
-    sources: ['src/main_tlsftemplates.c', bison_out[1]],
+    sources: ['src/main_tlsftemplates.c', bison_out[1], version_h],
     link_with: tlsf_lib,
     include_directories: inc,
     install: true,
@@ -359,7 +366,7 @@ if research_tools
 
   tlsfbenchgraph_exe = executable(
     'tlsfbenchgraph',
-    sources: ['src/main_tlsfbenchgraph.c', bison_out[1]],
+    sources: ['src/main_tlsfbenchgraph.c', bison_out[1], version_h],
     link_with: tlsf_lib,
     include_directories: inc,
     install: true,
@@ -367,7 +374,7 @@ if research_tools
 
   tlsfresidual_exe = executable(
     'tlsfresidual',
-    sources: ['src/main_tlsfresidual.c', bison_out[1]],
+    sources: ['src/main_tlsfresidual.c', bison_out[1], version_h],
     link_with: tlsf_lib,
     include_directories: inc,
     install: true,
@@ -379,7 +386,8 @@ if research_tools
       sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
                 'src/compose_games.c', 'src/compose_oxidd.c',
                 'src/compose_route.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', bison_out[1]],
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', bison_out[1],
+                version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -390,7 +398,7 @@ if research_tools
     tlsfsolve_exe = executable(
       'tlsfsolve',
       sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c'],
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -460,6 +468,28 @@ check_fail_stderr = files('test/check_fail_stderr.sh')
 check_solve_wrapper = files('test/check_solve_wrapper.sh')
 check_output_dir = files('test/check_output_dir.sh')
 check_output_dir_fail = files('test/check_output_dir_fail.sh')
+check_version = files('test/check_version.sh')
+
+test('version_tlsf2ltl', check_version, args: ['tlsf2ltl', tlsf2ltl_exe])
+test('version_tlsf2tlsf', check_version, args: ['tlsf2tlsf', tlsf2tlsf_exe])
+test('version_tlsfinfo', check_version, args: ['tlsfinfo', tlsfinfo_exe])
+test('version_tlsfnorm', check_version, args: ['tlsfnorm', tlsfnorm_exe])
+test('version_mealy2moore', check_version,
+  args: ['mealy2moore', mealy2moore_exe])
+if research_tools
+  test('version_tlsftemplates', check_version,
+    args: ['tlsftemplates', tlsftemplates_exe])
+  test('version_tlsfbenchgraph', check_version,
+    args: ['tlsfbenchgraph', tlsfbenchgraph_exe])
+  test('version_tlsfresidual', check_version,
+    args: ['tlsfresidual', tlsfresidual_exe])
+  if have_oxidd
+    test('version_tlsfcompose', check_version,
+      args: ['tlsfcompose', tlsfcompose_exe])
+    test('version_tlsfsolve', check_version,
+      args: ['tlsfsolve', tlsfsolve_exe])
+  endif
+endif
 
 # Cases converted with `tlsf2ltl` (default, minimal parentheses).
 ltl_cases = [
@@ -669,25 +699,10 @@ test('tmpl_arbiter', check_wl,
   args: [files('test/cases/arbiter2.csnf'), tlsftemplates_exe,
          '--certify', '--solve', '--format', 'csnf',
          files('test/cases/arbiter2.tlsf')])
-# CLI option coverage: --list-templates, --version, --template/--templates
-# filter, --param.  These reuse existing goldens where possible.
-version_test_conf = configuration_data()
-version_test_conf.set('VERSION', meson.project_version())
-tmpl_version_expected = configure_file(
-  input: 'test/cases/tmpl_version.txt',
-  output: 'tmpl_version.expected',
-  configuration: version_test_conf,
-)
-residual_version_expected = configure_file(
-  input: 'test/cases/residual_version.txt',
-  output: 'residual_version.expected',
-  configuration: version_test_conf,
-)
+# CLI option coverage: --list-templates, --template/--templates filter, --param.
 test('tmpl_list_templates', check,
   args: [files('test/cases/tmpl_list_templates.txt'), tlsftemplates_exe,
          '--list-templates'])
-test('tmpl_version', check,
-  args: [tmpl_version_expected, tlsftemplates_exe, '--version'])
 test('tmpl_template_filter', check_wl,
   args: [files('test/cases/reaction_ok.csnf'), tlsftemplates_exe,
          '--template', 'reaction', '--certify', '--solve', '--format', 'csnf',
@@ -730,9 +745,7 @@ endforeach
 test('residual_single', check,
   args: [files('test/cases/cluster_split.single'), tlsfresidual_exe,
          '--single', files('test/cases/cluster_split.tlsf')])
-# CLI option coverage: --version, --format ltl/ltlxba, --split, --param.
-test('residual_version', check,
-  args: [residual_version_expected, tlsfresidual_exe, '--version'])
+# CLI option coverage: --format ltl/ltlxba, --split, --param.
 test('residual_ltl_format', check,
   args: [files('test/cases/residual_ltl_format.residual'), tlsfresidual_exe,
          '--format', 'ltl', files('test/cases/cluster_split.tlsf')])

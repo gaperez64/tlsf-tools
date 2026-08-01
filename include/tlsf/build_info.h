@@ -2,6 +2,7 @@
 #define TLSF_BUILD_INFO_H
 
 #include "build_config.h"
+#include "version.h"
 #include "tlsf/simd.h"
 
 static inline const char *tlsf_build_oxidd(void) {
