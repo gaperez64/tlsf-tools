@@ -1,0 +1,1 @@
+G (tick -> X tick) && G F tick && G F !tick && (G F req_1 && G F req_2) && (G F !req_1 && G F !req_2) -> G grant && F grant

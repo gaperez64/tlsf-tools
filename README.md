@@ -96,6 +96,8 @@ tlsf2ltl  spec.tlsf                       # spec's LTL (ltlxba, minimal parens)
 tlsf2ltl  --format ltl|latex spec.tlsf    # plain LTL / LaTeX math
 tlsf2ltl  --strong-simplify spec.tlsf     # NNF + push/pull simplification, etc.
 tlsf2ltl  --safety | --liveness spec.tlsf # syntactic split of the formula
+tlsf2ltl  --fair-environment spec.tlsf     # assume every input toggles forever
+tlsf2tlsf --fair-environment spec.tlsf     # add scalar/quantified fairness
 tlsf2tlsf --basic spec.tlsf               # fully expanded basic TLSF
 mealy2moore strategy.aag > strategy.moore.aag  # delay Mealy outputs one step
 
@@ -129,7 +131,9 @@ tlsfsolve game.aag > strategy.aag                         # solve an AIGER safet
 `tlsfsolve` reads an [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER game: uncontrollable inputs are
 ordinary inputs, controllable inputs are prefixed `controllable_`, safety games
 use a `bad` output, and GR(1) games may use AIGER 1.9 `justice`/`fairness`
-records. It emits a strategy AAG on stdout or exits nonzero with `UNREALIZABLE`.
+records. Exit status 0 means realizable and writes the strategy AAG to stdout;
+status 1 means proven unrealizable and writes `UNREALIZABLE` to stderr; status
+2 reports an input, usage, or internal OxiDD solver failure.
 
 ## Embeddable API
 
@@ -361,6 +365,16 @@ Equivalence-preserving rewrites are exposed as flags
 `--no-{weak-until,release,strong-release,finally,globally}`,
 `--{push,pull}-{globally,finally,next}-{in,out}`);
 every result is `ltlfilt --equivalent-to` the input.
+
+`--fair-environment` adds `G F i` and `G F !i` assumptions for every Boolean
+environment input, requiring each input to visit both values infinitely often.
+For input buses, normal `tlsf2tlsf` output keeps two inclusive quantified
+assumptions over the declared bounds; `tlsf2tlsf --basic` and `tlsf2ltl`
+expand them into one pair per bit. Existing assumptions are preserved, specs
+without inputs are unchanged, and the option is rejected under effective
+finite-word semantics (including semantics selected by an override). Generated
+assumptions participate in the usual Mealy/Moore conversion, rewrites, and
+safety/liveness output modes.
 
 > The `--safety`/`--liveness` split is **syntactic**: after NNF, *safety* iff the
 > tree has no `F`, `U`, or internally derived strong-release node. A safety

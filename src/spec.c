@@ -1,5 +1,7 @@
 #include "tlsf/spec.h"
 
+#include "spec_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +51,73 @@ bool formula_list_push(TlsfSpec *s, FormulaList *list, Node *formula) {
     list->capacity = new_cap;
   }
   list->formulas[list->count++] = formula;
+  return true;
+}
+
+static Node *fair_input_formula(TlsfSpec *spec, const SignalDecl *signal,
+                                const char *index, bool negated) {
+  Node *atom;
+  if (signal->is_bus) {
+    Node *index_node = ARENA_ALLOC(spec->arena, Node);
+    atom = ARENA_ALLOC(spec->arena, Node);
+    if (!index_node || !atom)
+      return nullptr;
+    index_node->kind = NODE_INT_VAR;
+    index_node->name = index;
+    atom->kind = NODE_BUS_INDEX;
+    atom->bus_name = signal->name;
+    atom->bus_index = index_node;
+  } else {
+    atom = node_ap(spec->arena, signal->name);
+    if (!atom)
+      return nullptr;
+  }
+
+  Node *value = negated ? node_not(spec->arena, atom) : atom;
+  if (!value)
+    return nullptr;
+  Node *eventually = node_f(spec->arena, value);
+  if (!eventually)
+    return nullptr;
+  Node *fair = node_g(spec->arena, eventually);
+  if (!fair || !signal->is_bus)
+    return fair;
+
+  Node *lo = signal->bus_lo_expr;
+  Node *hi = signal->bus_hi_expr;
+  if (!lo)
+    lo = node_int(spec->arena, signal->bus_lo);
+  if (!hi)
+    hi = node_int(spec->arena, signal->bus_hi);
+  if (!lo || !hi)
+    return nullptr;
+
+  Node *quantified = ARENA_ALLOC(spec->arena, Node);
+  if (!quantified)
+    return nullptr;
+  quantified->kind = NODE_FORALL;
+  quantified->qvar = index;
+  quantified->qlo = lo;
+  quantified->qhi = hi;
+  quantified->qbody = fair;
+  return quantified;
+}
+
+bool spec_add_fair_environment(TlsfSpec *spec) {
+  const char *index = nullptr;
+  for (uint32_t i = 0; i < spec->input_count; i++) {
+    const SignalDecl *signal = &spec->inputs[i];
+    if (signal->is_bus && !index) {
+      index = intern(spec->intern, "__tlsf_fair_i");
+      if (!index)
+        return false;
+    }
+    for (unsigned polarity = 0; polarity < 2; polarity++) {
+      Node *fair = fair_input_formula(spec, signal, index, polarity != 0);
+      if (!fair || !formula_list_push(spec, &spec->assume, fair))
+        return false;
+    }
+  }
   return true;
 }
 

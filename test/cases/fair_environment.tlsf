@@ -1,0 +1,14 @@
+INFO {
+  TITLE: "fair environment"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL {
+  PARAMETERS { n = 2; }
+}
+MAIN {
+  INPUTS { tick; req[1..n]; }
+  OUTPUTS { grant; }
+  ASSUME { G (tick -> X tick); }
+  GUARANTEE { G grant; F grant; }
+}

@@ -1,8 +1,9 @@
 /// tlsfsolve — in-process AIGER game solver (OxiDD BDD backend).
 ///
 /// Reads an AIGER game (aag format, stdin or FILE) and emits the winning
-/// strategy as an aag on stdout, or exits 1 with "UNREALIZABLE" on stderr if
-/// the controller player loses.  The game format is the same as AbsSynthe's:
+/// strategy as an aag on stdout, exits 1 with "UNREALIZABLE" on stderr if the
+/// controller player loses, or exits 2 if OxiDD fails.  The game format is the
+/// same as AbsSynthe's:
 /// controllable inputs prefixed "controllable_", latches with reset values,
 /// "bad" output for the unsafe predicate.  GR(1) games additionally carry
 /// justice[] and fair[] records (AIGER 1.9); these are auto-detected and routed
@@ -28,6 +29,7 @@ static void usage(const char *prog) {
           "  FILE   aag game file (default: stdin; use '-' for stdin)\n"
           "Exit 0: realizable — writes strategy aag to stdout.\n"
           "Exit 1: UNREALIZABLE — writes message to stderr.\n"
+          "Exit 2: input, usage, or OxiDD solver failure.\n"
           "  --version, --help\n",
           prog);
 }
@@ -76,8 +78,12 @@ int main(int argc, char **argv) {
                       : solve_safety_oxidd(game, &unreal);
 
   if (!strat) {
-    fprintf(stderr, "UNREALIZABLE\n");
-    return 1;
+    if (unreal) {
+      fprintf(stderr, "UNREALIZABLE\n");
+      return 1;
+    }
+    fprintf(stderr, "tlsfsolve: OxiDD solver failed\n");
+    return 2;
   }
 
   aig_write_aag(stdout, strat);

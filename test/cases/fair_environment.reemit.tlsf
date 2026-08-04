@@ -1,0 +1,39 @@
+INFO {
+  TITLE:       "fair environment";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 2;
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    tick;
+    req[1..n];
+  }
+
+  OUTPUTS {
+    grant;
+  }
+
+    ASSUME {
+      G ((tick -> X (tick)));
+      G (F (tick));
+      G (F (!(tick)));
+      &&[1 <= __tlsf_fair_i <= n] G (F (req[__tlsf_fair_i]));
+      &&[1 <= __tlsf_fair_i <= n] G (F (!(req[__tlsf_fair_i])));
+    }
+
+    GUARANTEE {
+      G (grant);
+      F (grant);
+    }
+
+}

@@ -1,0 +1,1 @@
+G (tick -> X tick) && G (true U tick) && G (true U !tick) && (G (true U req_1) && G (true U req_2)) && (G (true U !req_1) && G (true U !req_2)) -> G grant && true U grant

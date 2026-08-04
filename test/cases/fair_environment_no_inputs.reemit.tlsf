@@ -1,0 +1,20 @@
+INFO {
+  TITLE:       "no environment inputs";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+MAIN {
+
+  INPUTS {
+  }
+
+  OUTPUTS {
+    done;
+  }
+
+    GUARANTEE {
+      F (done);
+    }
+
+}

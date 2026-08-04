@@ -405,6 +405,16 @@ if research_tools
       include_directories: inc,
       install: true,
     )
+
+    tlsfsolve_failure_exe = executable(
+      'tlsfsolve-failure-stub',
+      sources: ['src/main_tlsfsolve.c', 'test/tlsfsolve_failure_stub.c',
+                version_h],
+      c_args: ['-DHAVE_OXIDD'],
+      dependencies: [oxidd_dep],
+      link_with: tlsf_lib,
+      include_directories: inc,
+    )
   endif
 endif
 
@@ -465,6 +475,7 @@ endif
 check = files('test/check.sh')
 xfail = files('test/expect_fail.sh')
 check_fail_stderr = files('test/check_fail_stderr.sh')
+check_status = files('test/check_status.sh')
 check_solve_wrapper = files('test/check_solve_wrapper.sh')
 check_output_dir = files('test/check_output_dir.sh')
 check_output_dir_fail = files('test/check_output_dir_fail.sh')
@@ -553,6 +564,52 @@ test('ltl_no_strong_release', check,
   args: [files('test/cases/operators.nsr.ltl'),
          tlsf2ltl_exe, '--no-strong-release',
          files('test/cases/operators.tlsf')])
+
+# Environment fairness: scalar + parameterized bus inputs, preserved existing
+# assumptions, rewrites and safety/liveness guarantee selection.
+test('ltl_fair_environment', check,
+  args: [files('test/cases/fair_environment.ltl'), tlsf2ltl_exe,
+         '--fair-environment', files('test/cases/fair_environment.tlsf')])
+test('ltl_fair_environment_no_finally', check,
+  args: [files('test/cases/fair_environment.no_finally.ltl'), tlsf2ltl_exe,
+         '--fair-environment', '--no-finally',
+         files('test/cases/fair_environment.tlsf')])
+test('ltl_fair_environment_safety', check,
+  args: [files('test/cases/fair_environment.safety.ltl'), tlsf2ltl_exe,
+         '--fair-environment', '--safety',
+         files('test/cases/fair_environment.tlsf')])
+test('ltl_fair_environment_liveness', check,
+  args: [files('test/cases/fair_environment.liveness.ltl'), tlsf2ltl_exe,
+         '--fair-environment', '--liveness',
+         files('test/cases/fair_environment.tlsf')])
+test('tlsf_fair_environment', check,
+  args: [files('test/cases/fair_environment.reemit.tlsf'), tlsf2tlsf_exe,
+         '--fair-environment', files('test/cases/fair_environment.tlsf')])
+test('tlsf_fair_environment_basic', check,
+  args: [files('test/cases/fair_environment.basic.tlsf'), tlsf2tlsf_exe,
+         '--fair-environment', '--basic',
+         files('test/cases/fair_environment.tlsf')])
+test('ltl_fair_environment_no_inputs', check,
+  args: [files('test/cases/fair_environment_no_inputs.ltl'), tlsf2ltl_exe,
+         '--fair-environment',
+         files('test/cases/fair_environment_no_inputs.tlsf')])
+test('tlsf_fair_environment_no_inputs', check,
+  args: [files('test/cases/fair_environment_no_inputs.reemit.tlsf'),
+         tlsf2tlsf_exe, '--fair-environment',
+         files('test/cases/fair_environment_no_inputs.tlsf')])
+
+foreach tool : [['tlsf2ltl', tlsf2ltl_exe,
+                 files('test/cases/fair_environment_ltl.stderr')],
+                ['tlsf2tlsf', tlsf2tlsf_exe,
+                 files('test/cases/fair_environment_tlsf.stderr')]]
+  test(tool[0] + '_fair_environment_finite', check_status,
+    args: ['1', files('test/cases/empty'), tool[2], tool[1],
+           '--fair-environment', files('test/cases/finite_wm.tlsf')])
+  test(tool[0] + '_fair_environment_finite_override', check_status,
+    args: ['1', files('test/cases/empty'), tool[2], tool[1],
+           '--fair-environment', '--overwrite-semantics', 'Finite,Mealy',
+           files('test/cases/fair_environment.tlsf')])
+endforeach
 
 # Finite (ltlxba-fin): W/M auto-eliminated, weak X vs strong X[!] preserved.
 test('ltl_finite_wm', check,
@@ -907,16 +964,20 @@ if python3.found()
            '--schedules', 'off', 'match-safe:1'])
 endif
 endif
-if research_tools and python3.found() and spot_python_found
-  tlsf2ltl_path = join_paths(meson.current_build_dir(), 'tlsf2ltl')
-  if have_oxidd
-    # tlsfsolve: standalone AIGER game solver.
-    test('tlsfsolve_real', check,
-      args: [files('test/cases/solve_real.out.aag'),
-             tlsfsolve_exe, files('test/cases/solve_real.aag')])
-    test('tlsfsolve_unreal', xfail,
-      args: [tlsfsolve_exe, files('test/cases/solve_unreal.aag')])
-  endif
+if research_tools and have_oxidd
+  # tlsfsolve: exact status, stdout and stderr for win, loss and solver failure.
+  test('tlsfsolve_real', check_status,
+    args: ['0', files('test/cases/solve_real.out.aag'),
+           files('test/cases/empty'), tlsfsolve_exe,
+           files('test/cases/solve_real.aag')])
+  test('tlsfsolve_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/solve_unreal.aag')])
+  test('tlsfsolve_failure', check_status,
+    args: ['2', files('test/cases/empty'),
+           files('test/cases/solve_failure.stderr'), tlsfsolve_failure_exe,
+           files('test/cases/solve_real.aag')])
 endif
 
 # tlsfnorm is stable preprocessing functionality.

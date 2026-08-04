@@ -10,6 +10,8 @@
 #include "tlsf/rewrite.h"
 #include "tlsf/spec.h"
 
+#include "spec_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +29,8 @@ static void usage(const char *prog) {
       "                               or latex\n"
       "  --safety, --liveness         emit only safety / liveness "
       "guarantees\n"
+      "  --fair-environment           require every Boolean input to visit\n"
+      "                               both values infinitely often\n"
       "  --parenthesize               fully parenthesise (default: minimal\n"
       "                               parentheses by operator precedence)\n"
       "  --param NAME=VALUE           override a parameter (repeatable)\n"
@@ -198,6 +202,7 @@ int main(int argc, char *argv[]) {
   const char *ot_arg = nullptr;
   const char *input_file = nullptr;
   const char *output_file = nullptr;
+  bool fair_environment = false;
 
   // Temporary override storage (max 64 overrides).
   ParamOverride overrides[64];
@@ -214,6 +219,8 @@ int main(int argc, char *argv[]) {
       mode = PRINT_SAFETY;
     } else if (strcmp(argv[i], "--liveness") == 0) {
       mode = PRINT_LIVENESS;
+    } else if (strcmp(argv[i], "--fair-environment") == 0) {
+      fair_environment = true;
     } else if (strcmp(argv[i], "--overwrite-semantics") == 0) {
       os_arg = NEED_ARG();
     } else if (strcmp(argv[i], "--overwrite-target") == 0) {
@@ -317,6 +324,18 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   if (!spec_validate_semantics(spec, "tlsf2ltl")) {
+    spec_free(spec);
+    return 1;
+  }
+  if (fair_environment && semantics_is_finite(spec->info.semantics)) {
+    fprintf(stderr,
+            "tlsf2ltl: --fair-environment is only available for infinite "
+            "semantics\n");
+    spec_free(spec);
+    return 1;
+  }
+  if (fair_environment && !spec_add_fair_environment(spec)) {
+    fprintf(stderr, "tlsf2ltl: fair-environment transform failed (OOM)\n");
     spec_free(spec);
     return 1;
   }

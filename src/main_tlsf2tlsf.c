@@ -14,24 +14,29 @@
 #include "tlsf/print_tlsf.h"
 #include "tlsf/spec.h"
 
+#include "spec_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Reads FILE (or stdin) and writes expanded TLSF.\n"
-          "  --basic                      fully expand to the basic fragment\n"
-          "                               (no GLOBAL section). Default:\n"
-          "                               substitute --param values and "
-          "re-emit.\n"
-          "  --param NAME=VALUE           override a parameter (repeatable)\n"
-          "  --overwrite-semantics VALUE  replace the spec's SEMANTICS\n"
-          "  --overwrite-target VALUE     replace the spec's TARGET\n"
-          "  --output FILE                write to FILE (default: stdout)\n"
-          "  --version, --help\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Reads FILE (or stdin) and writes expanded TLSF.\n"
+      "  --basic                      fully expand to the basic fragment\n"
+      "                               (no GLOBAL section). Default:\n"
+      "                               substitute --param values and "
+      "re-emit.\n"
+      "  --fair-environment           require every Boolean input to visit\n"
+      "                               both values infinitely often\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --overwrite-semantics VALUE  replace the spec's SEMANTICS\n"
+      "  --overwrite-target VALUE     replace the spec's TARGET\n"
+      "  --output FILE                write to FILE (default: stdout)\n"
+      "  --version, --help\n",
+      prog);
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
@@ -62,6 +67,7 @@ int main(int argc, char *argv[]) {
   const char *input_file = nullptr;
   const char *output_file = nullptr;
   bool to_basic = false;
+  bool fair_environment = false;
   const char *os_arg = nullptr;
   const char *ot_arg = nullptr;
   ParamOverride overrides[64];
@@ -76,6 +82,8 @@ int main(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--basic") == 0) {
       to_basic = true;
+    } else if (strcmp(argv[i], "--fair-environment") == 0) {
+      fair_environment = true;
     } else if (strcmp(argv[i], "--overwrite-semantics") == 0) {
       os_arg = NEED_ARG();
     } else if (strcmp(argv[i], "--overwrite-target") == 0) {
@@ -132,6 +140,18 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   if (!spec_validate_semantics(spec, "tlsf2tlsf")) {
+    spec_free(spec);
+    return 1;
+  }
+  if (fair_environment && semantics_is_finite(spec->info.semantics)) {
+    fprintf(stderr,
+            "tlsf2tlsf: --fair-environment is only available for infinite "
+            "semantics\n");
+    spec_free(spec);
+    return 1;
+  }
+  if (fair_environment && !spec_add_fair_environment(spec)) {
+    fprintf(stderr, "tlsf2tlsf: fair-environment transform failed (OOM)\n");
     spec_free(spec);
     return 1;
   }
