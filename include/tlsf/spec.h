@@ -259,4 +259,9 @@ void spec_free(TlsfSpec *s);
 /// `prog` and returns false on invalid combinations.
 [[nodiscard]] bool spec_validate_semantics(const TlsfSpec *s, const char *prog);
 
+/// Adapt an expanded specification when its SEMANTICS and TARGET timing
+/// frames differ.  Moore-to-Mealy delays inputs; Mealy-to-Moore delays
+/// outputs.  Returns false on allocation failure.
+[[nodiscard]] bool spec_adapt_target(TlsfSpec *s);
+
 #endif // TLSF_SPEC_H

@@ -38,6 +38,71 @@ void spec_free(TlsfSpec *s) {
   arena_free(s->arena);
 }
 
+static bool signal_name_in(const char *name, const SignalDecl *signals,
+                           uint32_t count) {
+  for (uint32_t i = 0; i < count; i++)
+    if (signals[i].name == name)
+      return true;
+  return false;
+}
+
+static Node *wrap_signal_aps(Arena *arena, Node *node,
+                             const SignalDecl *signals, uint32_t count) {
+  switch (node->kind) {
+  case NODE_AP:
+    return signal_name_in(node->name, signals, count) ? node_x(arena, node)
+                                                      : node;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    node->arg = wrap_signal_aps(arena, node->arg, signals, count);
+    return node->arg ? node : nullptr;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    node->lhs = wrap_signal_aps(arena, node->lhs, signals, count);
+    node->rhs = wrap_signal_aps(arena, node->rhs, signals, count);
+    return node->lhs && node->rhs ? node : nullptr;
+  default:
+    return node;
+  }
+}
+
+bool spec_adapt_target(TlsfSpec *s) {
+  bool semantics_moore = semantics_is_moore(s->info.semantics);
+  bool target_moore = s->info.target == TARGET_MOORE;
+  if (semantics_moore == target_moore)
+    return true;
+
+  const SignalDecl *signals = semantics_moore ? s->inputs : s->outputs;
+  uint32_t count = semantics_moore ? s->input_count : s->output_count;
+
+#define WRAP_LIST(list)                                                        \
+  do {                                                                         \
+    for (uint32_t i = 0; i < (list).count; i++) {                              \
+      (list).formulas[i] =                                                     \
+          wrap_signal_aps(s->arena, (list).formulas[i], signals, count);       \
+      if (!(list).formulas[i])                                                 \
+        return false;                                                          \
+    }                                                                          \
+  } while (0)
+  WRAP_LIST(s->initially);
+  WRAP_LIST(s->require);
+  WRAP_LIST(s->assume);
+  WRAP_LIST(s->preset);
+  WRAP_LIST(s->assert_);
+  WRAP_LIST(s->guarantee);
+#undef WRAP_LIST
+  return true;
+}
+
 bool formula_list_push(TlsfSpec *s, FormulaList *list, Node *formula) {
   if (list->count == list->capacity) {
     uint32_t new_cap =

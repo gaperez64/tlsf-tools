@@ -93,76 +93,6 @@ static bool parse_override(const char *s, ParamOverride *out) {
 }
 
 // ---------------------------------------------------------------------------
-// Mealy/Moore adaptation.
-//
-// The SEMANTICS field says which timing the spec is written in; the TARGET
-// says which machine to produce.  When they disagree the formula is converted
-// (TLSF v1.x): Moore->Mealy delays the inputs (i becomes X i), Mealy->Moore
-// delays the outputs (o becomes X o).  Applied to the expanded (scalar) spec.
-// ---------------------------------------------------------------------------
-
-// True if `name` (interned) is one of the listed signals.
-static bool in_signals(const char *name, const SignalDecl *sigs,
-                       uint32_t count) {
-  for (uint32_t i = 0; i < count; i++)
-    if (sigs[i].name == name)
-      return true;
-  return false;
-}
-
-// Wrap every AP whose name is in {sigs} with X.  Compound nodes are rebuilt
-// in place (formulas are not shared after expansion); AP nodes are replaced.
-static Node *wrap_aps(Arena *a, Node *n, const SignalDecl *sigs,
-                      uint32_t count) {
-  switch (n->kind) {
-  case NODE_AP:
-    return in_signals(n->name, sigs, count) ? node_x(a, n) : n;
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    n->arg = wrap_aps(a, n->arg, sigs, count);
-    return n;
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    n->lhs = wrap_aps(a, n->lhs, sigs, count);
-    n->rhs = wrap_aps(a, n->rhs, sigs, count);
-    return n;
-  default: // true / false
-    return n;
-  }
-}
-
-static void adapt_mealy_moore(TlsfSpec *spec) {
-  bool sem_moore = semantics_is_moore(spec->info.semantics);
-  bool tgt_moore = (spec->info.target == TARGET_MOORE);
-  if (sem_moore == tgt_moore)
-    return; // frames already agree
-
-  // Moore spec -> Mealy target: delay inputs.  Mealy spec -> Moore: outputs.
-  const SignalDecl *sigs = sem_moore ? spec->inputs : spec->outputs;
-  uint32_t count = sem_moore ? spec->input_count : spec->output_count;
-
-#define WRAP_LIST(list)                                                        \
-  for (uint32_t _i = 0; _i < (list).count; _i++)                               \
-  (list).formulas[_i] = wrap_aps(spec->arena, (list).formulas[_i], sigs, count)
-  WRAP_LIST(spec->initially);
-  WRAP_LIST(spec->require);
-  WRAP_LIST(spec->assume);
-  WRAP_LIST(spec->preset);
-  WRAP_LIST(spec->assert_);
-  WRAP_LIST(spec->guarantee);
-#undef WRAP_LIST
-}
-
-// ---------------------------------------------------------------------------
 // Apply NNF to all formula lists in the spec.
 // ---------------------------------------------------------------------------
 
@@ -351,7 +281,11 @@ int main(int argc, char *argv[]) {
     free((void *)overrides[i].name);
 
   // --- Mealy/Moore adaptation (after expansion: signals are scalar) ---
-  adapt_mealy_moore(spec);
+  if (!spec_adapt_target(spec)) {
+    fprintf(stderr, "tlsf2ltl: semantics/target adaptation failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
 
   // --- NNF ---
   // NNF is only needed to classify formulas correctly for the --safety /

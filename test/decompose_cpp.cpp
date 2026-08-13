@@ -47,5 +47,24 @@ MAIN {
     assert(cluster.outputs.size() == 1);
     assert(!cluster.ltl.empty());
   }
+
+  const std::string converted = R"TLSF(
+INFO {
+  TITLE: "decompose_cpp_target_adaptation"
+  SEMANTICS: Mealy
+  TARGET: Moore
+}
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE { G (req -> grant); }
+}
+)TLSF";
+  options.split = false;
+  options.format = tlsf::Format::Ltl;
+  result = tlsf::decompose(converted, options);
+  assert(result.semantics == "Mealy");
+  assert(result.target == "Moore");
+  assert(result.preprocessed_ltl == "G (req -> X grant)");
   return 0;
 }
