@@ -349,9 +349,10 @@ INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE)
 assumption→guarantee implication; empty sections drop out. The
 shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
 
-- **Strict** (`Strict,*`) — the safety weak-until form
-  `((PRESET ∧ G ASSERT) W ¬(INITIALLY ∧ G REQUIRE)) ∧ (E → GUARANTEE)`;
-  `--overwrite-semantics Mealy` relaxes it to plain `E → S`.
+- **Strict** (`Strict,*`) — the TLSF v1.1 section 3.2 form
+  `INITIALLY → (PRESET ∧ (ASSERT W ¬REQUIRE) ∧
+  (G REQUIRE ∧ ASSUME → GUARANTEE))`; `--overwrite-semantics Mealy`
+  relaxes it to the standard implication.
 - **Finite-word** (`Finite,*`) — emits `ltlxba-fin`: strong-next prints `X[!]`,
   and `W` plus any internally derived strong release are rewritten with
   LTLf-valid identities so spot's `ltlfsynt` accepts them.
