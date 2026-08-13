@@ -294,6 +294,7 @@ tlsf_dep = declare_dependency(
   link_with: tlsf_lib,
   dependencies: lib_deps,
 )
+meson.override_dependency('tlsf', tlsf_dep)
 
 install_headers(
   'include/tlsf/ast_api.h',
