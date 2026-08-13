@@ -238,11 +238,12 @@ python3 scripts/verify_aiger_ltl.py --aiger ctrl.aag \
 
 `tlsfnorm` re-emits clean TLSF (split conjunctions, NNF, boolean simplify);
 `tlsf2ltl` gives the formula and `tlsfinfo --expanded-ins/--expanded-outs` the
-scalar interface, so any spot/Strix-style tool can take over. The `ltlxba`
-dialect lowercases atoms (spot/ltl2ba read uppercase letters as operators), so
-lowercase the interface to match; the faithful `ltl` dialect keeps the original
-case. `tlsfcompose` and `tlsfresidual` keep original case by default and apply
-lowercasing to formulas and interfaces only with `--lowercase`.
+scalar interface, so any Spot/Strix-style tool can take over. The `ltlxba`
+dialect follows the historical SyFCo/classic-ltl2ba convention of lowercasing
+atoms, so lowercase the interface to match; the faithful `ltl` dialect keeps
+the original case. Spot accepts uppercase TLSF identifiers. `tlsfcompose` and
+`tlsfresidual` keep original case by default and apply lowercasing to formulas
+and interfaces only with `--lowercase`; all lowercase exports reject collisions.
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf

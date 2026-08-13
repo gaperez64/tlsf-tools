@@ -1354,10 +1354,18 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
         return -1;
       continue;
     }
-    for (int64_t v = s->bus_lo; v <= (int64_t)s->bus_hi; v++)
+    for (int64_t v = s->bus_lo; v <= (int64_t)s->bus_hi; v++) {
       if (!spec_add_signal(spec, is_output, bus_elem_name(spec, s->name, v),
                            false, nullptr, nullptr))
         return -1;
+      SignalDecl *expanded = is_output ? &spec->outputs[spec->output_count - 1]
+                                       : &spec->inputs[spec->input_count - 1];
+      expanded->origin_name = s->name;
+      expanded->origin_index = (uint16_t)v;
+      expanded->origin_bus_lo = s->bus_lo;
+      expanded->origin_bus_hi = s->bus_hi;
+      expanded->origin_is_bus = true;
+    }
   }
   return 0;
 }

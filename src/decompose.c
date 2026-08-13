@@ -155,13 +155,15 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   if (!spec || !cov || !rplan)
     return nullptr;
 
-  TlsfDecomposeResult *r = calloc(1, sizeof *r);
-  if (!r)
-    return nullptr;
-
   LtlFormat fmt = decompose_format(opts);
   bool lower = opts && opts->lowercase;
   bool finite = semantics_is_finite(spec->info.semantics);
+  if (lower && !spec_validate_lowercase_signals(spec, "tlsf-decompose"))
+    return nullptr;
+
+  TlsfDecomposeResult *r = calloc(1, sizeof *r);
+  if (!r)
+    return nullptr;
   r->residual_trust = TLSF_DECOMPOSE_TRUST_EXACT;
   r->semantics = dup_cstr(semantics_name(spec->info.semantics));
   r->target = dup_cstr(target_name(spec->info.target));

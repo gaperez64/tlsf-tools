@@ -781,6 +781,10 @@ int main(int argc, char *argv[]) {
   }
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
+  if (lowercase && !spec_validate_lowercase_signals(spec, "tlsfcompose")) {
+    spec_free(spec);
+    return 1;
+  }
 
   ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {

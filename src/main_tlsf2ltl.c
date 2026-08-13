@@ -286,6 +286,11 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+  if (fmt == LTL_FMT_LTLXBA &&
+      !spec_validate_lowercase_signals(spec, "tlsf2ltl")) {
+    spec_free(spec);
+    return 1;
+  }
 
   // --- NNF ---
   // NNF is only needed to classify formulas correctly for the --safety /
@@ -330,10 +335,9 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  // ltlxba targets ltl2ba/spot/ltlsynt, which read uppercase letters as
-  // operators; lowercase the atoms there (as syfco -f ltlxba does) so the
-  // output is directly consumable.  The faithful `ltl`/`latex` dialects keep
-  // the case.
+  // Preserve the historical SyFCo/classic-ltl2ba convention of lowercasing
+  // ltlxba atoms.  Spot accepts case-preserving TLSF identifiers; callers that
+  // need that fidelity should select the `ltl` dialect instead.
   print_ltl(out, root, fmt, full_parens, finite,
             /*lower_atoms=*/fmt == LTL_FMT_LTLXBA);
   if (output_file)

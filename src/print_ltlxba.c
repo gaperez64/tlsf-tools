@@ -73,8 +73,9 @@ static void atom_plain(FILE *out, const char *name) {
   fprintf(out, "%s", name);
 }
 
-// ltlsynt / ltl2ba read uppercase letters as operators, so atoms are lowercased
-// for the ltlxba dialect on request (as `syfco -f ltlxba` does).
+// Some classic ltl2ba-compatible workflows conventionally lowercase atoms.
+// Spot itself accepts uppercase TLSF identifiers (including names beginning
+// with F/G/X); exact operator names are already forbidden by TLSF.
 static void atom_lower(FILE *out, const char *name) {
   for (const char *p = name; *p; p++)
     fputc(tolower((unsigned char)*p), out);

@@ -62,6 +62,14 @@ typedef struct {
   uint16_t bus_lo;  ///< bus range low  (resolved value; 0 for scalar signals)
   uint16_t bus_hi;  ///< bus range high (resolved value; 0 for scalar signals)
   bool is_bus;      ///< true if this is a bus declaration
+  // Expansion provenance.  After expand(), every declaration is scalar, but
+  // these fields retain the source declaration that produced it.  This is
+  // used to certify indexed AP families without guessing from mangled names.
+  const char *origin_name; ///< source declaration name
+  uint16_t origin_index;   ///< source bus index (0 for a scalar declaration)
+  uint16_t origin_bus_lo;  ///< resolved source bus lower bound
+  uint16_t origin_bus_hi;  ///< resolved source bus upper bound
+  bool origin_is_bus;      ///< true when produced by a bus declaration
   // Parametric bounds: when non-null these integer expressions are evaluated
   // during expand() to fill bus_lo / bus_hi.  Literal ranges leave them null.
   struct Node *bus_lo_expr;
@@ -258,6 +266,12 @@ void spec_free(TlsfSpec *s);
 /// Validate semantics-dependent syntax.  Prints a diagnostic prefixed with
 /// `prog` and returns false on invalid combinations.
 [[nodiscard]] bool spec_validate_semantics(const TlsfSpec *s, const char *prog);
+
+/// Validate an explicitly requested lowercase export.  TLSF identifiers are
+/// case-sensitive, so reject exports that would merge two distinct expanded
+/// signals.  Prints a diagnostic prefixed with `prog` on collision.
+[[nodiscard]] bool spec_validate_lowercase_signals(const TlsfSpec *s,
+                                                   const char *prog);
 
 /// Adapt an expanded specification when its SEMANTICS and TARGET timing
 /// frames differ.  Moore-to-Mealy delays inputs; Mealy-to-Moore delays

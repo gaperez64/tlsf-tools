@@ -1,4 +1,6 @@
 #include "tlsf/ast_api.h"
+#include "tlsf/expand.h"
+#include "tlsf/spec.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -59,7 +61,33 @@ static bool ast_contains_kind(const TlsfAst *ast, TlsfAstKind kind) {
   return false;
 }
 
+static void test_signal_provenance(void) {
+  TlsfSpec *spec = spec_new();
+  assert(spec);
+  assert(spec_add_signal(spec, false, "Ready", false, nullptr, nullptr));
+  assert(spec_add_signal(spec, false, "Bus", true, node_int(spec->arena, 2),
+                         node_int(spec->arena, 4)));
+  assert(expand(spec, nullptr, 0) == 0);
+  assert(spec->input_count == 4);
+
+  const SignalDecl *scalar = &spec->inputs[0];
+  assert(strcmp(scalar->name, "Ready") == 0);
+  assert(strcmp(scalar->origin_name, "Ready") == 0);
+  assert(!scalar->origin_is_bus);
+
+  for (uint32_t i = 1; i < spec->input_count; i++) {
+    const SignalDecl *signal = &spec->inputs[i];
+    assert(strcmp(signal->origin_name, "Bus") == 0);
+    assert(signal->origin_is_bus);
+    assert(signal->origin_index == i + 1);
+    assert(signal->origin_bus_lo == 2);
+    assert(signal->origin_bus_hi == 4);
+  }
+  spec_free(spec);
+}
+
 int main(void) {
+  test_signal_provenance();
   TlsfAstVisitor empty_visitor = {0};
   tlsf_ast_free(nullptr);
   assert(tlsf_ast_from_file(nullptr, nullptr) == nullptr);

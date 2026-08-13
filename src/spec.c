@@ -2,6 +2,7 @@
 
 #include "spec_internal.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -206,6 +207,8 @@ bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name, bool is_bus,
   }
   SignalDecl d = {.name = name,
                   .is_bus = is_bus,
+                  .origin_name = name,
+                  .origin_is_bus = is_bus,
                   .bus_lo_expr = lo_expr,
                   .bus_hi_expr = hi_expr};
   // Resolve literal bounds immediately so non-expanding consumers see them.
@@ -213,6 +216,9 @@ bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name, bool is_bus,
     d.bus_lo = (uint16_t)lo_expr->ival;
   if (hi_expr && hi_expr->kind == NODE_INT)
     d.bus_hi = (uint16_t)hi_expr->ival;
+  d.origin_index = d.bus_lo;
+  d.origin_bus_lo = d.bus_lo;
+  d.origin_bus_hi = d.bus_hi;
   (*list)[*count] = d;
   (*count)++;
   return true;
@@ -455,6 +461,39 @@ bool spec_validate_semantics(const TlsfSpec *s, const char *prog) {
     return false;
   }
 
+  return true;
+}
+
+static bool names_equal_ignoring_case(const char *lhs, const char *rhs) {
+  while (*lhs && *rhs) {
+    if (tolower((unsigned char)*lhs) != tolower((unsigned char)*rhs))
+      return false;
+    lhs++;
+    rhs++;
+  }
+  return *lhs == *rhs;
+}
+
+bool spec_validate_lowercase_signals(const TlsfSpec *s, const char *prog) {
+  const SignalDecl *lists[2] = {s->inputs, s->outputs};
+  uint32_t counts[2] = {s->input_count, s->output_count};
+  for (uint32_t left_list = 0; left_list < 2; left_list++)
+    for (uint32_t left = 0; left < counts[left_list]; left++)
+      for (uint32_t right_list = left_list; right_list < 2; right_list++) {
+        uint32_t right_start = right_list == left_list ? left + 1 : 0;
+        for (uint32_t right = right_start; right < counts[right_list];
+             right++) {
+          const char *lhs = lists[left_list][left].name;
+          const char *rhs = lists[right_list][right].name;
+          if (strcmp(lhs, rhs) != 0 && names_equal_ignoring_case(lhs, rhs)) {
+            fprintf(stderr,
+                    "%s: lowercasing would merge distinct signals '%s' and "
+                    "'%s'\n",
+                    prog, lhs, rhs);
+            return false;
+          }
+        }
+      }
   return true;
 }
 

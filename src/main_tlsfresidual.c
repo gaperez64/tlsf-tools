@@ -172,6 +172,10 @@ int main(int argc, char *argv[]) {
   TlsfSpec *spec = p->spec;
   ConstraintCover *cov = p->cover;
   CsnfComposition *comp = p->composition;
+  if (lowercase && !spec_validate_lowercase_signals(spec, "tlsfresidual")) {
+    tlsf_pipeline_free(p);
+    return 1;
+  }
 
   FILE *out = cli_open_output(output_file, "tlsfresidual");
   if (!out) {
