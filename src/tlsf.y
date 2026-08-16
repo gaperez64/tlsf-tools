@@ -118,9 +118,38 @@
     return body;
   }
 
-  /* Implicit invariant for an enum-typed signal: it always holds one of the
-   * type's labels, i.e. G( (sig == L1) || (sig == L2) || ... ).  Each (sig ==
-   * Li) expands to the positional bit match during expansion. */
+  static const char *join_enum_values(TlsfSpec *spec, const char *lhs,
+                                      const char *rhs) {
+    size_t lhs_len = strlen(lhs);
+    size_t rhs_len = strlen(rhs);
+    char *joined = ARENA_ALLOC_N(spec->arena, char, lhs_len + rhs_len + 2u);
+    if (!joined)
+      return nullptr;
+    memcpy(joined, lhs, lhs_len);
+    joined[lhs_len] = ',';
+    memcpy(joined + lhs_len + 1u, rhs, rhs_len + 1u);
+    return intern(spec->intern, joined);
+  }
+
+  static uint32_t enum_value_width(const char *values) {
+    return (uint32_t)strcspn(values, ",");
+  }
+
+  static bool enum_values_have_width(const char *values, uint32_t width) {
+    const char *at = values;
+    while (*at) {
+      const char *end = strchr(at, ',');
+      size_t length = end ? (size_t)(end - at) : strlen(at);
+      if (length != width)
+        return false;
+      at = end ? end + 1 : at + length;
+    }
+    return true;
+  }
+
+  /* Implicit validity of an enum-typed signal.  The caller places this raw
+   * state formula in REQUIRE (input) or ASSERT (output), as prescribed by TLSF;
+   * the selected standard/strict semantics supplies the temporal context. */
   static Node *mk_enum_validity(TlsfSpec *spec, const EnumType *et,
                                 const char *sig) {
     Arena *a = spec->arena;
@@ -130,7 +159,7 @@
       Node *eq = mk_cmp(a, NODE_CMP_EQ, node_ap(a, sig), node_ap(a, label));
       acc = acc ? node_or(a, acc, eq) : eq;
     }
-    return acc ? node_g(a, acc) : node_true(a);
+    return acc ? acc : node_true(a);
   }
 }
 
@@ -218,7 +247,7 @@
  * --------------------------------------------------------------------- */
 %type <node>      ltl_expr bound_spec cond cases set_literal
 %type <ival>      lt_or_leq cmp_op
-%type <sval>      signal_name
+%type <sval>      signal_name enum_values
 %type <slist>     ident_list
 %type <node_list> call_arg_list nonempty_expr_list bound_list
 
@@ -376,8 +405,8 @@ def_entry
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
   | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
-  /* enum NAME = LABEL: bits  LABEL: bits  ... ;  (NAME is unused; each label
-     becomes a global bit-pattern matched by `bus == LABEL`). */
+  /* enum NAME = LABEL: valuation[,valuation...] ... ;  Each valuation is a
+     width-bearing word over 0, 1, and *. */
   | TOK_ENUM TOK_IDENT TOK_ASSIGN enum_labels TOK_SEMI
     { /* This enum's labels are those added since the previous enum type. */
       uint16_t prev_end = spec->enum_type_count
@@ -386,18 +415,31 @@ def_entry
           : 0;
       uint16_t end = spec->enum_label_count;
       uint32_t w = end > prev_end
-          ? (uint32_t)strlen(spec->enum_labels[end - 1].bits)
+          ? enum_value_width(spec->enum_labels[prev_end].bits)
           : 0;
+      for (uint16_t label = prev_end; label < end; ++label)
+        if (!enum_values_have_width(spec->enum_labels[label].bits, w)) {
+          fprintf(stderr, "%d: enum '%s' has inconsistent valuation widths\n",
+                  @2.first_line, $2);
+          YYERROR;
+        }
       if (!spec_add_enum_type(spec, $2, w, prev_end,
                               (uint16_t)(end - prev_end)))
         YYNOMEM; }
   ;
 
 enum_labels
-  : TOK_IDENT TOK_COLON TOK_BITS
+  : TOK_IDENT TOK_COLON enum_values
     { if (!spec_add_enum_label(spec, $1, $3)) YYNOMEM; }
-  | enum_labels TOK_IDENT TOK_COLON TOK_BITS
+  | enum_labels TOK_IDENT TOK_COLON enum_values
     { if (!spec_add_enum_label(spec, $2, $4)) YYNOMEM; }
+  ;
+
+enum_values
+  : TOK_BITS
+    { $$ = $1; }
+  | enum_values TOK_COMMA TOK_BITS
+    { $$ = join_enum_values(spec, $1, $3); if (!$$) YYNOMEM; }
   ;
 
 /* Definition guard chain:  cond : value  cond : value  ...  (right-nested ITE,
@@ -514,9 +556,9 @@ signal_decl
       hi->kind = NODE_INT_SUB; hi->lhs = $3; hi->rhs = node_int(spec->arena, 1);
       if (!spec_add_signal(spec, spec->cur_is_output, $1, true, lo, hi))
         YYNOMEM; }
-  /* enum-typed signal:  TYPE name;  declares a bus of the enum's bit width and
-     adds the implicit "always a valid enum value" invariant — an assumption for
-     an input, a guarantee for an output. */
+  /* enum-typed signal: TYPE name; declares a bus of the enum's bit width and
+     adds the spec-defined implicit validity constraint: a global requirement
+     for an input and a global invariant for an output. */
   | TOK_IDENT signal_name
     { const EnumType *et = spec_find_enum_type(spec, $1);
       if (!et) {
@@ -527,9 +569,14 @@ signal_decl
       Node *hi = node_int(spec->arena, (int64_t)et->width - 1);
       if (!spec_add_signal(spec, spec->cur_is_output, $2, true, lo, hi))
         YYNOMEM;
+      SignalDecl *signals =
+          spec->cur_is_output ? spec->outputs : spec->inputs;
+      uint32_t count =
+          spec->cur_is_output ? spec->output_count : spec->input_count;
+      signals[count - 1u].origin_is_enum = true;
       Node *valid = mk_enum_validity(spec, et, $2);
       FormulaList *list =
-          spec->cur_is_output ? &spec->guarantee : &spec->assume;
+          spec->cur_is_output ? &spec->assert_ : &spec->require;
       if (!formula_list_push(spec, list, valid))
         YYNOMEM; }
   ;

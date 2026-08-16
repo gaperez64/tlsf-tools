@@ -64,12 +64,14 @@ typedef struct {
   bool is_bus;      ///< true if this is a bus declaration
   // Expansion provenance.  After expand(), every declaration is scalar, but
   // these fields retain the source declaration that produced it.  This is
-  // used to certify indexed AP families without guessing from mangled names.
+  // used to retain indexed-family provenance without guessing from mangled
+  // names.
   const char *origin_name; ///< source declaration name
   uint16_t origin_index;   ///< source bus index (0 for a scalar declaration)
   uint16_t origin_bus_lo;  ///< resolved source bus lower bound
   uint16_t origin_bus_hi;  ///< resolved source bus upper bound
   bool origin_is_bus;      ///< true when produced by a bus declaration
+  bool origin_is_enum;     ///< true when produced by an enum-typed declaration
   // Parametric bounds: when non-null these integer expressions are evaluated
   // during expand() to fill bus_lo / bus_hi.  Literal ranges leave them null.
   struct Node *bus_lo_expr;
@@ -94,12 +96,13 @@ typedef struct {
   Node *body; ///< formula body (pre-expansion)
 } DefDecl;
 
-/// An `enum` label and its bit pattern (MSB-first binary string, kept verbatim
-/// so the width is preserved).  `bus == LABEL` expands to a positional match of
-/// the bus bits against this pattern.
+/// An `enum` label and its comma-separated valuations.  Each valuation is an
+/// MSB-first string over 0, 1, and *; it is kept verbatim so width and wildcard
+/// positions are preserved.  `bus == LABEL` expands to the disjunction of the
+/// corresponding positional matches.
 typedef struct {
   const char *name; ///< interned label name
-  const char *bits; ///< interned bit string, e.g. "01"
+  const char *bits; ///< interned valuation list, e.g. "00,01,1*"
 } EnumLabel;
 
 /// An `enum` type name and the bit width of its labels.  A signal declared with
@@ -231,11 +234,13 @@ void spec_free(TlsfSpec *s);
                                 const char **params, uint16_t param_count,
                                 Node *body);
 
-/// Append an enum label and its bit pattern.  Returns false on OOM.
+/// Append an enum label and its comma-separated valuation list.  Returns false
+/// on OOM.
 [[nodiscard]] bool spec_add_enum_label(TlsfSpec *s, const char *name,
                                        const char *bits);
 
-/// Look up an enum label by interned name; returns its bit string or nullptr.
+/// Look up an enum label by interned name; returns its valuation list or
+/// nullptr.
 [[nodiscard]] const char *spec_find_enum_label(const TlsfSpec *s,
                                                const char *name);
 

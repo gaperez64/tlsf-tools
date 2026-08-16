@@ -90,5 +90,69 @@ MAIN {
     rejected_collision = true;
   }
   assert(rejected_collision);
+
+  const std::string indexed = R"TLSF(
+INFO { TITLE: "indexed" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { PARAMETERS { n = 3; } }
+MAIN {
+  INPUTS { Req[n]; }
+  OUTPUTS { Grant[n]; }
+  GUARANTEE { &&[0 <= i < n] G (Req[i] -> Grant[i]); }
+}
+)TLSF";
+  options.lowercase = false;
+  result = tlsf::decompose(indexed, options);
+  assert(result.indexed_families.size() == 2);
+  assert(result.indexed_families[0].origin_name == "Req");
+  assert(result.indexed_families[0].members ==
+         std::vector<std::string>({"Req_0", "Req_1", "Req_2"}));
+  assert(result.indexed_families[0].lo == 0);
+  assert(result.indexed_families[0].hi == 2);
+  assert(!result.indexed_families[0].is_output);
+  assert(!result.indexed_families[0].is_enum);
+  assert(result.indexed_families[1].origin_name == "Grant");
+  assert(result.indexed_families[1].members ==
+         std::vector<std::string>({"Grant_0", "Grant_1", "Grant_2"}));
+  assert(result.indexed_families[1].is_output);
+  assert(!result.indexed_families[1].is_enum);
+
+  const std::string enum_typed = R"TLSF(
+INFO { TITLE: "enum" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL {
+  DEFINITIONS { enum Mode = Idle: 00 Active: 01 Done: 10; }
+}
+MAIN {
+  INPUTS { Mode State; }
+  OUTPUTS { ok; }
+  GUARANTEE { G ok; }
+}
+)TLSF";
+  options.lowercase = true;
+  result = tlsf::decompose(enum_typed, options);
+  assert(result.indexed_families.size() == 1);
+  assert(result.indexed_families[0].origin_name == "state");
+  assert(result.indexed_families[0].is_enum);
+  assert(result.preprocessed_ltl.find(
+             "G (!state_0 && !state_1 || !state_0 && state_1 || state_0 && "
+             "!state_1)") != std::string::npos);
+
+  const std::string enum_wildcards = R"TLSF(
+INFO { TITLE: "enum wildcards" SEMANTICS: Strict,Mealy TARGET: Mealy }
+GLOBAL {
+  DEFINITIONS { enum Mode = Low: 00,01 High: 1*; }
+}
+MAIN {
+  INPUTS { Mode request; }
+  OUTPUTS { Mode response; }
+  REQUIRE { request == Low; }
+  ASSERT { response == High; }
+  GUARANTEE { G (request == Low -> response == High); }
+}
+)TLSF";
+  result = tlsf::decompose(enum_wildcards, options);
+  assert(result.semantics == "Strict,Mealy");
+  assert(result.preprocessed_ltl.find("request_0") != std::string::npos);
+  assert(result.preprocessed_ltl.find("response_0") != std::string::npos);
+  assert(result.preprocessed_ltl.find(" W ") != std::string::npos);
   return 0;
 }

@@ -1171,16 +1171,29 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
         *ok = false;
         return nullptr;
       }
-      // match = AND_i (bits[i]=='1' ? bus_i : !bus_i)
-      Node *acc = nullptr;
-      for (size_t i = 0; bits[i]; i++) {
-        Node *elem = node_ap(a, bus_elem_name(spec, bus->name, (int64_t)i));
-        Node *term = bits[i] == '1' ? elem : node_not(a, elem);
-        acc = acc ? node_and(a, acc, term) : term;
+      // A label denotes a comma-separated union of valuations.  Within one
+      // valuation, '*' leaves that bit unconstrained.
+      Node *allowed = nullptr;
+      const char *valuation = bits;
+      while (*valuation) {
+        const char *end = strchr(valuation, ',');
+        size_t width = end ? (size_t)(end - valuation) : strlen(valuation);
+        Node *match = nullptr;
+        for (size_t i = 0; i < width; i++) {
+          if (valuation[i] == '*')
+            continue;
+          Node *elem = node_ap(a, bus_elem_name(spec, bus->name, (int64_t)i));
+          Node *term = valuation[i] == '1' ? elem : node_not(a, elem);
+          match = match ? node_and(a, match, term) : term;
+        }
+        if (!match)
+          match = node_true(a);
+        allowed = allowed ? node_or(a, allowed, match) : match;
+        valuation = end ? end + 1 : valuation + width;
       }
-      if (!acc)
-        acc = node_true(a);
-      return n->kind == NODE_CMP_NE ? node_not(a, acc) : acc;
+      if (!allowed)
+        allowed = node_false(a);
+      return n->kind == NODE_CMP_NE ? node_not(a, allowed) : allowed;
     }
 
     // Plain integer comparison in formula position: fold to a constant.
@@ -1365,6 +1378,7 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
       expanded->origin_bus_lo = s->bus_lo;
       expanded->origin_bus_hi = s->bus_hi;
       expanded->origin_is_bus = true;
+      expanded->origin_is_enum = s->origin_is_enum;
     }
   }
   return 0;

@@ -43,6 +43,19 @@ typedef struct TlsfDecomposeCluster {
   uint32_t n_outputs;
 } TlsfDecomposeCluster;
 
+/// One source bus declaration, preserved after scalar expansion.  This is
+/// declaration provenance, not a proof that the formula is symmetric under
+/// permutations of the bus indices.
+typedef struct TlsfDecomposeIndexedFamily {
+  char *origin_name;
+  char **members;
+  uint32_t n_members;
+  uint16_t lo;
+  uint16_t hi;
+  bool is_output;
+  bool is_enum;
+} TlsfDecomposeIndexedFamily;
+
 typedef struct TlsfDecomposeResult {
   TlsfDecomposeCluster *clusters;
   uint32_t n_clusters;
@@ -52,6 +65,9 @@ typedef struct TlsfDecomposeResult {
   char **outputs;
   uint32_t n_inputs;
   uint32_t n_outputs;
+
+  TlsfDecomposeIndexedFamily *indexed_families;
+  uint32_t n_indexed_families;
 
   char *semantics;
   char *target;

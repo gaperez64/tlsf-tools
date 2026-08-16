@@ -683,6 +683,11 @@ test('tlsf_nnf_m_roundtrip_v12', files('test/check_roundtrip.sh'),
 test('ltl_enum', check,
   args: [files('test/cases/enum_demo.ltl'),
          tlsf2ltl_exe, files('test/cases/enum_demo.tlsf')])
+test('ltl_enum_wildcards_strict', check,
+  args: [files('test/cases/enum_wildcards_strict.ltl'),
+         tlsf2ltl_exe, files('test/cases/enum_wildcards_strict.tlsf')])
+test('err_enum_width', xfail,
+  args: [tlsf2ltl_exe, files('test/cases/err_enum_width.tlsf')])
 
 check_wl = files('test/check_wl.sh')   # normalizes embedded paths to basenames
 check_contains = files('test/check_contains.sh')  # asserts output matches a regex

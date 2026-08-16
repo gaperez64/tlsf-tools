@@ -106,6 +106,77 @@ static bool collect_signals(ConstraintCover *cov, const bool *seen,
   return true;
 }
 
+static uint32_t count_indexed_families(const SignalDecl *signals,
+                                       uint32_t count) {
+  uint32_t result = 0;
+  for (uint32_t i = 0; i < count; i++)
+    if (signals[i].origin_is_bus &&
+        signals[i].origin_index == signals[i].origin_bus_lo)
+      result++;
+  return result;
+}
+
+static bool fill_indexed_family(TlsfDecomposeIndexedFamily *out,
+                                const SignalDecl *signals, uint32_t count,
+                                uint32_t first, bool is_output, bool lower) {
+  const SignalDecl *source = &signals[first];
+  out->lo = source->origin_bus_lo;
+  out->hi = source->origin_bus_hi;
+  out->is_output = is_output;
+  out->is_enum = source->origin_is_enum;
+  out->origin_name = dup_maybe_lower(source->origin_name, lower);
+  out->n_members = (uint32_t)out->hi - out->lo + 1u;
+  out->members = calloc(out->n_members, sizeof *out->members);
+  if (!out->origin_name || !out->members)
+    return false;
+
+  for (uint32_t i = first; i < count; i++) {
+    const SignalDecl *candidate = &signals[i];
+    if (!candidate->origin_is_bus ||
+        candidate->origin_name != source->origin_name ||
+        candidate->origin_bus_lo != out->lo ||
+        candidate->origin_bus_hi != out->hi)
+      continue;
+    uint32_t position = candidate->origin_index - out->lo;
+    if (position >= out->n_members || out->members[position])
+      return false;
+    out->members[position] = dup_maybe_lower(candidate->name, lower);
+    if (!out->members[position])
+      return false;
+  }
+  for (uint32_t i = 0; i < out->n_members; i++)
+    if (!out->members[i])
+      return false;
+  return true;
+}
+
+static bool collect_indexed_families(TlsfDecomposeResult *r,
+                                     const TlsfSpec *spec, bool lower) {
+  const uint32_t input_families =
+      count_indexed_families(spec->inputs, spec->input_count);
+  const uint32_t output_families =
+      count_indexed_families(spec->outputs, spec->output_count);
+  r->n_indexed_families = input_families + output_families;
+  if (!r->n_indexed_families)
+    return true;
+  r->indexed_families =
+      calloc(r->n_indexed_families, sizeof *r->indexed_families);
+  if (!r->indexed_families)
+    return false;
+
+  uint32_t at = 0;
+  const SignalDecl *lists[2] = {spec->inputs, spec->outputs};
+  const uint32_t counts[2] = {spec->input_count, spec->output_count};
+  for (uint32_t side = 0; side < 2; side++)
+    for (uint32_t i = 0; i < counts[side]; i++)
+      if (lists[side][i].origin_is_bus &&
+          lists[side][i].origin_index == lists[side][i].origin_bus_lo &&
+          !fill_indexed_family(&r->indexed_families[at++], lists[side],
+                               counts[side], i, side == 1, lower))
+        return false;
+  return at == r->n_indexed_families;
+}
+
 static char *render_ltl(const Node *root, LtlFormat fmt, bool finite,
                         bool lower) {
   char *buf = nullptr;
@@ -176,7 +247,8 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   if (!collect_signals(cov, nullptr, AP_FLAG_INPUT, lower, &r->inputs,
                        &r->n_inputs) ||
       !collect_signals(cov, nullptr, AP_FLAG_OUTPUT, lower, &r->outputs,
-                       &r->n_outputs))
+                       &r->n_outputs) ||
+      !collect_indexed_families(r, spec, lower))
     goto fail;
 
   r->n_clusters = rplan->nclusters;
@@ -269,6 +341,12 @@ void tlsf_decompose_result_free(TlsfDecomposeResult *r) {
   free(r->preprocessed_ltl);
   free_string_array(r->inputs, r->n_inputs);
   free_string_array(r->outputs, r->n_outputs);
+  for (uint32_t i = 0; i < r->n_indexed_families; i++) {
+    free(r->indexed_families[i].origin_name);
+    free_string_array(r->indexed_families[i].members,
+                      r->indexed_families[i].n_members);
+  }
+  free(r->indexed_families);
   free(r->semantics);
   free(r->target);
   free(r);

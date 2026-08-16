@@ -43,11 +43,21 @@ struct Cluster {
   std::vector<std::string> outputs;
 };
 
+struct IndexedFamily {
+  std::string origin_name;
+  std::vector<std::string> members;
+  uint16_t lo = 0;
+  uint16_t hi = 0;
+  bool is_output = false;
+  bool is_enum = false;
+};
+
 struct Result {
   std::vector<Cluster> clusters;
   std::string preprocessed_ltl;
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
+  std::vector<IndexedFamily> indexed_families;
   std::string semantics;
   std::string target;
   int gr_level = -1;
@@ -77,11 +87,12 @@ inline Result decompose(const std::string &spec, const Options &options = {}) {
   c_options.split = options.split;
   c_options.lowercase = options.lowercase;
   c_options.format = static_cast<TlsfDecomposeFormat>(options.format);
-  c_options.overwrite_semantics =
-      options.overwrite_semantics.empty() ? nullptr
-                                          : options.overwrite_semantics.c_str();
-  c_options.overwrite_target =
-      options.overwrite_target.empty() ? nullptr : options.overwrite_target.c_str();
+  c_options.overwrite_semantics = options.overwrite_semantics.empty()
+                                      ? nullptr
+                                      : options.overwrite_semantics.c_str();
+  c_options.overwrite_target = options.overwrite_target.empty()
+                                   ? nullptr
+                                   : options.overwrite_target.c_str();
 
   std::unique_ptr<TlsfDecomposeResult, detail::ResultDeleter> raw(
       tlsf_decompose_string(spec.c_str(), &c_options));
@@ -92,6 +103,18 @@ inline Result decompose(const std::string &spec, const Options &options = {}) {
   out.preprocessed_ltl = raw->preprocessed_ltl ? raw->preprocessed_ltl : "";
   out.inputs = detail::copy_strings(raw->inputs, raw->n_inputs);
   out.outputs = detail::copy_strings(raw->outputs, raw->n_outputs);
+  out.indexed_families.reserve(raw->n_indexed_families);
+  for (uint32_t i = 0; i < raw->n_indexed_families; ++i) {
+    const TlsfDecomposeIndexedFamily &f = raw->indexed_families[i];
+    IndexedFamily family;
+    family.origin_name = f.origin_name ? f.origin_name : "";
+    family.members = detail::copy_strings(f.members, f.n_members);
+    family.lo = f.lo;
+    family.hi = f.hi;
+    family.is_output = f.is_output;
+    family.is_enum = f.is_enum;
+    out.indexed_families.push_back(std::move(family));
+  }
   out.semantics = raw->semantics ? raw->semantics : "";
   out.target = raw->target ? raw->target : "";
   out.gr_level = raw->gr_level;
