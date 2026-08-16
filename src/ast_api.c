@@ -30,6 +30,14 @@ static const Node *internal_node(const TlsfAstNode *node) {
   return (const Node *)node;
 }
 
+static Semantics syfco_formula_semantics(Semantics semantics) {
+  if (semantics == SEM_MEALY_STRICT)
+    return SEM_MEALY;
+  if (semantics == SEM_MOORE_STRICT)
+    return SEM_MOORE;
+  return semantics;
+}
+
 void tlsf_ast_free(TlsfAst *ast) {
   if (!ast)
     return;
@@ -51,6 +59,8 @@ TlsfAst *tlsf_ast_from_file_ex(FILE *fp,
   TlsfPipelineOptions pipeline_options = {
       .split = decompose_options && decompose_options->split,
       .certify = true,
+      .skip_target_adaptation =
+          decompose_options && decompose_options->syfco_compatibility,
       .template_mask = TPL_ALL,
       .overwrite_semantics =
           decompose_options ? decompose_options->overwrite_semantics : nullptr,
@@ -77,6 +87,11 @@ TlsfAst *tlsf_ast_from_file_ex(FILE *fp,
       ast->residual_plan, decompose_options);
   if (!ast->result)
     goto fail;
+
+  Semantics reported_semantics = pipeline->spec->info.semantics;
+  if (decompose_options && decompose_options->syfco_compatibility)
+    pipeline->spec->info.semantics =
+        syfco_formula_semantics(pipeline->spec->info.semantics);
 
   ClassifiedSpec *classified = classify_spec(pipeline->spec);
   if (!classified)
@@ -121,6 +136,7 @@ TlsfAst *tlsf_ast_from_file_ex(FILE *fp,
         goto fail;
     }
   }
+  pipeline->spec->info.semantics = reported_semantics;
   return ast;
 
 fail:

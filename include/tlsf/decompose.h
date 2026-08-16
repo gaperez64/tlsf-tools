@@ -30,6 +30,7 @@ typedef enum TlsfDecomposeTrust {
 typedef struct TlsfDecomposeOptions {
   bool split;
   bool lowercase;
+  bool syfco_compatibility;
   TlsfDecomposeFormat format;
   const char *overwrite_semantics;
   const char *overwrite_target;
@@ -43,6 +44,19 @@ typedef struct TlsfDecomposeCluster {
   uint32_t n_outputs;
 } TlsfDecomposeCluster;
 
+/// One source bus declaration, preserved after scalar expansion.  Consumers
+/// can use this as syntax-derived indexed-family evidence without guessing
+/// from the mangled scalar names.
+typedef struct TlsfDecomposeIndexedFamily {
+  char *origin_name;
+  char **members;
+  uint32_t n_members;
+  uint16_t lo;
+  uint16_t hi;
+  bool is_output;
+  bool is_enum;
+} TlsfDecomposeIndexedFamily;
+
 typedef struct TlsfDecomposeResult {
   TlsfDecomposeCluster *clusters;
   uint32_t n_clusters;
@@ -52,6 +66,9 @@ typedef struct TlsfDecomposeResult {
   char **outputs;
   uint32_t n_inputs;
   uint32_t n_outputs;
+
+  TlsfDecomposeIndexedFamily *indexed_families;
+  uint32_t n_indexed_families;
 
   char *semantics;
   char *target;

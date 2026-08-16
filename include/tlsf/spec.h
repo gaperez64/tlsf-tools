@@ -70,6 +70,7 @@ typedef struct {
   uint16_t origin_bus_lo;  ///< resolved source bus lower bound
   uint16_t origin_bus_hi;  ///< resolved source bus upper bound
   bool origin_is_bus;      ///< true when produced by a bus declaration
+  bool origin_is_enum;     ///< true when produced by an enum-typed declaration
   // Parametric bounds: when non-null these integer expressions are evaluated
   // during expand() to fill bus_lo / bus_hi.  Literal ranges leave them null.
   struct Node *bus_lo_expr;

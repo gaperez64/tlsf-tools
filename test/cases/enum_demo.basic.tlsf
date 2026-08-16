@@ -16,7 +16,7 @@ MAIN {
   }
 
     GUARANTEE {
-      G ((((st == A) || (st == B)) || (st == C)));
+      G ((st[0] || st[1]));
       G ((go -> (st == A)));
       G (((st == B) -> go));
       G (!((st == C)));

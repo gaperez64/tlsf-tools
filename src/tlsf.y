@@ -118,12 +118,60 @@
     return body;
   }
 
+  static bool enum_missing_pattern(const TlsfSpec *spec, const EnumType *et,
+                                   uint32_t *missing) {
+    if (et->width == 0 || et->width > 16)
+      return false;
+    const uint32_t patterns = 1u << et->width;
+    if ((uint32_t)et->label_count + 1u != patterns)
+      return false;
+    for (uint32_t candidate = 0; candidate < patterns; candidate++) {
+      bool present = false;
+      for (uint16_t label = 0; label < et->label_count; label++) {
+        const char *bits = spec->enum_labels[et->label_start + label].bits;
+        uint32_t value = 0;
+        bool valid = true;
+        for (uint32_t bit = 0; bit < et->width; bit++) {
+          if (bits[bit] != '0' && bits[bit] != '1') {
+            valid = false;
+            break;
+          }
+          value = (value << 1u) | (uint32_t)(bits[bit] - '0');
+        }
+        if (valid && bits[et->width] == '\0' && value == candidate) {
+          present = true;
+          break;
+        }
+      }
+      if (!present) {
+        *missing = candidate;
+        return true;
+      }
+    }
+    return false;
+  }
+
   /* Implicit invariant for an enum-typed signal: it always holds one of the
    * type's labels, i.e. G( (sig == L1) || (sig == L2) || ... ).  Each (sig ==
    * Li) expands to the positional bit match during expansion. */
   static Node *mk_enum_validity(TlsfSpec *spec, const EnumType *et,
                                 const char *sig) {
     Arena *a = spec->arena;
+    uint32_t missing = 0;
+    if (enum_missing_pattern(spec, et, &missing)) {
+      Node *allowed = nullptr;
+      for (uint32_t bit = 0; bit < et->width; bit++) {
+        Node *index = ARENA_ALLOC(a, Node);
+        index->kind = NODE_BUS_INDEX;
+        index->bus_name = sig;
+        index->bus_index = node_int(a, bit);
+        const bool missing_bit =
+            ((missing >> (et->width - bit - 1u)) & 1u) != 0;
+        Node *term = missing_bit ? node_not(a, index) : index;
+        allowed = allowed ? node_or(a, allowed, term) : term;
+      }
+      return node_g(a, allowed);
+    }
     Node *acc = nullptr;
     for (uint16_t i = 0; i < et->label_count; i++) {
       const char *label = spec->enum_labels[et->label_start + i].name;
@@ -527,6 +575,11 @@ signal_decl
       Node *hi = node_int(spec->arena, (int64_t)et->width - 1);
       if (!spec_add_signal(spec, spec->cur_is_output, $2, true, lo, hi))
         YYNOMEM;
+      SignalDecl *signals =
+          spec->cur_is_output ? spec->outputs : spec->inputs;
+      uint32_t count =
+          spec->cur_is_output ? spec->output_count : spec->input_count;
+      signals[count - 1u].origin_is_enum = true;
       Node *valid = mk_enum_validity(spec, et, $2);
       FormulaList *list =
           spec->cur_is_output ? &spec->guarantee : &spec->assume;

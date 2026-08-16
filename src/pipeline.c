@@ -40,7 +40,7 @@ TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
   if (expand(p->spec, opts ? opts->overrides : nullptr,
              opts ? opts->n_overrides : 0) != 0)
     goto fail;
-  if (!spec_adapt_target(p->spec)) {
+  if (!(opts && opts->skip_target_adaptation) && !spec_adapt_target(p->spec)) {
     fprintf(stderr, "%s: semantics/target adaptation failed (OOM)\n", tool);
     goto fail;
   }
