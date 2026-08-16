@@ -71,13 +71,14 @@ STRLIT      \"([^\"\\]|\\.)*\"
 "DEFINITIONS"       { return TOK_DEFINITIONS; }
 "enum"              { BEGIN(ENUM); return TOK_ENUM; }
 
-  /* --- enum body:  NAME = LABEL: bits  LABEL: bits  ... ;  --- */
+  /* --- enum body: NAME = LABEL: value[,value...] LABEL: value ... ; --- */
 <ENUM>{WS}          { /* skip */ }
 <ENUM>"//"[^\n]*    { /* line comment */ }
 <ENUM>"="           { return TOK_ASSIGN; }
 <ENUM>":"           { return TOK_COLON; }
+<ENUM>","           { return TOK_COMMA; }
 <ENUM>";"           { BEGIN(INITIAL); return TOK_SEMI; }
-<ENUM>[01]+         { yylval->sval = intern(yyextra->intern, yytext);
+<ENUM>[01*]+        { yylval->sval = intern(yyextra->intern, yytext);
                       return TOK_BITS; }
 <ENUM>{IDENT}       { yylval->sval = intern(yyextra->intern, yytext);
                       return TOK_IDENT; }

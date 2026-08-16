@@ -30,7 +30,6 @@ typedef enum TlsfDecomposeTrust {
 typedef struct TlsfDecomposeOptions {
   bool split;
   bool lowercase;
-  bool syfco_compatibility;
   TlsfDecomposeFormat format;
   const char *overwrite_semantics;
   const char *overwrite_target;
@@ -44,9 +43,9 @@ typedef struct TlsfDecomposeCluster {
   uint32_t n_outputs;
 } TlsfDecomposeCluster;
 
-/// One source bus declaration, preserved after scalar expansion.  Consumers
-/// can use this as syntax-derived indexed-family evidence without guessing
-/// from the mangled scalar names.
+/// One source bus declaration, preserved after scalar expansion.  This is
+/// declaration provenance, not a proof that the formula is symmetric under
+/// permutations of the bus indices.
 typedef struct TlsfDecomposeIndexedFamily {
   char *origin_name;
   char **members;

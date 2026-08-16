@@ -13,7 +13,6 @@
 typedef struct {
   bool split;
   bool certify;
-  bool skip_target_adaptation;
   unsigned template_mask;
   const char *overwrite_semantics;
   const char *overwrite_target;

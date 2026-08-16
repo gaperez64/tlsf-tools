@@ -15,8 +15,11 @@ MAIN {
     st[0..1];
   }
 
+    ASSERT {
+      (((st == A) || (st == B)) || (st == C));
+    }
+
     GUARANTEE {
-      G ((st[0] || st[1]));
       G ((go -> (st == A)));
       G (((st == B) -> go));
       G (!((st == C)));

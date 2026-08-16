@@ -45,14 +45,6 @@ static const char *target_name(Target t) {
   return t == TARGET_MOORE ? "Moore" : "Mealy";
 }
 
-static Semantics syfco_formula_semantics(Semantics semantics) {
-  if (semantics == SEM_MEALY_STRICT)
-    return SEM_MEALY;
-  if (semantics == SEM_MOORE_STRICT)
-    return SEM_MOORE;
-  return semantics;
-}
-
 static char *dup_cstr(const char *s) {
   if (!s)
     s = "";
@@ -237,8 +229,6 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   LtlFormat fmt = decompose_format(opts);
   bool lower = opts && opts->lowercase;
   bool finite = semantics_is_finite(spec->info.semantics);
-  Semantics reported_semantics = spec->info.semantics;
-  bool syfco_compatibility = opts && opts->syfco_compatibility;
   if (lower && !spec_validate_lowercase_signals(spec, "tlsf-decompose"))
     return nullptr;
 
@@ -252,8 +242,6 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   if (!r->semantics || !r->target)
     goto fail;
   fill_verdict(r, cov);
-  if (syfco_compatibility)
-    spec->info.semantics = syfco_formula_semantics(spec->info.semantics);
   if (!fill_preprocessed(r, spec, fmt, lower))
     goto fail;
   if (!collect_signals(cov, nullptr, AP_FLAG_INPUT, lower, &r->inputs,
@@ -294,11 +282,9 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
     }
   }
   free(seen);
-  spec->info.semantics = reported_semantics;
   return r;
 
 fail:
-  spec->info.semantics = reported_semantics;
   tlsf_decompose_result_free(r);
   return nullptr;
 }
@@ -310,7 +296,6 @@ TlsfDecomposeResult *tlsf_decompose_file(FILE *fp,
   TlsfPipelineOptions popts = {
       .split = opts && opts->split,
       .certify = true,
-      .skip_target_adaptation = opts && opts->syfco_compatibility,
       .template_mask = TPL_ALL,
       .overwrite_semantics = opts ? opts->overwrite_semantics : nullptr,
       .overwrite_target = opts ? opts->overwrite_target : nullptr,

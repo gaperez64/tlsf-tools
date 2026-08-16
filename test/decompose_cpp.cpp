@@ -128,12 +128,31 @@ MAIN {
 }
 )TLSF";
   options.lowercase = true;
-  options.syfco_compatibility = true;
   result = tlsf::decompose(enum_typed, options);
   assert(result.indexed_families.size() == 1);
   assert(result.indexed_families[0].origin_name == "state");
   assert(result.indexed_families[0].is_enum);
-  assert(result.preprocessed_ltl.find("G (!state_0 || !state_1)") !=
-         std::string::npos);
+  assert(result.preprocessed_ltl.find(
+             "G (!state_0 && !state_1 || !state_0 && state_1 || state_0 && "
+             "!state_1)") != std::string::npos);
+
+  const std::string enum_wildcards = R"TLSF(
+INFO { TITLE: "enum wildcards" SEMANTICS: Strict,Mealy TARGET: Mealy }
+GLOBAL {
+  DEFINITIONS { enum Mode = Low: 00,01 High: 1*; }
+}
+MAIN {
+  INPUTS { Mode request; }
+  OUTPUTS { Mode response; }
+  REQUIRE { request == Low; }
+  ASSERT { response == High; }
+  GUARANTEE { G (request == Low -> response == High); }
+}
+)TLSF";
+  result = tlsf::decompose(enum_wildcards, options);
+  assert(result.semantics == "Strict,Mealy");
+  assert(result.preprocessed_ltl.find("request_0") != std::string::npos);
+  assert(result.preprocessed_ltl.find("response_0") != std::string::npos);
+  assert(result.preprocessed_ltl.find(" W ") != std::string::npos);
   return 0;
 }

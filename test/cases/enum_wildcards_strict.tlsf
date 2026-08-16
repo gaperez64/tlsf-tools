@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "enum wildcard and multi-valuation semantics"
+  SEMANTICS: Strict,Mealy
+  TARGET: Mealy
+}
+GLOBAL {
+  DEFINITIONS {
+    enum InputMode = Active: 10,11;
+    enum OutputMode = Ready: 0*;
+  }
+}
+MAIN {
+  INPUTS { InputMode request; }
+  OUTPUTS { OutputMode response; ok; }
+  GUARANTEE { G ok; }
+}

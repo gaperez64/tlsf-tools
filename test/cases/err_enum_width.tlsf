@@ -1,0 +1,3 @@
+INFO { TITLE: "bad enum width" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { DEFINITIONS { enum Bad = A: 0 B: 10; } }
+MAIN { INPUTS { Bad value; } OUTPUTS { ok; } GUARANTEE { G ok; } }

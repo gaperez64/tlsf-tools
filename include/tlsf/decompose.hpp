@@ -32,7 +32,6 @@ enum class Trust {
 struct Options {
   bool split = false;
   bool lowercase = false;
-  bool syfco_compatibility = false;
   Format format = Format::Ltlxba;
   std::string overwrite_semantics;
   std::string overwrite_target;
@@ -87,7 +86,6 @@ inline Result decompose(const std::string &spec, const Options &options = {}) {
   TlsfDecomposeOptions c_options = {};
   c_options.split = options.split;
   c_options.lowercase = options.lowercase;
-  c_options.syfco_compatibility = options.syfco_compatibility;
   c_options.format = static_cast<TlsfDecomposeFormat>(options.format);
   c_options.overwrite_semantics = options.overwrite_semantics.empty()
                                       ? nullptr
