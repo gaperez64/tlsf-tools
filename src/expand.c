@@ -1182,10 +1182,8 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
         for (size_t i = 0; i < width; i++) {
           if (valuation[i] == '*')
             continue;
-          Node *elem =
-              node_ap(a, bus_elem_name(spec, bus->name, (int64_t)i));
-          Node *term =
-              valuation[i] == '1' ? elem : node_not(a, elem);
+          Node *elem = node_ap(a, bus_elem_name(spec, bus->name, (int64_t)i));
+          Node *term = valuation[i] == '1' ? elem : node_not(a, elem);
           match = match ? node_and(a, match, term) : term;
         }
         if (!match)
