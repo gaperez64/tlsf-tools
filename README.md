@@ -110,6 +110,13 @@ tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 # research / diagnostics
 tlsftemplates --certify --solve --format csnf spec.tlsf   # certified controllers
 tlsfbenchgraph --input-dir specs/ --split --summary       # corpus shape census
+tlsfbenchgraph --source-features spec.tlsf                # leakage-free selector row
+scripts/automata_study.py --file-list panel.list --output run/ \
+  --tlsfnorm build/tlsfnorm --tlsf2ltl build/tlsf2ltl \
+  --tlsfinfo build/tlsfinfo --tlsfbenchgraph build/tlsfbenchgraph \
+  --automata-generator ../acacia-bonsai/build/src/acacia-automata-study
+scripts/evaluate_automata_study.py --bundle run/ --output results/ \
+  --acacia-replay ../acacia-bonsai/build/src/acacia-hoa-replay
 
 # normalize / decompose / synthesize
 tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized TLSF
@@ -127,6 +134,13 @@ scripts/solve.sh --backend acacia --solver acacia-bonsai \
         --output ctrl.aag spec.tlsf                            # acacia backend
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
+
+`tlsfbenchgraph --source-features` emits a versioned TSV selector schema
+(`--schema-version`). Columns prefixed `guard_` are derived only from the
+expanded source TLSF AST: operator occurrences and maximum syntax/temporal
+depth. The mode rejects splitting and normalization options and excludes
+automata, recognizer results, and solver outcomes. Only these fields plus the
+declared interface sizes are supported for offline routing experiments.
 
 `tlsfsolve` reads an [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER game: uncontrollable inputs are
 ordinary inputs, controllable inputs are prefixed `controllable_`, safety games

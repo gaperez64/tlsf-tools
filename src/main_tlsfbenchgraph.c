@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define TLSFBENCHGRAPH_SCHEMA_VERSION 2
+
 static void usage(const char *prog) {
   fprintf(stderr,
           "Usage: %s [OPTIONS] [FILE...]\n"
@@ -34,7 +36,9 @@ static void usage(const char *prog) {
           "pre-safe)\n"
           "  --match-normalize SCHEDULE recognition normalization (e.g. "
           "match-safe:1)\n"
+          "  --source-features  emit only source AST/interface features\n"
           "  --summary          append an aggregate summary\n"
+          "  --schema-version   print the TSV schema version and exit\n"
           "  --output FILE      write to FILE (default stdout)\n"
           "  --version, --help\n",
           prog);
@@ -81,6 +85,80 @@ static int cstr_cmp(const void *a, const void *b) {
 
 // ---- metrics --------------------------------------------------------------
 // Formula-size proxy is the shared `ast_node_count` (include/tlsf/ast.h).
+
+// Source-only selector features.  No template result, automaton metric, solver
+// outcome, path, or filename contributes to any guard_ column.
+typedef struct {
+  uint64_t nodes, ap_occurrences, boolean_ops, temporal_ops;
+  uint64_t x, f, g, u, r, w, m;
+  uint32_t max_depth, max_temporal_depth;
+} GuardShape;
+
+static void measure_guard_shape(const Node *n, uint32_t depth,
+                                uint32_t temporal_depth, GuardShape *shape) {
+  if (!n)
+    return;
+  shape->nodes++;
+  if (depth > shape->max_depth)
+    shape->max_depth = depth;
+  if (node_kind_is_temporal(n->kind)) {
+    shape->temporal_ops++;
+    temporal_depth++;
+  }
+  if (temporal_depth > shape->max_temporal_depth)
+    shape->max_temporal_depth = temporal_depth;
+
+  switch (n->kind) {
+  case NODE_AP:
+    shape->ap_occurrences++;
+    return;
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_INT:
+    return;
+  case NODE_NOT:
+    shape->boolean_ops++;
+    measure_guard_shape(n->arg, depth + 1, temporal_depth, shape);
+    return;
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+    shape->boolean_ops++;
+    break;
+  case NODE_X:
+  case NODE_X_STRONG:
+    shape->x++;
+    measure_guard_shape(n->arg, depth + 1, temporal_depth, shape);
+    return;
+  case NODE_F:
+    shape->f++;
+    measure_guard_shape(n->arg, depth + 1, temporal_depth, shape);
+    return;
+  case NODE_G:
+    shape->g++;
+    measure_guard_shape(n->arg, depth + 1, temporal_depth, shape);
+    return;
+  case NODE_U:
+    shape->u++;
+    break;
+  case NODE_R:
+    shape->r++;
+    break;
+  case NODE_W:
+    shape->w++;
+    break;
+  case NODE_M:
+    shape->m++;
+    break;
+  default:
+    // expand() guarantees high-level/integer nodes are absent.  Count an
+    // unexpected node, but never inspect an inactive union member.
+    return;
+  }
+  measure_guard_shape(n->lhs, depth + 1, temporal_depth, shape);
+  measure_guard_shape(n->rhs, depth + 1, temporal_depth, shape);
+}
 
 static uint32_t uf_find(uint32_t *parent, uint32_t x) {
   while (parent[x] != x)
@@ -143,6 +221,7 @@ typedef struct {
   uint32_t residual_liveness_clusters, residual_size_norm;
   // Sickert-style normalization obstacles over the raw constraint formulas.
   TlsfObstacles obstacles;
+  GuardShape guard;
 } Metrics;
 
 // Measure the residual the synthesis backends still face after every template
@@ -213,7 +292,7 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
 }
 
 static Metrics measure(const char *path, bool split, const char *pre_norm,
-                       const char *match_norm) {
+                       const char *match_norm, bool source_only) {
   Metrics m = {0};
   FILE *fp = cli_open_input(path, "tlsfbenchgraph");
   if (!fp)
@@ -252,6 +331,18 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
     spec_free(spec);
     return m;
   }
+  if (source_only) {
+    m.ok = true;
+    for (uint32_t i = 0; i < cov->aps.count; i++) {
+      uint8_t f = ap_table_flags(&cov->aps, i);
+      m.inputs += (f & AP_FLAG_INPUT) != 0;
+      m.outputs += (f & AP_FLAG_OUTPUT) != 0;
+    }
+    for (uint32_t i = 0; i < cov->count; i++)
+      measure_guard_shape(cov->items[i].formula, 1, 0, &m.guard);
+    spec_free(spec);
+    return m;
+  }
   recognize_all(cov);
 
   m.ok = true;
@@ -286,6 +377,7 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
         m.definition++;
     }
     m.size_raw += ast_node_count(c->formula);
+    measure_guard_shape(c->formula, 1, 0, &m.guard);
     Node *nf = apply_rewrites(spec->arena, c->formula, RW_STRONG_SIMPLIFY);
     m.size_norm += nf ? ast_node_count(nf) : ast_node_count(c->formula);
     tlsf_norm_count_obstacles(c->formula, &m.obstacles);
@@ -318,7 +410,7 @@ static const char *basename_of(const char *p) {
 }
 
 int main(int argc, char *argv[]) {
-  bool summary = false, split = false;
+  bool summary = false, source_features = false, split = false;
   const char *output_file = nullptr;
   const char *pre_norm = nullptr, *match_norm = nullptr;
 
@@ -355,6 +447,11 @@ int main(int argc, char *argv[]) {
       match_norm = NEED_ARG();
     } else if (strcmp(a, "--summary") == 0) {
       summary = true;
+    } else if (strcmp(a, "--source-features") == 0) {
+      source_features = true;
+    } else if (strcmp(a, "--schema-version") == 0) {
+      printf("%d\n", TLSFBENCHGRAPH_SCHEMA_VERSION);
+      return 0;
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(a, "--format") == 0) {
@@ -390,15 +487,64 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "tlsfbenchgraph: no input files\n");
     return 1;
   }
+  if (source_features &&
+      (summary || split || pre_norm != nullptr || match_norm != nullptr)) {
+    fprintf(stderr, "tlsfbenchgraph: --source-features cannot be combined with "
+                    "normalization, splitting, or --summary\n");
+    return 1;
+  }
   qsort(g_files, g_nfiles, sizeof(char *), cstr_cmp); // determinism
 
   FILE *out = cli_open_output(output_file, "tlsfbenchgraph");
   if (!out)
     return 1;
 
+  if (source_features) {
+    fprintf(out, "file\tschema_version\tparse_status\tinputs\toutputs\t"
+                 "guard_nodes\tguard_ap_occurrences\tguard_boolean_ops\t"
+                 "guard_temporal_ops\tguard_x\tguard_f\tguard_g\tguard_u\t"
+                 "guard_r\tguard_w\tguard_m\tguard_max_depth\t"
+                 "guard_max_temporal_depth\n");
+    uint32_t failures = 0;
+    for (size_t i = 0; i < g_nfiles; i++) {
+      Metrics m = measure(g_files[i], false, nullptr, nullptr, true);
+      const char *fn = basename_of(g_files[i]);
+      if (!m.ok) {
+        failures++;
+        fprintf(out, "%s\t%d\tfail", fn, TLSFBENCHGRAPH_SCHEMA_VERSION);
+        for (unsigned field = 3; field < 18; field++)
+          fputs("\t-", out);
+        fputc('\n', out);
+        continue;
+      }
+      fprintf(out,
+              "%s\t%d\tok\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t%llu\t"
+              "%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\n",
+              fn, TLSFBENCHGRAPH_SCHEMA_VERSION, m.inputs, m.outputs,
+              (unsigned long long)m.guard.nodes,
+              (unsigned long long)m.guard.ap_occurrences,
+              (unsigned long long)m.guard.boolean_ops,
+              (unsigned long long)m.guard.temporal_ops,
+              (unsigned long long)m.guard.x, (unsigned long long)m.guard.f,
+              (unsigned long long)m.guard.g, (unsigned long long)m.guard.u,
+              (unsigned long long)m.guard.r, (unsigned long long)m.guard.w,
+              (unsigned long long)m.guard.m, m.guard.max_depth,
+              m.guard.max_temporal_depth);
+    }
+    if (output_file)
+      fclose(out);
+    for (size_t i = 0; i < g_nfiles; i++)
+      free((void *)g_files[i]);
+    free(g_files);
+    return failures != 0;
+  }
+
   fprintf(out,
-          "file\tparse_status\tinputs\toutputs\tconstraints\tsafety\t"
-          "liveness\tresponse\tmutex\trecurrence\tpersistence\t"
+          "file\tschema_version\tparse_status\tinputs\toutputs\tconstraints\t"
+          "safety\tliveness\tguard_nodes\tguard_ap_occurrences\t"
+          "guard_boolean_ops\tguard_temporal_ops\tguard_x\tguard_f\tguard_g\t"
+          "guard_u\tguard_r\tguard_w\tguard_m\tguard_max_depth\t"
+          "guard_max_temporal_depth\tresponse\tmutex\trecurrence\tpersistence\t"
           "global_recurrence\tguarded_next\tdefinition\t"
           "template_candidates\tsolved_blocks\tcertified_blocks\t"
           "dependent_outputs\tresidual_constraints\tlargest_output_component"
@@ -419,29 +565,41 @@ int main(int argc, char *argv[]) {
   uint32_t lc_strictly_smaller = 0, drop_to_safety = 0, factored = 0;
 
   for (size_t i = 0; i < g_nfiles; i++) {
-    Metrics m = measure(g_files[i], split, pre_norm, match_norm);
+    Metrics m = measure(g_files[i], split, pre_norm, match_norm, false);
     const char *fn = basename_of(g_files[i]);
     if (!m.ok) {
       nfail++;
-      fprintf(out,
-              "%s\tfail\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-"
-              "\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n",
-              fn);
+      fprintf(out, "%s\t%d\tfail", fn, TLSFBENCHGRAPH_SCHEMA_VERSION);
+      for (unsigned field = 3; field < 49; field++)
+        fputs("\t-", out);
+      fputc('\n', out);
       continue;
     }
     nok++;
-    fprintf(out,
-            "%s\tok\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u"
-            "\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu"
-            "\t%llu\t%llu\t%llu\n",
-            fn, m.inputs, m.outputs, m.constraints, m.safety, m.liveness,
+    fprintf(
+        out,
+        "%s\t%d\tok\t%u\t%u\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t"
+        "%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t",
+        fn, TLSFBENCHGRAPH_SCHEMA_VERSION, m.inputs, m.outputs, m.constraints,
+        m.safety, m.liveness, (unsigned long long)m.guard.nodes,
+        (unsigned long long)m.guard.ap_occurrences,
+        (unsigned long long)m.guard.boolean_ops,
+        (unsigned long long)m.guard.temporal_ops, (unsigned long long)m.guard.x,
+        (unsigned long long)m.guard.f, (unsigned long long)m.guard.g,
+        (unsigned long long)m.guard.u, (unsigned long long)m.guard.r,
+        (unsigned long long)m.guard.w, (unsigned long long)m.guard.m,
+        m.guard.max_depth, m.guard.max_temporal_depth);
+    fprintf(out, "%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u",
             m.response, m.mutex, m.recurrence, m.persistence, m.global_rec,
             m.gnext, m.definition, m.tcands, m.solved, m.certified, m.dependent,
-            m.residual, m.comp, m.size_raw, m.size_norm, m.fully_solved,
-            m.conflicts, m.elim_constraints, m.owned_outputs,
-            m.residual_clusters, m.residual_outputs,
+            m.residual, m.comp);
+    fprintf(out, "\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u", m.size_raw,
+            m.size_norm, m.fully_solved, m.conflicts, m.elim_constraints,
+            m.owned_outputs, m.residual_clusters, m.residual_outputs,
             m.largest_residual_cluster_outputs, m.residual_liveness_clusters,
-            m.residual_size_norm, (unsigned long long)m.obstacles.u_under_w,
+            m.residual_size_norm);
+    fprintf(out, "\t%llu\t%llu\t%llu\t%llu\n",
+            (unsigned long long)m.obstacles.u_under_w,
             (unsigned long long)m.obstacles.limit_under_temporal,
             (unsigned long long)m.obstacles.w_under_gf,
             (unsigned long long)m.obstacles.u_under_fg);

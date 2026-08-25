@@ -493,8 +493,21 @@ if research_tools
     args: ['tlsftemplates', tlsftemplates_exe])
   test('version_tlsfbenchgraph', check_version,
     args: ['tlsfbenchgraph', tlsfbenchgraph_exe])
+  test('tlsfbenchgraph_schema', files('test/check_benchgraph_schema.sh'),
+    args: [tlsfbenchgraph_exe,
+           files('test/cases/normalization_match.tlsf')])
   test('version_tlsfresidual', check_version,
     args: ['tlsfresidual', tlsfresidual_exe])
+  if python3.found()
+    test('automata_study_bundle', files('test/check_automata_study.sh'),
+      args: [files('scripts/automata_study.py'), tlsfnorm_exe,
+             tlsf2ltl_exe, tlsfinfo_exe, tlsfbenchgraph_exe,
+             files('test/fake_automata_generator.py'),
+             files('test/cases/normalization_match.tlsf')])
+    test('automata_study_evaluator', python3,
+      args: [files('test/check_evaluate_automata_study.py'),
+             files('scripts/evaluate_automata_study.py')])
+  endif
   if have_oxidd
     test('version_tlsfcompose', check_version,
       args: ['tlsfcompose', tlsfcompose_exe])
