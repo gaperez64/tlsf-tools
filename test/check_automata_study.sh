@@ -1,18 +1,17 @@
 #!/bin/sh
 set -eu
 
-python=$1
-script=$2
-tlsfnorm=$3
-tlsf2ltl=$4
-tlsfinfo=$5
-tlsfbenchgraph=$6
-automata_generator=$7
-case_file=$8
+script=$1
+tlsfnorm=$2
+tlsf2ltl=$3
+tlsfinfo=$4
+tlsfbenchgraph=$5
+automata_generator=$6
+case_file=$7
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 
-"$python" "$script" --output "$temporary/bundle" --schedule 'off=|' \
+python3 "$script" --output "$temporary/bundle" --schedule 'off=|' \
   --orientation real --tlsfnorm "$tlsfnorm" --tlsf2ltl "$tlsf2ltl" \
   --tlsfinfo "$tlsfinfo" --tlsfbenchgraph "$tlsfbenchgraph" \
   --automata-generator "$automata_generator" "$case_file"

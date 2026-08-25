@@ -500,7 +500,7 @@ if research_tools
     args: ['tlsfresidual', tlsfresidual_exe])
   if python3.found()
     test('automata_study_bundle', files('test/check_automata_study.sh'),
-      args: [python3, files('scripts/automata_study.py'), tlsfnorm_exe,
+      args: [files('scripts/automata_study.py'), tlsfnorm_exe,
              tlsf2ltl_exe, tlsfinfo_exe, tlsfbenchgraph_exe,
              files('test/fake_automata_generator.py'),
              files('test/cases/normalization_match.tlsf')])
