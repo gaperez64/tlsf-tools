@@ -7,6 +7,7 @@
 #include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
+#include "tlsf/obligation_census.h"
 #include "tlsf/recognize.h"
 #include "tlsf/spec.h"
 #include "tlsf/templates.h"
@@ -36,7 +37,9 @@ static void usage(const char *prog) {
           "templates\n"
           "  --list-templates             print recognized templates and "
           "exit\n"
-          "  --format text|csnf           output format (default text)\n"
+          "  --format text|csnf|obligations  output format (default text)\n"
+          "  --no-header                  omit the header row of the obligations\n"
+          "                               format\n"
           "  --side-conditions syntactic  side-condition mode\n"
           "  --overwrite-semantics VALUE  replace SEMANTICS\n"
           "  --overwrite-target VALUE     replace TARGET\n"
@@ -138,7 +141,7 @@ static void print_composition(FILE *out, ConstraintCover *cov,
 
 int main(int argc, char *argv[]) {
   bool certify = false, solve = false, csnf = false, split = false,
-       check = false;
+       check = false, obligations = false, want_header = true;
   unsigned want = TPL_ALL;
   const char *input_file = nullptr, *output_file = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;
@@ -202,10 +205,14 @@ int main(int argc, char *argv[]) {
         csnf = false;
       else if (!strcmp(v, "csnf"))
         csnf = true;
+      else if (!strcmp(v, "obligations"))
+        obligations = true;
       else {
         fprintf(stderr, "tlsftemplates: unknown format '%s'\n", v);
         return 1;
       }
+    } else if (strcmp(a, "--no-header") == 0) {
+      want_header = false;
     } else if (strcmp(a, "--side-conditions") == 0) {
       const char *v = NEED_ARG();
       if (strcmp(v, "syntactic") != 0) {
@@ -307,6 +314,26 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   recognize_all(cov);
+
+  // The census reads the recognized cover, so it runs before certification and
+  // never builds a CSNF model.
+  if (obligations) {
+    FILE *cout = cli_open_output(output_file, "tlsftemplates");
+    if (!cout) {
+      spec_free(spec);
+      return 1;
+    }
+    ObligationCensus census;
+    obligation_census(cov, &census);
+    if (want_header)
+      obligation_census_header(cout);
+    obligation_census_row(cout, input_file ? input_file : "<stdin>", &census);
+    if (output_file)
+      fclose(cout);
+    spec_free(spec);
+    return 0;
+  }
+
   Csnf *model = templates_certify(cov, want, certify);
   if (!model) {
     fprintf(stderr, "tlsftemplates: out of memory\n");

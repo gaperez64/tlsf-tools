@@ -253,6 +253,7 @@ lib_sources = [
   'src/liveness_class.c',
   'src/apset.c',
   'src/cover.c',
+  'src/obligation_census.c',
   'src/recognize.c',
   'src/pipeline.c',
   'src/decompose.c',
@@ -710,6 +711,11 @@ test('tlsf_enum_basic', check,
          tlsf2tlsf_exe, files('test/cases/enum_demo.tlsf')])
 
 if research_tools
+# The obligation census: a stable schema, and the counts a two-client arbiter
+# must produce.
+test('obligation_census', files('test/check_obligation_census.sh'),
+  args: [tlsftemplates_exe, files('test/cases/arbiter1formula.nnfbool.tlsf')])
+
 # tlsftemplates (M5): certify CSNF for template blocks + soundness declines.
 test('tmpl_definition', check_wl,
   args: [files('test/cases/def_demo.csnf'), tlsftemplates_exe,
