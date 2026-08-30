@@ -17,36 +17,37 @@
 #include <string.h>
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Find/certify template-solvable blocks of a TLSF spec (CSNF).\n"
-          "  --candidates                 list candidate blocks (default)\n"
-          "  --certify                    check side conditions, certify "
-          "blocks\n"
-          "  --solve                      include controller/decoder "
-          "artifacts\n"
-          "  --split                      split constraints at top-level &&\n"
-          "  --pre-normalize SCHEDULE     pre-expansion normalization\n"
-          "  --match-normalize SCHEDULE   recognition normalization (e.g. "
-          "match-safe:1)\n"
-          "  --check                      report whole-spec composition "
-          "soundness\n"
-          "  --template NAME              restrict to one certifiable "
-          "template\n"
-          "  --templates LIST             comma-separated certifiable "
-          "templates\n"
-          "  --list-templates             print recognized templates and "
-          "exit\n"
-          "  --format text|csnf|obligations  output format (default text)\n"
-          "  --no-header                  omit the header row of the obligations\n"
-          "                               format\n"
-          "  --side-conditions syntactic  side-condition mode\n"
-          "  --overwrite-semantics VALUE  replace SEMANTICS\n"
-          "  --overwrite-target VALUE     replace TARGET\n"
-          "  --param NAME=VALUE           override a parameter (repeatable)\n"
-          "  --output FILE                write to FILE (default stdout)\n"
-          "  --version, --help\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Find/certify template-solvable blocks of a TLSF spec (CSNF).\n"
+      "  --candidates                 list candidate blocks (default)\n"
+      "  --certify                    check side conditions, certify "
+      "blocks\n"
+      "  --solve                      include controller/decoder "
+      "artifacts\n"
+      "  --split                      split constraints at top-level &&\n"
+      "  --pre-normalize SCHEDULE     pre-expansion normalization\n"
+      "  --match-normalize SCHEDULE   recognition normalization (e.g. "
+      "match-safe:1)\n"
+      "  --check                      report whole-spec composition "
+      "soundness\n"
+      "  --template NAME              restrict to one certifiable "
+      "template\n"
+      "  --templates LIST             comma-separated certifiable "
+      "templates\n"
+      "  --list-templates             print recognized templates and "
+      "exit\n"
+      "  --format text|csnf|obligations  output format (default text)\n"
+      "  --no-header                  omit the header row of the obligations\n"
+      "                               format\n"
+      "  --side-conditions syntactic  side-condition mode\n"
+      "  --overwrite-semantics VALUE  replace SEMANTICS\n"
+      "  --overwrite-target VALUE     replace TARGET\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --output FILE                write to FILE (default stdout)\n"
+      "  --version, --help\n",
+      prog);
 }
 
 static bool parse_override(const char *s, ParamOverride *out) {
