@@ -18,13 +18,13 @@ The repository now includes `scripts/fetch_syntcomp_issue24.py` to fetch those
 files from the pinned SYNTCOMP commit and verify their Git blob IDs without
 vendoring uncertain third-party benchmark data.
 
-Implemented comparison points:
+Implementation components (not separately benchmarked):
 
 | Label | Contents |
 | --- | --- |
-| Correctness-repaired baseline | Property-preserving AIGER 1.9 parser, profile resolver, positional legacy output 0, exact `controllable_` ownership, reset rejection for unsupported uninitialised latches. |
-| Budgeted | Baseline plus `--oxidd-nodes`, `--oxidd-cache`, `--oxidd-gc`, and `--oxidd-gc-threshold`. |
-| Lifetime/fused | Baseline plus construction-root release, per-root conversion memo scopes, allocation-free BDD identity, and fused safety/GR(1) CPre conjunction-exists. |
+| Input correctness | Property-preserving AIGER 1.9 parser, profile resolver, positional legacy output 0, exact `controllable_` ownership, reset rejection for unsupported uninitialised latches. |
+| Capacity and collection controls | `--oxidd-nodes`, `--oxidd-cache`, `--oxidd-gc`, and `--oxidd-gc-threshold`. |
+| Memory-oriented changes | Construction-root release, per-root conversion memo scopes, allocation-free BDD identity, and fused safety/GR(1) CPre conjunction-exists. |
 | Diagnostics | Non-`NDEBUG` `--verbose` trace and `scripts/diagnose_tlsfsolve.py` bundle. |
 
 Sanity measurements in this PR used the release OxiDD build
@@ -39,6 +39,31 @@ listed above within a 120-second per-case timeout.
 
 These are functional sanity results, not a full performance campaign: RSS and
 solver phase timings were not collected.
+
+## What the Memory Results Establish
+
+All capacity measurements above used the same final solver implementation.
+They demonstrate that increasing the configured node cap allows these cases
+to complete. They do not isolate the effect of construction-root release,
+fused operations, memo lifetimes, or GC changes. No correctness-repaired
+pre-optimization baseline was run at matching node/cache capacities, and no
+before/after peak-memory or peak-node measurements were collected.
+
+The implementation contains changes intended to reduce memory pressure, but
+their net benefit on these benchmarks is currently unmeasured. In particular,
+the final implementation still fails all five cases at 8M nodes / 4M cache;
+the successful 32M-node runs are not evidence that the changes reduced the
+required node capacity or peak RSS. The default capacity heuristic is unchanged,
+and explicit larger capacities remain fixed arenas, not dynamic growth.
+
+To establish an optimization benefit, compare the correctness-repaired baseline
+and optimized solver at identical node/cache capacities and GC settings, using
+the same input semantics, dependency revision, and build settings. Record
+completion status, peak RSS, and node/GC measurements. Comparing against the
+unmodified solver would confound this with the repaired error-output semantics.
+
+The independent checks below establish correctness of the emitted controllers;
+they do not measure memory efficiency.
 
 ## Independent Closed-Loop Verification
 
