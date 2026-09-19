@@ -1023,6 +1023,9 @@ if research_tools and have_oxidd
                 '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
     dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
   test('oxidd_memory', oxidd_memory_test)
+  test('gr1_fairness_fail_closed', check_contains,
+    args: ['multiple_fairness_not_supported', tlsfsolve_exe, '--game-profile=gr1',
+           files('test/cases/gr1_fairness_alternating.aag')])
   if python3.found()
     test('oxidd_semantic_oracle', python3,
       args: [files('test/check_oxidd_oracle.py'), tlsfsolve_exe], timeout: 120)

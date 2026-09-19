@@ -68,6 +68,14 @@ terminate the process instead of returning a recoverable error.
 
 ## Exact Demand Construction
 
+The existing GR(1) algorithm's pointwise combination of multiple fairness
+assumptions is unsound: a forced alternating state satisfies both `GF s` and
+`GF !s`, but incorrectly permits an impossible system goal. Until a separately
+validated algorithm repair lands, more than one fairness assumption returns a
+configuration error (exit 2), allowing composition callers to fall back. The
+parser still preserves every fairness property. This restriction is a separate
+correctness fix, not a memory optimization.
+
 Safety profiles also accept `--oxidd-transitions=demand`. This builds only
 updates in the current state predicate's complete BDD support, retaining the
 accumulated updates and publishing a new immutable substitution when it grows.

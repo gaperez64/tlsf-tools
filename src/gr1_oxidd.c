@@ -116,6 +116,15 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
 
   uint32_t m_goals = aig_num_justice(game);
   uint32_t m_fair = aig_num_fairness(game);
+  // The current inner fixed point combines fairness pointwise. That is not
+  // equivalent to a conjunction of recurrence assumptions (alternating
+  // fairness predicates are a counterexample). Let callers fall back instead.
+  if (m_fair > 1) {
+    oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "configuration",
+                          "multiple_fairness_not_supported", 0, 0);
+    aig_free(game);
+    return nullptr;
+  }
 
   // A GR(1) game must have at least one justice goal.  If none, the game is
   // pure safety and should go through solve_safety_oxidd instead.

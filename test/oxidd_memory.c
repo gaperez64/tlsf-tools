@@ -260,6 +260,17 @@ static void sessions(void) {
   int failed_unreal = -1;
   CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
   CHECK(!fail_realloc);
+  // The sole run alternates s forever: both GF s and GF !s hold, whereas
+  // the system goal GF false cannot. Never claim a winning controller here.
+  game = aig_new();
+  uint32_t state = aig_latch(game, 0, 0);
+  CHECK(aig_set_latch_next(game, state, aig_not(state)));
+  aig_set_output(game, "bad", 0);
+  uint32_t impossible = 0;
+  aig_add_justice(game, &impossible, 1, "impossible");
+  aig_add_fairness(game, state, "even");
+  aig_add_fairness(game, aig_not(state), "odd");
+  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
   opts.node_cap = 8192;
   OxiddFailure failure = {0};
   opts.failure = &failure;
