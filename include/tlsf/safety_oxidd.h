@@ -12,6 +12,7 @@
 /// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
 
 #include "tlsf/aiger.h"
+#include "tlsf/oxidd_common.h"
 
 /// Solve the safety game `game` (env-first / Mealy; inputs whose name starts
 /// with `controllable_` are the controllable moves, output `bad` is the unsafe
@@ -26,5 +27,10 @@
 /// nullptr; on an internal error returns nullptr with `*unreal = 0` (caller
 /// falls back to ltlsynt, exactly like the AbsSynthe path).
 [[nodiscard]] Aig *solve_safety_oxidd(Aig *game, int *unreal);
+
+/// Extended entry point used by tlsfsolve after profile resolution.  Takes the
+/// same ownership as `solve_safety_oxidd()`.
+[[nodiscard]] Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+                                         const OxiddSolveOptions *opts);
 
 #endif // TLSF_SAFETY_OXIDD_H

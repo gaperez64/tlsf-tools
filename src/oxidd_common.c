@@ -6,11 +6,76 @@
 
 #include "tlsf/oxidd_common.h"
 
+#include <stdarg.h>
 #include <stdlib.h>
 
 // ---------------------------------------------------------------------------
 // Small BDD helpers
 // ---------------------------------------------------------------------------
+
+OxiddSolveOptions oxidd_solve_options_default(void) {
+  return (OxiddSolveOptions){.node_cap = 0,
+                             .cache_cap = 0,
+                             .gc_mode = OXIDD_GC_AUTO,
+                             .gc_threshold_percent = 80,
+                             .verbosity = 0,
+                             .trace = stderr,
+                             .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
+                             .safety_output_index = 0};
+}
+
+size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
+  uint32_t exp = local_vars + extra_exp;
+  if (exp > 22)
+    exp = 22;
+  size_t cap = (size_t)1 << exp;
+  size_t min = (size_t)1 << 10;
+  return cap < min ? min : cap;
+}
+
+void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
+                 const char *event, const char *fmt, ...) {
+  if (!opts || opts->verbosity == 0)
+    return;
+  static unsigned long long seq = 0;
+  FILE *out = opts->trace ? opts->trace : stderr;
+  fprintf(out,
+          "TLSFSOLVE_TRACE {\"schema\":1,\"seq\":%llu,"
+          "\"phase\":\"%s\",\"event\":\"%s\"",
+          ++seq, phase ? phase : "unknown", event ? event : "event");
+  if (fmt && *fmt) {
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(out, fmt, ap);
+    va_end(ap);
+  }
+  fputs("}\n", out);
+  fflush(out);
+}
+
+bool oxidd_pressure_gc_checkpoint(oxidd_bdd_manager_t m,
+                                  const OxiddSolveOptions *opts,
+                                  const char *phase) {
+  if (!opts || opts->gc_mode != OXIDD_GC_PRESSURE || opts->node_cap == 0)
+    return false;
+  unsigned threshold =
+      opts->gc_threshold_percent ? opts->gc_threshold_percent : 80;
+  size_t approx = oxidd_bdd_manager_approx_num_inner_nodes(m);
+  size_t limit = (opts->node_cap / 100) * threshold +
+                 ((opts->node_cap % 100) * threshold + 99) / 100;
+  if (approx < limit)
+    return false;
+  uint64_t before_count = oxidd_bdd_manager_gc_count(m);
+  size_t removed = oxidd_bdd_manager_gc(m);
+  uint64_t after_count = oxidd_bdd_manager_gc_count(m);
+  oxidd_trace(opts, phase, "gc",
+              ",\"stored_nodes_approx\":%zu,\"threshold_percent\":%u,"
+              "\"removed\":%zu,\"gc_count_before\":%llu,"
+              "\"gc_count_after\":%llu",
+              approx, threshold, removed, (unsigned long long)before_count,
+              (unsigned long long)after_count);
+  return removed != 0;
+}
 
 Bdd lit_to_bdd(oxidd_bdd_manager_t m, const Bdd *var_bdd, uint32_t lit) {
   if (lit == AIG_FALSE)
@@ -33,15 +98,15 @@ Bdd cube_of(oxidd_bdd_manager_t m, const uint32_t *vars, uint32_t n) {
   return cube;
 }
 
+bool bdd_same_identity(Bdd a, Bdd b) {
+  return !bdd_invalid(a) && !bdd_invalid(b) && a._p == b._p && a._i == b._i;
+}
+
 bool bdd_eq(Bdd a, Bdd b) {
-  Bdd e = oxidd_bdd_equiv(a, b);
-  if (bdd_invalid(e)) {
-    oxidd_bdd_unref(e);
-    return false;
-  }
-  bool r = oxidd_bdd_valid(e);
-  oxidd_bdd_unref(e);
-  return r;
+  // OxiDD BDDs are canonical within one manager.  Field-wise identity is
+  // allocation-free and avoids retaining extra equivalence roots just to test
+  // fixpoint convergence or memo keys.
+  return bdd_same_identity(a, b);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,10 +114,14 @@ bool bdd_eq(Bdd a, Bdd b) {
 // ---------------------------------------------------------------------------
 
 static uint64_t memo_hash(Bdd k) {
-  const unsigned char *p = (const unsigned char *)&k;
   uint64_t h = 1469598103934665603ull;
-  for (size_t i = 0; i < sizeof k; i++) {
-    h ^= p[i];
+  uintptr_t p = (uintptr_t)k._p;
+  for (size_t i = 0; i < sizeof p; i++) {
+    h ^= (unsigned char)(p >> (i * 8));
+    h *= 1099511628211ull;
+  }
+  for (size_t i = 0; i < sizeof k._i; i++) {
+    h ^= (unsigned char)(k._i >> (i * 8));
     h *= 1099511628211ull;
   }
   return h;
@@ -94,7 +163,7 @@ static bool memo_get(const Memo *t, Bdd k, uint32_t *lit) {
     return false;
   size_t j = memo_hash(k) & (t->cap - 1);
   while (t->used[j]) {
-    if (memcmp(&t->keys[j], &k, sizeof k) == 0) {
+    if (bdd_same_identity(t->keys[j], k)) {
       *lit = t->lits[j];
       return true;
     }
@@ -109,7 +178,7 @@ static bool memo_put(Memo *t, Bdd k, uint32_t lit) {
       return false;
   size_t j = memo_hash(k) & (t->cap - 1);
   while (t->used[j]) {
-    if (memcmp(&t->keys[j], &k, sizeof k) == 0) {
+    if (bdd_same_identity(t->keys[j], k)) {
       t->lits[j] = lit;
       return true;
     }
@@ -170,12 +239,21 @@ void oxidd_session_gc(void) {
 uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f) {
   if (ctx->error)
     return AIG_FALSE;
+  if (bdd_invalid(f)) {
+    ctx->error = true;
+    return AIG_FALSE;
+  }
   if (oxidd_bdd_node_level(f) == (oxidd_level_no_t)-1) // terminal
     return oxidd_bdd_satisfiable(f) ? AIG_TRUE : AIG_FALSE;
   uint32_t cached;
   if (memo_get(&ctx->memo, f, &cached))
     return cached;
-  oxidd_var_no_t v = oxidd_bdd_node_var(f) - ctx->var_base;
+  oxidd_var_no_t abs_v = oxidd_bdd_node_var(f);
+  if (abs_v < ctx->var_base || abs_v >= ctx->var_base + ctx->var_count) {
+    ctx->error = true;
+    return AIG_FALSE;
+  }
+  oxidd_var_no_t v = abs_v - ctx->var_base;
   uint32_t vlit = ctx->var2lit[v];
   if (vlit ==
       UINT32_MAX) { // a variable that must not appear (e.g. controllable)

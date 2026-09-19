@@ -9,7 +9,8 @@
 //   * env moves first / Mealy: cpre(Z)(s) = ∀u ∃c [ ¬bad ∧ Z[s := next] ];
 //   * inputs whose name starts with `controllable_` are the controllable (c)
 //     moves, the rest are uncontrollable (u);
-//   * output `bad` is the unsafe predicate; latches are state, reset 0/1;
+//   * the unsafe predicate is selected by the resolved game profile
+//     (legacy output 0 or typed bad-property OR); latches are state, reset 0/1;
 //   * realizable iff the greatest fixpoint W holds at the latch reset cube.
 //
 // Memory: OxiDD operations do not take ownership of their `oxidd_bdd_t`
@@ -25,21 +26,80 @@
 
 #include "tlsf/oxidd_common.h"
 
+#include <stdio.h>
 #include <stdlib.h>
-
-// Per-call BDD manager sizing.  Clusters are small post-decomposition; a game
-// that overflows this returns invalid handles and the caller falls back to
-// ltlsynt (sound).  Single worker thread: the games are tiny and the thread
-// pool would only add per-call overhead (parallelism across clusters is a
-// later, separate lever).
-#define OXIDD_INNER_CAP (1u << 18)
-#define OXIDD_CACHE_CAP (1u << 18)
 
 // ---------------------------------------------------------------------------
 // Solver
 // ---------------------------------------------------------------------------
 
-Aig *solve_safety_oxidd(Aig *game, int *unreal) {
+static const char *input_name_or_synthetic(const char *name, uint32_t index,
+                                           char buf[32]) {
+  if (name)
+    return name;
+  snprintf(buf, 32, "i%u", index);
+  return buf;
+}
+
+static bool fill_initial_assignment(const Aig *game,
+                                    oxidd_var_no_bool_pair_t *args,
+                                    uint32_t nlat, uint32_t var_base,
+                                    uint32_t nin) {
+  for (uint32_t j = 0; j < nlat; j++) {
+    uint32_t reset;
+    uint32_t cur;
+    aig_latch_at(game, j, &cur, nullptr, &reset);
+    if (reset != 0 && reset != 1)
+      return false;
+    args[j].var = var_base + nin + j;
+    args[j].val = reset != 0;
+  }
+  return true;
+}
+
+static void release_var_map(Bdd *var_bdd, uint32_t maxvar) {
+  if (!var_bdd)
+    return;
+  for (uint32_t v = 0; v <= maxvar; v++) {
+    oxidd_bdd_unref(var_bdd[v]);
+    var_bdd[v] = (Bdd){0};
+  }
+}
+
+static Bdd safety_objective_bdd(oxidd_bdd_manager_t m, const Aig *game,
+                                const Bdd *var_bdd,
+                                const OxiddSolveOptions *opts, bool *ok) {
+  if (opts && opts->safety_objective == OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR) {
+    Bdd bad = oxidd_bdd_false(m);
+    for (uint32_t i = 0; i < aig_num_bad(game) && *ok; i++) {
+      uint32_t lit;
+      aig_bad_at(game, i, &lit);
+      Bdd bi = lit_to_bdd(m, var_bdd, lit);
+      Bdd nb = oxidd_bdd_or(bad, bi);
+      oxidd_bdd_unref(bad);
+      oxidd_bdd_unref(bi);
+      bad = nb;
+      if (bdd_invalid(bad))
+        *ok = false;
+    }
+    return bad;
+  }
+
+  uint32_t badlit = UINT32_MAX;
+  uint32_t idx = opts ? opts->safety_output_index : 0;
+  if (idx < aig_num_outputs(game))
+    aig_output_at(game, idx, &badlit);
+  if (badlit == UINT32_MAX) {
+    *ok = false;
+    return (Bdd){0};
+  }
+  return lit_to_bdd(m, var_bdd, badlit);
+}
+
+Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+                           const OxiddSolveOptions *user_opts) {
+  OxiddSolveOptions defaults = oxidd_solve_options_default();
+  const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
   *unreal = 0;
   if (!game)
     return nullptr;
@@ -76,9 +136,14 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
   oxidd_bdd_manager_t m;
   uint32_t var_base; // offset so this cluster's vars don't alias earlier ones
   if (own_mgr) {
-    uint32_t exp = nvars_local + 6 < 22 ? nvars_local + 6 : 22;
-    uint32_t inner_cap = (1u << exp) < (1u << 10) ? (1u << 10) : (1u << exp);
-    m = oxidd_bdd_manager_new(inner_cap, inner_cap, 1);
+    size_t node_cap = opts->node_cap ? opts->node_cap
+                                     : oxidd_default_capacity(nvars_local, 6);
+    size_t cache_cap = opts->cache_cap ? opts->cache_cap
+                                       : oxidd_default_capacity(nvars_local, 6);
+    oxidd_trace(opts, "manager_create", "begin",
+                ",\"node_cap\":%zu,\"cache_cap\":%zu,\"vars\":%u", node_cap,
+                cache_cap, nvars_local);
+    m = oxidd_bdd_manager_new(node_cap, cache_cap, 1);
     oxidd_bdd_manager_add_vars(m, nvars_local);
     var_base = 0;
   } else {
@@ -98,8 +163,8 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       nin ? calloc(nin, sizeof *uvars) : nullptr; // uncontrollable var idx
   uint32_t *cinput =
       nin ? calloc(nin, sizeof *cinput) : nullptr; // controllable input index
-  if (!var_bdd || (nlat && !next_bdd) || !var2lit ||
-      (nin && (!cvars || !uvars))) {
+  if (!var_bdd || (nlat && !next_bdd) || !var2lit || (nlat && !lat_lit) ||
+      (nin && (!cvars || !uvars || !cinput))) {
     free(var_bdd);
     free(next_bdd);
     free(var2lit);
@@ -112,6 +177,11 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
     aig_free(game);
     return nullptr;
   }
+  oxidd_trace(opts, "input", "game",
+              ",\"inputs\":%u,\"latches\":%u,\"ands\":%u,"
+              "\"outputs\":%u,\"bad\":%u,\"constraints\":%u",
+              nin, nlat, nand, aig_num_outputs(game), aig_num_bad(game),
+              aig_num_constraints(game));
 
   Bdd bad = {0}, notbad = {0}, Z = {0}, M = {0}, ctrl_cube = {0},
       unc_cube = {0};
@@ -155,9 +225,7 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
 
   // bad and the latch next-functions.
   if (ok) {
-    uint32_t badlit = aig_output_lit(game, "bad");
-    bad = (badlit == UINT32_MAX) ? oxidd_bdd_false(m)
-                                 : lit_to_bdd(m, var_bdd, badlit);
+    bad = safety_objective_bdd(m, game, var_bdd, opts, &ok);
     notbad = oxidd_bdd_not(bad);
     if (bdd_invalid(notbad))
       ok = false;
@@ -173,24 +241,40 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
   // Latch substitution s_j := next_j, reused for the fixpoint and for W[next].
   if (ok) {
     sub_lat = oxidd_bdd_substitution_new(nlat);
-    for (uint32_t j = 0; j < nlat; j++)
-      oxidd_bdd_substitution_add_pair(sub_lat, var_base + nin + j, next_bdd[j]);
-    ctrl_cube = cube_of(m, cvars, ncv);
-    unc_cube = cube_of(m, uvars, nuv);
-    if (!sub_lat || bdd_invalid(ctrl_cube) || bdd_invalid(unc_cube))
+    if (!sub_lat) {
       ok = false;
+    } else {
+      for (uint32_t j = 0; j < nlat; j++)
+        oxidd_bdd_substitution_add_pair(sub_lat, var_base + nin + j,
+                                        next_bdd[j]);
+      ctrl_cube = cube_of(m, cvars, ncv);
+      unc_cube = cube_of(m, uvars, nuv);
+      if (bdd_invalid(ctrl_cube) || bdd_invalid(unc_cube))
+        ok = false;
+    }
+  }
+  if (ok) {
+    release_var_map(var_bdd, maxvar);
+    oxidd_pressure_gc_checkpoint(m, opts, "root_release");
   }
 
   // Greatest fixpoint W = νZ. ∀u ∃c [ ¬bad ∧ Z[s := next] ], from Z₀ = ⊤.
   if (ok) {
     Z = oxidd_bdd_true(m);
+    oxidd_var_no_bool_pair_t *init_args =
+        nlat ? calloc(nlat, sizeof *init_args) : nullptr;
+    if (nlat && !init_args)
+      ok = false;
+    if (ok && !fill_initial_assignment(game, init_args, nlat, var_base, nin))
+      ok = false;
     for (;;) {
+      if (!ok)
+        break;
       Bdd img = oxidd_bdd_substitute(Z, sub_lat);
-      Bdd t = oxidd_bdd_and(notbad, img);
-      Bdd ec = oxidd_bdd_exists(t, ctrl_cube);
+      Bdd ec = oxidd_bdd_apply_exists(OXIDD_BOOLEAN_OPERATOR_AND, notbad, img,
+                                      ctrl_cube);
       Bdd au = oxidd_bdd_forall(ec, unc_cube);
       oxidd_bdd_unref(img);
-      oxidd_bdd_unref(t);
       oxidd_bdd_unref(ec);
       if (bdd_invalid(au)) {
         oxidd_bdd_unref(au);
@@ -200,20 +284,32 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       bool converged = bdd_eq(au, Z);
       oxidd_bdd_unref(Z);
       Z = au;
+      if (!oxidd_bdd_eval(Z, init_args, nlat)) {
+        *unreal = 1;
+        ok = false;
+        oxidd_trace(opts, "fixpoint", "verdict",
+                    ",\"verdict\":\"unrealizable\","
+                    "\"verdict_reason\":\"initial_state_excluded\"");
+        break;
+      }
+      oxidd_pressure_gc_checkpoint(m, opts, "fixpoint");
       if (converged)
         break;
     }
+    free(init_args);
   }
 
   // Realizable iff W holds at the latch reset cube (W is over state vars only).
   if (ok) {
     oxidd_var_no_bool_pair_t *args =
         nlat ? calloc(nlat, sizeof *args) : nullptr;
-    for (uint32_t j = 0; j < nlat; j++) {
-      uint32_t reset;
-      aig_latch_at(game, j, nullptr, nullptr, &reset);
-      args[j].var = var_base + nin + j;
-      args[j].val = reset != 0;
+    if (nlat && !args)
+      ok = false;
+    if (ok && !fill_initial_assignment(game, args, nlat, var_base, nin))
+      ok = false;
+    if (!ok) {
+      free(args);
+      goto skip_final_eval;
     }
     bool realizable = oxidd_bdd_eval(Z, args, nlat);
     free(args);
@@ -222,6 +318,7 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       ok = false; // not an error: caller trusts UNREALIZABLE / falls back
     }
   }
+skip_final_eval:
 
   // Strategy: M = ¬bad ∧ W[s := next]; sequentially Skolemise each controllable
   // c_k as f_k(state, u) = ∃(later controllables) M|_{c_k = 1}, choosing c_k =
@@ -231,6 +328,8 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
     M = oxidd_bdd_and(notbad, wnext);
     oxidd_bdd_unref(wnext);
     strat_f = ncv ? calloc(ncv, sizeof *strat_f) : nullptr;
+    if (ncv && !strat_f)
+      ok = false;
     Bdd R = oxidd_bdd_ref(M);
     for (uint32_t k = 0; k < ncv && ok; k++) {
       Bdd pos = oxidd_bdd_var(m, cvars[k]);
@@ -247,6 +346,10 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       }
       strat_f[k] = fk;
       oxidd_bdd_substitution_t *s1 = oxidd_bdd_substitution_new(1);
+      if (!s1) {
+        ok = false;
+        break;
+      }
       oxidd_bdd_substitution_add_pair(s1, cvars[k], fk);
       Bdd rnew = oxidd_bdd_substitute(R, s1);
       oxidd_bdd_substitution_free(s1);
@@ -268,7 +371,9 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       uint32_t lit;
       const char *name = aig_input_name(game, p, &lit);
       if (!is_controllable(name))
-        var2lit[p] = aig_input(strat, name); // controllables stay UINT32_MAX
+        var2lit[p] =
+            aig_input(strat, input_name_or_synthetic(name, p, (char[32]){0}));
+      // controllables stay UINT32_MAX
     }
     for (uint32_t j = 0; j < nlat; j++) {
       uint32_t reset;
@@ -277,36 +382,42 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       var2lit[nin + j] = lat_lit[j];
     }
 
-    Bdd2Aig ctx = {strat, var2lit, var_base, {0}, false};
-
     // Controllable outputs.
+    bool convert_error = false;
     for (uint32_t k = 0; k < ncv; k++) {
       uint32_t lit;
       const char *name = aig_input_name(game, cinput[k], &lit);
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local, {0}, false};
       uint32_t out = bdd2aig(&ctx, strat_f[k]);
+      convert_error = convert_error || ctx.error;
+      memo_free(&ctx.memo);
       aig_set_output(strat, name, out);
     }
     // Latch next-functions, with the controllables substituted by their f_k.
     oxidd_bdd_substitution_t *sc =
         ncv ? oxidd_bdd_substitution_new(ncv) : nullptr;
-    for (uint32_t k = 0; k < ncv; k++)
+    if (ncv && !sc)
+      convert_error = true;
+    for (uint32_t k = 0; k < ncv && !convert_error; k++)
       oxidd_bdd_substitution_add_pair(sc, cvars[k], strat_f[k]);
-    for (uint32_t j = 0; j < nlat && !ctx.error; j++) {
+    for (uint32_t j = 0; j < nlat && !convert_error; j++) {
       Bdd na = ncv ? oxidd_bdd_substitute(next_bdd[j], sc)
                    : oxidd_bdd_ref(next_bdd[j]);
       if (bdd_invalid(na)) {
         oxidd_bdd_unref(na);
-        ctx.error = true;
+        convert_error = true;
         break;
       }
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local, {0}, false};
       uint32_t nl = bdd2aig(&ctx, na);
+      convert_error = convert_error || ctx.error;
+      memo_free(&ctx.memo);
       oxidd_bdd_unref(na);
       aig_set_latch_next(strat, lat_lit[j], nl);
     }
     if (sc)
       oxidd_bdd_substitution_free(sc);
-    memo_free(&ctx.memo);
-    if (ctx.error) {
+    if (convert_error) {
       aig_free(strat);
       strat = nullptr;
     }
@@ -318,8 +429,7 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
       oxidd_bdd_unref(strat_f[k]);
   for (uint32_t j = 0; j < nlat; j++)
     oxidd_bdd_unref(next_bdd[j]);
-  for (uint32_t v = 0; v <= maxvar; v++)
-    oxidd_bdd_unref(var_bdd[v]);
+  release_var_map(var_bdd, maxvar);
   oxidd_bdd_unref(bad);
   oxidd_bdd_unref(notbad);
   oxidd_bdd_unref(Z);
@@ -343,4 +453,11 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
   free(cinput);
   aig_free(game);
   return strat;
+}
+
+Aig *solve_safety_oxidd(Aig *game, int *unreal) {
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
+  opts.safety_output_index = 0;
+  return solve_safety_oxidd_ex(game, unreal, &opts);
 }

@@ -410,8 +410,8 @@ if research_tools
 
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
-      sources: ['src/main_tlsfsolve.c', 'test/tlsfsolve_failure_stub.c',
-                version_h],
+      sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c',
+                'test/tlsfsolve_failure_stub.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -453,6 +453,15 @@ visitor_cpp_exe = executable(
   dependencies: lib_deps,
 )
 test('visitor_cpp', visitor_cpp_exe)
+
+aiger_roundtrip_exe = executable(
+  'aiger_roundtrip',
+  sources: ['test/aiger_roundtrip.c'],
+  include_directories: inc,
+  link_with: tlsf_lib,
+  dependencies: lib_deps,
+)
+test('aiger_roundtrip', aiger_roundtrip_exe)
 
 if spot_dep.found()
   tlsf2spot_exe = executable(
@@ -995,10 +1004,22 @@ if research_tools and have_oxidd
     args: ['0', files('test/cases/solve_real.out.aag'),
            files('test/cases/empty'), tlsfsolve_exe,
            files('test/cases/solve_real.aag')])
+  test('tlsfsolve_legacy_unnamed_output', check_status,
+    args: ['0', files('test/cases/solve_real.out.aag'),
+           files('test/cases/empty'), tlsfsolve_exe,
+           files('test/cases/solve_real_unnamed_output.aag')])
   test('tlsfsolve_unreal', check_status,
     args: ['1', files('test/cases/empty'),
            files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
            files('test/cases/solve_unreal.aag')])
+  test('tlsfsolve_multi_bad_explicit', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           '--game-profile=multi-safety',
+           files('test/cases/solve_multi_bad_unreal.aag')])
+  test('tlsfsolve_multi_bad_auto_refuses', check_contains,
+    args: ['cannot infer synthesis game profile.*multi-safety', tlsfsolve_exe,
+           files('test/cases/solve_multi_bad_unreal.aag')])
   test('tlsfsolve_failure', check_status,
     args: ['2', files('test/cases/empty'),
            files('test/cases/solve_failure.stderr'), tlsfsolve_failure_exe,

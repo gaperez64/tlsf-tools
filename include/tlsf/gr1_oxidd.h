@@ -2,6 +2,7 @@
 #define TLSF_GR1_OXIDD_H
 
 #include "tlsf/aiger.h"
+#include "tlsf/oxidd_common.h"
 
 /// Solve a GR(1) game encoded in `game` (the standard AbsSynthe AIGER format:
 /// controllable inputs prefixed `controllable_`, `bad` output for safety,
@@ -14,5 +15,10 @@
 /// On loss sets `*unreal = 1` and returns nullptr.  On internal error returns
 /// nullptr without setting `*unreal` (caller should fall back).
 [[nodiscard]] Aig *solve_gr1_oxidd(Aig *game, int *unreal);
+
+/// Extended entry point used by tlsfsolve after profile resolution.  Takes the
+/// same ownership as `solve_gr1_oxidd()`.
+[[nodiscard]] Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
+                                      const OxiddSolveOptions *opts);
 
 #endif // TLSF_GR1_OXIDD_H
