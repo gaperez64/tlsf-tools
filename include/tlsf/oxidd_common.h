@@ -33,6 +33,22 @@ typedef enum {
   OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR = 1,
 } OxiddSafetyObjective;
 
+typedef enum {
+  OXIDD_FAILURE_NONE,
+  OXIDD_FAILURE_BDD,
+  OXIDD_FAILURE_HOST,
+  OXIDD_FAILURE_CONFIGURATION,
+  OXIDD_FAILURE_CONVERSION,
+  OXIDD_FAILURE_INVALID
+} OxiddFailureKind;
+
+typedef struct {
+  OxiddFailureKind kind;
+  const char *phase, *operation;
+  size_t operation_id;
+  uint32_t index;
+} OxiddFailure;
+
 typedef struct {
   size_t node_cap;  // 0 = legacy heuristic default
   size_t cache_cap; // 0 = legacy heuristic default
@@ -42,13 +58,53 @@ typedef struct {
   FILE *trace;
   OxiddSafetyObjective safety_objective;
   uint32_t safety_output_index;
+  OxiddFailure *failure; // optional caller-owned output; never a losing verdict
+  bool demand_transitions, realizability_only;
 } OxiddSolveOptions;
 
 OxiddSolveOptions oxidd_solve_options_default(void);
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
-bool oxidd_pressure_gc_checkpoint(oxidd_bdd_manager_t m,
-                                  const OxiddSolveOptions *opts,
-                                  const char *phase);
+typedef struct {
+  oxidd_bdd_manager_t manager;
+  const OxiddSolveOptions *options;
+  const char *phase, *failed_operation;
+  size_t node_cap, cache_cap, sampled_peak, operations, next_gc;
+  size_t retries, recovered, explicit_gc, built_gates, relevant_gates;
+  uint32_t index;
+  double phase_started;
+} OxiddRun;
+
+void oxidd_run_init(OxiddRun *run, oxidd_bdd_manager_t manager,
+                    const OxiddSolveOptions *options, size_t nodes,
+                    size_t cache);
+void oxidd_phase(OxiddRun *run, const char *phase);
+bool oxidd_pressure_gc_checkpoint(OxiddRun *run);
+void oxidd_run_finish(OxiddRun *run);
+void oxidd_record_failure(const OxiddSolveOptions *opts, OxiddFailureKind kind,
+                          const char *phase, const char *operation,
+                          size_t operation_id, uint32_t index);
+Bdd oxidd_run_not(OxiddRun *run, Bdd a);
+Bdd oxidd_run_var(OxiddRun *run, uint32_t var);
+Bdd oxidd_run_and(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_or(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_exists(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_forall(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_restrict(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_substitute(OxiddRun *run, Bdd a,
+                         const oxidd_bdd_substitution_t *sub);
+Bdd oxidd_run_apply_exists(OxiddRun *run, oxidd_boolean_operator op, Bdd a,
+                           Bdd b, Bdd vars);
+Bdd oxidd_run_cube(OxiddRun *run, const uint32_t *vars, uint32_t n);
+
+// Consumes map entries as their final consumers finish. On failure, both map
+// and roots remain caller-owned and may contain partially constructed results.
+bool oxidd_build_roots(OxiddRun *run, const Aig *game, Bdd *map,
+                       uint32_t maxvar, const uint32_t *lits, Bdd *roots,
+                       size_t count);
+bool oxidd_build_game(OxiddRun *run, const Aig *game, Bdd *map, uint32_t maxvar,
+                      Bdd *bad, Bdd *next, Bdd *goals, Bdd *fair);
+bool oxidd_state_support(Bdd root, uint32_t base, uint32_t count,
+                         bool *support);
 void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
                  const char *event, const char *fmt, ...);
 
@@ -101,6 +157,7 @@ typedef struct {
 /// controllable that should have been substituted away) or on allocation
 /// failure; subsequent calls are no-ops returning AIG_FALSE.
 uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f);
+uint32_t bdd2aig_root(Bdd2Aig *ctx, Bdd f);
 
 /// Persistent BDD manager session (one per tlsfcompose invocation).
 /// When active, the safety and GR(1) solvers reuse this manager across
@@ -112,6 +169,8 @@ uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f);
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
 void oxidd_session_free(void);
 oxidd_bdd_manager_t oxidd_session_get(void);
+bool oxidd_session_config(const OxiddSolveOptions *opts, size_t *nodes,
+                          size_t *cache);
 /// Allocate `n` new variables in the session manager; returns the base index
 /// for this cluster's variables (add to all local var indices 0..n-1).
 uint32_t oxidd_session_alloc_vars(uint32_t n);

@@ -48,8 +48,58 @@ build-oxidd-diagnose/tlsfsolve \
 ```
 
 `--oxidd-gc=pressure --oxidd-gc-threshold=80` adds explicit GC checkpoints at
-safe phase boundaries.  It is observable in the trace and is separate from
-OxiDD's automatic collection.
+safe phase boundaries and before allocating operations. After a collection,
+the policy waits 256 completed operation entries, or 4096 when the explicit
+call removed nothing or less than 1% of the configured capacity. A changed
+ownership phase rearms the checkpoint. This policy is independent of verbosity.
+Both GC modes allow exactly one explicit collection and retry of a failed pure
+BDD operation, keeping its original inputs alive. Variable addition,
+substitution mutation and AIG insertion are never replayed. A zero GC return
+does not prove that the arena is entirely live; another collection may be active.
+
+Use `-vv` to log each operation before entering the FFI. The first failure
+contains phase, operation ID and gate/control/iteration index. Phase records
+include elapsed time and approximate stored-node samples; the sampled maximum
+is not an exact live-node or internal transient peak. Construction records
+count map references, not distinct reachable nodes. Session managers report
+their actual configured node/cache capacities and reject conflicting overrides.
+Rust allocator failures and existing aborting AIG allocation paths may still
+terminate the process instead of returning a recoverable error.
+
+## Exact Demand Construction
+
+Safety profiles also accept `--oxidd-transitions=demand`. This builds only
+updates in the current state predicate's complete BDD support, retaining the
+accumulated updates and publishing a new immutable substitution when it grows.
+The default remains `eager`. Every supported state variable gets its exact
+update; this is not abstraction. Full synthesis explicitly builds any remaining
+updates in the `strategy_updates` phase and preserves all controller latches.
+
+`--realizability-only` skips extraction, emits no stdout, and prints
+`REALIZABLE`/`UNREALIZABLE` to stderr with exit 0/1. Failures are exit 2, including
+extraction failure after a winning region was found in full synthesis. Both
+options reject GR(1). Library callers must use `solve_safety_oxidd_result()` for
+verdict-only mode; the legacy strategy-returning interfaces reject that mode.
+Compare full synthesis with full synthesis and verdict-only with verdict-only.
+
+## Offline Corpus Suites
+
+Fetch the five pinned files explicitly, then enable the optional offline tests:
+
+```sh
+python3 scripts/fetch_syntcomp_issue24.py --out build-issue24-corpus
+meson configure build-oxidd-diagnose \
+  -Dissue24_corpus="$PWD/build-issue24-corpus"
+meson test -C build-oxidd-diagnose --suite issue24-correctness
+meson test -C build-oxidd-diagnose --suite issue24-memory
+```
+
+The serial correctness suite checks the pins, headers, ownership, resets and
+upstream verdicts at a 32M-node/4M-cache budget. Independent strategy proofs
+remain the separate check below. The serial memory suite records GNU-time peak
+RSS and failures at the historical 4M-node/4M-cache budget in build-local JSON;
+capacity exhaustion is recorded, while crashes or changed successful verdicts
+are errors. Ordinary tests do not download third-party files.
 
 ## Independent Closed-Loop Safety Check
 

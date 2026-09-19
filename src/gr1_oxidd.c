@@ -34,8 +34,10 @@ static bool bddvec_push(BddVec *v, Bdd b) {
   if (v->n == v->cap) {
     uint32_t nc = v->cap ? v->cap * 2 : 4;
     Bdd *narr = realloc(v->arr, nc * sizeof *narr);
-    if (!narr)
+    if (!narr) {
+      oxidd_bdd_unref(b);
       return false;
+    }
     v->arr = narr;
     v->cap = nc;
   }
@@ -55,22 +57,22 @@ static void bddvec_free_all(BddVec *v) {
 // ---------------------------------------------------------------------------
 
 // Full cpre: ∀u ∃c [¬bad ∧ T[s:=next]]  — T is a state predicate, result too.
-static Bdd cpre_full(Bdd T, oxidd_bdd_substitution_t *sub_lat, Bdd notbad,
-                     Bdd ctrl_cube, Bdd unc_cube) {
-  Bdd img = oxidd_bdd_substitute(T, sub_lat);
-  Bdd ec = oxidd_bdd_apply_exists(OXIDD_BOOLEAN_OPERATOR_AND, notbad, img,
+static Bdd cpre_full(OxiddRun *run, Bdd T, oxidd_bdd_substitution_t *sub_lat,
+                     Bdd notbad, Bdd ctrl_cube, Bdd unc_cube) {
+  Bdd img = oxidd_run_substitute(run, T, sub_lat);
+  Bdd ec = oxidd_run_apply_exists(run, OXIDD_BOOLEAN_OPERATOR_AND, notbad, img,
                                   ctrl_cube);
-  Bdd result = oxidd_bdd_forall(ec, unc_cube);
+  Bdd result = oxidd_run_forall(run, ec, unc_cube);
   oxidd_bdd_unref(img);
   oxidd_bdd_unref(ec);
   return result; // new ref; UINT32_MAX on error → caller checks bdd_invalid
 }
 
 // Unquantified cpre: ¬bad ∧ T[s:=next]  — result is over (s, u, c).
-static Bdd cpre_unquantified(Bdd T, oxidd_bdd_substitution_t *sub_lat,
-                             Bdd notbad) {
-  Bdd img = oxidd_bdd_substitute(T, sub_lat);
-  Bdd result = oxidd_bdd_and(notbad, img);
+static Bdd cpre_unquantified(OxiddRun *run, Bdd T,
+                             oxidd_bdd_substitution_t *sub_lat, Bdd notbad) {
+  Bdd img = oxidd_run_substitute(run, T, sub_lat);
+  Bdd result = oxidd_run_and(run, notbad, img);
   oxidd_bdd_unref(img);
   return result;
 }
@@ -101,8 +103,16 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   OxiddSolveOptions defaults = oxidd_solve_options_default();
   const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
   *unreal = 0;
+  if (opts->failure)
+    *opts->failure = (OxiddFailure){0};
   if (!game)
     return nullptr;
+  if (opts->demand_transitions || opts->realizability_only) {
+    oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "configuration",
+                         "safety_only_option", 0, 0);
+    aig_free(game);
+    return nullptr;
+  }
 
   uint32_t m_goals = aig_num_justice(game);
   uint32_t m_fair = aig_num_fairness(game);
@@ -149,10 +159,11 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   bool own_mgr = (oxidd_session_get()._p == NULL);
   oxidd_bdd_manager_t m;
   uint32_t var_base;
+  size_t node_cap = 0, cache_cap = 0;
   if (own_mgr) {
-    size_t node_cap =
+    node_cap =
         opts->node_cap ? opts->node_cap : oxidd_default_capacity(nvars, 6);
-    size_t cache_cap =
+    cache_cap =
         opts->cache_cap ? opts->cache_cap : oxidd_default_capacity(nvars, 6);
     oxidd_trace(opts, "manager_create", "begin",
                 ",\"node_cap\":%zu,\"cache_cap\":%zu,\"vars\":%u", node_cap,
@@ -162,9 +173,24 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     var_base = 0;
   } else {
     m = oxidd_session_get();
+    if (!oxidd_session_config(opts, &node_cap, &cache_cap)) {
+      oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "manager_create",
+                           "session_capacity_mismatch", 0, 0);
+      oxidd_trace(opts, "manager_create", "failure",
+                  ",\"reason\":\"session_capacity_mismatch\"");
+      aig_free(game);
+      return nullptr;
+    }
     var_base = oxidd_session_alloc_vars(nvars);
   }
 
+  if (var_base == UINT32_MAX) {
+    aig_free(game);
+    return nullptr;
+  }
+  OxiddRun run_state;
+  OxiddRun *run = &run_state;
+  oxidd_run_init(run, m, opts, node_cap, cache_cap);
   Aig *strat = nullptr;
   Bdd *var_bdd = calloc(maxvar + 1, sizeof *var_bdd);
   Bdd *next_bdd = nlat ? calloc(nlat, sizeof *next_bdd) : nullptr;
@@ -184,6 +210,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   if (!var_bdd || (nlat && !next_bdd) || !goal_bdd || (m_fair && !fair_bdd) ||
       !curr_bdd || !var2lit || (nlat && !lat_lit) || !curr_latch_lit ||
       (nin && (!cvars || !uvars || !cinput)) || !y_levels) {
+    oxidd_record_failure(opts, OXIDD_FAILURE_HOST, "construction", "calloc", 0,
+                         0);
     free(var_bdd);
     free(next_bdd);
     free(goal_bdd);
@@ -218,7 +246,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   for (uint32_t p = 0; p < nin; p++) {
     uint32_t lit;
     const char *name = aig_input_name(game, p, &lit);
-    var_bdd[lit / 2] = oxidd_bdd_var(m, var_base + p);
+    var_bdd[lit / 2] = oxidd_run_var(run, var_base + p);
     if (is_controllable(name)) {
       cvars[ncv] = var_base + p;
       cinput[ncv] = p;
@@ -230,70 +258,33 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   for (uint32_t j = 0; j < nlat; j++) {
     uint32_t cur;
     aig_latch_at(game, j, &cur, nullptr, nullptr);
-    var_bdd[cur / 2] = oxidd_bdd_var(m, var_base + nin + j);
+    var_bdd[cur / 2] = oxidd_run_var(run, var_base + nin + j);
   }
   for (uint32_t j = 0; j < m_goals; j++)
-    curr_bdd[j] = oxidd_bdd_var(m, var_base + nin + nlat + j);
+    curr_bdd[j] = oxidd_run_var(run, var_base + nin + nlat + j);
 
-  // And-gates in topological order.
-  for (uint32_t i = 0; i < nand && ok; i++) {
-    uint32_t lhs, r0, r1;
-    aig_and_at(game, i, &lhs, &r0, &r1);
-    Bdd a = lit_to_bdd(m, var_bdd, r0);
-    Bdd b = lit_to_bdd(m, var_bdd, r1);
-    Bdd c = oxidd_bdd_and(a, b);
-    oxidd_bdd_unref(a);
-    oxidd_bdd_unref(b);
-    var_bdd[lhs / 2] = c;
-    if (bdd_invalid(c))
-      ok = false;
-  }
-
-  // bad + latch next-functions.
+  oxidd_phase(run, "construction");
+  ok = oxidd_build_game(run, game, var_bdd, maxvar, &bad, next_bdd, goal_bdd,
+                        fair_bdd);
   if (ok) {
-    uint32_t badlit = UINT32_MAX;
-    if (aig_num_outputs(game) > 0)
-      aig_output_at(game, 0, &badlit);
-    if (badlit == UINT32_MAX) {
-      ok = false;
-    } else {
-      bad = lit_to_bdd(m, var_bdd, badlit);
-      notbad = oxidd_bdd_not(bad);
-      if (bdd_invalid(notbad))
-        ok = false;
-    }
+    notbad = oxidd_run_not(run, bad);
+    ok = !bdd_invalid(notbad);
   }
-  for (uint32_t j = 0; j < nlat && ok; j++) {
-    uint32_t next;
-    aig_latch_at(game, j, nullptr, &next, nullptr);
-    next_bdd[j] = lit_to_bdd(m, var_bdd, next);
-    if (bdd_invalid(next_bdd[j]))
-      ok = false;
-  }
-
-  // Justice goal BDDs (one lit per justice property, the pending-monitor
-  // negation).
-  for (uint32_t j = 0; j < m_goals && ok; j++) {
-    const uint32_t *lits;
-    uint32_t n;
-    aig_justice_at(game, j, &lits, &n);
-    goal_bdd[j] = (n > 0) ? lit_to_bdd(m, var_bdd, lits[0]) : oxidd_bdd_true(m);
-    if (bdd_invalid(goal_bdd[j]))
-      ok = false;
-  }
+  oxidd_bdd_unref(bad);
+  bad = (Bdd){0};
 
   // Fairness BDDs + not_fair = ⋃_i ¬fair_i (env breaks at least one
   // assumption).
   not_fair = oxidd_bdd_false(m); // ⊥ when m_fair == 0: env is always "fair"
   for (uint32_t i = 0; i < m_fair && ok; i++) {
-    uint32_t lit = aig_fairness_at(game, i);
-    fair_bdd[i] = lit_to_bdd(m, var_bdd, lit);
     if (bdd_invalid(fair_bdd[i])) {
       ok = false;
       break;
     }
-    Bdd nfi = oxidd_bdd_not(fair_bdd[i]);
-    Bdd tmp = oxidd_bdd_or(not_fair, nfi);
+    Bdd nfi = oxidd_run_not(run, fair_bdd[i]);
+    Bdd tmp = oxidd_run_or(run, not_fair, nfi);
+    oxidd_bdd_unref(fair_bdd[i]);
+    fair_bdd[i] = (Bdd){0};
     oxidd_bdd_unref(not_fair);
     oxidd_bdd_unref(nfi);
     not_fair = tmp;
@@ -310,15 +301,17 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
       for (uint32_t j = 0; j < nlat; j++)
         oxidd_bdd_substitution_add_pair(sub_lat, var_base + nin + j,
                                         next_bdd[j]);
-      ctrl_cube = cube_of(m, cvars, ncv);
-      unc_cube = cube_of(m, uvars, nuv);
+      ctrl_cube = oxidd_run_cube(run, cvars, ncv);
+      unc_cube = oxidd_run_cube(run, uvars, nuv);
       if (bdd_invalid(ctrl_cube) || bdd_invalid(unc_cube))
         ok = false;
     }
   }
   if (ok) {
     release_var_map(var_bdd, maxvar);
-    oxidd_pressure_gc_checkpoint(m, opts, "root_release");
+    free(var_bdd);
+    var_bdd = nullptr;
+    oxidd_phase(run, "root_release");
   }
 
   // -----------------------------------------------------------------------
@@ -329,6 +322,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   // -----------------------------------------------------------------------
 
   if (ok) {
+    oxidd_phase(run, "fixpoint");
     W = oxidd_bdd_true(m); // outer ν starts at ⊤
 
     for (;;) { // outer ν-fixpoint over W (= Z)
@@ -344,16 +338,18 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
           Bdd X = oxidd_bdd_true(m); // inner ν-fixpoint from ⊤
 
           for (;;) { // inner ν-fixpoint over X
+            run->index++;
             // target = (W ∩ goal_j) ∪ Y ∪ (X ∩ not_fair)
-            Bdd wg = oxidd_bdd_and(W, goal_bdd[j]);
-            Bdd wgy = oxidd_bdd_or(wg, Y);
-            Bdd xnf = oxidd_bdd_and(X, not_fair);
-            Bdd target = oxidd_bdd_or(wgy, xnf);
+            Bdd wg = oxidd_run_and(run, W, goal_bdd[j]);
+            Bdd wgy = oxidd_run_or(run, wg, Y);
+            Bdd xnf = oxidd_run_and(run, X, not_fair);
+            Bdd target = oxidd_run_or(run, wgy, xnf);
             oxidd_bdd_unref(wg);
             oxidd_bdd_unref(wgy);
             oxidd_bdd_unref(xnf);
 
-            Bdd X_new = cpre_full(target, sub_lat, notbad, ctrl_cube, unc_cube);
+            Bdd X_new =
+                cpre_full(run, target, sub_lat, notbad, ctrl_cube, unc_cube);
             oxidd_bdd_unref(target);
 
             if (bdd_invalid(X_new)) {
@@ -382,11 +378,13 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
           if (mu_conv)
             break;
         }
-        if (!ok)
+        if (!ok) {
+          oxidd_bdd_unref(Y);
           break;
+        }
 
         // Win_j = Y (converged μ); W_new ∧= Win_j.
-        Bdd tmp = oxidd_bdd_and(W_new, Y);
+        Bdd tmp = oxidd_run_and(run, W_new, Y);
         oxidd_bdd_unref(W_new);
         oxidd_bdd_unref(Y);
         W_new = tmp;
@@ -402,7 +400,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
       W = W_new;
       if (outer_conv || !ok)
         break;
-      oxidd_pressure_gc_checkpoint(m, opts, "fixpoint");
+      oxidd_pressure_gc_checkpoint(run);
     }
   }
 
@@ -417,7 +415,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
         nlat ? calloc(nlat, sizeof *args) : nullptr;
     if (nlat && !args)
       ok = false;
-    for (uint32_t j = 0; j < nlat; j++) {
+    for (uint32_t j = 0; j < nlat && ok; j++) {
       uint32_t reset;
       aig_latch_at(game, j, nullptr, nullptr, &reset);
       if (reset != 0 && reset != 1) {
@@ -480,15 +478,15 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     } else {
       Bdd any_curr = oxidd_bdd_false(m);
       for (uint32_t j = 0; j < m_goals && ok; j++) {
-        Bdd tmp = oxidd_bdd_or(any_curr, curr_bdd[j]);
+        Bdd tmp = oxidd_run_or(run, any_curr, curr_bdd[j]);
         oxidd_bdd_unref(any_curr);
         any_curr = tmp;
         if (bdd_invalid(any_curr))
           ok = false;
       }
       if (ok) {
-        Bdd not_any = oxidd_bdd_not(any_curr);
-        eff_curr[0] = oxidd_bdd_or(curr_bdd[0], not_any);
+        Bdd not_any = oxidd_run_not(run, any_curr);
+        eff_curr[0] = oxidd_run_or(run, curr_bdd[0], not_any);
         oxidd_bdd_unref(not_any);
         for (uint32_t j = 1; j < m_goals; j++)
           eff_curr[j] = oxidd_bdd_ref(curr_bdd[j]);
@@ -501,16 +499,17 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
 
   if (ok && !*unreal) {
     // W_star image for "any safe move" = cpre_c(W*).
-    Bdd w_safe = cpre_unquantified(W, sub_lat, notbad);
+    oxidd_phase(run, "strategy_relation");
+    Bdd w_safe = cpre_unquantified(run, W, sub_lat, notbad);
 
     // Build M_total = ⋃_j [eff_curr[j] ∧ M_j].
     Bdd M_total = oxidd_bdd_false(m);
 
     for (uint32_t j = 0; j < m_goals && ok; j++) {
-      Bdd at_goal = oxidd_bdd_and(W, goal_bdd[j]);
+      Bdd at_goal = oxidd_run_and(run, W, goal_bdd[j]);
 
       // case_at_goal = at_goal ∧ w_safe
-      Bdd case_at_goal = oxidd_bdd_and(at_goal, w_safe);
+      Bdd case_at_goal = oxidd_run_and(run, at_goal, w_safe);
       Bdd M_j = oxidd_bdd_ref(case_at_goal);
       oxidd_bdd_unref(case_at_goal);
 
@@ -521,8 +520,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
         Bdd yk = y_levels[j].arr[k];
 
         // layer = Y_k \ covered
-        Bdd ncover = oxidd_bdd_not(covered);
-        Bdd layer = oxidd_bdd_and(yk, ncover);
+        Bdd ncover = oxidd_run_not(run, covered);
+        Bdd layer = oxidd_run_and(run, yk, ncover);
         oxidd_bdd_unref(ncover);
 
         // target = strict ∨ (not_fair ∧ Y_k):
@@ -535,10 +534,10 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
           strict = oxidd_bdd_ref(at_goal);
         } else {
           Bdd yk_minus1 = y_levels[j].arr[k - 1];
-          strict = oxidd_bdd_or(yk_minus1, at_goal);
+          strict = oxidd_run_or(run, yk_minus1, at_goal);
         }
-        Bdd escape = oxidd_bdd_and(not_fair, yk);
-        Bdd target = oxidd_bdd_or(strict, escape);
+        Bdd escape = oxidd_run_and(run, not_fair, yk);
+        Bdd target = oxidd_run_or(run, strict, escape);
         oxidd_bdd_unref(strict);
         oxidd_bdd_unref(escape);
         if (bdd_invalid(target)) {
@@ -547,20 +546,20 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
           break;
         }
 
-        Bdd move_k = cpre_unquantified(target, sub_lat, notbad);
+        Bdd move_k = cpre_unquantified(run, target, sub_lat, notbad);
         oxidd_bdd_unref(target);
 
-        Bdd case_k = oxidd_bdd_and(layer, move_k);
+        Bdd case_k = oxidd_run_and(run, layer, move_k);
         oxidd_bdd_unref(layer);
         oxidd_bdd_unref(move_k);
 
-        Bdd new_mj = oxidd_bdd_or(M_j, case_k);
+        Bdd new_mj = oxidd_run_or(run, M_j, case_k);
         oxidd_bdd_unref(M_j);
         oxidd_bdd_unref(case_k);
         M_j = new_mj;
 
         // covered grows to include Y_k
-        Bdd new_cov = oxidd_bdd_or(covered, yk);
+        Bdd new_cov = oxidd_run_or(run, covered, yk);
         oxidd_bdd_unref(covered);
         covered = new_cov;
 
@@ -573,9 +572,9 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
 
       if (ok) {
         // M_total |= eff_curr[j] ∧ M_j
-        Bdd piece = oxidd_bdd_and(eff_curr[j], M_j);
+        Bdd piece = oxidd_run_and(run, eff_curr[j], M_j);
         oxidd_bdd_unref(M_j);
-        Bdd new_total = oxidd_bdd_or(M_total, piece);
+        Bdd new_total = oxidd_run_or(run, M_total, piece);
         oxidd_bdd_unref(M_total);
         oxidd_bdd_unref(piece);
         M_total = new_total;
@@ -586,15 +585,30 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
       }
     }
     oxidd_bdd_unref(w_safe);
+    oxidd_bdd_substitution_free(sub_lat);
+    sub_lat = nullptr;
+    oxidd_bdd_unref(notbad);
+    notbad = (Bdd){0};
+    oxidd_bdd_unref(not_fair);
+    not_fair = (Bdd){0};
+    oxidd_bdd_unref(ctrl_cube);
+    ctrl_cube = (Bdd){0};
+    oxidd_bdd_unref(unc_cube);
+    unc_cube = (Bdd){0};
+    for (uint32_t j = 0; j < m_goals; j++)
+      bddvec_free_all(&y_levels[j]);
 
     // Skolem: f_k(s, curr[], u) = ∃(c_{k+1}...) M_total|_{c_k=1}
     if (ok) {
-      Bdd R = oxidd_bdd_ref(M_total);
+      oxidd_phase(run, "skolem");
+      Bdd R = M_total;
+      M_total = (Bdd){0};
       for (uint32_t k = 0; k < ncv && ok; k++) {
-        Bdd pos = oxidd_bdd_var(m, cvars[k]);
-        Bdd rk1 = oxidd_bdd_restrict(R, pos);
-        Bdd rem = cube_of(m, cvars + k + 1, ncv - k - 1);
-        Bdd fk = oxidd_bdd_exists(rk1, rem);
+        run->index = k;
+        Bdd pos = oxidd_run_var(run, cvars[k]);
+        Bdd rk1 = oxidd_run_restrict(run, R, pos);
+        Bdd rem = oxidd_run_cube(run, cvars + k + 1, ncv - k - 1);
+        Bdd fk = oxidd_run_exists(run, rk1, rem);
         oxidd_bdd_unref(pos);
         oxidd_bdd_unref(rk1);
         oxidd_bdd_unref(rem);
@@ -610,7 +624,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
           break;
         }
         oxidd_bdd_substitution_add_pair(s1, cvars[k], fk);
-        Bdd rnew = oxidd_bdd_substitute(R, s1);
+        Bdd rnew = oxidd_run_substitute(run, R, s1);
         oxidd_bdd_substitution_free(s1);
         oxidd_bdd_unref(R);
         R = rnew;
@@ -636,8 +650,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
         ok = false;
       } else {
         for (uint32_t j = 0; j < m_goals && ok; j++) {
-          Bdd wg = oxidd_bdd_and(W, goal_bdd[j]);
-          adv[j] = oxidd_bdd_and(eff_curr[j], wg);
+          Bdd wg = oxidd_run_and(run, W, goal_bdd[j]);
+          adv[j] = oxidd_run_and(run, eff_curr[j], wg);
           oxidd_bdd_unref(wg);
           if (bdd_invalid(adv[j]))
             ok = false;
@@ -645,10 +659,10 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
         if (ok) {
           for (uint32_t j = 0; j < m_goals && ok; j++) {
             uint32_t prev = (j + m_goals - 1) % m_goals;
-            Bdd not_adv = oxidd_bdd_not(adv[j]);
-            Bdd stay = oxidd_bdd_and(eff_curr[j], not_adv);
-            Bdd come = oxidd_bdd_and(eff_curr[prev], adv[prev]);
-            Bdd nxt = oxidd_bdd_or(stay, come);
+            Bdd not_adv = oxidd_run_not(run, adv[j]);
+            Bdd stay = oxidd_run_and(run, eff_curr[j], not_adv);
+            Bdd come = oxidd_run_and(run, eff_curr[prev], adv[prev]);
+            Bdd nxt = oxidd_run_or(run, stay, come);
             oxidd_bdd_unref(not_adv);
             oxidd_bdd_unref(stay);
             oxidd_bdd_unref(come);
@@ -669,6 +683,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   // -----------------------------------------------------------------------
 
   if (ok && !*unreal) {
+    oxidd_phase(run, "conversion");
     strat = aig_new();
     for (uint32_t v = 0; v < nvars; v++)
       var2lit[v] = UINT32_MAX;
@@ -702,9 +717,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
       uint32_t lit;
       const char *name = aig_input_name(game, cinput[k], &lit);
       Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false};
-      uint32_t out = bdd2aig(&ctx, strat_f[k]);
+      uint32_t out = bdd2aig_root(&ctx, strat_f[k]);
       convert_error = convert_error || ctx.error;
-      memo_free(&ctx.memo);
       aig_set_output(strat, name, out);
     }
 
@@ -716,7 +730,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     for (uint32_t k = 0; k < ncv && !convert_error; k++)
       oxidd_bdd_substitution_add_pair(sc, cvars[k], strat_f[k]);
     for (uint32_t j = 0; j < nlat && !convert_error; j++) {
-      Bdd na = ncv ? oxidd_bdd_substitute(next_bdd[j], sc)
+      run->index = j;
+      Bdd na = ncv ? oxidd_run_substitute(run, next_bdd[j], sc)
                    : oxidd_bdd_ref(next_bdd[j]);
       if (bdd_invalid(na)) {
         oxidd_bdd_unref(na);
@@ -724,9 +739,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
         break;
       }
       Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false};
-      uint32_t nl = bdd2aig(&ctx, na);
+      uint32_t nl = bdd2aig_root(&ctx, na);
       convert_error = convert_error || ctx.error;
-      memo_free(&ctx.memo);
       oxidd_bdd_unref(na);
       aig_set_latch_next(strat, lat_lit[j], nl);
     }
@@ -736,13 +750,15 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     // Goal-counter latch next-functions.
     for (uint32_t j = 0; j < m_goals && !convert_error; j++) {
       Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false};
-      uint32_t nl = bdd2aig(&ctx, next_curr[j]);
+      uint32_t nl = bdd2aig_root(&ctx, next_curr[j]);
       convert_error = convert_error || ctx.error;
-      memo_free(&ctx.memo);
       aig_set_latch_next(strat, curr_latch_lit[j], nl);
     }
 
     if (convert_error) {
+      oxidd_record_failure(opts, OXIDD_FAILURE_CONVERSION, "conversion",
+                           "bdd2aig_or_substitution", run->operations,
+                           run->index);
       aig_free(strat);
       strat = nullptr;
     }
@@ -798,6 +814,11 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   oxidd_bdd_unref(unc_cube);
   if (sub_lat)
     oxidd_bdd_substitution_free(sub_lat);
+  if (!strat && !*unreal)
+    oxidd_record_failure(opts, OXIDD_FAILURE_HOST, run->phase,
+                         "host_allocation_or_invalid_input", run->operations,
+                         run->index);
+  oxidd_run_finish(run);
   if (own_mgr)
     oxidd_bdd_manager_unref(m);
   else

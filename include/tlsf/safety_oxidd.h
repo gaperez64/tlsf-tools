@@ -33,4 +33,19 @@
 [[nodiscard]] Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
                                          const OxiddSolveOptions *opts);
 
+typedef enum {
+  OXIDD_SOLVE_ERROR,
+  OXIDD_SOLVE_REALIZABLE,
+  OXIDD_SOLVE_UNREALIZABLE
+} OxiddSolveStatus;
+typedef struct {
+  OxiddSolveStatus status;
+  Aig *strategy; // owned, NULL in verdict-only mode
+  OxiddFailure failure;
+} OxiddSolveResult;
+
+// Consumes game. Unlike the legacy entry points, supports verdict-only success.
+OxiddSolveResult solve_safety_oxidd_result(Aig *game,
+                                           const OxiddSolveOptions *opts);
+
 #endif // TLSF_SAFETY_OXIDD_H

@@ -1,0 +1,278 @@
+#include "tlsf/oxidd_common.h"
+#include "tlsf/safety_oxidd.h"
+#include "tlsf/gr1_oxidd.h"
+#include <stdlib.h>
+
+#define CHECK(x)                                                               \
+  do {                                                                         \
+    if (!(x)) {                                                                \
+      fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x);                  \
+      abort();                                                                 \
+    }                                                                          \
+  } while (0)
+
+static unsigned fail_and, and_calls;
+static const char *fail_operation;
+static unsigned failures;
+static bool fail_calloc, fail_realloc;
+void *__real_calloc(size_t n, size_t size);
+void *__wrap_calloc(size_t n, size_t size);
+void *__wrap_calloc(size_t n, size_t size) {
+  if (fail_calloc) {
+    fail_calloc = false;
+    return NULL;
+  }
+  return __real_calloc(n, size);
+}
+void *__real_realloc(void *p, size_t size);
+void *__wrap_realloc(void *p, size_t size);
+void *__wrap_realloc(void *p, size_t size) {
+  if (fail_realloc) {
+    fail_realloc = false;
+    return NULL;
+  }
+  return __real_realloc(p, size);
+}
+static bool injected(const char *name) {
+  if (failures && fail_operation && !strcmp(fail_operation, name)) {
+    failures--;
+    return true;
+  }
+  return false;
+}
+#define WRAP_BINARY(name)                                                      \
+  Bdd __real_oxidd_bdd_##name(Bdd a, Bdd b);                                   \
+  Bdd __wrap_oxidd_bdd_##name(Bdd a, Bdd b);                                   \
+  Bdd __wrap_oxidd_bdd_##name(Bdd a, Bdd b) {                                  \
+    return injected(#name) ? (Bdd){0} : __real_oxidd_bdd_##name(a, b);         \
+  }
+WRAP_BINARY(forall)
+WRAP_BINARY(exists)
+WRAP_BINARY(restrict)
+Bdd __real_oxidd_bdd_substitute(Bdd a, const oxidd_bdd_substitution_t *s);
+Bdd __wrap_oxidd_bdd_substitute(Bdd a, const oxidd_bdd_substitution_t *s);
+Bdd __wrap_oxidd_bdd_substitute(Bdd a, const oxidd_bdd_substitution_t *s) {
+  return injected("substitute") ? (Bdd){0} : __real_oxidd_bdd_substitute(a, s);
+}
+Bdd __real_oxidd_bdd_apply_exists(oxidd_boolean_operator op, Bdd a, Bdd b,
+                                  Bdd v);
+Bdd __wrap_oxidd_bdd_apply_exists(oxidd_boolean_operator op, Bdd a, Bdd b,
+                                  Bdd v);
+Bdd __wrap_oxidd_bdd_apply_exists(oxidd_boolean_operator op, Bdd a, Bdd b,
+                                  Bdd v) {
+  return injected("apply_exists") ? (Bdd){0}
+                                  : __real_oxidd_bdd_apply_exists(op, a, b, v);
+}
+Bdd __real_oxidd_bdd_and(Bdd a, Bdd b);
+Bdd __wrap_oxidd_bdd_and(Bdd a, Bdd b);
+Bdd __wrap_oxidd_bdd_and(Bdd a, Bdd b) {
+  and_calls++;
+  if (fail_and) {
+    fail_and--;
+    return (Bdd){0};
+  }
+  return __real_oxidd_bdd_and(a, b);
+}
+
+static Aig *read_game(const char *text) {
+  FILE *f = tmpfile();
+  CHECK(f);
+  fputs(text, f);
+  rewind(f);
+  Aig *g = aig_read_aag(f);
+  fclose(f);
+  CHECK(g);
+  return g;
+}
+
+static void roots_and_retry(void) {
+  // Non-dense IDs; duplicate operands, complements, a disconnected gate,
+  // roots which are later operands, a latch leaf and duplicate root uses.
+  Aig *g = read_game("aag 12 2 1 1 5\n2\n4\n8 2\n24\n"
+                     "12 2 2\n16 12 5\n18 16 8\n20 2 4\n24 18 13\n");
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 256, 1);
+  oxidd_bdd_manager_add_vars(m, 10);
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  OxiddRun r;
+  oxidd_run_init(&r, m, &opts, 4096, 256);
+  uint32_t lits[] = {12, 16, 19, 24, 12, 8, 0, 1};
+  Bdd roots[8] = {0}, map[13] = {0}, eager[13] = {0};
+  const uint32_t leaf[] = {1, 2, 4};
+  for (unsigned i = 0; i < 3; i++)
+    map[leaf[i]] = eager[leaf[i]] = oxidd_bdd_var(m, i + 7);
+  for (unsigned i = 0; i < 3; i++)
+    oxidd_bdd_ref(eager[leaf[i]]);
+  fail_calloc = true;
+  CHECK(!oxidd_build_roots(&r, g, map, 12, lits, roots, 8));
+  for (uint32_t i = 0; i < aig_num_ands(g); i++) {
+    uint32_t lhs, a, b;
+    aig_and_at(g, i, &lhs, &a, &b);
+    Bdd ba = lit_to_bdd(m, eager, a), bb = lit_to_bdd(m, eager, b);
+    eager[lhs / 2] = oxidd_bdd_and(ba, bb);
+    oxidd_bdd_unref(ba);
+    oxidd_bdd_unref(bb);
+  }
+  CHECK(oxidd_build_roots(&r, g, map, 12, lits, roots, 8));
+  CHECK(r.built_gates == 4 && r.relevant_gates == 4);
+  for (unsigned i = 0; i < 13; i++)
+    CHECK(bdd_invalid(map[i]));
+  for (unsigned i = 0; i < 8; i++) {
+    Bdd expected = lit_to_bdd(m, eager, lits[i]);
+    CHECK(bdd_eq(roots[i], expected));
+    oxidd_bdd_unref(expected);
+    oxidd_bdd_unref(roots[i]);
+  }
+  Bdd a = oxidd_bdd_var(m, 7), b = oxidd_bdd_var(m, 8);
+  fail_and = 1;
+  and_calls = 0;
+  Bdd result = oxidd_run_and(&r, a, b);
+  CHECK(!bdd_invalid(result) && and_calls == 2 && r.recovered == 1);
+  oxidd_bdd_unref(result);
+  fail_and = 2;
+  and_calls = 0;
+  result = oxidd_run_and(&r, a, b);
+  CHECK(bdd_invalid(result) && and_calls == 2 && r.retries == 2);
+  CHECK(r.failed_operation && !strcmp(r.failed_operation, "and"));
+  result = oxidd_run_and(&r, a, b);
+  CHECK(bdd_invalid(result) && and_calls == 2);
+  CHECK(!bdd_eq((Bdd){0}, (Bdd){0}));
+  oxidd_bdd_unref(a);
+  oxidd_bdd_unref(b);
+  for (unsigned i = 0; i < 13; i++)
+    oxidd_bdd_unref(eager[i]);
+  aig_free(g);
+  oxidd_bdd_manager_unref(m);
+}
+
+static void memo_churn(void) {
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(1024, 64, 1);
+  oxidd_bdd_manager_add_vars(m, 9);
+  Aig *g = aig_new();
+  uint32_t mapping[2] = {aig_input(g, "a"), aig_input(g, "b")};
+  Bdd2Aig ctx = {g, mapping, 7, 2, {0}, false};
+  for (unsigned i = 0; i < 40; i++) {
+    Bdd a = oxidd_bdd_var(m, 7), b = oxidd_bdd_var(m, 8);
+    Bdd root = i % 2 ? oxidd_bdd_or(a, b) : oxidd_bdd_and(a, b);
+    oxidd_bdd_unref(a);
+    oxidd_bdd_unref(b);
+    oxidd_bdd_manager_gc(m);
+    uint32_t out = bdd2aig_root(&ctx, root);
+    CHECK(!ctx.error && ctx.memo.n == 0 && ctx.memo.cap == 0);
+    for (unsigned assignment = 0; assignment < 4; assignment++) {
+      bool *values = calloc(3 + aig_num_ands(g), sizeof *values);
+      CHECK(values);
+      values[1] = (assignment & 1) != 0;
+      values[2] = (assignment & 2) != 0;
+      for (uint32_t j = 0; j < aig_num_ands(g); j++) {
+        uint32_t lhs, x, y;
+        aig_and_at(g, j, &lhs, &x, &y);
+        values[lhs / 2] =
+            (values[x / 2] ^ (x & 1)) && (values[y / 2] ^ (y & 1));
+      }
+      bool actual = values[out / 2] ^ (out & 1);
+      CHECK(actual == (i % 2 ? assignment != 0 : assignment == 3));
+      free(values);
+    }
+    if (i == 39) {
+      fail_calloc = true;
+      bdd2aig_root(&ctx, root);
+      CHECK(ctx.error && ctx.memo.cap == 0);
+    }
+    oxidd_bdd_unref(root);
+    oxidd_bdd_manager_gc(m);
+  }
+  aig_free(g);
+  oxidd_bdd_manager_unref(m);
+}
+
+static void pressure_backoff(void) {
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 64, 1);
+  oxidd_bdd_manager_add_vars(m, 1);
+  Bdd pinned = oxidd_bdd_var(m, 0);
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  opts.gc_mode = OXIDD_GC_PRESSURE;
+  OxiddRun r;
+  // A deliberately low policy threshold forces checkpoints without filling
+  // the real arena; the empty manager has nothing collectible.
+  oxidd_run_init(&r, m, &opts, 1, 64);
+  oxidd_pressure_gc_checkpoint(&r);
+  CHECK(r.explicit_gc == 1);
+  oxidd_pressure_gc_checkpoint(&r);
+  CHECK(r.explicit_gc == 1);
+  r.operations = r.next_gc;
+  oxidd_pressure_gc_checkpoint(&r);
+  CHECK(r.explicit_gc == 2);
+  oxidd_phase(&r, "extraction");
+  CHECK(r.explicit_gc == 3);
+  oxidd_bdd_unref(pinned);
+  oxidd_bdd_manager_unref(m);
+}
+
+static void sessions(void) {
+  const char *safe =
+      "aag 3 2 1 1 0\n2\n4\n6 4 1\n7\ni0 env\ni1 controllable_c\n";
+  const char *gr1 =
+      "aag 3 2 1 1 0 0 0 1 0\n2\n4\n6 4\n0\n1\n6\ni0 env\ni1 controllable_c\n";
+  oxidd_session_init(4096, 256);
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  opts.gc_mode = OXIDD_GC_PRESSURE;
+  for (unsigned i = 0; i < 12; i++) {
+    int unreal = -1;
+    Aig *strat = solve_safety_oxidd_ex(read_game(safe), &unreal, &opts);
+    CHECK(strat && !unreal);
+    aig_free(strat);
+    opts.demand_transitions = true;
+    opts.realizability_only = true;
+    OxiddSolveResult verdict =
+        solve_safety_oxidd_result(read_game(safe), &opts);
+    CHECK(verdict.status == OXIDD_SOLVE_REALIZABLE && !verdict.strategy);
+    opts.demand_transitions = false;
+    opts.realizability_only = false;
+    strat = solve_gr1_oxidd_ex(read_game(gr1), &unreal, &opts);
+    CHECK(strat && !unreal);
+    aig_free(strat);
+  }
+  for (unsigned kind = 0; kind < 2; kind++) {
+    const char *ops[] = {"substitute", "apply_exists", "forall", "restrict",
+                         "exists"};
+    for (unsigned op = 0; op < 5; op++)
+      for (unsigned n = 1; n <= 2; n++) {
+        Aig *game = read_game(kind ? gr1 : safe);
+        fail_operation = ops[op];
+        failures = n;
+        OxiddFailure failure = {0};
+        opts.failure = &failure;
+        int unreal = -1;
+        Aig *strat = kind ? solve_gr1_oxidd_ex(game, &unreal, &opts)
+                          : solve_safety_oxidd_ex(game, &unreal, &opts);
+        CHECK(failures == 0 && !unreal);
+        if (n == 1)
+          CHECK(strat && failure.kind == OXIDD_FAILURE_NONE);
+        else
+          CHECK(!strat && failure.kind == OXIDD_FAILURE_BDD &&
+                !strcmp(failure.operation, ops[op]));
+        aig_free(strat);
+        opts.failure = NULL;
+      }
+  }
+  Aig *game = read_game(gr1);
+  fail_realloc = true;
+  int failed_unreal = -1;
+  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
+  CHECK(!fail_realloc);
+  opts.node_cap = 8192;
+  OxiddFailure failure = {0};
+  opts.failure = &failure;
+  int unreal = -1;
+  CHECK(!solve_safety_oxidd_ex(read_game(safe), &unreal, &opts));
+  CHECK(!unreal && failure.kind == OXIDD_FAILURE_CONFIGURATION);
+  oxidd_session_free();
+}
+
+int main(void) {
+  roots_and_retry();
+  memo_churn();
+  pressure_backoff();
+  sessions();
+  return 0;
+}

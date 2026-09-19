@@ -4,10 +4,12 @@
 // `oxidd_bdd_t` arguments and return a *new* reference; every returned handle
 // must be `oxidd_bdd_unref`'d (a no-op on the invalid/NULL handle).
 
+#define _POSIX_C_SOURCE 200809L
 #include "tlsf/oxidd_common.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
+#include <time.h>
 
 // ---------------------------------------------------------------------------
 // Small BDD helpers
@@ -35,6 +37,13 @@ size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
 
 void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
                  const char *event, const char *fmt, ...) {
+#ifdef NDEBUG
+  (void)opts;
+  (void)phase;
+  (void)event;
+  (void)fmt;
+  return;
+#else
   if (!opts || opts->verbosity == 0)
     return;
   static unsigned long long seq = 0;
@@ -51,30 +60,379 @@ void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
   }
   fputs("}\n", out);
   fflush(out);
+#endif
 }
 
-bool oxidd_pressure_gc_checkpoint(oxidd_bdd_manager_t m,
-                                  const OxiddSolveOptions *opts,
-                                  const char *phase) {
-  if (!opts || opts->gc_mode != OXIDD_GC_PRESSURE || opts->node_cap == 0)
+static double monotonic_seconds(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+void oxidd_record_failure(const OxiddSolveOptions *opts, OxiddFailureKind kind,
+                          const char *phase, const char *operation,
+                          size_t operation_id, uint32_t index) {
+  if (opts->failure && opts->failure->kind != OXIDD_FAILURE_NONE)
+    return;
+  if (opts->failure)
+    *opts->failure =
+        (OxiddFailure){kind, phase, operation, operation_id, index};
+  oxidd_trace(
+      opts, phase, "failure",
+      ",\"kind\":%u,\"operation\":\"%s\",\"operation_id\":%zu,\"index\":%u",
+      (unsigned)kind, operation, operation_id, index);
+}
+
+void oxidd_run_init(OxiddRun *r, oxidd_bdd_manager_t m,
+                    const OxiddSolveOptions *opts, size_t nodes, size_t cache) {
+  *r = (OxiddRun){.manager = m,
+                  .options = opts,
+                  .phase = "construction",
+                  .node_cap = nodes,
+                  .cache_cap = cache,
+                  .phase_started = monotonic_seconds()};
+  oxidd_trace(opts, r->phase, "configuration",
+              ",\"node_cap\":%zu,\"cache_cap\":%zu", nodes, cache);
+}
+
+static void sample_nodes(OxiddRun *r) {
+  size_t n = oxidd_bdd_manager_approx_num_inner_nodes(r->manager);
+  if (n > r->sampled_peak)
+    r->sampled_peak = n;
+}
+
+static size_t collect(OxiddRun *r, const char *reason) {
+  size_t before = oxidd_bdd_manager_approx_num_inner_nodes(r->manager);
+  double started = monotonic_seconds();
+  uint64_t gc_before = oxidd_bdd_manager_gc_count(r->manager);
+  size_t removed = oxidd_bdd_manager_gc(r->manager);
+  r->explicit_gc++;
+  // A zero return can also mean another collector was active. In either
+  // case, wait for deterministic operation progress before trying pressure GC.
+  r->next_gc =
+      r->operations + (!removed || removed < r->node_cap / 100 ? 4096 : 256);
+  oxidd_trace(r->options, r->phase, "gc",
+              ",\"reason\":\"%s\",\"stored_nodes_approx\":%zu,"
+              "\"removed\":%zu,\"next_gc_operation\":%zu,\"seconds\":%.6f,"
+              "\"gc_count_before\":%llu,\"gc_count_after\":%llu",
+              reason, before, removed, r->next_gc,
+              monotonic_seconds() - started, (unsigned long long)gc_before,
+              (unsigned long long)oxidd_bdd_manager_gc_count(r->manager));
+  return removed;
+}
+
+bool oxidd_pressure_gc_checkpoint(OxiddRun *r) {
+  const OxiddSolveOptions *opts = r->options;
+  if (opts->gc_mode != OXIDD_GC_PRESSURE || r->operations < r->next_gc)
     return false;
   unsigned threshold =
       opts->gc_threshold_percent ? opts->gc_threshold_percent : 80;
-  size_t approx = oxidd_bdd_manager_approx_num_inner_nodes(m);
-  size_t limit = (opts->node_cap / 100) * threshold +
-                 ((opts->node_cap % 100) * threshold + 99) / 100;
+  size_t approx = oxidd_bdd_manager_approx_num_inner_nodes(r->manager);
+  size_t limit = (r->node_cap / 100) * threshold +
+                 ((r->node_cap % 100) * threshold + 99) / 100;
   if (approx < limit)
     return false;
-  uint64_t before_count = oxidd_bdd_manager_gc_count(m);
-  size_t removed = oxidd_bdd_manager_gc(m);
-  uint64_t after_count = oxidd_bdd_manager_gc_count(m);
-  oxidd_trace(opts, phase, "gc",
-              ",\"stored_nodes_approx\":%zu,\"threshold_percent\":%u,"
-              "\"removed\":%zu,\"gc_count_before\":%llu,"
-              "\"gc_count_after\":%llu",
-              approx, threshold, removed, (unsigned long long)before_count,
-              (unsigned long long)after_count);
-  return removed != 0;
+  return collect(r, "pressure") != 0;
+}
+
+void oxidd_phase(OxiddRun *r, const char *phase) {
+  sample_nodes(r);
+  oxidd_trace(r->options, r->phase, "phase_end",
+              ",\"sampled_stored_peak\":%zu,\"operations\":%zu,"
+              "\"stored_nodes_approx\":%zu,\"seconds\":%.6f",
+              r->sampled_peak, r->operations,
+              oxidd_bdd_manager_approx_num_inner_nodes(r->manager),
+              monotonic_seconds() - r->phase_started);
+  if (strcmp(r->phase, phase))
+    r->next_gc = r->operations;
+  r->phase = phase;
+  r->phase_started = monotonic_seconds();
+  r->index = 0;
+  oxidd_trace(r->options, phase, "phase_begin", "");
+  oxidd_pressure_gc_checkpoint(r);
+}
+
+void oxidd_run_finish(OxiddRun *r) {
+  sample_nodes(r);
+  oxidd_trace(r->options, r->phase, "phase_end",
+              ",\"seconds\":%.6f,\"operations\":%zu,\"index\":%u",
+              monotonic_seconds() - r->phase_started, r->operations, r->index);
+  oxidd_trace(r->options, r->phase, "summary",
+              ",\"operations\":%zu,\"retries\":%zu,\"recovered\":%zu,"
+              "\"explicit_gc\":%zu,\"sampled_stored_peak\":%zu,"
+              "\"built_gates\":%zu,\"relevant_gates\":%zu",
+              r->operations, r->retries, r->recovered, r->explicit_gc,
+              r->sampled_peak, r->built_gates, r->relevant_gates);
+}
+
+static bool operation_begin(OxiddRun *r, const char *op) {
+  if (r->failed_operation)
+    return false;
+  r->operations++;
+  oxidd_pressure_gc_checkpoint(r);
+  if (r->options->verbosity >= 2)
+    oxidd_trace(r->options, r->phase, "op_begin",
+                ",\"operation\":\"%s\",\"operation_id\":%zu,\"index\":%u", op,
+                r->operations, r->index);
+  return true;
+}
+
+static Bdd operation_end(OxiddRun *r, const char *op, Bdd result) {
+  if (r->options->verbosity)
+    sample_nodes(r);
+  if (bdd_invalid(result)) {
+    r->failed_operation = op;
+    oxidd_record_failure(r->options, OXIDD_FAILURE_BDD, r->phase, op,
+                         r->operations, r->index);
+    oxidd_trace(r->options, r->phase, "failure",
+                ",\"operation\":\"%s\",\"operation_id\":%zu,\"index\":%u,"
+                "\"reason\":\"invalid_bdd_after_retry\"",
+                op, r->operations, r->index);
+  } else if (r->options->verbosity >= 2) {
+    oxidd_trace(r->options, r->phase, "op_end",
+                ",\"operation\":\"%s\",\"operation_id\":%zu", op,
+                r->operations);
+  }
+  return result;
+}
+
+// Only pure, BDD-producing operations enter this wrapper. Arguments and
+// substitution objects stay owned by the caller across exactly one retry.
+#define RUN_OPERATION(name, valid, expression)                                 \
+  if (!operation_begin(r, name))                                               \
+    return (Bdd){0};                                                           \
+  if (!(valid)) {                                                              \
+    oxidd_record_failure(r->options, OXIDD_FAILURE_INVALID, r->phase, name,    \
+                         r->operations, r->index);                             \
+    r->failed_operation = name;                                                \
+    return (Bdd){0};                                                           \
+  }                                                                            \
+  Bdd result = (expression);                                                   \
+  if (bdd_invalid(result)) {                                                   \
+    r->retries++;                                                              \
+    collect(r, "allocation_retry");                                            \
+    result = (expression);                                                     \
+    if (!bdd_invalid(result))                                                  \
+      r->recovered++;                                                          \
+    oxidd_trace(r->options, r->phase, "retry",                                 \
+                ",\"operation\":\"%s\",\"recovered\":%s", name,                \
+                bdd_invalid(result) ? "false" : "true");                       \
+  }                                                                            \
+  return operation_end(r, name, result)
+
+Bdd oxidd_run_not(OxiddRun *r, Bdd a) {
+  RUN_OPERATION("not", !bdd_invalid(a), oxidd_bdd_not(a));
+}
+Bdd oxidd_run_var(OxiddRun *r, uint32_t var) {
+  RUN_OPERATION("var", true, oxidd_bdd_var(r->manager, var));
+}
+#define BINARY_OPERATION(name)                                                 \
+  Bdd oxidd_run_##name(OxiddRun *r, Bdd a, Bdd b) {                            \
+    RUN_OPERATION(#name, !bdd_invalid(a) && !bdd_invalid(b),                   \
+                  oxidd_bdd_##name(a, b));                                     \
+  }
+BINARY_OPERATION(and)
+BINARY_OPERATION(or)
+BINARY_OPERATION(exists)
+BINARY_OPERATION(forall)
+BINARY_OPERATION(restrict)
+
+Bdd oxidd_run_substitute(OxiddRun *r, Bdd a,
+                         const oxidd_bdd_substitution_t *sub) {
+  RUN_OPERATION("substitute", !bdd_invalid(a) && sub,
+                oxidd_bdd_substitute(a, sub));
+}
+Bdd oxidd_run_apply_exists(OxiddRun *r, oxidd_boolean_operator op, Bdd a, Bdd b,
+                           Bdd vars) {
+  RUN_OPERATION("apply_exists",
+                !bdd_invalid(a) && !bdd_invalid(b) && !bdd_invalid(vars),
+                oxidd_bdd_apply_exists(op, a, b, vars));
+}
+#undef BINARY_OPERATION
+#undef RUN_OPERATION
+
+Bdd oxidd_run_cube(OxiddRun *r, const uint32_t *vars, uint32_t n) {
+  Bdd cube = oxidd_bdd_true(r->manager);
+  for (uint32_t i = 0; i < n && !bdd_invalid(cube); i++) {
+    Bdd v = oxidd_run_var(r, vars[i]);
+    Bdd next = oxidd_run_and(r, cube, v);
+    oxidd_bdd_unref(cube);
+    oxidd_bdd_unref(v);
+    cube = next;
+  }
+  return cube;
+}
+
+static bool consume_literal(Bdd *map, size_t *uses, uint32_t lit) {
+  uint32_t v = lit / 2;
+  if (v && --uses[v] == 0) {
+    bool released = !bdd_invalid(map[v]);
+    oxidd_bdd_unref(map[v]);
+    map[v] = (Bdd){0};
+    return released;
+  }
+  return false;
+}
+
+static Bdd run_literal(OxiddRun *r, Bdd *map, uint32_t lit) {
+  if (lit < 2)
+    return lit ? oxidd_bdd_true(r->manager) : oxidd_bdd_false(r->manager);
+  Bdd b = map[lit / 2];
+  if (bdd_invalid(b))
+    return (Bdd){0};
+  return lit & 1 ? oxidd_run_not(r, b) : oxidd_bdd_ref(b);
+}
+
+bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
+                       const uint32_t *lits, Bdd *roots, size_t count) {
+  size_t *uses = calloc((size_t)maxvar + 1, sizeof *uses);
+  if (!uses)
+    return false;
+  bool ok = true;
+  size_t retained = 0, peak = 0, released = 0;
+  for (uint32_t v = 1; v <= maxvar; v++)
+    retained += !bdd_invalid(map[v]);
+  peak = retained;
+  for (size_t i = 0; i < count; i++) {
+    if (lits[i] / 2 > maxvar) {
+      ok = false;
+      break;
+    }
+    if (lits[i] > 1)
+      uses[lits[i] / 2]++;
+  }
+  uint32_t ngates = aig_num_ands(game);
+  // The reader and AIG builder guarantee topological gate order. Count each
+  // edge, including duplicate/complemented operands, and every root occurrence.
+  for (uint32_t i = ngates; i > 0 && ok; i--) {
+    uint32_t lhs, a, b;
+    aig_and_at(game, i - 1, &lhs, &a, &b);
+    if (!uses[lhs / 2])
+      continue;
+    if (a / 2 > maxvar || b / 2 > maxvar) {
+      ok = false;
+      break;
+    }
+    if (a > 1)
+      uses[a / 2]++;
+    if (b > 1)
+      uses[b / 2]++;
+    r->relevant_gates++;
+  }
+  for (uint32_t v = 1; v <= maxvar; v++)
+    if (!uses[v]) {
+      if (!bdd_invalid(map[v])) {
+        retained--;
+        released++;
+      }
+      oxidd_bdd_unref(map[v]);
+      map[v] = (Bdd){0};
+    }
+  for (uint32_t i = 0; i < ngates && ok; i++) {
+    uint32_t lhs, a, b;
+    aig_and_at(game, i, &lhs, &a, &b);
+    if (!uses[lhs / 2])
+      continue;
+    r->index = i;
+    Bdd ba = run_literal(r, map, a);
+    Bdd bb = run_literal(r, map, b);
+    Bdd result = oxidd_run_and(r, ba, bb);
+    oxidd_bdd_unref(ba);
+    oxidd_bdd_unref(bb);
+    map[lhs / 2] = result;
+    retained += !bdd_invalid(result);
+    if (retained > peak)
+      peak = retained;
+    size_t dropped = (size_t)consume_literal(map, uses, a);
+    dropped += consume_literal(map, uses, b);
+    retained -= dropped;
+    released += dropped;
+    r->built_gates++;
+    ok = !bdd_invalid(result);
+  }
+  for (size_t i = 0; i < count && ok; i++) {
+    roots[i] = run_literal(r, map, lits[i]);
+    ok = !bdd_invalid(roots[i]);
+    bool dropped = consume_literal(map, uses, lits[i]);
+    retained -= dropped;
+    released += dropped;
+  }
+  oxidd_trace(r->options, r->phase, "construction_roots",
+              ",\"map_references_peak\":%zu,\"map_references_released\":%zu,"
+              "\"map_references_remaining\":%zu,\"requested_roots\":%zu",
+              peak, released, retained, count);
+  free(uses);
+  return ok;
+}
+
+bool oxidd_build_game(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
+                      Bdd *bad, Bdd *next, Bdd *goals, Bdd *fair) {
+  bool typed =
+      r->options->safety_objective == OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR;
+  uint32_t nb = typed ? aig_num_bad(game) : 1;
+  uint32_t nl = r->options->demand_transitions ? 0 : aig_num_latches(game);
+  uint32_t nj = aig_num_justice(game);
+  uint32_t nf = aig_num_fairness(game);
+  size_t count = (size_t)nb + nl + nj + nf;
+  uint32_t *lits = calloc(count, sizeof *lits);
+  Bdd *roots = calloc(count, sizeof *roots);
+  bool ok = lits && roots;
+  size_t k = 0;
+  for (uint32_t i = 0; i < nb && ok; i++) {
+    if (typed)
+      aig_bad_at(game, i, &lits[k++]);
+    else if (r->options->safety_output_index < aig_num_outputs(game))
+      aig_output_at(game, r->options->safety_output_index, &lits[k++]);
+    else
+      ok = false;
+  }
+  for (uint32_t i = 0; i < nl && ok; i++)
+    aig_latch_at(game, i, NULL, &lits[k++], NULL);
+  for (uint32_t i = 0; i < nj && ok; i++) {
+    const uint32_t *js;
+    uint32_t n;
+    aig_justice_at(game, i, &js, &n);
+    if (n != 1 || !goals)
+      ok = false;
+    else
+      lits[k++] = js[0];
+  }
+  for (uint32_t i = 0; i < nf && ok; i++) {
+    if (!fair)
+      ok = false;
+    else
+      lits[k++] = aig_fairness_at(game, i);
+  }
+  if (ok)
+    ok = oxidd_build_roots(r, game, map, maxvar, lits, roots, count);
+  if (ok) {
+    *bad = oxidd_bdd_false(r->manager);
+    for (uint32_t i = 0; i < nb; i++) {
+      Bdd b = oxidd_run_or(r, *bad, roots[i]);
+      oxidd_bdd_unref(*bad);
+      *bad = b;
+    }
+    ok = !bdd_invalid(*bad);
+    k = nb;
+    for (uint32_t i = 0; i < nl; i++, k++) {
+      next[i] = roots[k];
+      roots[k] = (Bdd){0};
+    }
+    for (uint32_t i = 0; i < nj; i++, k++) {
+      goals[i] = roots[k];
+      roots[k] = (Bdd){0};
+    }
+    for (uint32_t i = 0; i < nf; i++, k++) {
+      fair[i] = roots[k];
+      roots[k] = (Bdd){0};
+    }
+  }
+  if (roots)
+    for (size_t i = 0; i < count; i++)
+      oxidd_bdd_unref(roots[i]);
+  free(roots);
+  free(lits);
+  return ok;
 }
 
 Bdd lit_to_bdd(oxidd_bdd_manager_t m, const Bdd *var_bdd, uint32_t lit) {
@@ -83,6 +441,8 @@ Bdd lit_to_bdd(oxidd_bdd_manager_t m, const Bdd *var_bdd, uint32_t lit) {
   if (lit == AIG_TRUE)
     return oxidd_bdd_true(m);
   Bdd base = var_bdd[lit / 2];
+  if (bdd_invalid(base))
+    return (Bdd){0};
   return (lit & 1u) ? oxidd_bdd_not(base) : oxidd_bdd_ref(base);
 }
 
@@ -198,16 +558,59 @@ void memo_free(Memo *t) {
   *t = (Memo){0};
 }
 
+static bool visit_support(Bdd f, uint32_t base, uint32_t count, bool *support,
+                          Memo *seen) {
+  if (bdd_invalid(f))
+    return false;
+  if (oxidd_bdd_node_level(f) == (oxidd_level_no_t)-1)
+    return true;
+  uint32_t ignored;
+  if (memo_get(seen, f, &ignored))
+    return true;
+  uint32_t var = oxidd_bdd_node_var(f);
+  if (var < base || var - base >= count)
+    return false;
+  support[var - base] = true;
+  if (!memo_put(seen, f, 0))
+    return false;
+  Bdd hi = oxidd_bdd_cofactor_true(f), lo = oxidd_bdd_cofactor_false(f);
+  bool ok = visit_support(hi, base, count, support, seen) &&
+            visit_support(lo, base, count, support, seen);
+  oxidd_bdd_unref(hi);
+  oxidd_bdd_unref(lo);
+  return ok;
+}
+
+bool oxidd_state_support(Bdd root, uint32_t base, uint32_t count,
+                         bool *support) {
+  Memo seen = {0};
+  bool ok = visit_support(root, base, count, support, &seen);
+  memo_free(&seen);
+  return ok;
+}
+
 // ---------------------------------------------------------------------------
 // Persistent BDD manager session
 // ---------------------------------------------------------------------------
 
 static oxidd_bdd_manager_t g_session_mgr = {._p = NULL};
 static uint32_t g_session_var_base = 0;
+static size_t g_session_nodes, g_session_cache;
 
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap) {
+  oxidd_session_free();
   g_session_mgr = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
   g_session_var_base = 0;
+  g_session_nodes = inner_cap;
+  g_session_cache = cache_cap;
+}
+
+bool oxidd_session_config(const OxiddSolveOptions *opts, size_t *nodes,
+                          size_t *cache) {
+  *nodes = g_session_nodes;
+  *cache = g_session_cache;
+  return (!opts->node_cap || opts->node_cap == *nodes) &&
+         (!opts->cache_cap || opts->cache_cap == *cache);
 }
 
 void oxidd_session_free(void) {
@@ -221,6 +624,8 @@ void oxidd_session_free(void) {
 oxidd_bdd_manager_t oxidd_session_get(void) { return g_session_mgr; }
 
 uint32_t oxidd_session_alloc_vars(uint32_t n) {
+  if (n > UINT32_MAX - g_session_var_base)
+    return UINT32_MAX;
   uint32_t base = g_session_var_base;
   oxidd_bdd_manager_add_vars(g_session_mgr, n);
   g_session_var_base += n;
@@ -249,7 +654,7 @@ uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f) {
   if (memo_get(&ctx->memo, f, &cached))
     return cached;
   oxidd_var_no_t abs_v = oxidd_bdd_node_var(f);
-  if (abs_v < ctx->var_base || abs_v >= ctx->var_base + ctx->var_count) {
+  if (abs_v < ctx->var_base || abs_v - ctx->var_base >= ctx->var_count) {
     ctx->error = true;
     return AIG_FALSE;
   }
@@ -272,4 +677,11 @@ uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f) {
   if (!memo_put(&ctx->memo, f, res))
     ctx->error = true;
   return res;
+}
+
+uint32_t bdd2aig_root(Bdd2Aig *ctx, Bdd f) {
+  memo_free(&ctx->memo);
+  uint32_t lit = bdd2aig(ctx, f);
+  memo_free(&ctx->memo);
+  return lit;
 }

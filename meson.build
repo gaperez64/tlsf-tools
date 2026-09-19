@@ -1013,6 +1013,33 @@ if python3.found()
 endif
 endif
 if research_tools and have_oxidd
+  oxidd_memory_test = executable('oxidd_memory_test',
+    sources: ['test/oxidd_memory.c', 'src/oxidd_common.c',
+              'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
+    c_args: ['-DHAVE_OXIDD'],
+    link_args: ['-Wl,--wrap=oxidd_bdd_and', '-Wl,--wrap=oxidd_bdd_substitute',
+                '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
+                '-Wl,--wrap=oxidd_bdd_exists', '-Wl,--wrap=oxidd_bdd_restrict',
+                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+    dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
+  test('oxidd_memory', oxidd_memory_test)
+  if python3.found()
+    test('oxidd_semantic_oracle', python3,
+      args: [files('test/check_oxidd_oracle.py'), tlsfsolve_exe], timeout: 120)
+    corpus = get_option('issue24_corpus')
+    if corpus != ''
+      foreach i : range(5)
+        test('issue24_correctness_' + i.to_string(), python3,
+          args: [files('test/check_issue24.py'), tlsfsolve_exe, corpus, i.to_string()],
+          suite: 'issue24-correctness', is_parallel: false, timeout: 130)
+        test('issue24_memory_' + i.to_string(), python3,
+          args: [files('test/check_issue24.py'), tlsfsolve_exe, corpus, i.to_string(),
+                 '--memory-out', join_paths(meson.current_build_dir(),
+                                           'issue24-memory-' + i.to_string() + '.json')],
+          suite: 'issue24-memory', is_parallel: false, timeout: 130)
+      endforeach
+    endif
+  endif
   # tlsfsolve: exact status, stdout and stderr for win, loss and solver failure.
   test('tlsfsolve_real', check_status,
     args: ['0', files('test/cases/solve_real.out.aag'),

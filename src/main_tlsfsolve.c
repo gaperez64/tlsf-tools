@@ -212,6 +212,8 @@ static void usage(const char *prog) {
           "  --oxidd-cache N        BDD apply-cache capacity\n"
           "  --oxidd-gc auto|pressure\n"
           "  --oxidd-gc-threshold PERCENT\n"
+          "  --oxidd-transitions eager|demand (safety only)\n"
+          "  --realizability-only   safety verdict, no strategy output\n"
           "  -v, --verbose          diagnostic trace (requires non-NDEBUG)\n"
           "Exit 0: realizable — writes strategy aag to stdout.\n"
           "Exit 1: UNREALIZABLE — writes message to stderr.\n"
@@ -224,8 +226,14 @@ int main(int argc, char **argv) {
   const char *path = nullptr;
   GameProfile requested_profile = PROFILE_AUTO, resolved_profile = PROFILE_AUTO;
   OxiddSolveOptions opts = oxidd_solve_options_default();
+  OxiddFailure failure = {0};
+  opts.failure = &failure;
   for (int i = 1; i < argc; i++) {
     const char *arg = argv[i];
+    if (!strcmp(arg, "--realizability-only")) {
+      opts.realizability_only = true;
+      continue;
+    }
     if (!strcmp(arg, "--help") || !strcmp(arg, "-h")) {
       usage(argv[0]);
       return 0;
@@ -267,6 +275,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: bad --game-profile '%s'\n", argv[0], val);
         return 2;
       }
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--oxidd-transitions");
+    if (val) {
+      if (strcmp(val, "eager") && strcmp(val, "demand")) {
+        fprintf(stderr, "%s: bad --oxidd-transitions '%s'\n", argv[0], val);
+        return 2;
+      }
+      opts.demand_transitions = !strcmp(val, "demand");
       continue;
     }
     val = option_value(&i, argc, argv, arg, "--oxidd-nodes");
@@ -360,9 +377,24 @@ int main(int argc, char **argv) {
   }
 
   int unreal = 0;
-  Aig *strat = resolved_profile == PROFILE_GR1
-                   ? solve_gr1_oxidd_ex(game, &unreal, &opts)
-                   : solve_safety_oxidd_ex(game, &unreal, &opts);
+  Aig *strat = nullptr;
+  if (resolved_profile == PROFILE_GR1) {
+    if (opts.demand_transitions || opts.realizability_only) {
+      fprintf(stderr, "tlsfsolve: demand transitions and verdict-only require "
+                      "a safety profile\n");
+      aig_free(game);
+      return 2;
+    }
+    strat = solve_gr1_oxidd_ex(game, &unreal, &opts);
+  } else {
+    OxiddSolveResult result = solve_safety_oxidd_result(game, &opts);
+    strat = result.strategy;
+    unreal = result.status == OXIDD_SOLVE_UNREALIZABLE;
+    if (result.status == OXIDD_SOLVE_REALIZABLE && opts.realizability_only) {
+      fprintf(stderr, "REALIZABLE\n");
+      return 0;
+    }
+  }
 
   if (!strat) {
     if (unreal) {
@@ -370,10 +402,20 @@ int main(int argc, char **argv) {
       return 1;
     }
     fprintf(stderr, "tlsfsolve: OxiDD solver failed\n");
+    if (failure.kind != OXIDD_FAILURE_NONE)
+      fprintf(
+          stderr,
+          "tlsfsolve: failure kind=%u phase=%s operation=%s id=%zu index=%u\n",
+          (unsigned)failure.kind, failure.phase, failure.operation,
+          failure.operation_id, failure.index);
     return 2;
   }
 
   aig_write_aag(stdout, strat);
   aig_free(strat);
+  if (fflush(stdout) != 0 || ferror(stdout)) {
+    fprintf(stderr, "tlsfsolve: strategy output failed\n");
+    return 2;
+  }
   return 0;
 }

@@ -55,6 +55,10 @@ def main():
     parser.add_argument("--cache", type=int, default=4194304)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--gc", choices=("auto", "pressure"), default="auto")
+    parser.add_argument("--transitions", choices=("eager", "demand"))
+    parser.add_argument("--realizability-only", action="store_true")
+    parser.add_argument("--cases", nargs="+", help="optional case basenames without .aag")
     args = parser.parse_args()
     if (min(args.nodes + [args.cache, args.repetitions]) <= 0
             or not math.isfinite(args.timeout) or args.timeout <= 0):
@@ -72,7 +76,12 @@ def main():
             parser.error("duplicate solver label")
         solvers[label] = fingerprint(path)
     inputs = []
+    known = {Path(upstream).stem for upstream, _ in CASES}
+    if args.cases and not set(args.cases) <= known:
+        parser.error("unknown case name")
     for upstream, expected in CASES:
+        if args.cases and Path(upstream).stem not in args.cases:
+            continue
         path = args.corpus / Path(upstream).name
         if git_blob_sha(path.read_bytes()) != expected:
             parser.error(f"corpus blob mismatch: {path}")
@@ -84,7 +93,9 @@ def main():
         "platform": platform.platform(), "machine": platform.machine(),
         "cpu_count": os.cpu_count(), "corpus_commit": COMMIT,
         "solvers": solvers, "inputs": inputs, "runner": fingerprint(__file__),
-        "nodes": args.nodes, "cache": args.cache, "gc": "auto",
+        "nodes": args.nodes, "cache": args.cache, "gc": args.gc,
+        "transitions": args.transitions or "eager",
+        "realizability_only": args.realizability_only,
         "repetitions": args.repetitions, "timeout_seconds": args.timeout,
         "time_version": subprocess.check_output([str(timer), "--version"], text=True).splitlines()[0],
         "rss_scope": "Linux ru_maxrss via GNU time %M, KiB, per timeout/solver process tree",
@@ -109,7 +120,12 @@ def main():
                                    "-o", str(run_dir / "usage.json"), timeout,
                                    "--kill-after=5", str(args.timeout), solvers[variant]["path"],
                                    "--game-profile=legacy-safety", "--oxidd-nodes", str(nodes),
-                                   "--oxidd-cache", str(args.cache), "--oxidd-gc=auto", case["path"]]
+                                   "--oxidd-cache", str(args.cache), f"--oxidd-gc={args.gc}"]
+                        if args.transitions:
+                            command += [f"--oxidd-transitions={args.transitions}"]
+                        if args.realizability_only:
+                            command += ["--realizability-only"]
+                        command += [case["path"]]
                         with (run_dir / "stdout.aag").open("wb") as stdout:
                             with (run_dir / "stderr.log").open("wb") as stderr:
                                 proc = subprocess.run(command, stdout=stdout, stderr=stderr, check=False)
@@ -118,10 +134,14 @@ def main():
                             raise RuntimeError(f"inconsistent process status: {name}")
                         status = {0: "REALIZABLE", 1: "UNREALIZABLE", 2: "ERROR",
                                   124: "TIMEOUT", 137: "KILLED"}.get(proc.returncode, "ERROR")
-                        if status == "REALIZABLE":
+                        if status == "REALIZABLE" and not args.realizability_only:
                             with (run_dir / "stdout.aag").open("rb") as stream:
                                 if not stream.read(4) == b"aag ":
                                     raise RuntimeError(f"missing strategy: {name}")
+                        if status == "REALIZABLE" and args.realizability_only:
+                            if ((run_dir / "stdout.aag").stat().st_size or
+                                    "REALIZABLE" not in (run_dir / "stderr.log").read_text()):
+                                raise RuntimeError(f"invalid verdict-only result: {name}")
                         if status == "UNREALIZABLE" and "UNREALIZABLE" not in (run_dir / "stderr.log").read_text():
                             raise RuntimeError(f"missing losing verdict: {name}")
                         record = {"instance": case["instance"], "variant": variant,

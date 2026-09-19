@@ -1,6 +1,13 @@
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/safety_oxidd.h"
 
+OxiddSolveResult solve_safety_oxidd_result(Aig *game,
+                                           const OxiddSolveOptions *opts) {
+  (void)opts;
+  aig_free(game);
+  return (OxiddSolveResult){.status = OXIDD_SOLVE_ERROR};
+}
+
 Aig *solve_safety_oxidd(Aig *game, int *unreal) {
   *unreal = 0;
   aig_free(game);
