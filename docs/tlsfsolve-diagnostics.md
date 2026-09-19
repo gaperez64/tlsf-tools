@@ -27,6 +27,13 @@ The wrapper writes `manifest.json`, `stderr.log`, `summary.json`,
 `summary.md`, and either `strategy.aag` or `stdout.txt`.  It does not copy the
 input file into the bundle; the manifest records its SHA-256.  Trace timings are
 diagnostic, not release-performance measurements.
+Use a new output directory for each run. On systems with `wait4`, the wrapper
+records that specific child's peak RSS (normalized to KiB), including on
+timeout; it does not reuse cumulative usage from earlier runs. Signals,
+timeouts, unfinished operations and partial trace lines remain separate in the
+summary. A signal alone is not evidence of an OOM kill. Verdict-only success
+uses `stdout.txt`, never a misleading empty strategy artifact. Share the
+manifest, log and summaries after reviewing paths; keep strategies local.
 
 Useful first request for issue #24:
 

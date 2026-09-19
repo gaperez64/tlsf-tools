@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
+import signal as signals
 import subprocess
 import sys
 import time
@@ -56,6 +58,8 @@ def main() -> int:
         help="extra tlsfsolve options after --",
     )
     ns = ap.parse_args()
+    if ns.timeout is not None and (not math.isfinite(ns.timeout) or ns.timeout <= 0):
+        ap.error("timeout must be positive and finite")
 
     solver = Path(ns.solver)
     input_path = Path(ns.input)
@@ -66,7 +70,7 @@ def main() -> int:
     verbosity = [] if has_verbose(extra) else ["--verbose"]
     argv = [str(solver), *verbosity, *extra, str(input_path)]
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=False)
     stdout_tmp = out_dir / "stdout.bin"
     stderr_log = out_dir / "stderr.log"
     started = time.time()
@@ -84,22 +88,45 @@ def main() -> int:
         return 2
 
     timed_out = False
+    if "diagnostics=no" in version:
+        print("diagnose_tlsfsolve: solver has no diagnostics; rebuild with -Db_ndebug=false", file=sys.stderr)
+        return 2
+    usage = None
     try:
         with stdout_tmp.open("wb") as out, stderr_log.open("wb") as err:
-            proc = subprocess.run(
-                argv,
-                stdout=out,
-                stderr=err,
-                timeout=ns.timeout,
-                check=False,
-            )
-            returncode = proc.returncode
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        returncode = None
+            proc = subprocess.Popen(argv, stdout=out, stderr=err,
+                                    start_new_session=True)
+            if hasattr(os, "wait4"):
+                deadline = time.monotonic() + ns.timeout if ns.timeout else None
+                while True:
+                    pid, status, resources = os.wait4(proc.pid, os.WNOHANG)
+                    if pid:
+                        proc.returncode = os.waitstatus_to_exitcode(status)
+                        returncode = None if timed_out else proc.returncode
+                        usage = {"peak_rss_kib": resources.ru_maxrss /
+                                 (1024 if sys.platform == "darwin" else 1),
+                                 "user_seconds": resources.ru_utime,
+                                 "system_seconds": resources.ru_stime}
+                        break
+                    if deadline and time.monotonic() >= deadline and not timed_out:
+                        timed_out = True
+                        os.killpg(proc.pid, signals.SIGKILL)
+                    time.sleep(0.01)
+            else:
+                try:
+                    returncode = proc.wait(timeout=ns.timeout)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    proc.kill()
+                    proc.wait()
+                    returncode = None
+    except OSError as exc:
+        print(f"diagnose_tlsfsolve: cannot run solver: {exc}", file=sys.stderr)
+        return 2
 
     ended = time.time()
-    final_stdout = out_dir / ("strategy.aag" if returncode == 0 else "stdout.txt")
+    verdict_only = "--realizability-only" in extra
+    final_stdout = out_dir / ("strategy.aag" if returncode == 0 and not verdict_only else "stdout.txt")
     if stdout_tmp.exists():
         os.replace(stdout_tmp, final_stdout)
 
@@ -116,6 +143,16 @@ def main() -> int:
     )
     last_event = events[-1] if events else None
     signal = -returncode if isinstance(returncode, int) and returncode < 0 else None
+    unfinished = None
+    phase_seconds = {}
+    for event in events:
+        if event.get("event") == "op_begin":
+            unfinished = event
+        elif event.get("event") in ("op_end", "failure"):
+            unfinished = None
+        elif event.get("event") == "phase_end":
+            phase = event.get("phase", "unknown")
+            phase_seconds[phase] = phase_seconds.get(phase, 0) + event.get("seconds", 0)
 
     manifest = {
         "schema": 1,
@@ -143,6 +180,10 @@ def main() -> int:
         "duration_seconds": ended - started,
         "last_event": last_event,
         "first_failure": first_failure,
+        "unfinished_operation": unfinished,
+        "phase_seconds": phase_seconds,
+        "resource_usage": usage,
+        "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
         "malformed_trace_lines": malformed[-3:],
         "stdout_file": final_stdout.name,
         "stderr_file": stderr_log.name,
@@ -159,6 +200,7 @@ def main() -> int:
         f"- duration_seconds: {ended - started:.3f}",
         f"- stdout_file: {final_stdout.name}",
         f"- stderr_file: {stderr_log.name}",
+        f"- peak_rss_kib: {usage['peak_rss_kib'] if usage else 'unavailable'}",
     ]
     if last_event:
         lines.append(f"- last_event: `{last_event.get('phase')}/{last_event.get('event')}`")

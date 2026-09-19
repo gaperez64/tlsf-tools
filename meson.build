@@ -1029,6 +1029,8 @@ if research_tools and have_oxidd
   if python3.found()
     test('oxidd_semantic_oracle', python3,
       args: [files('test/check_oxidd_oracle.py'), tlsfsolve_exe], timeout: 120)
+    test('oxidd_diagnostic_runner', python3,
+      args: [files('test/check_diagnose.py')])
     corpus = get_option('issue24_corpus')
     if corpus != ''
       foreach i : range(5)
