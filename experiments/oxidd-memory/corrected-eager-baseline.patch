@@ -1,0 +1,55 @@
+diff --git a/src/safety_oxidd.c b/src/safety_oxidd.c
+index b64cbab..92b4e8c 100644
+--- a/src/safety_oxidd.c
++++ b/src/safety_oxidd.c
+@@ -253,10 +253,7 @@ Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+         ok = false;
+     }
+   }
+-  if (ok) {
+-    release_var_map(var_bdd, maxvar);
+-    oxidd_pressure_gc_checkpoint(m, opts, "root_release");
+-  }
++  // Measurement baseline: keep construction roots until solver cleanup.
+ 
+   // Greatest fixpoint W = νZ. ∀u ∃c [ ¬bad ∧ Z[s := next] ], from Z₀ = ⊤.
+   if (ok) {
+@@ -271,27 +268,28 @@ Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+       if (!ok)
+         break;
+       Bdd img = oxidd_bdd_substitute(Z, sub_lat);
+-      Bdd ec = oxidd_bdd_apply_exists(OXIDD_BOOLEAN_OPERATOR_AND, notbad, img,
+-                                      ctrl_cube);
++      Bdd t = oxidd_bdd_and(notbad, img);
++      Bdd ec = oxidd_bdd_exists(t, ctrl_cube);
+       Bdd au = oxidd_bdd_forall(ec, unc_cube);
+       oxidd_bdd_unref(img);
++      oxidd_bdd_unref(t);
+       oxidd_bdd_unref(ec);
+       if (bdd_invalid(au)) {
+         oxidd_bdd_unref(au);
+         ok = false;
+         break;
+       }
+-      bool converged = bdd_eq(au, Z);
+-      oxidd_bdd_unref(Z);
+-      Z = au;
+-      if (!oxidd_bdd_eval(Z, init_args, nlat)) {
+-        *unreal = 1;
++      // Preserve failure handling while restoring allocating convergence.
++      Bdd equiv = oxidd_bdd_equiv(au, Z);
++      if (bdd_invalid(equiv)) {
++        oxidd_bdd_unref(au);
+         ok = false;
+-        oxidd_trace(opts, "fixpoint", "verdict",
+-                    ",\"verdict\":\"unrealizable\","
+-                    "\"verdict_reason\":\"initial_state_excluded\"");
+         break;
+       }
++      bool converged = oxidd_bdd_valid(equiv);
++      oxidd_bdd_unref(equiv);
++      oxidd_bdd_unref(Z);
++      Z = au;
+       oxidd_pressure_gc_checkpoint(m, opts, "fixpoint");
+       if (converged)
+         break;
