@@ -463,6 +463,20 @@ aiger_roundtrip_exe = executable(
 )
 test('aiger_roundtrip', aiger_roundtrip_exe)
 
+if python3.found()
+  aigtoaig_check = find_program('aigtoaig', required: false)
+  aigmove_check = find_program('aigmove', required: false)
+  combine_aiger_check = find_program('combine-aiger', required: false)
+  abc_check = find_program('abc', required: false)
+  if aigtoaig_check.found() and aigmove_check.found() and combine_aiger_check.found() and abc_check.found()
+    test('aiger_closed_loop', python3,
+      args: [files('test/check_aiger_safety.py'),
+             '--aiger-dir', fs.parent(aigtoaig_check.full_path()),
+             '--combine-aiger', combine_aiger_check.full_path(),
+             '--abc', abc_check.full_path()], timeout: 120)
+  endif
+endif
+
 if spot_dep.found()
   tlsf2spot_exe = executable(
     'tlsf2spot',
