@@ -208,6 +208,49 @@ static void pressure_backoff(void) {
   oxidd_bdd_manager_unref(m);
 }
 
+static Aig *unused_mux_game(void) {
+  Aig *g = aig_new();
+  uint32_t inputs[20];
+  for (unsigned i = 0; i < 20; i++) {
+    char name[32];
+    snprintf(name, sizeof name, "env_%u", i);
+    inputs[i] = aig_input(g, name);
+  }
+  uint32_t latch = aig_latch(g, 0, 0);
+  uint32_t values[16];
+  memcpy(values, inputs, sizeof values);
+  for (unsigned level = 0, n = 16; level < 4; level++, n /= 2)
+    for (unsigned i = 0; i < n / 2; i++) {
+      uint32_t hi = aig_and(g, inputs[16 + level], values[2 * i + 1]);
+      uint32_t lo = aig_and(g, aig_not(inputs[16 + level]), values[2 * i]);
+      values[i] = aig_or(g, hi, lo);
+    }
+  CHECK(aig_set_latch_next(g, latch, values[0]));
+  aig_set_output(g, "bad", 0);
+  return g;
+}
+
+static void demand_avoids_unused_updates(void) {
+  // Data-before-address ordering makes this unused mux update expensive.
+  // Safety is nevertheless trivial. Compare like-for-like verdict-only runs,
+  // and check that full synthesis still tries to preserve the latch update.
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  opts.node_cap = 1024;
+  opts.cache_cap = 64;
+  opts.realizability_only = true;
+  OxiddSolveResult result = solve_safety_oxidd_result(unused_mux_game(), &opts);
+  CHECK(result.status == OXIDD_SOLVE_ERROR &&
+        result.failure.kind == OXIDD_FAILURE_BDD);
+  opts.demand_transitions = true;
+  result = solve_safety_oxidd_result(unused_mux_game(), &opts);
+  CHECK(result.status == OXIDD_SOLVE_REALIZABLE && !result.strategy);
+  opts.realizability_only = false;
+  result = solve_safety_oxidd_result(unused_mux_game(), &opts);
+  CHECK(result.status == OXIDD_SOLVE_ERROR &&
+        result.failure.kind == OXIDD_FAILURE_BDD);
+  CHECK(!strcmp(result.failure.phase, "strategy_updates"));
+}
+
 static void sessions(void) {
   const char *safe =
       "aag 3 2 1 1 0\n2\n4\n6 4 1\n7\ni0 env\ni1 controllable_c\n";
@@ -284,6 +327,7 @@ int main(void) {
   roots_and_retry();
   memo_churn();
   pressure_backoff();
+  demand_avoids_unused_updates();
   sessions();
   return 0;
 }

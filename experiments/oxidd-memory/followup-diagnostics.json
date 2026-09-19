@@ -1,0 +1,1351 @@
+{
+  "scope": "Separate diagnostic runs, not release-performance samples",
+  "runs": [
+    {
+      "label": "beem",
+      "manifest": {
+        "argv": [
+          "build-oxidd-diagnose/tlsfsolve",
+          "--verbose",
+          "--oxidd-nodes",
+          "33554432",
+          "--oxidd-cache",
+          "262144",
+          "--oxidd-gc",
+          "auto",
+          "build-memory-corpus/beemprdcell2f1_c0to1.aag"
+        ],
+        "ended_unix": 1789850412.9207106,
+        "input": "build-memory-corpus/beemprdcell2f1_c0to1.aag",
+        "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+        "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+        "python": "3.14.7",
+        "schema": 1,
+        "solver": "build-oxidd-diagnose/tlsfsolve",
+        "solver_sha256": "121a698d1aa6b881df3dacdf9d4a4edc3feee4304d7727ccf391f7f42c36c6a3",
+        "solver_version": "tlsfsolve 234df48-dirty oxidd=yes research=yes simd=scalar diagnostics=yes",
+        "started_unix": 1789850404.8068736,
+        "timeout_seconds": 120.0
+      },
+      "summary": {
+        "duration_seconds": 8.113837003707886,
+        "first_failure": null,
+        "last_event": {
+          "built_gates": 801,
+          "event": "summary",
+          "explicit_gc": 0,
+          "operations": 2068,
+          "phase": "conversion",
+          "recovered": 0,
+          "relevant_gates": 801,
+          "retries": 0,
+          "sampled_stored_peak": 31260673,
+          "schema": 1,
+          "seq": 20
+        },
+        "malformed_trace_lines": [],
+        "phase_seconds": {
+          "construction": 8.036717,
+          "conversion": 0.000807,
+          "fixpoint": 0.000528,
+          "root_release": 5e-06,
+          "skolem": 1.2e-05,
+          "strategy_relation": 1.1e-05
+        },
+        "resource_usage": {
+          "peak_rss_kib": 888148.0,
+          "system_seconds": 0.524386,
+          "user_seconds": 7.529687
+        },
+        "returncode": 0,
+        "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+        "schema": 1,
+        "signal": null,
+        "stderr_file": "stderr.log",
+        "stdout_file": "strategy.aag",
+        "timed_out": false,
+        "unfinished_operation": null
+      },
+      "events": [
+        {
+          "schema": 1,
+          "seq": 1,
+          "phase": "resolve_profile",
+          "event": "game",
+          "profile_requested": "auto",
+          "profile": "legacy-safety",
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0,
+          "justice": 0,
+          "fairness": 0,
+          "controllable_input": true
+        },
+        {
+          "schema": 1,
+          "seq": 2,
+          "phase": "manager_create",
+          "event": "begin",
+          "node_cap": 33554432,
+          "cache_cap": 262144,
+          "vars": 136
+        },
+        {
+          "schema": 1,
+          "seq": 3,
+          "phase": "construction",
+          "event": "configuration",
+          "node_cap": 33554432,
+          "cache_cap": 262144
+        },
+        {
+          "schema": 1,
+          "seq": 4,
+          "phase": "input",
+          "event": "game",
+          "inputs": 26,
+          "latches": 110,
+          "ands": 801,
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0
+        },
+        {
+          "schema": 1,
+          "seq": 5,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 136,
+          "stored_nodes_approx": 1,
+          "seconds": 7.2e-05
+        },
+        {
+          "schema": 1,
+          "seq": 6,
+          "phase": "construction",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 7,
+          "phase": "construction",
+          "event": "construction_roots",
+          "map_references_peak": 254,
+          "map_references_released": 937,
+          "map_references_remaining": 0,
+          "requested_roots": 111
+        },
+        {
+          "schema": 1,
+          "seq": 8,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1940,
+          "stored_nodes_approx": 31260673,
+          "seconds": 8.036645
+        },
+        {
+          "schema": 1,
+          "seq": 9,
+          "phase": "root_release",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 10,
+          "phase": "root_release",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1940,
+          "stored_nodes_approx": 31260673,
+          "seconds": 5e-06
+        },
+        {
+          "schema": 1,
+          "seq": 11,
+          "phase": "fixpoint",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 12,
+          "phase": "fixpoint",
+          "event": "verdict",
+          "verdict": "realizable"
+        },
+        {
+          "schema": 1,
+          "seq": 13,
+          "phase": "fixpoint",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1946,
+          "stored_nodes_approx": 31260673,
+          "seconds": 0.000528
+        },
+        {
+          "schema": 1,
+          "seq": 14,
+          "phase": "strategy_relation",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 15,
+          "phase": "strategy_relation",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1948,
+          "stored_nodes_approx": 31260673,
+          "seconds": 1.1e-05
+        },
+        {
+          "schema": 1,
+          "seq": 16,
+          "phase": "skolem",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 17,
+          "phase": "skolem",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1958,
+          "stored_nodes_approx": 31260673,
+          "seconds": 1.2e-05
+        },
+        {
+          "schema": 1,
+          "seq": 18,
+          "phase": "conversion",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 19,
+          "phase": "conversion",
+          "event": "phase_end",
+          "seconds": 0.000807,
+          "operations": 2068,
+          "index": 109
+        },
+        {
+          "schema": 1,
+          "seq": 20,
+          "phase": "conversion",
+          "event": "summary",
+          "operations": 2068,
+          "retries": 0,
+          "recovered": 0,
+          "explicit_gc": 0,
+          "sampled_stored_peak": 31260673,
+          "built_gates": 801,
+          "relevant_gates": 801
+        }
+      ]
+    },
+    {
+      "label": "driver-y",
+      "manifest": {
+        "argv": [
+          "build-oxidd-diagnose/tlsfsolve",
+          "--verbose",
+          "--oxidd-nodes",
+          "8388608",
+          "--oxidd-cache",
+          "1048576",
+          "--oxidd-gc",
+          "pressure",
+          "build-memory-corpus/driver_c2y.aag"
+        ],
+        "ended_unix": 1789850424.1508837,
+        "input": "build-memory-corpus/driver_c2y.aag",
+        "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+        "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+        "python": "3.14.7",
+        "schema": 1,
+        "solver": "build-oxidd-diagnose/tlsfsolve",
+        "solver_sha256": "121a698d1aa6b881df3dacdf9d4a4edc3feee4304d7727ccf391f7f42c36c6a3",
+        "solver_version": "tlsfsolve 234df48-dirty oxidd=yes research=yes simd=scalar diagnostics=yes",
+        "started_unix": 1789850413.0260077,
+        "timeout_seconds": 120.0
+      },
+      "summary": {
+        "duration_seconds": 11.124876022338867,
+        "first_failure": null,
+        "last_event": {
+          "built_gates": 578,
+          "event": "summary",
+          "explicit_gc": 4,
+          "operations": 1359,
+          "phase": "fixpoint",
+          "recovered": 0,
+          "relevant_gates": 578,
+          "retries": 0,
+          "sampled_stored_peak": 7733381,
+          "schema": 1,
+          "seq": 18
+        },
+        "malformed_trace_lines": [],
+        "phase_seconds": {
+          "construction": 9.860854,
+          "fixpoint": 1.079711,
+          "root_release": 0.157772
+        },
+        "resource_usage": {
+          "peak_rss_kib": 329544.0,
+          "system_seconds": 0.198021,
+          "user_seconds": 10.979184
+        },
+        "returncode": 1,
+        "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+        "schema": 1,
+        "signal": null,
+        "stderr_file": "stderr.log",
+        "stdout_file": "stdout.txt",
+        "timed_out": false,
+        "unfinished_operation": null
+      },
+      "events": [
+        {
+          "schema": 1,
+          "seq": 1,
+          "phase": "resolve_profile",
+          "event": "game",
+          "profile_requested": "auto",
+          "profile": "legacy-safety",
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0,
+          "justice": 0,
+          "fairness": 0,
+          "controllable_input": true
+        },
+        {
+          "schema": 1,
+          "seq": 2,
+          "phase": "manager_create",
+          "event": "begin",
+          "node_cap": 8388608,
+          "cache_cap": 1048576,
+          "vars": 130
+        },
+        {
+          "schema": 1,
+          "seq": 3,
+          "phase": "construction",
+          "event": "configuration",
+          "node_cap": 8388608,
+          "cache_cap": 1048576
+        },
+        {
+          "schema": 1,
+          "seq": 4,
+          "phase": "input",
+          "event": "game",
+          "inputs": 52,
+          "latches": 78,
+          "ands": 578,
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0
+        },
+        {
+          "schema": 1,
+          "seq": 5,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 130,
+          "stored_nodes_approx": 1,
+          "seconds": 7.9e-05
+        },
+        {
+          "schema": 1,
+          "seq": 6,
+          "phase": "construction",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 7,
+          "phase": "construction",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7340033,
+          "removed": 3486688,
+          "next_gc_operation": 1209,
+          "seconds": 0.466156,
+          "gc_count_before": 0,
+          "gc_count_after": 1
+        },
+        {
+          "schema": 1,
+          "seq": 8,
+          "phase": "construction",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7405683,
+          "removed": 1276352,
+          "next_gc_operation": 1465,
+          "seconds": 0.192421,
+          "gc_count_before": 3,
+          "gc_count_after": 4
+        },
+        {
+          "schema": 1,
+          "seq": 9,
+          "phase": "construction",
+          "event": "construction_roots",
+          "map_references_peak": 154,
+          "map_references_released": 708,
+          "map_references_remaining": 0,
+          "requested_roots": 79
+        },
+        {
+          "schema": 1,
+          "seq": 10,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 7733381,
+          "operations": 1350,
+          "stored_nodes_approx": 6750398,
+          "seconds": 9.860775
+        },
+        {
+          "schema": 1,
+          "seq": 11,
+          "phase": "root_release",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 12,
+          "phase": "root_release",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 6750398,
+          "removed": 573080,
+          "next_gc_operation": 1606,
+          "seconds": 0.157733,
+          "gc_count_before": 6,
+          "gc_count_after": 7
+        },
+        {
+          "schema": 1,
+          "seq": 13,
+          "phase": "root_release",
+          "event": "phase_end",
+          "sampled_stored_peak": 7733381,
+          "operations": 1350,
+          "stored_nodes_approx": 6226118,
+          "seconds": 0.157772
+        },
+        {
+          "schema": 1,
+          "seq": 14,
+          "phase": "fixpoint",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 15,
+          "phase": "fixpoint",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7209158,
+          "removed": 1084195,
+          "next_gc_operation": 1614,
+          "seconds": 0.203507,
+          "gc_count_before": 7,
+          "gc_count_after": 8
+        },
+        {
+          "schema": 1,
+          "seq": 16,
+          "phase": "fixpoint",
+          "event": "verdict",
+          "verdict": "unrealizable",
+          "verdict_reason": "initial_state_excluded"
+        },
+        {
+          "schema": 1,
+          "seq": 17,
+          "phase": "fixpoint",
+          "event": "phase_end",
+          "seconds": 1.079711,
+          "operations": 1359,
+          "index": 3
+        },
+        {
+          "schema": 1,
+          "seq": 18,
+          "phase": "fixpoint",
+          "event": "summary",
+          "operations": 1359,
+          "retries": 0,
+          "recovered": 0,
+          "explicit_gc": 4,
+          "sampled_stored_peak": 7733381,
+          "built_gates": 578,
+          "relevant_gates": 578
+        }
+      ]
+    },
+    {
+      "label": "driver-n",
+      "manifest": {
+        "argv": [
+          "build-oxidd-diagnose/tlsfsolve",
+          "--verbose",
+          "--oxidd-nodes",
+          "8388608",
+          "--oxidd-cache",
+          "1048576",
+          "--oxidd-gc",
+          "pressure",
+          "build-memory-corpus/driver_c2n.aag"
+        ],
+        "ended_unix": 1789850442.5293477,
+        "input": "build-memory-corpus/driver_c2n.aag",
+        "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+        "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+        "python": "3.14.7",
+        "schema": 1,
+        "solver": "build-oxidd-diagnose/tlsfsolve",
+        "solver_sha256": "121a698d1aa6b881df3dacdf9d4a4edc3feee4304d7727ccf391f7f42c36c6a3",
+        "solver_version": "tlsfsolve 234df48-dirty oxidd=yes research=yes simd=scalar diagnostics=yes",
+        "started_unix": 1789850424.256746,
+        "timeout_seconds": 120.0
+      },
+      "summary": {
+        "duration_seconds": 18.27260160446167,
+        "first_failure": null,
+        "last_event": {
+          "built_gates": 848,
+          "event": "summary",
+          "explicit_gc": 4,
+          "operations": 1946,
+          "phase": "fixpoint",
+          "recovered": 0,
+          "relevant_gates": 848,
+          "retries": 0,
+          "sampled_stored_peak": 7930054,
+          "schema": 1,
+          "seq": 18
+        },
+        "malformed_trace_lines": [],
+        "phase_seconds": {
+          "construction": 17.166184,
+          "fixpoint": 1.069429,
+          "root_release": 5e-06
+        },
+        "resource_usage": {
+          "peak_rss_kib": 341960.0,
+          "system_seconds": 0.219014,
+          "user_seconds": 18.171957
+        },
+        "returncode": 1,
+        "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+        "schema": 1,
+        "signal": null,
+        "stderr_file": "stderr.log",
+        "stdout_file": "stdout.txt",
+        "timed_out": false,
+        "unfinished_operation": null
+      },
+      "events": [
+        {
+          "schema": 1,
+          "seq": 1,
+          "phase": "resolve_profile",
+          "event": "game",
+          "profile_requested": "auto",
+          "profile": "legacy-safety",
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0,
+          "justice": 0,
+          "fairness": 0,
+          "controllable_input": true
+        },
+        {
+          "schema": 1,
+          "seq": 2,
+          "phase": "manager_create",
+          "event": "begin",
+          "node_cap": 8388608,
+          "cache_cap": 1048576,
+          "vars": 130
+        },
+        {
+          "schema": 1,
+          "seq": 3,
+          "phase": "construction",
+          "event": "configuration",
+          "node_cap": 8388608,
+          "cache_cap": 1048576
+        },
+        {
+          "schema": 1,
+          "seq": 4,
+          "phase": "input",
+          "event": "game",
+          "inputs": 52,
+          "latches": 78,
+          "ands": 848,
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0
+        },
+        {
+          "schema": 1,
+          "seq": 5,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 130,
+          "stored_nodes_approx": 1,
+          "seconds": 8.6e-05
+        },
+        {
+          "schema": 1,
+          "seq": 6,
+          "phase": "construction",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 7,
+          "phase": "construction",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7340033,
+          "removed": 3487607,
+          "next_gc_operation": 1655,
+          "seconds": 0.465491,
+          "gc_count_before": 0,
+          "gc_count_after": 1
+        },
+        {
+          "schema": 1,
+          "seq": 8,
+          "phase": "construction",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7274746,
+          "removed": 1978591,
+          "next_gc_operation": 1911,
+          "seconds": 0.248829,
+          "gc_count_before": 7,
+          "gc_count_after": 8
+        },
+        {
+          "schema": 1,
+          "seq": 9,
+          "phase": "construction",
+          "event": "construction_roots",
+          "map_references_peak": 198,
+          "map_references_released": 978,
+          "map_references_remaining": 0,
+          "requested_roots": 79
+        },
+        {
+          "schema": 1,
+          "seq": 10,
+          "phase": "construction",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7733527,
+          "removed": 1589847,
+          "next_gc_operation": 2167,
+          "seconds": 0.232518,
+          "gc_count_before": 8,
+          "gc_count_after": 9
+        },
+        {
+          "schema": 1,
+          "seq": 11,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 7930054,
+          "operations": 1937,
+          "stored_nodes_approx": 6226222,
+          "seconds": 17.166098
+        },
+        {
+          "schema": 1,
+          "seq": 12,
+          "phase": "root_release",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 13,
+          "phase": "root_release",
+          "event": "phase_end",
+          "sampled_stored_peak": 7930054,
+          "operations": 1937,
+          "stored_nodes_approx": 6226222,
+          "seconds": 5e-06
+        },
+        {
+          "schema": 1,
+          "seq": 14,
+          "phase": "fixpoint",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 15,
+          "phase": "fixpoint",
+          "event": "gc",
+          "reason": "pressure",
+          "stored_nodes_approx": 7209263,
+          "removed": 1084468,
+          "next_gc_operation": 2201,
+          "seconds": 0.197826,
+          "gc_count_before": 9,
+          "gc_count_after": 10
+        },
+        {
+          "schema": 1,
+          "seq": 16,
+          "phase": "fixpoint",
+          "event": "verdict",
+          "verdict": "unrealizable",
+          "verdict_reason": "initial_state_excluded"
+        },
+        {
+          "schema": 1,
+          "seq": 17,
+          "phase": "fixpoint",
+          "event": "phase_end",
+          "seconds": 1.069429,
+          "operations": 1946,
+          "index": 3
+        },
+        {
+          "schema": 1,
+          "seq": 18,
+          "phase": "fixpoint",
+          "event": "summary",
+          "operations": 1946,
+          "retries": 0,
+          "recovered": 0,
+          "explicit_gc": 4,
+          "sampled_stored_peak": 7930054,
+          "built_gates": 848,
+          "relevant_gates": 848
+        }
+      ]
+    },
+    {
+      "label": "failure",
+      "manifest": {
+        "argv": [
+          "build-oxidd-diagnose/tlsfsolve",
+          "--oxidd-nodes",
+          "4194304",
+          "--oxidd-cache",
+          "4194304",
+          "--oxidd-gc",
+          "auto",
+          "-vv",
+          "build-memory-corpus/beemprdcell2f1_c0to1.aag"
+        ],
+        "ended_unix": 1789850443.9532137,
+        "input": "build-memory-corpus/beemprdcell2f1_c0to1.aag",
+        "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+        "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+        "python": "3.14.7",
+        "schema": 1,
+        "solver": "build-oxidd-diagnose/tlsfsolve",
+        "solver_sha256": "121a698d1aa6b881df3dacdf9d4a4edc3feee4304d7727ccf391f7f42c36c6a3",
+        "solver_version": "tlsfsolve 234df48-dirty oxidd=yes research=yes simd=scalar diagnostics=yes",
+        "started_unix": 1789850442.634652,
+        "timeout_seconds": 120.0
+      },
+      "summary": {
+        "duration_seconds": 1.3185617923736572,
+        "first_failure": {
+          "event": "failure",
+          "index": 562,
+          "kind": 1,
+          "operation": "and",
+          "operation_id": 1367,
+          "phase": "construction",
+          "schema": 1,
+          "seq": 2742
+        },
+        "last_event": {
+          "built_gates": 563,
+          "event": "summary",
+          "explicit_gc": 1,
+          "operations": 1367,
+          "phase": "construction",
+          "recovered": 0,
+          "relevant_gates": 801,
+          "retries": 1,
+          "sampled_stored_peak": 4194319,
+          "schema": 1,
+          "seq": 2746
+        },
+        "malformed_trace_lines": [],
+        "phase_seconds": {
+          "construction": 1.294925
+        },
+        "resource_usage": {
+          "peak_rss_kib": 223552.0,
+          "system_seconds": 0.09544799999999999,
+          "user_seconds": 1.282114
+        },
+        "returncode": 2,
+        "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+        "schema": 1,
+        "signal": null,
+        "stderr_file": "stderr.log",
+        "stdout_file": "stdout.txt",
+        "timed_out": false,
+        "unfinished_operation": null
+      },
+      "events": [
+        {
+          "schema": 1,
+          "seq": 1,
+          "phase": "resolve_profile",
+          "event": "game",
+          "profile_requested": "auto",
+          "profile": "legacy-safety",
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0,
+          "justice": 0,
+          "fairness": 0,
+          "controllable_input": true
+        },
+        {
+          "schema": 1,
+          "seq": 2,
+          "phase": "manager_create",
+          "event": "begin",
+          "node_cap": 4194304,
+          "cache_cap": 4194304,
+          "vars": 136
+        },
+        {
+          "schema": 1,
+          "seq": 3,
+          "phase": "construction",
+          "event": "configuration",
+          "node_cap": 4194304,
+          "cache_cap": 4194304
+        },
+        {
+          "schema": 1,
+          "seq": 4,
+          "phase": "input",
+          "event": "game",
+          "inputs": 26,
+          "latches": 110,
+          "ands": 801,
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0
+        },
+        {
+          "schema": 1,
+          "seq": 277,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 136,
+          "stored_nodes_approx": 1,
+          "seconds": 0.002135
+        },
+        {
+          "schema": 1,
+          "seq": 278,
+          "phase": "construction",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 2740,
+          "phase": "construction",
+          "event": "gc",
+          "reason": "allocation_retry",
+          "stored_nodes_approx": 4194305,
+          "removed": 891223,
+          "next_gc_operation": 1623,
+          "seconds": 0.140044,
+          "gc_count_before": 1,
+          "gc_count_after": 2
+        },
+        {
+          "schema": 1,
+          "seq": 2741,
+          "phase": "construction",
+          "event": "retry",
+          "operation": "and",
+          "recovered": false
+        },
+        {
+          "schema": 1,
+          "seq": 2742,
+          "phase": "construction",
+          "event": "failure",
+          "kind": 1,
+          "operation": "and",
+          "operation_id": 1367,
+          "index": 562
+        },
+        {
+          "schema": 1,
+          "seq": 2743,
+          "phase": "construction",
+          "event": "failure",
+          "operation": "and",
+          "operation_id": 1367,
+          "index": 562,
+          "reason": "invalid_bdd_after_retry"
+        },
+        {
+          "schema": 1,
+          "seq": 2744,
+          "phase": "construction",
+          "event": "construction_roots",
+          "map_references_peak": 254,
+          "map_references_released": 521,
+          "map_references_remaining": 177,
+          "requested_roots": 111
+        },
+        {
+          "schema": 1,
+          "seq": 2745,
+          "phase": "construction",
+          "event": "phase_end",
+          "seconds": 1.29279,
+          "operations": 1367,
+          "index": 562
+        },
+        {
+          "schema": 1,
+          "seq": 2746,
+          "phase": "construction",
+          "event": "summary",
+          "operations": 1367,
+          "retries": 1,
+          "recovered": 0,
+          "explicit_gc": 1,
+          "sampled_stored_peak": 4194319,
+          "built_gates": 563,
+          "relevant_gates": 801
+        }
+      ]
+    },
+    {
+      "label": "demand",
+      "manifest": {
+        "argv": [
+          "build-oxidd-diagnose/tlsfsolve",
+          "--verbose",
+          "--oxidd-nodes",
+          "33554432",
+          "--oxidd-cache",
+          "262144",
+          "--oxidd-gc",
+          "auto",
+          "--oxidd-transitions=demand",
+          "build-memory-corpus/beemprdcell2f1_c0to1.aag"
+        ],
+        "ended_unix": 1789850452.0773447,
+        "input": "build-memory-corpus/beemprdcell2f1_c0to1.aag",
+        "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+        "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+        "python": "3.14.7",
+        "schema": 1,
+        "solver": "build-oxidd-diagnose/tlsfsolve",
+        "solver_sha256": "121a698d1aa6b881df3dacdf9d4a4edc3feee4304d7727ccf391f7f42c36c6a3",
+        "solver_version": "tlsfsolve 234df48-dirty oxidd=yes research=yes simd=scalar diagnostics=yes",
+        "started_unix": 1789850444.0800185,
+        "timeout_seconds": 120.0
+      },
+      "summary": {
+        "duration_seconds": 7.997326135635376,
+        "first_failure": null,
+        "last_event": {
+          "built_gates": 873,
+          "event": "summary",
+          "explicit_gc": 0,
+          "operations": 2530,
+          "phase": "conversion",
+          "recovered": 0,
+          "relevant_gates": 873,
+          "retries": 0,
+          "sampled_stored_peak": 31260673,
+          "schema": 1,
+          "seq": 38
+        },
+        "malformed_trace_lines": [],
+        "phase_seconds": {
+          "construction": 0.000139,
+          "conversion": 0.000791,
+          "demand_updates": 7.919290999999999,
+          "fixpoint": 0.00055,
+          "root_release": 5e-06,
+          "skolem": 1.2e-05,
+          "strategy_relation": 1.9e-05,
+          "strategy_updates": 0.000243,
+          "support": 1.3000000000000001e-05
+        },
+        "resource_usage": {
+          "peak_rss_kib": 889552.0,
+          "system_seconds": 0.482373,
+          "user_seconds": 7.484762
+        },
+        "returncode": 0,
+        "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+        "schema": 1,
+        "signal": null,
+        "stderr_file": "stderr.log",
+        "stdout_file": "strategy.aag",
+        "timed_out": false,
+        "unfinished_operation": null
+      },
+      "events": [
+        {
+          "schema": 1,
+          "seq": 1,
+          "phase": "resolve_profile",
+          "event": "game",
+          "profile_requested": "auto",
+          "profile": "legacy-safety",
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0,
+          "justice": 0,
+          "fairness": 0,
+          "controllable_input": true
+        },
+        {
+          "schema": 1,
+          "seq": 2,
+          "phase": "manager_create",
+          "event": "begin",
+          "node_cap": 33554432,
+          "cache_cap": 262144,
+          "vars": 136
+        },
+        {
+          "schema": 1,
+          "seq": 3,
+          "phase": "construction",
+          "event": "configuration",
+          "node_cap": 33554432,
+          "cache_cap": 262144
+        },
+        {
+          "schema": 1,
+          "seq": 4,
+          "phase": "input",
+          "event": "game",
+          "inputs": 26,
+          "latches": 110,
+          "ands": 801,
+          "outputs": 1,
+          "bad": 0,
+          "constraints": 0
+        },
+        {
+          "schema": 1,
+          "seq": 5,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 136,
+          "stored_nodes_approx": 1,
+          "seconds": 7e-05
+        },
+        {
+          "schema": 1,
+          "seq": 6,
+          "phase": "construction",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 7,
+          "phase": "construction",
+          "event": "construction_roots",
+          "map_references_peak": 136,
+          "map_references_released": 144,
+          "map_references_remaining": 0,
+          "requested_roots": 1
+        },
+        {
+          "schema": 1,
+          "seq": 8,
+          "phase": "construction",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 205,
+          "stored_nodes_approx": 1,
+          "seconds": 6.9e-05
+        },
+        {
+          "schema": 1,
+          "seq": 9,
+          "phase": "root_release",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 10,
+          "phase": "root_release",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 205,
+          "stored_nodes_approx": 1,
+          "seconds": 5e-06
+        },
+        {
+          "schema": 1,
+          "seq": 11,
+          "phase": "fixpoint",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 12,
+          "phase": "fixpoint",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 205,
+          "stored_nodes_approx": 1,
+          "seconds": 6e-06
+        },
+        {
+          "schema": 1,
+          "seq": 13,
+          "phase": "support",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 14,
+          "phase": "support",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 205,
+          "stored_nodes_approx": 1,
+          "seconds": 5e-06
+        },
+        {
+          "schema": 1,
+          "seq": 15,
+          "phase": "demand_updates",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 16,
+          "phase": "demand_updates",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 205,
+          "stored_nodes_approx": 1,
+          "seconds": 5e-06
+        },
+        {
+          "schema": 1,
+          "seq": 17,
+          "phase": "fixpoint",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 18,
+          "phase": "fixpoint",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 208,
+          "stored_nodes_approx": 1,
+          "seconds": 1.1e-05
+        },
+        {
+          "schema": 1,
+          "seq": 19,
+          "phase": "support",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 20,
+          "phase": "support",
+          "event": "phase_end",
+          "sampled_stored_peak": 1,
+          "operations": 208,
+          "stored_nodes_approx": 1,
+          "seconds": 8e-06
+        },
+        {
+          "schema": 1,
+          "seq": 21,
+          "phase": "demand_updates",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 22,
+          "phase": "demand_updates",
+          "event": "construction_roots",
+          "map_references_peak": 181,
+          "map_references_released": 650,
+          "map_references_remaining": 0,
+          "requested_roots": 9
+        },
+        {
+          "schema": 1,
+          "seq": 23,
+          "phase": "demand_updates",
+          "event": "demand_updates",
+          "new_updates": 9,
+          "built_updates": 9,
+          "total_updates": 110
+        },
+        {
+          "schema": 1,
+          "seq": 24,
+          "phase": "demand_updates",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1413,
+          "stored_nodes_approx": 31260673,
+          "seconds": 7.919286
+        },
+        {
+          "schema": 1,
+          "seq": 25,
+          "phase": "fixpoint",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 26,
+          "phase": "fixpoint",
+          "event": "verdict",
+          "verdict": "realizable"
+        },
+        {
+          "schema": 1,
+          "seq": 27,
+          "phase": "fixpoint",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1416,
+          "stored_nodes_approx": 31260673,
+          "seconds": 0.000533
+        },
+        {
+          "schema": 1,
+          "seq": 28,
+          "phase": "strategy_relation",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 29,
+          "phase": "strategy_relation",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1418,
+          "stored_nodes_approx": 31260673,
+          "seconds": 1.9e-05
+        },
+        {
+          "schema": 1,
+          "seq": 30,
+          "phase": "skolem",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 31,
+          "phase": "skolem",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 1428,
+          "stored_nodes_approx": 31260673,
+          "seconds": 1.2e-05
+        },
+        {
+          "schema": 1,
+          "seq": 32,
+          "phase": "strategy_updates",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 33,
+          "phase": "strategy_updates",
+          "event": "construction_roots",
+          "map_references_peak": 150,
+          "map_references_released": 487,
+          "map_references_remaining": 0,
+          "requested_roots": 101
+        },
+        {
+          "schema": 1,
+          "seq": 34,
+          "phase": "strategy_updates",
+          "event": "demand_updates",
+          "new_updates": 101,
+          "built_updates": 110,
+          "total_updates": 110
+        },
+        {
+          "schema": 1,
+          "seq": 35,
+          "phase": "strategy_updates",
+          "event": "phase_end",
+          "sampled_stored_peak": 31260673,
+          "operations": 2420,
+          "stored_nodes_approx": 31260673,
+          "seconds": 0.000243
+        },
+        {
+          "schema": 1,
+          "seq": 36,
+          "phase": "conversion",
+          "event": "phase_begin"
+        },
+        {
+          "schema": 1,
+          "seq": 37,
+          "phase": "conversion",
+          "event": "phase_end",
+          "seconds": 0.000791,
+          "operations": 2530,
+          "index": 109
+        },
+        {
+          "schema": 1,
+          "seq": 38,
+          "phase": "conversion",
+          "event": "summary",
+          "operations": 2530,
+          "retries": 0,
+          "recovered": 0,
+          "explicit_gc": 0,
+          "sampled_stored_peak": 31260673,
+          "built_gates": 873,
+          "relevant_gates": 873
+        }
+      ]
+    }
+  ]
+}

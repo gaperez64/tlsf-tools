@@ -1,5 +1,9 @@
 # tlsfsolve Diagnostics
 
+For the five issue-24 files, see the measured
+[recommended caps and peak RSS](../experiments/oxidd-memory/followup-report.md).
+The recommendations separate algorithmic effects from cache/budget tuning.
+
 `tlsfsolve` keeps normal strategy output quiet by default.  Diagnostic tracing is
 available only in builds where `NDEBUG` is not defined:
 

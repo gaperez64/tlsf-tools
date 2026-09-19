@@ -151,3 +151,9 @@ The verifier retains full per-step commands, logs, and circuits in its output
 directory. Reproduce with the command in
 [the diagnostics guide](../../docs/tlsfsolve-diagnostics.md#independent-closed-loop-safety-check)
 after regenerating the controller with the 32M-node/4M-cache settings above.
+# Follow-up Available
+
+The subsequent stacked implementation and its 102-run measurements are recorded
+in [followup-report.md](followup-report.md). The historical measurements and
+remaining-work discussion below describe PR #28 alone, not the completed
+follow-up branch.
