@@ -84,9 +84,12 @@ terminate the process instead of returning a recoverable error.
 
 Variable identities remain inputs, then latches, then any GR(1) auxiliaries.
 `--oxidd-var-order=input-first|state-first|fanin-dfs` changes only their BDD
-levels, before projections or circuit construction. The default is
-`input-first`; `--oxidd-build-plan=gates` is the unchanged construction plan.
-A custom complete permutation can be supplied as:
+levels, before projections or circuit construction. This is a runtime option
+available in both release and diagnostic OxiDD builds; changing it does not
+require a compile flag or rebuild. OxiDD support itself still requires an
+OxiDD-enabled build. The runtime default is `input-first`;
+`--oxidd-build-plan=gates` is the unchanged construction plan. A custom
+complete permutation can be supplied at runtime as:
 
 ```text
 tlsfsolve-order-v1 N

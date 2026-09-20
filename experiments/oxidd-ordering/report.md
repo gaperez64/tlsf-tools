@@ -7,10 +7,12 @@ Measured 20 September 2026 on base
 
 Keep `input-first` and the existing `gates` construction plan as defaults. Keep
 `state-first`, `fanin-dfs`, and strict custom order files as experimental,
-explicit options. For the five issue-24 games, `fanin-dfs` is a large win: all
-five complete at a 4M-node arena, and the final recommended settings reduce
-median peak RSS by 58.6% to 93.5% relative to matched reruns of the previous
-case-specific recommendations. End-to-end median time also falls substantially.
+explicit runtime options. They are selected per invocation in any OxiDD-enabled
+build and require no variant-specific compile flag or rebuild. For the five
+issue-24 games, `fanin-dfs` is a large win: all five complete at a 4M-node
+arena, and the final recommended settings reduce median peak RSS by 58.6% to
+93.5% relative to matched reruns of the previous case-specific recommendations.
+End-to-end median time also falls substantially.
 
 Do not implement conjunction fusion or `guard-first` in this sprint. The static
 order pilot already removes the material issue on all five targets. The held-out
@@ -41,11 +43,13 @@ externally imposed process limit.
 
 ## What changed
 
-`--oxidd-var-order=input-first|state-first|fanin-dfs` changes BDD levels only.
-It computes a complete local-variable permutation before projections, cubes,
-substitutions, or circuit roots exist. `fanin-dfs` walks objective roots, latch
-updates, and supported fairness/goal roots in a stable structural order, stops
-at input/latch leaves, then appends unseen variables and auxiliaries by identity.
+`--oxidd-var-order=input-first|state-first|fanin-dfs` is parsed at runtime and
+changes BDD levels only. The same executable can run different orders on
+successive invocations. It computes a complete local-variable permutation
+before projections, cubes, substitutions, or circuit roots exist. `fanin-dfs`
+walks objective roots, latch updates, and supported fairness/goal roots in a
+stable structural order, stops at input/latch leaves, then appends unseen
+variables and auxiliaries by identity.
 
 `--oxidd-order-file PATH` accepts a strict complete `tlsfsolve-order-v1`
 permutation of local BDD identities. Nondefault orders are rejected on an
