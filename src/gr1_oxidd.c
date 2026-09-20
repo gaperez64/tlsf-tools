@@ -121,7 +121,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   // fairness predicates are a counterexample). Let callers fall back instead.
   if (m_fair > 1) {
     oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "configuration",
-                          "multiple_fairness_not_supported", 0, 0);
+                         "multiple_fairness_not_supported", 0, 0);
     aig_free(game);
     return nullptr;
   }
