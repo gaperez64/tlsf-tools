@@ -3,7 +3,9 @@
 
 OxiddSolveResult solve_safety_oxidd_result(Aig *game,
                                            const OxiddSolveOptions *opts) {
-  (void)opts;
+  if (opts && opts->failure)
+    *opts->failure = (OxiddFailure){OXIDD_FAILURE_BDD, "construction", "and",
+                                    42, 7};
   aig_free(game);
   return (OxiddSolveResult){.status = OXIDD_SOLVE_ERROR};
 }

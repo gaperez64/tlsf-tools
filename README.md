@@ -161,8 +161,10 @@ The capacities are entry counts, not bytes, and the node cap is not a process
 memory limit. Start with the default automatic GC; when testing a smaller node
 arena, also try `--oxidd-gc=pressure --oxidd-gc-threshold=80`. Pressure GC may
 lower the peak, with a workload-dependent runtime effect. See the
-[diagnostic guide](docs/tlsfsolve-diagnostics.md) and the
 [issue-24 measurements](experiments/oxidd-memory/followup-report.md) for details.
+For a reproducible allocation failure or suspected OOM, follow the
+[developer diagnostic guide](docs/tlsfsolve-diagnostics.md) and attach its
+bundle to a bug report.
 
 ## Embeddable API
 

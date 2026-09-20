@@ -418,6 +418,15 @@ int main(int argc, char **argv) {
           "tlsfsolve: failure kind=%u phase=%s operation=%s id=%zu index=%u\n",
           (unsigned)failure.kind, failure.phase, failure.operation,
           failure.operation_id, failure.index);
+    if (failure.kind == OXIDD_FAILURE_BDD ||
+        failure.kind == OXIDD_FAILURE_HOST)
+      fprintf(stderr,
+              "tlsfsolve: allocation failure: rebuild with diagnostics "
+              "(-Db_ndebug=false),\n"
+              "tlsfsolve: rerun with scripts/diagnose_tlsfsolve.py, and attach "
+              "its bundle\n"
+              "tlsfsolve: to a bug report; see "
+              "docs/tlsfsolve-diagnostics.md\n");
     return 2;
   }
 

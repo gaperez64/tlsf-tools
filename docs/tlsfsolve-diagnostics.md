@@ -1,8 +1,11 @@
-# tlsfsolve Diagnostics
+# tlsfsolve Developer Diagnostics
 
-For the five issue-24 files, see the measured
+This guide is for maintainers investigating failures and for collecting useful
+bug reports; it is not required for normal solver use. For memory tuning on the
+five issue-24 files, use the measured
 [recommended caps and peak RSS](../experiments/oxidd-memory/followup-report.md).
-The recommendations separate algorithmic effects from cache/budget tuning.
+Recoverable BDD/host allocation failures point here from stderr. A process that
+aborts inside an allocator cannot reliably print that hint.
 
 `tlsfsolve` keeps normal strategy output quiet by default.  Diagnostic tracing is
 available only in builds where `NDEBUG` is not defined:

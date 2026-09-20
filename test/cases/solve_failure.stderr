@@ -1,1 +1,5 @@
 tlsfsolve: OxiDD solver failed
+tlsfsolve: failure kind=1 phase=construction operation=and id=42 index=7
+tlsfsolve: allocation failure: rebuild with diagnostics (-Db_ndebug=false),
+tlsfsolve: rerun with scripts/diagnose_tlsfsolve.py, and attach its bundle
+tlsfsolve: to a bug report; see docs/tlsfsolve-diagnostics.md
