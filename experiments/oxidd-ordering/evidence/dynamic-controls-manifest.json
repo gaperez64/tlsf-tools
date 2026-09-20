@@ -1,0 +1,102 @@
+{
+  "started_utc": "2026-09-20T10:16:05.068802+00:00",
+  "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+  "machine": "x86_64",
+  "cpu_count": 4,
+  "corpus_commit": "58e8213f85f395f661b4e23d9fb452c1ffe9015d",
+  "input_manifest": null,
+  "solvers": {
+    "fanin-static": {
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-release-fresh2/tlsfsolve",
+      "sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+      "args": [
+        "--oxidd-var-order=fanin-dfs"
+      ],
+      "variable_order": "fanin-dfs",
+      "order_file": null,
+      "reordering": "off",
+      "build_plan": "gates",
+      "plan_version": 1
+    },
+    "fanin-gc-only": {
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-release-fresh2/tlsfsolve",
+      "sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+      "args": [
+        "--oxidd-var-order=fanin-dfs",
+        "--oxidd-reorder=gc-only"
+      ],
+      "variable_order": "fanin-dfs",
+      "order_file": null,
+      "reordering": "gc-only",
+      "build_plan": "gates",
+      "plan_version": 1
+    },
+    "fanin-window2": {
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-release-fresh2/tlsfsolve",
+      "sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+      "args": [
+        "--oxidd-var-order=fanin-dfs",
+        "--oxidd-reorder=window2"
+      ],
+      "variable_order": "fanin-dfs",
+      "order_file": null,
+      "reordering": "window2",
+      "build_plan": "gates",
+      "plan_version": 1
+    }
+  },
+  "inputs": [
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+      "expected_status": "REALIZABLE",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to1.aag",
+      "sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09"
+    },
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+      "expected_status": "REALIZABLE",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to3.aag",
+      "sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354"
+    },
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+      "expected_status": "REALIZABLE",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to7.aag",
+      "sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783"
+    },
+    {
+      "instance": "driver/driver_c2y.aag",
+      "expected_status": "UNREALIZABLE",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/driver_c2y.aag",
+      "sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4"
+    },
+    {
+      "instance": "driver/driver_c2n.aag",
+      "expected_status": "UNREALIZABLE",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/driver_c2n.aag",
+      "sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838"
+    }
+  ],
+  "runner": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/scripts/measure_tlsfsolve_memory.py",
+    "sha256": "308ac710f1eee2f006f75415bf03895f111df4782ab9c7f398f806526e889102"
+  },
+  "variant_config": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/experiments/oxidd-ordering/dynamic-variants.json",
+    "sha256": "3d0cfbba50b0ad61a403a156a21d77926622d16c03a720d7ee4c3cc2da5766f1"
+  },
+  "nodes": [
+    4194304
+  ],
+  "cache": 262144,
+  "gc": "auto",
+  "gc_threshold": 80,
+  "transitions": "eager",
+  "realizability_only": false,
+  "repetitions": 3,
+  "timeout_seconds": 30.0,
+  "time_version": "time (GNU Time) 1.9",
+  "rss_scope": "Linux ru_maxrss via GNU time %M, KiB, per timeout/solver process tree",
+  "external_process_limit": null,
+  "ordering": "sequential; reverse variant order on odd repetition+case+capacity index"
+}

@@ -220,6 +220,56 @@ files, and part 2 reran both variants. The initial `SEMANTIC_MISMATCH` record is
 retained in raw part-1 evidence for auditability and is not counted as a solver
 failure or correctness change.
 
+## Post-construction reordering probe
+
+The pinned OxiDD release can establish a requested order, but it does not
+provide sifting or automatic/dynamic reordering. A temporary prototype tested a
+bounded alternative: after circuit construction and root release, force GC,
+try each adjacent variable swap once, retain only strict stored-node reductions,
+then continue the solve. This is a safe-point local search, not operation-
+interrupting dynamic reordering. It was removed after measurement and is not a
+`tlsfsolve` option.
+
+The matched control separates the cost of the mandatory pre-search GC from the
+adjacent-swap search. All rows use `fanin-dfs`, 4M nodes, 256K cache, automatic
+GC, eager transitions, full synthesis, and three serial repetitions. Times and
+RSS are medians; RSS is KiB.
+
+| instance | static RSS/time | GC-only RSS/time | GC + window-2 RSS/time |
+|---|---:|---:|---:|
+| beem c0to1 | 57,780 / 0.27 s | 57,680 / 0.38 s | 57,600 / 1.07 s |
+| beem c0to3 | 57,740 / 0.29 s | 57,740 / 0.38 s | 57,736 / 1.10 s |
+| beem c0to7 | 57,740 / 0.27 s | 57,656 / 0.40 s | 57,732 / 1.12 s |
+| driver c2y | 101,664 / 0.96 s | 92,836 / 1.18 s | 92,844 / 2.41 s |
+| driver c2n | 137,952 / 2.26 s | 122,980 / 2.27 s | 122,972 / 3.43 s |
+
+The swap search adds 0.69-1.23 seconds beyond its GC control and produces no
+measurable peak-RSS reduction beyond that control. In diagnostic runs, it kept
+zero of 135 swaps on beem c0to1, two of 129 on driver c2y, and one of 129 on
+driver c2n. The retained driver swaps reduced the post-GC stored-node counts by
+only 1.2-1.4%, which did not change process peak RSS.
+
+Raw records and command lines are in
+[dynamic-controls-runs.jsonl](evidence/dynamic-controls-runs.jsonl) and the
+complete replacement c2n campaign is in
+[dynamic-c2n-runs.jsonl](evidence/dynamic-c2n-runs.jsonl). Their adjacent
+manifests and summaries record the binary, runner, input hashes, and grouping
+settings.
+
+A bounded `input-first` probe reached the same conclusion. On beem c0to1 at
+32M nodes and 256K cache, one pass changed 888,256 KiB / 8.62 seconds to
+887,808 KiB / 13.65 seconds. Both input-first driver c2y variants timed out at
+30 seconds with that deliberately small cache. A post-construction pass also
+cannot prevent an arena failure that occurs while constructing the circuit.
+The input-first records are in
+[dynamic-input-runs.jsonl](evidence/dynamic-input-runs.jsonl).
+
+Therefore no reordering pass becomes the default and no experimental runtime
+option is shipped. The static `input-first` default and the `state-first`,
+`fanin-dfs`, and custom-order alternatives remain unchanged. The GC-only
+control did lower driver RSS by 8.7-10.9% at little cost; that is evidence for a
+separate root-release GC policy experiment, not evidence for reordering.
+
 ## Semantic and regression validation
 
 The explicit-state oracle covers all three named orders plus a custom order,

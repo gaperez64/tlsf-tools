@@ -1,0 +1,104 @@
+[
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-gc-only",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "gc-only",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 122928,
+      "median": 122980,
+      "max": 123092
+    },
+    "elapsed_s": {
+      "min": 2.25,
+      "median": 2.27,
+      "max": 2.31
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-static",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "off",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 137820,
+      "median": 137952,
+      "max": 137968
+    },
+    "elapsed_s": {
+      "min": 2.25,
+      "median": 2.26,
+      "max": 2.27
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-window2",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "window2",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 122732,
+      "median": 122972,
+      "max": 122976
+    },
+    "elapsed_s": {
+      "min": 3.39,
+      "median": 3.43,
+      "max": 3.47
+    },
+    "failures": []
+  }
+]
