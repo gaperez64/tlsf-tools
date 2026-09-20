@@ -169,7 +169,12 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   oxidd_bdd_manager_t m;
   uint32_t var_base;
   size_t node_cap = 0, cache_cap = 0;
+  OxiddResolvedOrder order = {0};
   if (own_mgr) {
+    if (!oxidd_resolve_var_order(game, opts, m_goals, &order)) {
+      aig_free(game);
+      return nullptr;
+    }
     node_cap =
         opts->node_cap ? opts->node_cap : oxidd_default_capacity(nvars, 6);
     cache_cap =
@@ -180,7 +185,20 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     m = oxidd_bdd_manager_new(node_cap, cache_cap, 1);
     oxidd_bdd_manager_add_vars(m, nvars);
     var_base = 0;
+    if (!oxidd_apply_var_order(m, var_base, opts, &order)) {
+      oxidd_resolved_order_free(&order);
+      oxidd_bdd_manager_unref(m);
+      aig_free(game);
+      return nullptr;
+    }
+    oxidd_resolved_order_free(&order);
   } else {
+    if (!oxidd_var_order_is_default(opts)) {
+      oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "manager_create",
+                           "session_nondefault_order", 0, 0);
+      aig_free(game);
+      return nullptr;
+    }
     m = oxidd_session_get();
     if (!oxidd_session_config(opts, &node_cap, &cache_cap)) {
       oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "manager_create",

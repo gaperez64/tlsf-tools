@@ -1,7 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
 #include "tlsf/oxidd_common.h"
 #include "tlsf/safety_oxidd.h"
 #include "tlsf/gr1_oxidd.h"
 #include <stdlib.h>
+#include <unistd.h>
 
 #define CHECK(x)                                                               \
   do {                                                                         \
@@ -83,6 +85,99 @@ static Aig *read_game(const char *text) {
   fclose(f);
   CHECK(g);
   return g;
+}
+
+static void check_order(const OxiddResolvedOrder *order,
+                        const uint32_t *expected, size_t count) {
+  CHECK(order->count == count);
+  bool matches = true;
+  for (size_t i = 0; i < count; i++)
+    matches = matches && order->local[i] == expected[i];
+  if (!matches) {
+    fputs("actual order:", stderr);
+    for (size_t i = 0; i < count; i++)
+      fprintf(stderr, " %u", order->local[i]);
+    fputs("\nexpected order:", stderr);
+    for (size_t i = 0; i < count; i++)
+      fprintf(stderr, " %u", expected[i]);
+    fputc('\n', stderr);
+  }
+  for (size_t i = 0; i < count; i++) {
+    CHECK(order->local[i] == expected[i]);
+  }
+}
+
+static void variable_orders(void) {
+  Aig *game = aig_new();
+  uint32_t i0 = aig_input(game, "env"), i1 = aig_input(game, "controllable_c");
+  uint32_t s0 = aig_latch(game, 0, 0), s1 = aig_latch(game, 0, 1);
+  uint32_t g0 = aig_and(game, i0, s0), g1 = aig_and(game, i1, s1);
+  CHECK(aig_set_latch_next(game, s0, g0));
+  CHECK(aig_set_latch_next(game, s1, g1));
+  aig_set_output(game, "bad", g0);
+
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  uint32_t output_lit = UINT32_MAX, next0 = UINT32_MAX, next1 = UINT32_MAX;
+  aig_output_at(game, 0, &output_lit);
+  aig_latch_at(game, 0, nullptr, &next0, nullptr);
+  aig_latch_at(game, 1, nullptr, &next1, nullptr);
+  CHECK(output_lit == g0 && next0 == g0 && next1 == g1);
+  OxiddResolvedOrder order = {0};
+  const uint32_t input_first[] = {0, 1, 2, 3, 4, 5};
+  const uint32_t state_first[] = {2, 3, 0, 1, 4, 5};
+  const uint32_t fanin_dfs[] = {0, 2, 1, 3, 4, 5};
+  CHECK(oxidd_resolve_var_order(game, &opts, 2, &order));
+  check_order(&order, input_first, 6);
+  oxidd_resolved_order_free(&order);
+  opts.var_order = OXIDD_VAR_ORDER_STATE_FIRST;
+  CHECK(oxidd_resolve_var_order(game, &opts, 2, &order));
+  check_order(&order, state_first, 6);
+  oxidd_resolved_order_free(&order);
+  opts.var_order = OXIDD_VAR_ORDER_FANIN_DFS;
+  CHECK(oxidd_resolve_var_order(game, &opts, 2, &order));
+  check_order(&order, fanin_dfs, 6);
+  oxidd_bdd_manager_t manager = oxidd_bdd_manager_new(4096, 256, 1);
+  oxidd_bdd_manager_add_vars(manager, 6);
+  CHECK(oxidd_apply_var_order(manager, 0, &opts, &order));
+  for (oxidd_level_no_t level = 0; level < 6; level++)
+    CHECK(oxidd_bdd_manager_level_to_var(manager, level) == fanin_dfs[level]);
+  oxidd_bdd_manager_unref(manager);
+  oxidd_resolved_order_free(&order);
+
+  char path[] = "/tmp/tlsfsolve-order-XXXXXX";
+  int fd = mkstemp(path);
+  CHECK(fd >= 0);
+  FILE *file = fdopen(fd, "w");
+  CHECK(file);
+  fputs("tlsfsolve-order-v1 6\n2\n0\n3\n1\n5\n4\n", file);
+  CHECK(fclose(file) == 0);
+  opts = oxidd_solve_options_default();
+  opts.order_file = path;
+  const uint32_t custom[] = {2, 0, 3, 1, 5, 4};
+  CHECK(oxidd_resolve_var_order(game, &opts, 2, &order));
+  check_order(&order, custom, 6);
+  CHECK(order.file_hash != 0 && order.hash != 0);
+  oxidd_resolved_order_free(&order);
+  file = fopen(path, "w");
+  CHECK(file);
+  fputs("tlsfsolve-order-v1 6\n2\n0\n3\n1\n5\n5\n", file);
+  CHECK(fclose(file) == 0);
+  OxiddFailure failure = {0};
+  opts.failure = &failure;
+  CHECK(!oxidd_resolve_var_order(game, &opts, 2, &order));
+  CHECK(failure.kind == OXIDD_FAILURE_CONFIGURATION &&
+        !strcmp(failure.operation, "order_file_invalid"));
+  CHECK(unlink(path) == 0);
+
+  Aig *constant = aig_new();
+  aig_set_output(constant, "bad", 0);
+  opts = oxidd_solve_options_default();
+  opts.var_order = OXIDD_VAR_ORDER_FANIN_DFS;
+  CHECK(oxidd_resolve_var_order(constant, &opts, 0, &order));
+  CHECK(order.count == 0);
+  oxidd_resolved_order_free(&order);
+  aig_free(constant);
+  aig_free(game);
 }
 
 static void roots_and_retry(void) {
@@ -320,10 +415,17 @@ static void sessions(void) {
   int unreal = -1;
   CHECK(!solve_safety_oxidd_ex(read_game(safe), &unreal, &opts));
   CHECK(!unreal && failure.kind == OXIDD_FAILURE_CONFIGURATION);
+  opts.node_cap = 0;
+  opts.var_order = OXIDD_VAR_ORDER_STATE_FIRST;
+  failure = (OxiddFailure){0};
+  CHECK(!solve_safety_oxidd_ex(read_game(safe), &unreal, &opts));
+  CHECK(!unreal && failure.kind == OXIDD_FAILURE_CONFIGURATION &&
+        !strcmp(failure.operation, "session_nondefault_order"));
   oxidd_session_free();
 }
 
 int main(void) {
+  variable_orders();
   roots_and_retry();
   memo_churn();
   pressure_backoff();

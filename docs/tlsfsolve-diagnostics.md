@@ -80,6 +80,61 @@ their actual configured node/cache capacities and reject conflicting overrides.
 Rust allocator failures and existing aborting AIG allocation paths may still
 terminate the process instead of returning a recoverable error.
 
+## Ordering-Sensitive Failures
+
+Variable identities remain inputs, then latches, then any GR(1) auxiliaries.
+`--oxidd-var-order=input-first|state-first|fanin-dfs` changes only their BDD
+levels, before projections or circuit construction. The same OxiDD-enabled
+executable can select a different order on each invocation. The default is
+`input-first`; `--oxidd-build-plan=gates` is the unchanged construction plan.
+A custom complete permutation can be supplied with `--oxidd-order-file`:
+
+```text
+tlsfsolve-order-v1 N
+2
+0
+1
+...
+```
+
+The header count must equal the local BDD variable count and the following
+lines must contain every identity in `0..N-1` exactly once. Pass the file with
+`--oxidd-order-file PATH`; it conflicts with an explicitly selected named
+order. Nondefault orders are rejected while a shared composition manager is
+active because previously allocated variables cannot be moved safely.
+
+Diagnostic builds can inspect one normalized AIG gate and the union of nodes
+reachable from completed construction roots:
+
+```sh
+python3 scripts/diagnose_tlsfsolve.py \
+  --solver build-oxidd-diagnose/tlsfsolve --input game.aag --out diagnosis \
+  -- --oxidd-var-order=fanin-dfs --oxidd-trace-gate=562 \
+     --oxidd-trace-roots --oxidd-trace-node-limit=100000 \
+     --oxidd-trace-scratch=16777216
+```
+
+These trace switches are absent from `NDEBUG` builds. Traversal pins its roots,
+counts each inner-node identity once, releases every cofactor handle, and never
+uses GC. `complete=false` means the reported count is only a lower bound. The
+effective limit may be lower than requested to honor the scratch cap. Selected
+gate events record signed AIG operands, syntactic input/state dependence,
+remaining uses, before/after stored-node estimates, and bounded operand/result
+counts. Diagnostic timings are not release measurements.
+
+Inspect the corresponding AAG cone without constructing BDDs:
+
+```sh
+python3 scripts/analyze_oxidd_cone.py game.aag --gate-index 562 \
+  --out cone.json
+```
+
+The offline report distinguishes source/parser-normalized indices for direct
+ASCII AIGER input, lists signed fan-outs and root occurrences, and applies the
+conservative fusion barriers `shared`, `root`, `negative_edge`, and
+`input_only_barrier`. It is structural evidence only; it does not estimate BDD
+size.
+
 ## Exact Demand Construction
 
 The existing GR(1) algorithm's pointwise combination of multiple fairness

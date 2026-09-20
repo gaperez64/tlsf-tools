@@ -29,6 +29,16 @@ typedef enum {
 } OxiddGcMode;
 
 typedef enum {
+  OXIDD_VAR_ORDER_INPUT_FIRST = 0,
+  OXIDD_VAR_ORDER_STATE_FIRST,
+  OXIDD_VAR_ORDER_FANIN_DFS,
+} OxiddVarOrder;
+
+typedef enum {
+  OXIDD_BUILD_GATES = 0,
+} OxiddBuildPlan;
+
+typedef enum {
   OXIDD_SAFETY_OBJECTIVE_OUTPUT = 0,
   OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR = 1,
 } OxiddSafetyObjective;
@@ -59,11 +69,37 @@ typedef struct {
   OxiddSafetyObjective safety_objective;
   uint32_t safety_output_index;
   OxiddFailure *failure; // optional caller-owned output; never a losing verdict
+  OxiddVarOrder var_order;
+  OxiddBuildPlan build_plan;
+  // Strict tlsfsolve-order-v1 local-variable permutation.
+  const char *order_file;
   bool demand_transitions, realizability_only;
+#ifndef NDEBUG
+  bool trace_roots;
+  uint32_t trace_gate;
+  size_t trace_node_limit, trace_scratch_bytes;
+#endif
 } OxiddSolveOptions;
 
 OxiddSolveOptions oxidd_solve_options_default(void);
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
+
+typedef struct {
+  oxidd_var_no_t *local;
+  size_t count;
+  uint64_t hash, file_hash;
+  const char *name;
+} OxiddResolvedOrder;
+
+bool oxidd_resolve_var_order(const Aig *game, const OxiddSolveOptions *options,
+                             uint32_t auxiliary_vars,
+                             OxiddResolvedOrder *resolved);
+bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
+                           const OxiddSolveOptions *options,
+                           const OxiddResolvedOrder *resolved);
+void oxidd_resolved_order_free(OxiddResolvedOrder *resolved);
+bool oxidd_var_order_is_default(const OxiddSolveOptions *options);
+const char *oxidd_var_order_name(OxiddVarOrder order);
 typedef struct {
   oxidd_bdd_manager_t manager;
   const OxiddSolveOptions *options;

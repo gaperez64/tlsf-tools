@@ -1,0 +1,167 @@
+[
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57608,
+      "median": 57608,
+      "max": 57608
+    },
+    "elapsed_s": {
+      "min": 0.29,
+      "median": 0.29,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57740,
+      "median": 57740,
+      "max": 57740
+    },
+    "elapsed_s": {
+      "min": 0.29,
+      "median": 0.29,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57744,
+      "median": 57744,
+      "max": 57744
+    },
+    "elapsed_s": {
+      "min": 0.29,
+      "median": 0.29,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 137968,
+      "median": 137968,
+      "max": 137968
+    },
+    "elapsed_s": {
+      "min": 2.33,
+      "median": 2.33,
+      "max": 2.33
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 101664,
+      "median": 101664,
+      "max": 101664
+    },
+    "elapsed_s": {
+      "min": 0.99,
+      "median": 0.99,
+      "max": 0.99
+    },
+    "failures": []
+  }
+]

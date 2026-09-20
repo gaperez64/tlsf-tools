@@ -1,0 +1,512 @@
+[
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-gc-only",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "gc-only",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57544,
+      "median": 57680,
+      "max": 57744
+    },
+    "elapsed_s": {
+      "min": 0.36,
+      "median": 0.38,
+      "max": 0.65
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-static",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "off",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57720,
+      "median": 57780,
+      "max": 57860
+    },
+    "elapsed_s": {
+      "min": 0.26,
+      "median": 0.27,
+      "max": 0.28
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-window2",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "window2",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57596,
+      "median": 57600,
+      "max": 57740
+    },
+    "elapsed_s": {
+      "min": 1.02,
+      "median": 1.07,
+      "max": 1.12
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-gc-only",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "gc-only",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57736,
+      "median": 57740,
+      "max": 57744
+    },
+    "elapsed_s": {
+      "min": 0.36,
+      "median": 0.38,
+      "max": 0.39
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-static",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "off",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57648,
+      "median": 57740,
+      "max": 57848
+    },
+    "elapsed_s": {
+      "min": 0.26,
+      "median": 0.29,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-window2",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "window2",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57596,
+      "median": 57736,
+      "max": 57744
+    },
+    "elapsed_s": {
+      "min": 1.01,
+      "median": 1.1,
+      "max": 1.11
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-gc-only",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "gc-only",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57596,
+      "median": 57656,
+      "max": 57696
+    },
+    "elapsed_s": {
+      "min": 0.36,
+      "median": 0.4,
+      "max": 0.5
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-static",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "off",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57644,
+      "median": 57740,
+      "max": 57864
+    },
+    "elapsed_s": {
+      "min": 0.26,
+      "median": 0.27,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-window2",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "window2",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57572,
+      "median": 57732,
+      "max": 57736
+    },
+    "elapsed_s": {
+      "min": 1.06,
+      "median": 1.12,
+      "max": 1.16
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-gc-only",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "gc-only",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 2,
+    "completed_runs": 2,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 123000,
+      "median": 123062.0,
+      "max": 123124
+    },
+    "elapsed_s": {
+      "min": 2.22,
+      "median": 2.2350000000000003,
+      "max": 2.25
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-static",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "off",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 137924,
+      "median": 137956,
+      "max": 138036
+    },
+    "elapsed_s": {
+      "min": 2.25,
+      "median": 2.34,
+      "max": 3.06
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-window2",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "window2",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 2,
+    "completed_runs": 2,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 122996,
+      "median": 122996.0,
+      "max": 122996
+    },
+    "elapsed_s": {
+      "min": 3.4,
+      "median": 3.42,
+      "max": 3.44
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "fanin-gc-only",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "gc-only",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 92836,
+      "median": 92836,
+      "max": 92904
+    },
+    "elapsed_s": {
+      "min": 1.17,
+      "median": 1.18,
+      "max": 1.21
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "fanin-static",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "off",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 101660,
+      "median": 101664,
+      "max": 101672
+    },
+    "elapsed_s": {
+      "min": 0.96,
+      "median": 0.96,
+      "max": 0.98
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "fanin-window2",
+    "binary_sha256": "46b8d4b684ec52230ac3a099d56017e676c28bdf05e7c76142b3cd1ef0b42d2c",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "reordering": "window2",
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 92808,
+      "median": 92844,
+      "max": 92848
+    },
+    "elapsed_s": {
+      "min": 2.34,
+      "median": 2.41,
+      "max": 2.87
+    },
+    "failures": []
+  }
+]

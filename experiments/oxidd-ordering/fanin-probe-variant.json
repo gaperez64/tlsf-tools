@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "variants": [
+    {
+      "label": "fanin-dfs",
+      "solver": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-release-fresh2/tlsfsolve",
+      "args": [
+        "--oxidd-var-order=fanin-dfs",
+        "--oxidd-build-plan=gates"
+      ]
+    }
+  ]
+}

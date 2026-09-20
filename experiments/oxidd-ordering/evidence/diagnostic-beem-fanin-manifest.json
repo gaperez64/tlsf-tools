@@ -1,0 +1,28 @@
+{
+  "argv": [
+    "build-ordering-debug/tlsfsolve",
+    "--verbose",
+    "--game-profile=legacy-safety",
+    "--oxidd-nodes=4194304",
+    "--oxidd-cache=262144",
+    "--oxidd-gc=auto",
+    "--oxidd-var-order=fanin-dfs",
+    "--oxidd-build-plan=gates",
+    "--oxidd-trace-roots",
+    "--oxidd-trace-gate=562",
+    "--oxidd-trace-node-limit=100000",
+    "--oxidd-trace-scratch=16777216",
+    "build-memory-corpus/beemprdcell2f1_c0to1.aag"
+  ],
+  "ended_unix": 1789891711.7675586,
+  "input": "build-memory-corpus/beemprdcell2f1_c0to1.aag",
+  "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+  "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+  "python": "3.14.7",
+  "schema": 1,
+  "solver": "build-ordering-debug/tlsfsolve",
+  "solver_sha256": "6bcff61bf9cb26edf394831b624af6279795c923275ca7430b26a90252e444a9",
+  "solver_version": "tlsfsolve 9c66403-dirty oxidd=yes research=yes simd=x86-64-v2 diagnostics=yes",
+  "started_unix": 1789891711.4420319,
+  "timeout_seconds": 60.0
+}

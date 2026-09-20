@@ -1,0 +1,22 @@
+TLSFSOLVE_TRACE {"schema":1,"seq":1,"phase":"resolve_profile","event":"game","profile_requested":"legacy-safety","profile":"legacy-safety","outputs":1,"bad":0,"constraints":0,"justice":0,"fairness":0,"controllable_input":true}
+TLSFSOLVE_TRACE {"schema":1,"seq":2,"phase":"manager_create","event":"begin","node_cap":4194304,"cache_cap":4194304,"vars":136}
+TLSFSOLVE_TRACE {"schema":1,"seq":3,"phase":"manager_create","event":"variable_order","requested":"input-first","effective":"input-first","order_hash":"b5d010f00f2454eb","order_file_hash":"0000000000000000","var_base":0,"order":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135]}
+TLSFSOLVE_TRACE {"schema":1,"seq":4,"phase":"construction","event":"configuration","node_cap":4194304,"cache_cap":4194304}
+TLSFSOLVE_TRACE {"schema":1,"seq":5,"phase":"construction","event":"construction_plan","requested":"gates","effective":"gates","plan_version":1,"plan_hash":"8a0c452b2b96d9f8afcc0f65812f72266bfd4578f2e4d425a64e38f58fc6d119"}
+TLSFSOLVE_TRACE {"schema":1,"seq":6,"phase":"input","event":"game","inputs":26,"latches":110,"ands":801,"outputs":1,"bad":0,"constraints":0}
+TLSFSOLVE_TRACE {"schema":1,"seq":7,"phase":"construction","event":"phase_end","sampled_stored_peak":1,"operations":136,"stored_nodes_approx":1,"seconds":0.000064}
+TLSFSOLVE_TRACE {"schema":1,"seq":8,"phase":"construction","event":"phase_begin"}
+TLSFSOLVE_TRACE {"schema":1,"seq":9,"phase":"construction","event":"selected_gate_begin","normalized_gate_index":562,"source_index_kind":"normalized-only","aig_literal":1398,"left_literal":1397,"right_literal":1374,"left_support":"mixed","right_support":"mixed","result_support":"mixed","result_uses":1,"left_uses":1,"right_uses":1,"stored_nodes_before":3276801,"operation":"and"}
+TLSFSOLVE_TRACE {"schema":1,"seq":10,"phase":"construction","event":"gc","reason":"allocation_retry","stored_nodes_approx":4194305,"removed":891223,"next_gc_operation":1623,"seconds":0.139559,"gc_count_before":1,"gc_count_after":2}
+TLSFSOLVE_TRACE {"schema":1,"seq":11,"phase":"construction","event":"retry","operation":"and","recovered":false}
+TLSFSOLVE_TRACE {"schema":1,"seq":12,"phase":"construction","event":"failure","kind":1,"operation":"and","operation_id":1367,"index":562}
+TLSFSOLVE_TRACE {"schema":1,"seq":13,"phase":"construction","event":"failure","operation":"and","operation_id":1367,"index":562,"reason":"invalid_bdd_after_retry"}
+TLSFSOLVE_TRACE {"schema":1,"seq":14,"phase":"construction","event":"selected_gate_end","normalized_gate_index":562,"aig_literal":1398,"stored_nodes_before":3276801,"stored_nodes_after":4194319,"left_nodes_lower_bound":19,"left_complete":true,"right_nodes_lower_bound":100000,"right_complete":false,"result_nodes_lower_bound":0,"result_complete":false,"node_visit_limit":100000,"scratch_limit_bytes":16777216,"count_seconds":0.018325}
+TLSFSOLVE_TRACE {"schema":1,"seq":15,"phase":"construction","event":"construction_roots","map_references_peak":254,"map_references_released":521,"map_references_remaining":177,"requested_roots":111}
+TLSFSOLVE_TRACE {"schema":1,"seq":16,"phase":"construction","event":"phase_end","seconds":1.302370,"operations":1367,"index":562}
+TLSFSOLVE_TRACE {"schema":1,"seq":17,"phase":"construction","event":"summary","operations":1367,"retries":1,"recovered":0,"explicit_gc":1,"sampled_stored_peak":4194319,"built_gates":563,"relevant_gates":801}
+tlsfsolve: OxiDD solver failed
+tlsfsolve: failure kind=1 phase=construction operation=and id=1367 index=562
+tlsfsolve: allocation failure: rebuild with diagnostics (-Db_ndebug=false),
+tlsfsolve: rerun with scripts/diagnose_tlsfsolve.py, and attach its bundle
+tlsfsolve: to a bug report; see docs/tlsfsolve-diagnostics.md

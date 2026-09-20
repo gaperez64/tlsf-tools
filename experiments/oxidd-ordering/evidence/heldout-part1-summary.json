@@ -1,0 +1,562 @@
+[
+  {
+    "instance": "aiger/amba/amba10b10n.aag",
+    "input_sha256": "f7de47d505ce2c4796c1afce34d0b8c128ab66989231900178b21af53b106aa8",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 293256,
+          "median": 293256,
+          "max": 293256
+        },
+        "elapsed_s": {
+          "min": 3.43,
+          "median": 3.43,
+          "max": 3.43
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/amba/amba10b10n.aag",
+    "input_sha256": "f7de47d505ce2c4796c1afce34d0b8c128ab66989231900178b21af53b106aa8",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 278468,
+          "median": 278468,
+          "max": 278468
+        },
+        "elapsed_s": {
+          "min": 2.28,
+          "median": 2.28,
+          "max": 2.28
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/amba/amba10b4unrealn.aag",
+    "input_sha256": "2f9eebe926c0cb5a6e123113950ec3e8a244c87ad7f86e08365efebae8457320",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 293296,
+          "median": 293296,
+          "max": 293296
+        },
+        "elapsed_s": {
+          "min": 3.4,
+          "median": 3.4,
+          "max": 3.4
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/amba/amba10b4unrealn.aag",
+    "input_sha256": "2f9eebe926c0cb5a6e123113950ec3e8a244c87ad7f86e08365efebae8457320",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 278464,
+          "median": 278464,
+          "max": 278464
+        },
+        "elapsed_s": {
+          "min": 2.29,
+          "median": 2.29,
+          "max": 2.29
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/amba/amba16b50n.aag",
+    "input_sha256": "a817d6f6f1e457ed3fdd48128ae6d95b09ead8d4f63e284e5228f7ac8dff91ec",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 333024,
+          "median": 333024,
+          "max": 333024
+        },
+        "elapsed_s": {
+          "min": 16.09,
+          "median": 16.09,
+          "max": 16.09
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/amba/amba16b50n.aag",
+    "input_sha256": "a817d6f6f1e457ed3fdd48128ae6d95b09ead8d4f63e284e5228f7ac8dff91ec",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 280448,
+          "median": 280448,
+          "max": 280448
+        },
+        "elapsed_s": {
+          "min": 2.99,
+          "median": 2.99,
+          "max": 2.99
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/genbuf/genbuf10b3unrealn.aag",
+    "input_sha256": "11828488841ef7b64266b5f5591351f41026fe8d0db8cbf4331f09b760694eb5",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 370348,
+          "median": 370348,
+          "max": 370348
+        },
+        "elapsed_s": {
+          "min": 32.15,
+          "median": 32.15,
+          "max": 32.15
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/genbuf/genbuf10b3unrealn.aag",
+    "input_sha256": "11828488841ef7b64266b5f5591351f41026fe8d0db8cbf4331f09b760694eb5",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "TIMEOUT",
+        "runs": 1,
+        "rss_kib": {
+          "min": 298484,
+          "median": 298484,
+          "max": 298484
+        },
+        "elapsed_s": {
+          "min": 60.02,
+          "median": 60.02,
+          "max": 60.02
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/genbuf/genbuf10b4n.aag",
+    "input_sha256": "2389194831ec2a70a2e01ed717ebe2856a66574c13f92c89035915ea824358d0",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 370328,
+          "median": 370328,
+          "max": 370328
+        },
+        "elapsed_s": {
+          "min": 34.53,
+          "median": 34.53,
+          "max": 34.53
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/genbuf/genbuf10b4n.aag",
+    "input_sha256": "2389194831ec2a70a2e01ed717ebe2856a66574c13f92c89035915ea824358d0",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "TIMEOUT",
+        "runs": 1,
+        "rss_kib": {
+          "min": 298572,
+          "median": 298572,
+          "max": 298572
+        },
+        "elapsed_s": {
+          "min": 60.01,
+          "median": 60.01,
+          "max": 60.01
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/genbuf/genbuf32c40n.aag",
+    "input_sha256": "a5124804bedc7d8c2d6ed96a5d10f339ba3a4ba278e3a4b9e6782ed8a5534e0a",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "TIMEOUT",
+        "runs": 1,
+        "rss_kib": {
+          "min": 347340,
+          "median": 347340,
+          "max": 347340
+        },
+        "elapsed_s": {
+          "min": 60.02,
+          "median": 60.02,
+          "max": 60.02
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/genbuf/genbuf32c40n.aag",
+    "input_sha256": "a5124804bedc7d8c2d6ed96a5d10f339ba3a4ba278e3a4b9e6782ed8a5534e0a",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SOLVER_ERROR",
+        "runs": 1,
+        "rss_kib": {
+          "min": 308180,
+          "median": 308180,
+          "max": 308180
+        },
+        "elapsed_s": {
+          "min": 2.94,
+          "median": 2.94,
+          "max": 2.94
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/toy_examples/add10n.aag",
+    "input_sha256": "a0c2626418a6d4ddabb56e4b3b3f65d0948aa7d86c092030732e7ede827de79c",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "SEMANTIC_MISMATCH",
+        "runs": 1,
+        "rss_kib": {
+          "min": 29924,
+          "median": 29924,
+          "max": 29924
+        },
+        "elapsed_s": {
+          "min": 0.05,
+          "median": 0.05,
+          "max": 0.05
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/toy_examples/add10y.aag",
+    "input_sha256": "cfe53b9d228adb6418c4cb233fd88acd1de1805bae65c318159a1729246b812e",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 26588,
+      "median": 26588,
+      "max": 26588
+    },
+    "elapsed_s": {
+      "min": 0.03,
+      "median": 0.03,
+      "max": 0.03
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/toy_examples/add10y.aag",
+    "input_sha256": "cfe53b9d228adb6418c4cb233fd88acd1de1805bae65c318159a1729246b812e",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 31904,
+      "median": 31904,
+      "max": 31904
+    },
+    "elapsed_s": {
+      "min": 0.7,
+      "median": 0.7,
+      "max": 0.7
+    },
+    "failures": []
+  }
+]

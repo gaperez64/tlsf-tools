@@ -1,0 +1,70 @@
+{
+  "started_utc": "2026-09-20T07:33:54.788859+00:00",
+  "platform": "Linux-7.2.5-100.fc43.x86_64-x86_64-with-glibc2.42",
+  "machine": "x86_64",
+  "cpu_count": 4,
+  "corpus_commit": "58e8213f85f395f661b4e23d9fb452c1ffe9015d",
+  "solvers": {
+    "fanin-dfs": {
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-release-fresh2/tlsfsolve",
+      "sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+      "args": [
+        "--oxidd-var-order=fanin-dfs",
+        "--oxidd-build-plan=gates"
+      ],
+      "variable_order": "fanin-dfs",
+      "order_file": null,
+      "build_plan": "gates",
+      "plan_version": 1
+    }
+  },
+  "inputs": [
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to1.aag",
+      "sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09"
+    },
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to3.aag",
+      "sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354"
+    },
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to7.aag",
+      "sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783"
+    },
+    {
+      "instance": "driver/driver_c2y.aag",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/driver_c2y.aag",
+      "sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4"
+    },
+    {
+      "instance": "driver/driver_c2n.aag",
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/driver_c2n.aag",
+      "sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838"
+    }
+  ],
+  "runner": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/scripts/measure_tlsfsolve_memory.py",
+    "sha256": "6049f1d790385be3ace35abcd5785a653f837c0e1eea562d0e7420517335b9c8"
+  },
+  "variant_config": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/experiments/oxidd-ordering/fanin-probe-variant.json",
+    "sha256": "6c6c7aad84fe6d96e07c5212cdc44543eda7ceca9c716fa758d76c338bea0c40"
+  },
+  "nodes": [
+    4194304
+  ],
+  "cache": 262144,
+  "gc": "auto",
+  "gc_threshold": 80,
+  "transitions": "eager",
+  "realizability_only": false,
+  "repetitions": 1,
+  "timeout_seconds": 120.0,
+  "time_version": "time (GNU Time) 1.9",
+  "rss_scope": "Linux ru_maxrss via GNU time %M, KiB, per timeout/solver process tree",
+  "external_process_limit": null,
+  "ordering": "sequential; reverse variant order on odd repetition+case+capacity index"
+}

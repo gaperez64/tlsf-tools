@@ -115,7 +115,18 @@ def main():
     tested = 0
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "game.aag"
+        order_path = Path(directory) / "order.txt"
         for nu, nc, nl in itertools.product(range(2), range(2), range(3)):
+            nvars = nu + nc + nl
+            order_path.write_text(
+                f"tlsfsolve-order-v1 {nvars}\n" +
+                "".join(f"{i}\n" for i in reversed(range(nvars))))
+            order_args = [
+                ["--oxidd-var-order=input-first"],
+                ["--oxidd-var-order=state-first"],
+                ["--oxidd-var-order=fanin-dfs"],
+                ["--oxidd-order-file", str(order_path)],
+            ]
             for sample in range(4):
                 tables = [[rng.random() < (0.15 if j == 0 else 0.5)
                            for _ in bits(nu + nc + nl)] for j in range(nl + 1)]
@@ -124,11 +135,12 @@ def main():
                 # just one verdict for each generated arena.
                 for reset in bits(nl):
                     path.write_text(encode(nu, nc, nl, tables, reset))
-                    for gc, transitions, verdict_only in itertools.product(
-                            ("auto", "pressure"), ("eager", "demand"), (False, True)):
+                    for order, gc, transitions, verdict_only in itertools.product(
+                            order_args, ("auto", "pressure"),
+                            ("eager", "demand"), (False, True)):
                         proc = subprocess.run([solver, "--oxidd-nodes=4096",
                                                "--oxidd-cache=256", f"--oxidd-gc={gc}",
-                                               f"--oxidd-transitions={transitions}"] +
+                                               f"--oxidd-transitions={transitions}"] + order +
                                               (["--realizability-only"] if verdict_only else []) +
                                               [str(path)], capture_output=True, text=True,
                                               timeout=20, check=False)
