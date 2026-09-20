@@ -30,7 +30,9 @@ void aig_free(Aig *g);
 uint32_t aig_input(Aig *g, const char *name);
 
 /// Add a latch with next-state function `next` and reset value 0/1; returns its
-/// current-state positive literal.
+/// current-state positive literal.  AIGER 1.9 also permits self-literal
+/// uninitialised resets when reading external files; solvers decide whether
+/// those are supported for their profile.
 uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset);
 
 /// Update the next-state function of an existing latch literal.
@@ -57,6 +59,12 @@ void aig_remove_output(Aig *g, const char *name);
 /// required to hold infinitely often.  Emitted as an AIGER 1.9 justice record.
 void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
                      const char *name);
+
+/// Add an AIGER 1.9 bad-state property.
+void aig_add_bad(Aig *g, uint32_t lit, const char *name);
+
+/// Add an AIGER 1.9 invariant constraint.
+void aig_add_constraint(Aig *g, uint32_t lit, const char *name);
 
 /// Add a GR(1) fairness constraint `lit` (an environment `G F` assumption).
 /// Emitted as an AIGER 1.9 fairness record.
@@ -91,6 +99,7 @@ void aig_latch_at(const Aig *g, uint32_t i, uint32_t *cur, uint32_t *next,
                   uint32_t *reset);
 uint32_t aig_num_outputs(const Aig *g);
 /// Name (borrowed; valid until `g` is freed) and literal of output `i`.
+/// The name may be null when the source AIGER had no `oN` symbol.
 const char *aig_output_at(const Aig *g, uint32_t i, uint32_t *lit);
 uint32_t aig_num_ands(const Aig *g);
 /// Output literal and the two input literals of and-gate `i` (`lhs = r0 & r1`).
@@ -99,20 +108,39 @@ void aig_and_at(const Aig *g, uint32_t i, uint32_t *lhs, uint32_t *r0,
 /// Literal driving output `name`, or UINT32_MAX if there is no such output.
 uint32_t aig_output_lit(const Aig *g, const char *name);
 
+/// Number of typed AIGER 1.9 bad-state properties.
+uint32_t aig_num_bad(const Aig *g);
+/// Name (borrowed and optional) plus literal of bad-state property `i`.
+const char *aig_bad_at(const Aig *g, uint32_t i, uint32_t *lit);
+
+/// Number of typed AIGER 1.9 invariant constraints.
+uint32_t aig_num_constraints(const Aig *g);
+/// Name (borrowed and optional) plus literal of constraint `i`.
+const char *aig_constraint_at(const Aig *g, uint32_t i, uint32_t *lit);
+
 /// Number of GR(1) justice properties.
 uint32_t aig_num_justice(const Aig *g);
 /// Pointer (borrowed) to the literals array and its length for justice `j`.
 void aig_justice_at(const Aig *g, uint32_t j, const uint32_t **lits,
                     uint32_t *n);
+/// Optional symbol name of justice property `j`.
+const char *aig_justice_name(const Aig *g, uint32_t j);
 
 /// Number of GR(1) fairness constraints.
 uint32_t aig_num_fairness(const Aig *g);
 /// Literal of fairness constraint `i`.
 uint32_t aig_fairness_at(const Aig *g, uint32_t i);
+/// Optional symbol name of fairness constraint `i`.
+const char *aig_fairness_name(const Aig *g, uint32_t i);
 
 /// Parse an ASCII `aag` from `in` (inputs/latches/outputs/ands + i/o symbols).
 /// Returns nullptr on a malformed file.
 [[nodiscard]] Aig *aig_read_aag(FILE *in);
+
+/// Compatibility reader for legacy AbsSynthe controller artifacts that encode
+/// controllable outputs in `controllable-gate` comments.  Solver-facing game
+/// parsing should use `aig_read_aag()` so comments cannot change semantics.
+[[nodiscard]] Aig *aig_read_aag_with_controller_comments(FILE *in);
 
 /// Merge `src` into `dst`: map `src` inputs to `dst` signals by name, allocate
 /// fresh variables for `src` latches and gates, and wire each `src` output to

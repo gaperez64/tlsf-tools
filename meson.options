@@ -34,3 +34,5 @@ option(
   value: false,
   description: 'Build decomposition, solver, bench, and template research CLIs',
 )
+option('issue24_corpus', type: 'string', value: '',
+       description: 'Offline directory containing the five pinned issue-24 AAG files; enables serial corpus suites')

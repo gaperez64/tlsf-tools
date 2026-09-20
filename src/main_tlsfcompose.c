@@ -448,7 +448,7 @@ static int merge_aiger_files(char *const *files, uint32_t count,
       rc = 1;
       break;
     }
-    Aig *sub = aig_read_aag(fp);
+    Aig *sub = aig_read_aag_with_controller_comments(fp);
     fclose(fp);
     if (!sub) {
       fprintf(stderr, "tlsfcompose: invalid AIGER file %s\n", files[i]);

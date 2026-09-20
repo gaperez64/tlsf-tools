@@ -410,8 +410,8 @@ if research_tools
 
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
-      sources: ['src/main_tlsfsolve.c', 'test/tlsfsolve_failure_stub.c',
-                version_h],
+      sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c',
+                'test/tlsfsolve_failure_stub.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -453,6 +453,29 @@ visitor_cpp_exe = executable(
   dependencies: lib_deps,
 )
 test('visitor_cpp', visitor_cpp_exe)
+
+aiger_roundtrip_exe = executable(
+  'aiger_roundtrip',
+  sources: ['test/aiger_roundtrip.c'],
+  include_directories: inc,
+  link_with: tlsf_lib,
+  dependencies: lib_deps,
+)
+test('aiger_roundtrip', aiger_roundtrip_exe)
+
+if python3.found()
+  aigtoaig_check = find_program('aigtoaig', required: false)
+  aigmove_check = find_program('aigmove', required: false)
+  combine_aiger_check = find_program('combine-aiger', required: false)
+  abc_check = find_program('abc', required: false)
+  if aigtoaig_check.found() and aigmove_check.found() and combine_aiger_check.found() and abc_check.found()
+    test('aiger_closed_loop', python3,
+      args: [files('test/check_aiger_safety.py'),
+             '--aiger-dir', fs.parent(aigtoaig_check.full_path()),
+             '--combine-aiger', combine_aiger_check.full_path(),
+             '--abc', abc_check.full_path()], timeout: 120)
+  endif
+endif
 
 if spot_dep.found()
   tlsf2spot_exe = executable(
@@ -990,15 +1013,61 @@ if python3.found()
 endif
 endif
 if research_tools and have_oxidd
+  oxidd_memory_test = executable('oxidd_memory_test',
+    sources: ['test/oxidd_memory.c', 'src/oxidd_common.c',
+              'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
+    c_args: ['-DHAVE_OXIDD'],
+    link_args: ['-Wl,--wrap=oxidd_bdd_and', '-Wl,--wrap=oxidd_bdd_substitute',
+                '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
+                '-Wl,--wrap=oxidd_bdd_exists', '-Wl,--wrap=oxidd_bdd_restrict',
+                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+    dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
+  test('oxidd_memory', oxidd_memory_test)
+  test('gr1_fairness_fail_closed', check_contains,
+    args: ['multiple_fairness_not_supported', tlsfsolve_exe, '--game-profile=gr1',
+           files('test/cases/gr1_fairness_alternating.aag')])
+  test('tlsfsolve_help_defaults', files('test/check_tlsfsolve_help.sh'),
+    args: [tlsfsolve_exe])
+  if python3.found()
+    test('oxidd_semantic_oracle', python3,
+      args: [files('test/check_oxidd_oracle.py'), tlsfsolve_exe], timeout: 120)
+    test('oxidd_diagnostic_runner', python3,
+      args: [files('test/check_diagnose.py')])
+    corpus = get_option('issue24_corpus')
+    if corpus != ''
+      foreach i : range(5)
+        test('issue24_correctness_' + i.to_string(), python3,
+          args: [files('test/check_issue24.py'), tlsfsolve_exe, corpus, i.to_string()],
+          suite: 'issue24-correctness', is_parallel: false, timeout: 130)
+        test('issue24_memory_' + i.to_string(), python3,
+          args: [files('test/check_issue24.py'), tlsfsolve_exe, corpus, i.to_string(),
+                 '--memory-out', join_paths(meson.current_build_dir(),
+                                           'issue24-memory-' + i.to_string() + '.json')],
+          suite: 'issue24-memory', is_parallel: false, timeout: 130)
+      endforeach
+    endif
+  endif
   # tlsfsolve: exact status, stdout and stderr for win, loss and solver failure.
   test('tlsfsolve_real', check_status,
     args: ['0', files('test/cases/solve_real.out.aag'),
            files('test/cases/empty'), tlsfsolve_exe,
            files('test/cases/solve_real.aag')])
+  test('tlsfsolve_legacy_unnamed_output', check_status,
+    args: ['0', files('test/cases/solve_real.out.aag'),
+           files('test/cases/empty'), tlsfsolve_exe,
+           files('test/cases/solve_real_unnamed_output.aag')])
   test('tlsfsolve_unreal', check_status,
     args: ['1', files('test/cases/empty'),
            files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
            files('test/cases/solve_unreal.aag')])
+  test('tlsfsolve_multi_bad_explicit', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           '--game-profile=multi-safety',
+           files('test/cases/solve_multi_bad_unreal.aag')])
+  test('tlsfsolve_multi_bad_auto_refuses', check_contains,
+    args: ['cannot infer synthesis game profile.*multi-safety', tlsfsolve_exe,
+           files('test/cases/solve_multi_bad_unreal.aag')])
   test('tlsfsolve_failure', check_status,
     args: ['2', files('test/cases/empty'),
            files('test/cases/solve_failure.stderr'), tlsfsolve_failure_exe,

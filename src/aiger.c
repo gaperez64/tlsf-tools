@@ -40,6 +40,10 @@ struct Aig {
   uint32_t nand, and_cap;
   Named *outs;
   uint32_t nout, out_cap;
+  Named *bad;
+  uint32_t nbad, bad_cap;
+  Named *cons;
+  uint32_t ncons, cons_cap;
   Named *sig; // available signals (name -> lit) for lookups
   uint32_t nsig, sig_cap;
   Justice *just; // GR(1) system Buchi goals
@@ -102,6 +106,10 @@ void aig_free(Aig *g) {
     free(g->ins[i].name);
   for (uint32_t i = 0; i < g->nout; i++)
     free(g->outs[i].name);
+  for (uint32_t i = 0; i < g->nbad; i++)
+    free(g->bad[i].name);
+  for (uint32_t i = 0; i < g->ncons; i++)
+    free(g->cons[i].name);
   for (uint32_t i = 0; i < g->nsig; i++)
     free(g->sig[i].name);
   for (uint32_t i = 0; i < g->njust; i++) {
@@ -114,6 +122,8 @@ void aig_free(Aig *g) {
   free(g->lat);
   free(g->ands);
   free(g->outs);
+  free(g->bad);
+  free(g->cons);
   free(g->sig);
   free(g->just);
   free(g->fair);
@@ -121,6 +131,8 @@ void aig_free(Aig *g) {
 }
 
 static void reg_sig(Aig *g, const char *name, uint32_t lit) {
+  if (!name)
+    return;
   GROW(g->sig, g->sig_cap, g->nsig);
   g->sig[g->nsig].name = aig_xstrdup(name);
   g->sig[g->nsig].lit = lit;
@@ -128,6 +140,8 @@ static void reg_sig(Aig *g, const char *name, uint32_t lit) {
 }
 
 uint32_t aig_lookup(const Aig *g, const char *name) {
+  if (!name)
+    return UINT32_MAX;
   for (uint32_t i = 0; i < g->nsig; i++)
     if (strcmp(g->sig[i].name, name) == 0)
       return g->sig[i].lit;
@@ -135,8 +149,10 @@ uint32_t aig_lookup(const Aig *g, const char *name) {
 }
 
 bool aig_has_output(const Aig *g, const char *name) {
+  if (!name)
+    return false;
   for (uint32_t i = 0; i < g->nout; i++)
-    if (strcmp(g->outs[i].name, name) == 0)
+    if (g->outs[i].name && strcmp(g->outs[i].name, name) == 0)
       return true;
   return false;
 }
@@ -198,10 +214,24 @@ uint32_t aig_or(Aig *g, uint32_t a, uint32_t b) {
 
 void aig_set_output(Aig *g, const char *name, uint32_t lit) {
   GROW(g->outs, g->out_cap, g->nout);
-  g->outs[g->nout].name = aig_xstrdup(name);
+  g->outs[g->nout].name = name ? aig_xstrdup(name) : nullptr;
   g->outs[g->nout].lit = lit;
   g->nout++;
   reg_sig(g, name, lit);
+}
+
+void aig_add_bad(Aig *g, uint32_t lit, const char *name) {
+  GROW(g->bad, g->bad_cap, g->nbad);
+  g->bad[g->nbad].name = name ? aig_xstrdup(name) : nullptr;
+  g->bad[g->nbad].lit = lit;
+  g->nbad++;
+}
+
+void aig_add_constraint(Aig *g, uint32_t lit, const char *name) {
+  GROW(g->cons, g->cons_cap, g->ncons);
+  g->cons[g->ncons].name = name ? aig_xstrdup(name) : nullptr;
+  g->cons[g->ncons].lit = lit;
+  g->ncons++;
 }
 
 void aig_add_justice(Aig *g, const uint32_t *lits, uint32_t n,
@@ -224,9 +254,11 @@ void aig_add_fairness(Aig *g, uint32_t lit, const char *name) {
 }
 
 void aig_remove_output(Aig *g, const char *name) {
+  if (!name)
+    return;
   uint32_t w = 0;
   for (uint32_t r = 0; r < g->nout; r++) {
-    if (strcmp(g->outs[r].name, name) == 0) {
+    if (g->outs[r].name && strcmp(g->outs[r].name, name) == 0) {
       free(g->outs[r].name);
       continue;
     }
@@ -240,6 +272,8 @@ void aig_remove_output(Aig *g, const char *name) {
 void aig_strip_output_prefix(Aig *g, const char *prefix) {
   size_t n = strlen(prefix);
   for (uint32_t i = 0; i < g->nout; i++) {
+    if (!g->outs[i].name)
+      continue;
     if (strncmp(g->outs[i].name, prefix, n) != 0)
       continue;
     char *stripped = strdup(g->outs[i].name + n);
@@ -296,10 +330,28 @@ void aig_and_at(const Aig *g, uint32_t i, uint32_t *lhs, uint32_t *r0,
 }
 
 uint32_t aig_output_lit(const Aig *g, const char *name) {
+  if (!name)
+    return UINT32_MAX;
   for (uint32_t i = 0; i < g->nout; i++)
-    if (strcmp(g->outs[i].name, name) == 0)
+    if (g->outs[i].name && strcmp(g->outs[i].name, name) == 0)
       return g->outs[i].lit;
   return UINT32_MAX;
+}
+
+uint32_t aig_num_bad(const Aig *g) { return g->nbad; }
+
+const char *aig_bad_at(const Aig *g, uint32_t i, uint32_t *lit) {
+  if (lit)
+    *lit = g->bad[i].lit;
+  return g->bad[i].name;
+}
+
+uint32_t aig_num_constraints(const Aig *g) { return g->ncons; }
+
+const char *aig_constraint_at(const Aig *g, uint32_t i, uint32_t *lit) {
+  if (lit)
+    *lit = g->cons[i].lit;
+  return g->cons[i].name;
 }
 
 uint32_t aig_num_justice(const Aig *g) { return g->njust; }
@@ -312,11 +364,21 @@ void aig_justice_at(const Aig *g, uint32_t j, const uint32_t **lits,
     *n = g->just[j].n;
 }
 
+const char *aig_justice_name(const Aig *g, uint32_t j) {
+  return g->just[j].name;
+}
+
 uint32_t aig_num_fairness(const Aig *g) { return g->nfair; }
 
 uint32_t aig_fairness_at(const Aig *g, uint32_t i) { return g->fair[i].lit; }
 
+const char *aig_fairness_name(const Aig *g, uint32_t i) {
+  return g->fair[i].name;
+}
+
 static void rename_in(char **slot, const char *from, const char *to) {
+  if (!*slot)
+    return;
   if (strcmp(*slot, from) != 0)
     return;
   char *t = strdup(to);
@@ -421,7 +483,22 @@ static bool parse_controllable_gate_comment(const char *line, uint32_t *lit,
   return true;
 }
 
-Aig *aig_read_aag(FILE *in) {
+static char *dup_trimmed_symbol(char *s) {
+  while (*s == ' ' || *s == '\t')
+    s++;
+  char *end = s + strlen(s);
+  while (end > s && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' ||
+                     end[-1] == '\t'))
+    *--end = '\0';
+  return *s ? aig_xstrdup(s) : nullptr;
+}
+
+static bool is_comment_delimiter(const char *line) {
+  return line[0] == 'c' &&
+         (line[1] == '\0' || line[1] == '\n' || line[1] == '\r');
+}
+
+static Aig *aig_read_aag_impl(FILE *in, bool controller_comments) {
   char line[8192];
   // Skip a leading REALIZABLE/UNREALIZABLE verdict line if present.
   long start = ftell(in);
@@ -434,8 +511,8 @@ Aig *aig_read_aag(FILE *in) {
       return nullptr;
   }
   // Accept both the 5-number safety header and the 9-number AIGER 1.9 header
-  // (aag M I L O A B C J F); the extra bad/constraint/justice/fairness records
-  // are skipped below, since a synthesized controller only needs the circuit.
+  // (aag M I L O A B C J F).  Typed properties are part of the game format and
+  // must be preserved distinctly from ordinary outputs.
   uint32_t hdr[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
   if (strncmp(line, "aag ", 4) != 0 || parse_uints(line + 4, hdr, 9) < 5)
     return nullptr;
@@ -447,6 +524,12 @@ Aig *aig_read_aag(FILE *in) {
     return nullptr;
   g->nextvar = M;
   uint32_t *outlits = O ? aig_xmalloc(O * sizeof(uint32_t)) : nullptr;
+  uint32_t *badlits = nbad ? aig_xmalloc(nbad * sizeof(uint32_t)) : nullptr;
+  uint32_t *conslits = ncons ? aig_xmalloc(ncons * sizeof(uint32_t)) : nullptr;
+  uint32_t *just_sizes = njust ? aig_xcalloc(njust, sizeof(uint32_t)) : nullptr;
+  uint32_t **just_lits =
+      njust ? aig_xcalloc(njust, sizeof(uint32_t *)) : nullptr;
+  uint32_t *fairlits = nfair ? aig_xmalloc(nfair * sizeof(uint32_t)) : nullptr;
 
   for (uint32_t i = 0; i < I; i++) {
     uint32_t lit;
@@ -467,21 +550,29 @@ Aig *aig_read_aag(FILE *in) {
   for (uint32_t i = 0; i < O; i++)
     if (!fgets(line, sizeof line, in) || parse_uints(line, &outlits[i], 1) != 1)
       goto fail;
-  // Skip the AIGER 1.9 bad / constraint / justice / fairness records that come
-  // between outputs and the and-gates.  Justice records list J sizes first,
-  // then sum-of-sizes literals; the others are one literal per line.
-  for (uint32_t i = 0; i < nbad + ncons; i++)
-    if (!fgets(line, sizeof line, in))
+  for (uint32_t i = 0; i < nbad; i++)
+    if (!fgets(line, sizeof line, in) || parse_uints(line, &badlits[i], 1) != 1)
       goto fail;
-  uint32_t just_lits = 0;
+  for (uint32_t i = 0; i < ncons; i++)
+    if (!fgets(line, sizeof line, in) ||
+        parse_uints(line, &conslits[i], 1) != 1)
+      goto fail;
   for (uint32_t i = 0; i < njust; i++) {
-    uint32_t sz;
-    if (!fgets(line, sizeof line, in) || parse_uints(line, &sz, 1) != 1)
+    if (!fgets(line, sizeof line, in) ||
+        parse_uints(line, &just_sizes[i], 1) != 1)
       goto fail;
-    just_lits += sz;
+    just_lits[i] = just_sizes[i]
+                       ? aig_xmalloc((size_t)just_sizes[i] * sizeof(uint32_t))
+                       : nullptr;
   }
-  for (uint32_t i = 0; i < just_lits + nfair; i++)
-    if (!fgets(line, sizeof line, in))
+  for (uint32_t j = 0; j < njust; j++)
+    for (uint32_t i = 0; i < just_sizes[j]; i++)
+      if (!fgets(line, sizeof line, in) ||
+          parse_uints(line, &just_lits[j][i], 1) != 1)
+        goto fail;
+  for (uint32_t i = 0; i < nfair; i++)
+    if (!fgets(line, sizeof line, in) ||
+        parse_uints(line, &fairlits[i], 1) != 1)
       goto fail;
   for (uint32_t i = 0; i < A; i++) {
     uint32_t t[3];
@@ -490,61 +581,114 @@ Aig *aig_read_aag(FILE *in) {
     GROW(g->ands, g->and_cap, g->nand);
     g->ands[g->nand++] = (And){t[0] / 2, t[1], t[2]};
   }
-  // Symbol table: i<k> name / o<k> name / l<k> name (others ignored).
+  // Symbol table: i/o/b/c/j/f records preserve the full text after the index.
   char **onames = O ? calloc(O, sizeof(char *)) : nullptr;
+  char **bnames = nbad ? calloc(nbad, sizeof(char *)) : nullptr;
+  char **cnames = ncons ? calloc(ncons, sizeof(char *)) : nullptr;
+  char **jnames = njust ? calloc(njust, sizeof(char *)) : nullptr;
+  char **fnames = nfair ? calloc(nfair, sizeof(char *)) : nullptr;
   bool in_comments = false;
   while (fgets(line, sizeof line, in)) {
     if (in_comments) {
       uint32_t lit;
       char name[4096];
-      if (parse_controllable_gate_comment(line, &lit, name, sizeof name))
+      if (controller_comments &&
+          parse_controllable_gate_comment(line, &lit, name, sizeof name))
         aig_set_output(g, name, lit);
       continue;
     }
     char kind = line[0];
-    if (kind == 'c') {
+    if (is_comment_delimiter(line)) {
       in_comments = true;
       continue;
     }
-    if (kind != 'i' && kind != 'o' && kind != 'l')
+    if (kind != 'i' && kind != 'o' && kind != 'l' && kind != 'b' &&
+        kind != 'c' && kind != 'j' && kind != 'f')
       continue;
     char *end;
     unsigned long idx = strtoul(line + 1, &end, 10);
     if (end == line + 1)
       continue;
-    while (*end == ' ' || *end == '\t')
-      end++;
-    char *nl = strpbrk(end, " \t\r\n");
-    if (nl)
-      *nl = '\0';
-    if (*end == '\0')
+    char *name = dup_trimmed_symbol(end);
+    if (!name)
       continue;
     if (kind == 'i' && idx < g->nin)
-      g->ins[idx].name = strdup(end);
+      g->ins[idx].name = name;
     else if (kind == 'o' && idx < O && onames)
-      onames[idx] = strdup(end);
+      onames[idx] = name;
+    else if (kind == 'b' && idx < nbad && bnames)
+      bnames[idx] = name;
+    else if (kind == 'c' && idx < ncons && cnames)
+      cnames[idx] = name;
+    else if (kind == 'j' && idx < njust && jnames)
+      jnames[idx] = name;
+    else if (kind == 'f' && idx < nfair && fnames)
+      fnames[idx] = name;
+    else
+      free(name);
   }
   for (uint32_t i = 0; i < g->nin; i++)
     if (g->ins[i].name)
       reg_sig(g, g->ins[i].name, g->ins[i].var * 2);
-  for (uint32_t i = 0; i < O; i++) {
-    char tmp[32];
-    const char *nm = onames && onames[i]
-                         ? onames[i]
-                         : (snprintf(tmp, sizeof tmp, "o%u", i), tmp);
-    aig_set_output(g, nm, outlits[i]);
-  }
+  for (uint32_t i = 0; i < O; i++)
+    aig_set_output(g, onames ? onames[i] : nullptr, outlits[i]);
+  for (uint32_t i = 0; i < nbad; i++)
+    aig_add_bad(g, badlits[i], bnames ? bnames[i] : nullptr);
+  for (uint32_t i = 0; i < ncons; i++)
+    aig_add_constraint(g, conslits[i], cnames ? cnames[i] : nullptr);
+  for (uint32_t i = 0; i < njust; i++)
+    aig_add_justice(g, just_lits[i], just_sizes[i],
+                    jnames ? jnames[i] : nullptr);
+  for (uint32_t i = 0; i < nfair; i++)
+    aig_add_fairness(g, fairlits[i], fnames ? fnames[i] : nullptr);
   if (onames)
     for (uint32_t i = 0; i < O; i++)
       free(onames[i]);
+  if (bnames)
+    for (uint32_t i = 0; i < nbad; i++)
+      free(bnames[i]);
+  if (cnames)
+    for (uint32_t i = 0; i < ncons; i++)
+      free(cnames[i]);
+  if (jnames)
+    for (uint32_t i = 0; i < njust; i++)
+      free(jnames[i]);
+  if (fnames)
+    for (uint32_t i = 0; i < nfair; i++)
+      free(fnames[i]);
   free(onames);
+  free(bnames);
+  free(cnames);
+  free(jnames);
+  free(fnames);
+  for (uint32_t i = 0; i < njust; i++)
+    free(just_lits[i]);
+  free(just_lits);
+  free(just_sizes);
+  free(badlits);
+  free(conslits);
+  free(fairlits);
   free(outlits);
   return g;
 
 fail:
+  if (just_lits)
+    for (uint32_t i = 0; i < njust; i++)
+      free(just_lits[i]);
+  free(just_lits);
+  free(just_sizes);
+  free(badlits);
+  free(conslits);
+  free(fairlits);
   free(outlits);
   aig_free(g);
   return nullptr;
+}
+
+Aig *aig_read_aag(FILE *in) { return aig_read_aag_impl(in, false); }
+
+Aig *aig_read_aag_with_controller_comments(FILE *in) {
+  return aig_read_aag_impl(in, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -605,11 +749,11 @@ void aig_write_aag(FILE *out, const Aig *g) {
     canon[g->ands[k].var] = g->nin + g->nlat + 1 + k;
 #define WLIT(lit) ((lit) < 2 ? (lit) : ((canon[(lit) / 2] * 2) | ((lit) & 1u)))
 
-  // AIGER 1.9 requires the full 9-number header once any of bad/constraint/
-  // justice/fairness is present (here only justice/fairness can be).
-  if (g->njust || g->nfair)
-    fprintf(out, "aag %u %u %u %u %u 0 0 %u %u\n", M, g->nin, g->nlat, g->nout,
-            g->nand, g->njust, g->nfair);
+  // AIGER 1.9 requires the full 9-number header once any typed property
+  // section is present.
+  if (g->nbad || g->ncons || g->njust || g->nfair)
+    fprintf(out, "aag %u %u %u %u %u %u %u %u %u\n", M, g->nin, g->nlat,
+            g->nout, g->nand, g->nbad, g->ncons, g->njust, g->nfair);
   else
     fprintf(out, "aag %u %u %u %u %u\n", M, g->nin, g->nlat, g->nout, g->nand);
   for (uint32_t k = 0; k < g->nin; k++)
@@ -623,8 +767,12 @@ void aig_write_aag(FILE *out, const Aig *g) {
   }
   for (uint32_t k = 0; k < g->nout; k++)
     fprintf(out, "%u\n", WLIT(g->outs[k].lit));
-  // bad and constraint sections are empty; justice (sizes then literals) and
-  // fairness come before the and-gates per the AIGER 1.9 section order.
+  for (uint32_t k = 0; k < g->nbad; k++)
+    fprintf(out, "%u\n", WLIT(g->bad[k].lit));
+  for (uint32_t k = 0; k < g->ncons; k++)
+    fprintf(out, "%u\n", WLIT(g->cons[k].lit));
+  // Justice (sizes then literals) and fairness come before the and-gates per
+  // the AIGER 1.9 section order.
   for (uint32_t k = 0; k < g->njust; k++)
     fprintf(out, "%u\n", g->just[k].n);
   for (uint32_t k = 0; k < g->njust; k++)
@@ -639,7 +787,14 @@ void aig_write_aag(FILE *out, const Aig *g) {
     if (g->ins[k].name)
       fprintf(out, "i%u %s\n", k, g->ins[k].name);
   for (uint32_t k = 0; k < g->nout; k++)
-    fprintf(out, "o%u %s\n", k, g->outs[k].name);
+    if (g->outs[k].name)
+      fprintf(out, "o%u %s\n", k, g->outs[k].name);
+  for (uint32_t k = 0; k < g->nbad; k++)
+    if (g->bad[k].name)
+      fprintf(out, "b%u %s\n", k, g->bad[k].name);
+  for (uint32_t k = 0; k < g->ncons; k++)
+    if (g->cons[k].name)
+      fprintf(out, "c%u %s\n", k, g->cons[k].name);
   for (uint32_t k = 0; k < g->njust; k++)
     if (g->just[k].name)
       fprintf(out, "j%u %s\n", k, g->just[k].name);

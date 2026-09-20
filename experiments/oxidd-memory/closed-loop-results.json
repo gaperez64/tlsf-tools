@@ -1,0 +1,58 @@
+{
+  "date": "2026-09-19",
+  "solver_commit": "29133abec4b5142a2e7fab854252733ea7bad3ad",
+  "solver_options": ["--oxidd-nodes", "33554432", "--oxidd-cache", "4194304"],
+  "checker": "scripts/verify_aiger_safety.py",
+  "method": "aigmove -r; combine-aiger; aigtoaig; ABC pdr",
+  "abc_command": "read_aiger closed-loop.aig; pdr; write_status proof.status",
+  "tools": {
+    "aiger": {
+      "repository": "https://github.com/arminbiere/aiger",
+      "commit": "8b7c75c3b6e57d67515ca97260e2b1b1e8312cd2",
+      "aigmove_sha256": "5cb2720c2e8f421b58131d6239867b43157fb7e299746104e60fe6c22316411e",
+      "aigtoaig_sha256": "026b306d1b2209a8207c333567a330d605db8b37529d68ab628d99cefcad038b"
+    },
+    "combine-aiger": {
+      "repository": "https://github.com/SYNTCOMP/combine-aiger",
+      "commit": "06982aac91de91cdd62893c16589921cbc631daf",
+      "sha256": "9eb4a1b1f6ee6c0f559ceb677506cc7928e71aa7f6a9252be15436c2fc34b566"
+    },
+    "abc": {
+      "repository": "https://github.com/berkeley-abc/abc",
+      "commit": "3660a63a392b276616dd56ffee7e47b29b5df95e",
+      "sha256": "80575e409e6477056e948fa3144ac7e3769bde03dea165e93c602bf47b9bf046"
+    }
+  },
+  "results": [
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+      "status": "SAFE",
+      "game_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+      "strategy_sha256": "42f91012af5e06cbe5c334cea6e3892f906643803b69081ae0efbac1281553fd",
+      "closed_loop_sha256": "a64e4c465d358c8d6d460826fdee546adf49fe2d018d0eb20cf329e9ae350b9c",
+      "proof_status": "snl_UNSAT 3 unknown",
+      "invariant_verified": true,
+      "proof_process_seconds": 0.063897
+    },
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+      "status": "SAFE",
+      "game_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+      "strategy_sha256": "0a206a3cc9546bd200a877ee58c15db7c8f96aa8230ba65a1466509402f6fd5a",
+      "closed_loop_sha256": "3ada340171ad8b771ba124f4801d7f05e262c879c78ff4a39e6d63f7d9bad1c7",
+      "proof_status": "snl_UNSAT 3 unknown",
+      "invariant_verified": true,
+      "proof_process_seconds": 0.064016
+    },
+    {
+      "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+      "status": "SAFE",
+      "game_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+      "strategy_sha256": "15cdcf9ed8855c13764cba8980ee6778dafe13079e745aa7bf62daed5a57a7d5",
+      "closed_loop_sha256": "e1b39554c099595a019f9938035375c3f321d87fad5877df262a3979a19256d2",
+      "proof_status": "snl_UNSAT 3 unknown",
+      "invariant_verified": true,
+      "proof_process_seconds": 0.063873
+    }
+  ]
+}
