@@ -1,25 +1,24 @@
-# OxiDD static variable-order experiments
+# OxiDD variable-order results
 
 Measured 20 September 2026 on base
 `9c664034da0ba72cc4d857f27dcc8c082f06c903`.
 
 ## Decision
 
-Keep `input-first` and the existing `gates` construction plan as defaults. Keep
-`state-first`, `fanin-dfs`, and strict custom order files as experimental,
-explicit runtime options. They are selected per invocation in any OxiDD-enabled
-build and require no variant-specific compile flag or rebuild. For the five
-issue-24 games, `fanin-dfs` is a large win: all five complete at a 4M-node
-arena, and the final recommended settings reduce median peak RSS by 58.6% to
-93.5% relative to matched reruns of the previous case-specific recommendations.
-End-to-end median time also falls substantially.
+`input-first` and the existing `gates` construction plan remain the defaults.
+`state-first`, `fanin-dfs`, and strict custom order files are experimental
+command-line options. The same OxiDD-enabled executable can select a different
+order on each invocation. For the five issue-24 games, `fanin-dfs` is a large
+win: all five complete at a 4M-node arena, and the final recommended settings
+reduce median peak RSS by 58.6% to 93.5% relative to matched reruns of the
+previous case-specific recommendations. End-to-end median time also falls
+substantially.
 
-Do not implement conjunction fusion or `guard-first` in this sprint. The static
-order pilot already removes the material issue on all five targets. The held-out
-campaign is mixed: easy toy cases improve, tiny cases are neutral, but several
-AMBA and GenBuf cases remain unsolved and use more time or memory under
-`fanin-dfs`. That is not enough evidence for a default change or an automatic
-selector.
+Conjunction fusion and `guard-first` were not added because static ordering
+already resolves the memory problem on all five targets. The held-out results
+are mixed: easy toy cases improve, tiny cases are neutral, but several AMBA and
+GenBuf cases remain unsolved and use more time or memory under `fanin-dfs`.
+Those regressions are why the default remains `input-first`.
 
 The quantifier order remains `forall u exists c`, variable identities are
 unchanged, and the construction plan remains the existing exact AIG gate plan.
@@ -30,14 +29,14 @@ The machine, compiler, OxiDD archive, binaries, build commands, and hashes are
 in [build-manifest.json](build-manifest.json). The unmodified binary was frozen
 before source edits. Release measurements used optimized C and Rust builds,
 `b_ndebug=true`, `x86-64-v2`, no sanitizer, no tracing, and one solver process
-at a time. The release candidate hash was
+at a time. The measured release binary hash was
 `d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294`.
 Diagnostic timing is reported separately and is not used as release timing.
 
 The issue-24 input identities are recorded in every campaign manifest. The
-held-out set was selected before candidate runs from 12 pinned files in four
-other families; its deterministic selection rule, Git blob IDs, SHA-256 hashes,
-and expected annotations are in
+held-out set was selected before the `fanin-dfs` runs from 12 pinned files in
+four other families; its deterministic selection rule, Git blob IDs, SHA-256
+hashes, and expected annotations are in
 [heldout-manifest.json](heldout-manifest.json). There was no cgroup or other
 externally imposed process limit.
 
@@ -90,18 +89,17 @@ without crossing a forbidden signed boundary. See
 | beem c0to1 | fanin-dfs, 4M/256K | 0.304 s | 0.000048 s | 0.001764 s | 1,507,329 | 111 | root union 5,939, yes; selected result >=100,000, no | 0 | 0/0 | none |
 
 Thus the diagnosed intermediate was made tractable by BDD variable order, not
-removed by fusion. B2 (`fused-original` and `guard-first`) was deliberately not
-implemented or measured. It would add a substantial ownership/planning surface,
-would not pass the conservative barrier at the reported edge, and is no longer
-needed to meet the low-memory target. All measured gains below are attributable
-to variable order; none are credited to fusion or guard priority.
+removed by fusion. `fused-original` and `guard-first` were not implemented or
+measured: the conservative fusion rule cannot cross the reported edge, and
+static ordering already meets the low-memory target. All measured gains below
+come from variable order; none are attributed to fusion or guard priority.
 
 ## Issue-24 results
 
-The one-run B1 screen used 32M nodes, 4M cache, and automatic GC. `state-first`
-reduced the three beem cases from about 965,000 KiB and 8.6 seconds to
-727,492-732,592 KiB and 4.70-4.80 seconds, but regressed driver c2y from
-638,532 KiB/5.43 seconds to 895,956 KiB/8.06 seconds and driver c2n from
+The initial one-run screen used 32M nodes, 4M cache, and automatic GC.
+`state-first` reduced the three beem cases from about 965,000 KiB and 8.6
+seconds to 727,492-732,592 KiB and 4.70-4.80 seconds, but regressed driver c2y
+from 638,532 KiB/5.43 seconds to 895,956 KiB/8.06 seconds and driver c2n from
 662,740 KiB/7.88 seconds to 1,144,616 KiB/18.11 seconds. In the same screen,
 `fanin-dfs` used 134,400-134,604 KiB and 0.32 seconds on beem, 178,428 KiB and
 0.75 seconds on c2y, and 202,864 KiB and 1.37 seconds on c2n. Only `fanin-dfs`
@@ -117,23 +115,23 @@ transitions. Ranges are `[min,max]` over three serial repetitions.
 |---|---|---|---|---:|---:|---|---|---:|---|---|---|---|
 | beem c0to1 | original | input-first | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 8.42 [8.01,8.43] | 888,180 [888,100,888,316] | matched baseline |
 | beem c0to1 | no-op control | input-first | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 7.99 [7.97,8.10] | 888,132 [887,888,888,264] | verdict agreement |
-| beem c0to1 | candidate | fanin-dfs | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 0.26 [0.26,0.28] | 57,740 [57,660,57,856] | controller separately proved at final cap |
+| beem c0to1 | fanin-dfs | fanin-dfs | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 0.26 [0.26,0.28] | 57,740 [57,660,57,856] | controller separately proved at final cap |
 | beem c0to3 | original | input-first | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 8.61 [8.00,8.83] | 888,016 [887,880,888,200] | matched baseline |
 | beem c0to3 | no-op control | input-first | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 8.53 [8.00,8.94] | 888,252 [888,116,888,272] | verdict agreement |
-| beem c0to3 | candidate | fanin-dfs | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 0.26 [0.26,0.29] | 57,740 [57,732,57,744] | controller separately proved at final cap |
+| beem c0to3 | fanin-dfs | fanin-dfs | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 0.26 [0.26,0.29] | 57,740 [57,732,57,744] | controller separately proved at final cap |
 | beem c0to7 | original | input-first | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 8.62 [7.92,8.93] | 888,196 [888,060,888,200] | matched baseline |
 | beem c0to7 | no-op control | input-first | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 8.82 [8.06,8.94] | 888,128 [887,996,888,208] | verdict agreement |
-| beem c0to7 | candidate | fanin-dfs | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 0.29 [0.26,0.35] | 57,820 [57,740,57,848] | controller separately proved at final cap |
+| beem c0to7 | fanin-dfs | fanin-dfs | gates | 32M | 256K | auto | full | 3/3 | REALIZABLE | 0.29 [0.26,0.35] | 57,820 [57,740,57,848] | controller separately proved at final cap |
 | driver c2y | original | input-first | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 11.94 [11.82,12.44] | 329,516 [329,428,329,568] | expected annotation + baseline agreement |
 | driver c2y | no-op control | input-first | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 12.42 [11.75,15.04] | 329,456 [329,304,329,580] | expected annotation + baseline agreement |
-| driver c2y | candidate | fanin-dfs | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 0.96 [0.81,1.76] | 116,992 [116,948,117,040] | expected annotation + baseline agreement |
+| driver c2y | fanin-dfs | fanin-dfs | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 0.96 [0.81,1.76] | 116,992 [116,948,117,040] | expected annotation + baseline agreement |
 | driver c2n | original | input-first | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 22.65 [19.47,25.86] | 341,652 [341,616,341,696] | expected annotation + baseline agreement |
 | driver c2n | no-op control | input-first | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 21.42 [20.03,22.15] | 341,596 [340,148,341,604] | expected annotation + baseline agreement |
-| driver c2n | candidate | fanin-dfs | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 1.80 [1.46,2.15] | 141,568 [141,544,141,572] | expected annotation + baseline agreement |
+| driver c2n | fanin-dfs | fanin-dfs | gates | 8M | 1M | pressure | full | 3/3 | UNREALIZABLE | 1.80 [1.46,2.15] | 141,568 [141,544,141,572] | expected annotation + baseline agreement |
 
 The no-op control tracks the frozen binary closely in RSS and has the same
-verdicts. It gives no evidence that CLI plumbing, the explicit `gates` value, or
-the surrounding refactor explains the candidate gain.
+verdicts. This confirms that explicitly selecting the default order and plan
+does not account for the `fanin-dfs` improvement.
 
 ### Capacity frontier and final settings
 
@@ -143,7 +141,7 @@ both drivers at 4M and complete at 8M and above. `fanin-dfs` completes every
 one of its 60 runs across all five games and all four node capacities. This is
 a tested sufficient frontier, not a proof of the minimum viable arena.
 
-At 4M nodes, lowering cache from 4M to 256K reduces candidate RSS to about
+At 4M nodes, lowering cache from 4M to 256K reduces `fanin-dfs` RSS to about
 56.3 MiB for beem, 99.3 MiB for driver c2y, and 134.7 MiB for driver c2n in the
 one-run screen. A 1M cache gives about 71.3, 114.1, and 150.0 MiB respectively.
 At 8M nodes/1M cache, the drivers improve to about 114.2 and 138.0 MiB.
@@ -156,16 +154,16 @@ Final tested recommendations on this host are:
 
 | instance | variant | order | plan | nodes | cache | GC | mode | completed/attempted | verdict | wall median [min,max] | peak RSS median [min,max] | validation |
 |---|---|---|---|---:|---:|---|---|---:|---|---|---|---|
-| beem c0to1 | candidate | fanin-dfs | gates | 4M | 256K | auto | full | 3/3 | REALIZABLE | 0.28 [0.28,0.38] | 57,868 [57,796,57,868] | SAFE, AIGER + combine-aiger + ABC PDR |
-| beem c0to3 | candidate | fanin-dfs | gates | 4M | 256K | auto | full | 3/3 | REALIZABLE | 0.29 [0.28,0.30] | 57,808 [57,792,57,912] | SAFE, AIGER + combine-aiger + ABC PDR |
-| beem c0to7 | candidate | fanin-dfs | gates | 4M | 256K | auto | full | 3/3 | REALIZABLE | 0.28 [0.28,0.29] | 57,808 [57,792,57,860] | SAFE, AIGER + combine-aiger + ABC PDR |
-| driver c2y | candidate | fanin-dfs | gates | 8M | 1M | auto | full | 3/3 | UNREALIZABLE | 0.81 [0.80,0.84] | 117,036 [116,952,117,040] | expected annotation + independent implementation agreement only |
-| driver c2n | candidate | fanin-dfs | gates | 8M | 1M | auto | full | 3/3 | UNREALIZABLE | 1.47 [1.47,1.54] | 141,488 [141,460,141,552] | expected annotation + independent implementation agreement only |
+| beem c0to1 | fanin-dfs | fanin-dfs | gates | 4M | 256K | auto | full | 3/3 | REALIZABLE | 0.28 [0.28,0.38] | 57,868 [57,796,57,868] | SAFE, AIGER + combine-aiger + ABC PDR |
+| beem c0to3 | fanin-dfs | fanin-dfs | gates | 4M | 256K | auto | full | 3/3 | REALIZABLE | 0.29 [0.28,0.30] | 57,808 [57,792,57,912] | SAFE, AIGER + combine-aiger + ABC PDR |
+| beem c0to7 | fanin-dfs | fanin-dfs | gates | 4M | 256K | auto | full | 3/3 | REALIZABLE | 0.28 [0.28,0.29] | 57,808 [57,792,57,860] | SAFE, AIGER + combine-aiger + ABC PDR |
+| driver c2y | fanin-dfs | fanin-dfs | gates | 8M | 1M | auto | full | 3/3 | UNREALIZABLE | 0.81 [0.80,0.84] | 117,036 [116,952,117,040] | expected annotation + independent implementation agreement only |
+| driver c2n | fanin-dfs | fanin-dfs | gates | 8M | 1M | auto | full | 3/3 | UNREALIZABLE | 1.47 [1.47,1.54] | 141,488 [141,460,141,552] | expected annotation + independent implementation agreement only |
 
 The comparison below includes both the order change and the smaller final arena
 or auto-GC choice. Equal-setting rows above isolate the order effect.
 
-| instance | original tested sufficient setting | candidate setting | completed-run RSS ratio | end-to-end time ratio | proof status |
+| instance | original tested sufficient setting | fanin-dfs setting | completed-run RSS ratio | end-to-end time ratio | proof status |
 |---|---|---|---:|---:|---|
 | beem c0to1 | 32M/256K/auto/input-first | 4M/256K/auto/fanin-dfs | 0.065 | 0.033 | SAFE |
 | beem c0to3 | 32M/256K/auto/input-first | 4M/256K/auto/fanin-dfs | 0.065 | 0.034 | SAFE |
@@ -185,8 +183,8 @@ The checker validates and normalizes both circuits with Armin Biere's AIGER
 utilities, connects the strategy with `combine-aiger`, and proves the one-bad
 closed loop with ABC PDR. Result files include exact game, controller, closed
 loop, and tool hashes. Losing driver verdicts agree across the original and
-candidate implementations and with pinned benchmark annotations, but no
-independent counterstrategy proof was produced; they are not called certified.
+`fanin-dfs` runs and with pinned benchmark annotations, but no independent
+counterstrategy proof was produced; they are not called certified.
 
 ## Held-out results
 
@@ -196,12 +194,12 @@ benchmark. `error` means the solver reported capacity/allocation failure.
 
 | instance | original status, RSS/time | fanin-dfs status, RSS/time | result |
 |---|---|---|---|
-| AMBA amba10b10n | error, 271.9 MiB/2.28 s | error, 286.4 MiB/3.43 s | both unsolved; candidate worse |
-| AMBA amba10b4unrealn | error, 271.9 MiB/2.29 s | error, 286.4 MiB/3.40 s | both unsolved; candidate worse |
-| AMBA amba16b50n | error, 273.9 MiB/2.99 s | error, 325.2 MiB/16.09 s | both unsolved; candidate worse |
+| AMBA amba10b10n | error, 271.9 MiB/2.28 s | error, 286.4 MiB/3.43 s | both unsolved; fanin-dfs worse |
+| AMBA amba10b4unrealn | error, 271.9 MiB/2.29 s | error, 286.4 MiB/3.40 s | both unsolved; fanin-dfs worse |
+| AMBA amba16b50n | error, 273.9 MiB/2.99 s | error, 325.2 MiB/16.09 s | both unsolved; fanin-dfs worse |
 | GenBuf genbuf10b4n | timeout, 291.6 MiB/60.01 s | error, 361.6 MiB/34.53 s | both unsolved; failure mode changed |
 | GenBuf genbuf10b3unrealn | timeout, 291.5 MiB/60.02 s | error, 361.7 MiB/32.15 s | both unsolved; failure mode changed |
-| GenBuf genbuf32c40n | error, 300.9 MiB/2.94 s | timeout, 339.2 MiB/60.02 s | both unsolved; candidate worse |
+| GenBuf genbuf32c40n | error, 300.9 MiB/2.94 s | timeout, 339.2 MiB/60.02 s | both unsolved; fanin-dfs worse |
 | toy add10y | REALIZABLE, 31.2 MiB/0.70 s | REALIZABLE, 26.0 MiB/0.03 s | improved |
 | toy add10n | REALIZABLE, 31.6 MiB/0.69 s | REALIZABLE, 29.3 MiB/0.05 s | improved |
 | toy bs512y | REALIZABLE, 104.6 MiB/1.30 s | REALIZABLE, 74.8 MiB/0.84 s | improved |
@@ -209,13 +207,13 @@ benchmark. `error` means the solver reported capacity/allocation failure.
 | LTL2AIG demo-v11 UNREAL | UNREALIZABLE, 23.6 MiB/0.00 s | UNREALIZABLE, 23.6 MiB/0.01 s | neutral |
 | LTL2AIG load_full REAL | timeout, 167.7 MiB/60.01 s | timeout, 168.0 MiB/60.01 s | neutral, unsolved |
 
-No candidate lost a case completed by the baseline, and all cases completed by
-both orders have matching verdicts. However, unsolved AMBA/GenBuf cases show
-material regressions in RSS, elapsed time, or failure mode. These negative
-results are why `fanin-dfs` remains opt-in.
+No case completed by `input-first` was lost under `fanin-dfs`, and all cases
+completed by both orders have matching verdicts. However, unsolved AMBA/GenBuf
+cases show material regressions in RSS, elapsed time, or failure mode. These
+negative results are why `fanin-dfs` remains opt-in.
 
 The first held-out run initially labeled `add10n` UNREALIZABLE from its `n`
-suffix and stopped on the candidate's REALIZABLE result. That label was a
+suffix and stopped on the `fanin-dfs` REALIZABLE result. That label was a
 manifest error: legacy toy `n`/`y` suffixes are encodings, not verdicts. The
 selection manifest was corrected to use no expected annotation for those toy
 files, and part 2 reran both variants. The initial `SEMANTIC_MISMATCH` record is
@@ -231,10 +229,11 @@ tests cover complete permutations, invalid custom files, empty games,
 nonidentity manager mappings, shared-session rejection, and order-independent
 game semantics. The runner and offline cone analyzer have standalone tests.
 
-The implementation preserves existing GR(1) restrictions and applies complete
-orders including auxiliary variables. Release and non-`NDEBUG` builds, the
-dependency-free build, and sanitizer coverage are part of the final branch
-verification recorded in the pull request.
+Existing GR(1) restrictions remain unchanged, and complete orders include all
+auxiliary variables. The release and diagnostic suites each passed 274 tests;
+the dependency-free suite passed 154 tests. Focused AddressSanitizer and
+UndefinedBehaviorSanitizer checks also passed, including all 3,584 semantic
+oracle cases and bounded complete and truncated diagnostic traversals.
 
 ## Commands and evidence
 
