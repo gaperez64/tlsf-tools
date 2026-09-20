@@ -202,34 +202,35 @@ static bool resolve_profile(const Aig *game, GameProfile requested,
 }
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Solve an AIGER safety or GR(1) game with the in-process OxiDD BDD "
-          "solver.\n"
-          "  FILE   aag game file (default: stdin; use '-' for stdin)\n"
-          "  --game-profile=auto|legacy-safety|gr1|multi-safety\n"
-          "                         game interpretation (default: auto)\n"
-          "  --oxidd-nodes N        BDD node arena capacity, in entries\n"
-          "  --oxidd-cache N        BDD apply-cache capacity, in entries\n"
-          "                         capacity default: 2^(inputs+latches+6),\n"
-          "                         clamped to 1024..4194304 entries\n"
-          "  --oxidd-gc auto|pressure\n"
-          "                         proactive GC policy (default: auto)\n"
-          "  --oxidd-gc-threshold PERCENT\n"
-          "                         pressure trigger (default: 80; pressure only)\n"
-          "  --oxidd-transitions eager|demand\n"
-          "                         safety construction (default: eager)\n"
-          "  --realizability-only   emit only a safety verdict\n"
-          "                         (default: synthesize a full strategy)\n"
-          "  -v, --verbose          diagnostic trace (default: off; requires\n"
-          "                         non-NDEBUG)\n"
-          "GC policy 'auto' leaves OxiDD automatic collection enabled. Both GC\n"
-          "policies may collect once to retry a failed pure BDD operation.\n"
-          "Exit 0: realizable — writes strategy aag to stdout.\n"
-          "Exit 1: UNREALIZABLE — writes message to stderr.\n"
-          "Exit 2: input, usage, or OxiDD solver failure.\n"
-          "  --version, --help\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Solve an AIGER safety or GR(1) game with the in-process OxiDD BDD "
+      "solver.\n"
+      "  FILE   aag game file (default: stdin; use '-' for stdin)\n"
+      "  --game-profile=auto|legacy-safety|gr1|multi-safety\n"
+      "                         game interpretation (default: auto)\n"
+      "  --oxidd-nodes N        BDD node arena capacity, in entries\n"
+      "  --oxidd-cache N        BDD apply-cache capacity, in entries\n"
+      "                         capacity default: 2^(inputs+latches+6),\n"
+      "                         clamped to 1024..4194304 entries\n"
+      "  --oxidd-gc auto|pressure\n"
+      "                         proactive GC policy (default: auto)\n"
+      "  --oxidd-gc-threshold PERCENT\n"
+      "                         pressure trigger (default: 80; pressure only)\n"
+      "  --oxidd-transitions eager|demand\n"
+      "                         safety construction (default: eager)\n"
+      "  --realizability-only   emit only a safety verdict\n"
+      "                         (default: synthesize a full strategy)\n"
+      "  -v, --verbose          diagnostic trace (default: off; requires\n"
+      "                         non-NDEBUG)\n"
+      "GC policy 'auto' leaves OxiDD automatic collection enabled. Both GC\n"
+      "policies may collect once to retry a failed pure BDD operation.\n"
+      "Exit 0: realizable — writes strategy aag to stdout.\n"
+      "Exit 1: UNREALIZABLE — writes message to stderr.\n"
+      "Exit 2: input, usage, or OxiDD solver failure.\n"
+      "  --version, --help\n",
+      prog);
 }
 
 int main(int argc, char **argv) {
@@ -418,8 +419,7 @@ int main(int argc, char **argv) {
           "tlsfsolve: failure kind=%u phase=%s operation=%s id=%zu index=%u\n",
           (unsigned)failure.kind, failure.phase, failure.operation,
           failure.operation_id, failure.index);
-    if (failure.kind == OXIDD_FAILURE_BDD ||
-        failure.kind == OXIDD_FAILURE_HOST)
+    if (failure.kind == OXIDD_FAILURE_BDD || failure.kind == OXIDD_FAILURE_HOST)
       fprintf(stderr,
               "tlsfsolve: allocation failure: rebuild with diagnostics "
               "(-Db_ndebug=false),\n"
