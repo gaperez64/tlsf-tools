@@ -388,7 +388,8 @@ if research_tools
       sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
                 'src/compose_games.c', 'src/compose_oxidd.c',
                 'src/compose_route.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', bison_out[1],
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_order.c',
+                bison_out[1],
                 version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
@@ -400,7 +401,8 @@ if research_tools
     tlsfsolve_exe = executable(
       'tlsfsolve',
       sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', version_h],
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_order.c',
+                version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -1014,7 +1016,7 @@ endif
 endif
 if research_tools and have_oxidd
   oxidd_memory_test = executable('oxidd_memory_test',
-    sources: ['test/oxidd_memory.c', 'src/oxidd_common.c',
+    sources: ['test/oxidd_memory.c', 'src/oxidd_common.c', 'src/oxidd_order.c',
               'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
     c_args: ['-DHAVE_OXIDD'],
     link_args: ['-Wl,--wrap=oxidd_bdd_and', '-Wl,--wrap=oxidd_bdd_substitute',
@@ -1029,6 +1031,10 @@ if research_tools and have_oxidd
   test('tlsfsolve_help_defaults', files('test/check_tlsfsolve_help.sh'),
     args: [tlsfsolve_exe])
   if python3.found()
+    test('tlsfsolve_measurement_runner', python3,
+      args: [files('test/check_measure_tlsfsolve_memory.py')])
+    test('oxidd_cone_analysis', python3,
+      args: [files('test/check_oxidd_cone.py')])
     test('oxidd_semantic_oracle', python3,
       args: [files('test/check_oxidd_oracle.py'), tlsfsolve_exe], timeout: 120)
     test('oxidd_diagnostic_runner', python3,

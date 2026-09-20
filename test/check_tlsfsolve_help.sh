@@ -9,6 +9,8 @@ for expected in \
   "capacity default: 2^(inputs+latches+6)" \
   "proactive GC policy (default: auto)" \
   "pressure trigger (default: 80; pressure only)" \
+  "static BDD order (default: input-first)" \
+  "Boolean construction plan (default: gates)" \
   "safety construction (default: eager)" \
   "(default: synthesize a full strategy)" \
   "policies may collect once to retry a failed pure BDD operation"

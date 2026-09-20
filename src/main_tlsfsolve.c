@@ -69,6 +69,32 @@ static bool parse_size_value(const char *s, size_t *out) {
   return true;
 }
 
+#ifndef NDEBUG
+static bool parse_u32_value(const char *s, uint32_t *out) {
+  if (!s || *s == '-' || *s == '\0')
+    return false;
+  errno = 0;
+  char *end = nullptr;
+  unsigned long long value = strtoull(s, &end, 10);
+  if (errno || end == s || *end != '\0' || value > UINT32_MAX)
+    return false;
+  *out = (uint32_t)value;
+  return true;
+}
+#endif
+
+static bool parse_var_order(const char *s, OxiddVarOrder *out) {
+  if (!strcmp(s, "input-first"))
+    *out = OXIDD_VAR_ORDER_INPUT_FIRST;
+  else if (!strcmp(s, "state-first"))
+    *out = OXIDD_VAR_ORDER_STATE_FIRST;
+  else if (!strcmp(s, "fanin-dfs"))
+    *out = OXIDD_VAR_ORDER_FANIN_DFS;
+  else
+    return false;
+  return true;
+}
+
 static const char *option_value(int *i, int argc, char **argv, const char *arg,
                                 const char *name) {
   size_t n = strlen(name);
@@ -201,6 +227,19 @@ static bool resolve_profile(const Aig *game, GameProfile requested,
   return false;
 }
 
+#ifndef NDEBUG
+#define OXIDD_TRACE_USAGE                                                      \
+  "  --oxidd-trace-roots    bounded reachable-node union at built roots\n"     \
+  "  --oxidd-trace-gate INDEX\n"                                               \
+  "                         selected normalized gate diagnostics\n"            \
+  "  --oxidd-trace-node-limit N\n"                                             \
+  "                         traversal limit (default: 100000 nodes)\n"         \
+  "  --oxidd-trace-scratch BYTES\n"                                            \
+  "                         traversal scratch cap (default: 16777216)\n"
+#else
+#define OXIDD_TRACE_USAGE ""
+#endif
+
 static void usage(const char *prog) {
   fprintf(
       stderr,
@@ -218,7 +257,13 @@ static void usage(const char *prog) {
       "                         proactive GC policy (default: auto)\n"
       "  --oxidd-gc-threshold PERCENT\n"
       "                         pressure trigger (default: 80; pressure only)\n"
-      "  --oxidd-transitions eager|demand\n"
+      "  --oxidd-var-order=input-first|state-first|fanin-dfs\n"
+      "                         static BDD order (default: input-first)\n"
+      "  --oxidd-order-file PATH\n"
+      "                         strict tlsfsolve-order-v1 local permutation\n"
+      "  --oxidd-build-plan=gates\n"
+      "                         Boolean construction plan (default: "
+      "gates)\n" OXIDD_TRACE_USAGE "  --oxidd-transitions eager|demand\n"
       "                         safety construction (default: eager)\n"
       "  --realizability-only   emit only a safety verdict\n"
       "                         (default: synthesize a full strategy)\n"
@@ -232,12 +277,14 @@ static void usage(const char *prog) {
       "  --version, --help\n",
       prog);
 }
+#undef OXIDD_TRACE_USAGE
 
 int main(int argc, char **argv) {
   const char *path = nullptr;
   GameProfile requested_profile = PROFILE_AUTO, resolved_profile = PROFILE_AUTO;
   OxiddSolveOptions opts = oxidd_solve_options_default();
   OxiddFailure failure = {0};
+  bool named_order = false;
   opts.failure = &failure;
   for (int i = 1; i < argc; i++) {
     const char *arg = argv[i];
@@ -288,6 +335,66 @@ int main(int argc, char **argv) {
       }
       continue;
     }
+    val = option_value(&i, argc, argv, arg, "--oxidd-var-order");
+    if (val) {
+      if (opts.order_file || !parse_var_order(val, &opts.var_order)) {
+        fprintf(stderr, "%s: bad or conflicting --oxidd-var-order '%s'\n",
+                argv[0], val);
+        return 2;
+      }
+      named_order = true;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--oxidd-order-file");
+    if (val) {
+      if (named_order || opts.order_file || !*val) {
+        fprintf(stderr, "%s: bad or conflicting --oxidd-order-file '%s'\n",
+                argv[0], val);
+        return 2;
+      }
+      opts.order_file = val;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--oxidd-build-plan");
+    if (val) {
+      if (strcmp(val, "gates")) {
+        fprintf(stderr, "%s: bad --oxidd-build-plan '%s'\n", argv[0], val);
+        return 2;
+      }
+      opts.build_plan = OXIDD_BUILD_GATES;
+      continue;
+    }
+#ifndef NDEBUG
+    if (!strcmp(arg, "--oxidd-trace-roots")) {
+      opts.trace_roots = true;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--oxidd-trace-gate");
+    if (val) {
+      if (!parse_u32_value(val, &opts.trace_gate)) {
+        fprintf(stderr, "%s: bad --oxidd-trace-gate '%s'\n", argv[0], val);
+        return 2;
+      }
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--oxidd-trace-node-limit");
+    if (val) {
+      if (!parse_size_value(val, &opts.trace_node_limit)) {
+        fprintf(stderr, "%s: bad --oxidd-trace-node-limit '%s'\n", argv[0],
+                val);
+        return 2;
+      }
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--oxidd-trace-scratch");
+    if (val) {
+      if (!parse_size_value(val, &opts.trace_scratch_bytes)) {
+        fprintf(stderr, "%s: bad --oxidd-trace-scratch '%s'\n", argv[0], val);
+        return 2;
+      }
+      continue;
+    }
+#endif
     val = option_value(&i, argc, argv, arg, "--oxidd-transitions");
     if (val) {
       if (strcmp(val, "eager") && strcmp(val, "demand")) {

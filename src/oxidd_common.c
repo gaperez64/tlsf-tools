@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 
 OxiddSolveOptions oxidd_solve_options_default(void) {
+#ifdef NDEBUG
   return (OxiddSolveOptions){.node_cap = 0,
                              .cache_cap = 0,
                              .gc_mode = OXIDD_GC_AUTO,
@@ -23,7 +24,27 @@ OxiddSolveOptions oxidd_solve_options_default(void) {
                              .verbosity = 0,
                              .trace = stderr,
                              .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
-                             .safety_output_index = 0};
+                             .safety_output_index = 0,
+                             .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
+                             .build_plan = OXIDD_BUILD_GATES};
+#else
+  OxiddSolveOptions options = {
+      .node_cap = 0,
+      .cache_cap = 0,
+      .gc_mode = OXIDD_GC_AUTO,
+      .gc_threshold_percent = 80,
+      .verbosity = 0,
+      .trace = stderr,
+      .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
+      .safety_output_index = 0,
+      .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
+      .build_plan = OXIDD_BUILD_GATES,
+  };
+  options.trace_gate = UINT32_MAX;
+  options.trace_node_limit = 100000;
+  options.trace_scratch_bytes = (size_t)16 << 20;
+  return options;
+#endif
 }
 
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
@@ -93,6 +114,14 @@ void oxidd_run_init(OxiddRun *r, oxidd_bdd_manager_t m,
                   .phase_started = monotonic_seconds()};
   oxidd_trace(opts, r->phase, "configuration",
               ",\"node_cap\":%zu,\"cache_cap\":%zu", nodes, cache);
+#ifndef NDEBUG
+  oxidd_trace(
+      opts, r->phase, "construction_plan",
+      ",\"requested\":\"gates\",\"effective\":\"gates\","
+      "\"plan_version\":1,"
+      "\"plan_hash\":"
+      "\"8a0c452b2b96d9f8afcc0f65812f72266bfd4578f2e4d425a64e38f58fc6d119\"");
+#endif
 }
 
 static void sample_nodes(OxiddRun *r) {
@@ -283,6 +312,177 @@ static Bdd run_literal(OxiddRun *r, Bdd *map, uint32_t lit) {
   return lit & 1 ? oxidd_run_not(r, b) : oxidd_bdd_ref(b);
 }
 
+#ifndef NDEBUG
+typedef struct {
+  size_t nodes, effective_limit, scratch_bytes, invalid_roots;
+  double seconds;
+  bool complete;
+} BoundedNodeCount;
+
+static size_t bdd_identity_hash(Bdd value) {
+  size_t hash = (size_t)(uintptr_t)value._p;
+  hash ^= value._i + (size_t)0x9e3779b9u + (hash << 6) + (hash >> 2);
+  hash ^= hash >> 16;
+  return hash;
+}
+
+static bool count_layout(size_t requested, size_t root_count,
+                         size_t scratch_limit, size_t *effective,
+                         size_t *table_capacity, size_t *stack_capacity,
+                         size_t *scratch_bytes) {
+  size_t limit = requested;
+  while (limit) {
+    if (limit > (SIZE_MAX - root_count) / 2)
+      limit /= 2;
+    else {
+      size_t table = 1;
+      while (table < limit * 2 && table <= SIZE_MAX / 2)
+        table *= 2;
+      size_t stack = root_count + limit * 2;
+      if (table >= limit * 2 && stack <= SIZE_MAX / sizeof(Bdd) &&
+          table <= (SIZE_MAX / sizeof(Bdd)) - stack) {
+        size_t bytes = (table + stack) * sizeof(Bdd);
+        if (bytes <= scratch_limit) {
+          *effective = limit;
+          *table_capacity = table;
+          *stack_capacity = stack;
+          *scratch_bytes = bytes;
+          return true;
+        }
+      }
+      limit /= 2;
+    }
+  }
+  return false;
+}
+
+static BoundedNodeCount bounded_node_union(const Bdd *roots, size_t root_count,
+                                           size_t requested_limit,
+                                           size_t scratch_limit) {
+  BoundedNodeCount result = {.complete = false};
+  double started = monotonic_seconds();
+  size_t table_capacity = 0, stack_capacity = 0;
+  if (!count_layout(requested_limit, root_count, scratch_limit,
+                    &result.effective_limit, &table_capacity, &stack_capacity,
+                    &result.scratch_bytes)) {
+    result.seconds = monotonic_seconds() - started;
+    return result;
+  }
+  Bdd *table = calloc(table_capacity, sizeof *table);
+  Bdd *stack = malloc(stack_capacity * sizeof *stack);
+  if (!table || !stack) {
+    free(stack);
+    free(table);
+    result.scratch_bytes = 0;
+    result.seconds = monotonic_seconds() - started;
+    return result;
+  }
+  size_t top = 0;
+  for (size_t i = 0; i < root_count; i++) {
+    if (bdd_invalid(roots[i])) {
+      result.invalid_roots++;
+      continue;
+    }
+    stack[top++] = oxidd_bdd_ref(roots[i]);
+  }
+  result.complete = result.invalid_roots == 0;
+  while (top) {
+    Bdd node = stack[--top];
+    if (oxidd_bdd_node_level(node) == (oxidd_level_no_t)-1) {
+      oxidd_bdd_unref(node);
+      continue;
+    }
+    size_t slot = bdd_identity_hash(node) & (table_capacity - 1);
+    while (!bdd_invalid(table[slot]) && !bdd_same_identity(table[slot], node))
+      slot = (slot + 1) & (table_capacity - 1);
+    if (!bdd_invalid(table[slot])) {
+      oxidd_bdd_unref(node);
+      continue;
+    }
+    if (result.nodes == result.effective_limit) {
+      result.complete = false;
+      oxidd_bdd_unref(node);
+      break;
+    }
+    table[slot] = node;
+    result.nodes++;
+    oxidd_bdd_pair_t children = oxidd_bdd_cofactors(node);
+    if (bdd_invalid(children.first) || bdd_invalid(children.second) ||
+        top + 2 > stack_capacity) {
+      oxidd_bdd_unref(children.first);
+      oxidd_bdd_unref(children.second);
+      result.complete = false;
+      break;
+    }
+    stack[top++] = children.first;
+    stack[top++] = children.second;
+  }
+  while (top)
+    oxidd_bdd_unref(stack[--top]);
+  for (size_t i = 0; i < table_capacity; i++)
+    oxidd_bdd_unref(table[i]);
+  free(stack);
+  free(table);
+  result.seconds = monotonic_seconds() - started;
+  return result;
+}
+
+enum SupportClass {
+  SUPPORT_CONSTANT,
+  SUPPORT_INPUT,
+  SUPPORT_STATE,
+  SUPPORT_MIXED,
+};
+
+static enum SupportClass merge_support(enum SupportClass left,
+                                       enum SupportClass right) {
+  if (left == SUPPORT_CONSTANT)
+    return right;
+  if (right == SUPPORT_CONSTANT || left == right)
+    return left;
+  return SUPPORT_MIXED;
+}
+
+static unsigned char *aig_support_classes(const Aig *game, uint32_t maxvar) {
+  unsigned char *classes = calloc((size_t)maxvar + 1, sizeof *classes);
+  if (!classes)
+    return nullptr;
+  for (uint32_t i = 0; i < aig_num_inputs(game); i++) {
+    uint32_t lit;
+    aig_input_name(game, i, &lit);
+    classes[lit / 2] = SUPPORT_INPUT;
+  }
+  for (uint32_t i = 0; i < aig_num_latches(game); i++) {
+    uint32_t lit;
+    aig_latch_at(game, i, &lit, nullptr, nullptr);
+    classes[lit / 2] = SUPPORT_STATE;
+  }
+  for (uint32_t i = 0; i < aig_num_ands(game); i++) {
+    uint32_t lhs, left, right;
+    aig_and_at(game, i, &lhs, &left, &right);
+    classes[lhs / 2] =
+        (unsigned char)merge_support(classes[left / 2], classes[right / 2]);
+  }
+  return classes;
+}
+
+static const char *support_name(const unsigned char *classes, uint32_t lit) {
+  if (!classes)
+    return "unknown";
+  switch ((enum SupportClass)classes[lit / 2]) {
+  case SUPPORT_CONSTANT:
+    return "constant";
+  case SUPPORT_INPUT:
+    return "primary-input-only";
+  case SUPPORT_STATE:
+    return "state-only";
+  case SUPPORT_MIXED:
+    return "mixed";
+  }
+  return "unknown";
+}
+#endif
+
 bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
                        const uint32_t *lits, Bdd *roots, size_t count) {
   size_t *uses = calloc((size_t)maxvar + 1, sizeof *uses);
@@ -290,6 +490,12 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     return false;
   bool ok = true;
   size_t retained = 0, peak = 0, released = 0;
+#ifndef NDEBUG
+  unsigned char *support =
+      r->options->verbosity && r->options->trace_gate != UINT32_MAX
+          ? aig_support_classes(game, maxvar)
+          : nullptr;
+#endif
   for (uint32_t v = 1; v <= maxvar; v++)
     retained += !bdd_invalid(map[v]);
   peak = retained;
@@ -300,6 +506,11 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     }
     if (lits[i] > 1)
       uses[lits[i] / 2]++;
+#ifndef NDEBUG
+    if (r->options->verbosity && r->options->trace_roots)
+      oxidd_trace(r->options, r->phase, "root_descriptor",
+                  ",\"root_index\":%zu,\"aig_literal\":%u", i, lits[i]);
+#endif
   }
   uint32_t ngates = aig_num_ands(game);
   // The reader and AIG builder guarantee topological gate order. Count each
@@ -334,9 +545,54 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     if (!uses[lhs / 2])
       continue;
     r->index = i;
+#ifndef NDEBUG
+    bool selected = r->options->verbosity && r->options->trace_gate == i;
+    size_t stored_before = 0;
+    if (selected) {
+      stored_before = oxidd_bdd_manager_approx_num_inner_nodes(r->manager);
+      oxidd_trace(r->options, r->phase, "selected_gate_begin",
+                  ",\"normalized_gate_index\":%u,\"source_index_kind\":"
+                  "\"normalized-only\",\"aig_literal\":%u,\"left_literal\":%u,"
+                  "\"right_literal\":%u,\"left_support\":\"%s\","
+                  "\"right_support\":\"%s\",\"result_support\":\"%s\","
+                  "\"result_uses\":%zu,\"left_uses\":%zu,\"right_uses\":%zu,"
+                  "\"stored_nodes_before\":%zu,\"operation\":\"and\"",
+                  i, lhs, a, b, support_name(support, a),
+                  support_name(support, b), support_name(support, lhs),
+                  uses[lhs / 2], uses[a / 2], uses[b / 2], stored_before);
+    }
+#endif
     Bdd ba = run_literal(r, map, a);
     Bdd bb = run_literal(r, map, b);
     Bdd result = oxidd_run_and(r, ba, bb);
+#ifndef NDEBUG
+    if (selected) {
+      BoundedNodeCount left =
+          bounded_node_union(&ba, 1, r->options->trace_node_limit,
+                             r->options->trace_scratch_bytes);
+      BoundedNodeCount right =
+          bounded_node_union(&bb, 1, r->options->trace_node_limit,
+                             r->options->trace_scratch_bytes);
+      BoundedNodeCount output =
+          bounded_node_union(&result, 1, r->options->trace_node_limit,
+                             r->options->trace_scratch_bytes);
+      oxidd_trace(r->options, r->phase, "selected_gate_end",
+                  ",\"normalized_gate_index\":%u,\"aig_literal\":%u,"
+                  "\"stored_nodes_before\":%zu,\"stored_nodes_after\":%zu,"
+                  "\"left_nodes_lower_bound\":%zu,\"left_complete\":%s,"
+                  "\"right_nodes_lower_bound\":%zu,\"right_complete\":%s,"
+                  "\"result_nodes_lower_bound\":%zu,\"result_complete\":%s,"
+                  "\"node_visit_limit\":%zu,\"scratch_limit_bytes\":%zu,"
+                  "\"count_seconds\":%.6f",
+                  i, lhs, stored_before,
+                  oxidd_bdd_manager_approx_num_inner_nodes(r->manager),
+                  left.nodes, left.complete ? "true" : "false", right.nodes,
+                  right.complete ? "true" : "false", output.nodes,
+                  output.complete ? "true" : "false",
+                  r->options->trace_node_limit, r->options->trace_scratch_bytes,
+                  left.seconds + right.seconds + output.seconds);
+    }
+#endif
     oxidd_bdd_unref(ba);
     oxidd_bdd_unref(bb);
     map[lhs / 2] = result;
@@ -357,6 +613,23 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     retained -= dropped;
     released += dropped;
   }
+#ifndef NDEBUG
+  if (r->options->verbosity && r->options->trace_roots && ok) {
+    BoundedNodeCount root_union =
+        bounded_node_union(roots, count, r->options->trace_node_limit,
+                           r->options->trace_scratch_bytes);
+    oxidd_trace(r->options, r->phase, "root_node_union",
+                ",\"distinct_inner_nodes_lower_bound\":%zu,\"complete\":%s,"
+                "\"invalid_roots\":%zu,\"requested_node_limit\":%zu,"
+                "\"effective_node_limit\":%zu,\"scratch_limit_bytes\":%zu,"
+                "\"scratch_bytes\":%zu,\"seconds\":%.6f",
+                root_union.nodes, root_union.complete ? "true" : "false",
+                root_union.invalid_roots, r->options->trace_node_limit,
+                root_union.effective_limit, r->options->trace_scratch_bytes,
+                root_union.scratch_bytes, root_union.seconds);
+  }
+  free(support);
+#endif
   oxidd_trace(r->options, r->phase, "construction_roots",
               ",\"map_references_peak\":%zu,\"map_references_released\":%zu,"
               "\"map_references_remaining\":%zu,\"requested_roots\":%zu",

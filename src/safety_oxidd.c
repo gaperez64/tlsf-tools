@@ -176,7 +176,12 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
   oxidd_bdd_manager_t m;
   uint32_t var_base; // offset so this cluster's vars don't alias earlier ones
   size_t node_cap = 0, cache_cap = 0;
+  OxiddResolvedOrder order = {0};
   if (own_mgr) {
+    if (!oxidd_resolve_var_order(game, opts, 0, &order)) {
+      aig_free(game);
+      return nullptr;
+    }
     node_cap = opts->node_cap ? opts->node_cap
                               : oxidd_default_capacity(nvars_local, 6);
     cache_cap = opts->cache_cap ? opts->cache_cap
@@ -187,7 +192,20 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
     m = oxidd_bdd_manager_new(node_cap, cache_cap, 1);
     oxidd_bdd_manager_add_vars(m, nvars_local);
     var_base = 0;
+    if (!oxidd_apply_var_order(m, var_base, opts, &order)) {
+      oxidd_resolved_order_free(&order);
+      oxidd_bdd_manager_unref(m);
+      aig_free(game);
+      return nullptr;
+    }
+    oxidd_resolved_order_free(&order);
   } else {
+    if (!oxidd_var_order_is_default(opts)) {
+      oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "manager_create",
+                           "session_nondefault_order", 0, 0);
+      aig_free(game);
+      return nullptr;
+    }
     m = oxidd_session_get();
     if (!oxidd_session_config(opts, &node_cap, &cache_cap)) {
       oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "manager_create",

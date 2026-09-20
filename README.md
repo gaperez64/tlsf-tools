@@ -153,15 +153,16 @@ For a large, memory-hungry game, size the node arena and apply cache
 independently. A practical first try is:
 
 ```sh
-tlsfsolve --oxidd-nodes=33554432 --oxidd-cache=262144 \
+tlsfsolve --oxidd-var-order=fanin-dfs \
+  --oxidd-nodes=4194304 --oxidd-cache=262144 \
   game.aag > strategy.aag
 ```
 
 The capacities are entry counts, not bytes, and the node cap is not a process
-memory limit. Start with the default automatic GC; when testing a smaller node
-arena, also try `--oxidd-gc=pressure --oxidd-gc-threshold=80`. Pressure GC may
-lower the peak, with a workload-dependent runtime effect. See the
-[issue-24 measurements](experiments/oxidd-memory/followup-report.md) for details.
+memory limit. `fanin-dfs` is an opt-in structural order and can regress other
+families; retry the default `input-first` order before only raising caps. Start
+with automatic GC. See the [ordering measurements](experiments/oxidd-ordering/report.md)
+and [earlier issue-24 measurements](experiments/oxidd-memory/followup-report.md).
 For a reproducible allocation failure or suspected OOM, follow the
 [developer diagnostic guide](docs/tlsfsolve-diagnostics.md) and attach its
 bundle to a bug report.
