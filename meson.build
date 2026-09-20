@@ -1026,6 +1026,8 @@ if research_tools and have_oxidd
   test('gr1_fairness_fail_closed', check_contains,
     args: ['multiple_fairness_not_supported', tlsfsolve_exe, '--game-profile=gr1',
            files('test/cases/gr1_fairness_alternating.aag')])
+  test('tlsfsolve_help_defaults', files('test/check_tlsfsolve_help.sh'),
+    args: [tlsfsolve_exe])
   if python3.found()
     test('oxidd_semantic_oracle', python3,
       args: [files('test/check_oxidd_oracle.py'), tlsfsolve_exe], timeout: 120)
