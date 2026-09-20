@@ -1,0 +1,342 @@
+[
+  {
+    "instance": "aiger/LTL2AIG/demo-v10_2_REAL.aag",
+    "input_sha256": "fa3293790d7a8d5a2a1f637874424398149f9a1945f0a9dd53ea36c04784a8e9",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 24024,
+      "median": 24024,
+      "max": 24024
+    },
+    "elapsed_s": {
+      "min": 0.01,
+      "median": 0.01,
+      "max": 0.01
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/LTL2AIG/demo-v10_2_REAL.aag",
+    "input_sha256": "fa3293790d7a8d5a2a1f637874424398149f9a1945f0a9dd53ea36c04784a8e9",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 24264,
+      "median": 24264,
+      "max": 24264
+    },
+    "elapsed_s": {
+      "min": 0.0,
+      "median": 0.0,
+      "max": 0.0
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/LTL2AIG/demo-v11_2_UNREAL.aag",
+    "input_sha256": "d6543c81a4f0e53b368b6539d1d4f58ed77cb5157460094c115b36f00b2d119e",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 24140,
+      "median": 24140,
+      "max": 24140
+    },
+    "elapsed_s": {
+      "min": 0.01,
+      "median": 0.01,
+      "max": 0.01
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/LTL2AIG/demo-v11_2_UNREAL.aag",
+    "input_sha256": "d6543c81a4f0e53b368b6539d1d4f58ed77cb5157460094c115b36f00b2d119e",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 24192,
+      "median": 24192,
+      "max": 24192
+    },
+    "elapsed_s": {
+      "min": 0.0,
+      "median": 0.0,
+      "max": 0.0
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/LTL2AIG/load_full_4_comp4_REAL.aag",
+    "input_sha256": "d07c88bcb0054d875227038e56b23a51c2278cb418d313fe35e7b939bb2cbc2d",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "TIMEOUT",
+        "runs": 1,
+        "rss_kib": {
+          "min": 172044,
+          "median": 172044,
+          "max": 172044
+        },
+        "elapsed_s": {
+          "min": 60.01,
+          "median": 60.01,
+          "max": 60.01
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/LTL2AIG/load_full_4_comp4_REAL.aag",
+    "input_sha256": "d07c88bcb0054d875227038e56b23a51c2278cb418d313fe35e7b939bb2cbc2d",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 0,
+    "completed_statuses": [],
+    "rss_kib": null,
+    "elapsed_s": null,
+    "failures": [
+      {
+        "status": "TIMEOUT",
+        "runs": 1,
+        "rss_kib": {
+          "min": 171700,
+          "median": 171700,
+          "max": 171700
+        },
+        "elapsed_s": {
+          "min": 60.01,
+          "median": 60.01,
+          "max": 60.01
+        }
+      }
+    ]
+  },
+  {
+    "instance": "aiger/toy_examples/add10n.aag",
+    "input_sha256": "a0c2626418a6d4ddabb56e4b3b3f65d0948aa7d86c092030732e7ede827de79c",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 30044,
+      "median": 30044,
+      "max": 30044
+    },
+    "elapsed_s": {
+      "min": 0.05,
+      "median": 0.05,
+      "max": 0.05
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/toy_examples/add10n.aag",
+    "input_sha256": "a0c2626418a6d4ddabb56e4b3b3f65d0948aa7d86c092030732e7ede827de79c",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 32348,
+      "median": 32348,
+      "max": 32348
+    },
+    "elapsed_s": {
+      "min": 0.69,
+      "median": 0.69,
+      "max": 0.69
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/toy_examples/bs512y.aag",
+    "input_sha256": "d38cac04152ace0b30fc2687f2a6a68cef13e44c1d11257e1c598214df6432d0",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 76568,
+      "median": 76568,
+      "max": 76568
+    },
+    "elapsed_s": {
+      "min": 0.84,
+      "median": 0.84,
+      "max": 0.84
+    },
+    "failures": []
+  },
+  {
+    "instance": "aiger/toy_examples/bs512y.aag",
+    "input_sha256": "d38cac04152ace0b30fc2687f2a6a68cef13e44c1d11257e1c598214df6432d0",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 1,
+    "completed_runs": 1,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 107084,
+      "median": 107084,
+      "max": 107084
+    },
+    "elapsed_s": {
+      "min": 1.3,
+      "median": 1.3,
+      "max": 1.3
+    },
+    "failures": []
+  }
+]

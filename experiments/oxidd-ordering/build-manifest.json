@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-09-20T08:17:55Z",
+  "base_commit": "9c664034da0ba72cc4d857f27dcc8c082f06c903",
+  "branch": "codex/oxidd-ordering-experiments",
+  "platform": "Linux 7.2.5-100.fc43.x86_64 x86_64 GNU/Linux",
+  "cpu": "Intel(R) Core(TM) i3-8100T CPU @ 3.10GHz",
+  "online_cpus": 4,
+  "toolchain": {
+    "cc": "GCC 15.3.1 20260722 (Red Hat 15.3.1-1)",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc43)",
+    "meson": "1.8.5",
+    "ninja": "1.13.1"
+  },
+  "oxidd": {
+    "commit": "9158645e51ab03b44355aff222fb39aec4d0a0f8",
+    "release_archive": "external/oxidd/target/release/liboxidd_ffi_c.a",
+    "release_archive_sha256": "19b1d0426793268bcf4ec846eafb619175059298ad40a466a97e699cba96c21b",
+    "build_command": "scripts/build_oxidd.sh",
+    "rust_profile": "release"
+  },
+  "corpus": {
+    "repository": "SYNTCOMP/benchmarks",
+    "commit": "58e8213f85f395f661b4e23d9fb452c1ffe9015d",
+    "issue24_fetcher": "scripts/fetch_syntcomp_issue24.py",
+    "heldout_manifest": "experiments/oxidd-ordering/heldout-manifest.json"
+  },
+  "binaries": {
+    "original": {
+      "path_at_measurement": "build-ordering-baseline/tlsfsolve.frozen",
+      "sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+      "version": "tlsfsolve 9c66403 oxidd=yes research=yes simd=x86-64-v2 diagnostics=no",
+      "meson_command": "meson setup build-ordering-baseline --buildtype=release -Dresearch_tools=true -Doxidd=enabled -Db_ndebug=true -Dcpu=x86-64-v2"
+    },
+    "experiment_release": {
+      "path_at_measurement": "build-ordering-release-fresh2/tlsfsolve",
+      "sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+      "version": "tlsfsolve 9c66403-dirty oxidd=yes research=yes simd=x86-64-v2 diagnostics=no",
+      "meson_command": "meson setup build-ordering-release-fresh2 --buildtype=release -Db_ndebug=true -Doxidd=enabled -Dresearch_tools=true -Dcpu=x86-64-v2"
+    },
+    "experiment_diagnostic": {
+      "path_at_measurement": "build-ordering-debug/tlsfsolve",
+      "sha256": "6bcff61bf9cb26edf394831b624af6279795c923275ca7430b26a90252e444a9",
+      "version": "tlsfsolve 9c66403-dirty oxidd=yes research=yes simd=x86-64-v2 diagnostics=yes",
+      "meson_command": "meson setup build-ordering-debug --buildtype=debugoptimized -Db_ndebug=false -Doxidd=enabled -Dresearch_tools=true -Dcpu=x86-64-v2"
+    }
+  },
+  "scripts": {
+    "measurement_runner": {
+      "path": "scripts/measure_tlsfsolve_memory.py",
+      "final_source_sha256": "0c6edf2fd03e6dc5ad1b082e8975fff4c95fa8e8d1da695ac35e0009fcd014fe",
+      "note": "Each campaign manifest records the exact runner hash used for that campaign."
+    },
+    "cone_analyzer": {
+      "path": "scripts/analyze_oxidd_cone.py",
+      "sha256": "b59c6425aaa9a260ed88e58288124e10d9b2d8164b308fb7025397f4fed61d89"
+    }
+  },
+  "measurement_policy": {
+    "parallel_solver_processes": 1,
+    "external_process_limit": null,
+    "rss": "Linux ru_maxrss from GNU time %M, KiB, per timeout/solver process tree",
+    "release_diagnostics": false,
+    "rust_debug_assertions": false
+  }
+}

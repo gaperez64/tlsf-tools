@@ -1,0 +1,107 @@
+{
+  "status": "SAFE",
+  "steps": [
+    {
+      "label": "read-game",
+      "command": [
+        "/home/gaperez/GIT-repos/aiger/aigtoaig",
+        "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to7.aag",
+        "game.aag"
+      ],
+      "returncode": 0,
+      "seconds": 0.001641
+    },
+    {
+      "label": "read-strategy",
+      "command": [
+        "/home/gaperez/GIT-repos/aiger/aigtoaig",
+        "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-beem-recommended/r1-beemprdcell2f1_c0to7-4194304-fanin-dfs/stdout.aag",
+        "strategy.aag"
+      ],
+      "returncode": 0,
+      "seconds": 0.007837
+    },
+    {
+      "label": "property",
+      "command": [
+        "/home/gaperez/GIT-repos/aiger/aigmove",
+        "-r",
+        "game.aag",
+        "monitor.aag"
+      ],
+      "returncode": 0,
+      "seconds": 0.001672
+    },
+    {
+      "label": "compose",
+      "command": [
+        "/home/gaperez/GIT-repos/tlsf-tools/build-memory-combine/combine-aiger",
+        "monitor.aag",
+        "strategy.aag"
+      ],
+      "returncode": 0,
+      "seconds": 0.015915
+    },
+    {
+      "label": "validate-composition",
+      "command": [
+        "/home/gaperez/GIT-repos/aiger/aigtoaig",
+        "composed.aag",
+        "closed-loop.aag"
+      ],
+      "returncode": 0,
+      "seconds": 0.007873
+    },
+    {
+      "label": "binary",
+      "command": [
+        "/home/gaperez/GIT-repos/aiger/aigtoaig",
+        "closed-loop.aag",
+        "closed-loop.aig"
+      ],
+      "returncode": 0,
+      "seconds": 0.007897
+    },
+    {
+      "label": "proof",
+      "command": [
+        "/home/gaperez/GIT-repos/tlsf-tools/build-memory-abc/abc",
+        "-s",
+        "-c",
+        "read_aiger closed-loop.aig; pdr; write_status proof.status"
+      ],
+      "returncode": 0,
+      "seconds": 0.114246
+    }
+  ],
+  "tools": {
+    "combine-aiger": {
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-combine/combine-aiger",
+      "sha256": "9eb4a1b1f6ee6c0f559ceb677506cc7928e71aa7f6a9252be15436c2fc34b566"
+    },
+    "abc": {
+      "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-abc/abc",
+      "sha256": "c3b32669396fa558c560ebaed1a2b98f0e4ce91c989e0f582923586532c19d78"
+    },
+    "aigmove": {
+      "path": "/home/gaperez/GIT-repos/aiger/aigmove",
+      "sha256": "5cb2720c2e8f421b58131d6239867b43157fb7e299746104e60fe6c22316411e"
+    },
+    "aigtoaig": {
+      "path": "/home/gaperez/GIT-repos/aiger/aigtoaig",
+      "sha256": "026b306d1b2209a8207c333567a330d605db8b37529d68ab628d99cefcad038b"
+    }
+  },
+  "game": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to7.aag",
+    "sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783"
+  },
+  "strategy": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-beem-recommended/r1-beemprdcell2f1_c0to7-4194304-fanin-dfs/stdout.aag",
+    "sha256": "cae7133972aa59d531f22908f49c5958f9ed90c8c28ba65b0a7ab296adf35b49"
+  },
+  "closed_loop": {
+    "path": "/home/gaperez/GIT-repos/tlsf-tools/build-ordering-proof-beem-c0to7/closed-loop.aig",
+    "sha256": "b59472a164c2262e300eb474dd880513630902da97fc4a743be198eef30a71b0"
+  }
+}

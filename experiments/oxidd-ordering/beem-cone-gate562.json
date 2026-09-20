@@ -1,0 +1,297 @@
+{
+  "schema": 1,
+  "input": "/home/gaperez/GIT-repos/tlsf-tools/build-memory-corpus/beemprdcell2f1_c0to1.aag",
+  "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+  "profile": "legacy-safety",
+  "header": {
+    "M": 937,
+    "I": 26,
+    "L": 110,
+    "O": 1,
+    "A": 801,
+    "B": 0,
+    "C": 0,
+    "J": 0,
+    "F": 0
+  },
+  "roots": [
+    288,
+    315,
+    325,
+    335,
+    345,
+    355,
+    365,
+    375,
+    381,
+    384,
+    388,
+    392,
+    396,
+    400,
+    404,
+    408,
+    413,
+    461,
+    483,
+    505,
+    527,
+    549,
+    571,
+    591,
+    603,
+    609,
+    615,
+    621,
+    627,
+    633,
+    639,
+    645,
+    651,
+    657,
+    663,
+    669,
+    675,
+    681,
+    687,
+    693,
+    699,
+    705,
+    711,
+    717,
+    723,
+    729,
+    735,
+    741,
+    747,
+    750,
+    754,
+    758,
+    762,
+    766,
+    770,
+    774,
+    778,
+    782,
+    786,
+    790,
+    794,
+    798,
+    802,
+    806,
+    810,
+    818,
+    826,
+    834,
+    842,
+    850,
+    858,
+    866,
+    874,
+    882,
+    890,
+    898,
+    906,
+    914,
+    922,
+    930,
+    938,
+    943,
+    947,
+    950,
+    954,
+    958,
+    963,
+    967,
+    970,
+    974,
+    978,
+    984,
+    990,
+    997,
+    1002,
+    242,
+    1007,
+    1013,
+    1017,
+    1022,
+    1026,
+    1033,
+    1038,
+    1045,
+    1051,
+    1055,
+    1063,
+    1070,
+    1079,
+    1082,
+    1875
+  ],
+  "relevant_gate_count": 801,
+  "target": {
+    "source_gate_index": 562,
+    "parser_normalized_gate_index": 562,
+    "source_normalized_indices_equal": true,
+    "lhs_literal": 1398,
+    "left_literal": 1397,
+    "right_literal": 1374,
+    "support": "mixed",
+    "relevant": true,
+    "root_occurrences": 0,
+    "consumer_occurrences": 1,
+    "fanouts": [
+      {
+        "consumer_gate_index": 565,
+        "position": "right",
+        "literal": 1398,
+        "polarity": "positive"
+      }
+    ],
+    "children": [
+      {
+        "literal": 1397,
+        "support": "mixed",
+        "occurrences": 1,
+        "root_occurrences": 0,
+        "fusion_barrier": "negative_edge"
+      },
+      {
+        "literal": 1374,
+        "support": "mixed",
+        "occurrences": 1,
+        "root_occurrences": 0,
+        "fusion_barrier": null
+      }
+    ],
+    "proposed_conservative_grouping": {
+      "absorbed_gate_indices": [
+        550,
+        547,
+        544,
+        541,
+        535,
+        530,
+        525,
+        520,
+        502,
+        491,
+        480,
+        469,
+        466,
+        461,
+        458,
+        454,
+        448,
+        426,
+        415
+      ],
+      "stable_factors": [
+        {
+          "literal": 1397,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1373,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1367,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1361,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1355,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1343,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1333,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1323,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1313,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1277,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1255,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1233,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1211,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1205,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1195,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1189,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1181,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1169,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1125,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1103,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        },
+        {
+          "literal": 1085,
+          "support": "mixed",
+          "barrier": "negative_edge"
+        }
+      ]
+    }
+  }
+}

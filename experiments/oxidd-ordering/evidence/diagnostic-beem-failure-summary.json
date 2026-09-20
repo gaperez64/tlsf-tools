@@ -1,0 +1,43 @@
+{
+  "duration_seconds": 1.3383371829986572,
+  "first_failure": {
+    "event": "failure",
+    "index": 562,
+    "kind": 1,
+    "operation": "and",
+    "operation_id": 1367,
+    "phase": "construction",
+    "schema": 1,
+    "seq": 12
+  },
+  "last_event": {
+    "built_gates": 563,
+    "event": "summary",
+    "explicit_gc": 1,
+    "operations": 1367,
+    "phase": "construction",
+    "recovered": 0,
+    "relevant_gates": 801,
+    "retries": 1,
+    "sampled_stored_peak": 4194319,
+    "schema": 1,
+    "seq": 17
+  },
+  "malformed_trace_lines": [],
+  "phase_seconds": {
+    "construction": 1.302434
+  },
+  "resource_usage": {
+    "peak_rss_kib": 228064.0,
+    "system_seconds": 0.086739,
+    "user_seconds": 1.304787
+  },
+  "returncode": 2,
+  "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+  "schema": 1,
+  "signal": null,
+  "stderr_file": "stderr.log",
+  "stdout_file": "stdout.txt",
+  "timed_out": false,
+  "unfinished_operation": null
+}

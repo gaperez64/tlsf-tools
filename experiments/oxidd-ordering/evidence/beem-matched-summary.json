@@ -1,0 +1,299 @@
+[
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "control",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 887888,
+      "median": 888132,
+      "max": 888264
+    },
+    "elapsed_s": {
+      "min": 7.97,
+      "median": 7.99,
+      "max": 8.1
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57660,
+      "median": 57740,
+      "max": 57856
+    },
+    "elapsed_s": {
+      "min": 0.26,
+      "median": 0.26,
+      "max": 0.28
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 888100,
+      "median": 888180,
+      "max": 888316
+    },
+    "elapsed_s": {
+      "min": 8.01,
+      "median": 8.42,
+      "max": 8.43
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "control",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 888116,
+      "median": 888252,
+      "max": 888272
+    },
+    "elapsed_s": {
+      "min": 8.0,
+      "median": 8.53,
+      "max": 8.94
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57732,
+      "median": 57740,
+      "max": 57744
+    },
+    "elapsed_s": {
+      "min": 0.26,
+      "median": 0.26,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 887880,
+      "median": 888016,
+      "max": 888200
+    },
+    "elapsed_s": {
+      "min": 8.0,
+      "median": 8.61,
+      "max": 8.83
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "control",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 887996,
+      "median": 888128,
+      "max": 888208
+    },
+    "elapsed_s": {
+      "min": 8.06,
+      "median": 8.82,
+      "max": 8.94
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57740,
+      "median": 57820,
+      "max": 57848
+    },
+    "elapsed_s": {
+      "min": 0.26,
+      "median": 0.29,
+      "max": 0.35
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 33554432,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 888060,
+      "median": 888196,
+      "max": 888200
+    },
+    "elapsed_s": {
+      "min": 7.92,
+      "median": 8.62,
+      "max": 8.93
+    },
+    "failures": []
+  }
+]

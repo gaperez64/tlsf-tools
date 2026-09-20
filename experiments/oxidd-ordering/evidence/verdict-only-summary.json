@@ -1,0 +1,167 @@
+[
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "verdict-only",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 73168,
+      "median": 73212,
+      "max": 73256
+    },
+    "elapsed_s": {
+      "min": 0.28,
+      "median": 0.28,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "verdict-only",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 72960,
+      "median": 73212,
+      "max": 73268
+    },
+    "elapsed_s": {
+      "min": 0.28,
+      "median": 0.28,
+      "max": 0.29
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "verdict-only",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 73100,
+      "median": 73168,
+      "max": 73276
+    },
+    "elapsed_s": {
+      "min": 0.28,
+      "median": 0.28,
+      "max": 0.28
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "verdict-only",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 153316,
+      "median": 153456,
+      "max": 153460
+    },
+    "elapsed_s": {
+      "min": 1.79,
+      "median": 1.8,
+      "max": 1.8
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 1048576,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "verdict-only",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 116820,
+      "median": 116904,
+      "max": 117060
+    },
+    "elapsed_s": {
+      "min": 0.76,
+      "median": 0.76,
+      "max": 0.76
+    },
+    "failures": []
+  }
+]

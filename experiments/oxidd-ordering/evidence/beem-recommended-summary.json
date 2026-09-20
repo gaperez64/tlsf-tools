@@ -1,0 +1,101 @@
+[
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to1.aag",
+    "input_sha256": "e83d370bad8392dd0ada52f6b8d4965c52670babf6999e100f2a1b9712be7c09",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57796,
+      "median": 57868,
+      "max": 57868
+    },
+    "elapsed_s": {
+      "min": 0.28,
+      "median": 0.28,
+      "max": 0.38
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to3.aag",
+    "input_sha256": "6e0cd1023b3bba4d337eb97e40748c379ae3e2b2cc9ba43e345c9b3b4bbad354",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57792,
+      "median": 57808,
+      "max": 57912
+    },
+    "elapsed_s": {
+      "min": 0.28,
+      "median": 0.29,
+      "max": 0.3
+    },
+    "failures": []
+  },
+  {
+    "instance": "HWMCC12/beemprdcell2f1_c0to7.aag",
+    "input_sha256": "6e32a9da97b1cc4ec0e20d85703b82b654d01059a9135ccd0f9c3e87303af783",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 4194304,
+    "cache": 262144,
+    "gc": "auto",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "REALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 57792,
+      "median": 57808,
+      "max": 57860
+    },
+    "elapsed_s": {
+      "min": 0.28,
+      "median": 0.28,
+      "max": 0.29
+    },
+    "failures": []
+  }
+]

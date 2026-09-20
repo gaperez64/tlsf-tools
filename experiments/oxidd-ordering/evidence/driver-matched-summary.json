@@ -1,0 +1,200 @@
+[
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "control",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "pressure",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 340148,
+      "median": 341596,
+      "max": 341604
+    },
+    "elapsed_s": {
+      "min": 20.03,
+      "median": 21.42,
+      "max": 22.15
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "pressure",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 141544,
+      "median": 141568,
+      "max": 141572
+    },
+    "elapsed_s": {
+      "min": 1.46,
+      "median": 1.8,
+      "max": 2.15
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2n.aag",
+    "input_sha256": "b1a970871618740c5edc710077bf7369b235a05c89862138e245467a7af8c838",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "pressure",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 341616,
+      "median": 341652,
+      "max": 341696
+    },
+    "elapsed_s": {
+      "min": 19.47,
+      "median": 22.65,
+      "max": 25.86
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "control",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "pressure",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 329304,
+      "median": 329456,
+      "max": 329580
+    },
+    "elapsed_s": {
+      "min": 11.75,
+      "median": 12.42,
+      "max": 15.04
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "fanin-dfs",
+    "binary_sha256": "d55a29653e9daf1eaa28ef8d10cacf1cf754805f066dca4d3f02bf2bb4e40294",
+    "variable_order": "fanin-dfs",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "pressure",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 116948,
+      "median": 116992,
+      "max": 117040
+    },
+    "elapsed_s": {
+      "min": 0.81,
+      "median": 0.96,
+      "max": 1.76
+    },
+    "failures": []
+  },
+  {
+    "instance": "driver/driver_c2y.aag",
+    "input_sha256": "840e26904e9095107a1ffd1972fe2b3400e22a5de80f792217156d959853f6a4",
+    "variant": "original",
+    "binary_sha256": "8cb34434f19625278e7f5e52908f9f4fbac1c5af859cad5a3ad8828af63c6715",
+    "variable_order": "input-first",
+    "order_file_sha256": null,
+    "build_plan": "gates",
+    "plan_version": 1,
+    "profile": "legacy-safety",
+    "nodes": 8388608,
+    "cache": 1048576,
+    "gc": "pressure",
+    "gc_threshold": 80,
+    "transitions": "eager",
+    "mode": "full",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "completed_statuses": [
+      "UNREALIZABLE"
+    ],
+    "rss_kib": {
+      "min": 329428,
+      "median": 329516,
+      "max": 329568
+    },
+    "elapsed_s": {
+      "min": 11.82,
+      "median": 11.94,
+      "max": 12.44
+    },
+    "failures": []
+  }
+]

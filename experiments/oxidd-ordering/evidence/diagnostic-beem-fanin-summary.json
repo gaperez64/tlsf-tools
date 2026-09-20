@@ -1,0 +1,39 @@
+{
+  "duration_seconds": 0.32552671432495117,
+  "first_failure": null,
+  "last_event": {
+    "built_gates": 801,
+    "event": "summary",
+    "explicit_gc": 0,
+    "operations": 2068,
+    "phase": "conversion",
+    "recovered": 0,
+    "relevant_gates": 801,
+    "retries": 0,
+    "sampled_stored_peak": 1507329,
+    "schema": 1,
+    "seq": 136
+  },
+  "malformed_trace_lines": [],
+  "phase_seconds": {
+    "construction": 0.30361899999999997,
+    "conversion": 0.001727,
+    "fixpoint": 4.8e-05,
+    "root_release": 5e-06,
+    "skolem": 2.6e-05,
+    "strategy_relation": 1.1e-05
+  },
+  "resource_usage": {
+    "peak_rss_kib": 58332.0,
+    "system_seconds": 0.033134,
+    "user_seconds": 0.281779
+  },
+  "returncode": 0,
+  "rss_scope": "wait4 per-child peak RSS, KiB; unavailable on platforms without wait4",
+  "schema": 1,
+  "signal": null,
+  "stderr_file": "stderr.log",
+  "stdout_file": "strategy.aag",
+  "timed_out": false,
+  "unfinished_operation": null
+}

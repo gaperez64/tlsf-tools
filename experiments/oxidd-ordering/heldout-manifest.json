@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "source_repository": "https://github.com/SYNTCOMP/benchmarks",
+  "source_commit": "58e8213f85f395f661b4e23d9fb452c1ffe9015d",
+  "tree_metadata_sha256": "7de5f6fcda049d40d49524b8d40c79504c7eff0420a0003215fe3cde239134a7",
+  "selection": "Before candidate runs, use families amba, genbuf, toy_examples, and LTL2AIG. From ASCII AAG blobs no larger than 262144 bytes, select the lexicographically first ordinary case, the lexicographically first explicitly unrealizable case where the family provides one (otherwise the next ordinary case), and the largest ordinary/explicitly-realizable case per family. Explicit 'unreal'/'UNREAL' and 'REAL' names determine AMBA/GenBuf/LTL2AIG expectations. Legacy toy n/y suffixes are encodings, not verdict labels, so their expected status is intentionally null and variants are compared directly. Ties use path order.",
+  "cases": [
+    {
+      "path": "aiger/amba/amba10b10n.aag",
+      "file": "amba10b10n.aag",
+      "git_blob_sha1": "9e38ef5b5a166214adf2797a31d2d1ddfb38b566",
+      "sha256": "f7de47d505ce2c4796c1afce34d0b8c128ab66989231900178b21af53b106aa8",
+      "expected_status": "REALIZABLE"
+    },
+    {
+      "path": "aiger/amba/amba10b4unrealn.aag",
+      "file": "amba10b4unrealn.aag",
+      "git_blob_sha1": "c6836880c98f4e3ecf9d435c5cc9eaf84f2024b6",
+      "sha256": "2f9eebe926c0cb5a6e123113950ec3e8a244c87ad7f86e08365efebae8457320",
+      "expected_status": "UNREALIZABLE"
+    },
+    {
+      "path": "aiger/amba/amba16b50n.aag",
+      "file": "amba16b50n.aag",
+      "git_blob_sha1": "d6d75f199cb67caeb0dd9911a1bf5bb2ffef7b6b",
+      "sha256": "a817d6f6f1e457ed3fdd48128ae6d95b09ead8d4f63e284e5228f7ac8dff91ec",
+      "expected_status": "REALIZABLE"
+    },
+    {
+      "path": "aiger/genbuf/genbuf10b4n.aag",
+      "file": "genbuf10b4n.aag",
+      "git_blob_sha1": "4d3ea80b2c07e400fb945295031ff69c3dc07e71",
+      "sha256": "2389194831ec2a70a2e01ed717ebe2856a66574c13f92c89035915ea824358d0",
+      "expected_status": "REALIZABLE"
+    },
+    {
+      "path": "aiger/genbuf/genbuf10b3unrealn.aag",
+      "file": "genbuf10b3unrealn.aag",
+      "git_blob_sha1": "2947fb28ac5b3c2766a7514c89279e4526567f04",
+      "sha256": "11828488841ef7b64266b5f5591351f41026fe8d0db8cbf4331f09b760694eb5",
+      "expected_status": "UNREALIZABLE"
+    },
+    {
+      "path": "aiger/genbuf/genbuf32c40n.aag",
+      "file": "genbuf32c40n.aag",
+      "git_blob_sha1": "a1567f0c11c2c5b6741cb631cd0e01290330d307",
+      "sha256": "a5124804bedc7d8c2d6ed96a5d10f339ba3a4ba278e3a4b9e6782ed8a5534e0a",
+      "expected_status": "REALIZABLE"
+    },
+    {
+      "path": "aiger/toy_examples/add10y.aag",
+      "file": "add10y.aag",
+      "git_blob_sha1": "9670da52010344fbccf234b9628a646c80e18e9c",
+      "sha256": "cfe53b9d228adb6418c4cb233fd88acd1de1805bae65c318159a1729246b812e",
+      "expected_status": null
+    },
+    {
+      "path": "aiger/toy_examples/add10n.aag",
+      "file": "add10n.aag",
+      "git_blob_sha1": "2a0546a340820505d6ef5eb76ff29f8191fab784",
+      "sha256": "a0c2626418a6d4ddabb56e4b3b3f65d0948aa7d86c092030732e7ede827de79c",
+      "expected_status": null
+    },
+    {
+      "path": "aiger/toy_examples/bs512y.aag",
+      "file": "bs512y.aag",
+      "git_blob_sha1": "391d65528ef882efa6695332eb8f64cd63718f5e",
+      "sha256": "d38cac04152ace0b30fc2687f2a6a68cef13e44c1d11257e1c598214df6432d0",
+      "expected_status": null
+    },
+    {
+      "path": "aiger/LTL2AIG/demo-v10_2_REAL.aag",
+      "file": "demo-v10_2_REAL.aag",
+      "git_blob_sha1": "edd30a1c2c1a78a3cb613731974e1afcd09d4f2e",
+      "sha256": "fa3293790d7a8d5a2a1f637874424398149f9a1945f0a9dd53ea36c04784a8e9",
+      "expected_status": "REALIZABLE"
+    },
+    {
+      "path": "aiger/LTL2AIG/demo-v11_2_UNREAL.aag",
+      "file": "demo-v11_2_UNREAL.aag",
+      "git_blob_sha1": "b259be9dc151cc3cc5facc1f37ee190699c1ddf3",
+      "sha256": "d6543c81a4f0e53b368b6539d1d4f58ed77cb5157460094c115b36f00b2d119e",
+      "expected_status": "UNREALIZABLE"
+    },
+    {
+      "path": "aiger/LTL2AIG/load_full_4_comp4_REAL.aag",
+      "file": "load_full_4_comp4_REAL.aag",
+      "git_blob_sha1": "1f41d51116dea854cd8b2874b53bc4fb9b2a1ac8",
+      "sha256": "d07c88bcb0054d875227038e56b23a51c2278cb418d313fe35e7b939bb2cbc2d",
+      "expected_status": "REALIZABLE"
+    }
+  ]
+}
