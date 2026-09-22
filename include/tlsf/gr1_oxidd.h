@@ -11,6 +11,11 @@
 typedef struct {
   const char *aag_path;
   const char *json_path;
+  /// Optional combinational policy export.  Its inputs are game state,
+  /// curr_0..curr_(m-1), and uncontrollable inputs; its outputs are the
+  /// controllable game inputs and curr_next_0..curr_next_(m-1).
+  const char *policy_aag_path;
+  const char *policy_json_path;
   bool failed;
   char error[256];
 } Gr1CertificateOptions;

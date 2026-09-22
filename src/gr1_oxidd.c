@@ -536,6 +536,191 @@ static bool export_certificate(OxiddRun *run, Aig *game,
   return true;
 }
 
+static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
+                              const char *aag_path, uint32_t original_nlat,
+                              uint32_t m_goals) {
+  uint32_t nin = aig_num_inputs(game);
+  uint32_t nlat = aig_num_latches(game);
+  uint32_t nu = 0, nc = 0;
+  for (uint32_t p = 0; p < nin; p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    if (is_controllable(name))
+      nc++;
+    else
+      nu++;
+  }
+
+  fputs("{\n  \"format\": \"tlsf-gr1-policy-v1\",\n", out);
+  fputs("  \"circuit\": {\"path\": ", out);
+  json_string(out, aag_path);
+  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
+  fprintf(out,
+          "  \"counts\": {\"game_state_variables\": %u, "
+          "\"original_game_latches\": %u, \"sampling_latches\": %u, "
+          "\"goals\": %u, \"uncontrollable_inputs\": %u, "
+          "\"controllable_outputs\": %u, \"aig_inputs\": %u, "
+          "\"aig_outputs\": %u, \"aig_ands\": %u},\n",
+          nlat, original_nlat, nlat - original_nlat, m_goals, nu, nc,
+          aig_num_inputs(policy), aig_num_outputs(policy),
+          aig_num_ands(policy));
+
+  fputs("  \"inputs\": {\n    \"state\": [", out);
+  for (uint32_t j = 0; j < nlat; j++) {
+    const char *name = aig_latch_name(game, j);
+    char fallback[32];
+    if (!name) {
+      snprintf(fallback, sizeof fallback, "l%u", j);
+      name = fallback;
+    }
+    fprintf(out, "%s{\"policy_input\": %u, \"game_latch\": %u, \"name\": ",
+            j ? ", " : "", j, j);
+    json_string(out, name);
+    fputc('}', out);
+  }
+  fputs("],\n    \"counter\": [", out);
+  for (uint32_t j = 0; j < m_goals; j++)
+    fprintf(out,
+            "%s{\"policy_input\": %u, \"goal\": %u, "
+            "\"name\": \"curr_%u\", \"reset\": 0, "
+            "\"effective_initial\": %s}",
+            j ? ", " : "", nlat + j, j, j, j == 0 ? "true" : "false");
+  fputs("],\n    \"uncontrollable\": [", out);
+  bool first = true;
+  uint32_t policy_input = nlat + m_goals;
+  for (uint32_t p = 0; p < nin; p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    if (is_controllable(name))
+      continue;
+    fprintf(out, "%s{\"policy_input\": %u, \"game_input\": %u, \"name\": ",
+            first ? "" : ", ", policy_input++, p);
+    json_string(out, name);
+    fputc('}', out);
+    first = false;
+  }
+  fputs("]\n  },\n  \"outputs\": {\n    \"controllable\": [", out);
+  first = true;
+  uint32_t policy_output = 0;
+  for (uint32_t p = 0; p < nin; p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    if (!is_controllable(name))
+      continue;
+    fprintf(out, "%s{\"policy_output\": %u, \"game_input\": %u, \"name\": ",
+            first ? "" : ", ", policy_output++, p);
+    json_string(out, name);
+    fputc('}', out);
+    first = false;
+  }
+  fputs("],\n    \"counter_next\": [", out);
+  for (uint32_t j = 0; j < m_goals; j++)
+    fprintf(out,
+            "%s{\"policy_output\": %u, \"goal\": %u, "
+            "\"name\": \"curr_next_%u\"}",
+            j ? ", " : "", policy_output + j, j, j);
+  fputs("]\n  },\n", out);
+  fputs("  \"counter_semantics\": ", out);
+  json_string(out,
+              "All curr bits reset to zero; all-zero is interpreted as curr_0. "
+              "Every transition produces exactly one hot next bit, advancing "
+              "from j to (j+1) mod goals iff goal_j holds, otherwise staying.");
+  fputs("\n}\n", out);
+  return !ferror(out);
+}
+
+static bool export_policy(OxiddRun *run, const Aig *game,
+                          Gr1CertificateOptions *options,
+                          uint32_t original_nlat, uint32_t m_goals,
+                          uint32_t nin, uint32_t nlat, uint32_t nvars,
+                          uint32_t var_base, const uint32_t *cinput,
+                          uint32_t ncv, const Bdd *strat_f,
+                          const Bdd *next_curr) {
+  Aig *policy = aig_new();
+  uint32_t *var2lit = malloc(nvars * sizeof *var2lit);
+  if (!policy || !var2lit) {
+    oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, run->phase,
+                         "policy_allocation", run->operations, run->index);
+    aig_free(policy);
+    free(var2lit);
+    certificate_error(options, "cannot allocate GR(1) policy", nullptr);
+    return false;
+  }
+  for (uint32_t v = 0; v < nvars; v++)
+    var2lit[v] = UINT32_MAX;
+
+  for (uint32_t j = 0; j < nlat; j++) {
+    const char *name = aig_latch_name(game, j);
+    char fallback[32];
+    if (!name) {
+      snprintf(fallback, sizeof fallback, "l%u", j);
+      name = fallback;
+    }
+    var2lit[nin + j] = aig_input(policy, name);
+  }
+  char name[96];
+  for (uint32_t j = 0; j < m_goals; j++) {
+    snprintf(name, sizeof name, "curr_%u", j);
+    var2lit[nin + nlat + j] = aig_input(policy, name);
+  }
+  for (uint32_t p = 0; p < nin; p++) {
+    const char *input_name = aig_input_name(game, p, nullptr);
+    if (!is_controllable(input_name))
+      var2lit[p] = aig_input(policy, input_name);
+  }
+
+  Bdd2Aig ctx = {policy, var2lit, var_base, nvars, {0}, false};
+  for (uint32_t k = 0; k < ncv; k++) {
+    const char *output_name = aig_input_name(game, cinput[k], nullptr);
+    aig_set_output(policy, output_name, bdd2aig(&ctx, strat_f[k]));
+  }
+  for (uint32_t j = 0; j < m_goals; j++) {
+    snprintf(name, sizeof name, "curr_next_%u", j);
+    aig_set_output(policy, name, bdd2aig(&ctx, next_curr[j]));
+  }
+  memo_free(&ctx.memo);
+  free(var2lit);
+  if (ctx.error) {
+    oxidd_record_failure(run->options, OXIDD_FAILURE_CONVERSION, run->phase,
+                         "policy_bdd2aig", run->operations, run->index);
+    aig_free(policy);
+    certificate_error(options, "BDD-to-AIG policy conversion failed", nullptr);
+    return false;
+  }
+
+  FILE *aag = fopen(options->policy_aag_path, "w");
+  if (!aag) {
+    aig_free(policy);
+    certificate_error(options, "cannot open policy", options->policy_aag_path);
+    return false;
+  }
+  aig_write_aag(aag, policy);
+  bool ok = !ferror(aag);
+  if (fclose(aag) != 0)
+    ok = false;
+  if (!ok) {
+    aig_free(policy);
+    certificate_error(options, "cannot write policy", options->policy_aag_path);
+    return false;
+  }
+
+  FILE *json = fopen(options->policy_json_path, "w");
+  if (!json) {
+    aig_free(policy);
+    certificate_error(options, "cannot open policy sidecar",
+                      options->policy_json_path);
+    return false;
+  }
+  ok = write_policy_json(json, policy, game, options->policy_aag_path,
+                         original_nlat, m_goals);
+  if (fclose(json) != 0)
+    ok = false;
+  aig_free(policy);
+  if (!ok) {
+    certificate_error(options, "cannot write policy sidecar",
+                      options->policy_json_path);
+    return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // cpre helpers
 // ---------------------------------------------------------------------------
@@ -593,6 +778,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(
 
   bool want_certificate = certificate && certificate->aag_path;
   bool want_certificate_json = want_certificate && certificate->json_path;
+  bool want_policy = certificate && certificate->policy_aag_path;
   if (certificate) {
     certificate->failed = false;
     certificate->error[0] = '\0';
@@ -1320,6 +1506,17 @@ Aig *solve_gr1_oxidd_ex_with_certificate(
       oxidd_record_failure(opts, OXIDD_FAILURE_CONVERSION, "conversion",
                            "bdd2aig_or_substitution", run->operations,
                            run->index);
+      aig_free(strat);
+      strat = nullptr;
+      ok = false;
+    }
+  }
+
+  if (ok && want_policy && !*unreal) {
+    oxidd_phase(run, "policy");
+    if (!export_policy(run, game, certificate, original_nlat, m_goals, nin,
+                       nlat, nvars, var_base, cinput, ncv, strat_f,
+                       next_curr)) {
       aig_free(strat);
       strat = nullptr;
       ok = false;

@@ -434,6 +434,16 @@ if research_tools
       install: true,
     )
 
+    tlsfcertcheck_exe = executable(
+      'tlsfcertcheck',
+      sources: ['src/main_tlsfcertcheck.c', 'src/oxidd_common.c', version_h],
+      c_args: ['-DHAVE_OXIDD'],
+      dependencies: [oxidd_dep],
+      link_with: tlsf_lib,
+      include_directories: inc,
+      install: true,
+    )
+
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
       sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c',
@@ -563,6 +573,8 @@ if research_tools
       args: ['tlsfcompose', tlsfcompose_exe])
     test('version_tlsfsolve', check_version,
       args: ['tlsfsolve', tlsfsolve_exe])
+    test('version_tlsfcertcheck', check_version,
+      args: ['tlsfcertcheck', tlsfcertcheck_exe])
   endif
 endif
 
@@ -1135,6 +1147,12 @@ if research_tools and have_oxidd
     test('gr1_certificate', python3,
       args: [files('test/test_gr1_certificate.py'),
              '--solver', tlsfsolve_exe, '--games', '240'],
+      timeout: 180,
+    )
+    test('gr1_certcheck', python3,
+      args: [files('test/test_gr1_certcheck.py'),
+             '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,
+             '--games', '80'],
       timeout: 180,
     )
   endif
