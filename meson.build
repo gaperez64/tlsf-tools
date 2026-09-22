@@ -1132,6 +1132,11 @@ if research_tools and have_oxidd
              '--solver', tlsfsolve_exe, '--games', '320'],
       timeout: 120,
     )
+    test('gr1_certificate', python3,
+      args: [files('test/test_gr1_certificate.py'),
+             '--solver', tlsfsolve_exe, '--games', '240'],
+      timeout: 180,
+    )
   endif
   if spot_python_found
     test('gr1_monitor_game', spot_python,
