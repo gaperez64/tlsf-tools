@@ -133,7 +133,14 @@ uint32_t aig_fairness_at(const Aig *g, uint32_t i);
 /// Optional symbol name of fairness constraint `i`.
 const char *aig_fairness_name(const Aig *g, uint32_t i);
 
-/// Parse an ASCII `aag` from `in` (inputs/latches/outputs/ands + i/o symbols).
+/// Replace every justice/fairness literal whose combinational cone reads an
+/// input with a fresh reset-0 latch whose next-state function is that literal.
+/// State-only acceptance literals are unchanged.  This turns transition-level
+/// AIGER acceptance into state predicates while preserving each GF property.
+void aig_sample_input_dependent_acceptance(Aig *g);
+
+/// Parse an ASCII `aag` from `in`, preserving AIGER 1.9 typed properties and
+/// their symbols distinctly from ordinary outputs.
 /// Returns nullptr on a malformed file.
 [[nodiscard]] Aig *aig_read_aag(FILE *in);
 

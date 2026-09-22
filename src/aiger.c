@@ -376,6 +376,41 @@ const char *aig_fairness_name(const Aig *g, uint32_t i) {
   return g->fair[i].name;
 }
 
+static bool lit_depends_on_input(const bool *depends, uint32_t nvars,
+                                 uint32_t lit) {
+  return lit >= 2 && lit / 2 < nvars && depends[lit / 2];
+}
+
+void aig_sample_input_dependent_acceptance(Aig *g) {
+  // Latch literals are state predicates even when their next-state functions
+  // read inputs.  AND gates are stored in construction/topological order, so
+  // input dependence can be propagated through their combinational cones in
+  // one pass.
+  uint32_t nvars = g->nextvar + 1;
+  bool *depends = aig_xcalloc(nvars, sizeof *depends);
+  for (uint32_t i = 0; i < g->nin; i++)
+    depends[g->ins[i].var] = true;
+  for (uint32_t i = 0; i < g->nand; i++) {
+    And gate = g->ands[i];
+    depends[gate.var] = lit_depends_on_input(depends, nvars, gate.r0) ||
+                        lit_depends_on_input(depends, nvars, gate.r1);
+  }
+
+  // GF p and GF X p are equivalent on infinite plays.  Sampling only the
+  // input-dependent literals leaves already state-based in-process games byte
+  // for byte unchanged while making the state-set fixpoint sound for arbitrary
+  // AIGER 1.9 acceptance literals.
+  for (uint32_t j = 0; j < g->njust; j++)
+    for (uint32_t k = 0; k < g->just[j].n; k++)
+      if (lit_depends_on_input(depends, nvars, g->just[j].lits[k]))
+        g->just[j].lits[k] = aig_latch(g, g->just[j].lits[k], AIG_FALSE);
+  for (uint32_t i = 0; i < g->nfair; i++)
+    if (lit_depends_on_input(depends, nvars, g->fair[i].lit))
+      g->fair[i].lit = aig_latch(g, g->fair[i].lit, AIG_FALSE);
+
+  free(depends);
+}
+
 static void rename_in(char **slot, const char *from, const char *to) {
   if (!*slot)
     return;

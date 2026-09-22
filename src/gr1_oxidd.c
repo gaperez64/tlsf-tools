@@ -2,7 +2,8 @@
 //
 // Implements the Piterman-Pnueli-Sa'ar (PPS) tri-nested fixpoint:
 //
-//   W* = νZ. ⋀_j [ μY. νX. cpre( (Z ∩ goal_j) ∪ Y ∪ (X ∩ ⋃_i ¬fair_i) ) ]
+//   W* = νZ. ⋀_j [ μY. ⋃_i νX.
+//                         cpre( (Z ∩ goal_j) ∪ Y ∪ (X ∩ ¬fair_i) ) ]
 //
 // The game is in the standard AbsSynthe AIGER format (see safety_oxidd.c for
 // conventions); the only difference is that the Aig also carries justice[]
@@ -30,19 +31,90 @@ typedef struct {
   uint32_t n, cap;
 } BddVec;
 
-static bool bddvec_push(BddVec *v, Bdd b) {
+static bool bddvec_push_ref(OxiddRun *run, BddVec *v, Bdd b) {
   if (v->n == v->cap) {
     uint32_t nc = v->cap ? v->cap * 2 : 4;
     Bdd *narr = realloc(v->arr, nc * sizeof *narr);
     if (!narr) {
-      oxidd_bdd_unref(b);
+      oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, run->phase,
+                           "realloc", run->operations, run->index);
       return false;
     }
     v->arr = narr;
     v->cap = nc;
   }
-  v->arr[v->n++] = b;
+  v->arr[v->n++] = oxidd_bdd_ref(b);
   return true;
+}
+
+// Build all GR(1) roots in one pass so oxidd_build_roots can retain main's
+// operation accounting, allocation-failure recording, and early map release.
+// Unlike the shared safety-oriented helper, this accepts every literal in an
+// AIGER justice record as a separate generalized-Buchi goal.
+static bool build_gr1_roots(OxiddRun *run, const Aig *game, Bdd *map,
+                            uint32_t maxvar, uint32_t m_goals, Bdd *bad,
+                            Bdd *next, Bdd *goals, Bdd *fair) {
+  uint32_t nl = aig_num_latches(game);
+  uint32_t nj = aig_num_justice(game);
+  uint32_t nf = aig_num_fairness(game);
+  size_t count = 1u + (size_t)nl + m_goals + nf;
+  uint32_t *lits = calloc(count, sizeof *lits);
+  Bdd *roots = calloc(count, sizeof *roots);
+  if (!lits || !roots) {
+    oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, "construction",
+                         "calloc", run->operations, run->index);
+    free(lits);
+    free(roots);
+    return false;
+  }
+
+  size_t k = 0;
+  if (run->options->safety_output_index >= aig_num_outputs(game)) {
+    free(lits);
+    free(roots);
+    return false;
+  }
+  aig_output_at(game, run->options->safety_output_index, &lits[k++]);
+  for (uint32_t i = 0; i < nl; i++)
+    aig_latch_at(game, i, nullptr, &lits[k++], nullptr);
+  for (uint32_t j = 0; j < nj; j++) {
+    const uint32_t *record;
+    uint32_t n;
+    aig_justice_at(game, j, &record, &n);
+    if (n == 0) {
+      lits[k++] = AIG_TRUE;
+    } else {
+      for (uint32_t i = 0; i < n; i++)
+        lits[k++] = record[i];
+    }
+  }
+  for (uint32_t i = 0; i < nf; i++)
+    lits[k++] = aig_fairness_at(game, i);
+
+  bool ok = k == count &&
+            oxidd_build_roots(run, game, map, maxvar, lits, roots, count);
+  if (ok) {
+    k = 0;
+    *bad = roots[k];
+    roots[k++] = (Bdd){0};
+    for (uint32_t i = 0; i < nl; i++, k++) {
+      next[i] = roots[k];
+      roots[k] = (Bdd){0};
+    }
+    for (uint32_t i = 0; i < m_goals; i++, k++) {
+      goals[i] = roots[k];
+      roots[k] = (Bdd){0};
+    }
+    for (uint32_t i = 0; i < nf; i++, k++) {
+      fair[i] = roots[k];
+      roots[k] = (Bdd){0};
+    }
+  }
+  for (size_t i = 0; i < count; i++)
+    oxidd_bdd_unref(roots[i]);
+  free(roots);
+  free(lits);
+  return ok;
 }
 
 static void bddvec_free_all(BddVec *v) {
@@ -114,21 +186,24 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     return nullptr;
   }
 
-  uint32_t m_goals = aig_num_justice(game);
+  aig_sample_input_dependent_acceptance(game);
+
+  uint32_t m_goal_records = aig_num_justice(game);
   uint32_t m_fair = aig_num_fairness(game);
-  // The current inner fixed point combines fairness pointwise. That is not
-  // equivalent to a conjunction of recurrence assumptions (alternating
-  // fairness predicates are a counterexample). Let callers fall back instead.
-  if (m_fair > 1) {
-    oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "configuration",
-                         "multiple_fairness_not_supported", 0, 0);
-    aig_free(game);
-    return nullptr;
+
+  // An AIGER justice property is a set of literals that must each recur.
+  // Flatten each non-empty record into GR(1) system goals.  Preserve an empty
+  // record as one vacuous (true) goal so the record remains semantically inert.
+  uint32_t m_goals = 0;
+  for (uint32_t r = 0; r < m_goal_records; r++) {
+    uint32_t n;
+    aig_justice_at(game, r, nullptr, &n);
+    m_goals += n ? n : 1;
   }
 
   // A GR(1) game must have at least one justice goal.  If none, the game is
   // pure safety and should go through solve_safety_oxidd instead.
-  if (m_goals == 0) {
+  if (m_goal_records == 0) {
     aig_free(game);
     return nullptr;
   }
@@ -233,10 +308,13 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   uint32_t *cinput = nin ? calloc(nin, sizeof *cinput) : nullptr;
   Bdd *strat_f = nullptr;
   BddVec *y_levels = m_goals ? calloc(m_goals, sizeof *y_levels) : nullptr;
+  uint32_t n_fair_disj = m_fair ? m_fair : 1;
+  BddVec *x_levels =
+      m_goals ? calloc(m_goals * n_fair_disj, sizeof *x_levels) : nullptr;
 
   if (!var_bdd || (nlat && !next_bdd) || !goal_bdd || (m_fair && !fair_bdd) ||
       !curr_bdd || !var2lit || (nlat && !lat_lit) || !curr_latch_lit ||
-      (nin && (!cvars || !uvars || !cinput)) || !y_levels) {
+      (nin && (!cvars || !uvars || !cinput)) || !y_levels || !x_levels) {
     oxidd_record_failure(opts, OXIDD_FAILURE_HOST, "construction", "calloc", 0,
                          0);
     free(var_bdd);
@@ -251,6 +329,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     free(uvars);
     free(cinput);
     free(y_levels);
+    free(x_levels);
     if (own_mgr)
       oxidd_bdd_manager_unref(m);
     aig_free(game);
@@ -261,8 +340,7 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
               "\"outputs\":%u,\"justice\":%u,\"fairness\":%u",
               nin, nlat, nand, aig_num_outputs(game), m_goals, m_fair);
 
-  Bdd bad = {0}, notbad = {0}, not_fair = {0}, W = {0}, ctrl_cube = {0},
-      unc_cube = {0};
+  Bdd bad = {0}, notbad = {0}, W = {0}, ctrl_cube = {0}, unc_cube = {0};
   oxidd_bdd_substitution_t *sub_lat = nullptr;
   uint32_t ncv = 0, nuv = 0;
   bool ok = true;
@@ -291,8 +369,8 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     curr_bdd[j] = oxidd_run_var(run, var_base + nin + nlat + j);
 
   oxidd_phase(run, "construction");
-  ok = oxidd_build_game(run, game, var_bdd, maxvar, &bad, next_bdd, goal_bdd,
-                        fair_bdd);
+  ok = build_gr1_roots(run, game, var_bdd, maxvar, m_goals, &bad, next_bdd,
+                       goal_bdd, fair_bdd);
   if (ok) {
     notbad = oxidd_run_not(run, bad);
     ok = !bdd_invalid(notbad);
@@ -300,23 +378,14 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   oxidd_bdd_unref(bad);
   bad = (Bdd){0};
 
-  // Fairness BDDs + not_fair = ⋃_i ¬fair_i (env breaks at least one
-  // assumption).
-  not_fair = oxidd_bdd_false(m); // ⊥ when m_fair == 0: env is always "fair"
+  // Fairness BDDs.  Each assumption gets its own inner ν-fixpoint below;
+  // combining their negations would allow the environment to alternate which
+  // assumption is false while still satisfying every assumption infinitely.
   for (uint32_t i = 0; i < m_fair && ok; i++) {
     if (bdd_invalid(fair_bdd[i])) {
       ok = false;
       break;
     }
-    Bdd nfi = oxidd_run_not(run, fair_bdd[i]);
-    Bdd tmp = oxidd_run_or(run, not_fair, nfi);
-    oxidd_bdd_unref(fair_bdd[i]);
-    fair_bdd[i] = (Bdd){0};
-    oxidd_bdd_unref(not_fair);
-    oxidd_bdd_unref(nfi);
-    not_fair = tmp;
-    if (bdd_invalid(not_fair))
-      ok = false;
   }
 
   // Latch substitution s_j := next_j (used in cpre and W-substitution).
@@ -342,10 +411,13 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   }
 
   // -----------------------------------------------------------------------
-  // PPS tri-nested fixpoint
-  //   W* = νZ. ⋀_j [ μY. νX. cpre( (Z∩goal_j) ∪ Y ∪ (X∩not_fair) ) ]
+  // PPS GR(1) fixpoint
+  //   W* = νZ. ⋀_j [ μY. ⋃_i νX.
+  //                         cpre( (Z∩goal_j) ∪ Y ∪ (X∩¬fair_i) ) ]
   //
-  // Y_levels[j] accumulates the μ-iterations for the last outer ν-step.
+  // Y_levels[j][k] and X_levels[j,i][k] retain the final outer iteration for
+  // strategy extraction.  With no fairness assumptions there is one disjunct
+  // whose ¬fair term is false.
   // -----------------------------------------------------------------------
 
   if (ok) {
@@ -358,50 +430,78 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
 
       for (uint32_t j = 0; j < m_goals && ok; j++) {
         bddvec_free_all(&y_levels[j]); // reset levels for this outer iteration
+        for (uint32_t i = 0; i < n_fair_disj; i++)
+          bddvec_free_all(&x_levels[j * n_fair_disj + i]);
 
         Bdd Y = oxidd_bdd_false(m); // μ-fixpoint from ⊥
 
-        for (;;) {                   // μ-fixpoint over Y
-          Bdd X = oxidd_bdd_true(m); // inner ν-fixpoint from ⊤
+        for (;;) { // μ-fixpoint over Y
+          Bdd Y_new = oxidd_bdd_false(m);
 
-          for (;;) { // inner ν-fixpoint over X
-            run->index++;
-            // target = (W ∩ goal_j) ∪ Y ∪ (X ∩ not_fair)
-            Bdd wg = oxidd_run_and(run, W, goal_bdd[j]);
-            Bdd wgy = oxidd_run_or(run, wg, Y);
-            Bdd xnf = oxidd_run_and(run, X, not_fair);
-            Bdd target = oxidd_run_or(run, wgy, xnf);
-            oxidd_bdd_unref(wg);
-            oxidd_bdd_unref(wgy);
-            oxidd_bdd_unref(xnf);
+          for (uint32_t i = 0; i < n_fair_disj && ok; i++) {
+            Bdd not_fair_i =
+                m_fair ? oxidd_run_not(run, fair_bdd[i]) : oxidd_bdd_false(m);
+            if (bdd_invalid(not_fair_i)) {
+              ok = false;
+              break;
+            }
+            Bdd X = oxidd_bdd_true(m); // inner ν-fixpoint from ⊤
 
-            Bdd X_new =
-                cpre_full(run, target, sub_lat, notbad, ctrl_cube, unc_cube);
-            oxidd_bdd_unref(target);
+            for (;;) { // inner ν-fixpoint over X for fairness i
+              run->index++;
+              Bdd wg = oxidd_run_and(run, W, goal_bdd[j]);
+              Bdd wgy = oxidd_run_or(run, wg, Y);
+              Bdd xnf = oxidd_run_and(run, X, not_fair_i);
+              Bdd target = oxidd_run_or(run, wgy, xnf);
+              oxidd_bdd_unref(wg);
+              oxidd_bdd_unref(wgy);
+              oxidd_bdd_unref(xnf);
 
-            if (bdd_invalid(X_new)) {
+              Bdd X_new =
+                  cpre_full(run, target, sub_lat, notbad, ctrl_cube, unc_cube);
+              oxidd_bdd_unref(target);
+
+              if (bdd_invalid(X_new)) {
+                oxidd_bdd_unref(X);
+                ok = false;
+                break;
+              }
+              bool inner_conv = bdd_eq(X_new, X);
+              oxidd_bdd_unref(X);
+              X = X_new;
+              if (inner_conv)
+                break;
+            }
+            oxidd_bdd_unref(not_fair_i);
+            if (!ok)
+              break;
+
+            if (!bddvec_push_ref(run, &x_levels[j * n_fair_disj + i], X)) {
               oxidd_bdd_unref(X);
               ok = false;
               break;
             }
-            bool inner_conv = bdd_eq(X_new, X);
+            Bdd tmp = oxidd_run_or(run, Y_new, X);
+            oxidd_bdd_unref(Y_new);
             oxidd_bdd_unref(X);
-            X = X_new;
-            if (inner_conv)
-              break;
+            Y_new = tmp;
+            if (bdd_invalid(Y_new))
+              ok = false;
           }
+          if (!ok)
+            oxidd_bdd_unref(Y_new);
           if (!ok)
             break;
 
           // Save this μ-level and check μ-convergence.
-          bool mu_conv = bdd_eq(X, Y);
-          if (!bddvec_push(&y_levels[j], oxidd_bdd_ref(X))) {
-            oxidd_bdd_unref(X);
+          bool mu_conv = bdd_eq(Y_new, Y);
+          if (!bddvec_push_ref(run, &y_levels[j], Y_new)) {
+            oxidd_bdd_unref(Y_new);
             ok = false;
             break;
           }
           oxidd_bdd_unref(Y);
-          Y = X; // Y holds the ref (bddvec holds an extra ref)
+          Y = Y_new; // Y holds the ref (bddvec holds an extra ref)
           if (mu_conv)
             break;
         }
@@ -544,54 +644,49 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
       Bdd covered = oxidd_bdd_ref(at_goal);
 
       for (uint32_t k = 0; k < y_levels[j].n && ok; k++) {
-        Bdd yk = y_levels[j].arr[k];
+        // Strict progress goes to the goal or a lower μ-rank.  Within the
+        // least rank, choose the least fairness index whose X[k,i] contains
+        // the state; only that fixed assumption may justify staying in X.
+        Bdd strict = k == 0 ? oxidd_bdd_ref(at_goal)
+                            : oxidd_run_or(run, y_levels[j].arr[k - 1],
+                                           at_goal);
 
-        // layer = Y_k \ covered
-        Bdd ncover = oxidd_run_not(run, covered);
-        Bdd layer = oxidd_run_and(run, yk, ncover);
-        oxidd_bdd_unref(ncover);
+        for (uint32_t i = 0; i < n_fair_disj && ok; i++) {
+          Bdd xki = x_levels[j * n_fair_disj + i].arr[k];
+          Bdd ncover = oxidd_run_not(run, covered);
+          Bdd layer = oxidd_run_and(run, xki, ncover);
+          oxidd_bdd_unref(ncover);
 
-        // target = strict ∨ (not_fair ∧ Y_k):
-        //   strict = at_goal (rank 0) or Y_{k-1} ∪ at_goal (rank k>0).
-        //   The env-unfairness escape (not_fair ∧ Y_k) allows the system to
-        //   stay in Y_k when env is currently not satisfying its fairness; the
-        //   system is only required to make progress when env is fair.
-        Bdd strict;
-        if (k == 0) {
-          strict = oxidd_bdd_ref(at_goal);
-        } else {
-          Bdd yk_minus1 = y_levels[j].arr[k - 1];
-          strict = oxidd_run_or(run, yk_minus1, at_goal);
-        }
-        Bdd escape = oxidd_run_and(run, not_fair, yk);
-        Bdd target = oxidd_run_or(run, strict, escape);
-        oxidd_bdd_unref(strict);
-        oxidd_bdd_unref(escape);
-        if (bdd_invalid(target)) {
+          Bdd not_fair_i =
+              m_fair ? oxidd_run_not(run, fair_bdd[i]) : oxidd_bdd_false(m);
+          Bdd escape = oxidd_run_and(run, not_fair_i, xki);
+          Bdd target = oxidd_run_or(run, strict, escape);
+          oxidd_bdd_unref(not_fair_i);
+          oxidd_bdd_unref(escape);
+          if (bdd_invalid(target)) {
+            oxidd_bdd_unref(layer);
+            ok = false;
+            break;
+          }
+
+          Bdd move_ki = cpre_unquantified(run, target, sub_lat, notbad);
+          oxidd_bdd_unref(target);
+          Bdd case_ki = oxidd_run_and(run, layer, move_ki);
           oxidd_bdd_unref(layer);
-          ok = false;
-          break;
+          oxidd_bdd_unref(move_ki);
+
+          Bdd new_mj = oxidd_run_or(run, M_j, case_ki);
+          oxidd_bdd_unref(M_j);
+          oxidd_bdd_unref(case_ki);
+          M_j = new_mj;
+
+          Bdd new_cov = oxidd_run_or(run, covered, xki);
+          oxidd_bdd_unref(covered);
+          covered = new_cov;
+          if (bdd_invalid(M_j) || bdd_invalid(covered))
+            ok = false;
         }
-
-        Bdd move_k = cpre_unquantified(run, target, sub_lat, notbad);
-        oxidd_bdd_unref(target);
-
-        Bdd case_k = oxidd_run_and(run, layer, move_k);
-        oxidd_bdd_unref(layer);
-        oxidd_bdd_unref(move_k);
-
-        Bdd new_mj = oxidd_run_or(run, M_j, case_k);
-        oxidd_bdd_unref(M_j);
-        oxidd_bdd_unref(case_k);
-        M_j = new_mj;
-
-        // covered grows to include Y_k
-        Bdd new_cov = oxidd_run_or(run, covered, yk);
-        oxidd_bdd_unref(covered);
-        covered = new_cov;
-
-        if (bdd_invalid(M_j) || bdd_invalid(covered))
-          ok = false;
+        oxidd_bdd_unref(strict);
       }
 
       oxidd_bdd_unref(covered);
@@ -616,8 +711,6 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
     sub_lat = nullptr;
     oxidd_bdd_unref(notbad);
     notbad = (Bdd){0};
-    oxidd_bdd_unref(not_fair);
-    not_fair = (Bdd){0};
     oxidd_bdd_unref(ctrl_cube);
     ctrl_cube = (Bdd){0};
     oxidd_bdd_unref(unc_cube);
@@ -810,6 +903,12 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
       bddvec_free_all(&y_levels[j]);
     free(y_levels);
   }
+  if (x_levels) {
+    for (uint32_t j = 0; j < m_goals; j++)
+      for (uint32_t i = 0; i < n_fair_disj; i++)
+        bddvec_free_all(&x_levels[j * n_fair_disj + i]);
+    free(x_levels);
+  }
   if (goal_bdd) {
     for (uint32_t j = 0; j < m_goals; j++)
       oxidd_bdd_unref(goal_bdd[j]);
@@ -835,7 +934,6 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
   release_var_map(var_bdd, maxvar);
   oxidd_bdd_unref(bad);
   oxidd_bdd_unref(notbad);
-  oxidd_bdd_unref(not_fair);
   oxidd_bdd_unref(W);
   oxidd_bdd_unref(ctrl_cube);
   oxidd_bdd_unref(unc_cube);

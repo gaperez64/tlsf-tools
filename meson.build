@@ -1025,8 +1025,10 @@ if research_tools and have_oxidd
                 '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
     dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
   test('oxidd_memory', oxidd_memory_test)
-  test('gr1_fairness_fail_closed', check_contains,
-    args: ['multiple_fairness_not_supported', tlsfsolve_exe, '--game-profile=gr1',
+  test('gr1_fairness_alternating_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           '--game-profile=gr1',
            files('test/cases/gr1_fairness_alternating.aag')])
   test('tlsfsolve_help_defaults', files('test/check_tlsfsolve_help.sh'),
     args: [tlsfsolve_exe])
@@ -1053,6 +1055,16 @@ if research_tools and have_oxidd
       endforeach
     endif
   endif
+  aiger_game_roundtrip_exe = executable(
+    'aiger-game-roundtrip',
+    sources: ['test/aiger_game_roundtrip.c', 'src/gr1_oxidd.c',
+              'src/oxidd_common.c', 'src/oxidd_order.c'],
+    c_args: ['-DHAVE_OXIDD'],
+    dependencies: [oxidd_dep],
+    link_with: tlsf_lib,
+    include_directories: inc,
+  )
+  test('aiger_game_roundtrip', aiger_game_roundtrip_exe)
   # tlsfsolve: exact status, stdout and stderr for win, loss and solver failure.
   test('tlsfsolve_real', check_status,
     args: ['0', files('test/cases/solve_real.out.aag'),
@@ -1074,10 +1086,29 @@ if research_tools and have_oxidd
   test('tlsfsolve_multi_bad_auto_refuses', check_contains,
     args: ['cannot infer synthesis game profile.*multi-safety', tlsfsolve_exe,
            files('test/cases/solve_multi_bad_unreal.aag')])
+  test('tlsfsolve_gr1_fair1_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/gr1_fair1.aag')])
+  test('tlsfsolve_gr1_fair2_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/gr1_fair2.aag')])
+  test('tlsfsolve_gr1_input_fairness_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/gr1_input_fairness.aag')])
   test('tlsfsolve_failure', check_status,
     args: ['2', files('test/cases/empty'),
            files('test/cases/solve_failure.stderr'), tlsfsolve_failure_exe,
            files('test/cases/solve_real.aag')])
+  if python3.found()
+    test('gr1_explicit_differential', python3,
+      args: [files('test/test_gr1_differential.py'),
+             '--solver', tlsfsolve_exe, '--games', '320'],
+      timeout: 120,
+    )
+  endif
 endif
 
 # tlsfnorm is stable preprocessing functionality.

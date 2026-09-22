@@ -408,7 +408,7 @@ static void sessions(void) {
   aig_add_justice(game, &impossible, 1, "impossible");
   aig_add_fairness(game, state, "even");
   aig_add_fairness(game, aig_not(state), "odd");
-  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
+  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && failed_unreal);
   opts.node_cap = 8192;
   OxiddFailure failure = {0};
   opts.failure = &failure;
