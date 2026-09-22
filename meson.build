@@ -109,6 +109,8 @@ spot_dep = dependency('libspot', required: false)
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
 python3 = find_program('python3', required: false)
+spot_python = python3
+spot_python_env = environment()
 spot_python_found = false
 if python3.found()
   spot_python_found = run_command(
@@ -117,6 +119,28 @@ if python3.found()
     'import spot',
     check: false,
   ).returncode() == 0
+endif
+# The param-lift monitor tools can fall back to the locally installed Spot
+# bindings when the generic Python cannot import them.  Keep the selected
+# interpreter and its environment together so a not-found fallback is never
+# used merely because an earlier probe succeeded.
+if not spot_python_found
+  spot_python_fallback = find_program('python3.13', required: false)
+  spot_python_fallback_env = environment()
+  spot_python_fallback_env.set(
+    'PYTHONPATH', '/usr/local/lib64/python3.13/site-packages')
+  spot_python_fallback_env.set('LD_LIBRARY_PATH', '/usr/local/lib:/usr/local/lib64')
+  if spot_python_fallback.found() and run_command(
+      spot_python_fallback,
+      '-c',
+      'import spot',
+      env: spot_python_fallback_env,
+      check: false,
+    ).returncode() == 0
+    spot_python = spot_python_fallback
+    spot_python_env = spot_python_fallback_env
+    spot_python_found = true
+  endif
 endif
 
 # ---------------------------------------------------------------------------
@@ -1106,6 +1130,21 @@ if research_tools and have_oxidd
     test('gr1_explicit_differential', python3,
       args: [files('test/test_gr1_differential.py'),
              '--solver', tlsfsolve_exe, '--games', '320'],
+      timeout: 120,
+    )
+  endif
+  if spot_python_found
+    test('gr1_monitor_game', spot_python,
+      args: [files('test/test_gr1_monitor_game.py'),
+             '--python', spot_python,
+             '--builder', files('scripts/gr1_monitor_game.py'),
+             '--verifier', files('scripts/verify_strategy_explicit.py'),
+             '--old-verifier', files('scripts/verify_aiger_ltl.py'),
+             '--tlsf2ltl', tlsf2ltl_exe,
+             '--tlsf2tlsf', tlsf2tlsf_exe,
+             '--tlsfinfo', tlsfinfo_exe,
+             '--solver', tlsfsolve_exe],
+      env: spot_python_env,
       timeout: 120,
     )
   endif
