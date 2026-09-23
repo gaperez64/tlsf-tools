@@ -108,6 +108,7 @@ typedef struct {
   size_t node_cap;
   bool stats;
   bool test_unspecialized_policy;
+  bool test_rebuild_successor;
 } Options;
 
 typedef struct {
@@ -139,6 +140,7 @@ typedef struct {
   double setup_seconds, proof_seconds;
   size_t requested_roots, policy_mode_builds, policy_counter_constants;
   size_t policy_specialized_gates, policy_unspecialized_gates;
+  size_t successor_substitutions, successor_applications;
   size_t peak_nodes;
 } Checker;
 
@@ -243,6 +245,10 @@ static int parse_options(int argc, char **argv, Options *options,
     }
     if (!strcmp(argv[i], "--test-unspecialized-policy")) {
       options->test_unspecialized_policy = true;
+      continue;
+    }
+    if (!strcmp(argv[i], "--test-rebuild-successor")) {
+      options->test_rebuild_successor = true;
       continue;
     }
     const char **slot = nullptr;
@@ -1688,15 +1694,60 @@ static Bdd substitute_controls(Bdd value, oxidd_bdd_substitution_t *sub) {
   return sub ? oxidd_bdd_substitute(value, sub) : oxidd_bdd_ref(value);
 }
 
-static Bdd successor(Checker *ck, Bdd state_predicate, const Bdd *next_state) {
+static oxidd_bdd_substitution_t *state_substitution(Checker *ck,
+                                                    const Bdd *next_state) {
   oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(ck->nstate);
   if (!sub)
-    return (Bdd){0};
+    return nullptr;
+  ck->successor_substitutions++;
   for (uint32_t j = 0; j < ck->nstate; j++)
     oxidd_bdd_substitution_add_pair(sub, ck->qvar[j], next_state[j]);
-  Bdd result = oxidd_bdd_substitute(state_predicate, sub);
-  oxidd_bdd_substitution_free(sub);
+  return sub;
+}
+
+static Bdd successor(Checker *ck, Bdd state_predicate, const Bdd *next_state,
+                     const oxidd_bdd_substitution_t *mode_substitution) {
+  oxidd_bdd_substitution_t *local = nullptr;
+  if (!mode_substitution) {
+    local = state_substitution(ck, next_state);
+    if (!local)
+      return (Bdd){0};
+    mode_substitution = local;
+  }
+  ck->successor_applications++;
+  Bdd result = oxidd_bdd_substitute(state_predicate, mode_substitution);
+  oxidd_bdd_substitution_free(local);
+  if (bdd_invalid(result))
+    ck->bdd_failed = true;
   return result;
+}
+
+typedef struct {
+  oxidd_bdd_substitution_t *substitution;
+  Bdd goal_and_inv;
+  Bdd *fair;
+  uint32_t nfair;
+  Bdd *lower;
+  uint32_t nlower;
+} SuccessorCache;
+
+static void successor_cache_clear(SuccessorCache *cache) {
+  if (!cache)
+    return;
+  oxidd_bdd_substitution_free(cache->substitution);
+  if (!bdd_invalid(cache->goal_and_inv))
+    oxidd_bdd_unref(cache->goal_and_inv);
+  if (cache->fair)
+    for (uint32_t i = 0; i < cache->nfair; i++)
+      if (!bdd_invalid(cache->fair[i]))
+        oxidd_bdd_unref(cache->fair[i]);
+  if (cache->lower)
+    for (uint32_t k = 0; k < cache->nlower; k++)
+      if (!bdd_invalid(cache->lower[k]))
+        oxidd_bdd_unref(cache->lower[k]);
+  free(cache->fair);
+  free(cache->lower);
+  *cache = (SuccessorCache){0};
 }
 
 static void counterexample_clear(Counterexample *counterexample) {
@@ -2063,6 +2114,8 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
     Bdd *environment = ck->nu ? calloc(ck->nu, sizeof *environment) : nullptr;
     Bdd *counter_next = calloc(ck->nfair_disj, sizeof *counter_next);
     Bdd *next_state = calloc(ck->nstate, sizeof *next_state);
+    oxidd_bdd_substitution_t *mode_substitution = nullptr;
+    Bdd bad = {0};
     if ((ck->nu && !environment) || !counter_next || !next_state) {
       oxidd_bdd_unref(counter_cube);
       free(environment);
@@ -2086,13 +2139,18 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
     oxidd_bdd_substitution_t *usub = environment_substitution(ck, environment);
     if (ck->nu && !usub)
       goto environment_unknown;
-    Bdd bad = usub ? oxidd_bdd_substitute(ck->game_bad, usub)
-                   : oxidd_bdd_ref(ck->game_bad);
+    bad = usub ? oxidd_bdd_substitute(ck->game_bad, usub)
+               : oxidd_bdd_ref(ck->game_bad);
     for (uint32_t s = 0; s < ck->nstate; s++)
       next_state[s] = usub ? oxidd_bdd_substitute(ck->game_next[s], usub)
                            : oxidd_bdd_ref(ck->game_next[s]);
     if (usub)
       oxidd_bdd_substitution_free(usub);
+    if (!ck->options.test_rebuild_successor) {
+      mode_substitution = state_substitution(ck, next_state);
+      if (!mode_substitution)
+        goto environment_unknown;
+    }
     Bdd fair_current = ck->nfair ? oxidd_bdd_ref(ck->fair[current])
                                  : oxidd_bdd_true(ck->manager);
     Bdd violation = oxidd_bdd_false(ck->manager);
@@ -2160,7 +2218,7 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
             Bdd target = oxidd_bdd_and(base, inner_progress);
             oxidd_bdd_unref(base);
             oxidd_bdd_unref(inner_progress);
-            Bdd allowed = successor(ck, target, next_state);
+            Bdd allowed = successor(ck, target, next_state, mode_substitution);
             oxidd_bdd_unref(target);
             bdd_or_into(ck, &allowed, bad);
             Bdd not_allowed = oxidd_bdd_not(allowed);
@@ -2205,6 +2263,7 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
       oxidd_bdd_unref(counter_next[i]);
     for (uint32_t s = 0; s < ck->nstate; s++)
       oxidd_bdd_unref(next_state[s]);
+    oxidd_bdd_substitution_free(mode_substitution);
     oxidd_bdd_unref(counter_cube);
     free(environment);
     free(counter_next);
@@ -2220,6 +2279,7 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
       oxidd_bdd_unref(counter_next[i]);
     for (uint32_t s = 0; s < ck->nstate; s++)
       oxidd_bdd_unref(next_state[s]);
+    oxidd_bdd_substitution_free(mode_substitution);
     oxidd_bdd_unref(counter_cube);
     free(environment);
     free(counter_next);
@@ -2231,6 +2291,12 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
       oxidd_bdd_unref(environment[i]);
     for (uint32_t i = 0; i < ck->nfair_disj; i++)
       oxidd_bdd_unref(counter_next[i]);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      if (!bdd_invalid(next_state[s]))
+        oxidd_bdd_unref(next_state[s]);
+    if (!bdd_invalid(bad))
+      oxidd_bdd_unref(bad);
+    oxidd_bdd_substitution_free(mode_substitution);
     oxidd_bdd_unref(counter_cube);
     free(environment);
     free(counter_next);
@@ -2319,6 +2385,9 @@ static CheckResult check_certificate_mode(Checker *ck) {
     Bdd *control = ck->nc ? calloc(ck->nc, sizeof *control) : nullptr;
     Bdd *counter_next = calloc(ck->ngoals, sizeof *counter_next);
     Bdd *next_state = calloc(ck->nstate, sizeof *next_state);
+    SuccessorCache successors = {0};
+    Bdd bad = {0};
+    Bdd next_inv = {0};
     if ((ck->nc && !control) || !counter_next || !next_state) {
       oxidd_bdd_unref(counter_cube);
       free(control);
@@ -2350,11 +2419,32 @@ static CheckResult check_certificate_mode(Checker *ck) {
       free(next_state);
       return CHECK_UNKNOWN;
     }
-    Bdd bad = substitute_controls(ck->game_bad, csub);
+    bad = substitute_controls(ck->game_bad, csub);
     for (uint32_t s = 0; s < ck->nstate; s++)
       next_state[s] = substitute_controls(ck->game_next[s], csub);
     oxidd_bdd_substitution_free(csub);
-    Bdd next_inv = successor(ck, ck->cert_inv, next_state);
+    if (!ck->options.test_rebuild_successor) {
+      successors.substitution = state_substitution(ck, next_state);
+      if (!successors.substitution)
+        goto mode_unknown;
+    }
+    if (ck->nfair) {
+      successors.nfair = ck->nfair_disj;
+      successors.fair = calloc(successors.nfair, sizeof *successors.fair);
+      if (!successors.fair)
+        goto mode_unknown;
+    }
+    uint32_t levels = ck->rank[goal].levels;
+    if (levels > 1) {
+      successors.nlower = levels - 1;
+      successors.lower = calloc(successors.nlower, sizeof *successors.lower);
+      if (!successors.lower)
+        goto mode_unknown;
+    }
+    next_inv = successor(ck, ck->cert_inv, next_state, successors.substitution);
+    successors.goal_and_inv =
+        successor(ck, ck->goal[goal], next_state, successors.substitution);
+    bdd_and_into(ck, &successors.goal_and_inv, next_inv);
     Bdd violation = oxidd_bdd_and(ck->cert_inv, bad);
     Bdd not_next_inv = oxidd_bdd_not(next_inv);
     Bdd leaves = oxidd_bdd_and(ck->cert_inv, not_next_inv);
@@ -2392,25 +2482,26 @@ static CheckResult check_certificate_mode(Checker *ck) {
         oxidd_bdd_unref(not_ranked);
         oxidd_bdd_unref(layer0);
 
-        Bdd allowed = successor(ck, ck->rank[goal].x[k][i], next_state);
+        Bdd allowed = successor(ck, ck->rank[goal].x[k][i], next_state,
+                                successors.substitution);
         if (ck->nfair) {
-          Bdd fair_next = successor(ck, ck->fair[i], next_state);
-          Bdd not_fair_next = oxidd_bdd_not(fair_next);
+          if (bdd_invalid(successors.fair[i]))
+            successors.fair[i] =
+                successor(ck, ck->fair[i], next_state, successors.substitution);
+          Bdd not_fair_next = oxidd_bdd_not(successors.fair[i]);
           bdd_and_into(ck, &allowed, not_fair_next);
-          oxidd_bdd_unref(fair_next);
           oxidd_bdd_unref(not_fair_next);
         } else {
           Bdd no_escape = oxidd_bdd_false(ck->manager);
           bdd_replace(&allowed, no_escape);
         }
-        Bdd goal_next = successor(ck, ck->goal[goal], next_state);
-        bdd_and_into(ck, &goal_next, next_inv);
-        bdd_or_into(ck, &allowed, goal_next);
-        oxidd_bdd_unref(goal_next);
+        bdd_or_into(ck, &allowed, successors.goal_and_inv);
         if (k > 0) {
-          Bdd lower_next = successor(ck, ck->rank[goal].y[k - 1], next_state);
-          bdd_or_into(ck, &allowed, lower_next);
-          oxidd_bdd_unref(lower_next);
+          if (bdd_invalid(successors.lower[k - 1]))
+            successors.lower[k - 1] =
+                successor(ck, ck->rank[goal].y[k - 1], next_state,
+                          successors.substitution);
+          bdd_or_into(ck, &allowed, successors.lower[k - 1]);
         }
         Bdd not_allowed = oxidd_bdd_not(allowed);
         Bdd progress_bad = oxidd_bdd_and(layer, not_allowed);
@@ -2442,6 +2533,7 @@ static CheckResult check_certificate_mode(Checker *ck) {
         oxidd_bdd_unref(next_state[s]);
       oxidd_bdd_unref(bad);
       oxidd_bdd_unref(next_inv);
+      successor_cache_clear(&successors);
       oxidd_bdd_unref(counter_cube);
       free(control);
       free(counter_next);
@@ -2461,6 +2553,7 @@ static CheckResult check_certificate_mode(Checker *ck) {
       oxidd_bdd_unref(next_state[s]);
     oxidd_bdd_unref(bad);
     oxidd_bdd_unref(next_inv);
+    successor_cache_clear(&successors);
     oxidd_bdd_unref(counter_cube);
     free(control);
     free(counter_next);
@@ -2477,8 +2570,11 @@ static CheckResult check_certificate_mode(Checker *ck) {
       oxidd_bdd_unref(counter_next[q]);
     for (uint32_t s = 0; s < ck->nstate; s++)
       oxidd_bdd_unref(next_state[s]);
-    oxidd_bdd_unref(bad);
-    oxidd_bdd_unref(next_inv);
+    if (!bdd_invalid(bad))
+      oxidd_bdd_unref(bad);
+    if (!bdd_invalid(next_inv))
+      oxidd_bdd_unref(next_inv);
+    successor_cache_clear(&successors);
     oxidd_bdd_unref(counter_cube);
     free(control);
     free(counter_next);
@@ -3480,11 +3576,13 @@ finish:
             "setup_seconds=%.9f proof_seconds=%.9f "
             "peak_live_nodes_sample=%zu policy_mode_builds=%zu "
             "policy_counter_constants=%zu policy_specialized_gates=%zu "
-            "policy_unspecialized_gates=%zu final_status=%s\n",
+            "policy_unspecialized_gates=%zu successor_substitutions=%zu "
+            "successor_applications=%zu final_status=%s\n",
             ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
             ck.proof_seconds, ck.peak_nodes, ck.policy_mode_builds,
             ck.policy_counter_constants, ck.policy_specialized_gates,
-            ck.policy_unspecialized_gates, exit_name(exit_code));
+            ck.policy_unspecialized_gates, ck.successor_substitutions,
+            ck.successor_applications, exit_name(exit_code));
   counterexample_clear(&certificate.counterexample);
   counterexample_clear(&closed_loop.counterexample);
   cleanup(&ck);

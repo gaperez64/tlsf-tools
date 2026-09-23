@@ -224,7 +224,8 @@ def checker_stats(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
     integer_names = (
         "aig_gates_visited|requested_roots|peak_live_nodes_sample|"
         "policy_mode_builds|policy_counter_constants|"
-        "policy_specialized_gates|policy_unspecialized_gates")
+        "policy_specialized_gates|policy_unspecialized_gates|"
+        "successor_substitutions|successor_applications")
     return {name: int(value) for name, value in re.findall(
         rf"({integer_names})=([0-9]+)", line)}
 
@@ -327,6 +328,7 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
     sampled_acceptance_verified = 0
     rare_state_rejected = 0
     default_output_unchanged = 0
+    successor_rebuild_agreements = 0
     rank_seed = None
     fairness_seed = None
     inv_seed = None
@@ -370,6 +372,18 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                     f"genuine game {index} rejected:\n{checked.stdout}"
                     f"{checked.stderr}")
             genuine += 1
+            cached_certificate = run_checker(
+                checker, game, policy, "--certificate", str(cert),
+                "--method", "certificate")
+            rebuilt_certificate = run_checker(
+                checker, game, policy, "--certificate", str(cert),
+                "--method", "certificate", "--test-rebuild-successor")
+            if cached_certificate.returncode != rebuilt_certificate.returncode:
+                raise AssertionError(
+                    f"successor-cache genuine status mismatch on game "
+                    f"{index}:\n{cached_certificate.stdout}"
+                    f"{rebuilt_certificate.stdout}")
+            successor_rebuild_agreements += 1
             sampled_acceptance_verified += bool(model.samples)
 
             policy_text = policy.read_text(encoding="utf-8")
@@ -408,6 +422,15 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                         f"certificate unsoundly decided policy mutation "
                         f"{label} on game {index}:\n"
                         f"{certificate.stdout}{certificate.stderr}")
+                rebuilt_certificate = run_checker(
+                    checker, game, corrupt, "--certificate", str(cert),
+                    "--method", "certificate", "--test-rebuild-successor")
+                if certificate.returncode != rebuilt_certificate.returncode:
+                    raise AssertionError(
+                        "successor-cache policy-mutation status mismatch on "
+                        f"game {index} mutation {label}:\n"
+                        f"{certificate.stdout}{rebuilt_certificate.stdout}")
+                successor_rebuild_agreements += 1
                 for method in ("both", "auto"):
                     combined = run_checker(
                         checker, game, corrupt, "--certificate", str(cert),
@@ -449,6 +472,15 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                             "certificate unsoundly refuted a single-letter "
                             f"mutation:\n{rare_certificate.stdout}"
                             f"{rare_certificate.stderr}")
+                    rebuilt_rare = run_checker(
+                        checker, game, rare, "--certificate", str(cert),
+                        "--method", "certificate",
+                        "--test-rebuild-successor")
+                    if rare_certificate.returncode != rebuilt_rare.returncode:
+                        raise AssertionError(
+                            "successor-cache rare-mutation status mismatch:\n"
+                            f"{rare_certificate.stdout}{rebuilt_rare.stdout}")
+                    successor_rebuild_agreements += 1
                     for method in ("both", "auto"):
                         rare_combined = run_checker(
                             checker, game, rare, "--certificate", str(cert),
@@ -525,6 +557,14 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "specialized/unspecialized genuine status mismatch:\n"
                 f"{genuine_specialized.stdout}{genuine_oracle.stdout}")
+        genuine_rebuilt = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate", "--test-rebuild-successor")
+        if genuine_specialized.returncode != genuine_rebuilt.returncode:
+            raise AssertionError(
+                "successor-cache rank-seed status mismatch:\n"
+                f"{genuine_specialized.stdout}{genuine_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
         policy_text = policy.read_text(encoding="utf-8")
         policy_outputs = output_literals(policy_text)
         all_zero_agreement = 0
@@ -546,6 +586,14 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                 raise AssertionError(
                     "all-zero specialized/oracle status mismatch for "
                     f"{output_name}:\n{specialized.stdout}{oracle.stdout}")
+            rebuilt = run_checker(
+                checker, game, candidate, "--certificate", str(cert),
+                "--method", "certificate", "--test-rebuild-successor")
+            if specialized.returncode != rebuilt.returncode:
+                raise AssertionError(
+                    "successor-cache all-zero status mismatch for "
+                    f"{output_name}:\n{specialized.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
             if oracle.returncode == 6:
                 all_zero_agreement = 1
                 break
@@ -571,6 +619,15 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                 "equivalent large selector was not verified:\n"
                 f"{selector_result.stdout}{selector_result.stderr}")
         selector_stats = checker_stats(selector_result)
+        selector_rebuilt = run_checker(
+            checker, game, selector, "--certificate", str(cert), "--method",
+            "certificate", "--stats", "--test-rebuild-successor")
+        if selector_result.returncode != selector_rebuilt.returncode:
+            raise AssertionError(
+                "successor-cache large-selector status mismatch:\n"
+                f"{selector_result.stdout}{selector_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
+        rebuilt_stats = checker_stats(selector_rebuilt)
         goal_count = sidecar["counts"]["goals"]
         if (selector_stats.get("policy_mode_builds") != goal_count + 1
                 or selector_stats.get("policy_counter_constants")
@@ -579,6 +636,16 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 f"selector was not built from per-mode constants: "
                 f"{selector_stats}")
+        if (selector_stats.get("successor_substitutions") != goal_count + 1
+                or rebuilt_stats.get("successor_substitutions")
+                != rebuilt_stats.get("successor_applications")
+                or selector_stats.get("successor_applications")
+                != rebuilt_stats.get("successor_applications")
+                or selector_stats.get("successor_substitutions", 0)
+                >= rebuilt_stats.get("successor_substitutions", 0)):
+            raise AssertionError(
+                "successor substitution was not reused once per mode: "
+                f"cached={selector_stats} rebuilt={rebuilt_stats}")
 
         # move_* remains part of the certificate interface, but fixed-policy
         # checking does not use it as a premise.  An exclusive large cone must
@@ -705,6 +772,15 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                 raise AssertionError(
                     f"{label} did not report CERT_FAILED:\n"
                     f"{cert_only.stdout}{cert_only.stderr}")
+            rebuilt = run_checker(
+                checker, mutation_game, mutation_policy, "--certificate",
+                str(mutated), "--certificate-json", str(mutated_json),
+                "--method", "certificate", "--test-rebuild-successor")
+            if cert_only.returncode != rebuilt.returncode:
+                raise AssertionError(
+                    f"successor-cache {label} status mismatch:\n"
+                    f"{cert_only.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
             cert_oracle = run_checker(
                 checker, mutation_game, mutation_policy, "--certificate",
                 str(mutated), "--certificate-json", str(mutated_json),
@@ -790,6 +866,14 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "counter-update specialized/oracle status mismatch:\n"
                 f"{counter_specialized.stdout}{counter_oracle.stdout}")
+        counter_rebuilt = run_checker(
+            checker, game, broken_counter, "--certificate", str(cert),
+            "--method", "certificate", "--test-rebuild-successor")
+        if counter_specialized.returncode != counter_rebuilt.returncode:
+            raise AssertionError(
+                "successor-cache counter-update status mismatch:\n"
+                f"{counter_specialized.stdout}{counter_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
 
         # A certificate from a different state dimension must fail before any
         # proof check, even if output names happen to overlap.
@@ -856,6 +940,7 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         "malformed_unused_cones_invalid": 1,
         "specialized_policy_oracle_agreements": 8,
         "large_selector_constant_modes": 1,
+        "successor_rebuild_oracle_agreements": successor_rebuild_agreements,
     }
 
 

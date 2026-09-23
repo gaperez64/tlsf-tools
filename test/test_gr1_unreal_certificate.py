@@ -165,6 +165,7 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
               seed: int):
     rng = random.Random(seed)
     real = unreal = explicit = 0
+    successor_rebuild_agreements = 0
     rank_seed = None
     policy_seed = None
     with tempfile.TemporaryDirectory(prefix="tlsf-gr1-unreal-") as directory:
@@ -206,6 +207,14 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
                 raise AssertionError(
                     "environment specialized/oracle genuine mismatch:\n"
                     f"{specialized.stdout}{oracle.stdout}")
+            rebuilt = checker(
+                checker_path, game, policy, certificate, "certificate",
+                "--test-rebuild-successor")
+            if specialized.returncode != rebuilt.returncode:
+                raise AssertionError(
+                    "environment successor-cache genuine mismatch:\n"
+                    f"{specialized.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
             assert environment_policy_wins_explicit(
                 text, policy.read_text(), policy_sidecar)
             explicit += 1
@@ -278,6 +287,14 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
                 raise AssertionError(
                     f"environment {label} specialized/oracle mismatch:\n"
                     f"{verdict.stdout}{oracle.stdout}")
+            rebuilt = checker(
+                checker_path, game, policy, mutated, "certificate",
+                "--test-rebuild-successor")
+            if rebuilt.returncode != verdict.returncode:
+                raise AssertionError(
+                    f"environment successor-cache {label} mismatch:\n"
+                    f"{verdict.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
 
         (game, policy, certificate, _game_text, _policy_sidecar,
          losing_mutation) = policy_seed
@@ -295,6 +312,14 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             raise AssertionError(
                 "environment policy specialized/oracle mismatch:\n"
                 f"{certificate_only.stdout}{policy_oracle.stdout}")
+        policy_rebuilt = checker(
+            checker_path, game, mutated_policy, certificate, "certificate",
+            "--test-rebuild-successor")
+        if policy_rebuilt.returncode != certificate_only.returncode:
+            raise AssertionError(
+                "environment successor-cache policy mismatch:\n"
+                f"{certificate_only.stdout}{policy_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
         decided = checker(checker_path, game, mutated_policy, certificate,
                           "both")
         if decided.returncode != 1:
@@ -320,6 +345,7 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
         "counterstrategy_mutations_refuted": 1,
         "strict_unreal_exports_refused": 1,
         "specialized_policy_oracle_agreements": unreal + 3,
+        "successor_rebuild_oracle_agreements": successor_rebuild_agreements,
     }
 
 
