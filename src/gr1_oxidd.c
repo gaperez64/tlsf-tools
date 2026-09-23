@@ -70,7 +70,10 @@ static bool build_gr1_roots(OxiddRun *run, const Aig *game, Bdd *map,
   uint32_t nl = aig_num_latches(game);
   uint32_t nj = aig_num_justice(game);
   uint32_t nf = aig_num_fairness(game);
-  size_t count = 1u + (size_t)nl + m_goals + nf;
+  bool typed =
+      run->options->safety_objective == OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR;
+  uint32_t nb = typed ? aig_num_bad(game) : 1;
+  size_t count = (size_t)nb + nl + m_goals + nf;
   uint32_t *lits = calloc(count, sizeof *lits);
   Bdd *roots = calloc(count, sizeof *roots);
   if (!lits || !roots) {
@@ -82,12 +85,17 @@ static bool build_gr1_roots(OxiddRun *run, const Aig *game, Bdd *map,
   }
 
   size_t k = 0;
-  if (run->options->safety_output_index >= aig_num_outputs(game)) {
-    free(lits);
-    free(roots);
-    return false;
+  for (uint32_t i = 0; i < nb; i++) {
+    if (typed) {
+      aig_bad_at(game, i, &lits[k++]);
+    } else if (run->options->safety_output_index < aig_num_outputs(game)) {
+      aig_output_at(game, run->options->safety_output_index, &lits[k++]);
+    } else {
+      free(lits);
+      free(roots);
+      return false;
+    }
   }
-  aig_output_at(game, run->options->safety_output_index, &lits[k++]);
   for (uint32_t i = 0; i < nl; i++)
     aig_latch_at(game, i, nullptr, &lits[k++], nullptr);
   for (uint32_t j = 0; j < nj; j++) {
@@ -107,9 +115,16 @@ static bool build_gr1_roots(OxiddRun *run, const Aig *game, Bdd *map,
   bool ok = k == count &&
             oxidd_build_roots(run, game, map, maxvar, lits, roots, count);
   if (ok) {
-    k = 0;
-    *bad = roots[k];
-    roots[k++] = (Bdd){0};
+    *bad = oxidd_bdd_false(run->manager);
+    for (uint32_t i = 0; i < nb; i++) {
+      Bdd combined = oxidd_run_or(run, *bad, roots[i]);
+      oxidd_bdd_unref(*bad);
+      *bad = combined;
+    }
+    ok = !bdd_invalid(*bad);
+    k = nb;
+  }
+  if (ok) {
     for (uint32_t i = 0; i < nl; i++, k++) {
       next[i] = roots[k];
       roots[k] = (Bdd){0};

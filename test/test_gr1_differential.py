@@ -181,23 +181,28 @@ class AagBuilder:
         return rng.choice((self.land, self.lor, self.lxor))(left, right)
 
     def finish(self, next_lits: list[int], bad_lit: int | None,
-               justice: list[int], fairness: list[int]) -> str:
-        outputs = [0 if bad_lit is None else bad_lit]
+               bad_record: bool, justice: list[int], fairness: list[int]) -> str:
+        outputs = [] if bad_record else [0 if bad_lit is None else bad_lit]
+        bad = [bad_lit] if bad_lit is not None and bad_record else []
         lines = [
             f"aag {self.nextvar} {self.ninputs} {self.nlatches} "
-            f"{len(outputs)} {len(self.gates)} 0 0 "
+            f"{len(outputs)} {len(self.gates)} {len(bad)} 0 "
             f"{len(justice)} {len(fairness)}"
         ]
         lines.extend(str(lit) for lit in self.inputs)
         for cur, nxt, reset in zip(self.latches, next_lits, self.resets):
             lines.append(f"{cur} {nxt} {reset}")
         lines.extend(str(lit) for lit in outputs)
+        lines.extend(str(lit) for lit in bad)
         lines.extend("1" for _ in justice)
         lines.extend(str(lit) for lit in justice)
         lines.extend(str(lit) for lit in fairness)
         lines.extend(f"{lhs} {rhs0} {rhs1}" for lhs, rhs0, rhs1 in self.gates)
         lines.extend(f"i{k} {name}" for k, name in enumerate(self.input_names))
-        lines.append("o0 bad")
+        if outputs:
+            lines.append("o0 bad")
+        if bad:
+            lines.append("b0 bad_record")
         lines.extend(f"j{k} justice_{k}" for k in range(len(justice)))
         lines.extend(f"f{k} fairness_{k}" for k in range(len(fairness)))
         return "\n".join(lines) + "\n"
@@ -212,7 +217,7 @@ def make_random_game(rng: random.Random, index: int) -> str:
                  *(f"controllable_c{k}" for k in range(nc))]
         builder = AagBuilder(names, [rng.randint(0, 1)])
         q = builder.latches[0]
-        return builder.finish([q ^ 1], None, [0], [q, q ^ 1])
+        return builder.finish([q ^ 1], None, False, [0], [q, q ^ 1])
 
     # A recurring exact counterexample guarantees that the archived
     # pre-follow-up solver is tested on the input-acceptance bug: the
@@ -223,7 +228,7 @@ def make_random_game(rng: random.Random, index: int) -> str:
         u, c = builder.inputs
         q = builder.latches[0]
         q_equals_u = builder.negate(builder.lxor(q, u))
-        return builder.finish([c], None, [0], [q_equals_u])
+        return builder.finish([c], None, False, [0], [q_equals_u])
 
     nu, nc, nl = rng.randint(1, 3), rng.randint(1, 2), rng.randint(1, 3)
     names = [*(f"u{k}" for k in range(nu)),
@@ -246,8 +251,8 @@ def make_random_game(rng: random.Random, index: int) -> str:
     bad_lit = None
     if rng.random() < 0.35:
         bad_lit = builder.random_expr(rng, all_atoms, rng.randint(0, 2))
-    rng.random()  # Preserve the seeded game sequence after removing B-vs-O.
-    return builder.finish(next_lits, bad_lit, justice, fairness)
+    return builder.finish(next_lits, bad_lit, rng.random() < 0.5,
+                          justice, fairness)
 
 
 class ExplicitGame:
@@ -317,9 +322,8 @@ class ExplicitGame:
     def step(self, state: int, u: int, c: int) -> tuple[bool, int]:
         inputs = self.inputs(u, c)
         bad_lits = list(self.aag.bad)
-        bad_lits.extend(lit for name, lit in zip(self.aag.output_names,
-                                                self.aag.outputs)
-                        if name == "bad")
+        if not bad_lits and len(self.aag.outputs) == 1:
+            bad_lits.append(self.aag.outputs[0])
         unsafe = any(self.aag.eval_lit(lit, inputs, state) for lit in bad_lits)
         nxt = 0
         for k, (_cur, next_lit, _reset) in enumerate(self.aag.latches):
@@ -554,11 +558,9 @@ def run_suite(solver: pathlib.Path, games: int, seed: int,
               old_solver: pathlib.Path | None) -> dict[str, int]:
     constraint_game = "aag 1 1 0 0 0 0 1 0 0\n2\n2\ni0 u\n"
     rejected = run_solver(solver, constraint_game)
-    # The intent is that a game with typed constraints is clearly rejected, not
+    # The intent is that a game with invariant constraints is clearly rejected, not
     # that it is rejected in any particular words: the diagnostic has been
-    # reworded once already ("invariant constraints" -> "typed constraints are
-    # parsed but unsupported as synthesis assumptions"), so match the behaviour
-    # and the subject, not the sentence.
+    # reworded before, so match the behaviour and the subject, not the sentence.
     if rejected.returncode != 2 or "constraints" not in rejected.stderr:
         raise AssertionError(
             f"game reader did not clearly reject C > 0: rc={rejected.returncode} "
@@ -568,6 +570,76 @@ def run_suite(solver: pathlib.Path, games: int, seed: int,
         solver, bad_record_game, "--game-profile=multi-safety")
     if bad_result.returncode != 1:
         raise AssertionError("AIGER bad-state record was not enforced")
+
+    combined_game = """aag 3 2 1 0 0 1 0 1 0
+2
+4
+6 7
+6
+1
+7
+i0 env
+i1 controllable_c
+b0 unsafe
+"""
+    for options in ((), ("--game-profile=gr1",)):
+        combined = run_solver(solver, combined_game, *options)
+        if combined.returncode != 1:
+            raise AssertionError(
+                "combined bad-state/justice game was not solved as GR(1): "
+                f"options={options!r} rc={combined.returncode} "
+                f"stderr={combined.stderr!r}")
+
+    pure_justice_game = """aag 2 2 0 0 0 0 0 1 0
+2
+4
+1
+1
+i0 env
+i1 controllable_c
+"""
+    pure_justice = run_solver(solver, pure_justice_game)
+    if pure_justice.returncode != 0:
+        raise AssertionError(
+            "pure-justice AIGER game was not accepted: "
+            f"rc={pure_justice.returncode} stderr={pure_justice.stderr!r}")
+
+    typed_precedence_game = """aag 2 2 0 1 0 1 0 1 0
+2
+4
+1
+0
+1
+1
+i0 env
+i1 controllable_c
+o0 legacy_bad
+b0 safe
+"""
+    typed_precedence = run_solver(solver, typed_precedence_game)
+    if typed_precedence.returncode != 0:
+        raise AssertionError(
+            "ordinary output overrode an AIGER bad-state property: "
+            f"rc={typed_precedence.returncode} "
+            f"stderr={typed_precedence.stderr!r}")
+
+    multiple_bad_game = """aag 2 2 0 0 0 2 0 1 0
+2
+4
+0
+1
+1
+1
+i0 env
+i1 controllable_c
+b0 safe
+b1 unsafe
+"""
+    multiple_bad = run_solver(solver, multiple_bad_game)
+    if multiple_bad.returncode != 1:
+        raise AssertionError(
+            "GR(1) did not disjoin multiple bad-state properties: "
+            f"rc={multiple_bad.returncode} stderr={multiple_bad.stderr!r}")
 
     rng = random.Random(seed)
     old_union_wrong = 0

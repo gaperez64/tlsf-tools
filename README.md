@@ -144,8 +144,12 @@ declared interface sizes are supported for offline routing experiments.
 
 `tlsfsolve` reads an [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER game: uncontrollable inputs are
 ordinary inputs, controllable inputs are prefixed `controllable_`, safety games
-use a `bad` output, and GR(1) games may use AIGER 1.9 `justice`/`fairness`
-records. Exit status 0 means realizable and writes the strategy AAG to stdout;
+use a `bad` output, and GR(1) games may use AIGER 1.9 bad-state,
+`justice`, and `fairness` records. In GR(1), bad-state records are disjoined and
+take precedence over ordinary outputs. With no bad-state records, exactly one
+ordinary output retains the legacy unsafe-output meaning; zero or multiple
+outputs give a pure-justice game. Exit status 0 means realizable and writes the
+strategy AAG to stdout;
 status 1 means proven unrealizable and writes `UNREALIZABLE` to stderr; status
 2 reports an input, usage, or internal OxiDD solver failure.
 

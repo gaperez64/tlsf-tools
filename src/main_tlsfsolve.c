@@ -164,8 +164,7 @@ static bool validate_explicit_profile(const Aig *game, GameProfile p,
     ok = O == 1 && B == 0 && C == 0 && J == 0 && F == 0;
     break;
   case PROFILE_GR1:
-    ok = O == 1 && B == 0 && C == 0 && J > 0 &&
-         justice_records_are_singleton(game);
+    ok = C == 0 && J > 0 && justice_records_are_singleton(game);
     break;
   case PROFILE_MULTI_SAFETY:
     ok = B > 0 && C == 0 && J == 0 && F == 0;
@@ -202,7 +201,7 @@ static bool resolve_profile(const Aig *game, GameProfile requested,
     *resolved = PROFILE_LEGACY_SAFETY;
     return true;
   }
-  if (O == 1 && B == 0 && C == 0 && J > 0 && has_controllable_input(game) &&
+  if (C == 0 && J > 0 && has_controllable_input(game) &&
       justice_records_are_singleton(game)) {
     *resolved = PROFILE_GR1;
     return true;
@@ -212,10 +211,10 @@ static bool resolve_profile(const Aig *game, GameProfile requested,
           prog);
   print_counts(stderr, game);
   if (C > 0) {
-    fprintf(stderr, "; typed constraints are parsed but unsupported as "
+    fprintf(stderr, "; invariant constraints are parsed but unsupported as "
                     "synthesis assumptions");
   } else if (B > 0) {
-    fprintf(stderr, "; typed bad properties require explicit "
+    fprintf(stderr, "; bad state properties require explicit "
                     "--game-profile=multi-safety");
   } else if (J > 0 || F > 0) {
     fprintf(stderr, "; AIGER 1.9 liveness/fairness needs explicit "
@@ -596,7 +595,9 @@ int main(int argc, char **argv) {
               aig_num_fairness(game),
               has_controllable_input(game) ? "true" : "false");
 
-  if (resolved_profile == PROFILE_MULTI_SAFETY) {
+  if (resolved_profile == PROFILE_MULTI_SAFETY ||
+      (resolved_profile == PROFILE_GR1 &&
+       (aig_num_bad(game) > 0 || aig_num_outputs(game) != 1))) {
     opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR;
   } else {
     opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;

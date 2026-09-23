@@ -78,10 +78,8 @@ class SampledGame:
     def step(self, state: int, u: int, c: int) -> tuple[bool, int]:
         values = self.inputs(u, c)
         bad_lits = list(self.game.bad)
-        bad_lits.extend(
-            lit for name, lit in zip(self.game.output_names, self.game.outputs)
-            if name == "bad"
-        )
+        if not bad_lits and len(self.game.outputs) == 1:
+            bad_lits.append(self.game.outputs[0])
         unsafe = any(self.game.eval_lit(lit, values, state)
                      for lit in bad_lits)
         nxt = 0
@@ -493,9 +491,8 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
             bad = buddy.bddfalse
             for bad_lit in game.bad:
                 bad |= lit(bad_lit)
-            for name, output_lit in zip(game.output_names, game.outputs):
-                if name == "bad":
-                    bad |= lit(output_lit)
+            if not game.bad and len(game.outputs) == 1:
+                bad |= lit(game.outputs[0])
             return game_inputs, lit, next_lit, next_state, bad
 
         # Reset membership is checked directly, independent of BuDDy.
