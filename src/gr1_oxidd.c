@@ -33,6 +33,17 @@ typedef struct {
   uint32_t n, cap;
 } BddVec;
 
+typedef struct {
+  Bdd z;
+  Bdd *y;
+  BddVec *x;
+} DualLevel;
+
+typedef struct {
+  DualLevel *arr;
+  uint32_t n, cap;
+} DualVec;
+
 static bool bddvec_push_ref(OxiddRun *run, BddVec *v, Bdd b) {
   if (v->n == v->cap) {
     uint32_t nc = v->cap ? v->cap * 2 : 4;
@@ -126,6 +137,48 @@ static void bddvec_free_all(BddVec *v) {
   *v = (BddVec){0};
 }
 
+static void dual_level_free(DualLevel *level, uint32_t goals,
+                            uint32_t fairness) {
+  oxidd_bdd_unref(level->z);
+  if (level->y)
+    for (uint32_t j = 0; j < goals; j++)
+      oxidd_bdd_unref(level->y[j]);
+  if (level->x)
+    for (uint32_t j = 0; j < goals; j++)
+      for (uint32_t i = 0; i < fairness; i++)
+        bddvec_free_all(&level->x[j * fairness + i]);
+  free(level->y);
+  free(level->x);
+  *level = (DualLevel){0};
+}
+
+static void dualvec_free_all(DualVec *levels, uint32_t goals,
+                             uint32_t fairness) {
+  for (uint32_t k = 0; k < levels->n; k++)
+    dual_level_free(&levels->arr[k], goals, fairness);
+  free(levels->arr);
+  *levels = (DualVec){0};
+}
+
+static bool dualvec_push_take(OxiddRun *run, DualVec *levels,
+                              DualLevel *level) {
+  if (levels->n == levels->cap) {
+    uint32_t cap = levels->cap ? levels->cap * 2 : 4;
+    DualLevel *next =
+        oxidd_host_realloc(levels->arr, cap * sizeof *levels->arr);
+    if (!next) {
+      oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, run->phase,
+                           "dual_level_realloc", run->operations, run->index);
+      return false;
+    }
+    levels->arr = next;
+    levels->cap = cap;
+  }
+  levels->arr[levels->n++] = *level;
+  *level = (DualLevel){0};
+  return true;
+}
+
 static const char *input_name_or_synthetic(const char *name, uint32_t index,
                                            char buf[32]) {
   if (name)
@@ -202,14 +255,12 @@ static void json_predicate(FILE *out, bool *first, const char *name,
   fputc('}', out);
 }
 
-static bool write_certificate_json(FILE *out, const Aig *certificate,
-                                   const Aig *game, const char *aag_path,
-                                   bool unreal, uint32_t original_nlat,
-                                   uint32_t m_goal_records, uint32_t m_goals,
-                                   uint32_t m_fair, uint32_t n_fair_disj,
-                                   const uint32_t *goal_record,
-                                   const uint32_t *goal_member,
-                                   const BddVec *y_levels) {
+static bool write_certificate_json(
+    FILE *out, const Aig *certificate, const Aig *game, const char *aag_path,
+    bool unreal, Gr1CertificateSemantics semantics, uint32_t original_nlat,
+    uint32_t m_goal_records, uint32_t m_goals, uint32_t m_fair,
+    uint32_t n_fair_disj, const uint32_t *goal_record,
+    const uint32_t *goal_member, const BddVec *y_levels) {
   uint32_t nin = aig_num_inputs(game);
   uint32_t nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
@@ -224,6 +275,11 @@ static bool write_certificate_json(FILE *out, const Aig *certificate,
   fputs("{\n  \"format\": \"tlsf-gr1-certificate-v1\",\n", out);
   fputs("  \"status\": ", out);
   json_string(out, unreal ? "unrealizable" : "realizable");
+  fputs(",\n  \"side\": ", out);
+  json_string(out, unreal ? "environment" : "system");
+  fputs(",\n  \"reduction_semantics\": ", out);
+  json_string(out, semantics == GR1_CERTIFICATE_SEMANTICS_EXACT ? "exact"
+                                                                : "strict");
   fputs(",\n  \"circuit\": {\"path\": ", out);
   json_string(out, aag_path);
   fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
@@ -516,9 +572,9 @@ static bool export_certificate(
       return false;
     }
     bool json_ok = write_certificate_json(
-        json, certificate, game, options->aag_path, unreal, original_nlat,
-        m_goal_records, m_goals, m_fair, n_fair_disj, goal_record, goal_member,
-        y_levels);
+        json, certificate, game, options->aag_path, unreal, options->semantics,
+        original_nlat, m_goal_records, m_goals, m_fair, n_fair_disj,
+        goal_record, goal_member, y_levels);
     if (fclose(json) != 0)
       json_ok = false;
     if (!json_ok) {
@@ -534,7 +590,8 @@ static bool export_certificate(
 
 static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
                               const char *aag_path, uint32_t original_nlat,
-                              uint32_t m_goals) {
+                              uint32_t m_goals,
+                              Gr1CertificateSemantics semantics) {
   uint32_t nin = aig_num_inputs(game);
   uint32_t nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
@@ -547,6 +604,10 @@ static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
   }
 
   fputs("{\n  \"format\": \"tlsf-gr1-policy-v1\",\n", out);
+  fputs("  \"side\": \"system\",\n  \"reduction_semantics\": ", out);
+  json_string(out, semantics == GR1_CERTIFICATE_SEMANTICS_EXACT ? "exact"
+                                                                : "strict");
+  fputs(",\n", out);
   fputs("  \"circuit\": {\"path\": ", out);
   json_string(out, aag_path);
   fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
@@ -705,7 +766,7 @@ static bool export_policy(OxiddRun *run, const Aig *game,
     return false;
   }
   ok = write_policy_json(json, policy, game, options->policy_aag_path,
-                         original_nlat, m_goals);
+                         original_nlat, m_goals, options->semantics);
   if (fclose(json) != 0)
     ok = false;
   aig_free(policy);
@@ -715,6 +776,337 @@ static bool export_policy(OxiddRun *run, const Aig *game,
     return false;
   }
   return true;
+}
+
+static bool write_environment_policy_json(FILE *out, const Aig *policy,
+                                          const Aig *game, const char *aag_path,
+                                          uint32_t original_nlat,
+                                          uint32_t goals,
+                                          uint32_t fairness_counters) {
+  uint32_t nin = aig_num_inputs(game);
+  uint32_t nlat = aig_num_latches(game);
+  uint32_t nu = 0, nc = 0;
+  for (uint32_t p = 0; p < nin; p++) {
+    if (is_controllable(aig_input_name(game, p, nullptr)))
+      nc++;
+    else
+      nu++;
+  }
+  fputs("{\n  \"format\": \"tlsf-gr1-policy-v1\",\n"
+        "  \"side\": \"environment\",\n"
+        "  \"reduction_semantics\": \"exact\",\n"
+        "  \"system_strategy_semantics\": \"mealy\",\n"
+        "  \"strategy_semantics\": \"moore\",\n"
+        "  \"duality_delay_steps\": 1,\n"
+        "  \"circuit\": {\"path\": ",
+        out);
+  json_string(out, aag_path);
+  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
+  fprintf(out,
+          "  \"counts\": {\"game_state_variables\": %u, "
+          "\"original_game_latches\": %u, \"sampling_latches\": %u, "
+          "\"goals\": %u, \"fairness_counters\": %u, "
+          "\"controllable_inputs\": %u, \"uncontrollable_outputs\": %u, "
+          "\"aig_inputs\": %u, \"aig_outputs\": %u, \"aig_ands\": %u},\n",
+          nlat, original_nlat, nlat - original_nlat, goals, fairness_counters,
+          nc, nu, aig_num_inputs(policy), aig_num_outputs(policy),
+          aig_num_ands(policy));
+  fputs("  \"inputs\": {\n    \"state\": [", out);
+  for (uint32_t j = 0; j < nlat; j++) {
+    char fallback[32];
+    const char *name = aig_latch_name(game, j);
+    if (!name) {
+      snprintf(fallback, sizeof fallback, "l%u", j);
+      name = fallback;
+    }
+    fprintf(out, "%s{\"policy_input\": %u, \"game_latch\": %u, \"name\": ",
+            j ? ", " : "", j, j);
+    json_string(out, name);
+    fputc('}', out);
+  }
+  fputs("],\n    \"counter\": [", out);
+  for (uint32_t i = 0; i < fairness_counters; i++)
+    fprintf(out,
+            "%s{\"policy_input\": %u, \"fairness\": %u, "
+            "\"name\": \"curr_%u\", \"reset\": 0, "
+            "\"effective_initial\": %s}",
+            i ? ", " : "", nlat + i, i, i, i == 0 ? "true" : "false");
+  fputs("],\n    \"controllable\": []\n  },\n"
+        "  \"outputs\": {\n    \"uncontrollable\": [",
+        out);
+  bool first = true;
+  uint32_t output = 0;
+  for (uint32_t p = 0; p < nin; p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    if (is_controllable(name))
+      continue;
+    fprintf(out, "%s{\"policy_output\": %u, \"game_input\": %u, \"name\": ",
+            first ? "" : ", ", output++, p);
+    json_string(out, name);
+    fputc('}', out);
+    first = false;
+  }
+  fputs("],\n    \"counter_next\": [", out);
+  for (uint32_t i = 0; i < fairness_counters; i++)
+    fprintf(out,
+            "%s{\"policy_output\": %u, \"fairness\": %u, "
+            "\"name\": \"curr_next_%u\"}",
+            i ? ", " : "", output + i, i, i);
+  fputs("]\n  },\n  \"counter_semantics\": ", out);
+  json_string(out,
+              "The all-zero state means fairness counter 0. At a state where "
+              "fair_i holds the counter advances to (i+1) modulo the number "
+              "of fairness assumptions. The uncontrollable outputs do not "
+              "read the current controllable letter.");
+  fputs("\n}\n", out);
+  return !ferror(out);
+}
+
+static bool export_environment_policy(OxiddRun *run, const Aig *game,
+                                      Gr1CertificateOptions *options,
+                                      uint32_t original_nlat, uint32_t goals,
+                                      uint32_t fairness_counters, uint32_t nin,
+                                      uint32_t nlat, uint32_t nvars,
+                                      uint32_t var_base, const uint32_t *uinput,
+                                      uint32_t nuv, const Bdd *strategy,
+                                      const Bdd *next_curr) {
+  Aig *policy = aig_new();
+  uint32_t *var2lit = malloc(nvars * sizeof *var2lit);
+  if (!policy || !var2lit) {
+    aig_free(policy);
+    free(var2lit);
+    certificate_error(options, "cannot allocate environment policy", nullptr);
+    return false;
+  }
+  for (uint32_t v = 0; v < nvars; v++)
+    var2lit[v] = UINT32_MAX;
+  for (uint32_t j = 0; j < nlat; j++) {
+    char fallback[32];
+    const char *name = aig_latch_name(game, j);
+    if (!name) {
+      snprintf(fallback, sizeof fallback, "l%u", j);
+      name = fallback;
+    }
+    var2lit[nin + j] = aig_input(policy, name);
+  }
+  char name[96];
+  for (uint32_t i = 0; i < fairness_counters; i++) {
+    snprintf(name, sizeof name, "curr_%u", i);
+    var2lit[nin + nlat + i] = aig_input(policy, name);
+  }
+  Bdd2Aig conversion = {policy, var2lit, var_base, nvars, {0}, false};
+  for (uint32_t i = 0; i < nuv; i++)
+    aig_set_output(policy, aig_input_name(game, uinput[i], nullptr),
+                   bdd2aig(&conversion, strategy[i]));
+  for (uint32_t i = 0; i < fairness_counters; i++) {
+    snprintf(name, sizeof name, "curr_next_%u", i);
+    aig_set_output(policy, name, bdd2aig(&conversion, next_curr[i]));
+  }
+  memo_free(&conversion.memo);
+  free(var2lit);
+  if (conversion.error) {
+    aig_free(policy);
+    certificate_error(options, "BDD-to-AIG environment policy failed", nullptr);
+    return false;
+  }
+  FILE *aag = fopen(options->policy_aag_path, "w");
+  if (!aag) {
+    aig_free(policy);
+    certificate_error(options, "cannot open policy", options->policy_aag_path);
+    return false;
+  }
+  aig_write_aag(aag, policy);
+  bool ok = !ferror(aag) && fclose(aag) == 0;
+  if (!ok) {
+    aig_free(policy);
+    certificate_error(options, "cannot write policy", options->policy_aag_path);
+    return false;
+  }
+  FILE *json = fopen(options->policy_json_path, "w");
+  if (!json) {
+    aig_free(policy);
+    certificate_error(options, "cannot open policy sidecar",
+                      options->policy_json_path);
+    return false;
+  }
+  ok = write_environment_policy_json(json, policy, game,
+                                     options->policy_aag_path, original_nlat,
+                                     goals, fairness_counters);
+  if (fclose(json) != 0)
+    ok = false;
+  aig_free(policy);
+  if (!ok)
+    certificate_error(options, "cannot write policy sidecar",
+                      options->policy_json_path);
+  return ok;
+}
+
+static bool write_environment_certificate_json(
+    FILE *out, const Aig *certificate, const Aig *game, const char *aag_path,
+    uint32_t original_nlat, uint32_t goals, uint32_t fairness,
+    uint32_t fairness_counters, const DualVec *levels) {
+  uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
+  uint32_t nu = 0, nc = 0;
+  for (uint32_t p = 0; p < nin; p++) {
+    if (is_controllable(aig_input_name(game, p, nullptr)))
+      nc++;
+    else
+      nu++;
+  }
+  fputs("{\n  \"format\": \"tlsf-gr1-certificate-v1\",\n"
+        "  \"status\": \"unrealizable\",\n"
+        "  \"side\": \"environment\",\n"
+        "  \"reduction_semantics\": \"exact\",\n"
+        "  \"system_strategy_semantics\": \"mealy\",\n"
+        "  \"strategy_semantics\": \"moore\",\n"
+        "  \"duality_delay_steps\": 1,\n"
+        "  \"environment_counter_strategy_exported\": true,\n"
+        "  \"witness_condition\": \"nonempty intersection of the delayed "
+        "environment counter-strategy language with the specification "
+        "complement\",\n"
+        "  \"circuit\": {\"path\": ",
+        out);
+  json_string(out, aag_path);
+  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n"
+        "  \"fixpoint\": ",
+        out);
+  json_string(out, "L = mu Z. OR_j nu Y. AND_i mu X. "
+                   "dpre((Z | !goal_j) & Y & (X | fair_i))");
+  fprintf(out,
+          ",\n  \"counts\": {\"goals\": %u, "
+          "\"fairness_assumptions\": %u, \"fairness_counters\": %u, "
+          "\"state_variables\": %u, \"original_game_latches\": %u, "
+          "\"sampling_latches\": %u, \"uncontrollable_inputs\": %u, "
+          "\"controllable_inputs\": %u, \"outer_levels\": %u, "
+          "\"predicates\": %u, \"aig_inputs\": %u, "
+          "\"aig_latches\": %u, \"aig_ands\": %u},\n",
+          goals, fairness, fairness_counters, nlat, original_nlat,
+          nlat - original_nlat, nu, nc, levels->n, aig_num_outputs(certificate),
+          aig_num_inputs(certificate), aig_num_latches(certificate),
+          aig_num_ands(certificate));
+  fputs("  \"rank_semantics\": ", out);
+  json_string(out,
+              "The least outer level and least goal identify the co-Buchi "
+              "goal. For the active fairness counter, the least inner X level "
+              "must decrease until fair_i holds. Outer-rank decreases permit "
+              "only finitely many goal changes.");
+  fputs(",\n  \"move_semantics\": ", out);
+  json_string(out,
+              "move_i is the pre-Skolem relation bad | target(next). The "
+              "exported uncontrollable policy is Skolemized only after "
+              "universal quantification of every current controllable input.");
+  fputs("\n}\n", out);
+  return !ferror(out);
+}
+
+static bool export_environment_certificate(
+    OxiddRun *run, const Aig *game, Gr1CertificateOptions *options,
+    uint32_t original_nlat, uint32_t goals, uint32_t fairness,
+    uint32_t fairness_counters, uint32_t nin, uint32_t nlat, uint32_t nvars,
+    uint32_t var_base, const Bdd *goal_bdd, const Bdd *fair_bdd,
+    const DualVec *levels, const Bdd *move, Bdd losing) {
+  Aig *certificate = aig_new();
+  uint32_t *var2lit = malloc(nvars * sizeof *var2lit);
+  if (!certificate || !var2lit) {
+    aig_free(certificate);
+    free(var2lit);
+    certificate_error(options, "cannot allocate environment certificate",
+                      nullptr);
+    return false;
+  }
+  for (uint32_t v = 0; v < nvars; v++)
+    var2lit[v] = UINT32_MAX;
+  for (uint32_t j = 0; j < nlat; j++) {
+    char fallback[32];
+    const char *name = aig_latch_name(game, j);
+    if (!name) {
+      snprintf(fallback, sizeof fallback, "l%u", j);
+      name = fallback;
+    }
+    var2lit[nin + j] = aig_input(certificate, name);
+  }
+  for (uint32_t p = 0; p < nin; p++) {
+    char fallback[32];
+    const char *name =
+        input_name_or_synthetic(aig_input_name(game, p, nullptr), p, fallback);
+    var2lit[p] = aig_input(certificate, name);
+  }
+  Bdd2Aig conversion = {certificate, var2lit, var_base, nvars, {0}, false};
+  aig_set_output(certificate, "inv", bdd2aig(&conversion, losing));
+  Bdd system_winning = oxidd_run_not(run, losing);
+  aig_set_output(certificate, "system_winning",
+                 bdd2aig(&conversion, system_winning));
+  oxidd_bdd_unref(system_winning);
+  char name[128];
+  for (uint32_t j = 0; j < goals; j++) {
+    snprintf(name, sizeof name, "goal_%u", j);
+    aig_set_output(certificate, name, bdd2aig(&conversion, goal_bdd[j]));
+  }
+  for (uint32_t i = 0; i < fairness; i++) {
+    snprintf(name, sizeof name, "fair_%u", i);
+    aig_set_output(certificate, name, bdd2aig(&conversion, fair_bdd[i]));
+  }
+  for (uint32_t k = 0; k < levels->n; k++) {
+    const DualLevel *level = &levels->arr[k];
+    snprintf(name, sizeof name, "z_%u", k);
+    aig_set_output(certificate, name, bdd2aig(&conversion, level->z));
+    for (uint32_t j = 0; j < goals; j++) {
+      snprintf(name, sizeof name, "y_%u_%u", k, j);
+      aig_set_output(certificate, name, bdd2aig(&conversion, level->y[j]));
+      for (uint32_t i = 0; i < fairness_counters; i++) {
+        const BddVec *inner = &level->x[j * fairness_counters + i];
+        for (uint32_t l = 0; l < inner->n; l++) {
+          snprintf(name, sizeof name, "x_%u_%u_%u_%u", k, j, i, l);
+          aig_set_output(certificate, name,
+                         bdd2aig(&conversion, inner->arr[l]));
+        }
+      }
+    }
+  }
+  for (uint32_t i = 0; i < fairness_counters; i++) {
+    snprintf(name, sizeof name, "move_%u", i);
+    aig_set_output(certificate, name, bdd2aig(&conversion, move[i]));
+  }
+  memo_free(&conversion.memo);
+  free(var2lit);
+  if (conversion.error) {
+    aig_free(certificate);
+    certificate_error(options, "BDD-to-AIG environment certificate failed",
+                      nullptr);
+    return false;
+  }
+  FILE *aag = fopen(options->aag_path, "w");
+  if (!aag) {
+    aig_free(certificate);
+    certificate_error(options, "cannot open certificate", options->aag_path);
+    return false;
+  }
+  aig_write_aag(aag, certificate);
+  bool ok = !ferror(aag) && fclose(aag) == 0;
+  if (!ok) {
+    aig_free(certificate);
+    certificate_error(options, "cannot write certificate", options->aag_path);
+    return false;
+  }
+  if (options->json_path) {
+    FILE *json = fopen(options->json_path, "w");
+    if (!json) {
+      aig_free(certificate);
+      certificate_error(options, "cannot open certificate sidecar",
+                        options->json_path);
+      return false;
+    }
+    ok = write_environment_certificate_json(
+        json, certificate, game, options->aag_path, original_nlat, goals,
+        fairness, fairness_counters, levels);
+    if (fclose(json) != 0)
+      ok = false;
+  }
+  aig_free(certificate);
+  if (!ok)
+    certificate_error(options, "cannot write certificate sidecar",
+                      options->json_path);
+  return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -740,6 +1132,372 @@ static Bdd cpre_unquantified(OxiddRun *run, Bdd T,
   Bdd result = oxidd_run_and(run, notbad, img);
   oxidd_bdd_unref(img);
   return result;
+}
+
+// Environment dual predecessor:
+//   exists u. forall c. [bad | T[s := next]].
+// The environment chooses the uncontrollable letter before the system chooses
+// its current controllable letter, which is the Moore dual of this Mealy game.
+static Bdd dpre_full(OxiddRun *run, Bdd target,
+                     oxidd_bdd_substitution_t *sub_lat, Bdd bad, Bdd ctrl_cube,
+                     Bdd unc_cube) {
+  Bdd image = oxidd_run_substitute(run, target, sub_lat);
+  Bdd reaches = oxidd_run_or(run, bad, image);
+  Bdd all_control = oxidd_run_forall(run, reaches, ctrl_cube);
+  Bdd result = oxidd_run_exists(run, all_control, unc_cube);
+  oxidd_bdd_unref(image);
+  oxidd_bdd_unref(reaches);
+  oxidd_bdd_unref(all_control);
+  return result;
+}
+
+static Bdd dpre_unquantified(OxiddRun *run, Bdd target,
+                             oxidd_bdd_substitution_t *sub_lat, Bdd bad) {
+  Bdd image = oxidd_run_substitute(run, target, sub_lat);
+  Bdd result = oxidd_run_or(run, bad, image);
+  oxidd_bdd_unref(image);
+  return result;
+}
+
+// Complement of the system PPS fixpoint:
+//
+//   L = mu Z. OR_j nu Y. AND_i mu X.
+//         dpre((Z | !goal_j) & Y & (X | fair_i)).
+//
+// Every strict outer level and the converged inner-X levels are retained.  A
+// counter-strategy can therefore decrease the outer rank finitely often,
+// settle on one missed system goal, and cycle through all environment fairness
+// assumptions using the inner rank.
+static bool compute_dual_fixpoint(OxiddRun *run, uint32_t goals,
+                                  uint32_t fairness, const Bdd *goal_bdd,
+                                  const Bdd *fair_bdd,
+                                  oxidd_bdd_substitution_t *sub_lat, Bdd bad,
+                                  Bdd ctrl_cube, Bdd unc_cube, DualVec *levels,
+                                  Bdd *losing) {
+  oxidd_bdd_manager_t manager = run->manager;
+  Bdd z = oxidd_bdd_false(manager);
+  bool ok = true;
+
+  for (;;) {
+    DualLevel level = {
+        .y = calloc(goals, sizeof *level.y),
+        .x = calloc((size_t)goals * fairness, sizeof *level.x),
+    };
+    if (!level.y || !level.x) {
+      oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, run->phase,
+                           "dual_level_allocation", run->operations,
+                           run->index);
+      dual_level_free(&level, goals, fairness);
+      ok = false;
+      break;
+    }
+    Bdd z_new = oxidd_bdd_false(manager);
+
+    for (uint32_t j = 0; j < goals && ok; j++) {
+      Bdd not_goal = oxidd_run_not(run, goal_bdd[j]);
+      Bdd z_or_not_goal = oxidd_run_or(run, z, not_goal);
+      oxidd_bdd_unref(not_goal);
+      Bdd y = oxidd_bdd_true(manager);
+
+      for (;;) {
+        Bdd y_new = oxidd_bdd_true(manager);
+        for (uint32_t i = 0; i < fairness && ok; i++) {
+          BddVec *x_levels = &level.x[j * fairness + i];
+          bddvec_free_all(x_levels);
+          Bdd x = oxidd_bdd_false(manager);
+          Bdd fair =
+              fair_bdd ? oxidd_bdd_ref(fair_bdd[i]) : oxidd_bdd_true(manager);
+
+          for (;;) {
+            run->index++;
+            Bdd x_or_fair = oxidd_run_or(run, x, fair);
+            Bdd base = oxidd_run_and(run, z_or_not_goal, y);
+            Bdd target = oxidd_run_and(run, base, x_or_fair);
+            oxidd_bdd_unref(x_or_fair);
+            oxidd_bdd_unref(base);
+            Bdd x_new =
+                dpre_full(run, target, sub_lat, bad, ctrl_cube, unc_cube);
+            oxidd_bdd_unref(target);
+            if (bdd_invalid(x_new) || !bddvec_push_ref(run, x_levels, x_new)) {
+              oxidd_bdd_unref(x_new);
+              ok = false;
+              break;
+            }
+            bool converged = bdd_eq(x_new, x);
+            oxidd_bdd_unref(x);
+            x = x_new;
+            if (converged)
+              break;
+          }
+          oxidd_bdd_unref(fair);
+          if (!ok) {
+            oxidd_bdd_unref(x);
+            break;
+          }
+          Bdd intersection = oxidd_run_and(run, y_new, x);
+          oxidd_bdd_unref(y_new);
+          oxidd_bdd_unref(x);
+          y_new = intersection;
+          if (bdd_invalid(y_new))
+            ok = false;
+        }
+        if (!ok) {
+          oxidd_bdd_unref(y_new);
+          break;
+        }
+        bool converged = bdd_eq(y_new, y);
+        oxidd_bdd_unref(y);
+        y = y_new;
+        if (converged)
+          break;
+      }
+      oxidd_bdd_unref(z_or_not_goal);
+      if (!ok) {
+        oxidd_bdd_unref(y);
+        break;
+      }
+      level.y[j] = oxidd_bdd_ref(y);
+      Bdd union_y = oxidd_run_or(run, z_new, y);
+      oxidd_bdd_unref(z_new);
+      oxidd_bdd_unref(y);
+      z_new = union_y;
+      if (bdd_invalid(z_new))
+        ok = false;
+    }
+
+    if (!ok) {
+      oxidd_bdd_unref(z_new);
+      dual_level_free(&level, goals, fairness);
+      break;
+    }
+    bool converged = bdd_eq(z_new, z);
+    if (converged) {
+      oxidd_bdd_unref(z);
+      z = z_new;
+      dual_level_free(&level, goals, fairness);
+      break;
+    }
+    level.z = oxidd_bdd_ref(z_new);
+    if (!dualvec_push_take(run, levels, &level)) {
+      oxidd_bdd_unref(z_new);
+      dual_level_free(&level, goals, fairness);
+      ok = false;
+      break;
+    }
+    oxidd_bdd_unref(z);
+    z = z_new;
+    oxidd_pressure_gc_checkpoint(run);
+  }
+
+  if (ok)
+    *losing = z;
+  else
+    oxidd_bdd_unref(z);
+  return ok;
+}
+
+static bool extract_environment_counterstrategy(
+    OxiddRun *run, uint32_t goals, uint32_t fairness, const Bdd *goal_bdd,
+    const Bdd *fair_bdd, const DualVec *levels, const Bdd *counter,
+    oxidd_bdd_substitution_t *sub_lat, Bdd bad, Bdd ctrl_cube,
+    const uint32_t *uvars, uint32_t nuv, Bdd **move_out, Bdd **strategy_out,
+    Bdd **next_counter_out) {
+  oxidd_bdd_manager_t manager = run->manager;
+  Bdd *move = calloc(fairness, sizeof *move);
+  Bdd *strategy = nuv ? calloc(nuv, sizeof *strategy) : nullptr;
+  Bdd *next_counter = calloc(fairness, sizeof *next_counter);
+  Bdd *phase = calloc(fairness, sizeof *phase);
+  Bdd *effective = calloc(fairness, sizeof *effective);
+  if (!move || (nuv && !strategy) || !next_counter || !phase || !effective) {
+    free(move);
+    free(strategy);
+    free(next_counter);
+    free(phase);
+    free(effective);
+    return false;
+  }
+  bool ok = true;
+
+  for (uint32_t i = 0; i < fairness && ok; i++) {
+    Bdd relation = oxidd_bdd_false(manager);
+    for (uint32_t k = 0; k < levels->n && ok; k++) {
+      const DualLevel *outer = &levels->arr[k];
+      Bdd lower_z =
+          k ? oxidd_bdd_ref(levels->arr[k - 1].z) : oxidd_bdd_false(manager);
+      Bdd not_lower_z = oxidd_run_not(run, lower_z);
+      Bdd outer_layer = oxidd_run_and(run, outer->z, not_lower_z);
+      oxidd_bdd_unref(not_lower_z);
+      Bdd earlier_goal = oxidd_bdd_false(manager);
+
+      for (uint32_t j = 0; j < goals && ok; j++) {
+        Bdd not_earlier = oxidd_run_not(run, earlier_goal);
+        Bdd selected0 = oxidd_run_and(run, outer_layer, outer->y[j]);
+        Bdd selected = oxidd_run_and(run, selected0, not_earlier);
+        oxidd_bdd_unref(selected0);
+        oxidd_bdd_unref(not_earlier);
+        Bdd covered_x = oxidd_bdd_false(manager);
+        const BddVec *inner = &outer->x[j * fairness + i];
+
+        for (uint32_t l = 0; l < inner->n && ok; l++) {
+          Bdd not_covered = oxidd_run_not(run, covered_x);
+          Bdd rank0 = oxidd_run_and(run, inner->arr[l], not_covered);
+          Bdd rank = oxidd_run_and(run, selected, rank0);
+          oxidd_bdd_unref(not_covered);
+          oxidd_bdd_unref(rank0);
+
+          Bdd not_goal = oxidd_run_not(run, goal_bdd[j]);
+          Bdd outer_progress = oxidd_run_or(run, lower_z, not_goal);
+          oxidd_bdd_unref(not_goal);
+          Bdd base = oxidd_run_and(run, outer_progress, outer->y[j]);
+          oxidd_bdd_unref(outer_progress);
+          Bdd fair =
+              fair_bdd ? oxidd_bdd_ref(fair_bdd[i]) : oxidd_bdd_true(manager);
+          Bdd inner_progress = l ? oxidd_run_or(run, inner->arr[l - 1], fair)
+                                 : oxidd_bdd_ref(fair);
+          oxidd_bdd_unref(fair);
+          Bdd target = oxidd_run_and(run, base, inner_progress);
+          oxidd_bdd_unref(base);
+          oxidd_bdd_unref(inner_progress);
+          Bdd step = dpre_unquantified(run, target, sub_lat, bad);
+          oxidd_bdd_unref(target);
+          Bdd ranked_step = oxidd_run_and(run, rank, step);
+          oxidd_bdd_unref(rank);
+          oxidd_bdd_unref(step);
+          Bdd expanded = oxidd_run_or(run, relation, ranked_step);
+          oxidd_bdd_unref(relation);
+          oxidd_bdd_unref(ranked_step);
+          relation = expanded;
+
+          Bdd new_covered = oxidd_run_or(run, covered_x, inner->arr[l]);
+          oxidd_bdd_unref(covered_x);
+          covered_x = new_covered;
+          if (bdd_invalid(relation) || bdd_invalid(covered_x))
+            ok = false;
+        }
+        oxidd_bdd_unref(covered_x);
+        oxidd_bdd_unref(selected);
+        Bdd more_goals = oxidd_run_or(run, earlier_goal, outer->y[j]);
+        oxidd_bdd_unref(earlier_goal);
+        earlier_goal = more_goals;
+        if (bdd_invalid(earlier_goal))
+          ok = false;
+      }
+      oxidd_bdd_unref(earlier_goal);
+      oxidd_bdd_unref(outer_layer);
+      oxidd_bdd_unref(lower_z);
+    }
+    move[i] = relation;
+  }
+
+  if (ok) {
+    Bdd any = oxidd_bdd_false(manager);
+    for (uint32_t i = 0; i < fairness; i++) {
+      phase[i] = oxidd_bdd_false(manager);
+      Bdd more = oxidd_run_or(run, any, counter[i]);
+      oxidd_bdd_unref(any);
+      any = more;
+    }
+    Bdd none = oxidd_run_not(run, any);
+    effective[0] = oxidd_run_or(run, counter[0], none);
+    oxidd_bdd_unref(none);
+    for (uint32_t i = 1; i < fairness; i++)
+      effective[i] = oxidd_bdd_ref(counter[i]);
+    oxidd_bdd_unref(any);
+
+    for (uint32_t i = 0; i < fairness && ok; i++) {
+      uint32_t next = (i + 1) % fairness;
+      Bdd fair =
+          fair_bdd ? oxidd_bdd_ref(fair_bdd[i]) : oxidd_bdd_true(manager);
+      Bdd advance = oxidd_run_and(run, effective[i], fair);
+      Bdd not_fair = oxidd_run_not(run, fair);
+      Bdd stay = oxidd_run_and(run, effective[i], not_fair);
+      oxidd_bdd_unref(fair);
+      oxidd_bdd_unref(not_fair);
+      Bdd new_stay = oxidd_run_or(run, phase[i], stay);
+      oxidd_bdd_unref(phase[i]);
+      oxidd_bdd_unref(stay);
+      phase[i] = new_stay;
+      Bdd new_advance = oxidd_run_or(run, phase[next], advance);
+      oxidd_bdd_unref(phase[next]);
+      oxidd_bdd_unref(advance);
+      phase[next] = new_advance;
+      if (bdd_invalid(phase[i]) || bdd_invalid(phase[next]))
+        ok = false;
+    }
+  }
+
+  Bdd total = oxidd_bdd_false(manager);
+  if (ok) {
+    for (uint32_t i = 0; i < fairness; i++) {
+      next_counter[i] = oxidd_bdd_ref(phase[i]);
+      Bdd active = oxidd_run_and(run, phase[i], move[i]);
+      Bdd expanded = oxidd_run_or(run, total, active);
+      oxidd_bdd_unref(total);
+      oxidd_bdd_unref(active);
+      total = expanded;
+      if (bdd_invalid(total)) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  if (ok) {
+    Bdd relation = oxidd_run_forall(run, total, ctrl_cube);
+    for (uint32_t i = 0; i < nuv && ok; i++) {
+      run->index = i;
+      Bdd positive = oxidd_run_var(run, uvars[i]);
+      Bdd with_one = oxidd_run_restrict(run, relation, positive);
+      Bdd remaining = oxidd_run_cube(run, uvars + i + 1, nuv - i - 1);
+      Bdd choice = oxidd_run_exists(run, with_one, remaining);
+      oxidd_bdd_unref(positive);
+      oxidd_bdd_unref(with_one);
+      oxidd_bdd_unref(remaining);
+      if (bdd_invalid(choice)) {
+        oxidd_bdd_unref(choice);
+        ok = false;
+        break;
+      }
+      strategy[i] = choice;
+      oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(1);
+      if (!sub) {
+        ok = false;
+        break;
+      }
+      oxidd_bdd_substitution_add_pair(sub, uvars[i], choice);
+      Bdd next_relation = oxidd_run_substitute(run, relation, sub);
+      oxidd_bdd_substitution_free(sub);
+      oxidd_bdd_unref(relation);
+      relation = next_relation;
+      if (bdd_invalid(relation))
+        ok = false;
+    }
+    oxidd_bdd_unref(relation);
+  }
+  oxidd_bdd_unref(total);
+  for (uint32_t i = 0; i < fairness; i++) {
+    oxidd_bdd_unref(phase[i]);
+    oxidd_bdd_unref(effective[i]);
+  }
+  free(phase);
+  free(effective);
+
+  if (!ok) {
+    for (uint32_t i = 0; i < fairness; i++) {
+      oxidd_bdd_unref(move[i]);
+      oxidd_bdd_unref(next_counter[i]);
+    }
+    for (uint32_t i = 0; i < nuv; i++)
+      oxidd_bdd_unref(strategy[i]);
+    free(move);
+    free(strategy);
+    free(next_counter);
+    return false;
+  }
+  *move_out = move;
+  *strategy_out = strategy;
+  *next_counter_out = next_counter;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +1564,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   uint32_t nin = aig_num_inputs(game);
   uint32_t nlat = aig_num_latches(game);
   uint32_t nand = aig_num_ands(game);
+  uint32_t n_fair_disj = m_fair ? m_fair : 1;
 
   // Highest AIG variable index, to size the literal -> BDD map.
   uint32_t maxvar = 0;
@@ -831,7 +1590,10 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   // Allocations.
   // BDD var layout: 0..nin-1 = inputs, nin..nin+nlat-1 = latches,
   //                 nin+nlat..nin+nlat+m_goals-1 = goal counter curr[j].
-  uint32_t nvars = nin + nlat + m_goals;
+  uint32_t auxiliary_vars = m_goals;
+  if ((want_certificate || want_policy) && n_fair_disj > auxiliary_vars)
+    auxiliary_vars = n_fair_disj;
+  uint32_t nvars = nin + nlat + auxiliary_vars;
 
   // Manager: reuse session manager when active; otherwise right-size a fresh
   // one.
@@ -841,14 +1603,18 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   size_t node_cap = 0, cache_cap = 0;
   OxiddResolvedOrder order = {0};
   if (own_mgr) {
-    if (!oxidd_resolve_var_order(game, opts, m_goals, &order)) {
+    if (!oxidd_resolve_var_order(game, opts, auxiliary_vars, &order)) {
       aig_free(game);
       return nullptr;
     }
-    node_cap =
-        opts->node_cap ? opts->node_cap : oxidd_default_capacity(nvars, 6);
-    cache_cap =
-        opts->cache_cap ? opts->cache_cap : oxidd_default_capacity(nvars, 6);
+    size_t default_cap = oxidd_default_capacity(nvars, 6);
+    // Dual extraction retains both fixpoint ranks and universally quantified
+    // move relations.  The ordinary 2^22 ceiling is enough for solving but is
+    // too tight for the named n=7 export regression.
+    if ((want_certificate || want_policy) && default_cap < (size_t)1 << 23)
+      default_cap = (size_t)1 << 23;
+    node_cap = opts->node_cap ? opts->node_cap : default_cap;
+    cache_cap = opts->cache_cap ? opts->cache_cap : default_cap;
     oxidd_trace(opts, "manager_create", "begin",
                 ",\"node_cap\":%zu,\"cache_cap\":%zu,\"vars\":%u", node_cap,
                 cache_cap, nvars);
@@ -897,17 +1663,18 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   uint32_t *goal_member =
       want_certificate_json ? calloc(m_goals, sizeof *goal_member) : nullptr;
   Bdd *fair_bdd = m_fair ? calloc(m_fair, sizeof *fair_bdd) : nullptr;
-  Bdd *curr_bdd = m_goals ? calloc(m_goals, sizeof *curr_bdd) : nullptr;
+  Bdd *curr_bdd =
+      auxiliary_vars ? calloc(auxiliary_vars, sizeof *curr_bdd) : nullptr;
   uint32_t *var2lit = calloc(nvars, sizeof *var2lit);
   uint32_t *lat_lit = nlat ? calloc(nlat, sizeof *lat_lit) : nullptr;
   uint32_t *curr_latch_lit =
-      m_goals ? calloc(m_goals, sizeof *curr_latch_lit) : nullptr;
+      auxiliary_vars ? calloc(auxiliary_vars, sizeof *curr_latch_lit) : nullptr;
   uint32_t *cvars = nin ? calloc(nin, sizeof *cvars) : nullptr;
   uint32_t *uvars = nin ? calloc(nin, sizeof *uvars) : nullptr;
   uint32_t *cinput = nin ? calloc(nin, sizeof *cinput) : nullptr;
+  uint32_t *uinput = nin ? calloc(nin, sizeof *uinput) : nullptr;
   Bdd *strat_f = nullptr;
   BddVec *y_levels = m_goals ? calloc(m_goals, sizeof *y_levels) : nullptr;
-  uint32_t n_fair_disj = m_fair ? m_fair : 1;
   BddVec *x_levels =
       m_goals ? calloc(m_goals * n_fair_disj, sizeof *x_levels) : nullptr;
   Bdd *move_bdd =
@@ -916,8 +1683,8 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   if (!var_bdd || (nlat && !next_bdd) || !goal_bdd || (m_fair && !fair_bdd) ||
       (want_certificate_json && (!goal_record || !goal_member)) || !curr_bdd ||
       !var2lit || (nlat && !lat_lit) || !curr_latch_lit ||
-      (nin && (!cvars || !uvars || !cinput)) || !y_levels || !x_levels ||
-      (want_certificate && !move_bdd)) {
+      (nin && (!cvars || !uvars || !cinput || !uinput)) || !y_levels ||
+      !x_levels || (want_certificate && !move_bdd)) {
     oxidd_record_failure(opts, OXIDD_FAILURE_HOST, "construction", "calloc", 0,
                          0);
     free(var_bdd);
@@ -933,6 +1700,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     free(cvars);
     free(uvars);
     free(cinput);
+    free(uinput);
     free(y_levels);
     free(x_levels);
     free(move_bdd);
@@ -947,6 +1715,11 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
               nin, nlat, nand, aig_num_outputs(game), m_goals, m_fair);
 
   Bdd bad = {0}, notbad = {0}, W = {0}, ctrl_cube = {0}, unc_cube = {0};
+  Bdd L = {0};
+  DualVec dual_levels = {0};
+  Bdd *environment_move = nullptr;
+  Bdd *environment_strategy = nullptr;
+  Bdd *environment_next_counter = nullptr;
   oxidd_bdd_substitution_t *sub_lat = nullptr;
   uint32_t ncv = 0, nuv = 0;
   bool ok = true;
@@ -963,7 +1736,8 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
       cinput[ncv] = p;
       ncv++;
     } else {
-      uvars[nuv++] = var_base + p;
+      uvars[nuv] = var_base + p;
+      uinput[nuv++] = p;
     }
   }
   for (uint32_t j = 0; j < nlat; j++) {
@@ -971,7 +1745,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     aig_latch_at(game, j, &cur, nullptr, nullptr);
     var_bdd[cur / 2] = oxidd_run_var(run, var_base + nin + j);
   }
-  for (uint32_t j = 0; j < m_goals; j++)
+  for (uint32_t j = 0; j < auxiliary_vars; j++)
     curr_bdd[j] = oxidd_run_var(run, var_base + nin + nlat + j);
 
   oxidd_phase(run, "construction");
@@ -994,9 +1768,6 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
       }
     }
   }
-  oxidd_bdd_unref(bad);
-  bad = (Bdd){0};
-
   // Fairness BDDs.  Each assumption gets its own inner ν-fixpoint below;
   // combining their negations would allow the environment to alternate which
   // assumption is false while still satisfying every assumption infinitely.
@@ -1175,9 +1946,57 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     free(args);
     if (ok && !realizable) {
       *unreal = 1;
-      if (!want_certificate)
+      if (certificate &&
+          certificate->semantics == GR1_CERTIFICATE_SEMANTICS_STRICT &&
+          (want_certificate || want_policy)) {
+        certificate_error(
+            certificate,
+            "refusing UNREAL certificate/policy from strict semantics",
+            nullptr);
         ok = false;
+      } else if (!want_certificate && !want_policy) {
+        ok = false;
+      }
     }
+  }
+
+  if (ok && *unreal) {
+    oxidd_phase(run, "dual_fixpoint");
+    ok = compute_dual_fixpoint(run, m_goals, n_fair_disj, goal_bdd,
+                               m_fair ? fair_bdd : nullptr, sub_lat, bad,
+                               ctrl_cube, unc_cube, &dual_levels, &L);
+    if (ok) {
+      oxidd_var_no_bool_pair_t *args =
+          nlat ? calloc(nlat, sizeof *args) : nullptr;
+      if (nlat && !args) {
+        ok = false;
+      } else {
+        for (uint32_t j = 0; j < nlat; j++) {
+          uint32_t reset;
+          aig_latch_at(game, j, nullptr, nullptr, &reset);
+          args[j].var = var_base + nin + j;
+          args[j].val = reset != 0;
+        }
+        if (!oxidd_bdd_eval(L, args, nlat)) {
+          oxidd_record_failure(opts, OXIDD_FAILURE_INVALID, "dual_fixpoint",
+                               "reset_not_environment_winning", run->operations,
+                               run->index);
+          ok = false;
+        }
+        free(args);
+      }
+    }
+    if (ok) {
+      oxidd_phase(run, "dual_strategy_relation");
+      ok = extract_environment_counterstrategy(
+          run, m_goals, n_fair_disj, goal_bdd, m_fair ? fair_bdd : nullptr,
+          &dual_levels, curr_bdd, sub_lat, bad, ctrl_cube, uvars, nuv,
+          &environment_move, &environment_strategy, &environment_next_counter);
+    }
+    if (!ok && certificate && !certificate->failed)
+      certificate_error(certificate,
+                        "environment counter-strategy construction failed",
+                        nullptr);
   }
 
   // -----------------------------------------------------------------------
@@ -1518,12 +2337,28 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     }
   }
 
+  if (ok && want_policy && *unreal) {
+    oxidd_phase(run, "environment_policy");
+    if (!export_environment_policy(run, game, certificate, original_nlat,
+                                   m_goals, n_fair_disj, nin, nlat, nvars,
+                                   var_base, uinput, nuv, environment_strategy,
+                                   environment_next_counter))
+      ok = false;
+  }
+
   if (ok && want_certificate) {
     oxidd_phase(run, "certificate");
-    if (!export_certificate(run, game, certificate, *unreal != 0, original_nlat,
-                            m_goal_records, m_goals, m_fair, n_fair_disj, nin,
-                            nlat, nvars, var_base, goal_record, goal_member,
-                            goal_bdd, y_levels, x_levels, move_bdd, W)) {
+    bool exported =
+        *unreal ? export_environment_certificate(
+                      run, game, certificate, original_nlat, m_goals, m_fair,
+                      n_fair_disj, nin, nlat, nvars, var_base, goal_bdd,
+                      fair_bdd, &dual_levels, environment_move, L)
+                : export_certificate(run, game, certificate, false,
+                                     original_nlat, m_goal_records, m_goals,
+                                     m_fair, n_fair_disj, nin, nlat, nvars,
+                                     var_base, goal_record, goal_member,
+                                     goal_bdd, y_levels, x_levels, move_bdd, W);
+    if (!exported) {
       aig_free(strat);
       strat = nullptr;
       ok = false;
@@ -1539,6 +2374,22 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
       oxidd_bdd_unref(next_curr[j]);
     free(next_curr);
   }
+  if (environment_move) {
+    for (uint32_t i = 0; i < n_fair_disj; i++)
+      oxidd_bdd_unref(environment_move[i]);
+    free(environment_move);
+  }
+  if (environment_strategy) {
+    for (uint32_t i = 0; i < nuv; i++)
+      oxidd_bdd_unref(environment_strategy[i]);
+    free(environment_strategy);
+  }
+  if (environment_next_counter) {
+    for (uint32_t i = 0; i < n_fair_disj; i++)
+      oxidd_bdd_unref(environment_next_counter[i]);
+    free(environment_next_counter);
+  }
+  dualvec_free_all(&dual_levels, m_goals, n_fair_disj);
   if (strat_f) {
     for (uint32_t k = 0; k < ncv; k++)
       oxidd_bdd_unref(strat_f[k]);
@@ -1571,7 +2422,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     free(fair_bdd);
   }
   if (curr_bdd) {
-    for (uint32_t j = 0; j < m_goals; j++)
+    for (uint32_t j = 0; j < auxiliary_vars; j++)
       oxidd_bdd_unref(curr_bdd[j]);
     free(curr_bdd);
   }
@@ -1586,6 +2437,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   oxidd_bdd_unref(bad);
   oxidd_bdd_unref(notbad);
   oxidd_bdd_unref(W);
+  oxidd_bdd_unref(L);
   oxidd_bdd_unref(ctrl_cube);
   oxidd_bdd_unref(unc_cube);
   if (sub_lat)
@@ -1610,6 +2462,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   free(cvars);
   free(uvars);
   free(cinput);
+  free(uinput);
   aig_free(game);
   return strat;
 }

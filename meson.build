@@ -1155,6 +1155,12 @@ if research_tools and have_oxidd
              '--games', '80'],
       timeout: 180,
     )
+    test('gr1_unreal_certificate', python3,
+      args: [files('test/test_gr1_unreal_certificate.py'),
+             '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,
+             '--games', '120'],
+      timeout: 180,
+    )
   endif
   if spot_python_found
     test('gr1_monitor_game', spot_python,

@@ -254,6 +254,8 @@ static void usage(const char *prog) {
       "  --certificate-json FILE  metadata sidecar (default FILE.json)\n"
       "  --policy FILE            export combinational GR(1) policy AAG\n"
       "  --policy-json FILE       policy mapping sidecar (default FILE.json)\n"
+      "  --semantics exact|strict reduction semantics recorded in exports\n"
+      "                         (default: exact; strict cannot export UNREAL)\n"
       "  --oxidd-nodes N        BDD node arena capacity, in entries\n"
       "  --oxidd-cache N        BDD apply-cache capacity, in entries\n"
       "                         capacity default: 2^(inputs+latches+6),\n"
@@ -290,6 +292,8 @@ int main(int argc, char **argv) {
   const char *certificate_json_path = nullptr;
   const char *policy_path = nullptr;
   const char *policy_json_path = nullptr;
+  Gr1CertificateSemantics certificate_semantics =
+      GR1_CERTIFICATE_SEMANTICS_EXACT;
   char *default_certificate_json = nullptr;
   char *default_policy_json = nullptr;
   GameProfile requested_profile = PROFILE_AUTO, resolved_profile = PROFILE_AUTO;
@@ -379,6 +383,18 @@ int main(int argc, char **argv) {
         return 2;
       }
       policy_json_path = val;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--semantics");
+    if (val || !strcmp(arg, "--semantics")) {
+      if (!val || !strcmp(val, "exact")) {
+        certificate_semantics = GR1_CERTIFICATE_SEMANTICS_EXACT;
+      } else if (!strcmp(val, "strict")) {
+        certificate_semantics = GR1_CERTIFICATE_SEMANTICS_STRICT;
+      } else {
+        fprintf(stderr, "%s: bad --semantics '%s'\n", argv[0], val ? val : "");
+        return 2;
+      }
       continue;
     }
     val = option_value(&i, argc, argv, arg, "--game-profile");
@@ -602,6 +618,7 @@ int main(int argc, char **argv) {
                                        certificate_json_path,
                                        policy_path,
                                        policy_json_path,
+                                       certificate_semantics,
                                        false,
                                        {0}};
   Aig *strat = nullptr;
