@@ -109,6 +109,8 @@ spot_dep = dependency('libspot', required: false)
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
 python3 = find_program('python3', required: false)
+spot_python = python3
+spot_python_env = environment()
 spot_python_found = false
 if python3.found()
   spot_python_found = run_command(
@@ -117,6 +119,28 @@ if python3.found()
     'import spot',
     check: false,
   ).returncode() == 0
+endif
+# The param-lift monitor tools can fall back to the locally installed Spot
+# bindings when the generic Python cannot import them.  Keep the selected
+# interpreter and its environment together so a not-found fallback is never
+# used merely because an earlier probe succeeded.
+if not spot_python_found
+  spot_python_fallback = find_program('python3.13', required: false)
+  spot_python_fallback_env = environment()
+  spot_python_fallback_env.set(
+    'PYTHONPATH', '/usr/local/lib64/python3.13/site-packages')
+  spot_python_fallback_env.set('LD_LIBRARY_PATH', '/usr/local/lib:/usr/local/lib64')
+  if spot_python_fallback.found() and run_command(
+      spot_python_fallback,
+      '-c',
+      'import spot',
+      env: spot_python_fallback_env,
+      check: false,
+    ).returncode() == 0
+    spot_python = spot_python_fallback
+    spot_python_env = spot_python_fallback_env
+    spot_python_found = true
+  endif
 endif
 
 # ---------------------------------------------------------------------------
@@ -410,6 +434,16 @@ if research_tools
       install: true,
     )
 
+    tlsfcertcheck_exe = executable(
+      'tlsfcertcheck',
+      sources: ['src/main_tlsfcertcheck.c', 'src/oxidd_common.c', version_h],
+      c_args: ['-DHAVE_OXIDD'],
+      dependencies: [oxidd_dep],
+      link_with: tlsf_lib,
+      include_directories: inc,
+      install: true,
+    )
+
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
       sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c',
@@ -539,6 +573,8 @@ if research_tools
       args: ['tlsfcompose', tlsfcompose_exe])
     test('version_tlsfsolve', check_version,
       args: ['tlsfsolve', tlsfsolve_exe])
+    test('version_tlsfcertcheck', check_version,
+      args: ['tlsfcertcheck', tlsfcertcheck_exe])
   endif
 endif
 
@@ -1022,11 +1058,13 @@ if research_tools and have_oxidd
     link_args: ['-Wl,--wrap=oxidd_bdd_and', '-Wl,--wrap=oxidd_bdd_substitute',
                 '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
                 '-Wl,--wrap=oxidd_bdd_exists', '-Wl,--wrap=oxidd_bdd_restrict',
-                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+                '-Wl,--wrap=calloc', '-Wl,--wrap=oxidd_host_realloc'],
     dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
   test('oxidd_memory', oxidd_memory_test)
-  test('gr1_fairness_fail_closed', check_contains,
-    args: ['multiple_fairness_not_supported', tlsfsolve_exe, '--game-profile=gr1',
+  test('gr1_fairness_alternating_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           '--game-profile=gr1',
            files('test/cases/gr1_fairness_alternating.aag')])
   test('tlsfsolve_help_defaults', files('test/check_tlsfsolve_help.sh'),
     args: [tlsfsolve_exe])
@@ -1053,6 +1091,16 @@ if research_tools and have_oxidd
       endforeach
     endif
   endif
+  aiger_game_roundtrip_exe = executable(
+    'aiger-game-roundtrip',
+    sources: ['test/aiger_game_roundtrip.c', 'src/gr1_oxidd.c',
+              'src/oxidd_common.c', 'src/oxidd_order.c'],
+    c_args: ['-DHAVE_OXIDD'],
+    dependencies: [oxidd_dep],
+    link_with: tlsf_lib,
+    include_directories: inc,
+  )
+  test('aiger_game_roundtrip', aiger_game_roundtrip_exe)
   # tlsfsolve: exact status, stdout and stderr for win, loss and solver failure.
   test('tlsfsolve_real', check_status,
     args: ['0', files('test/cases/solve_real.out.aag'),
@@ -1074,10 +1122,55 @@ if research_tools and have_oxidd
   test('tlsfsolve_multi_bad_auto_refuses', check_contains,
     args: ['cannot infer synthesis game profile.*multi-safety', tlsfsolve_exe,
            files('test/cases/solve_multi_bad_unreal.aag')])
+  test('tlsfsolve_gr1_fair1_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/gr1_fair1.aag')])
+  test('tlsfsolve_gr1_fair2_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/gr1_fair2.aag')])
+  test('tlsfsolve_gr1_input_fairness_unreal', check_status,
+    args: ['1', files('test/cases/empty'),
+           files('test/cases/solve_unreal.stderr'), tlsfsolve_exe,
+           files('test/cases/gr1_input_fairness.aag')])
   test('tlsfsolve_failure', check_status,
     args: ['2', files('test/cases/empty'),
            files('test/cases/solve_failure.stderr'), tlsfsolve_failure_exe,
            files('test/cases/solve_real.aag')])
+  if python3.found()
+    test('gr1_explicit_differential', python3,
+      args: [files('test/test_gr1_differential.py'),
+             '--solver', tlsfsolve_exe, '--games', '320'],
+      timeout: 120,
+    )
+    test('gr1_certificate', python3,
+      args: [files('test/test_gr1_certificate.py'),
+             '--solver', tlsfsolve_exe, '--games', '240'],
+      timeout: 180,
+    )
+    test('gr1_certcheck', python3,
+      args: [files('test/test_gr1_certcheck.py'),
+             '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,
+             '--games', '80'],
+      timeout: 180,
+    )
+  endif
+  if spot_python_found
+    test('gr1_monitor_game', spot_python,
+      args: [files('test/test_gr1_monitor_game.py'),
+             '--python', spot_python,
+             '--builder', files('scripts/gr1_monitor_game.py'),
+             '--verifier', files('scripts/verify_strategy_explicit.py'),
+             '--old-verifier', files('scripts/verify_aiger_ltl.py'),
+             '--tlsf2ltl', tlsf2ltl_exe,
+             '--tlsf2tlsf', tlsf2tlsf_exe,
+             '--tlsfinfo', tlsfinfo_exe,
+             '--solver', tlsfsolve_exe],
+      env: spot_python_env,
+      timeout: 120,
+    )
+  endif
 endif
 
 # tlsfnorm is stable preprocessing functionality.

@@ -7,7 +7,8 @@
 /// output 0, typed AIGER 1.9 bad properties, or the local GR(1) dialect.
 ///
 /// Usage:
-///   tlsfsolve [FILE]     (FILE = aag game; omit or use "-" for stdin)
+///   tlsfsolve [--certificate FILE [--certificate-json FILE]]
+///             [--policy FILE [--policy-json FILE]] [GAME]
 ///   tlsfsolve --help
 
 #include "tlsf/aiger.h"
@@ -249,6 +250,10 @@ static void usage(const char *prog) {
       "  FILE   aag game file (default: stdin; use '-' for stdin)\n"
       "  --game-profile=auto|legacy-safety|gr1|multi-safety\n"
       "                         game interpretation (default: auto)\n"
+      "  --certificate FILE       export GR(1) certificate as ASCII AIGER\n"
+      "  --certificate-json FILE  metadata sidecar (default FILE.json)\n"
+      "  --policy FILE            export combinational GR(1) policy AAG\n"
+      "  --policy-json FILE       policy mapping sidecar (default FILE.json)\n"
       "  --oxidd-nodes N        BDD node arena capacity, in entries\n"
       "  --oxidd-cache N        BDD apply-cache capacity, in entries\n"
       "                         capacity default: 2^(inputs+latches+6),\n"
@@ -281,6 +286,12 @@ static void usage(const char *prog) {
 
 int main(int argc, char **argv) {
   const char *path = nullptr;
+  const char *certificate_path = nullptr;
+  const char *certificate_json_path = nullptr;
+  const char *policy_path = nullptr;
+  const char *policy_json_path = nullptr;
+  char *default_certificate_json = nullptr;
+  char *default_policy_json = nullptr;
   GameProfile requested_profile = PROFILE_AUTO, resolved_profile = PROFILE_AUTO;
   OxiddSolveOptions opts = oxidd_solve_options_default();
   OxiddFailure failure = {0};
@@ -327,7 +338,50 @@ int main(int argc, char **argv) {
       );
       return 0;
     }
-    const char *val = option_value(&i, argc, argv, arg, "--game-profile");
+    const char *val = option_value(&i, argc, argv, arg, "--certificate");
+    if (val || !strcmp(arg, "--certificate")) {
+      if (!val || !*val || !strcmp(val, "-")) {
+        fprintf(stderr, "%s: --certificate requires a non-stdout FILE\n",
+                argv[0]);
+        usage(argv[0]);
+        return 2;
+      }
+      certificate_path = val;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--certificate-json");
+    if (val || !strcmp(arg, "--certificate-json")) {
+      if (!val || !*val || !strcmp(val, "-")) {
+        fprintf(stderr, "%s: --certificate-json requires a non-stdout FILE\n",
+                argv[0]);
+        usage(argv[0]);
+        return 2;
+      }
+      certificate_json_path = val;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--policy");
+    if (val || !strcmp(arg, "--policy")) {
+      if (!val || !*val || !strcmp(val, "-")) {
+        fprintf(stderr, "%s: --policy requires a non-stdout FILE\n", argv[0]);
+        usage(argv[0]);
+        return 2;
+      }
+      policy_path = val;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--policy-json");
+    if (val || !strcmp(arg, "--policy-json")) {
+      if (!val || !*val || !strcmp(val, "-")) {
+        fprintf(stderr, "%s: --policy-json requires a non-stdout FILE\n",
+                argv[0]);
+        usage(argv[0]);
+        return 2;
+      }
+      policy_json_path = val;
+      continue;
+    }
+    val = option_value(&i, argc, argv, arg, "--game-profile");
     if (val) {
       if (!parse_profile(val, &requested_profile)) {
         fprintf(stderr, "%s: bad --game-profile '%s'\n", argv[0], val);
@@ -456,10 +510,45 @@ int main(int argc, char **argv) {
       return 2;
     }
   }
+  if (certificate_json_path && !certificate_path) {
+    fprintf(stderr, "%s: --certificate-json requires --certificate FILE\n",
+            argv[0]);
+    usage(argv[0]);
+    return 2;
+  }
+  if (policy_json_path && !policy_path) {
+    fprintf(stderr, "%s: --policy-json requires --policy FILE\n", argv[0]);
+    usage(argv[0]);
+    return 2;
+  }
+  if (certificate_path && !certificate_json_path) {
+    size_t n = strlen(certificate_path) + sizeof ".json";
+    default_certificate_json = malloc(n);
+    if (!default_certificate_json) {
+      fprintf(stderr, "%s: cannot allocate certificate sidecar path\n",
+              argv[0]);
+      return 2;
+    }
+    snprintf(default_certificate_json, n, "%s.json", certificate_path);
+    certificate_json_path = default_certificate_json;
+  }
+  if (policy_path && !policy_json_path) {
+    size_t n = strlen(policy_path) + sizeof ".json";
+    default_policy_json = malloc(n);
+    if (!default_policy_json) {
+      fprintf(stderr, "%s: cannot allocate policy sidecar path\n", argv[0]);
+      free(default_certificate_json);
+      return 2;
+    }
+    snprintf(default_policy_json, n, "%s.json", policy_path);
+    policy_json_path = default_policy_json;
+  }
 
   FILE *in = path ? fopen(path, "r") : stdin;
   if (!in) {
     perror(path);
+    free(default_certificate_json);
+    free(default_policy_json);
     return 2;
   }
 
@@ -468,12 +557,16 @@ int main(int argc, char **argv) {
     fclose(in);
   if (!game) {
     fprintf(stderr, "%s: failed to parse aag game\n", argv[0]);
+    free(default_certificate_json);
+    free(default_policy_json);
     return 2;
   }
 
   if (!resolve_profile(game, requested_profile, &resolved_profile, argv[0]) ||
       !validate_supported_resets(game, argv[0])) {
     aig_free(game);
+    free(default_certificate_json);
+    free(default_policy_json);
     return 2;
   }
 
@@ -495,28 +588,59 @@ int main(int argc, char **argv) {
   }
 
   int unreal = 0;
+  if ((certificate_path || policy_path) && resolved_profile != PROFILE_GR1) {
+    fprintf(
+        stderr,
+        "%s: certificate/policy export requires a GR(1) game with justice\n",
+        argv[0]);
+    aig_free(game);
+    free(default_certificate_json);
+    free(default_policy_json);
+    return 2;
+  }
+  Gr1CertificateOptions certificate = {certificate_path,
+                                       certificate_json_path,
+                                       policy_path,
+                                       policy_json_path,
+                                       false,
+                                       {0}};
   Aig *strat = nullptr;
   if (resolved_profile == PROFILE_GR1) {
     if (opts.demand_transitions || opts.realizability_only) {
       fprintf(stderr, "tlsfsolve: demand transitions and verdict-only require "
                       "a safety profile\n");
       aig_free(game);
+      free(default_certificate_json);
+      free(default_policy_json);
       return 2;
     }
-    strat = solve_gr1_oxidd_ex(game, &unreal, &opts);
+    strat = certificate_path || policy_path
+                ? solve_gr1_oxidd_ex_with_certificate(game, &unreal, &opts,
+                                                      &certificate)
+                : solve_gr1_oxidd_ex(game, &unreal, &opts);
   } else {
     OxiddSolveResult result = solve_safety_oxidd_result(game, &opts);
     strat = result.strategy;
     unreal = result.status == OXIDD_SOLVE_UNREALIZABLE;
     if (result.status == OXIDD_SOLVE_REALIZABLE && opts.realizability_only) {
       fprintf(stderr, "REALIZABLE\n");
+      free(default_certificate_json);
+      free(default_policy_json);
       return 0;
     }
   }
 
   if (!strat) {
+    if (certificate.failed) {
+      fprintf(stderr, "%s: %s\n", argv[0], certificate.error);
+      free(default_certificate_json);
+      free(default_policy_json);
+      return 2;
+    }
     if (unreal) {
       fprintf(stderr, "UNREALIZABLE\n");
+      free(default_certificate_json);
+      free(default_policy_json);
       return 1;
     }
     fprintf(stderr, "tlsfsolve: OxiDD solver failed\n");
@@ -534,6 +658,8 @@ int main(int argc, char **argv) {
               "its bundle\n"
               "tlsfsolve: to a bug report; see "
               "docs/tlsfsolve-diagnostics.md\n");
+    free(default_certificate_json);
+    free(default_policy_json);
     return 2;
   }
 
@@ -541,7 +667,11 @@ int main(int argc, char **argv) {
   aig_free(strat);
   if (fflush(stdout) != 0 || ferror(stdout)) {
     fprintf(stderr, "tlsfsolve: strategy output failed\n");
+    free(default_certificate_json);
+    free(default_policy_json);
     return 2;
   }
+  free(default_certificate_json);
+  free(default_policy_json);
   return 0;
 }

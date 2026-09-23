@@ -32,3 +32,17 @@ Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
   (void)opts;
   return solve_gr1_oxidd(game, unreal);
 }
+
+Aig *solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
+                                      Gr1CertificateOptions *certificate) {
+  (void)certificate;
+  return solve_gr1_oxidd(game, unreal);
+}
+
+Aig *solve_gr1_oxidd_ex_with_certificate(
+    Aig *game, int *unreal, const OxiddSolveOptions *opts,
+    Gr1CertificateOptions *certificate) {
+  (void)opts;
+  (void)certificate;
+  return solve_gr1_oxidd(game, unreal);
+}

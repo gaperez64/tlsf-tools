@@ -12,6 +12,7 @@ typedef struct {
 } Input;
 typedef struct {
   uint32_t var, next, reset;
+  char *name;
 } Latch;
 typedef struct {
   uint32_t var, r0, r1;
@@ -110,6 +111,8 @@ void aig_free(Aig *g) {
     free(g->bad[i].name);
   for (uint32_t i = 0; i < g->ncons; i++)
     free(g->cons[i].name);
+  for (uint32_t i = 0; i < g->nlat; i++)
+    free(g->lat[i].name);
   for (uint32_t i = 0; i < g->nsig; i++)
     free(g->sig[i].name);
   for (uint32_t i = 0; i < g->njust; i++) {
@@ -168,11 +171,17 @@ uint32_t aig_input(Aig *g, const char *name) {
   return lit;
 }
 
-uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset) {
+uint32_t aig_latch_named(Aig *g, uint32_t next, uint32_t reset,
+                         const char *name) {
   uint32_t var = ++g->nextvar;
   GROW(g->lat, g->lat_cap, g->nlat);
-  g->lat[g->nlat++] = (Latch){var, next, reset};
+  g->lat[g->nlat++] =
+      (Latch){var, next, reset, name ? aig_xstrdup(name) : nullptr};
   return var * 2;
+}
+
+uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset) {
+  return aig_latch_named(g, next, reset, nullptr);
 }
 
 bool aig_set_latch_next(Aig *g, uint32_t latch_lit, uint32_t next) {
@@ -309,6 +318,8 @@ void aig_latch_at(const Aig *g, uint32_t i, uint32_t *cur, uint32_t *next,
     *reset = g->lat[i].reset;
 }
 
+const char *aig_latch_name(const Aig *g, uint32_t i) { return g->lat[i].name; }
+
 uint32_t aig_num_outputs(const Aig *g) { return g->nout; }
 
 const char *aig_output_at(const Aig *g, uint32_t i, uint32_t *lit) {
@@ -374,6 +385,48 @@ uint32_t aig_fairness_at(const Aig *g, uint32_t i) { return g->fair[i].lit; }
 
 const char *aig_fairness_name(const Aig *g, uint32_t i) {
   return g->fair[i].name;
+}
+
+static bool lit_depends_on_input(const bool *depends, uint32_t nvars,
+                                 uint32_t lit) {
+  return lit >= 2 && lit / 2 < nvars && depends[lit / 2];
+}
+
+void aig_sample_input_dependent_acceptance(Aig *g) {
+  // Latch literals are state predicates even when their next-state functions
+  // read inputs.  AND gates are stored in construction/topological order, so
+  // input dependence can be propagated through their combinational cones in
+  // one pass.
+  uint32_t nvars = g->nextvar + 1;
+  bool *depends = aig_xcalloc(nvars, sizeof *depends);
+  for (uint32_t i = 0; i < g->nin; i++)
+    depends[g->ins[i].var] = true;
+  for (uint32_t i = 0; i < g->nand; i++) {
+    And gate = g->ands[i];
+    depends[gate.var] = lit_depends_on_input(depends, nvars, gate.r0) ||
+                        lit_depends_on_input(depends, nvars, gate.r1);
+  }
+
+  // GF p and GF X p are equivalent on infinite plays.  Sampling only the
+  // input-dependent literals leaves already state-based in-process games byte
+  // for byte unchanged while making the state-set fixpoint sound for arbitrary
+  // AIGER 1.9 acceptance literals.
+  for (uint32_t j = 0; j < g->njust; j++)
+    for (uint32_t k = 0; k < g->just[j].n; k++)
+      if (lit_depends_on_input(depends, nvars, g->just[j].lits[k])) {
+        char name[96];
+        snprintf(name, sizeof name, "__tlsf_gr1_sample_justice_%u_%u", j, k);
+        g->just[j].lits[k] =
+            aig_latch_named(g, g->just[j].lits[k], AIG_FALSE, name);
+      }
+  for (uint32_t i = 0; i < g->nfair; i++)
+    if (lit_depends_on_input(depends, nvars, g->fair[i].lit)) {
+      char name[96];
+      snprintf(name, sizeof name, "__tlsf_gr1_sample_fairness_%u", i);
+      g->fair[i].lit = aig_latch_named(g, g->fair[i].lit, AIG_FALSE, name);
+    }
+
+  free(depends);
 }
 
 static void rename_in(char **slot, const char *from, const char *to) {
@@ -545,7 +598,7 @@ static Aig *aig_read_aag_impl(FILE *in, bool controller_comments) {
     if (!fgets(line, sizeof line, in) || parse_uints(line, t, 3) < 2)
       goto fail;
     GROW(g->lat, g->lat_cap, g->nlat);
-    g->lat[g->nlat++] = (Latch){t[0] / 2, t[1], t[2]};
+    g->lat[g->nlat++] = (Latch){t[0] / 2, t[1], t[2], nullptr};
   }
   for (uint32_t i = 0; i < O; i++)
     if (!fgets(line, sizeof line, in) || parse_uints(line, &outlits[i], 1) != 1)
@@ -581,7 +634,8 @@ static Aig *aig_read_aag_impl(FILE *in, bool controller_comments) {
     GROW(g->ands, g->and_cap, g->nand);
     g->ands[g->nand++] = (And){t[0] / 2, t[1], t[2]};
   }
-  // Symbol table: i/o/b/c/j/f records preserve the full text after the index.
+  // Symbol table: i/l/o/b/c/j/f records preserve the full text after the
+  // index.
   char **onames = O ? calloc(O, sizeof(char *)) : nullptr;
   char **bnames = nbad ? calloc(nbad, sizeof(char *)) : nullptr;
   char **cnames = ncons ? calloc(ncons, sizeof(char *)) : nullptr;
@@ -614,7 +668,10 @@ static Aig *aig_read_aag_impl(FILE *in, bool controller_comments) {
       continue;
     if (kind == 'i' && idx < g->nin)
       g->ins[idx].name = name;
-    else if (kind == 'o' && idx < O && onames)
+    else if (kind == 'l' && idx < g->nlat) {
+      free(g->lat[idx].name);
+      g->lat[idx].name = name;
+    } else if (kind == 'o' && idx < O && onames)
       onames[idx] = name;
     else if (kind == 'b' && idx < nbad && bnames)
       bnames[idx] = name;
@@ -717,8 +774,9 @@ bool aig_merge(Aig *dst, const Aig *src) {
 #define REMAP(lit) ((lit) < 2 ? (lit) : ((vmap[(lit) / 2] * 2) | ((lit) & 1u)))
   for (uint32_t i = 0; i < src->nlat; i++) {
     GROW(dst->lat, dst->lat_cap, dst->nlat);
-    dst->lat[dst->nlat++] = (Latch){vmap[src->lat[i].var],
-                                    REMAP(src->lat[i].next), src->lat[i].reset};
+    dst->lat[dst->nlat++] = (Latch){
+        vmap[src->lat[i].var], REMAP(src->lat[i].next), src->lat[i].reset,
+        src->lat[i].name ? aig_xstrdup(src->lat[i].name) : nullptr};
   }
   for (uint32_t i = 0; i < src->nand; i++) {
     GROW(dst->ands, dst->and_cap, dst->nand);
@@ -786,6 +844,9 @@ void aig_write_aag(FILE *out, const Aig *g) {
   for (uint32_t k = 0; k < g->nin; k++)
     if (g->ins[k].name)
       fprintf(out, "i%u %s\n", k, g->ins[k].name);
+  for (uint32_t k = 0; k < g->nlat; k++)
+    if (g->lat[k].name)
+      fprintf(out, "l%u %s\n", k, g->lat[k].name);
   for (uint32_t k = 0; k < g->nout; k++)
     if (g->outs[k].name)
       fprintf(out, "o%u %s\n", k, g->outs[k].name);

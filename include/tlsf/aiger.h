@@ -35,6 +35,12 @@ uint32_t aig_input(Aig *g, const char *name);
 /// those are supported for their profile.
 uint32_t aig_latch(Aig *g, uint32_t next, uint32_t reset);
 
+/// Add a named latch.  The name is emitted as an AIGER latch symbol and is
+/// available through `aig_latch_name`; unlike input/output names it is not
+/// registered as a combinational lookup signal.
+uint32_t aig_latch_named(Aig *g, uint32_t next, uint32_t reset,
+                         const char *name);
+
 /// Update the next-state function of an existing latch literal.
 bool aig_set_latch_next(Aig *g, uint32_t latch_lit, uint32_t next);
 
@@ -97,6 +103,8 @@ uint32_t aig_num_latches(const Aig *g);
 /// latch `i`.
 void aig_latch_at(const Aig *g, uint32_t i, uint32_t *cur, uint32_t *next,
                   uint32_t *reset);
+/// Latch symbol (borrowed), or nullptr when latch `i` is unnamed.
+const char *aig_latch_name(const Aig *g, uint32_t i);
 uint32_t aig_num_outputs(const Aig *g);
 /// Name (borrowed; valid until `g` is freed) and literal of output `i`.
 /// The name may be null when the source AIGER had no `oN` symbol.
@@ -133,7 +141,14 @@ uint32_t aig_fairness_at(const Aig *g, uint32_t i);
 /// Optional symbol name of fairness constraint `i`.
 const char *aig_fairness_name(const Aig *g, uint32_t i);
 
-/// Parse an ASCII `aag` from `in` (inputs/latches/outputs/ands + i/o symbols).
+/// Replace every justice/fairness literal whose combinational cone reads an
+/// input with a fresh reset-0 latch whose next-state function is that literal.
+/// State-only acceptance literals are unchanged.  This turns transition-level
+/// AIGER acceptance into state predicates while preserving each GF property.
+void aig_sample_input_dependent_acceptance(Aig *g);
+
+/// Parse an ASCII `aag` from `in`, preserving AIGER 1.9 typed properties and
+/// their symbols distinctly from ordinary outputs.
 /// Returns nullptr on a malformed file.
 [[nodiscard]] Aig *aig_read_aag(FILE *in);
 

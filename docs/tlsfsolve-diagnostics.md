@@ -137,13 +137,13 @@ size.
 
 ## Exact Demand Construction
 
-The existing GR(1) algorithm's pointwise combination of multiple fairness
-assumptions is unsound: a forced alternating state satisfies both `GF s` and
-`GF !s`, but incorrectly permits an impossible system goal. Until a separately
-validated algorithm repair lands, more than one fairness assumption returns a
-configuration error (exit 2), allowing composition callers to fall back. The
-parser still preserves every fairness property. This restriction is a separate
-correctness fix, not a memory optimization.
+The GR(1) multiple-fairness repair is implemented in the fixpoint itself. A
+forced alternating state satisfies both `GF s` and `GF !s`, so the solver must
+not combine their negations pointwise: doing so would incorrectly permit an
+impossible system goal. Instead, every fairness assumption has its own inner
+greatest fixpoint, their results are disjoined at each least-fixpoint level,
+and strategy extraction retains the corresponding `X[k,i]` level. Multiple
+fairness assumptions are therefore solved normally rather than rejected.
 
 Safety profiles also accept `--oxidd-transitions=demand`. This builds only
 updates in the current state predicate's complete BDD support, retaining the

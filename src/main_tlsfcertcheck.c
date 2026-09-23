@@ -1,0 +1,2352 @@
+// NOLINTNEXTLINE(cert-dcl37-c)
+#define _POSIX_C_SOURCE 200809L
+
+/// tlsfcertcheck — independently check a GR(1) policy at its target size.
+///
+/// The certificate path checks only one-step implications.  In particular it
+/// does not run the GR(1) winning-region fixpoint.  For a current goal j, every
+/// invariant state has a least lexicographic rank (k,i).  Unless goal_j holds,
+/// the checked policy moves to goal_j, a smaller k, or remains in X[j,k,i]
+/// while fairness i is false at the successor.  Along a fair play k can fall
+/// only finitely often, i can fall only finitely often at a fixed k, and an
+/// infinite stay at a fixed (k,i) makes fair_i false forever.  Thus a play
+/// satisfying every environment fairness assumption must reach goal_j and
+/// advance the counter; cycling the counter proves every system justice.
+///
+/// Soundness invariant: REFUTED is claimed only when the policy is genuinely
+/// losing.  A failed certificate condition is CERT_FAILED: the sufficient
+/// proof did not go through, but nothing follows about the policy itself.
+///
+/// The independent fallback composes the policy with the game, computes the
+/// reachable closed loop, and uses an existential Emerson-Lei generalized-
+/// Buchi fixpoint to search for a reachable fair cycle missing one justice.
+/// --json-out writes tlsf-gr1-checkresult-v1: an overall verdict and resource
+/// totals plus per-method verdict, time, peak nodes, and structured witness.
+
+#include "tlsf/aiger.h"
+#include "tlsf/build_info.h"
+#include "tlsf/oxidd_common.h"
+
+#include <ctype.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+enum {
+  EXIT_VERIFIED = 0,
+  EXIT_REFUTED = 1,
+  EXIT_ERROR = 2,
+  EXIT_UNKNOWN = 3,
+  EXIT_INVALID = 4,
+  EXIT_INTERNAL = 5,
+  EXIT_CERT_FAILED = 6,
+};
+
+typedef enum {
+  CHECK_VERIFIED,
+  CHECK_REFUTED,
+  CHECK_UNKNOWN,
+  CHECK_INVALID,
+  CHECK_CERT_FAILED,
+  CHECK_SKIPPED,
+} CheckResult;
+
+typedef enum {
+  METHOD_AUTO,
+  METHOD_CERTIFICATE,
+  METHOD_CLOSED_LOOP,
+  METHOD_BOTH
+} Method;
+
+typedef struct {
+  uint32_t levels;
+  Bdd *y;
+  Bdd **x;
+} RankGoal;
+
+typedef struct {
+  bool present;
+  bool has_control;
+  char reason[128];
+  uint8_t *state;
+  uint8_t *curr;
+  uint8_t *inputs;
+  uint8_t *control;
+} Counterexample;
+
+typedef struct {
+  CheckResult result;
+  double seconds;
+  size_t peak_nodes;
+  Counterexample counterexample;
+} MethodReport;
+
+typedef struct {
+  const char *game_path;
+  const char *policy_path;
+  const char *policy_json_path;
+  const char *certificate_path;
+  const char *certificate_json_path;
+  const char *json_out_path;
+  const char *emit_path;
+  Method method;
+  double timeout;
+  size_t node_cap;
+} Options;
+
+typedef struct {
+  Options options;
+  Aig *game;
+  Aig *policy;
+  Aig *certificate;
+  oxidd_bdd_manager_t manager;
+  uint32_t original_nlat;
+  uint32_t nstate, nin, nu, nc, ngoals, nfair, nfair_disj, nq, nvars;
+  uint32_t *uinput, *cinput;
+  uint32_t *qvar, *qpvar, *uvar, *cvar;
+  Bdd *q, *qp, *u, *c;
+  Bdd *game_next, game_bad, *goal, *fair, *cert_goal;
+  Bdd *policy_control, *policy_curr_next;
+  Bdd cert_inv;
+  RankGoal *rank;
+  Bdd input_cube;
+  bool bdd_failed;
+  Counterexample *current_counterexample;
+  double started;
+  size_t peak_nodes;
+} Checker;
+
+typedef struct {
+  Bdd *values;
+  uint32_t nvalues;
+} Compiled;
+
+static double now_seconds(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+static bool timed_out(const Checker *ck) {
+  return ck->options.timeout > 0 &&
+         now_seconds() - ck->started >= ck->options.timeout;
+}
+
+static void update_peak(Checker *ck) {
+  size_t nodes = oxidd_bdd_manager_approx_num_inner_nodes(ck->manager);
+  if (nodes > ck->peak_nodes)
+    ck->peak_nodes = nodes;
+}
+
+static void usage(const char *prog) {
+  fprintf(stderr,
+          "Usage: %s [OPTIONS] GAME POLICY\n"
+          "Check a combinational GR(1) policy without solving the game.\n"
+          "  --policy-json FILE       policy mapping sidecar (default "
+          "POLICY.json)\n"
+          "  --certificate FILE       M2 certificate AAG\n"
+          "  --certificate-json FILE  M2 sidecar (default CERTIFICATE.json)\n"
+          "  --method NAME            auto|certificate|closed-loop|both\n"
+          "  --json-out FILE          write tlsf-gr1-checkresult-v1 JSON\n"
+          "  --emit-controller FILE   emit the checked standalone controller\n"
+          "  --timeout SECONDS        return UNKNOWN after the soft deadline\n"
+          "  --node-cap N             OxiDD inner-node cap (default 16777216)\n"
+          "Exit 0 VERIFIED, 1 REFUTED, 2 ERROR, 3 UNKNOWN, 4 INVALID,\n"
+          "     5 INTERNAL-ERROR (verified certificate contradicted by the "
+          "closed loop),\n"
+          "     6 CERT_FAILED (a form of UNKNOWN: the certificate does not "
+          "prove this policy;\n"
+          "       nothing is concluded about the policy itself).\n",
+          prog);
+}
+
+static bool parse_u64(const char *text, uint64_t *value) {
+  char *end = nullptr;
+  errno = 0;
+  unsigned long long parsed = strtoull(text, &end, 10);
+  if (errno || end == text || *end != '\0')
+    return false;
+  *value = (uint64_t)parsed;
+  return true;
+}
+
+static bool parse_double(const char *text, double *value) {
+  char *end = nullptr;
+  errno = 0;
+  double parsed = strtod(text, &end);
+  if (errno || end == text || *end != '\0' || parsed < 0)
+    return false;
+  *value = parsed;
+  return true;
+}
+
+static char *sidecar_default(const char *path) {
+  size_t n = strlen(path) + sizeof ".json";
+  char *result = malloc(n);
+  if (result)
+    snprintf(result, n, "%s.json", path);
+  return result;
+}
+
+static int parse_options(int argc, char **argv, Options *options,
+                         char **owned_policy_json, char **owned_cert_json) {
+  *options =
+      (Options){.method = METHOD_AUTO, .timeout = 0, .node_cap = 1u << 24};
+  const char *positional[2] = {nullptr, nullptr};
+  uint32_t npos = 0;
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+      usage(argv[0]);
+      return 1;
+    }
+    if (!strcmp(argv[i], "--version")) {
+      printf("tlsfcertcheck %s oxidd=%s research=%s simd=%s\n",
+             TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
+             tlsf_build_simd());
+      return 1;
+    }
+    const char **slot = nullptr;
+    if (!strcmp(argv[i], "--policy-json"))
+      slot = &options->policy_json_path;
+    else if (!strcmp(argv[i], "--certificate"))
+      slot = &options->certificate_path;
+    else if (!strcmp(argv[i], "--certificate-json"))
+      slot = &options->certificate_json_path;
+    else if (!strcmp(argv[i], "--json-out"))
+      slot = &options->json_out_path;
+    else if (!strcmp(argv[i], "--emit-controller"))
+      slot = &options->emit_path;
+    if (slot) {
+      if (++i == argc) {
+        fprintf(stderr, "%s: option requires a value\n", argv[0]);
+        return -1;
+      }
+      *slot = argv[i];
+      continue;
+    }
+    if (!strcmp(argv[i], "--method")) {
+      if (++i == argc) {
+        fprintf(stderr, "%s: --method requires a value\n", argv[0]);
+        return -1;
+      }
+      if (!strcmp(argv[i], "auto"))
+        options->method = METHOD_AUTO;
+      else if (!strcmp(argv[i], "certificate"))
+        options->method = METHOD_CERTIFICATE;
+      else if (!strcmp(argv[i], "closed-loop"))
+        options->method = METHOD_CLOSED_LOOP;
+      else if (!strcmp(argv[i], "both"))
+        options->method = METHOD_BOTH;
+      else {
+        fprintf(stderr, "%s: unknown method '%s'\n", argv[0], argv[i]);
+        return -1;
+      }
+      continue;
+    }
+    if (!strcmp(argv[i], "--timeout")) {
+      if (++i == argc || !parse_double(argv[i], &options->timeout)) {
+        fprintf(stderr, "%s: invalid --timeout\n", argv[0]);
+        return -1;
+      }
+      continue;
+    }
+    if (!strcmp(argv[i], "--node-cap")) {
+      uint64_t cap;
+      if (++i == argc || !parse_u64(argv[i], &cap) || cap < 1024 ||
+          cap > SIZE_MAX) {
+        fprintf(stderr, "%s: invalid --node-cap\n", argv[0]);
+        return -1;
+      }
+      options->node_cap = (size_t)cap;
+      continue;
+    }
+    if (argv[i][0] == '-') {
+      fprintf(stderr, "%s: unknown option '%s'\n", argv[0], argv[i]);
+      return -1;
+    }
+    if (npos == 2) {
+      fprintf(stderr, "%s: too many positional arguments\n", argv[0]);
+      return -1;
+    }
+    positional[npos++] = argv[i];
+  }
+  if (npos != 2) {
+    usage(argv[0]);
+    return -1;
+  }
+  options->game_path = positional[0];
+  options->policy_path = positional[1];
+  if (!options->policy_json_path) {
+    *owned_policy_json = sidecar_default(options->policy_path);
+    options->policy_json_path = *owned_policy_json;
+  }
+  if (options->certificate_path && !options->certificate_json_path) {
+    *owned_cert_json = sidecar_default(options->certificate_path);
+    options->certificate_json_path = *owned_cert_json;
+  }
+  if (options->certificate_json_path && !options->certificate_path) {
+    fprintf(stderr, "%s: --certificate-json requires --certificate\n", argv[0]);
+    return -1;
+  }
+  if ((options->method == METHOD_CERTIFICATE ||
+       options->method == METHOD_BOTH) &&
+      !options->certificate_path) {
+    fprintf(stderr, "%s: selected method requires --certificate\n", argv[0]);
+    return -1;
+  }
+  return 0;
+}
+
+static char *read_text_file(const char *path) {
+  FILE *in = fopen(path, "rb");
+  if (!in)
+    return nullptr;
+  if (fseek(in, 0, SEEK_END) != 0) {
+    fclose(in);
+    return nullptr;
+  }
+  long end = ftell(in);
+  if (end < 0 || fseek(in, 0, SEEK_SET) != 0) {
+    fclose(in);
+    return nullptr;
+  }
+  char *text = malloc((size_t)end + 1);
+  if (!text) {
+    fclose(in);
+    return nullptr;
+  }
+  size_t got = fread(text, 1, (size_t)end, in);
+  bool ok = got == (size_t)end && !ferror(in);
+  fclose(in);
+  if (!ok) {
+    free(text);
+    return nullptr;
+  }
+  text[got] = '\0';
+  return text;
+}
+
+static bool json_has_string(const char *text, const char *key,
+                            const char *value) {
+  char pattern[256];
+  snprintf(pattern, sizeof pattern, "\"%s\"", key);
+  const char *p = strstr(text, pattern);
+  if (!p)
+    return false;
+  p = strchr(p + strlen(pattern), ':');
+  if (!p)
+    return false;
+  p++;
+  while (isspace((unsigned char)*p))
+    p++;
+  size_t n = strlen(value);
+  return *p == '"' && strncmp(p + 1, value, n) == 0 && p[n + 1] == '"';
+}
+
+static bool json_uint(const char *text, const char *key, uint32_t *value) {
+  char pattern[256];
+  snprintf(pattern, sizeof pattern, "\"%s\"", key);
+  const char *p = strstr(text, pattern);
+  if (!p || !(p = strchr(p + strlen(pattern), ':')))
+    return false;
+  p++;
+  while (isspace((unsigned char)*p))
+    p++;
+  char *end;
+  unsigned long parsed = strtoul(p, &end, 10);
+  if (end == p || parsed > UINT32_MAX)
+    return false;
+  *value = (uint32_t)parsed;
+  return true;
+}
+
+static Aig *read_aag(const char *path, bool game, char *error,
+                     size_t error_cap) {
+  FILE *in = fopen(path, "r");
+  if (!in) {
+    snprintf(error, error_cap, "cannot open '%s': %s", path, strerror(errno));
+    return nullptr;
+  }
+  Aig *result = aig_read_aag(in);
+  fclose(in);
+  if (!result)
+    snprintf(error, error_cap, "malformed ASCII AIGER %s'%s'",
+             game ? "game " : "", path);
+  return result;
+}
+
+static const char *latch_name(const Aig *game, uint32_t index, char *fallback,
+                              size_t cap) {
+  const char *name = aig_latch_name(game, index);
+  if (name)
+    return name;
+  snprintf(fallback, cap, "l%u", index);
+  return fallback;
+}
+
+static bool duplicate_inputs_or_outputs(const Aig *aig, const char **kind,
+                                        const char **name) {
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    const char *a = aig_input_name(aig, i, nullptr);
+    if (!a) {
+      *kind = "unnamed input";
+      *name = "";
+      return true;
+    }
+    for (uint32_t j = i + 1; j < aig_num_inputs(aig); j++) {
+      const char *b = aig_input_name(aig, j, nullptr);
+      if (b && !strcmp(a, b)) {
+        *kind = "duplicate input";
+        *name = a;
+        return true;
+      }
+    }
+  }
+  for (uint32_t i = 0; i < aig_num_outputs(aig); i++) {
+    const char *a = aig_output_at(aig, i, nullptr);
+    for (uint32_t j = i + 1; j < aig_num_outputs(aig); j++) {
+      const char *b = aig_output_at(aig, j, nullptr);
+      if (!strcmp(a, b)) {
+        *kind = "duplicate output";
+        *name = a;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static bool has_input(const Aig *aig, const char *name) {
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    const char *candidate = aig_input_name(aig, i, nullptr);
+    if (candidate && !strcmp(candidate, name))
+      return true;
+  }
+  return false;
+}
+
+static bool has_output(const Aig *aig, const char *name) {
+  return aig_output_lit(aig, name) != UINT32_MAX;
+}
+
+static uint32_t count_goals(const Aig *game) {
+  uint32_t count = 0;
+  for (uint32_t j = 0; j < aig_num_justice(game); j++) {
+    uint32_t n;
+    aig_justice_at(game, j, nullptr, &n);
+    count += n ? n : 1;
+  }
+  return count;
+}
+
+static bool validate_sidecars(Checker *ck, char *message, size_t cap) {
+  char *policy = read_text_file(ck->options.policy_json_path);
+  if (!policy) {
+    snprintf(message, cap, "cannot read policy sidecar '%s'",
+             ck->options.policy_json_path);
+    return false;
+  }
+  uint32_t nstate, goals;
+  bool ok = json_has_string(policy, "format", "tlsf-gr1-policy-v1") &&
+            json_uint(policy, "game_state_variables", &nstate) &&
+            json_uint(policy, "goals", &goals) && nstate == ck->nstate &&
+            goals == ck->ngoals;
+  free(policy);
+  if (!ok) {
+    snprintf(message, cap, "policy sidecar does not match this game");
+    return false;
+  }
+  if (!ck->options.certificate_path)
+    return true;
+  char *certificate = read_text_file(ck->options.certificate_json_path);
+  if (!certificate) {
+    snprintf(message, cap, "cannot read certificate sidecar '%s'",
+             ck->options.certificate_json_path);
+    return false;
+  }
+  uint32_t fairness;
+  ok = json_has_string(certificate, "format", "tlsf-gr1-certificate-v1") &&
+       json_has_string(certificate, "status", "realizable") &&
+       json_uint(certificate, "state_variables", &nstate) &&
+       json_uint(certificate, "goals", &goals) &&
+       json_uint(certificate, "fairness_assumptions", &fairness) &&
+       nstate == ck->nstate && goals == ck->ngoals && fairness == ck->nfair;
+  free(certificate);
+  if (!ok) {
+    snprintf(message, cap, "certificate sidecar does not match this game");
+    return false;
+  }
+  return true;
+}
+
+static bool validate_policy_interface(Checker *ck, char *message, size_t cap) {
+  const char *kind, *name;
+  if (duplicate_inputs_or_outputs(ck->policy, &kind, &name)) {
+    snprintf(message, cap, "%s%s%s", kind, *name ? ": " : "", name);
+    return false;
+  }
+  if (aig_num_latches(ck->policy) != 0 || aig_num_justice(ck->policy) != 0 ||
+      aig_num_fairness(ck->policy) != 0) {
+    snprintf(message, cap, "policy must be a combinational AIG");
+    return false;
+  }
+  uint32_t expected_inputs = ck->nstate + ck->ngoals + ck->nu;
+  uint32_t expected_outputs = ck->nc + ck->ngoals;
+  if (aig_num_inputs(ck->policy) != expected_inputs ||
+      aig_num_outputs(ck->policy) != expected_outputs) {
+    snprintf(message, cap,
+             "policy arity mismatch (inputs %u/%u, outputs %u/%u)",
+             aig_num_inputs(ck->policy), expected_inputs,
+             aig_num_outputs(ck->policy), expected_outputs);
+    return false;
+  }
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    char fallback[32];
+    name = latch_name(ck->game, j, fallback, sizeof fallback);
+    if (!has_input(ck->policy, name)) {
+      snprintf(message, cap, "policy is missing state input '%s'", name);
+      return false;
+    }
+  }
+  char generated[96];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(generated, sizeof generated, "curr_%u", j);
+    if (!has_input(ck->policy, generated)) {
+      snprintf(message, cap, "policy is missing counter input '%s'", generated);
+      return false;
+    }
+    snprintf(generated, sizeof generated, "curr_next_%u", j);
+    if (!has_output(ck->policy, generated)) {
+      snprintf(message, cap, "policy is missing counter output '%s'",
+               generated);
+      return false;
+    }
+  }
+  for (uint32_t p = 0; p < ck->nin; p++) {
+    name = aig_input_name(ck->game, p, nullptr);
+    if (is_controllable(name)) {
+      if (!has_output(ck->policy, name)) {
+        snprintf(message, cap, "policy is missing controllable output '%s'",
+                 name);
+        return false;
+      }
+    } else if (!has_input(ck->policy, name)) {
+      snprintf(message, cap, "policy is missing uncontrollable input '%s'",
+               name);
+      return false;
+    }
+  }
+  // Counts plus membership prove there are no extra names.
+  return true;
+}
+
+static bool validate_game_names(Checker *ck, char *message, size_t cap) {
+  for (uint32_t p = 0; p < ck->nin; p++) {
+    const char *left = aig_input_name(ck->game, p, nullptr);
+    for (uint32_t q = p + 1; q < ck->nin; q++)
+      if (!strcmp(left, aig_input_name(ck->game, q, nullptr))) {
+        snprintf(message, cap, "duplicate game input name '%s'", left);
+        return false;
+      }
+  }
+  for (uint32_t s = 0; s < ck->nstate; s++) {
+    char left_fallback[32];
+    const char *left =
+        latch_name(ck->game, s, left_fallback, sizeof left_fallback);
+    for (uint32_t t = s + 1; t < ck->nstate; t++) {
+      char right_fallback[32];
+      const char *right =
+          latch_name(ck->game, t, right_fallback, sizeof right_fallback);
+      if (!strcmp(left, right)) {
+        snprintf(message, cap, "duplicate game state name '%s'", left);
+        return false;
+      }
+    }
+    for (uint32_t p = 0; p < ck->nin; p++)
+      if (!strcmp(left, aig_input_name(ck->game, p, nullptr))) {
+        snprintf(message, cap, "game state/input name overlap '%s'", left);
+        return false;
+      }
+  }
+  char reserved[64];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(reserved, sizeof reserved, "curr_%u", j);
+    for (uint32_t p = 0; p < ck->nin; p++)
+      if (!strcmp(reserved, aig_input_name(ck->game, p, nullptr))) {
+        snprintf(message, cap, "game input uses reserved name '%s'", reserved);
+        return false;
+      }
+    for (uint32_t s = 0; s < ck->nstate; s++) {
+      char fallback[32];
+      if (!strcmp(reserved,
+                  latch_name(ck->game, s, fallback, sizeof fallback))) {
+        snprintf(message, cap, "game state uses reserved name '%s'", reserved);
+        return false;
+      }
+    }
+  }
+  for (uint32_t i = 0; i < ck->nc; i++) {
+    const char *name = aig_input_name(ck->game, ck->cinput[i], nullptr);
+    if (name[strlen(CONTROLLABLE_PREFIX)] == '\0') {
+      snprintf(message, cap, "empty controllable signal name");
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool output_is_expected_certificate(Checker *ck, const char *name,
+                                           const uint32_t *levels) {
+  if (!strcmp(name, "inv"))
+    return true;
+  char expected[96];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(expected, sizeof expected, "goal_%u", j);
+    if (!strcmp(name, expected))
+      return true;
+    snprintf(expected, sizeof expected, "move_%u", j);
+    if (!strcmp(name, expected))
+      return true;
+    for (uint32_t k = 0; k < levels[j]; k++) {
+      snprintf(expected, sizeof expected, "y_%u_%u", j, k);
+      if (!strcmp(name, expected))
+        return true;
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        snprintf(expected, sizeof expected, "x_%u_%u_%u", j, k, i);
+        if (!strcmp(name, expected))
+          return true;
+      }
+    }
+  }
+  return false;
+}
+
+static bool validate_certificate_interface(Checker *ck, uint32_t **levels_out,
+                                           char *message, size_t cap) {
+  const char *kind, *name;
+  if (duplicate_inputs_or_outputs(ck->certificate, &kind, &name)) {
+    snprintf(message, cap, "%s%s%s", kind, *name ? ": " : "", name);
+    return false;
+  }
+  if (aig_num_latches(ck->certificate) != 0 ||
+      aig_num_justice(ck->certificate) != 0 ||
+      aig_num_fairness(ck->certificate) != 0) {
+    snprintf(message, cap, "certificate must be a combinational AIG");
+    return false;
+  }
+  if (aig_num_inputs(ck->certificate) != ck->nstate + ck->nin) {
+    snprintf(message, cap, "certificate input arity does not match game");
+    return false;
+  }
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    char fallback[32];
+    name = latch_name(ck->game, j, fallback, sizeof fallback);
+    if (!has_input(ck->certificate, name)) {
+      snprintf(message, cap, "certificate is missing state input '%s'", name);
+      return false;
+    }
+  }
+  for (uint32_t p = 0; p < ck->nin; p++) {
+    name = aig_input_name(ck->game, p, nullptr);
+    if (!has_input(ck->certificate, name)) {
+      snprintf(message, cap, "certificate is missing game input '%s'", name);
+      return false;
+    }
+  }
+  if (!has_output(ck->certificate, "inv")) {
+    snprintf(message, cap, "certificate is missing output 'inv'");
+    return false;
+  }
+  uint32_t *levels = calloc(ck->ngoals, sizeof *levels);
+  if (!levels) {
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  char generated[96];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(generated, sizeof generated, "goal_%u", j);
+    if (!has_output(ck->certificate, generated))
+      goto missing;
+    snprintf(generated, sizeof generated, "move_%u", j);
+    if (!has_output(ck->certificate, generated))
+      goto missing;
+    for (;;) {
+      snprintf(generated, sizeof generated, "y_%u_%u", j, levels[j]);
+      if (!has_output(ck->certificate, generated))
+        break;
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        snprintf(generated, sizeof generated, "x_%u_%u_%u", j, levels[j], i);
+        if (!has_output(ck->certificate, generated))
+          goto missing;
+      }
+      levels[j]++;
+    }
+    if (levels[j] == 0) {
+      snprintf(message, cap, "certificate has no rank levels for goal %u", j);
+      free(levels);
+      return false;
+    }
+  }
+  for (uint32_t o = 0; o < aig_num_outputs(ck->certificate); o++) {
+    name = aig_output_at(ck->certificate, o, nullptr);
+    if (!output_is_expected_certificate(ck, name, levels)) {
+      snprintf(message, cap, "unexpected certificate output '%s'", name);
+      free(levels);
+      return false;
+    }
+  }
+  *levels_out = levels;
+  return true;
+
+missing:
+  snprintf(message, cap, "certificate is missing output '%s'", generated);
+  free(levels);
+  return false;
+}
+
+static uint32_t max_aig_var(const Aig *aig) {
+  uint32_t maxvar = 0;
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    uint32_t lit;
+    aig_input_name(aig, i, &lit);
+    if (lit / 2 > maxvar)
+      maxvar = lit / 2;
+  }
+  for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
+    uint32_t lit;
+    aig_latch_at(aig, i, &lit, nullptr, nullptr);
+    if (lit / 2 > maxvar)
+      maxvar = lit / 2;
+  }
+  for (uint32_t i = 0; i < aig_num_ands(aig); i++) {
+    uint32_t lit;
+    aig_and_at(aig, i, &lit, nullptr, nullptr);
+    if (lit / 2 > maxvar)
+      maxvar = lit / 2;
+  }
+  return maxvar;
+}
+
+static void compiled_free(Compiled *compiled) {
+  for (uint32_t i = 0; i < compiled->nvalues; i++)
+    oxidd_bdd_unref(compiled->values[i]);
+  free(compiled->values);
+  *compiled = (Compiled){0};
+}
+
+static bool compile_aig(Checker *ck, const Aig *aig, const Bdd *inputs,
+                        const Bdd *latches, Compiled *compiled) {
+  uint32_t maxvar = max_aig_var(aig);
+  Bdd *values = calloc((size_t)maxvar + 1, sizeof *values);
+  if (!values)
+    return false;
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    uint32_t lit;
+    aig_input_name(aig, i, &lit);
+    values[lit / 2] = oxidd_bdd_ref(inputs[i]);
+  }
+  for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
+    uint32_t lit;
+    aig_latch_at(aig, i, &lit, nullptr, nullptr);
+    values[lit / 2] = oxidd_bdd_ref(latches[i]);
+  }
+  for (uint32_t i = 0; i < aig_num_ands(aig); i++) {
+    uint32_t lhs, r0, r1;
+    aig_and_at(aig, i, &lhs, &r0, &r1);
+    Bdd a = lit_to_bdd(ck->manager, values, r0);
+    Bdd b = lit_to_bdd(ck->manager, values, r1);
+    values[lhs / 2] = oxidd_bdd_and(a, b);
+    oxidd_bdd_unref(a);
+    oxidd_bdd_unref(b);
+    if (bdd_invalid(values[lhs / 2])) {
+      compiled_free(&(Compiled){values, maxvar + 1});
+      ck->bdd_failed = true;
+      return false;
+    }
+  }
+  *compiled = (Compiled){values, maxvar + 1};
+  update_peak(ck);
+  return true;
+}
+
+static Bdd compiled_lit(Checker *ck, const Compiled *compiled, uint32_t lit) {
+  return lit_to_bdd(ck->manager, compiled->values, lit);
+}
+
+static int find_input(const Aig *aig, const char *name) {
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    const char *candidate = aig_input_name(aig, i, nullptr);
+    if (candidate && !strcmp(candidate, name))
+      return (int)i;
+  }
+  return -1;
+}
+
+static Bdd output_bdd(Checker *ck, const Aig *aig, const Compiled *compiled,
+                      const char *name) {
+  uint32_t lit = aig_output_lit(aig, name);
+  return compiled_lit(ck, compiled, lit);
+}
+
+static void bdd_replace(Bdd *slot, Bdd value) {
+  oxidd_bdd_unref(*slot);
+  *slot = value;
+}
+
+static bool bdd_or_into(Checker *ck, Bdd *slot, Bdd value) {
+  Bdd next = oxidd_bdd_or(*slot, value);
+  oxidd_bdd_unref(*slot);
+  *slot = next;
+  if (bdd_invalid(next))
+    ck->bdd_failed = true;
+  return !bdd_invalid(next);
+}
+
+static bool bdd_and_into(Checker *ck, Bdd *slot, Bdd value) {
+  Bdd next = oxidd_bdd_and(*slot, value);
+  oxidd_bdd_unref(*slot);
+  *slot = next;
+  if (bdd_invalid(next))
+    ck->bdd_failed = true;
+  return !bdd_invalid(next);
+}
+
+static bool checked_bdd_eq(Checker *ck, Bdd left, Bdd right) {
+  Bdd equality = oxidd_bdd_equiv(left, right);
+  if (bdd_invalid(equality)) {
+    ck->bdd_failed = true;
+    return false;
+  }
+  bool result = oxidd_bdd_valid(equality);
+  oxidd_bdd_unref(equality);
+  return result;
+}
+
+static bool checked_satisfiable(Checker *ck, Bdd value) {
+  if (bdd_invalid(value)) {
+    ck->bdd_failed = true;
+    return false;
+  }
+  return oxidd_bdd_satisfiable(value);
+}
+
+static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
+                       size_t cap) {
+  ck->nq = ck->nstate + ck->ngoals;
+  ck->nvars = 2 * ck->nq + ck->nu + ck->nc;
+  ck->manager =
+      oxidd_bdd_manager_new(ck->options.node_cap, ck->options.node_cap, 1);
+  if (!ck->manager._p) {
+    snprintf(message, cap, "cannot create OxiDD manager");
+    return false;
+  }
+  oxidd_bdd_manager_add_vars(ck->manager, ck->nvars);
+
+  ck->qvar = calloc(ck->nq, sizeof *ck->qvar);
+  ck->qpvar = calloc(ck->nq, sizeof *ck->qpvar);
+  ck->uvar = ck->nu ? calloc(ck->nu, sizeof *ck->uvar) : nullptr;
+  ck->cvar = ck->nc ? calloc(ck->nc, sizeof *ck->cvar) : nullptr;
+  ck->q = calloc(ck->nq, sizeof *ck->q);
+  ck->qp = calloc(ck->nq, sizeof *ck->qp);
+  ck->u = ck->nu ? calloc(ck->nu, sizeof *ck->u) : nullptr;
+  ck->c = ck->nc ? calloc(ck->nc, sizeof *ck->c) : nullptr;
+  if (!ck->qvar || !ck->qpvar || !ck->q || !ck->qp ||
+      (ck->nu && (!ck->uvar || !ck->u)) || (ck->nc && (!ck->cvar || !ck->c))) {
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  for (uint32_t i = 0; i < ck->nq; i++) {
+    ck->qvar[i] = 2 * i;
+    ck->qpvar[i] = 2 * i + 1;
+    ck->q[i] = oxidd_bdd_var(ck->manager, ck->qvar[i]);
+    ck->qp[i] = oxidd_bdd_var(ck->manager, ck->qpvar[i]);
+  }
+  for (uint32_t i = 0; i < ck->nu; i++) {
+    ck->uvar[i] = 2 * ck->nq + i;
+    ck->u[i] = oxidd_bdd_var(ck->manager, ck->uvar[i]);
+  }
+  for (uint32_t i = 0; i < ck->nc; i++) {
+    ck->cvar[i] = 2 * ck->nq + ck->nu + i;
+    ck->c[i] = oxidd_bdd_var(ck->manager, ck->cvar[i]);
+  }
+
+  // Compile the sampled game over current state and independent u/c letters.
+  Bdd *game_inputs = ck->nin ? calloc(ck->nin, sizeof *game_inputs) : nullptr;
+  if (ck->nin && !game_inputs) {
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  uint32_t ui = 0, ci = 0;
+  for (uint32_t p = 0; p < ck->nin; p++)
+    game_inputs[p] = is_controllable(aig_input_name(ck->game, p, nullptr))
+                         ? ck->c[ci++]
+                         : ck->u[ui++];
+  Compiled game_compiled = {0};
+  if (!compile_aig(ck, ck->game, game_inputs, ck->q, &game_compiled)) {
+    free(game_inputs);
+    snprintf(message, cap, "OxiDD capacity while compiling game");
+    return false;
+  }
+  free(game_inputs);
+  ck->game_next = calloc(ck->nstate, sizeof *ck->game_next);
+  ck->goal = calloc(ck->ngoals, sizeof *ck->goal);
+  ck->fair = ck->nfair ? calloc(ck->nfair, sizeof *ck->fair) : nullptr;
+  if (!ck->game_next || !ck->goal || (ck->nfair && !ck->fair)) {
+    compiled_free(&game_compiled);
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    uint32_t next;
+    aig_latch_at(ck->game, j, nullptr, &next, nullptr);
+    ck->game_next[j] = compiled_lit(ck, &game_compiled, next);
+  }
+  ck->game_bad = oxidd_bdd_false(ck->manager);
+  if (aig_num_outputs(ck->game) > 0) {
+    uint32_t badlit;
+    aig_output_at(ck->game, 0, &badlit);
+    bdd_replace(&ck->game_bad, compiled_lit(ck, &game_compiled, badlit));
+  } else {
+    // Compatibility fallback for games emitted before GR(1) adopted the
+    // single ordinary safety-output convention.
+    for (uint32_t i = 0; i < aig_num_bad(ck->game); i++) {
+      uint32_t badlit;
+      aig_bad_at(ck->game, i, &badlit);
+      Bdd bad = compiled_lit(ck, &game_compiled, badlit);
+      bool ok = bdd_or_into(ck, &ck->game_bad, bad);
+      oxidd_bdd_unref(bad);
+      if (!ok) {
+        compiled_free(&game_compiled);
+        snprintf(message, cap, "OxiDD capacity while compiling game safety");
+        return false;
+      }
+    }
+  }
+  uint32_t goal_index = 0;
+  for (uint32_t record = 0; record < aig_num_justice(ck->game); record++) {
+    const uint32_t *lits;
+    uint32_t n;
+    aig_justice_at(ck->game, record, &lits, &n);
+    if (!n)
+      ck->goal[goal_index++] = oxidd_bdd_true(ck->manager);
+    else
+      for (uint32_t k = 0; k < n; k++)
+        ck->goal[goal_index++] = compiled_lit(ck, &game_compiled, lits[k]);
+  }
+  for (uint32_t i = 0; i < ck->nfair; i++)
+    ck->fair[i] =
+        compiled_lit(ck, &game_compiled, aig_fairness_at(ck->game, i));
+  compiled_free(&game_compiled);
+
+  // Compile policy by resolving its declared names to state/counter/u BDDs.
+  Bdd *policy_inputs =
+      calloc(aig_num_inputs(ck->policy), sizeof *policy_inputs);
+  if (!policy_inputs) {
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  for (uint32_t p = 0; p < aig_num_inputs(ck->policy); p++) {
+    const char *name = aig_input_name(ck->policy, p, nullptr);
+    bool found = false;
+    for (uint32_t j = 0; j < ck->nstate && !found; j++) {
+      char fallback[32];
+      const char *state_name =
+          latch_name(ck->game, j, fallback, sizeof fallback);
+      if (!strcmp(name, state_name)) {
+        policy_inputs[p] = ck->q[j];
+        found = true;
+      }
+    }
+    for (uint32_t j = 0; j < ck->ngoals && !found; j++) {
+      char counter[64];
+      snprintf(counter, sizeof counter, "curr_%u", j);
+      if (!strcmp(name, counter)) {
+        policy_inputs[p] = ck->q[ck->nstate + j];
+        found = true;
+      }
+    }
+    for (uint32_t i = 0; i < ck->nu && !found; i++) {
+      const char *input_name = aig_input_name(ck->game, ck->uinput[i], nullptr);
+      if (!strcmp(name, input_name)) {
+        policy_inputs[p] = ck->u[i];
+        found = true;
+      }
+    }
+  }
+  Compiled policy_compiled = {0};
+  if (!compile_aig(ck, ck->policy, policy_inputs, nullptr, &policy_compiled)) {
+    free(policy_inputs);
+    snprintf(message, cap, "OxiDD capacity while compiling policy");
+    return false;
+  }
+  free(policy_inputs);
+  ck->policy_control =
+      ck->nc ? calloc(ck->nc, sizeof *ck->policy_control) : nullptr;
+  ck->policy_curr_next = calloc(ck->ngoals, sizeof *ck->policy_curr_next);
+  if ((ck->nc && !ck->policy_control) || !ck->policy_curr_next) {
+    compiled_free(&policy_compiled);
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  char generated[96];
+  for (uint32_t i = 0; i < ck->nc; i++) {
+    const char *name = aig_input_name(ck->game, ck->cinput[i], nullptr);
+    ck->policy_control[i] = output_bdd(ck, ck->policy, &policy_compiled, name);
+  }
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(generated, sizeof generated, "curr_next_%u", j);
+    ck->policy_curr_next[j] =
+        output_bdd(ck, ck->policy, &policy_compiled, generated);
+  }
+  compiled_free(&policy_compiled);
+
+  // Certificate predicates are compiled over independent state/u/c variables.
+  if (ck->certificate) {
+    Bdd *cert_inputs =
+        calloc(aig_num_inputs(ck->certificate), sizeof *cert_inputs);
+    if (!cert_inputs) {
+      snprintf(message, cap, "out of memory");
+      return false;
+    }
+    for (uint32_t p = 0; p < aig_num_inputs(ck->certificate); p++) {
+      const char *name = aig_input_name(ck->certificate, p, nullptr);
+      int game_index = find_input(ck->game, name);
+      if (game_index >= 0) {
+        uint32_t uindex = 0, cindex = 0;
+        for (int q = 0; q <= game_index; q++) {
+          if (is_controllable(aig_input_name(ck->game, (uint32_t)q, nullptr)))
+            cindex++;
+          else
+            uindex++;
+        }
+        cert_inputs[p] =
+            is_controllable(name) ? ck->c[cindex - 1] : ck->u[uindex - 1];
+        continue;
+      }
+      for (uint32_t j = 0; j < ck->nstate; j++) {
+        char fallback[32];
+        const char *state_name =
+            latch_name(ck->game, j, fallback, sizeof fallback);
+        if (!strcmp(name, state_name)) {
+          cert_inputs[p] = ck->q[j];
+          break;
+        }
+      }
+    }
+    Compiled cert_compiled = {0};
+    if (!compile_aig(ck, ck->certificate, cert_inputs, nullptr,
+                     &cert_compiled)) {
+      free(cert_inputs);
+      snprintf(message, cap, "OxiDD capacity while compiling certificate");
+      return false;
+    }
+    free(cert_inputs);
+    ck->cert_inv = output_bdd(ck, ck->certificate, &cert_compiled, "inv");
+    ck->rank = calloc(ck->ngoals, sizeof *ck->rank);
+    ck->cert_goal = calloc(ck->ngoals, sizeof *ck->cert_goal);
+    if (!ck->rank || !ck->cert_goal) {
+      compiled_free(&cert_compiled);
+      snprintf(message, cap, "out of memory");
+      return false;
+    }
+    for (uint32_t j = 0; j < ck->ngoals; j++) {
+      ck->rank[j].levels = levels[j];
+      ck->rank[j].y = calloc(levels[j], sizeof(Bdd));
+      ck->rank[j].x = calloc(levels[j], sizeof(Bdd *));
+      if (!ck->rank[j].y || !ck->rank[j].x) {
+        compiled_free(&cert_compiled);
+        snprintf(message, cap, "out of memory");
+        return false;
+      }
+      for (uint32_t k = 0; k < levels[j]; k++) {
+        snprintf(generated, sizeof generated, "y_%u_%u", j, k);
+        ck->rank[j].y[k] =
+            output_bdd(ck, ck->certificate, &cert_compiled, generated);
+        ck->rank[j].x[k] = calloc(ck->nfair_disj, sizeof(Bdd));
+        if (!ck->rank[j].x[k]) {
+          compiled_free(&cert_compiled);
+          snprintf(message, cap, "out of memory");
+          return false;
+        }
+        for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+          snprintf(generated, sizeof generated, "x_%u_%u_%u", j, k, i);
+          ck->rank[j].x[k][i] =
+              output_bdd(ck, ck->certificate, &cert_compiled, generated);
+        }
+      }
+    }
+    // goal_j is deliberately not trusted.  check_certificate_mode compares it
+    // with the game's flattened justice as a semantic proof condition before
+    // using the game predicate in every obligation.
+    for (uint32_t j = 0; j < ck->ngoals; j++) {
+      snprintf(generated, sizeof generated, "goal_%u", j);
+      ck->cert_goal[j] =
+          output_bdd(ck, ck->certificate, &cert_compiled, generated);
+    }
+    compiled_free(&cert_compiled);
+  }
+
+  uint32_t *input_vars =
+      (ck->nu + ck->nc) ? calloc(ck->nu + ck->nc, sizeof *input_vars) : nullptr;
+  if (ck->nu + ck->nc && !input_vars) {
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  memcpy(input_vars, ck->uvar, ck->nu * sizeof *input_vars);
+  memcpy(input_vars + ck->nu, ck->cvar, ck->nc * sizeof *input_vars);
+  ck->input_cube = cube_of(ck->manager, input_vars, ck->nu + ck->nc);
+  free(input_vars);
+  // The generic game functions still contain independent controllables.  The
+  // certificate checker installs the policy after specializing the counter;
+  // the closed-loop path installs the unspecialized policy once below.
+  update_peak(ck);
+  return true;
+}
+
+static Bdd assignment_cube(Checker *ck, int counter) {
+  Bdd cube = oxidd_bdd_true(ck->manager);
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd literal = (counter >= 0 && (uint32_t)counter == j)
+                      ? oxidd_bdd_ref(ck->q[ck->nstate + j])
+                      : oxidd_bdd_not(ck->q[ck->nstate + j]);
+    Bdd next = oxidd_bdd_and(cube, literal);
+    oxidd_bdd_unref(cube);
+    oxidd_bdd_unref(literal);
+    cube = next;
+  }
+  return cube;
+}
+
+static Bdd specialize(Bdd value, Bdd cube) {
+  return oxidd_bdd_restrict(value, cube);
+}
+
+static oxidd_bdd_substitution_t *control_substitution(Checker *ck,
+                                                      const Bdd *control) {
+  oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(ck->nc);
+  if (!sub)
+    return nullptr;
+  for (uint32_t i = 0; i < ck->nc; i++)
+    oxidd_bdd_substitution_add_pair(sub, ck->cvar[i], control[i]);
+  return sub;
+}
+
+static Bdd substitute_controls(Bdd value, oxidd_bdd_substitution_t *sub) {
+  return sub ? oxidd_bdd_substitute(value, sub) : oxidd_bdd_ref(value);
+}
+
+static Bdd successor(Checker *ck, Bdd state_predicate, const Bdd *next_state) {
+  oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(ck->nstate);
+  if (!sub)
+    return (Bdd){0};
+  for (uint32_t j = 0; j < ck->nstate; j++)
+    oxidd_bdd_substitution_add_pair(sub, ck->qvar[j], next_state[j]);
+  Bdd result = oxidd_bdd_substitute(state_predicate, sub);
+  oxidd_bdd_substitution_free(sub);
+  return result;
+}
+
+static void counterexample_clear(Counterexample *counterexample) {
+  if (!counterexample)
+    return;
+  free(counterexample->state);
+  free(counterexample->curr);
+  free(counterexample->inputs);
+  free(counterexample->control);
+  *counterexample = (Counterexample){0};
+}
+
+static bool assignment_value(oxidd_assignment_t assignment, uint32_t var) {
+  return var < assignment.len && assignment.data[var] > 0;
+}
+
+static void capture_counterexample(Checker *ck, const char *reason,
+                                   oxidd_assignment_t assignment,
+                                   const Bdd *control,
+                                   const oxidd_var_no_bool_pair_t *args,
+                                   size_t nargs) {
+  Counterexample *counterexample = ck->current_counterexample;
+  if (!counterexample)
+    return;
+  counterexample_clear(counterexample);
+  counterexample->state = ck->nstate ? calloc(ck->nstate, 1) : nullptr;
+  counterexample->curr = ck->ngoals ? calloc(ck->ngoals, 1) : nullptr;
+  counterexample->inputs = ck->nu ? calloc(ck->nu, 1) : nullptr;
+  counterexample->control = control && ck->nc ? calloc(ck->nc, 1) : nullptr;
+  if ((ck->nstate && !counterexample->state) ||
+      (ck->ngoals && !counterexample->curr) ||
+      (ck->nu && !counterexample->inputs) ||
+      (control && ck->nc && !counterexample->control)) {
+    counterexample_clear(counterexample);
+    return;
+  }
+  counterexample->present = true;
+  counterexample->has_control = control != nullptr;
+  snprintf(counterexample->reason, sizeof counterexample->reason, "%s", reason);
+  for (uint32_t j = 0; j < ck->nstate; j++)
+    counterexample->state[j] = assignment_value(assignment, ck->qvar[j]);
+  for (uint32_t j = 0; j < ck->ngoals; j++)
+    counterexample->curr[j] =
+        assignment_value(assignment, ck->qvar[ck->nstate + j]);
+  for (uint32_t i = 0; i < ck->nu; i++)
+    counterexample->inputs[i] = assignment_value(assignment, ck->uvar[i]);
+  if (control)
+    for (uint32_t i = 0; i < ck->nc; i++)
+      counterexample->control[i] =
+          oxidd_bdd_eval(control[i], args, nargs) ? 1 : 0;
+}
+
+static void print_counterexample(Checker *ck, const char *reason, Bdd witness,
+                                 const Bdd *control) {
+  printf("COUNTEREXAMPLE reason=%s\n", reason);
+  oxidd_assignment_t assignment = oxidd_bdd_pick_cube(witness);
+  if (!assignment.data)
+    return;
+  oxidd_var_no_bool_pair_t *args = calloc(ck->nvars, sizeof *args);
+  size_t nargs = 0;
+  if (args)
+    for (uint32_t v = 0; v < ck->nvars; v++)
+      if (v < assignment.len && assignment.data[v] >= 0) {
+        args[nargs].var = v;
+        args[nargs++].val = assignment.data[v] != 0;
+      }
+  capture_counterexample(ck, reason, assignment, control, args, nargs);
+  fputs("  state", stdout);
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    char fallback[32];
+    const char *name = latch_name(ck->game, j, fallback, sizeof fallback);
+    int value =
+        ck->qvar[j] < assignment.len ? assignment.data[ck->qvar[j]] : -1;
+    printf(" %s=%c", name, value > 0 ? '1' : '0');
+  }
+  fputs("\n  curr", stdout);
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    uint32_t var = ck->qvar[ck->nstate + j];
+    int value = var < assignment.len ? assignment.data[var] : -1;
+    printf(" curr_%u=%c", j, value > 0 ? '1' : '0');
+  }
+  fputs("\n  inputs", stdout);
+  for (uint32_t i = 0; i < ck->nu; i++) {
+    int value =
+        ck->uvar[i] < assignment.len ? assignment.data[ck->uvar[i]] : -1;
+    printf(" %s=%c", aig_input_name(ck->game, ck->uinput[i], nullptr),
+           value > 0 ? '1' : '0');
+  }
+  if (control && args) {
+    fputs("\n  outputs", stdout);
+    for (uint32_t i = 0; i < ck->nc; i++)
+      printf(" %s=%u", aig_input_name(ck->game, ck->cinput[i], nullptr),
+             oxidd_bdd_eval(control[i], args, nargs) ? 1u : 0u);
+  }
+  fputc('\n', stdout);
+  free(args);
+  oxidd_assignment_free(assignment);
+}
+
+static CheckResult check_state_only(Checker *ck, Bdd predicate,
+                                    const char *reason) {
+  Bdd universal = oxidd_bdd_forall(predicate, ck->input_cube);
+  if (bdd_invalid(universal)) {
+    ck->bdd_failed = true;
+    return CHECK_UNKNOWN;
+  }
+  Bdd dependence = oxidd_bdd_xor(predicate, universal);
+  oxidd_bdd_unref(universal);
+  if (checked_satisfiable(ck, dependence)) {
+    print_counterexample(ck, reason, dependence, nullptr);
+    oxidd_bdd_unref(dependence);
+    return CHECK_CERT_FAILED;
+  }
+  oxidd_bdd_unref(dependence);
+  return ck->bdd_failed ? CHECK_UNKNOWN : CHECK_VERIFIED;
+}
+
+static CheckResult validate_certificate_predicates(Checker *ck) {
+  CheckResult state_only =
+      check_state_only(ck, ck->cert_inv, "certificate inv is not state-only");
+  if (state_only != CHECK_VERIFIED)
+    return state_only;
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd previous = oxidd_bdd_false(ck->manager);
+    for (uint32_t k = 0; k < ck->rank[j].levels; k++) {
+      Bdd union_x = oxidd_bdd_false(ck->manager);
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        Bdd x = ck->rank[j].x[k][i];
+        char reason[128];
+        snprintf(reason, sizeof reason,
+                 "certificate x_%u_%u_%u is not state-only", j, k, i);
+        state_only = check_state_only(ck, x, reason);
+        if (state_only != CHECK_VERIFIED) {
+          oxidd_bdd_unref(union_x);
+          oxidd_bdd_unref(previous);
+          return state_only;
+        }
+        if (!bdd_or_into(ck, &union_x, x)) {
+          oxidd_bdd_unref(previous);
+          return CHECK_UNKNOWN;
+        }
+      }
+      char reason[128];
+      snprintf(reason, sizeof reason, "certificate y_%u_%u is not state-only",
+               j, k);
+      state_only = check_state_only(ck, ck->rank[j].y[k], reason);
+      if (state_only != CHECK_VERIFIED) {
+        oxidd_bdd_unref(union_x);
+        oxidd_bdd_unref(previous);
+        return state_only;
+      }
+      Bdd union_mismatch = oxidd_bdd_xor(union_x, ck->rank[j].y[k]);
+      if (checked_satisfiable(ck, union_mismatch)) {
+        snprintf(reason, sizeof reason,
+                 "y_%u_%u is not the union of its X levels", j, k);
+        print_counterexample(ck, reason, union_mismatch, nullptr);
+        oxidd_bdd_unref(union_mismatch);
+        oxidd_bdd_unref(union_x);
+        oxidd_bdd_unref(previous);
+        return CHECK_CERT_FAILED;
+      }
+      oxidd_bdd_unref(union_mismatch);
+      if (ck->bdd_failed) {
+        oxidd_bdd_unref(union_x);
+        oxidd_bdd_unref(previous);
+        return CHECK_UNKNOWN;
+      }
+      Bdd not_current = oxidd_bdd_not(ck->rank[j].y[k]);
+      Bdd nonmonotone = oxidd_bdd_and(previous, not_current);
+      oxidd_bdd_unref(not_current);
+      if (checked_satisfiable(ck, nonmonotone)) {
+        Bdd counter = assignment_cube(ck, (int)j);
+        Bdd concrete = oxidd_bdd_and(nonmonotone, counter);
+        print_counterexample(ck, "rank levels are not monotone", concrete,
+                             nullptr);
+        oxidd_bdd_unref(concrete);
+        oxidd_bdd_unref(counter);
+        oxidd_bdd_unref(nonmonotone);
+        oxidd_bdd_unref(union_x);
+        oxidd_bdd_unref(previous);
+        return CHECK_CERT_FAILED;
+      }
+      oxidd_bdd_unref(nonmonotone);
+      if (ck->bdd_failed) {
+        oxidd_bdd_unref(union_x);
+        oxidd_bdd_unref(previous);
+        return CHECK_UNKNOWN;
+      }
+      oxidd_bdd_unref(previous);
+      previous = union_x;
+    }
+    oxidd_bdd_unref(previous);
+  }
+  return CHECK_VERIFIED;
+}
+
+static bool reset_in_predicate(Checker *ck, Bdd predicate) {
+  oxidd_var_no_bool_pair_t *args =
+      ck->nstate ? calloc(ck->nstate, sizeof *args) : nullptr;
+  if (ck->nstate && !args) {
+    ck->bdd_failed = true;
+    return false;
+  }
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    uint32_t reset;
+    aig_latch_at(ck->game, j, nullptr, nullptr, &reset);
+    args[j].var = ck->qvar[j];
+    args[j].val = reset != 0;
+  }
+  bool result = oxidd_bdd_eval(predicate, args, ck->nstate);
+  free(args);
+  return result;
+}
+
+static CheckResult check_certificate_mode(Checker *ck) {
+  CheckResult shape = validate_certificate_predicates(ck);
+  if (shape != CHECK_VERIFIED)
+    return shape;
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd mismatch = oxidd_bdd_xor(ck->cert_goal[j], ck->goal[j]);
+    if (checked_satisfiable(ck, mismatch)) {
+      char reason[128];
+      snprintf(reason, sizeof reason,
+               "certificate goal_%u differs from game justice", j);
+      Bdd counter = assignment_cube(ck, (int)j);
+      Bdd concrete = oxidd_bdd_and(mismatch, counter);
+      print_counterexample(ck, reason, concrete, nullptr);
+      oxidd_bdd_unref(concrete);
+      oxidd_bdd_unref(counter);
+      oxidd_bdd_unref(mismatch);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(mismatch);
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+  }
+  if (!reset_in_predicate(ck, ck->cert_inv)) {
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+    Bdd reset = oxidd_bdd_true(ck->manager);
+    for (uint32_t j = 0; j < ck->nstate; j++) {
+      uint32_t value;
+      aig_latch_at(ck->game, j, nullptr, nullptr, &value);
+      Bdd lit = value ? oxidd_bdd_ref(ck->q[j]) : oxidd_bdd_not(ck->q[j]);
+      bdd_and_into(ck, &reset, lit);
+      oxidd_bdd_unref(lit);
+    }
+    Bdd counter = assignment_cube(ck, -1);
+    bdd_and_into(ck, &reset, counter);
+    oxidd_bdd_unref(counter);
+    print_counterexample(ck, "reset state is outside inv", reset, nullptr);
+    oxidd_bdd_unref(reset);
+    return CHECK_CERT_FAILED;
+  }
+
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd covered = oxidd_bdd_false(ck->manager);
+    for (uint32_t k = 0; k < ck->rank[j].levels; k++)
+      for (uint32_t i = 0; i < ck->nfair_disj; i++)
+        if (!bdd_or_into(ck, &covered, ck->rank[j].x[k][i])) {
+          oxidd_bdd_unref(covered);
+          return CHECK_UNKNOWN;
+        }
+    Bdd not_covered = oxidd_bdd_not(covered);
+    Bdd missing = oxidd_bdd_and(ck->cert_inv, not_covered);
+    oxidd_bdd_unref(not_covered);
+    oxidd_bdd_unref(covered);
+    if (checked_satisfiable(ck, missing)) {
+      Bdd counter = assignment_cube(ck, (int)j);
+      Bdd concrete = oxidd_bdd_and(missing, counter);
+      print_counterexample(ck, "invariant state has no rank", concrete,
+                           nullptr);
+      oxidd_bdd_unref(concrete);
+      oxidd_bdd_unref(counter);
+      oxidd_bdd_unref(missing);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(missing);
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+  }
+
+  // Check every one-hot counter mode and the all-zero reset convention.  The
+  // all-zero mode is semantically goal 0 but may select different policy gates,
+  // so it is checked independently rather than assumed equivalent to curr_0.
+  for (int mode = -1; mode < (int)ck->ngoals; mode++) {
+    uint32_t goal = mode < 0 ? 0u : (uint32_t)mode;
+    Bdd counter_cube = assignment_cube(ck, mode);
+    Bdd *control = ck->nc ? calloc(ck->nc, sizeof *control) : nullptr;
+    Bdd *counter_next = calloc(ck->ngoals, sizeof *counter_next);
+    Bdd *next_state = calloc(ck->nstate, sizeof *next_state);
+    if ((ck->nc && !control) || !counter_next || !next_state) {
+      oxidd_bdd_unref(counter_cube);
+      free(control);
+      free(counter_next);
+      free(next_state);
+      return CHECK_UNKNOWN;
+    }
+    for (uint32_t i = 0; i < ck->nc; i++)
+      control[i] = specialize(ck->policy_control[i], counter_cube);
+    for (uint32_t j = 0; j < ck->ngoals; j++)
+      counter_next[j] = specialize(ck->policy_curr_next[j], counter_cube);
+    oxidd_bdd_substitution_t *csub = control_substitution(ck, control);
+    if (ck->nc && !csub) {
+      for (uint32_t i = 0; i < ck->nc; i++)
+        oxidd_bdd_unref(control[i]);
+      for (uint32_t j = 0; j < ck->ngoals; j++)
+        oxidd_bdd_unref(counter_next[j]);
+      oxidd_bdd_unref(counter_cube);
+      free(control);
+      free(counter_next);
+      free(next_state);
+      return CHECK_UNKNOWN;
+    }
+    Bdd bad = substitute_controls(ck->game_bad, csub);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      next_state[s] = substitute_controls(ck->game_next[s], csub);
+    oxidd_bdd_substitution_free(csub);
+    Bdd next_inv = successor(ck, ck->cert_inv, next_state);
+    Bdd violation = oxidd_bdd_and(ck->cert_inv, bad);
+    Bdd not_next_inv = oxidd_bdd_not(next_inv);
+    Bdd leaves = oxidd_bdd_and(ck->cert_inv, not_next_inv);
+    bdd_or_into(ck, &violation, leaves);
+    oxidd_bdd_unref(not_next_inv);
+    oxidd_bdd_unref(leaves);
+
+    // The policy format fixes the counter update, not just its one-hotness.
+    for (uint32_t q = 0; q < ck->ngoals; q++) {
+      Bdd expected;
+      uint32_t next_goal = (goal + 1) % ck->ngoals;
+      if (q == goal && q == next_goal)
+        expected = oxidd_bdd_true(ck->manager);
+      else if (q == goal)
+        expected = oxidd_bdd_not(ck->goal[goal]);
+      else if (q == next_goal)
+        expected = oxidd_bdd_ref(ck->goal[goal]);
+      else
+        expected = oxidd_bdd_false(ck->manager);
+      Bdd differs = oxidd_bdd_xor(counter_next[q], expected);
+      Bdd relevant = oxidd_bdd_and(ck->cert_inv, differs);
+      bdd_or_into(ck, &violation, relevant);
+      oxidd_bdd_unref(expected);
+      oxidd_bdd_unref(differs);
+      oxidd_bdd_unref(relevant);
+    }
+
+    Bdd at_goal = oxidd_bdd_and(ck->cert_inv, ck->goal[goal]);
+    Bdd ranked = oxidd_bdd_ref(at_goal);
+    for (uint32_t k = 0; k < ck->rank[goal].levels; k++) {
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        Bdd not_ranked = oxidd_bdd_not(ranked);
+        Bdd layer0 = oxidd_bdd_and(ck->rank[goal].x[k][i], not_ranked);
+        Bdd layer = oxidd_bdd_and(ck->cert_inv, layer0);
+        oxidd_bdd_unref(not_ranked);
+        oxidd_bdd_unref(layer0);
+
+        Bdd allowed = successor(ck, ck->rank[goal].x[k][i], next_state);
+        if (ck->nfair) {
+          Bdd fair_next = successor(ck, ck->fair[i], next_state);
+          Bdd not_fair_next = oxidd_bdd_not(fair_next);
+          bdd_and_into(ck, &allowed, not_fair_next);
+          oxidd_bdd_unref(fair_next);
+          oxidd_bdd_unref(not_fair_next);
+        } else {
+          Bdd no_escape = oxidd_bdd_false(ck->manager);
+          bdd_replace(&allowed, no_escape);
+        }
+        Bdd goal_next = successor(ck, ck->goal[goal], next_state);
+        bdd_and_into(ck, &goal_next, next_inv);
+        bdd_or_into(ck, &allowed, goal_next);
+        oxidd_bdd_unref(goal_next);
+        if (k > 0) {
+          Bdd lower_next = successor(ck, ck->rank[goal].y[k - 1], next_state);
+          bdd_or_into(ck, &allowed, lower_next);
+          oxidd_bdd_unref(lower_next);
+        }
+        Bdd not_allowed = oxidd_bdd_not(allowed);
+        Bdd progress_bad = oxidd_bdd_and(layer, not_allowed);
+        bdd_or_into(ck, &violation, progress_bad);
+        oxidd_bdd_unref(not_allowed);
+        oxidd_bdd_unref(progress_bad);
+        oxidd_bdd_unref(allowed);
+        oxidd_bdd_unref(layer);
+        bdd_or_into(ck, &ranked, ck->rank[goal].x[k][i]);
+      }
+    }
+    oxidd_bdd_unref(ranked);
+    oxidd_bdd_unref(at_goal);
+    if (ck->bdd_failed || bdd_invalid(violation)) {
+      oxidd_bdd_unref(violation);
+      goto mode_unknown;
+    }
+    if (checked_satisfiable(ck, violation)) {
+      Bdd concrete = oxidd_bdd_and(violation, counter_cube);
+      print_counterexample(ck, "one-step certificate obligation", concrete,
+                           control);
+      oxidd_bdd_unref(concrete);
+      oxidd_bdd_unref(violation);
+      for (uint32_t i = 0; i < ck->nc; i++)
+        oxidd_bdd_unref(control[i]);
+      for (uint32_t q = 0; q < ck->ngoals; q++)
+        oxidd_bdd_unref(counter_next[q]);
+      for (uint32_t s = 0; s < ck->nstate; s++)
+        oxidd_bdd_unref(next_state[s]);
+      oxidd_bdd_unref(bad);
+      oxidd_bdd_unref(next_inv);
+      oxidd_bdd_unref(counter_cube);
+      free(control);
+      free(counter_next);
+      free(next_state);
+      return CHECK_CERT_FAILED;
+    }
+    if (ck->bdd_failed) {
+      oxidd_bdd_unref(violation);
+      goto mode_unknown;
+    }
+    oxidd_bdd_unref(violation);
+    for (uint32_t i = 0; i < ck->nc; i++)
+      oxidd_bdd_unref(control[i]);
+    for (uint32_t q = 0; q < ck->ngoals; q++)
+      oxidd_bdd_unref(counter_next[q]);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      oxidd_bdd_unref(next_state[s]);
+    oxidd_bdd_unref(bad);
+    oxidd_bdd_unref(next_inv);
+    oxidd_bdd_unref(counter_cube);
+    free(control);
+    free(counter_next);
+    free(next_state);
+    update_peak(ck);
+    if (timed_out(ck))
+      return CHECK_UNKNOWN;
+    continue;
+
+  mode_unknown:
+    for (uint32_t i = 0; i < ck->nc; i++)
+      oxidd_bdd_unref(control[i]);
+    for (uint32_t q = 0; q < ck->ngoals; q++)
+      oxidd_bdd_unref(counter_next[q]);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      oxidd_bdd_unref(next_state[s]);
+    oxidd_bdd_unref(bad);
+    oxidd_bdd_unref(next_inv);
+    oxidd_bdd_unref(counter_cube);
+    free(control);
+    free(counter_next);
+    free(next_state);
+    return CHECK_UNKNOWN;
+  }
+  return CHECK_VERIFIED;
+}
+
+static Bdd initial_cube(Checker *ck) {
+  Bdd initial = oxidd_bdd_true(ck->manager);
+  for (uint32_t s = 0; s < ck->nstate; s++) {
+    uint32_t reset;
+    aig_latch_at(ck->game, s, nullptr, nullptr, &reset);
+    Bdd literal = reset ? oxidd_bdd_ref(ck->q[s]) : oxidd_bdd_not(ck->q[s]);
+    bdd_and_into(ck, &initial, literal);
+    oxidd_bdd_unref(literal);
+  }
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd literal = oxidd_bdd_not(ck->q[ck->nstate + j]);
+    bdd_and_into(ck, &initial, literal);
+    oxidd_bdd_unref(literal);
+  }
+  return initial;
+}
+
+static bool build_closed_loop(Checker *ck, Bdd **next_out, Bdd *bad_out) {
+  oxidd_bdd_substitution_t *csub = control_substitution(ck, ck->policy_control);
+  if (ck->nc && !csub)
+    return false;
+  Bdd *next = calloc(ck->nq, sizeof *next);
+  if (!next) {
+    oxidd_bdd_substitution_free(csub);
+    return false;
+  }
+  for (uint32_t s = 0; s < ck->nstate; s++)
+    next[s] = substitute_controls(ck->game_next[s], csub);
+  for (uint32_t j = 0; j < ck->ngoals; j++)
+    next[ck->nstate + j] = oxidd_bdd_ref(ck->policy_curr_next[j]);
+  *bad_out = substitute_controls(ck->game_bad, csub);
+  oxidd_bdd_substitution_free(csub);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    if (bdd_invalid(next[q])) {
+      for (uint32_t i = 0; i < ck->nq; i++)
+        oxidd_bdd_unref(next[i]);
+      free(next);
+      oxidd_bdd_unref(*bad_out);
+      ck->bdd_failed = true;
+      return false;
+    }
+  *next_out = next;
+  return !bdd_invalid(*bad_out);
+}
+
+static Bdd pre_exists(Checker *ck, Bdd target, const Bdd *next, Bdd unc_cube) {
+  oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(ck->nq);
+  if (!sub)
+    return (Bdd){0};
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_substitution_add_pair(sub, ck->qvar[q], next[q]);
+  Bdd image = oxidd_bdd_substitute(target, sub);
+  oxidd_bdd_substitution_free(sub);
+  Bdd result = oxidd_bdd_exists(image, unc_cube);
+  oxidd_bdd_unref(image);
+  return result;
+}
+
+static Bdd build_relation(Checker *ck, const Bdd *next) {
+  Bdd relation = oxidd_bdd_true(ck->manager);
+  for (uint32_t q = 0; q < ck->nq; q++) {
+    Bdd equality = oxidd_bdd_equiv(ck->qp[q], next[q]);
+    if (!bdd_and_into(ck, &relation, equality)) {
+      oxidd_bdd_unref(equality);
+      break;
+    }
+    oxidd_bdd_unref(equality);
+  }
+  return relation;
+}
+
+static Bdd post_image(Checker *ck, Bdd states, Bdd relation, Bdd quantify,
+                      oxidd_bdd_substitution_t *prime_to_current) {
+  Bdd joined = oxidd_bdd_and(states, relation);
+  Bdd projected = oxidd_bdd_exists(joined, quantify);
+  oxidd_bdd_unref(joined);
+  Bdd result = oxidd_bdd_substitute(projected, prime_to_current);
+  oxidd_bdd_unref(projected);
+  return result;
+}
+
+static CheckResult check_closed_loop_mode(Checker *ck) {
+  Bdd *next = nullptr;
+  Bdd bad = {0};
+  if (!build_closed_loop(ck, &next, &bad))
+    return CHECK_UNKNOWN;
+  uint32_t *unc_vars = ck->nu ? calloc(ck->nu, sizeof *unc_vars) : nullptr;
+  if (ck->nu && !unc_vars)
+    goto unknown;
+  memcpy(unc_vars, ck->uvar, ck->nu * sizeof *unc_vars);
+  Bdd unc_cube = cube_of(ck->manager, unc_vars, ck->nu);
+  free(unc_vars);
+  Bdd relation = build_relation(ck, next);
+  uint32_t *quant_vars = calloc(ck->nq + ck->nu, sizeof *quant_vars);
+  if (!quant_vars)
+    goto unknown_with_unc;
+  memcpy(quant_vars, ck->qvar, ck->nq * sizeof *quant_vars);
+  memcpy(quant_vars + ck->nq, ck->uvar, ck->nu * sizeof *quant_vars);
+  Bdd quantify = cube_of(ck->manager, quant_vars, ck->nq + ck->nu);
+  free(quant_vars);
+  oxidd_bdd_substitution_t *rename = oxidd_bdd_substitution_new(ck->nq);
+  if (!rename)
+    goto unknown_with_relation;
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_substitution_add_pair(rename, ck->qpvar[q], ck->q[q]);
+
+  Bdd reachable = initial_cube(ck);
+  for (;;) {
+    Bdd post = post_image(ck, reachable, relation, quantify, rename);
+    Bdd expanded = oxidd_bdd_or(reachable, post);
+    oxidd_bdd_unref(post);
+    if (bdd_invalid(expanded)) {
+      oxidd_bdd_unref(reachable);
+      reachable = expanded;
+      ck->bdd_failed = true;
+      break;
+    }
+    bool done = checked_bdd_eq(ck, expanded, reachable);
+    oxidd_bdd_unref(reachable);
+    reachable = expanded;
+    update_peak(ck);
+    if (done || timed_out(ck) || ck->bdd_failed)
+      break;
+  }
+  if (bdd_invalid(reachable) || timed_out(ck) || ck->bdd_failed)
+    goto unknown_reachable;
+
+  Bdd safety_bad = oxidd_bdd_and(reachable, bad);
+  if (checked_satisfiable(ck, safety_bad)) {
+    print_counterexample(ck, "reachable bad transition", safety_bad,
+                         ck->policy_control);
+    oxidd_bdd_unref(safety_bad);
+    goto refuted;
+  }
+  oxidd_bdd_unref(safety_bad);
+  if (ck->bdd_failed)
+    goto unknown_reachable;
+  for (uint32_t goal = 0; goal < ck->ngoals; goal++) {
+    Bdd not_goal = oxidd_bdd_not(ck->goal[goal]);
+    Bdd allowed = oxidd_bdd_and(reachable, not_goal);
+    oxidd_bdd_unref(not_goal);
+    Bdd z = oxidd_bdd_ref(allowed);
+    for (;;) {
+      Bdd new_z = oxidd_bdd_ref(allowed);
+      for (uint32_t fi = 0; fi < ck->nfair_disj; fi++) {
+        Bdd fair = ck->nfair ? oxidd_bdd_ref(ck->fair[fi])
+                             : oxidd_bdd_true(ck->manager);
+        Bdd y = oxidd_bdd_false(ck->manager);
+        for (;;) {
+          Bdd pre_z = pre_exists(ck, z, next, unc_cube);
+          Bdd hit = oxidd_bdd_and(fair, pre_z);
+          Bdd pre_y = pre_exists(ck, y, next, unc_cube);
+          Bdd next_y = oxidd_bdd_or(hit, pre_y);
+          bdd_and_into(ck, &next_y, allowed);
+          oxidd_bdd_unref(pre_z);
+          oxidd_bdd_unref(hit);
+          oxidd_bdd_unref(pre_y);
+          if (bdd_invalid(next_y)) {
+            oxidd_bdd_unref(y);
+            y = next_y;
+            ck->bdd_failed = true;
+            break;
+          }
+          bool done = checked_bdd_eq(ck, next_y, y);
+          oxidd_bdd_unref(y);
+          y = next_y;
+          if (done || timed_out(ck) || ck->bdd_failed)
+            break;
+        }
+        oxidd_bdd_unref(fair);
+        if (bdd_invalid(y) || timed_out(ck) || ck->bdd_failed) {
+          oxidd_bdd_unref(y);
+          oxidd_bdd_unref(new_z);
+          oxidd_bdd_unref(z);
+          oxidd_bdd_unref(allowed);
+          goto unknown_reachable;
+        }
+        bdd_and_into(ck, &new_z, y);
+        oxidd_bdd_unref(y);
+      }
+      bool done = checked_bdd_eq(ck, new_z, z);
+      oxidd_bdd_unref(z);
+      z = new_z;
+      update_peak(ck);
+      if (done || timed_out(ck) || ck->bdd_failed)
+        break;
+    }
+    oxidd_bdd_unref(allowed);
+    if (timed_out(ck) || ck->bdd_failed) {
+      oxidd_bdd_unref(z);
+      goto unknown_reachable;
+    }
+    if (checked_satisfiable(ck, z)) {
+      print_counterexample(ck, "reachable fair cycle misses justice", z,
+                           ck->policy_control);
+      printf("  lasso=symbolic fair-cycle witness (goal=%u)\n", goal);
+      oxidd_bdd_unref(z);
+      goto refuted;
+    }
+    oxidd_bdd_unref(z);
+    if (ck->bdd_failed)
+      goto unknown_reachable;
+  }
+
+  oxidd_bdd_unref(reachable);
+  oxidd_bdd_substitution_free(rename);
+  oxidd_bdd_unref(quantify);
+  oxidd_bdd_unref(relation);
+  oxidd_bdd_unref(unc_cube);
+  oxidd_bdd_unref(bad);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return CHECK_VERIFIED;
+
+refuted:
+  oxidd_bdd_unref(reachable);
+  oxidd_bdd_substitution_free(rename);
+  oxidd_bdd_unref(quantify);
+  oxidd_bdd_unref(relation);
+  oxidd_bdd_unref(unc_cube);
+  oxidd_bdd_unref(bad);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return CHECK_REFUTED;
+
+unknown_reachable:
+  oxidd_bdd_unref(reachable);
+  oxidd_bdd_substitution_free(rename);
+unknown_with_relation:
+  oxidd_bdd_unref(quantify);
+  oxidd_bdd_unref(relation);
+unknown_with_unc:
+  oxidd_bdd_unref(unc_cube);
+unknown:
+  oxidd_bdd_unref(bad);
+  if (next) {
+    for (uint32_t q = 0; q < ck->nq; q++)
+      oxidd_bdd_unref(next[q]);
+  }
+  free(next);
+  return CHECK_UNKNOWN;
+}
+
+static bool emit_controller(Checker *ck, const char *path) {
+  Bdd *next = nullptr;
+  Bdd bad = {0};
+  if (!build_closed_loop(ck, &next, &bad))
+    return false;
+  oxidd_bdd_unref(bad);
+  Aig *controller = aig_new();
+  uint32_t *var2lit = malloc(ck->nvars * sizeof *var2lit);
+  uint32_t *latches = calloc(ck->nq, sizeof *latches);
+  if (!controller || !var2lit || !latches) {
+    aig_free(controller);
+    free(var2lit);
+    free(latches);
+    goto fail;
+  }
+  for (uint32_t v = 0; v < ck->nvars; v++)
+    var2lit[v] = UINT32_MAX;
+  for (uint32_t i = 0; i < ck->nu; i++)
+    var2lit[ck->uvar[i]] =
+        aig_input(controller, aig_input_name(ck->game, ck->uinput[i], nullptr));
+  for (uint32_t s = 0; s < ck->nstate; s++) {
+    uint32_t reset;
+    char fallback[32];
+    aig_latch_at(ck->game, s, nullptr, nullptr, &reset);
+    const char *name = latch_name(ck->game, s, fallback, sizeof fallback);
+    latches[s] = aig_latch_named(controller, AIG_FALSE, reset, name);
+    var2lit[ck->qvar[s]] = latches[s];
+  }
+  char generated[96];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(generated, sizeof generated, "curr_%u", j);
+    latches[ck->nstate + j] =
+        aig_latch_named(controller, AIG_FALSE, 0, generated);
+    var2lit[ck->qvar[ck->nstate + j]] = latches[ck->nstate + j];
+  }
+  Bdd2Aig conversion = {controller, var2lit, 0, ck->nvars, {0}, false};
+  for (uint32_t i = 0; i < ck->nc; i++) {
+    const char *name = aig_input_name(ck->game, ck->cinput[i], nullptr);
+    name += strlen(CONTROLLABLE_PREFIX);
+    aig_set_output(controller, name,
+                   bdd2aig(&conversion, ck->policy_control[i]));
+  }
+  for (uint32_t q = 0; q < ck->nq && !conversion.error; q++)
+    aig_set_latch_next(controller, latches[q], bdd2aig(&conversion, next[q]));
+  memo_free(&conversion.memo);
+  free(var2lit);
+  free(latches);
+  if (conversion.error) {
+    aig_free(controller);
+    goto fail;
+  }
+  FILE *out = fopen(path, "w");
+  if (!out) {
+    aig_free(controller);
+    goto fail;
+  }
+  aig_write_aag(out, controller);
+  bool ok = !ferror(out);
+  if (fclose(out) != 0)
+    ok = false;
+  aig_free(controller);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return ok;
+
+fail:
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return false;
+}
+
+static const char *result_name(CheckResult result) {
+  switch (result) {
+  case CHECK_VERIFIED:
+    return "VERIFIED";
+  case CHECK_REFUTED:
+    return "REFUTED";
+  case CHECK_UNKNOWN:
+    return "UNKNOWN";
+  case CHECK_INVALID:
+    return "INVALID";
+  case CHECK_CERT_FAILED:
+    return "CERT_FAILED";
+  case CHECK_SKIPPED:
+    return "SKIPPED";
+  }
+  return "UNKNOWN";
+}
+
+static const char *method_name(Method method) {
+  switch (method) {
+  case METHOD_AUTO:
+    return "auto";
+  case METHOD_CERTIFICATE:
+    return "certificate";
+  case METHOD_CLOSED_LOOP:
+    return "closed-loop";
+  case METHOD_BOTH:
+    return "both";
+  }
+  return "auto";
+}
+
+static const char *exit_name(int exit_code) {
+  switch (exit_code) {
+  case EXIT_VERIFIED:
+    return "VERIFIED";
+  case EXIT_REFUTED:
+    return "REFUTED";
+  case EXIT_ERROR:
+    return "ERROR";
+  case EXIT_UNKNOWN:
+    return "UNKNOWN";
+  case EXIT_INVALID:
+    return "INVALID";
+  case EXIT_INTERNAL:
+    return "INTERNAL-ERROR";
+  case EXIT_CERT_FAILED:
+    return "CERT_FAILED";
+  }
+  return "ERROR";
+}
+
+static void json_string(FILE *out, const char *text) {
+  fputc('"', out);
+  for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+    switch (*p) {
+    case '"':
+      fputs("\\\"", out);
+      break;
+    case '\\':
+      fputs("\\\\", out);
+      break;
+    case '\b':
+      fputs("\\b", out);
+      break;
+    case '\f':
+      fputs("\\f", out);
+      break;
+    case '\n':
+      fputs("\\n", out);
+      break;
+    case '\r':
+      fputs("\\r", out);
+      break;
+    case '\t':
+      fputs("\\t", out);
+      break;
+    default:
+      if (*p < 0x20)
+        fprintf(out, "\\u%04x", *p);
+      else
+        fputc(*p, out);
+    }
+  }
+  fputc('"', out);
+}
+
+static void json_named_value(FILE *out, bool *first, const char *name,
+                             bool value) {
+  if (!*first)
+    fputs(", ", out);
+  *first = false;
+  json_string(out, name);
+  fprintf(out, ": %s", value ? "true" : "false");
+}
+
+static void write_counterexample_json(FILE *out, const Checker *ck,
+                                      const Counterexample *counterexample) {
+  if (!counterexample->present) {
+    fputs("null", out);
+    return;
+  }
+  fputs("{\n        \"reason\": ", out);
+  json_string(out, counterexample->reason);
+  fputs(",\n        \"state\": {", out);
+  bool first = true;
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    char fallback[32];
+    const char *name = latch_name(ck->game, j, fallback, sizeof fallback);
+    json_named_value(out, &first, name, counterexample->state[j]);
+  }
+  fputs("},\n        \"curr\": {", out);
+  first = true;
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    char name[64];
+    snprintf(name, sizeof name, "curr_%u", j);
+    json_named_value(out, &first, name, counterexample->curr[j]);
+  }
+  fputs("},\n        \"uncontrollable_inputs\": {", out);
+  first = true;
+  for (uint32_t i = 0; i < ck->nu; i++)
+    json_named_value(out, &first,
+                     aig_input_name(ck->game, ck->uinput[i], nullptr),
+                     counterexample->inputs[i]);
+  fputs("},\n        \"control_choice\": ", out);
+  if (!counterexample->has_control) {
+    fputs("null\n      }", out);
+    return;
+  }
+  fputc('{', out);
+  first = true;
+  for (uint32_t i = 0; i < ck->nc; i++)
+    json_named_value(out, &first,
+                     aig_input_name(ck->game, ck->cinput[i], nullptr),
+                     counterexample->control[i]);
+  fputs("}\n      }", out);
+}
+
+static void write_method_json(FILE *out, const Checker *ck,
+                              const MethodReport *report) {
+  fputs("{\n      \"verdict\": ", out);
+  json_string(out, result_name(report->result));
+  fprintf(out,
+          ",\n      \"time_seconds\": %.9f,\n"
+          "      \"peak_bdd_nodes\": %zu,\n"
+          "      \"counterexample\": ",
+          report->seconds, report->peak_nodes);
+  write_counterexample_json(out, ck, &report->counterexample);
+  fputs("\n    }", out);
+}
+
+static bool write_result_json(const Checker *ck,
+                              const MethodReport *certificate,
+                              const MethodReport *closed_loop, int exit_code,
+                              double elapsed) {
+  if (!ck->options.json_out_path)
+    return true;
+  FILE *out = fopen(ck->options.json_out_path, "w");
+  if (!out)
+    return false;
+  const Counterexample *counterexample = nullptr;
+  const char *counterexample_method = nullptr;
+  if (closed_loop->result == CHECK_REFUTED &&
+      closed_loop->counterexample.present) {
+    counterexample = &closed_loop->counterexample;
+    counterexample_method = "closed-loop";
+  } else if (certificate->counterexample.present) {
+    counterexample = &certificate->counterexample;
+    counterexample_method = "certificate";
+  } else if (closed_loop->counterexample.present) {
+    counterexample = &closed_loop->counterexample;
+    counterexample_method = "closed-loop";
+  }
+  fputs("{\n  \"format\": \"tlsf-gr1-checkresult-v1\",\n"
+        "  \"requested_method\": ",
+        out);
+  json_string(out, method_name(ck->options.method));
+  fputs(",\n  \"verdict\": ", out);
+  json_string(out, exit_name(exit_code));
+  fprintf(out,
+          ",\n  \"exit_code\": %d,\n"
+          "  \"methods\": {\n    \"certificate\": ",
+          exit_code);
+  write_method_json(out, ck, certificate);
+  fputs(",\n    \"closed_loop\": ", out);
+  write_method_json(out, ck, closed_loop);
+  fprintf(out,
+          "\n  },\n  \"peak_bdd_nodes\": %zu,\n"
+          "  \"elapsed_seconds\": %.9f,\n"
+          "  \"counterexample_method\": ",
+          ck->peak_nodes, elapsed);
+  if (counterexample_method)
+    json_string(out, counterexample_method);
+  else
+    fputs("null", out);
+  fputs(",\n  \"counterexample\": ", out);
+  if (counterexample)
+    write_counterexample_json(out, ck, counterexample);
+  else
+    fputs("null", out);
+  fputs("\n}\n", out);
+  bool ok = !ferror(out);
+  if (fclose(out) != 0)
+    ok = false;
+  return ok;
+}
+
+static void cleanup(Checker *ck) {
+  if (ck->rank)
+    for (uint32_t j = 0; j < ck->ngoals; j++) {
+      for (uint32_t k = 0; k < ck->rank[j].levels; k++) {
+        for (uint32_t i = 0; i < ck->nfair_disj; i++)
+          oxidd_bdd_unref(ck->rank[j].x[k][i]);
+        free(ck->rank[j].x[k]);
+        oxidd_bdd_unref(ck->rank[j].y[k]);
+      }
+      free(ck->rank[j].x);
+      free(ck->rank[j].y);
+    }
+  free(ck->rank);
+  oxidd_bdd_unref(ck->cert_inv);
+  for (uint32_t i = 0; i < ck->nc; i++)
+    oxidd_bdd_unref(ck->policy_control ? ck->policy_control[i] : (Bdd){0});
+  for (uint32_t j = 0; j < ck->ngoals; j++)
+    oxidd_bdd_unref(ck->policy_curr_next ? ck->policy_curr_next[j] : (Bdd){0});
+  for (uint32_t s = 0; s < ck->nstate; s++)
+    oxidd_bdd_unref(ck->game_next ? ck->game_next[s] : (Bdd){0});
+  for (uint32_t j = 0; j < ck->ngoals; j++)
+    oxidd_bdd_unref(ck->goal ? ck->goal[j] : (Bdd){0});
+  for (uint32_t j = 0; j < ck->ngoals; j++)
+    oxidd_bdd_unref(ck->cert_goal ? ck->cert_goal[j] : (Bdd){0});
+  for (uint32_t i = 0; i < ck->nfair; i++)
+    oxidd_bdd_unref(ck->fair ? ck->fair[i] : (Bdd){0});
+  oxidd_bdd_unref(ck->game_bad);
+  oxidd_bdd_unref(ck->input_cube);
+  for (uint32_t q = 0; q < ck->nq; q++) {
+    oxidd_bdd_unref(ck->q ? ck->q[q] : (Bdd){0});
+    oxidd_bdd_unref(ck->qp ? ck->qp[q] : (Bdd){0});
+  }
+  for (uint32_t i = 0; i < ck->nu; i++)
+    oxidd_bdd_unref(ck->u ? ck->u[i] : (Bdd){0});
+  for (uint32_t i = 0; i < ck->nc; i++)
+    oxidd_bdd_unref(ck->c ? ck->c[i] : (Bdd){0});
+  free(ck->policy_control);
+  free(ck->policy_curr_next);
+  free(ck->game_next);
+  free(ck->goal);
+  free(ck->cert_goal);
+  free(ck->fair);
+  free(ck->qvar);
+  free(ck->qpvar);
+  free(ck->uvar);
+  free(ck->cvar);
+  free(ck->q);
+  free(ck->qp);
+  free(ck->u);
+  free(ck->c);
+  free(ck->uinput);
+  free(ck->cinput);
+  if (ck->manager._p)
+    oxidd_bdd_manager_unref(ck->manager);
+  aig_free(ck->certificate);
+  aig_free(ck->policy);
+  aig_free(ck->game);
+}
+
+int main(int argc, char **argv) {
+  Options options;
+  char *owned_policy_json = nullptr, *owned_cert_json = nullptr;
+  int parsed =
+      parse_options(argc, argv, &options, &owned_policy_json, &owned_cert_json);
+  if (parsed != 0) {
+    free(owned_policy_json);
+    free(owned_cert_json);
+    return parsed > 0 ? 0 : EXIT_ERROR;
+  }
+  Checker ck = {.options = options, .started = now_seconds()};
+  MethodReport certificate = {.result = CHECK_SKIPPED};
+  MethodReport closed_loop = {.result = CHECK_SKIPPED};
+  int exit_code = EXIT_ERROR;
+  uint32_t *levels = nullptr;
+  char message[512] = {0};
+  ck.game = read_aag(options.game_path, true, message, sizeof message);
+  ck.policy = read_aag(options.policy_path, false, message, sizeof message);
+  if (options.certificate_path)
+    ck.certificate =
+        read_aag(options.certificate_path, false, message, sizeof message);
+  if (!ck.game || !ck.policy || (options.certificate_path && !ck.certificate)) {
+    printf("INVALID\n");
+    fprintf(stderr, "tlsfcertcheck: %s\n", message);
+    exit_code = EXIT_INVALID;
+    goto finish;
+  }
+  ck.original_nlat = aig_num_latches(ck.game);
+  aig_sample_input_dependent_acceptance(ck.game);
+  ck.nstate = aig_num_latches(ck.game);
+  ck.nin = aig_num_inputs(ck.game);
+  ck.ngoals = count_goals(ck.game);
+  ck.nfair = aig_num_fairness(ck.game);
+  ck.nfair_disj = ck.nfair ? ck.nfair : 1;
+  if (!ck.ngoals) {
+    printf("INVALID\n");
+    fprintf(stderr, "tlsfcertcheck: game has no justice goals\n");
+    exit_code = EXIT_INVALID;
+    goto finish;
+  }
+  ck.uinput = ck.nin ? calloc(ck.nin, sizeof *ck.uinput) : nullptr;
+  ck.cinput = ck.nin ? calloc(ck.nin, sizeof *ck.cinput) : nullptr;
+  if (ck.nin && (!ck.uinput || !ck.cinput)) {
+    printf("ERROR\n");
+    fprintf(stderr, "tlsfcertcheck: out of memory\n");
+    exit_code = EXIT_ERROR;
+    goto finish;
+  }
+  for (uint32_t p = 0; p < ck.nin; p++) {
+    const char *name = aig_input_name(ck.game, p, nullptr);
+    if (is_controllable(name))
+      ck.cinput[ck.nc++] = p;
+    else
+      ck.uinput[ck.nu++] = p;
+  }
+
+  bool interface_ok = validate_game_names(&ck, message, sizeof message) &&
+                      validate_policy_interface(&ck, message, sizeof message) &&
+                      validate_sidecars(&ck, message, sizeof message);
+  if (interface_ok && ck.certificate)
+    interface_ok =
+        validate_certificate_interface(&ck, &levels, message, sizeof message);
+  if (!interface_ok) {
+    printf("INVALID\n");
+    fprintf(stderr, "tlsfcertcheck: %s\n", message);
+    exit_code = EXIT_INVALID;
+    goto finish;
+  }
+
+  if (!setup_bdds(&ck, levels, message, sizeof message)) {
+    printf("UNKNOWN\n");
+    fprintf(stderr, "tlsfcertcheck: %s\n", message);
+    exit_code = EXIT_UNKNOWN;
+    goto finish;
+  }
+  free(levels);
+  levels = nullptr;
+
+  bool run_certificate = options.method == METHOD_CERTIFICATE ||
+                         options.method == METHOD_BOTH ||
+                         (options.method == METHOD_AUTO && ck.certificate);
+  bool run_closed_loop = options.method == METHOD_CLOSED_LOOP ||
+                         options.method == METHOD_BOTH ||
+                         (options.method == METHOD_AUTO && !ck.certificate);
+  if (run_certificate) {
+    double started = now_seconds();
+    ck.current_counterexample = &certificate.counterexample;
+    certificate.result = check_certificate_mode(&ck);
+    certificate.seconds = now_seconds() - started;
+    certificate.peak_nodes = ck.peak_nodes;
+    if (options.method == METHOD_AUTO &&
+        certificate.result == CHECK_CERT_FAILED) {
+      puts("NOTE certificate did not prove the policy; falling back to "
+           "closed-loop");
+      run_closed_loop = true;
+    }
+  }
+  if (run_closed_loop) {
+    double started = now_seconds();
+    ck.current_counterexample = &closed_loop.counterexample;
+    closed_loop.result = check_closed_loop_mode(&ck);
+    closed_loop.seconds = now_seconds() - started;
+    closed_loop.peak_nodes = ck.peak_nodes;
+  }
+  ck.current_counterexample = nullptr;
+
+  if (certificate.result != CHECK_SKIPPED)
+    printf("METHOD certificate %s time=%.6f\n", result_name(certificate.result),
+           certificate.seconds);
+  if (closed_loop.result != CHECK_SKIPPED)
+    printf("METHOD closed-loop %s time=%.6f\n", result_name(closed_loop.result),
+           closed_loop.seconds);
+  printf("STATS peak_bdd_nodes=%zu elapsed=%.6f\n", ck.peak_nodes,
+         now_seconds() - ck.started);
+
+  bool disagree = certificate.result == CHECK_VERIFIED &&
+                  closed_loop.result == CHECK_REFUTED;
+  if (disagree) {
+    printf("INTERNAL-ERROR\n");
+    fprintf(stderr,
+            "tlsfcertcheck: certificate and closed-loop methods disagree\n");
+    exit_code = EXIT_INTERNAL;
+  } else if (certificate.result == CHECK_INVALID ||
+             closed_loop.result == CHECK_INVALID) {
+    printf("INVALID\n");
+    exit_code = EXIT_INVALID;
+  } else if (closed_loop.result == CHECK_REFUTED) {
+    printf("REFUTED\n");
+    exit_code = EXIT_REFUTED;
+  } else if (certificate.result == CHECK_VERIFIED ||
+             closed_loop.result == CHECK_VERIFIED) {
+    if (options.emit_path && !emit_controller(&ck, options.emit_path)) {
+      printf("ERROR\n");
+      fprintf(stderr, "tlsfcertcheck: cannot emit controller '%s'\n",
+              options.emit_path);
+      exit_code = EXIT_ERROR;
+    } else {
+      printf("VERIFIED\n");
+      exit_code = EXIT_VERIFIED;
+    }
+  } else if (certificate.result == CHECK_UNKNOWN ||
+             closed_loop.result == CHECK_UNKNOWN) {
+    printf("UNKNOWN\n");
+    exit_code = EXIT_UNKNOWN;
+  } else if (certificate.result == CHECK_CERT_FAILED) {
+    printf("CERT_FAILED\n");
+    exit_code = EXIT_CERT_FAILED;
+  } else {
+    printf("UNKNOWN\n");
+    exit_code = EXIT_UNKNOWN;
+  }
+
+finish:
+  free(levels);
+  if (!write_result_json(&ck, &certificate, &closed_loop, exit_code,
+                         now_seconds() - ck.started)) {
+    fprintf(stderr, "tlsfcertcheck: cannot write JSON result '%s'\n",
+            options.json_out_path);
+    exit_code = EXIT_ERROR;
+  }
+  counterexample_clear(&certificate.counterexample);
+  counterexample_clear(&closed_loop.counterexample);
+  cleanup(&ck);
+  free(owned_policy_json);
+  free(owned_cert_json);
+  return exit_code;
+}
