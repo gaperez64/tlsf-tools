@@ -535,6 +535,12 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     aig_and_at(game, i - 1, &lhs, &a, &b);
     if (!uses[lhs / 2])
       continue;
+    // A caller may seed a gate result compiled in an earlier bounded scope.
+    // Treat it exactly like a primary leaf: consumers still account for and
+    // release this reference, but the already compiled fanin cone is not
+    // traced or evaluated again.
+    if (!bdd_invalid(map[lhs / 2]))
+      continue;
     if (a / 2 > maxvar || b / 2 > maxvar) {
       ok = false;
       break;
@@ -554,10 +560,16 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
       oxidd_bdd_unref(map[v]);
       map[v] = (Bdd){0};
     }
+  Bdd constant_false = oxidd_bdd_false(r->manager);
+  Bdd constant_true = oxidd_bdd_true(r->manager);
+  if (bdd_invalid(constant_false) || bdd_invalid(constant_true))
+    ok = false;
   for (uint32_t i = 0; i < ngates && ok; i++) {
     uint32_t lhs, a, b;
     aig_and_at(game, i, &lhs, &a, &b);
     if (!uses[lhs / 2])
+      continue;
+    if (!bdd_invalid(map[lhs / 2]))
       continue;
     r->index = i;
 #ifndef NDEBUG
@@ -579,7 +591,19 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
 #endif
     Bdd ba = run_literal(r, map, a);
     Bdd bb = run_literal(r, map, b);
-    Bdd result = oxidd_run_and(r, ba, bb);
+    Bdd result;
+    // Constant-cofactored policy muxes contain long dead branches.  Avoid an
+    // FFI/cache operation for the Boolean identities that the selected-root
+    // scheduler can establish from already built operands.
+    if (bdd_same_identity(ba, constant_false) ||
+        bdd_same_identity(bb, constant_false))
+      result = oxidd_bdd_ref(constant_false);
+    else if (bdd_same_identity(ba, constant_true))
+      result = oxidd_bdd_ref(bb);
+    else if (bdd_same_identity(bb, constant_true))
+      result = oxidd_bdd_ref(ba);
+    else
+      result = oxidd_run_and(r, ba, bb);
 #ifndef NDEBUG
     if (selected) {
       BoundedNodeCount left =
@@ -656,6 +680,8 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     }
   for (size_t i = 0; i < count; i++)
     oxidd_bdd_unref(published[i]);
+  oxidd_bdd_unref(constant_false);
+  oxidd_bdd_unref(constant_true);
   free(published);
   free(uses);
   return ok;

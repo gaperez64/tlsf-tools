@@ -135,9 +135,11 @@ Bdd oxidd_run_apply_exists(OxiddRun *run, oxidd_boolean_operator op, Bdd a,
                            Bdd b, Bdd vars);
 Bdd oxidd_run_cube(OxiddRun *run, const uint32_t *vars, uint32_t n);
 
-// Consumes map entries as their final consumers finish. Root publication is
-// transactional: on failure roots is unchanged, while map remains caller-owned
-// and may contain partially constructed results.
+// Consumes map entries as their final consumers finish.  In addition to
+// primary inputs and latches, map may contain prebuilt AND-gate results; these
+// are treated as retained leaves and their fanin cones are not rebuilt.  Root
+// publication is transactional: on failure roots is unchanged, while map
+// remains caller-owned and may contain partially constructed results.
 bool oxidd_build_roots(OxiddRun *run, const Aig *game, Bdd *map,
                        uint32_t maxvar, const uint32_t *lits, Bdd *roots,
                        size_t count);

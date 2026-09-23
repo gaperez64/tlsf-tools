@@ -124,6 +124,12 @@ typedef struct {
   Bdd *q, *qp, *u, *c;
   Bdd *game_next, game_bad, *goal, *fair, *cert_goal;
   Bdd *policy_control, *policy_curr_next;
+  uint32_t *policy_independent_var;
+  Bdd *policy_independent_root;
+  Bdd *policy_mode_cache_control, *policy_mode_cache_next;
+  size_t policy_independent_count;
+  bool policy_independent_ready;
+  bool policy_use_unspecialized_modes;
   Bdd cert_inv, *cert_fair;
   RankGoal *rank;
   DualOuterRank *dual_rank;
@@ -140,6 +146,9 @@ typedef struct {
   double setup_seconds, proof_seconds;
   size_t requested_roots, policy_mode_builds, policy_counter_constants;
   size_t policy_specialized_gates, policy_unspecialized_gates;
+  size_t policy_independent_gates, policy_independent_roots;
+  size_t policy_cross_mode_root_reuses;
+  size_t policy_dependent_gates_per_mode, policy_full_cache_modes;
   size_t successor_substitutions, successor_applications;
   size_t peak_nodes;
 } Checker;
@@ -152,6 +161,8 @@ typedef struct {
 } Compiled;
 
 static Bdd initial_cube(Checker *ck);
+static Bdd assignment_cube(Checker *ck, int counter);
+static Bdd specialize(Bdd value, Bdd cube);
 
 static double now_seconds(void) {
   struct timespec ts;
@@ -1068,9 +1079,12 @@ static bool validate_aig_structure(const Aig *aig, const char *kind,
   return true;
 }
 
-static bool compile_aig_roots(Checker *ck, const Aig *aig, const Bdd *inputs,
-                              const Bdd *latches, const uint32_t *lits,
-                              Bdd *roots, size_t count, const char *phase) {
+static bool compile_aig_roots_seeded(Checker *ck, const Aig *aig,
+                                     const Bdd *inputs, const Bdd *latches,
+                                     const uint32_t *seed_vars,
+                                     const Bdd *seed_roots, size_t seed_count,
+                                     const uint32_t *lits, Bdd *roots,
+                                     size_t count, const char *phase) {
   uint32_t maxvar = max_aig_var(aig);
   Bdd *map = calloc((size_t)maxvar + 1, sizeof *map);
   if (!map)
@@ -1084,6 +1098,15 @@ static bool compile_aig_roots(Checker *ck, const Aig *aig, const Bdd *inputs,
     uint32_t lit;
     aig_latch_at(aig, i, &lit, nullptr, nullptr);
     map[lit / 2] = oxidd_bdd_ref(latches[i]);
+  }
+  for (size_t i = 0; i < seed_count; i++) {
+    if (seed_vars[i] > maxvar || !bdd_invalid(map[seed_vars[i]])) {
+      for (uint32_t v = 0; v <= maxvar; v++)
+        oxidd_bdd_unref(map[v]);
+      free(map);
+      return false;
+    }
+    map[seed_vars[i]] = oxidd_bdd_ref(seed_roots[i]);
   }
   oxidd_phase(&ck->run, phase);
   ck->requested_roots += count;
@@ -1100,6 +1123,13 @@ static bool compile_aig_roots(Checker *ck, const Aig *aig, const Bdd *inputs,
   }
   update_peak(ck);
   return ok;
+}
+
+static bool compile_aig_roots(Checker *ck, const Aig *aig, const Bdd *inputs,
+                              const Bdd *latches, const uint32_t *lits,
+                              Bdd *roots, size_t count, const char *phase) {
+  return compile_aig_roots_seeded(ck, aig, inputs, latches, nullptr, nullptr, 0,
+                                  lits, roots, count, phase);
 }
 
 static int find_input(const Aig *aig, const char *name) {
@@ -1183,12 +1213,9 @@ static Bdd output_bdd(Checker *ck, const Aig *aig, const Compiled *compiled,
   return named_root(aig, compiled->root_by_output, compiled->roots, name);
 }
 
-static bool compile_policy_roots(Checker *ck, int mode, bool specialized,
-                                 Bdd *control, Bdd *counter_next) {
+static bool fill_policy_inputs(Checker *ck, int mode, bool specialized,
+                               Bdd *inputs) {
   uint32_t ninputs = aig_num_inputs(ck->policy);
-  Bdd *inputs = calloc(ninputs, sizeof *inputs);
-  if (!inputs)
-    return false;
   bool ok = true;
   for (uint32_t p = 0; p < ninputs && ok; p++) {
     const char *name = aig_input_name(ck->policy, p, nullptr);
@@ -1222,26 +1249,298 @@ static bool compile_policy_roots(Checker *ck, int mode, bool specialized,
     }
     ok = found;
   }
-  size_t count = (size_t)ck->npolicy_choices + ck->ncounter;
-  uint32_t *lits = ok ? calloc(count, sizeof *lits) : nullptr;
-  Bdd *roots = ok ? calloc(count, sizeof *roots) : nullptr;
-  ok = ok && lits && roots;
+  return ok;
+}
+
+static bool policy_root_literals(Checker *ck, uint32_t *lits) {
+  bool ok = true;
   size_t root = 0;
   for (uint32_t i = 0; i < ck->npolicy_choices && ok; i++) {
     uint32_t game_input = ck->environment ? ck->uinput[i] : ck->cinput[i];
     const char *name = aig_input_name(ck->game, game_input, nullptr);
     lits[root++] = aig_output_lit(ck->policy, name);
+    ok = lits[root - 1] != UINT32_MAX;
   }
   char generated[96];
   for (uint32_t j = 0; j < ck->ncounter && ok; j++) {
     snprintf(generated, sizeof generated, "curr_next_%u", j);
     lits[root++] = aig_output_lit(ck->policy, generated);
+    ok = lits[root - 1] != UINT32_MAX;
   }
+  return ok;
+}
+
+static void release_policy_independent(Checker *ck) {
+  for (size_t i = 0; i < ck->policy_independent_count; i++)
+    oxidd_bdd_unref(ck->policy_independent_root[i]);
+  for (uint32_t i = 0; i < ck->npolicy_choices; i++)
+    oxidd_bdd_unref(ck->policy_mode_cache_control
+                        ? ck->policy_mode_cache_control[i]
+                        : (Bdd){0});
+  for (uint32_t j = 0; j < ck->ncounter; j++)
+    oxidd_bdd_unref(ck->policy_mode_cache_next ? ck->policy_mode_cache_next[j]
+                                               : (Bdd){0});
+  free(ck->policy_independent_root);
+  free(ck->policy_independent_var);
+  free(ck->policy_mode_cache_control);
+  free(ck->policy_mode_cache_next);
+  ck->policy_independent_root = nullptr;
+  ck->policy_independent_var = nullptr;
+  ck->policy_mode_cache_control = nullptr;
+  ck->policy_mode_cache_next = nullptr;
+  ck->policy_independent_count = 0;
+  ck->policy_independent_ready = false;
+}
+
+static bool prepare_policy_independent(Checker *ck) {
+  if (ck->policy_independent_ready)
+    return true;
+  uint32_t maxvar = max_aig_var(ck->policy);
+  bool *counter_dependent =
+      calloc((size_t)maxvar + 1, sizeof *counter_dependent);
+  bool *needed = calloc((size_t)maxvar + 1, sizeof *needed);
+  bool *is_gate = calloc((size_t)maxvar + 1, sizeof *is_gate);
+  bool *cached = calloc((size_t)maxvar + 1, sizeof *cached);
+  size_t selected_count = (size_t)ck->npolicy_choices + ck->ncounter;
+  uint32_t *selected = calloc(selected_count, sizeof *selected);
+  bool ok = counter_dependent && needed && is_gate && cached && selected &&
+            policy_root_literals(ck, selected);
+
+  for (uint32_t p = 0; p < aig_num_inputs(ck->policy) && ok; p++) {
+    uint32_t lit;
+    const char *name = aig_input_name(ck->policy, p, &lit);
+    for (uint32_t j = 0; j < ck->ncounter; j++) {
+      char counter[64];
+      snprintf(counter, sizeof counter, "curr_%u", j);
+      if (!strcmp(name, counter)) {
+        counter_dependent[lit / 2] = true;
+        break;
+      }
+    }
+  }
+  for (uint32_t i = 0; i < aig_num_ands(ck->policy) && ok; i++) {
+    uint32_t lhs, left, right;
+    aig_and_at(ck->policy, i, &lhs, &left, &right);
+    if (lhs / 2 > maxvar || left / 2 > maxvar || right / 2 > maxvar) {
+      ok = false;
+      break;
+    }
+    is_gate[lhs / 2] = true;
+    counter_dependent[lhs / 2] =
+        counter_dependent[left / 2] || counter_dependent[right / 2];
+  }
+  for (size_t i = 0; i < selected_count && ok; i++) {
+    if (selected[i] / 2 > maxvar) {
+      ok = false;
+      break;
+    }
+    if (selected[i] > 1)
+      needed[selected[i] / 2] = true;
+  }
+  // Stop each selected counter-dependent cone at its maximal independent
+  // gates.  Those boundary functions form a finite cache bounded by the
+  // selected policy AIG and are the only roots retained between modes.
+  for (uint32_t i = aig_num_ands(ck->policy); i > 0 && ok; i--) {
+    uint32_t lhs, left, right;
+    aig_and_at(ck->policy, i - 1, &lhs, &left, &right);
+    if (!needed[lhs / 2])
+      continue;
+    if (!counter_dependent[lhs / 2]) {
+      cached[lhs / 2] = true;
+      continue;
+    }
+    if (left > 1) {
+      needed[left / 2] = true;
+      if (!counter_dependent[left / 2] && is_gate[left / 2])
+        cached[left / 2] = true;
+    }
+    if (right > 1) {
+      needed[right / 2] = true;
+      if (!counter_dependent[right / 2] && is_gate[right / 2])
+        cached[right / 2] = true;
+    }
+  }
+
+  size_t dependent_count = 0;
+  if (ok)
+    for (uint32_t i = 0; i < aig_num_ands(ck->policy); i++) {
+      uint32_t lhs;
+      aig_and_at(ck->policy, i, &lhs, nullptr, nullptr);
+      dependent_count += needed[lhs / 2] && counter_dependent[lhs / 2];
+    }
+
+  size_t count = 0;
+  if (ok)
+    for (uint32_t v = 1; v <= maxvar; v++)
+      count += cached[v];
+  uint32_t *vars = count ? calloc(count, sizeof *vars) : nullptr;
+  uint32_t *lits = count ? calloc(count, sizeof *lits) : nullptr;
+  Bdd *roots = count ? calloc(count, sizeof *roots) : nullptr;
+  Bdd *inputs = aig_num_inputs(ck->policy)
+                    ? calloc(aig_num_inputs(ck->policy), sizeof *inputs)
+                    : nullptr;
+  ok = ok && (!count || (vars && lits && roots)) &&
+       (!aig_num_inputs(ck->policy) || inputs) &&
+       fill_policy_inputs(ck, -1, true, inputs);
+  size_t root = 0;
+  for (uint32_t v = 1; v <= maxvar && ok; v++)
+    if (cached[v]) {
+      vars[root] = v;
+      lits[root++] = 2 * v;
+    }
+  size_t gates_before = ck->run.built_gates;
+  if (ok && count)
+    ok = compile_aig_roots(ck, ck->policy, inputs, nullptr, lits, roots, count,
+                           "checker_policy_independent");
+  size_t built = ck->run.built_gates - gates_before;
+  for (uint32_t p = 0; p < aig_num_inputs(ck->policy); p++)
+    oxidd_bdd_unref(inputs ? inputs[p] : (Bdd){0});
+  free(inputs);
+  free(lits);
+  free(selected);
+  free(cached);
+  free(is_gate);
+  free(needed);
+  free(counter_dependent);
+  if (!ok) {
+    for (size_t i = 0; i < count; i++)
+      oxidd_bdd_unref(roots ? roots[i] : (Bdd){0});
+    free(roots);
+    free(vars);
+    return false;
+  }
+  ck->policy_independent_var = vars;
+  ck->policy_independent_root = roots;
+  ck->policy_independent_count = count;
+  ck->policy_independent_ready = true;
+  ck->policy_independent_gates += built;
+  ck->policy_independent_roots = count;
+  ck->policy_dependent_gates_per_mode = dependent_count;
+  // Retaining the selected unspecialized outputs is worthwhile when direct
+  // mode construction would repeat a predominantly counter-dependent cone at
+  // least eight times.  The retained cache is bounded by the selected output
+  // count and is released with the independent boundary roots after the final
+  // mode.  Static-heavy policies stay on direct constant-input compilation.
+  size_t modes = (size_t)ck->ncounter + 1;
+  size_t selected_gates = built + dependent_count;
+  ck->policy_use_unspecialized_modes =
+      selected_gates &&
+      (double)dependent_count * (double)modes > 8.0 * (double)selected_gates;
+  return true;
+}
+
+static bool prepare_policy_mode_cache(Checker *ck) {
+  if (ck->policy_mode_cache_next)
+    return true;
+  uint32_t ninputs = aig_num_inputs(ck->policy);
+  size_t count = (size_t)ck->npolicy_choices + ck->ncounter;
+  Bdd *inputs = ninputs ? calloc(ninputs, sizeof *inputs) : nullptr;
+  uint32_t *lits = calloc(count, sizeof *lits);
+  Bdd *roots = calloc(count, sizeof *roots);
+  Bdd *control = ck->npolicy_choices
+                     ? calloc(ck->npolicy_choices, sizeof *control)
+                     : nullptr;
+  Bdd *counter_next = calloc(ck->ncounter, sizeof *counter_next);
+  bool ok = (!ninputs || inputs) && lits && roots &&
+            (!ck->npolicy_choices || control) && counter_next &&
+            fill_policy_inputs(ck, -1, false, inputs) &&
+            policy_root_literals(ck, lits);
   size_t gates_before = ck->run.built_gates;
   if (ok)
-    ok = compile_aig_roots(ck, ck->policy, inputs, nullptr, lits, roots, count,
-                           specialized ? "checker_policy_mode"
-                                       : "checker_policy");
+    ok = compile_aig_roots_seeded(
+        ck, ck->policy, inputs, nullptr, ck->policy_independent_var,
+        ck->policy_independent_root, ck->policy_independent_count, lits, roots,
+        count, "checker_policy_mode_cache");
+  if (ok)
+    ck->policy_cross_mode_root_reuses += ck->policy_independent_count;
+  ck->policy_unspecialized_gates += ck->run.built_gates - gates_before;
+  if (ok) {
+    size_t root = 0;
+    for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
+      control[i] = roots[root];
+      roots[root++] = (Bdd){0};
+    }
+    for (uint32_t j = 0; j < ck->ncounter; j++) {
+      counter_next[j] = roots[root];
+      roots[root++] = (Bdd){0};
+    }
+    ck->policy_mode_cache_control = control;
+    ck->policy_mode_cache_next = counter_next;
+    control = nullptr;
+    counter_next = nullptr;
+  }
+  for (size_t i = 0; i < count; i++)
+    oxidd_bdd_unref(roots ? roots[i] : (Bdd){0});
+  for (uint32_t p = 0; p < ninputs; p++)
+    oxidd_bdd_unref(inputs ? inputs[p] : (Bdd){0});
+  free(counter_next);
+  free(control);
+  free(roots);
+  free(lits);
+  free(inputs);
+  return ok;
+}
+
+static bool compile_policy_roots(Checker *ck, int mode, bool specialized,
+                                 Bdd *control, Bdd *counter_next) {
+  uint32_t ninputs = aig_num_inputs(ck->policy);
+  Bdd *inputs = ninputs ? calloc(ninputs, sizeof *inputs) : nullptr;
+  if (ninputs && !inputs)
+    return false;
+  if (specialized && !prepare_policy_independent(ck)) {
+    free(inputs);
+    return false;
+  }
+  if (specialized && ck->policy_use_unspecialized_modes) {
+    free(inputs);
+    if (!prepare_policy_mode_cache(ck))
+      return false;
+    Bdd cube = assignment_cube(ck, mode);
+    bool ok = !bdd_invalid(cube);
+    for (uint32_t i = 0; i < ck->npolicy_choices && ok; i++) {
+      control[i] = specialize(ck->policy_mode_cache_control[i], cube);
+      ok = !bdd_invalid(control[i]);
+    }
+    for (uint32_t j = 0; j < ck->ncounter && ok; j++) {
+      counter_next[j] = specialize(ck->policy_mode_cache_next[j], cube);
+      ok = !bdd_invalid(counter_next[j]);
+    }
+    oxidd_bdd_unref(cube);
+    if (!ok) {
+      ck->bdd_failed = true;
+      for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
+        oxidd_bdd_unref(control[i]);
+        control[i] = (Bdd){0};
+      }
+      for (uint32_t j = 0; j < ck->ncounter; j++) {
+        oxidd_bdd_unref(counter_next[j]);
+        counter_next[j] = (Bdd){0};
+      }
+    }
+    ck->policy_mode_builds++;
+    ck->policy_counter_constants += ck->ncounter;
+    ck->policy_full_cache_modes++;
+    return ok;
+  }
+  bool ok = fill_policy_inputs(ck, mode, specialized, inputs);
+  size_t count = (size_t)ck->npolicy_choices + ck->ncounter;
+  uint32_t *lits = ok ? calloc(count, sizeof *lits) : nullptr;
+  Bdd *roots = ok ? calloc(count, sizeof *roots) : nullptr;
+  ok = ok && lits && roots;
+  ok = ok && policy_root_literals(ck, lits);
+  size_t gates_before = ck->run.built_gates;
+  if (ok) {
+    if (specialized) {
+      ok = compile_aig_roots_seeded(
+          ck, ck->policy, inputs, nullptr, ck->policy_independent_var,
+          ck->policy_independent_root, ck->policy_independent_count, lits,
+          roots, count, "checker_policy_mode");
+      ck->policy_cross_mode_root_reuses += ck->policy_independent_count;
+    } else {
+      ok = compile_aig_roots(ck, ck->policy, inputs, nullptr, lits, roots,
+                             count, "checker_policy");
+    }
+  }
   size_t built = ck->run.built_gates - gates_before;
   if (specialized) {
     ck->policy_mode_builds++;
@@ -1251,7 +1550,7 @@ static bool compile_policy_roots(Checker *ck, int mode, bool specialized,
     ck->policy_unspecialized_gates += built;
   }
   if (ok) {
-    root = 0;
+    size_t root = 0;
     for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
       control[i] = roots[root];
       roots[root++] = (Bdd){0};
@@ -3340,6 +3639,7 @@ static bool write_result_json(const Checker *ck,
 }
 
 static void cleanup(Checker *ck) {
+  release_policy_independent(ck);
   if (ck->rank)
     for (uint32_t j = 0; j < ck->ngoals; j++) {
       for (uint32_t k = 0; k < ck->rank[j].levels; k++) {
@@ -3523,6 +3823,9 @@ int main(int argc, char **argv) {
     certificate.seconds = now_seconds() - started;
     ck.proof_seconds += certificate.seconds;
     certificate.peak_nodes = ck.peak_nodes;
+    // The mode-local proof sequence is complete.  Do not retain the bounded
+    // independent policy roots into fallback or closed-loop checking.
+    release_policy_independent(&ck);
     if (options.method == METHOD_AUTO &&
         certificate.result == CHECK_CERT_FAILED) {
       puts("NOTE certificate did not prove the policy; falling back to "
@@ -3611,13 +3914,21 @@ finish:
             "setup_seconds=%.9f proof_seconds=%.9f "
             "peak_live_nodes_sample=%zu policy_mode_builds=%zu "
             "policy_counter_constants=%zu policy_specialized_gates=%zu "
-            "policy_unspecialized_gates=%zu successor_substitutions=%zu "
+            "policy_unspecialized_gates=%zu policy_independent_gates=%zu "
+            "policy_independent_roots=%zu "
+            "policy_cross_mode_root_reuses=%zu "
+            "policy_dependent_gates_per_mode=%zu "
+            "policy_full_cache_modes=%zu "
+            "successor_substitutions=%zu "
             "successor_applications=%zu final_status=%s\n",
             ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
             ck.proof_seconds, ck.peak_nodes, ck.policy_mode_builds,
             ck.policy_counter_constants, ck.policy_specialized_gates,
-            ck.policy_unspecialized_gates, ck.successor_substitutions,
-            ck.successor_applications, exit_name(exit_code));
+            ck.policy_unspecialized_gates, ck.policy_independent_gates,
+            ck.policy_independent_roots, ck.policy_cross_mode_root_reuses,
+            ck.policy_dependent_gates_per_mode, ck.policy_full_cache_modes,
+            ck.successor_substitutions, ck.successor_applications,
+            exit_name(exit_code));
   counterexample_clear(&certificate.counterexample);
   counterexample_clear(&closed_loop.counterexample);
   cleanup(&ck);

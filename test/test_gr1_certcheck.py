@@ -225,6 +225,9 @@ def checker_stats(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
         "aig_gates_visited|requested_roots|peak_live_nodes_sample|"
         "policy_mode_builds|policy_counter_constants|"
         "policy_specialized_gates|policy_unspecialized_gates|"
+        "policy_independent_gates|policy_independent_roots|"
+        "policy_cross_mode_root_reuses|"
+        "policy_dependent_gates_per_mode|policy_full_cache_modes|"
         "successor_substitutions|successor_applications")
     return {name: int(value) for name, value in re.findall(
         rf"({integer_names})=([0-9]+)", line)}
@@ -636,6 +639,14 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 f"selector was not built from per-mode constants: "
                 f"{selector_stats}")
+        independent_roots = selector_stats.get("policy_independent_roots", 0)
+        if (selector_stats.get("policy_independent_gates", 0) <= 0
+                or independent_roots <= 0
+                or selector_stats.get("policy_cross_mode_root_reuses")
+                != independent_roots * (goal_count + 1)):
+            raise AssertionError(
+                "counter-independent policy cones were not reused across "
+                f"modes: {selector_stats}")
         if (selector_stats.get("successor_substitutions") != goal_count + 1
                 or rebuilt_stats.get("successor_substitutions")
                 != rebuilt_stats.get("successor_applications")
