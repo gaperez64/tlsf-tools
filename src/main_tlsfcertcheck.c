@@ -1130,9 +1130,18 @@ static void compiled_free(Compiled *compiled) {
   *compiled = (Compiled){0};
 }
 
-static bool compile_aig_outputs(Checker *ck, const Aig *aig, const Bdd *inputs,
-                                bool skip_moves, Compiled *compiled,
-                                const char *phase) {
+static bool certificate_output_is_selected(const Checker *ck,
+                                           const char *name) {
+  if (!name)
+    return true;
+  if (!strncmp(name, "move_", 5))
+    return false;
+  return !ck->environment || strcmp(name, "system_winning");
+}
+
+static bool compile_certificate_outputs(Checker *ck, const Aig *aig,
+                                        const Bdd *inputs, Compiled *compiled,
+                                        const char *phase) {
   uint32_t noutputs = aig_num_outputs(aig);
   uint32_t *root_by_output = calloc(noutputs, sizeof *root_by_output);
   if (!root_by_output)
@@ -1140,7 +1149,7 @@ static bool compile_aig_outputs(Checker *ck, const Aig *aig, const Bdd *inputs,
   size_t count = 0;
   for (uint32_t i = 0; i < noutputs; i++) {
     const char *name = aig_output_at(aig, i, nullptr);
-    if (skip_moves && name && !strncmp(name, "move_", 5))
+    if (!certificate_output_is_selected(ck, name))
       root_by_output[i] = UINT32_MAX;
     else
       root_by_output[i] = (uint32_t)count++;
@@ -1534,8 +1543,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
       }
     }
     Compiled cert_compiled = {0};
-    if (!compile_aig_outputs(ck, ck->certificate, cert_inputs, true,
-                             &cert_compiled, "checker_certificate")) {
+    if (!compile_certificate_outputs(ck, ck->certificate, cert_inputs,
+                                     &cert_compiled, "checker_certificate")) {
       free(cert_inputs);
       snprintf(message, cap, "OxiDD capacity while compiling certificate");
       return false;
@@ -2428,23 +2437,25 @@ static CheckResult check_certificate_mode(Checker *ck) {
       if (!successors.substitution)
         goto mode_unknown;
     }
-    if (ck->nfair) {
+    if (!ck->options.test_rebuild_successor && ck->nfair) {
       successors.nfair = ck->nfair_disj;
       successors.fair = calloc(successors.nfair, sizeof *successors.fair);
       if (!successors.fair)
         goto mode_unknown;
     }
     uint32_t levels = ck->rank[goal].levels;
-    if (levels > 1) {
+    if (!ck->options.test_rebuild_successor && levels > 1) {
       successors.nlower = levels - 1;
       successors.lower = calloc(successors.nlower, sizeof *successors.lower);
       if (!successors.lower)
         goto mode_unknown;
     }
     next_inv = successor(ck, ck->cert_inv, next_state, successors.substitution);
-    successors.goal_and_inv =
-        successor(ck, ck->goal[goal], next_state, successors.substitution);
-    bdd_and_into(ck, &successors.goal_and_inv, next_inv);
+    if (!ck->options.test_rebuild_successor) {
+      successors.goal_and_inv =
+          successor(ck, ck->goal[goal], next_state, successors.substitution);
+      bdd_and_into(ck, &successors.goal_and_inv, next_inv);
+    }
     Bdd violation = oxidd_bdd_and(ck->cert_inv, bad);
     Bdd not_next_inv = oxidd_bdd_not(next_inv);
     Bdd leaves = oxidd_bdd_and(ck->cert_inv, not_next_inv);
@@ -2485,23 +2496,47 @@ static CheckResult check_certificate_mode(Checker *ck) {
         Bdd allowed = successor(ck, ck->rank[goal].x[k][i], next_state,
                                 successors.substitution);
         if (ck->nfair) {
-          if (bdd_invalid(successors.fair[i]))
-            successors.fair[i] =
-                successor(ck, ck->fair[i], next_state, successors.substitution);
-          Bdd not_fair_next = oxidd_bdd_not(successors.fair[i]);
+          Bdd fair_next;
+          if (ck->options.test_rebuild_successor) {
+            fair_next = successor(ck, ck->fair[i], next_state, nullptr);
+          } else {
+            if (bdd_invalid(successors.fair[i]))
+              successors.fair[i] = successor(ck, ck->fair[i], next_state,
+                                             successors.substitution);
+            fair_next = successors.fair[i];
+          }
+          Bdd not_fair_next = oxidd_bdd_not(fair_next);
           bdd_and_into(ck, &allowed, not_fair_next);
+          if (ck->options.test_rebuild_successor)
+            oxidd_bdd_unref(fair_next);
           oxidd_bdd_unref(not_fair_next);
         } else {
           Bdd no_escape = oxidd_bdd_false(ck->manager);
           bdd_replace(&allowed, no_escape);
         }
-        bdd_or_into(ck, &allowed, successors.goal_and_inv);
+        if (ck->options.test_rebuild_successor) {
+          Bdd goal_and_inv = successor(ck, ck->goal[goal], next_state, nullptr);
+          bdd_and_into(ck, &goal_and_inv, next_inv);
+          bdd_or_into(ck, &allowed, goal_and_inv);
+          oxidd_bdd_unref(goal_and_inv);
+        } else {
+          bdd_or_into(ck, &allowed, successors.goal_and_inv);
+        }
         if (k > 0) {
-          if (bdd_invalid(successors.lower[k - 1]))
-            successors.lower[k - 1] =
-                successor(ck, ck->rank[goal].y[k - 1], next_state,
-                          successors.substitution);
-          bdd_or_into(ck, &allowed, successors.lower[k - 1]);
+          Bdd lower_next;
+          if (ck->options.test_rebuild_successor) {
+            lower_next =
+                successor(ck, ck->rank[goal].y[k - 1], next_state, nullptr);
+          } else {
+            if (bdd_invalid(successors.lower[k - 1]))
+              successors.lower[k - 1] =
+                  successor(ck, ck->rank[goal].y[k - 1], next_state,
+                            successors.substitution);
+            lower_next = successors.lower[k - 1];
+          }
+          bdd_or_into(ck, &allowed, lower_next);
+          if (ck->options.test_rebuild_successor)
+            oxidd_bdd_unref(lower_next);
         }
         Bdd not_allowed = oxidd_bdd_not(allowed);
         Bdd progress_bad = oxidd_bdd_and(layer, not_allowed);

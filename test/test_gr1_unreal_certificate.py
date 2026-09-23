@@ -247,6 +247,45 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
         if policy_seed is None:
             raise AssertionError("no explicit losing counter-strategy mutation")
 
+        # system_winning remains a required part of the environment certificate
+        # interface, but fixed-policy checking does not use its Boolean value.
+        # Its exclusive cone must not be evaluated, while malformed structure in
+        # the same unselected cone must still be rejected before BDD construction.
+        game, policy, certificate = rank_seed
+        baseline_result = checker(
+            checker_path, game, policy, certificate, "certificate", "--stats")
+        baseline_stats = checker_test.checker_stats(baseline_result)
+        enlarged = root / "certificate-unused-system-winning-cone.aag"
+        enlarged.write_text(checker_test.append_output_chain(
+            certificate.read_text(), "system_winning", 2048))
+        enlarged_json = pathlib.Path(str(enlarged) + ".json")
+        enlarged_json.write_text(
+            pathlib.Path(str(certificate) + ".json").read_text())
+        enlarged_result = checker(
+            checker_path, game, policy, enlarged, "certificate", "--stats")
+        enlarged_stats = checker_test.checker_stats(enlarged_result)
+        if enlarged_result.returncode != baseline_result.returncode:
+            raise AssertionError(
+                "unused system_winning cone changed certificate verdict:\n"
+                f"{enlarged_result.stdout}{enlarged_result.stderr}")
+        if enlarged_stats != baseline_stats:
+            raise AssertionError(
+                "unused system_winning cone was evaluated: "
+                f"baseline={baseline_stats} enlarged={enlarged_stats}")
+        malformed = root / "certificate-malformed-system-winning-cone.aag"
+        malformed.write_text(checker_test.append_output_chain(
+            certificate.read_text(), "system_winning", 8, malformed=True))
+        pathlib.Path(str(malformed) + ".json").write_text(
+            enlarged_json.read_text())
+        malformed_result = run([
+            str(checker_path), "--certificate", str(malformed), "--method",
+            "certificate", str(game), str(policy)
+        ], (4,))
+        if malformed_result.returncode != 4:
+            raise AssertionError(
+                "malformed unused system_winning cone was not INVALID:\n"
+                f"{malformed_result.stdout}{malformed_result.stderr}")
+
         game, policy, certificate = rank_seed
         cert_text = certificate.read_text()
         cert_outputs = checker_test.output_literals(cert_text)
@@ -344,6 +383,8 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
         "rank_mutations_cert_failed": 1,
         "counterstrategy_mutations_refuted": 1,
         "strict_unreal_exports_refused": 1,
+        "unused_system_winning_cones_skipped": 1,
+        "malformed_unused_system_winning_cones_invalid": 1,
         "specialized_policy_oracle_agreements": unreal + 3,
         "successor_rebuild_oracle_agreements": successor_rebuild_agreements,
     }

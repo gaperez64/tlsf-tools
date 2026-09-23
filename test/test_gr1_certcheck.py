@@ -639,12 +639,12 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         if (selector_stats.get("successor_substitutions") != goal_count + 1
                 or rebuilt_stats.get("successor_substitutions")
                 != rebuilt_stats.get("successor_applications")
-                or selector_stats.get("successor_applications")
-                != rebuilt_stats.get("successor_applications")
+                or selector_stats.get("successor_applications", 0)
+                >= rebuilt_stats.get("successor_applications", 0)
                 or selector_stats.get("successor_substitutions", 0)
                 >= rebuilt_stats.get("successor_substitutions", 0)):
             raise AssertionError(
-                "successor substitution was not reused once per mode: "
+                "successor substitution/images were not reused per mode: "
                 f"cached={selector_stats} rebuilt={rebuilt_stats}")
 
         # move_* remains part of the certificate interface, but fixed-policy
