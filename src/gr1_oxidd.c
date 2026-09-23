@@ -36,7 +36,7 @@ typedef struct {
 static bool bddvec_push_ref(OxiddRun *run, BddVec *v, Bdd b) {
   if (v->n == v->cap) {
     uint32_t nc = v->cap ? v->cap * 2 : 4;
-    Bdd *narr = realloc(v->arr, nc * sizeof *narr);
+    Bdd *narr = oxidd_host_realloc(v->arr, nc * sizeof *narr);
     if (!narr) {
       oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, run->phase,
                            "realloc", run->operations, run->index);

@@ -1058,7 +1058,7 @@ if research_tools and have_oxidd
     link_args: ['-Wl,--wrap=oxidd_bdd_and', '-Wl,--wrap=oxidd_bdd_substitute',
                 '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
                 '-Wl,--wrap=oxidd_bdd_exists', '-Wl,--wrap=oxidd_bdd_restrict',
-                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+                '-Wl,--wrap=calloc', '-Wl,--wrap=oxidd_host_realloc'],
     dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
   test('oxidd_memory', oxidd_memory_test)
   test('gr1_fairness_alternating_unreal', check_status,

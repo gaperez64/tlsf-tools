@@ -56,6 +56,8 @@ size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
   return cap < min ? min : cap;
 }
 
+void *oxidd_host_realloc(void *ptr, size_t size) { return realloc(ptr, size); }
+
 void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
                  const char *event, const char *fmt, ...) {
 #ifdef NDEBUG

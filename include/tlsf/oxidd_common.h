@@ -83,6 +83,9 @@ typedef struct {
 
 OxiddSolveOptions oxidd_solve_options_default(void);
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
+// Project-owned boundary for injecting host allocation failures without
+// interposing on OxiDD's Rust allocator.
+void *oxidd_host_realloc(void *ptr, size_t size);
 
 typedef struct {
   oxidd_var_no_t *local;

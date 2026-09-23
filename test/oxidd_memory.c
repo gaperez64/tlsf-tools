@@ -26,14 +26,14 @@ void *__wrap_calloc(size_t n, size_t size) {
   }
   return __real_calloc(n, size);
 }
-void *__real_realloc(void *p, size_t size);
-void *__wrap_realloc(void *p, size_t size);
-void *__wrap_realloc(void *p, size_t size) {
+void *__real_oxidd_host_realloc(void *p, size_t size);
+void *__wrap_oxidd_host_realloc(void *p, size_t size);
+void *__wrap_oxidd_host_realloc(void *p, size_t size) {
   if (fail_realloc) {
     fail_realloc = false;
     return NULL;
   }
-  return __real_realloc(p, size);
+  return __real_oxidd_host_realloc(p, size);
 }
 static bool injected(const char *name) {
   if (failures && fail_operation && !strcmp(fail_operation, name)) {
@@ -394,10 +394,15 @@ static void sessions(void) {
       }
   }
   Aig *game = read_game(gr1);
+  OxiddFailure allocation_failure = {0};
+  opts.failure = &allocation_failure;
   fail_realloc = true;
   int failed_unreal = -1;
   CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
   CHECK(!fail_realloc);
+  CHECK(allocation_failure.kind == OXIDD_FAILURE_HOST &&
+        !strcmp(allocation_failure.operation, "realloc"));
+  opts.failure = NULL;
   // The sole run alternates s forever: both GF s and GF !s hold, whereas
   // the system goal GF false cannot. Never claim a winning controller here.
   game = aig_new();
