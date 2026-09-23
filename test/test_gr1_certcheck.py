@@ -14,6 +14,7 @@ import collections
 import json
 import pathlib
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -103,6 +104,42 @@ def xor_output_on_cube(text: str, name: str, assignment: int) -> str:
     lines[0] = " ".join(fields)
     lines[symbol_start:symbol_start] = gates
     return "\n".join(lines) + "\n"
+
+
+def append_output_chain(text: str, name: str, count: int, *,
+                        malformed: bool = False) -> str:
+    """Replace one output with an exclusive, deliberately large AND cone."""
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, ni, _nl, _no, na = header[:5]
+    seed = int(lines[1]) if ni else 1
+    current = seed
+    gates = []
+    for index in range(count):
+        maxvar += 1
+        lhs = 2 * maxvar
+        right = seed if index & 1 else seed ^ 1
+        gates.append(f"{lhs} {current} {right}")
+        current = lhs
+    if malformed:
+        lhs, left, _right = gates[-1].split()
+        gates[-1] = f"{lhs} {left} {2 * (maxvar + 1)}"
+    lines[output_start + names[name]] = str(current)
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
+def checker_stats(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
+    line = next((line for line in result.stderr.splitlines()
+                 if line.startswith("TLSFCERTCHECK_STATS ")), None)
+    if line is None:
+        raise AssertionError(f"checker did not emit --stats output: {result}")
+    return {name: int(value) for name, value in re.findall(
+        r"(aig_gates_visited|requested_roots)=([0-9]+)", line)}
 
 
 def policy_analysis_explicit(game_text: str, policy_text: str):
@@ -387,6 +424,53 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "random suite did not expose a losing single-letter mutation")
 
+        # move_* remains part of the certificate interface, but fixed-policy
+        # checking does not use it as a premise.  An exclusive large cone must
+        # therefore add no visited gates.  Structural validation is separate:
+        # corrupting that same unused cone must still be INVALID.
+        game, policy, cert, _sidecar = rank_seed
+        baseline_stats_result = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate", "--stats")
+        if baseline_stats_result.returncode != 0:
+            raise AssertionError(
+                "genuine certificate failed stats probe:\n"
+                f"{baseline_stats_result.stdout}{baseline_stats_result.stderr}")
+        baseline_stats = checker_stats(baseline_stats_result)
+        enlarged = root / "cert-unused-move-cone.aag"
+        enlarged.write_text(append_output_chain(
+            cert.read_text(encoding="utf-8"), "move_0", 2048),
+            encoding="utf-8")
+        enlarged_json = pathlib.Path(str(enlarged) + ".json")
+        enlarged_json.write_text(
+            pathlib.Path(str(cert) + ".json").read_text(encoding="utf-8"),
+            encoding="utf-8")
+        enlarged_result = run_checker(
+            checker, game, policy, "--certificate", str(enlarged),
+            "--method", "certificate", "--stats")
+        if enlarged_result.returncode != 0:
+            raise AssertionError(
+                "unused move cone changed certificate verdict:\n"
+                f"{enlarged_result.stdout}{enlarged_result.stderr}")
+        if checker_stats(enlarged_result) != baseline_stats:
+            raise AssertionError(
+                "unused move cone was evaluated: "
+                f"baseline={baseline_stats} enlarged="
+                f"{checker_stats(enlarged_result)}")
+        malformed = root / "cert-malformed-unused-move-cone.aag"
+        malformed.write_text(append_output_chain(
+            cert.read_text(encoding="utf-8"), "move_0", 8,
+            malformed=True), encoding="utf-8")
+        pathlib.Path(str(malformed) + ".json").write_text(
+            enlarged_json.read_text(encoding="utf-8"), encoding="utf-8")
+        malformed_result = run_checker(
+            checker, game, policy, "--certificate", str(malformed),
+            "--method", "certificate")
+        if malformed_result.returncode != 4:
+            raise AssertionError(
+                "malformed unused move cone was not INVALID:\n"
+                f"{malformed_result.stdout}{malformed_result.stderr}")
+
         game, policy, cert, sidecar = rank_seed
         cert_text = cert.read_text(encoding="utf-8")
         certificate_mutations = [
@@ -594,6 +678,8 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         "policy_interfaces_invalid": 1,
         "default_certificate_sidecar": 1,
         "default_output_unchanged": default_output_unchanged,
+        "unused_move_cones_skipped": 1,
+        "malformed_unused_cones_invalid": 1,
     }
 
 

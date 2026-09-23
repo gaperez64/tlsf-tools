@@ -106,6 +106,7 @@ typedef struct {
   Method method;
   double timeout;
   size_t node_cap;
+  bool stats;
 } Options;
 
 typedef struct {
@@ -128,14 +129,22 @@ typedef struct {
   uint32_t ncounter, ndual_levels, npolicy_choices;
   bool environment;
   bool bdd_failed;
+  bool run_initialized;
   Counterexample *current_counterexample;
+  OxiddFailure failure;
+  OxiddSolveOptions bdd_options;
+  OxiddRun run;
   double started;
+  double setup_seconds, proof_seconds;
+  size_t requested_roots;
   size_t peak_nodes;
 } Checker;
 
 typedef struct {
-  Bdd *values;
-  uint32_t nvalues;
+  const Aig *aig;
+  uint32_t *root_by_output;
+  Bdd *roots;
+  size_t nroots;
 } Compiled;
 
 static Bdd initial_cube(Checker *ck);
@@ -170,6 +179,8 @@ static void usage(const char *prog) {
           "  --emit-controller FILE   emit the checked standalone controller\n"
           "  --timeout SECONDS        return UNKNOWN after the soft deadline\n"
           "  --node-cap N             OxiDD inner-node cap (default 16777216)\n"
+          "  --stats                  write construction/proof diagnostics to "
+          "stderr\n"
           "Exit 0 VERIFIED, 1 REFUTED, 2 ERROR, 3 UNKNOWN, 4 INVALID,\n"
           "     5 INTERNAL-ERROR (verified certificate contradicted by the "
           "closed loop),\n"
@@ -223,6 +234,10 @@ static int parse_options(int argc, char **argv, Options *options,
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
              tlsf_build_simd());
       return 1;
+    }
+    if (!strcmp(argv[i], "--stats")) {
+      options->stats = true;
+      continue;
     }
     const char **slot = nullptr;
     if (!strcmp(argv[i], "--policy-json"))
@@ -948,50 +963,131 @@ static uint32_t max_aig_var(const Aig *aig) {
   return maxvar;
 }
 
-static void compiled_free(Compiled *compiled) {
-  for (uint32_t i = 0; i < compiled->nvalues; i++)
-    oxidd_bdd_unref(compiled->values[i]);
-  free(compiled->values);
-  *compiled = (Compiled){0};
+static bool defined_literal(const bool *defined, uint32_t maxvar,
+                            uint32_t lit) {
+  return lit < 2 || (lit / 2 <= maxvar && defined[lit / 2]);
 }
 
-static bool compile_aig(Checker *ck, const Aig *aig, const Bdd *inputs,
-                        const Bdd *latches, Compiled *compiled) {
+static bool validate_aig_structure(const Aig *aig, const char *kind,
+                                   char *message, size_t cap) {
   uint32_t maxvar = max_aig_var(aig);
-  Bdd *values = calloc((size_t)maxvar + 1, sizeof *values);
-  if (!values)
+  bool *defined = calloc((size_t)maxvar + 1, sizeof *defined);
+  if (!defined) {
+    snprintf(message, cap, "out of memory validating %s AIG", kind);
     return false;
+  }
   for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
     uint32_t lit;
     aig_input_name(aig, i, &lit);
-    values[lit / 2] = oxidd_bdd_ref(inputs[i]);
+    if (lit < 2 || lit / 2 > maxvar || defined[lit / 2]) {
+      snprintf(message, cap, "malformed %s AIG input %u", kind, i);
+      free(defined);
+      return false;
+    }
+    defined[lit / 2] = true;
   }
   for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
     uint32_t lit;
     aig_latch_at(aig, i, &lit, nullptr, nullptr);
-    values[lit / 2] = oxidd_bdd_ref(latches[i]);
+    if (lit < 2 || lit / 2 > maxvar || defined[lit / 2]) {
+      snprintf(message, cap, "malformed %s AIG latch %u", kind, i);
+      free(defined);
+      return false;
+    }
+    defined[lit / 2] = true;
   }
   for (uint32_t i = 0; i < aig_num_ands(aig); i++) {
     uint32_t lhs, r0, r1;
     aig_and_at(aig, i, &lhs, &r0, &r1);
-    Bdd a = lit_to_bdd(ck->manager, values, r0);
-    Bdd b = lit_to_bdd(ck->manager, values, r1);
-    values[lhs / 2] = oxidd_bdd_and(a, b);
-    oxidd_bdd_unref(a);
-    oxidd_bdd_unref(b);
-    if (bdd_invalid(values[lhs / 2])) {
-      compiled_free(&(Compiled){values, maxvar + 1});
-      ck->bdd_failed = true;
+    if (lhs < 2 || lhs / 2 > maxvar || defined[lhs / 2] ||
+        !defined_literal(defined, maxvar, r0) ||
+        !defined_literal(defined, maxvar, r1)) {
+      snprintf(message, cap, "malformed %s AIG gate %u", kind, i);
+      free(defined);
+      return false;
+    }
+    defined[lhs / 2] = true;
+  }
+  for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
+    uint32_t current, next, reset;
+    aig_latch_at(aig, i, &current, &next, &reset);
+    if (!defined_literal(defined, maxvar, next) ||
+        (reset > 1 && reset != current)) {
+      snprintf(message, cap, "malformed %s AIG latch update %u", kind, i);
+      free(defined);
       return false;
     }
   }
-  *compiled = (Compiled){values, maxvar + 1};
-  update_peak(ck);
+#define CHECK_LITERAL(section, index, literal)                                 \
+  do {                                                                         \
+    if (!defined_literal(defined, maxvar, (literal))) {                        \
+      snprintf(message, cap, "malformed %s AIG %s %u", kind, section,          \
+               (unsigned)(index));                                             \
+      free(defined);                                                           \
+      return false;                                                            \
+    }                                                                          \
+  } while (0)
+  for (uint32_t i = 0; i < aig_num_outputs(aig); i++) {
+    uint32_t lit;
+    aig_output_at(aig, i, &lit);
+    CHECK_LITERAL("output", i, lit);
+  }
+  for (uint32_t i = 0; i < aig_num_bad(aig); i++) {
+    uint32_t lit;
+    aig_bad_at(aig, i, &lit);
+    CHECK_LITERAL("bad property", i, lit);
+  }
+  for (uint32_t i = 0; i < aig_num_constraints(aig); i++) {
+    uint32_t lit;
+    aig_constraint_at(aig, i, &lit);
+    CHECK_LITERAL("constraint", i, lit);
+  }
+  for (uint32_t j = 0; j < aig_num_justice(aig); j++) {
+    const uint32_t *lits;
+    uint32_t count;
+    aig_justice_at(aig, j, &lits, &count);
+    for (uint32_t i = 0; i < count; i++)
+      CHECK_LITERAL("justice literal", j, lits[i]);
+  }
+  for (uint32_t i = 0; i < aig_num_fairness(aig); i++)
+    CHECK_LITERAL("fairness", i, aig_fairness_at(aig, i));
+#undef CHECK_LITERAL
+  free(defined);
   return true;
 }
 
-static Bdd compiled_lit(Checker *ck, const Compiled *compiled, uint32_t lit) {
-  return lit_to_bdd(ck->manager, compiled->values, lit);
+static bool compile_aig_roots(Checker *ck, const Aig *aig, const Bdd *inputs,
+                              const Bdd *latches, const uint32_t *lits,
+                              Bdd *roots, size_t count, const char *phase) {
+  uint32_t maxvar = max_aig_var(aig);
+  Bdd *map = calloc((size_t)maxvar + 1, sizeof *map);
+  if (!map)
+    return false;
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    uint32_t lit;
+    aig_input_name(aig, i, &lit);
+    map[lit / 2] = oxidd_bdd_ref(inputs[i]);
+  }
+  for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
+    uint32_t lit;
+    aig_latch_at(aig, i, &lit, nullptr, nullptr);
+    map[lit / 2] = oxidd_bdd_ref(latches[i]);
+  }
+  oxidd_phase(&ck->run, phase);
+  ck->requested_roots += count;
+  bool ok = oxidd_build_roots(&ck->run, aig, map, maxvar, lits, roots, count);
+  for (uint32_t i = 0; i <= maxvar; i++)
+    oxidd_bdd_unref(map[i]);
+  free(map);
+  if (!ok) {
+    for (size_t i = 0; i < count; i++) {
+      oxidd_bdd_unref(roots[i]);
+      roots[i] = (Bdd){0};
+    }
+    ck->bdd_failed = true;
+  }
+  update_peak(ck);
+  return ok;
 }
 
 static int find_input(const Aig *aig, const char *name) {
@@ -1003,10 +1099,67 @@ static int find_input(const Aig *aig, const char *name) {
   return -1;
 }
 
+static Bdd named_root(const Aig *aig, const uint32_t *root_by_output,
+                      const Bdd *roots, const char *name) {
+  for (uint32_t i = 0; i < aig_num_outputs(aig); i++) {
+    const char *candidate = aig_output_at(aig, i, nullptr);
+    if (candidate && !strcmp(candidate, name) &&
+        root_by_output[i] != UINT32_MAX)
+      return oxidd_bdd_ref(roots[root_by_output[i]]);
+  }
+  return (Bdd){0};
+}
+
+static void compiled_free(Compiled *compiled) {
+  for (size_t i = 0; i < compiled->nroots; i++)
+    oxidd_bdd_unref(compiled->roots[i]);
+  free(compiled->roots);
+  free(compiled->root_by_output);
+  *compiled = (Compiled){0};
+}
+
+static bool compile_aig_outputs(Checker *ck, const Aig *aig, const Bdd *inputs,
+                                bool skip_moves, Compiled *compiled,
+                                const char *phase) {
+  uint32_t noutputs = aig_num_outputs(aig);
+  uint32_t *root_by_output = calloc(noutputs, sizeof *root_by_output);
+  if (!root_by_output)
+    return false;
+  size_t count = 0;
+  for (uint32_t i = 0; i < noutputs; i++) {
+    const char *name = aig_output_at(aig, i, nullptr);
+    if (skip_moves && name && !strncmp(name, "move_", 5))
+      root_by_output[i] = UINT32_MAX;
+    else
+      root_by_output[i] = (uint32_t)count++;
+  }
+  uint32_t *lits = count ? calloc(count, sizeof *lits) : nullptr;
+  Bdd *roots = count ? calloc(count, sizeof *roots) : nullptr;
+  if (count && (!lits || !roots)) {
+    free(root_by_output);
+    free(lits);
+    free(roots);
+    return false;
+  }
+  for (uint32_t i = 0; i < noutputs; i++)
+    if (root_by_output[i] != UINT32_MAX)
+      aig_output_at(aig, i, &lits[root_by_output[i]]);
+  bool ok =
+      compile_aig_roots(ck, aig, inputs, nullptr, lits, roots, count, phase);
+  free(lits);
+  if (!ok) {
+    free(root_by_output);
+    free(roots);
+    return false;
+  }
+  *compiled = (Compiled){aig, root_by_output, roots, count};
+  return true;
+}
+
 static Bdd output_bdd(Checker *ck, const Aig *aig, const Compiled *compiled,
                       const char *name) {
-  uint32_t lit = aig_output_lit(aig, name);
-  return compiled_lit(ck, compiled, lit);
+  (void)ck;
+  return named_root(aig, compiled->root_by_output, compiled->roots, name);
 }
 
 static void bdd_replace(Bdd *slot, Bdd value) {
@@ -1062,6 +1215,13 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     return false;
   }
   oxidd_bdd_manager_add_vars(ck->manager, ck->nvars);
+  ck->bdd_options = oxidd_solve_options_default();
+  ck->bdd_options.node_cap = ck->options.node_cap;
+  ck->bdd_options.cache_cap = ck->options.node_cap;
+  ck->bdd_options.failure = &ck->failure;
+  oxidd_run_init(&ck->run, ck->manager, &ck->bdd_options, ck->options.node_cap,
+                 ck->options.node_cap);
+  ck->run_initialized = true;
 
   ck->qvar = calloc(ck->nq, sizeof *ck->qvar);
   ck->qpvar = calloc(ck->nq, sizeof *ck->qpvar);
@@ -1102,65 +1262,105 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     game_inputs[p] = is_controllable(aig_input_name(ck->game, p, nullptr))
                          ? ck->c[ci++]
                          : ck->u[ui++];
-  Compiled game_compiled = {0};
-  if (!compile_aig(ck, ck->game, game_inputs, ck->q, &game_compiled)) {
+  uint32_t nbad = aig_num_bad(ck->game)
+                      ? aig_num_bad(ck->game)
+                      : (aig_num_outputs(ck->game) == 1 ? 1u : 0u);
+  size_t game_root_count = (size_t)ck->nstate + nbad + ck->ngoals + ck->nfair;
+  uint32_t *game_lits = calloc(game_root_count, sizeof *game_lits);
+  Bdd *game_roots = calloc(game_root_count, sizeof *game_roots);
+  if (!game_lits || !game_roots) {
     free(game_inputs);
+    free(game_lits);
+    free(game_roots);
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  size_t root = 0;
+  for (uint32_t j = 0; j < ck->nstate; j++)
+    aig_latch_at(ck->game, j, nullptr, &game_lits[root++], nullptr);
+  if (aig_num_bad(ck->game))
+    for (uint32_t i = 0; i < nbad; i++)
+      aig_bad_at(ck->game, i, &game_lits[root++]);
+  else if (nbad)
+    aig_output_at(ck->game, 0, &game_lits[root++]);
+  for (uint32_t record = 0; record < aig_num_justice(ck->game); record++) {
+    const uint32_t *lits;
+    uint32_t count;
+    aig_justice_at(ck->game, record, &lits, &count);
+    if (!count)
+      game_lits[root++] = AIG_TRUE;
+    else
+      for (uint32_t k = 0; k < count; k++)
+        game_lits[root++] = lits[k];
+  }
+  for (uint32_t i = 0; i < ck->nfair; i++)
+    game_lits[root++] = aig_fairness_at(ck->game, i);
+  if (root != game_root_count ||
+      !compile_aig_roots(ck, ck->game, game_inputs, ck->q, game_lits,
+                         game_roots, game_root_count, "checker_game")) {
+    free(game_inputs);
+    free(game_lits);
+    free(game_roots);
     snprintf(message, cap, "OxiDD capacity while compiling game");
     return false;
   }
   free(game_inputs);
+  free(game_lits);
   ck->game_next = calloc(ck->nstate, sizeof *ck->game_next);
   ck->goal = calloc(ck->ngoals, sizeof *ck->goal);
   ck->fair = ck->nfair ? calloc(ck->nfair, sizeof *ck->fair) : nullptr;
   if (!ck->game_next || !ck->goal || (ck->nfair && !ck->fair)) {
-    compiled_free(&game_compiled);
+    for (size_t i = 0; i < game_root_count; i++)
+      oxidd_bdd_unref(game_roots[i]);
+    free(game_roots);
     snprintf(message, cap, "out of memory");
     return false;
   }
+  root = 0;
   for (uint32_t j = 0; j < ck->nstate; j++) {
-    uint32_t next;
-    aig_latch_at(ck->game, j, nullptr, &next, nullptr);
-    ck->game_next[j] = compiled_lit(ck, &game_compiled, next);
+    ck->game_next[j] = game_roots[root];
+    game_roots[root++] = (Bdd){0};
   }
   ck->game_bad = oxidd_bdd_false(ck->manager);
   if (aig_num_bad(ck->game) > 0 || aig_num_outputs(ck->game) != 1) {
     // AIGER 1.9 bad-state properties are authoritative.  With none present,
     // zero or multiple ordinary outputs describe a pure-justice model.
     for (uint32_t i = 0; i < aig_num_bad(ck->game); i++) {
-      uint32_t badlit;
-      aig_bad_at(ck->game, i, &badlit);
-      Bdd bad = compiled_lit(ck, &game_compiled, badlit);
+      Bdd bad = game_roots[root++];
       bool ok = bdd_or_into(ck, &ck->game_bad, bad);
       oxidd_bdd_unref(bad);
+      game_roots[root - 1] = (Bdd){0};
       if (!ok) {
-        compiled_free(&game_compiled);
+        for (size_t k = 0; k < game_root_count; k++)
+          oxidd_bdd_unref(game_roots[k]);
+        free(game_roots);
         snprintf(message, cap, "OxiDD capacity while compiling game safety");
         return false;
       }
     }
   } else {
     // Backward-compatible tlsf-tools dialect: one ordinary output is unsafe.
-    uint32_t badlit;
-    aig_output_at(ck->game, 0, &badlit);
-    bdd_replace(&ck->game_bad, compiled_lit(ck, &game_compiled, badlit));
+    bdd_replace(&ck->game_bad, game_roots[root]);
+    game_roots[root++] = (Bdd){0};
   }
   uint32_t goal_index = 0;
   for (uint32_t record = 0; record < aig_num_justice(ck->game); record++) {
     const uint32_t *lits;
     uint32_t n;
     aig_justice_at(ck->game, record, &lits, &n);
-    if (!n)
-      ck->goal[goal_index++] = oxidd_bdd_true(ck->manager);
-    else
-      for (uint32_t k = 0; k < n; k++)
-        ck->goal[goal_index++] = compiled_lit(ck, &game_compiled, lits[k]);
+    uint32_t count = n ? n : 1;
+    for (uint32_t k = 0; k < count; k++) {
+      ck->goal[goal_index++] = game_roots[root];
+      game_roots[root++] = (Bdd){0};
+    }
   }
-  for (uint32_t i = 0; i < ck->nfair; i++)
-    ck->fair[i] =
-        compiled_lit(ck, &game_compiled, aig_fairness_at(ck->game, i));
-  compiled_free(&game_compiled);
+  for (uint32_t i = 0; i < ck->nfair; i++) {
+    ck->fair[i] = game_roots[root];
+    game_roots[root++] = (Bdd){0};
+  }
+  free(game_roots);
 
-  // Compile policy by resolving its declared names to state/counter/u BDDs.
+  // Compile the unspecialized policy roots selected by the policy interface.
   Bdd *policy_inputs =
       calloc(aig_num_inputs(ck->policy), sizeof *policy_inputs);
   if (!policy_inputs) {
@@ -1195,38 +1395,65 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
       }
     }
   }
-  Compiled policy_compiled = {0};
-  if (!compile_aig(ck, ck->policy, policy_inputs, nullptr, &policy_compiled)) {
-    free(policy_inputs);
-    snprintf(message, cap, "OxiDD capacity while compiling policy");
-    return false;
-  }
-  free(policy_inputs);
   ck->npolicy_choices = ck->environment ? ck->nu : ck->nc;
   ck->policy_control = ck->npolicy_choices ? calloc(ck->npolicy_choices,
                                                     sizeof *ck->policy_control)
                                            : nullptr;
   ck->policy_curr_next = calloc(ck->ncounter, sizeof *ck->policy_curr_next);
   if ((ck->npolicy_choices && !ck->policy_control) || !ck->policy_curr_next) {
-    compiled_free(&policy_compiled);
+    free(policy_inputs);
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  size_t policy_root_count = (size_t)ck->npolicy_choices + ck->ncounter;
+  uint32_t *policy_lits = calloc(policy_root_count, sizeof *policy_lits);
+  Bdd *policy_roots = calloc(policy_root_count, sizeof *policy_roots);
+  if (!policy_lits || !policy_roots) {
+    free(policy_inputs);
+    free(policy_lits);
+    free(policy_roots);
     snprintf(message, cap, "out of memory");
     return false;
   }
   char generated[96];
+  root = 0;
   for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
     uint32_t game_input = ck->environment ? ck->uinput[i] : ck->cinput[i];
     const char *name = aig_input_name(ck->game, game_input, nullptr);
-    ck->policy_control[i] = output_bdd(ck, ck->policy, &policy_compiled, name);
+    policy_lits[root++] = aig_output_lit(ck->policy, name);
   }
   for (uint32_t j = 0; j < ck->ncounter; j++) {
     snprintf(generated, sizeof generated, "curr_next_%u", j);
-    ck->policy_curr_next[j] =
-        output_bdd(ck, ck->policy, &policy_compiled, generated);
+    policy_lits[root++] = aig_output_lit(ck->policy, generated);
   }
-  compiled_free(&policy_compiled);
+  if (!compile_aig_roots(ck, ck->policy, policy_inputs, nullptr, policy_lits,
+                         policy_roots, policy_root_count, "checker_policy")) {
+    free(policy_inputs);
+    free(policy_lits);
+    free(policy_roots);
+    snprintf(message, cap, "OxiDD capacity while compiling policy");
+    return false;
+  }
+  free(policy_inputs);
+  free(policy_lits);
+  root = 0;
+  for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
+    ck->policy_control[i] = policy_roots[root];
+    policy_roots[root++] = (Bdd){0};
+  }
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
+    ck->policy_curr_next[j] = policy_roots[root];
+    policy_roots[root++] = (Bdd){0};
+  }
+  free(policy_roots);
 
   // Certificate predicates are compiled over independent state/u/c variables.
-  if (ck->certificate) {
+  // A closed-loop-only request still validates the supplied certificate above,
+  // but does not construct any of its Boolean functions.  Fixed-policy proofs
+  // validate move_* names structurally without using them as proof premises.
+  bool need_certificate =
+      ck->certificate && ck->options.method != METHOD_CLOSED_LOOP;
+  if (need_certificate) {
     Bdd *cert_inputs =
         calloc(aig_num_inputs(ck->certificate), sizeof *cert_inputs);
     if (!cert_inputs) {
@@ -1259,8 +1486,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
       }
     }
     Compiled cert_compiled = {0};
-    if (!compile_aig(ck, ck->certificate, cert_inputs, nullptr,
-                     &cert_compiled)) {
+    if (!compile_aig_outputs(ck, ck->certificate, cert_inputs, true,
+                             &cert_compiled, "checker_certificate")) {
       free(cert_inputs);
       snprintf(message, cap, "OxiDD capacity while compiling certificate");
       return false;
@@ -3028,6 +3255,17 @@ int main(int argc, char **argv) {
     exit_code = EXIT_INVALID;
     goto finish;
   }
+  bool structure_ok =
+      validate_aig_structure(ck.game, "game", message, sizeof message) &&
+      validate_aig_structure(ck.policy, "policy", message, sizeof message) &&
+      (!ck.certificate || validate_aig_structure(ck.certificate, "certificate",
+                                                 message, sizeof message));
+  if (!structure_ok) {
+    printf("INVALID\n");
+    fprintf(stderr, "tlsfcertcheck: %s\n", message);
+    exit_code = EXIT_INVALID;
+    goto finish;
+  }
   ck.original_nlat = aig_num_latches(ck.game);
   aig_sample_input_dependent_acceptance(ck.game);
   ck.nstate = aig_num_latches(ck.game);
@@ -3070,12 +3308,15 @@ int main(int argc, char **argv) {
     goto finish;
   }
 
+  double setup_started = now_seconds();
   if (!setup_bdds(&ck, levels, message, sizeof message)) {
+    ck.setup_seconds = now_seconds() - setup_started;
     printf("UNKNOWN\n");
     fprintf(stderr, "tlsfcertcheck: %s\n", message);
     exit_code = EXIT_UNKNOWN;
     goto finish;
   }
+  ck.setup_seconds = now_seconds() - setup_started;
   free(levels);
   levels = nullptr;
 
@@ -3090,6 +3331,7 @@ int main(int argc, char **argv) {
     ck.current_counterexample = &certificate.counterexample;
     certificate.result = check_certificate_mode(&ck);
     certificate.seconds = now_seconds() - started;
+    ck.proof_seconds += certificate.seconds;
     certificate.peak_nodes = ck.peak_nodes;
     if (options.method == METHOD_AUTO &&
         certificate.result == CHECK_CERT_FAILED) {
@@ -3103,6 +3345,7 @@ int main(int argc, char **argv) {
     ck.current_counterexample = &closed_loop.counterexample;
     closed_loop.result = check_closed_loop_mode(&ck);
     closed_loop.seconds = now_seconds() - started;
+    ck.proof_seconds += closed_loop.seconds;
     closed_loop.peak_nodes = ck.peak_nodes;
   }
   ck.current_counterexample = nullptr;
@@ -3161,6 +3404,15 @@ finish:
             options.json_out_path);
     exit_code = EXIT_ERROR;
   }
+  if (ck.run_initialized)
+    oxidd_run_finish(&ck.run);
+  if (options.stats)
+    fprintf(stderr,
+            "TLSFCERTCHECK_STATS aig_gates_visited=%zu requested_roots=%zu "
+            "setup_seconds=%.9f proof_seconds=%.9f "
+            "peak_live_nodes_sample=%zu final_status=%s\n",
+            ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
+            ck.proof_seconds, ck.peak_nodes, exit_name(exit_code));
   counterexample_clear(&certificate.counterexample);
   counterexample_clear(&closed_loop.counterexample);
   cleanup(&ck);

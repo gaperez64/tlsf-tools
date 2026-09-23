@@ -17,6 +17,7 @@ static unsigned fail_and, and_calls;
 static const char *fail_operation;
 static unsigned failures;
 static bool fail_calloc, fail_realloc;
+static unsigned fail_realloc_at, realloc_calls;
 void *__real_calloc(size_t n, size_t size);
 void *__wrap_calloc(size_t n, size_t size);
 void *__wrap_calloc(size_t n, size_t size) {
@@ -29,7 +30,8 @@ void *__wrap_calloc(size_t n, size_t size) {
 void *__real_oxidd_host_realloc(void *p, size_t size);
 void *__wrap_oxidd_host_realloc(void *p, size_t size);
 void *__wrap_oxidd_host_realloc(void *p, size_t size) {
-  if (fail_realloc) {
+  realloc_calls++;
+  if (fail_realloc || (fail_realloc_at && realloc_calls == fail_realloc_at)) {
     fail_realloc = false;
     return NULL;
   }
@@ -197,8 +199,21 @@ static void roots_and_retry(void) {
     map[leaf[i]] = eager[leaf[i]] = oxidd_bdd_var(m, i + 7);
   for (unsigned i = 0; i < 3; i++)
     oxidd_bdd_ref(eager[leaf[i]]);
-  fail_calloc = true;
-  CHECK(!oxidd_build_roots(&r, g, map, 12, lits, roots, 8));
+  // Both host allocations happen before map consumption or root publication.
+  // Inject each one and prove the caller's sentinel outputs stay untouched.
+  for (unsigned failure = 1; failure <= 2; failure++) {
+    Bdd sentinel = oxidd_bdd_true(m);
+    for (unsigned i = 0; i < 8; i++)
+      roots[i] = sentinel;
+    realloc_calls = 0;
+    fail_realloc_at = failure;
+    CHECK(!oxidd_build_roots(&r, g, map, 12, lits, roots, 8));
+    CHECK(realloc_calls == failure);
+    for (unsigned i = 0; i < 8; i++)
+      CHECK(bdd_same_identity(roots[i], sentinel));
+    oxidd_bdd_unref(sentinel);
+    fail_realloc_at = 0;
+  }
   for (uint32_t i = 0; i < aig_num_ands(g); i++) {
     uint32_t lhs, a, b;
     aig_and_at(g, i, &lhs, &a, &b);
@@ -217,6 +232,15 @@ static void roots_and_retry(void) {
     oxidd_bdd_unref(expected);
     oxidd_bdd_unref(roots[i]);
   }
+  // Invalid selected roots and invalid references in a selected cone fail;
+  // an unselected dead cone is not evaluated by this low-level constructor.
+  Bdd invalid_roots[1] = {0};
+  Bdd invalid_map[13] = {0};
+  invalid_map[1] = oxidd_bdd_var(m, 7);
+  uint32_t invalid_lit = 26;
+  CHECK(!oxidd_build_roots(&r, g, invalid_map, 12, &invalid_lit, invalid_roots,
+                           1));
+  oxidd_bdd_unref(invalid_map[1]);
   Bdd a = oxidd_bdd_var(m, 7), b = oxidd_bdd_var(m, 8);
   fail_and = 1;
   and_calls = 0;
