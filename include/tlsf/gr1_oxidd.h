@@ -45,8 +45,9 @@ solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
 
 /// Combined extended entry point: retain the resolved OxiDD profile and its
 /// failure reporting while exporting a certificate.
-[[nodiscard]] Aig *solve_gr1_oxidd_ex_with_certificate(
-    Aig *game, int *unreal, const OxiddSolveOptions *opts,
-    Gr1CertificateOptions *certificate);
+[[nodiscard]] Aig *
+solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                    const OxiddSolveOptions *opts,
+                                    Gr1CertificateOptions *certificate);
 
 #endif // TLSF_GR1_OXIDD_H

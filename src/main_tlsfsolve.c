@@ -352,8 +352,7 @@ int main(int argc, char **argv) {
     val = option_value(&i, argc, argv, arg, "--certificate-json");
     if (val || !strcmp(arg, "--certificate-json")) {
       if (!val || !*val || !strcmp(val, "-")) {
-        fprintf(stderr,
-                "%s: --certificate-json requires a non-stdout FILE\n",
+        fprintf(stderr, "%s: --certificate-json requires a non-stdout FILE\n",
                 argv[0]);
         usage(argv[0]);
         return 2;
@@ -617,7 +616,7 @@ int main(int argc, char **argv) {
     }
     strat = certificate_path || policy_path
                 ? solve_gr1_oxidd_ex_with_certificate(game, &unreal, &opts,
-                                                       &certificate)
+                                                      &certificate)
                 : solve_gr1_oxidd_ex(game, &unreal, &opts);
   } else {
     OxiddSolveResult result = solve_safety_oxidd_result(game, &opts);

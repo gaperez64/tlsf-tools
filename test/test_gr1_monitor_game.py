@@ -37,6 +37,17 @@ def tool_args(args):
             "--tlsfinfo", args.tlsfinfo]
 
 
+def assert_gr1_layout(text, expected_bad=None):
+    lines = text.splitlines()
+    fields = [int(value) for value in lines[0].split()[1:]]
+    fields += [0] * (9 - len(fields))
+    _maxvar, ni, nl, no, _na, nb, nc, nj, _nf = fields[:9]
+    assert no == 1 and nb == 0 and nc == 0 and nj > 0
+    assert "o0 bad" in lines
+    if expected_bad is not None:
+        assert int(lines[1 + ni + nl]) == expected_bad
+
+
 def test_split_rule(args, spot):
     census_path = ACACIA_ROOT / "benchmarking/param-lift-20260922/m0-census.py"
     spec = importlib.util.spec_from_file_location("m0_census", census_path)
@@ -171,6 +182,7 @@ def test_monitor_encoding(args, spot):
             # regardless of the game partition.
             aag, _builder, _violated = game.encode_game(
                 [monitor], aps, [], "exact", spot)
+            assert_gr1_layout(aag, expected_bad=0)
             for _ in range(80):
                 prefix = [dict(zip(aps, bits)) for bits in (
                     [rng.choice((False, True)) for _ in aps]
@@ -284,9 +296,20 @@ def test_rejections_and_semantics(args, directory):
                      str(difference)], 0)
         if semantics == "strict":
             assert "REAL-sound only" in build.stderr
+        text = game_path.read_text()
+        assert_gr1_layout(
+            text, expected_bad=0 if semantics == "exact" else None)
         solved = run([args.solver, str(game_path)])
         verdicts[semantics] = solved.returncode
     assert verdicts == {"exact": 0, "strict": 1}, verdicts
+
+    liveness = directory / "liveness-only.tlsf"
+    liveness.write_text(tiny_tlsf("Mealy", "true;", "G F o;"))
+    game_path = directory / "liveness-only.aag"
+    run([args.python, args.builder, *tool_args(args), "--semantics", "strict",
+         "--output", str(game_path), str(liveness)], 0)
+    assert_gr1_layout(game_path.read_text(), expected_bad=0)
+    run([args.solver, "--game-profile=gr1", str(game_path)], 0)
 
 
 def mutate_first_output(text):

@@ -904,10 +904,27 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     aig_latch_at(ck->game, j, nullptr, &next, nullptr);
     ck->game_next[j] = compiled_lit(ck, &game_compiled, next);
   }
-  uint32_t badlit = aig_output_lit(ck->game, "bad");
-  ck->game_bad = badlit == UINT32_MAX
-                     ? oxidd_bdd_false(ck->manager)
-                     : compiled_lit(ck, &game_compiled, badlit);
+  ck->game_bad = oxidd_bdd_false(ck->manager);
+  if (aig_num_outputs(ck->game) > 0) {
+    uint32_t badlit;
+    aig_output_at(ck->game, 0, &badlit);
+    bdd_replace(&ck->game_bad, compiled_lit(ck, &game_compiled, badlit));
+  } else {
+    // Compatibility fallback for games emitted before GR(1) adopted the
+    // single ordinary safety-output convention.
+    for (uint32_t i = 0; i < aig_num_bad(ck->game); i++) {
+      uint32_t badlit;
+      aig_bad_at(ck->game, i, &badlit);
+      Bdd bad = compiled_lit(ck, &game_compiled, badlit);
+      bool ok = bdd_or_into(ck, &ck->game_bad, bad);
+      oxidd_bdd_unref(bad);
+      if (!ok) {
+        compiled_free(&game_compiled);
+        snprintf(message, cap, "OxiDD capacity while compiling game safety");
+        return false;
+      }
+    }
+  }
   uint32_t goal_index = 0;
   for (uint32_t record = 0; record < aig_num_justice(ck->game); record++) {
     const uint32_t *lits;

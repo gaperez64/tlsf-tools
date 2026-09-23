@@ -16,13 +16,13 @@ small state machine and the total construction is linear in the number of
 top-level conjuncts when their shapes are bounded.
 
 ``--semantics exact`` emits every assumption acceptance as AIGER fairness and
-every guarantee acceptance as singleton justice, with no bad condition.  This
-is exactly the lowered implication.  ``--semantics strict`` follows
-tlsf-tools' strict GR(1) convention: B/S assumption monitors set a sticky
-``violated`` latch on reaching a rejecting sink, B/S guarantee monitors drive
-``bad`` until that violation, and other monitors remain fairness/justice.  A
-strict REALIZABLE result implies realizability of the plain implication, but a
-strict UNREALIZABLE result is not a sound unrealizability result.
+every guarantee acceptance as singleton justice, with a constant-false safety
+output.  This is exactly the lowered implication.  ``--semantics strict``
+follows tlsf-tools' strict GR(1) convention: B/S assumption monitors set a
+sticky ``violated`` latch on reaching a rejecting sink, B/S guarantee monitors
+drive ``bad`` until that violation, and other monitors remain fairness/justice.
+A strict REALIZABLE result implies realizability of the plain implication, but
+a strict UNREALIZABLE result is not a sound unrealizability result.
 """
 
 from __future__ import annotations
@@ -298,28 +298,27 @@ class AagBuilder:
     def render(self, bad: int | None, justice: list[int], fairness: list[int]) -> str:
         if any(int(latch[1]) == 0 and latch[3] == "" for latch in self.latches):
             raise RuntimeError("unset AIGER latch next-state")
-        nbad = int(bad is not None)
+        bad_lit = 0 if bad is None else bad
+        justice_lits = justice or [1]
         lines = [
             f"aag {self._next_var} {len(self.input_names)} {len(self.latches)} "
-            f"0 {len(self.ands)} {nbad} 0 {len(justice)} {len(fairness)}"
+            f"1 {len(self.ands)} 0 0 {len(justice_lits)} {len(fairness)}"
         ]
         lines.extend(str(self.input_literals[name]) for name in self.input_names)
         for current, next_lit, reset, _name in self.latches:
             lines.append(f"{current} {next_lit} {reset}")
-        if bad is not None:
-            lines.append(str(bad))
-        lines.extend("1" for _ in justice)
-        lines.extend(str(lit) for lit in justice)
+        lines.append(str(bad_lit))
+        lines.extend("1" for _ in justice_lits)
+        lines.extend(str(lit) for lit in justice_lits)
         lines.extend(str(lit) for lit in fairness)
         lines.extend(f"{lhs} {rhs0} {rhs1}" for lhs, rhs0, rhs1 in self.ands)
         lines.extend(f"i{index} {name}"
                      for index, name in enumerate(self.input_names))
         lines.extend(f"l{index} {latch[3]}"
                      for index, latch in enumerate(self.latches))
-        if bad is not None:
-            lines.append("b0 bad")
+        lines.append("o0 bad")
         lines.extend(f"j{index} guarantee_monitor_{index}"
-                     for index in range(len(justice)))
+                     for index in range(len(justice_lits)))
         lines.extend(f"f{index} assumption_monitor_{index}"
                      for index in range(len(fairness)))
         lines.append("c")

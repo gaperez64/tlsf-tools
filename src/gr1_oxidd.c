@@ -413,22 +413,18 @@ static bool write_certificate_json(FILE *out, const Aig *certificate,
   return !ferror(out);
 }
 
-static bool export_certificate(OxiddRun *run, Aig *game,
-                               Gr1CertificateOptions *options,
-                               bool unreal, uint32_t original_nlat,
-                               uint32_t m_goal_records, uint32_t m_goals,
-                               uint32_t m_fair, uint32_t n_fair_disj,
-                               uint32_t nin, uint32_t nlat, uint32_t nvars,
-                               uint32_t var_base, const uint32_t *goal_record,
-                               const uint32_t *goal_member, const Bdd *goal_bdd,
-                               const BddVec *y_levels, const BddVec *x_levels,
-                               const Bdd *move_bdd, Bdd W) {
+static bool export_certificate(
+    OxiddRun *run, Aig *game, Gr1CertificateOptions *options, bool unreal,
+    uint32_t original_nlat, uint32_t m_goal_records, uint32_t m_goals,
+    uint32_t m_fair, uint32_t n_fair_disj, uint32_t nin, uint32_t nlat,
+    uint32_t nvars, uint32_t var_base, const uint32_t *goal_record,
+    const uint32_t *goal_member, const Bdd *goal_bdd, const BddVec *y_levels,
+    const BddVec *x_levels, const Bdd *move_bdd, Bdd W) {
   Aig *certificate = aig_new();
   uint32_t *var2lit = malloc(nvars * sizeof *var2lit);
   if (!certificate || !var2lit) {
     oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, run->phase,
-                         "certificate_allocation", run->operations,
-                         run->index);
+                         "certificate_allocation", run->operations, run->index);
     aig_free(certificate);
     free(var2lit);
     certificate_error(options, "cannot allocate GR(1) certificate", nullptr);
@@ -759,9 +755,9 @@ static void release_var_map(Bdd *var_bdd, uint32_t maxvar) {
   }
 }
 
-Aig *solve_gr1_oxidd_ex_with_certificate(
-    Aig *game, int *unreal, const OxiddSolveOptions *user_opts,
-    Gr1CertificateOptions *certificate) {
+Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                         const OxiddSolveOptions *user_opts,
+                                         Gr1CertificateOptions *certificate) {
   OxiddSolveOptions defaults = oxidd_solve_options_default();
   const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
   *unreal = 0;
@@ -919,8 +915,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(
 
   if (!var_bdd || (nlat && !next_bdd) || !goal_bdd || (m_fair && !fair_bdd) ||
       (want_certificate_json && (!goal_record || !goal_member)) || !curr_bdd ||
-      !var2lit ||
-      (nlat && !lat_lit) || !curr_latch_lit ||
+      !var2lit || (nlat && !lat_lit) || !curr_latch_lit ||
       (nin && (!cvars || !uvars || !cinput)) || !y_levels || !x_levels ||
       (want_certificate && !move_bdd)) {
     oxidd_record_failure(opts, OXIDD_FAILURE_HOST, "construction", "calloc", 0,
@@ -1271,9 +1266,9 @@ Aig *solve_gr1_oxidd_ex_with_certificate(
         // Strict progress goes to the goal or a lower μ-rank.  Within the
         // least rank, choose the least fairness index whose X[k,i] contains
         // the state; only that fixed assumption may justify staying in X.
-        Bdd strict = k == 0 ? oxidd_bdd_ref(at_goal)
-                            : oxidd_run_or(run, y_levels[j].arr[k - 1],
-                                           at_goal);
+        Bdd strict = k == 0
+                         ? oxidd_bdd_ref(at_goal)
+                         : oxidd_run_or(run, y_levels[j].arr[k - 1], at_goal);
 
         for (uint32_t i = 0; i < n_fair_disj && ok; i++) {
           Bdd xki = x_levels[j * n_fair_disj + i].arr[k];
@@ -1525,11 +1520,10 @@ Aig *solve_gr1_oxidd_ex_with_certificate(
 
   if (ok && want_certificate) {
     oxidd_phase(run, "certificate");
-    if (!export_certificate(run, game, certificate, *unreal != 0,
-                            original_nlat, m_goal_records, m_goals, m_fair,
-                            n_fair_disj, nin, nlat, nvars, var_base,
-                            goal_record, goal_member, goal_bdd, y_levels,
-                            x_levels, move_bdd, W)) {
+    if (!export_certificate(run, game, certificate, *unreal != 0, original_nlat,
+                            m_goal_records, m_goals, m_fair, n_fair_disj, nin,
+                            nlat, nvars, var_base, goal_record, goal_member,
+                            goal_bdd, y_levels, x_levels, move_bdd, W)) {
       aig_free(strat);
       strat = nullptr;
       ok = false;
@@ -1620,8 +1614,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(
   return strat;
 }
 
-Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
-                        const OxiddSolveOptions *opts) {
+Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
   return solve_gr1_oxidd_ex_with_certificate(game, unreal, opts, nullptr);
 }
 
@@ -1630,8 +1623,7 @@ Aig *solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
   OxiddSolveOptions opts = oxidd_solve_options_default();
   opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
   opts.safety_output_index = 0;
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, &opts,
-                                               certificate);
+  return solve_gr1_oxidd_ex_with_certificate(game, unreal, &opts, certificate);
 }
 
 Aig *solve_gr1_oxidd(Aig *game, int *unreal) {

@@ -1,7 +1,8 @@
-aag 3 2 1 0 0 0 0 1 2
+aag 3 2 1 1 0 0 0 1 2
 2
 4
 6 2 0
+0
 1
 0
 6
@@ -9,3 +10,4 @@ aag 3 2 1 0 0 0 0 1 2
 i0 a
 i1 controllable_o
 l0 la
+o0 bad

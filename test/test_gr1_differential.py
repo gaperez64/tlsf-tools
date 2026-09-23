@@ -181,28 +181,23 @@ class AagBuilder:
         return rng.choice((self.land, self.lor, self.lxor))(left, right)
 
     def finish(self, next_lits: list[int], bad_lit: int | None,
-               bad_record: bool, justice: list[int], fairness: list[int]) -> str:
-        outputs = [] if bad_lit is None or bad_record else [bad_lit]
-        bad = [bad_lit] if bad_lit is not None and bad_record else []
+               justice: list[int], fairness: list[int]) -> str:
+        outputs = [0 if bad_lit is None else bad_lit]
         lines = [
             f"aag {self.nextvar} {self.ninputs} {self.nlatches} "
-            f"{len(outputs)} {len(self.gates)} {len(bad)} 0 "
+            f"{len(outputs)} {len(self.gates)} 0 0 "
             f"{len(justice)} {len(fairness)}"
         ]
         lines.extend(str(lit) for lit in self.inputs)
         for cur, nxt, reset in zip(self.latches, next_lits, self.resets):
             lines.append(f"{cur} {nxt} {reset}")
         lines.extend(str(lit) for lit in outputs)
-        lines.extend(str(lit) for lit in bad)
         lines.extend("1" for _ in justice)
         lines.extend(str(lit) for lit in justice)
         lines.extend(str(lit) for lit in fairness)
         lines.extend(f"{lhs} {rhs0} {rhs1}" for lhs, rhs0, rhs1 in self.gates)
         lines.extend(f"i{k} {name}" for k, name in enumerate(self.input_names))
-        if outputs:
-            lines.append("o0 bad")
-        if bad:
-            lines.append("b0 bad_record")
+        lines.append("o0 bad")
         lines.extend(f"j{k} justice_{k}" for k in range(len(justice)))
         lines.extend(f"f{k} fairness_{k}" for k in range(len(fairness)))
         return "\n".join(lines) + "\n"
@@ -217,7 +212,7 @@ def make_random_game(rng: random.Random, index: int) -> str:
                  *(f"controllable_c{k}" for k in range(nc))]
         builder = AagBuilder(names, [rng.randint(0, 1)])
         q = builder.latches[0]
-        return builder.finish([q ^ 1], None, False, [0], [q, q ^ 1])
+        return builder.finish([q ^ 1], None, [0], [q, q ^ 1])
 
     # A recurring exact counterexample guarantees that the archived
     # pre-follow-up solver is tested on the input-acceptance bug: the
@@ -228,7 +223,7 @@ def make_random_game(rng: random.Random, index: int) -> str:
         u, c = builder.inputs
         q = builder.latches[0]
         q_equals_u = builder.negate(builder.lxor(q, u))
-        return builder.finish([c], None, False, [0], [q_equals_u])
+        return builder.finish([c], None, [0], [q_equals_u])
 
     nu, nc, nl = rng.randint(1, 3), rng.randint(1, 2), rng.randint(1, 3)
     names = [*(f"u{k}" for k in range(nu)),
@@ -251,8 +246,8 @@ def make_random_game(rng: random.Random, index: int) -> str:
     bad_lit = None
     if rng.random() < 0.35:
         bad_lit = builder.random_expr(rng, all_atoms, rng.randint(0, 2))
-    return builder.finish(next_lits, bad_lit, rng.random() < 0.5,
-                          justice, fairness)
+    rng.random()  # Preserve the seeded game sequence after removing B-vs-O.
+    return builder.finish(next_lits, bad_lit, justice, fairness)
 
 
 class ExplicitGame:
@@ -544,23 +539,33 @@ def check_strategy(game: ExplicitGame, strategy_text: str) -> None:
                 raise AssertionError("strategy has a fair lasso that misses justice")
 
 
-def run_solver(executable: pathlib.Path, game_text: str) -> subprocess.CompletedProcess[str]:
+def run_solver(executable: pathlib.Path, game_text: str,
+               *options: str) -> subprocess.CompletedProcess[str]:
     with tempfile.NamedTemporaryFile("w", suffix=".aag", encoding="utf-8") as game_file:
         game_file.write(game_text)
         game_file.flush()
-        return subprocess.run([str(executable), game_file.name], text=True,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              check=False, timeout=10)
+        return subprocess.run(
+            [str(executable), *options, game_file.name], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            timeout=10)
 
 
 def run_suite(solver: pathlib.Path, games: int, seed: int,
               old_solver: pathlib.Path | None) -> dict[str, int]:
     constraint_game = "aag 1 1 0 0 0 0 1 0 0\n2\n2\ni0 u\n"
     rejected = run_solver(solver, constraint_game)
-    if rejected.returncode != 2 or "invariant constraints" not in rejected.stderr:
-        raise AssertionError("game reader did not clearly reject C > 0")
+    # The intent is that a game with typed constraints is clearly rejected, not
+    # that it is rejected in any particular words: the diagnostic has been
+    # reworded once already ("invariant constraints" -> "typed constraints are
+    # parsed but unsupported as synthesis assumptions"), so match the behaviour
+    # and the subject, not the sentence.
+    if rejected.returncode != 2 or "constraints" not in rejected.stderr:
+        raise AssertionError(
+            f"game reader did not clearly reject C > 0: rc={rejected.returncode} "
+            f"stderr={rejected.stderr!r}")
     bad_record_game = "aag 0 0 0 0 0 1 0 0 0\n1\nb0 always_bad\n"
-    bad_result = run_solver(solver, bad_record_game)
+    bad_result = run_solver(
+        solver, bad_record_game, "--game-profile=multi-safety")
     if bad_result.returncode != 1:
         raise AssertionError("AIGER bad-state record was not enforced")
 
