@@ -363,7 +363,8 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             builder = differential.AagBuilder(
                 ["u0", "controllable_c0"], [0, 0])
             chain_game = builder.finish(
-                [1, builder.latches[0]], None, [builder.latches[1]], [])
+                [1, builder.latches[0]], None, False,
+                [builder.latches[1]], [])
             game = root / "rank-game.aag"
             policy = root / "rank-policy.aag"
             cert = root / "rank-cert.aag"
@@ -538,7 +539,7 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             ["u0", "controllable_c0"], [0, 0, 0])
         wrong_game_text = builder.finish(
             [1, builder.latches[0], builder.latches[1]], None,
-            [builder.latches[2]], [])
+            False, [builder.latches[2]], [])
         wrong_game = root / "wrong-size-game.aag"
         wrong_policy = root / "wrong-size-policy.aag"
         wrong_cert = root / "wrong-size-cert.aag"

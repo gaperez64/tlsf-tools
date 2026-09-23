@@ -1123,13 +1123,9 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     ck->game_next[j] = compiled_lit(ck, &game_compiled, next);
   }
   ck->game_bad = oxidd_bdd_false(ck->manager);
-  if (aig_num_outputs(ck->game) > 0) {
-    uint32_t badlit;
-    aig_output_at(ck->game, 0, &badlit);
-    bdd_replace(&ck->game_bad, compiled_lit(ck, &game_compiled, badlit));
-  } else {
-    // Compatibility fallback for games emitted before GR(1) adopted the
-    // single ordinary safety-output convention.
+  if (aig_num_bad(ck->game) > 0 || aig_num_outputs(ck->game) != 1) {
+    // AIGER 1.9 bad-state properties are authoritative.  With none present,
+    // zero or multiple ordinary outputs describe a pure-justice model.
     for (uint32_t i = 0; i < aig_num_bad(ck->game); i++) {
       uint32_t badlit;
       aig_bad_at(ck->game, i, &badlit);
@@ -1142,6 +1138,11 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
         return false;
       }
     }
+  } else {
+    // Backward-compatible tlsf-tools dialect: one ordinary output is unsafe.
+    uint32_t badlit;
+    aig_output_at(ck->game, 0, &badlit);
+    bdd_replace(&ck->game_bad, compiled_lit(ck, &game_compiled, badlit));
   }
   uint32_t goal_index = 0;
   for (uint32_t record = 0; record < aig_num_justice(ck->game); record++) {
