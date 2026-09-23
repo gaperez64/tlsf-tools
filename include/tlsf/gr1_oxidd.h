@@ -8,6 +8,11 @@
 /// circuit over solver state and game inputs; the JSON file is an optional
 /// sidecar describing its predicates and variable mapping.  On an export
 /// failure `failed` is set and `error` receives a diagnostic.
+typedef enum {
+  GR1_CERTIFICATE_SEMANTICS_EXACT,
+  GR1_CERTIFICATE_SEMANTICS_STRICT,
+} Gr1CertificateSemantics;
+
 typedef struct {
   const char *aag_path;
   const char *json_path;
@@ -16,6 +21,10 @@ typedef struct {
   /// controllable game inputs and curr_next_0..curr_next_(m-1).
   const char *policy_aag_path;
   const char *policy_json_path;
+  /// Semantics of the reduction that produced the game.  Strict reductions
+  /// are REAL-sound only, so an environment certificate is never exported for
+  /// them.
+  Gr1CertificateSemantics semantics;
   bool failed;
   char error[256];
 } Gr1CertificateOptions;

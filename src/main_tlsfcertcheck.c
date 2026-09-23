@@ -68,6 +68,17 @@ typedef struct {
 } RankGoal;
 
 typedef struct {
+  uint32_t levels;
+  Bdd *x;
+} DualInnerRank;
+
+typedef struct {
+  Bdd z;
+  Bdd *y;
+  DualInnerRank *inner;
+} DualOuterRank;
+
+typedef struct {
   bool present;
   bool has_control;
   char reason[128];
@@ -110,9 +121,12 @@ typedef struct {
   Bdd *q, *qp, *u, *c;
   Bdd *game_next, game_bad, *goal, *fair, *cert_goal;
   Bdd *policy_control, *policy_curr_next;
-  Bdd cert_inv;
+  Bdd cert_inv, *cert_fair;
   RankGoal *rank;
+  DualOuterRank *dual_rank;
   Bdd input_cube;
+  uint32_t ncounter, ndual_levels, npolicy_choices;
+  bool environment;
   bool bdd_failed;
   Counterexample *current_counterexample;
   double started;
@@ -123,6 +137,8 @@ typedef struct {
   Bdd *values;
   uint32_t nvalues;
 } Compiled;
+
+static Bdd initial_cube(Checker *ck);
 
 static double now_seconds(void) {
   struct timespec ts;
@@ -363,6 +379,21 @@ static bool json_uint(const char *text, const char *key, uint32_t *value) {
   return true;
 }
 
+static bool json_bool(const char *text, const char *key, bool value) {
+  char pattern[256];
+  snprintf(pattern, sizeof pattern, "\"%s\"", key);
+  const char *p = strstr(text, pattern);
+  if (!p || !(p = strchr(p + strlen(pattern), ':')))
+    return false;
+  p++;
+  while (isspace((unsigned char)*p))
+    p++;
+  const char *expected = value ? "true" : "false";
+  size_t n = strlen(expected);
+  return strncmp(p, expected, n) == 0 && !isalnum((unsigned char)p[n]) &&
+         p[n] != '_';
+}
+
 static Aig *read_aag(const char *path, bool game, char *error,
                      size_t error_cap) {
   FILE *in = fopen(path, "r");
@@ -450,10 +481,22 @@ static bool validate_sidecars(Checker *ck, char *message, size_t cap) {
     return false;
   }
   uint32_t nstate, goals;
+  bool policy_environment = json_has_string(policy, "side", "environment");
+  bool policy_system =
+      json_has_string(policy, "side", "system") || !strstr(policy, "\"side\"");
   bool ok = json_has_string(policy, "format", "tlsf-gr1-policy-v1") &&
             json_uint(policy, "game_state_variables", &nstate) &&
             json_uint(policy, "goals", &goals) && nstate == ck->nstate &&
-            goals == ck->ngoals;
+            goals == ck->ngoals && (policy_environment || policy_system);
+  if (ok && policy_environment) {
+    uint32_t counters;
+    ok = json_has_string(policy, "reduction_semantics", "exact") &&
+         json_has_string(policy, "strategy_semantics", "moore") &&
+         json_uint(policy, "fairness_counters", &counters) &&
+         counters == ck->nfair_disj;
+  }
+  ck->environment = policy_environment;
+  ck->ncounter = ck->environment ? ck->nfair_disj : ck->ngoals;
   free(policy);
   if (!ok) {
     snprintf(message, cap, "policy sidecar does not match this game");
@@ -468,12 +511,20 @@ static bool validate_sidecars(Checker *ck, char *message, size_t cap) {
     return false;
   }
   uint32_t fairness;
+  bool certificate_environment =
+      json_has_string(certificate, "side", "environment");
   ok = json_has_string(certificate, "format", "tlsf-gr1-certificate-v1") &&
-       json_has_string(certificate, "status", "realizable") &&
+       json_has_string(certificate, "status",
+                       ck->environment ? "unrealizable" : "realizable") &&
+       certificate_environment == ck->environment &&
        json_uint(certificate, "state_variables", &nstate) &&
        json_uint(certificate, "goals", &goals) &&
        json_uint(certificate, "fairness_assumptions", &fairness) &&
        nstate == ck->nstate && goals == ck->ngoals && fairness == ck->nfair;
+  if (ok && ck->environment)
+    ok = json_has_string(certificate, "reduction_semantics", "exact") &&
+         json_has_string(certificate, "strategy_semantics", "moore") &&
+         json_bool(certificate, "environment_counter_strategy_exported", true);
   free(certificate);
   if (!ok) {
     snprintf(message, cap, "certificate sidecar does not match this game");
@@ -493,8 +544,10 @@ static bool validate_policy_interface(Checker *ck, char *message, size_t cap) {
     snprintf(message, cap, "policy must be a combinational AIG");
     return false;
   }
-  uint32_t expected_inputs = ck->nstate + ck->ngoals + ck->nu;
-  uint32_t expected_outputs = ck->nc + ck->ngoals;
+  uint32_t expected_inputs =
+      ck->nstate + ck->ncounter + (ck->environment ? 0 : ck->nu);
+  uint32_t expected_outputs =
+      (ck->environment ? ck->nu : ck->nc) + ck->ncounter;
   if (aig_num_inputs(ck->policy) != expected_inputs ||
       aig_num_outputs(ck->policy) != expected_outputs) {
     snprintf(message, cap,
@@ -512,7 +565,7 @@ static bool validate_policy_interface(Checker *ck, char *message, size_t cap) {
     }
   }
   char generated[96];
-  for (uint32_t j = 0; j < ck->ngoals; j++) {
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
     snprintf(generated, sizeof generated, "curr_%u", j);
     if (!has_input(ck->policy, generated)) {
       snprintf(message, cap, "policy is missing counter input '%s'", generated);
@@ -527,7 +580,20 @@ static bool validate_policy_interface(Checker *ck, char *message, size_t cap) {
   }
   for (uint32_t p = 0; p < ck->nin; p++) {
     name = aig_input_name(ck->game, p, nullptr);
-    if (is_controllable(name)) {
+    if (ck->environment) {
+      if (!is_controllable(name) && !has_output(ck->policy, name)) {
+        snprintf(message, cap,
+                 "environment policy is missing uncontrollable output '%s'",
+                 name);
+        return false;
+      }
+      if (is_controllable(name) && has_input(ck->policy, name)) {
+        snprintf(message, cap,
+                 "Moore environment policy reads current controllable '%s'",
+                 name);
+        return false;
+      }
+    } else if (is_controllable(name)) {
       if (!has_output(ck->policy, name)) {
         snprintf(message, cap, "policy is missing controllable output '%s'",
                  name);
@@ -624,8 +690,160 @@ static bool output_is_expected_certificate(Checker *ck, const char *name,
   return false;
 }
 
+static bool output_is_expected_environment_certificate(Checker *ck,
+                                                       const char *name,
+                                                       const uint32_t *levels) {
+  if (!strcmp(name, "inv") || !strcmp(name, "system_winning"))
+    return true;
+  char expected[128];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(expected, sizeof expected, "goal_%u", j);
+    if (!strcmp(name, expected))
+      return true;
+  }
+  for (uint32_t i = 0; i < ck->nfair; i++) {
+    snprintf(expected, sizeof expected, "fair_%u", i);
+    if (!strcmp(name, expected))
+      return true;
+  }
+  for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+    snprintf(expected, sizeof expected, "move_%u", i);
+    if (!strcmp(name, expected))
+      return true;
+  }
+  uint32_t outer_levels = levels[0];
+  for (uint32_t k = 0; k < outer_levels; k++) {
+    snprintf(expected, sizeof expected, "z_%u", k);
+    if (!strcmp(name, expected))
+      return true;
+    for (uint32_t j = 0; j < ck->ngoals; j++) {
+      snprintf(expected, sizeof expected, "y_%u_%u", k, j);
+      if (!strcmp(name, expected))
+        return true;
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        size_t index = 1 + ((size_t)k * ck->ngoals + j) * ck->nfair_disj + i;
+        for (uint32_t l = 0; l < levels[index]; l++) {
+          snprintf(expected, sizeof expected, "x_%u_%u_%u_%u", k, j, i, l);
+          if (!strcmp(name, expected))
+            return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+static bool validate_environment_certificate_interface(Checker *ck,
+                                                       uint32_t **levels_out,
+                                                       char *message,
+                                                       size_t cap) {
+  const char *kind, *name;
+  if (duplicate_inputs_or_outputs(ck->certificate, &kind, &name)) {
+    snprintf(message, cap, "%s%s%s", kind, *name ? ": " : "", name);
+    return false;
+  }
+  if (aig_num_latches(ck->certificate) != 0 ||
+      aig_num_justice(ck->certificate) != 0 ||
+      aig_num_fairness(ck->certificate) != 0 ||
+      aig_num_inputs(ck->certificate) != ck->nstate + ck->nin) {
+    snprintf(message, cap, "environment certificate shape does not match game");
+    return false;
+  }
+  for (uint32_t j = 0; j < ck->nstate; j++) {
+    char fallback[32];
+    name = latch_name(ck->game, j, fallback, sizeof fallback);
+    if (!has_input(ck->certificate, name)) {
+      snprintf(message, cap, "certificate is missing state input '%s'", name);
+      return false;
+    }
+  }
+  for (uint32_t p = 0; p < ck->nin; p++) {
+    name = aig_input_name(ck->game, p, nullptr);
+    if (!has_input(ck->certificate, name)) {
+      snprintf(message, cap, "certificate is missing game input '%s'", name);
+      return false;
+    }
+  }
+  if (!has_output(ck->certificate, "inv") ||
+      !has_output(ck->certificate, "system_winning")) {
+    snprintf(message, cap, "environment certificate is missing its region");
+    return false;
+  }
+  char generated[128];
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    snprintf(generated, sizeof generated, "goal_%u", j);
+    if (!has_output(ck->certificate, generated))
+      goto missing;
+  }
+  for (uint32_t i = 0; i < ck->nfair; i++) {
+    snprintf(generated, sizeof generated, "fair_%u", i);
+    if (!has_output(ck->certificate, generated))
+      goto missing;
+  }
+  for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+    snprintf(generated, sizeof generated, "move_%u", i);
+    if (!has_output(ck->certificate, generated))
+      goto missing;
+  }
+  uint32_t outer_levels = 0;
+  for (;;) {
+    snprintf(generated, sizeof generated, "z_%u", outer_levels);
+    if (!has_output(ck->certificate, generated))
+      break;
+    outer_levels++;
+  }
+  if (!outer_levels) {
+    snprintf(message, cap, "environment certificate has no outer rank levels");
+    return false;
+  }
+  size_t count = 1 + (size_t)outer_levels * ck->ngoals * ck->nfair_disj;
+  uint32_t *levels = calloc(count, sizeof *levels);
+  if (!levels) {
+    snprintf(message, cap, "out of memory");
+    return false;
+  }
+  levels[0] = outer_levels;
+  for (uint32_t k = 0; k < outer_levels; k++)
+    for (uint32_t j = 0; j < ck->ngoals; j++) {
+      snprintf(generated, sizeof generated, "y_%u_%u", k, j);
+      if (!has_output(ck->certificate, generated))
+        goto missing_levels;
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        size_t index = 1 + ((size_t)k * ck->ngoals + j) * ck->nfair_disj + i;
+        for (;;) {
+          snprintf(generated, sizeof generated, "x_%u_%u_%u_%u", k, j, i,
+                   levels[index]);
+          if (!has_output(ck->certificate, generated))
+            break;
+          levels[index]++;
+        }
+        if (!levels[index])
+          goto missing_levels;
+      }
+    }
+  for (uint32_t o = 0; o < aig_num_outputs(ck->certificate); o++) {
+    name = aig_output_at(ck->certificate, o, nullptr);
+    if (!output_is_expected_environment_certificate(ck, name, levels)) {
+      snprintf(message, cap, "unexpected certificate output '%s'", name);
+      free(levels);
+      return false;
+    }
+  }
+  *levels_out = levels;
+  return true;
+
+missing_levels:
+  free(levels);
+missing:
+  snprintf(message, cap, "certificate is missing output '%s'", generated);
+  return false;
+}
+
 static bool validate_certificate_interface(Checker *ck, uint32_t **levels_out,
                                            char *message, size_t cap) {
+  if (ck->environment)
+    return validate_environment_certificate_interface(ck, levels_out, message,
+                                                      cap);
   const char *kind, *name;
   if (duplicate_inputs_or_outputs(ck->certificate, &kind, &name)) {
     snprintf(message, cap, "%s%s%s", kind, *name ? ": " : "", name);
@@ -835,7 +1053,7 @@ static bool checked_satisfiable(Checker *ck, Bdd value) {
 
 static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
                        size_t cap) {
-  ck->nq = ck->nstate + ck->ngoals;
+  ck->nq = ck->nstate + ck->ncounter;
   ck->nvars = 2 * ck->nq + ck->nu + ck->nc;
   ck->manager =
       oxidd_bdd_manager_new(ck->options.node_cap, ck->options.node_cap, 1);
@@ -960,7 +1178,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
         found = true;
       }
     }
-    for (uint32_t j = 0; j < ck->ngoals && !found; j++) {
+    for (uint32_t j = 0; j < ck->ncounter && !found; j++) {
       char counter[64];
       snprintf(counter, sizeof counter, "curr_%u", j);
       if (!strcmp(name, counter)) {
@@ -968,7 +1186,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
         found = true;
       }
     }
-    for (uint32_t i = 0; i < ck->nu && !found; i++) {
+    for (uint32_t i = 0; i < ck->nu && !ck->environment && !found; i++) {
       const char *input_name = aig_input_name(ck->game, ck->uinput[i], nullptr);
       if (!strcmp(name, input_name)) {
         policy_inputs[p] = ck->u[i];
@@ -983,20 +1201,23 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     return false;
   }
   free(policy_inputs);
-  ck->policy_control =
-      ck->nc ? calloc(ck->nc, sizeof *ck->policy_control) : nullptr;
-  ck->policy_curr_next = calloc(ck->ngoals, sizeof *ck->policy_curr_next);
-  if ((ck->nc && !ck->policy_control) || !ck->policy_curr_next) {
+  ck->npolicy_choices = ck->environment ? ck->nu : ck->nc;
+  ck->policy_control = ck->npolicy_choices ? calloc(ck->npolicy_choices,
+                                                    sizeof *ck->policy_control)
+                                           : nullptr;
+  ck->policy_curr_next = calloc(ck->ncounter, sizeof *ck->policy_curr_next);
+  if ((ck->npolicy_choices && !ck->policy_control) || !ck->policy_curr_next) {
     compiled_free(&policy_compiled);
     snprintf(message, cap, "out of memory");
     return false;
   }
   char generated[96];
-  for (uint32_t i = 0; i < ck->nc; i++) {
-    const char *name = aig_input_name(ck->game, ck->cinput[i], nullptr);
+  for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
+    uint32_t game_input = ck->environment ? ck->uinput[i] : ck->cinput[i];
+    const char *name = aig_input_name(ck->game, game_input, nullptr);
     ck->policy_control[i] = output_bdd(ck, ck->policy, &policy_compiled, name);
   }
-  for (uint32_t j = 0; j < ck->ngoals; j++) {
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
     snprintf(generated, sizeof generated, "curr_next_%u", j);
     ck->policy_curr_next[j] =
         output_bdd(ck, ck->policy, &policy_compiled, generated);
@@ -1045,36 +1266,95 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     }
     free(cert_inputs);
     ck->cert_inv = output_bdd(ck, ck->certificate, &cert_compiled, "inv");
-    ck->rank = calloc(ck->ngoals, sizeof *ck->rank);
     ck->cert_goal = calloc(ck->ngoals, sizeof *ck->cert_goal);
-    if (!ck->rank || !ck->cert_goal) {
+    if (!ck->cert_goal) {
       compiled_free(&cert_compiled);
       snprintf(message, cap, "out of memory");
       return false;
     }
-    for (uint32_t j = 0; j < ck->ngoals; j++) {
-      ck->rank[j].levels = levels[j];
-      ck->rank[j].y = calloc(levels[j], sizeof(Bdd));
-      ck->rank[j].x = calloc(levels[j], sizeof(Bdd *));
-      if (!ck->rank[j].y || !ck->rank[j].x) {
+    if (ck->environment) {
+      ck->cert_fair =
+          ck->nfair ? calloc(ck->nfair, sizeof *ck->cert_fair) : nullptr;
+      ck->ndual_levels = levels[0];
+      ck->dual_rank = calloc(ck->ndual_levels, sizeof *ck->dual_rank);
+      if ((ck->nfair && !ck->cert_fair) || !ck->dual_rank) {
         compiled_free(&cert_compiled);
         snprintf(message, cap, "out of memory");
         return false;
       }
-      for (uint32_t k = 0; k < levels[j]; k++) {
-        snprintf(generated, sizeof generated, "y_%u_%u", j, k);
-        ck->rank[j].y[k] =
+      for (uint32_t i = 0; i < ck->nfair; i++) {
+        snprintf(generated, sizeof generated, "fair_%u", i);
+        ck->cert_fair[i] =
             output_bdd(ck, ck->certificate, &cert_compiled, generated);
-        ck->rank[j].x[k] = calloc(ck->nfair_disj, sizeof(Bdd));
-        if (!ck->rank[j].x[k]) {
+      }
+      for (uint32_t k = 0; k < ck->ndual_levels; k++) {
+        snprintf(generated, sizeof generated, "z_%u", k);
+        ck->dual_rank[k].z =
+            output_bdd(ck, ck->certificate, &cert_compiled, generated);
+        ck->dual_rank[k].y = calloc(ck->ngoals, sizeof(Bdd));
+        ck->dual_rank[k].inner = calloc((size_t)ck->ngoals * ck->nfair_disj,
+                                        sizeof *ck->dual_rank[k].inner);
+        if (!ck->dual_rank[k].y || !ck->dual_rank[k].inner) {
           compiled_free(&cert_compiled);
           snprintf(message, cap, "out of memory");
           return false;
         }
-        for (uint32_t i = 0; i < ck->nfair_disj; i++) {
-          snprintf(generated, sizeof generated, "x_%u_%u_%u", j, k, i);
-          ck->rank[j].x[k][i] =
+        for (uint32_t j = 0; j < ck->ngoals; j++) {
+          snprintf(generated, sizeof generated, "y_%u_%u", k, j);
+          ck->dual_rank[k].y[j] =
               output_bdd(ck, ck->certificate, &cert_compiled, generated);
+          for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+            size_t rank_index = (size_t)j * ck->nfair_disj + i;
+            size_t level_index =
+                1 + ((size_t)k * ck->ngoals + j) * ck->nfair_disj + i;
+            DualInnerRank *inner = &ck->dual_rank[k].inner[rank_index];
+            inner->levels = levels[level_index];
+            inner->x = calloc(inner->levels, sizeof *inner->x);
+            if (!inner->x) {
+              compiled_free(&cert_compiled);
+              snprintf(message, cap, "out of memory");
+              return false;
+            }
+            for (uint32_t l = 0; l < inner->levels; l++) {
+              snprintf(generated, sizeof generated, "x_%u_%u_%u_%u", k, j, i,
+                       l);
+              inner->x[l] =
+                  output_bdd(ck, ck->certificate, &cert_compiled, generated);
+            }
+          }
+        }
+      }
+    } else {
+      ck->rank = calloc(ck->ngoals, sizeof *ck->rank);
+      if (!ck->rank) {
+        compiled_free(&cert_compiled);
+        snprintf(message, cap, "out of memory");
+        return false;
+      }
+      for (uint32_t j = 0; j < ck->ngoals; j++) {
+        ck->rank[j].levels = levels[j];
+        ck->rank[j].y = calloc(levels[j], sizeof(Bdd));
+        ck->rank[j].x = calloc(levels[j], sizeof(Bdd *));
+        if (!ck->rank[j].y || !ck->rank[j].x) {
+          compiled_free(&cert_compiled);
+          snprintf(message, cap, "out of memory");
+          return false;
+        }
+        for (uint32_t k = 0; k < levels[j]; k++) {
+          snprintf(generated, sizeof generated, "y_%u_%u", j, k);
+          ck->rank[j].y[k] =
+              output_bdd(ck, ck->certificate, &cert_compiled, generated);
+          ck->rank[j].x[k] = calloc(ck->nfair_disj, sizeof(Bdd));
+          if (!ck->rank[j].x[k]) {
+            compiled_free(&cert_compiled);
+            snprintf(message, cap, "out of memory");
+            return false;
+          }
+          for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+            snprintf(generated, sizeof generated, "x_%u_%u_%u", j, k, i);
+            ck->rank[j].x[k][i] =
+                output_bdd(ck, ck->certificate, &cert_compiled, generated);
+          }
         }
       }
     }
@@ -1108,7 +1388,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
 
 static Bdd assignment_cube(Checker *ck, int counter) {
   Bdd cube = oxidd_bdd_true(ck->manager);
-  for (uint32_t j = 0; j < ck->ngoals; j++) {
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
     Bdd literal = (counter >= 0 && (uint32_t)counter == j)
                       ? oxidd_bdd_ref(ck->q[ck->nstate + j])
                       : oxidd_bdd_not(ck->q[ck->nstate + j]);
@@ -1173,11 +1453,11 @@ static void capture_counterexample(Checker *ck, const char *reason,
     return;
   counterexample_clear(counterexample);
   counterexample->state = ck->nstate ? calloc(ck->nstate, 1) : nullptr;
-  counterexample->curr = ck->ngoals ? calloc(ck->ngoals, 1) : nullptr;
+  counterexample->curr = ck->ncounter ? calloc(ck->ncounter, 1) : nullptr;
   counterexample->inputs = ck->nu ? calloc(ck->nu, 1) : nullptr;
   counterexample->control = control && ck->nc ? calloc(ck->nc, 1) : nullptr;
   if ((ck->nstate && !counterexample->state) ||
-      (ck->ngoals && !counterexample->curr) ||
+      (ck->ncounter && !counterexample->curr) ||
       (ck->nu && !counterexample->inputs) ||
       (control && ck->nc && !counterexample->control)) {
     counterexample_clear(counterexample);
@@ -1188,7 +1468,7 @@ static void capture_counterexample(Checker *ck, const char *reason,
   snprintf(counterexample->reason, sizeof counterexample->reason, "%s", reason);
   for (uint32_t j = 0; j < ck->nstate; j++)
     counterexample->state[j] = assignment_value(assignment, ck->qvar[j]);
-  for (uint32_t j = 0; j < ck->ngoals; j++)
+  for (uint32_t j = 0; j < ck->ncounter; j++)
     counterexample->curr[j] =
         assignment_value(assignment, ck->qvar[ck->nstate + j]);
   for (uint32_t i = 0; i < ck->nu; i++)
@@ -1223,7 +1503,7 @@ static void print_counterexample(Checker *ck, const char *reason, Bdd witness,
     printf(" %s=%c", name, value > 0 ? '1' : '0');
   }
   fputs("\n  curr", stdout);
-  for (uint32_t j = 0; j < ck->ngoals; j++) {
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
     uint32_t var = ck->qvar[ck->nstate + j];
     int value = var < assignment.len ? assignment.data[var] : -1;
     printf(" curr_%u=%c", j, value > 0 ? '1' : '0');
@@ -1361,7 +1641,329 @@ static bool reset_in_predicate(Checker *ck, Bdd predicate) {
   return result;
 }
 
+static oxidd_bdd_substitution_t *
+environment_substitution(Checker *ck, const Bdd *environment) {
+  oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(ck->nu);
+  if (!sub)
+    return nullptr;
+  for (uint32_t i = 0; i < ck->nu; i++)
+    oxidd_bdd_substitution_add_pair(sub, ck->uvar[i], environment[i]);
+  return sub;
+}
+
+static CheckResult validate_environment_certificate_predicates(Checker *ck) {
+  CheckResult result =
+      check_state_only(ck, ck->cert_inv, "environment inv is not state-only");
+  if (result != CHECK_VERIFIED)
+    return result;
+  for (uint32_t k = 0; k < ck->ndual_levels; k++) {
+    char reason[128];
+    snprintf(reason, sizeof reason, "certificate z_%u is not state-only", k);
+    result = check_state_only(ck, ck->dual_rank[k].z, reason);
+    if (result != CHECK_VERIFIED)
+      return result;
+    Bdd union_y = oxidd_bdd_false(ck->manager);
+    for (uint32_t j = 0; j < ck->ngoals; j++) {
+      snprintf(reason, sizeof reason, "certificate y_%u_%u is not state-only",
+               k, j);
+      result = check_state_only(ck, ck->dual_rank[k].y[j], reason);
+      if (result != CHECK_VERIFIED) {
+        oxidd_bdd_unref(union_y);
+        return result;
+      }
+      bdd_or_into(ck, &union_y, ck->dual_rank[k].y[j]);
+      Bdd intersection = oxidd_bdd_true(ck->manager);
+      for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+        DualInnerRank *inner =
+            &ck->dual_rank[k].inner[(size_t)j * ck->nfair_disj + i];
+        Bdd previous = oxidd_bdd_false(ck->manager);
+        for (uint32_t l = 0; l < inner->levels; l++) {
+          snprintf(reason, sizeof reason,
+                   "certificate x_%u_%u_%u_%u is not state-only", k, j, i, l);
+          result = check_state_only(ck, inner->x[l], reason);
+          if (result != CHECK_VERIFIED) {
+            oxidd_bdd_unref(previous);
+            oxidd_bdd_unref(intersection);
+            oxidd_bdd_unref(union_y);
+            return result;
+          }
+          Bdd not_current = oxidd_bdd_not(inner->x[l]);
+          Bdd nonmonotone = oxidd_bdd_and(previous, not_current);
+          oxidd_bdd_unref(not_current);
+          if (checked_satisfiable(ck, nonmonotone)) {
+            print_counterexample(ck, "dual inner rank is not monotone",
+                                 nonmonotone, nullptr);
+            oxidd_bdd_unref(nonmonotone);
+            oxidd_bdd_unref(previous);
+            oxidd_bdd_unref(intersection);
+            oxidd_bdd_unref(union_y);
+            return CHECK_CERT_FAILED;
+          }
+          oxidd_bdd_unref(nonmonotone);
+          oxidd_bdd_unref(previous);
+          previous = oxidd_bdd_ref(inner->x[l]);
+        }
+        bdd_and_into(ck, &intersection, previous);
+        oxidd_bdd_unref(previous);
+      }
+      Bdd mismatch = oxidd_bdd_xor(intersection, ck->dual_rank[k].y[j]);
+      oxidd_bdd_unref(intersection);
+      if (checked_satisfiable(ck, mismatch)) {
+        print_counterexample(ck, "dual Y is not the intersection of final X",
+                             mismatch, nullptr);
+        oxidd_bdd_unref(mismatch);
+        oxidd_bdd_unref(union_y);
+        return CHECK_CERT_FAILED;
+      }
+      oxidd_bdd_unref(mismatch);
+    }
+    Bdd mismatch = oxidd_bdd_xor(union_y, ck->dual_rank[k].z);
+    oxidd_bdd_unref(union_y);
+    if (checked_satisfiable(ck, mismatch)) {
+      print_counterexample(ck, "dual Z is not the union of its Y regions",
+                           mismatch, nullptr);
+      oxidd_bdd_unref(mismatch);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(mismatch);
+    if (k) {
+      Bdd not_current = oxidd_bdd_not(ck->dual_rank[k].z);
+      Bdd nonmonotone = oxidd_bdd_and(ck->dual_rank[k - 1].z, not_current);
+      oxidd_bdd_unref(not_current);
+      if (checked_satisfiable(ck, nonmonotone)) {
+        print_counterexample(ck, "dual outer rank is not monotone", nonmonotone,
+                             nullptr);
+        oxidd_bdd_unref(nonmonotone);
+        return CHECK_CERT_FAILED;
+      }
+      oxidd_bdd_unref(nonmonotone);
+    }
+  }
+  Bdd region_mismatch =
+      oxidd_bdd_xor(ck->cert_inv, ck->dual_rank[ck->ndual_levels - 1].z);
+  if (checked_satisfiable(ck, region_mismatch)) {
+    print_counterexample(ck, "environment inv differs from final dual Z",
+                         region_mismatch, nullptr);
+    oxidd_bdd_unref(region_mismatch);
+    return CHECK_CERT_FAILED;
+  }
+  oxidd_bdd_unref(region_mismatch);
+  return ck->bdd_failed ? CHECK_UNKNOWN : CHECK_VERIFIED;
+}
+
+static CheckResult check_environment_certificate_mode(Checker *ck) {
+  CheckResult shape = validate_environment_certificate_predicates(ck);
+  if (shape != CHECK_VERIFIED)
+    return shape;
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd mismatch = oxidd_bdd_xor(ck->cert_goal[j], ck->goal[j]);
+    if (checked_satisfiable(ck, mismatch)) {
+      print_counterexample(ck, "certificate goal differs from game justice",
+                           mismatch, nullptr);
+      oxidd_bdd_unref(mismatch);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(mismatch);
+  }
+  for (uint32_t i = 0; i < ck->nfair; i++) {
+    Bdd mismatch = oxidd_bdd_xor(ck->cert_fair[i], ck->fair[i]);
+    if (checked_satisfiable(ck, mismatch)) {
+      print_counterexample(ck,
+                           "certificate fairness differs from game fairness",
+                           mismatch, nullptr);
+      oxidd_bdd_unref(mismatch);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(mismatch);
+  }
+  if (!reset_in_predicate(ck, ck->cert_inv)) {
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+    Bdd reset = initial_cube(ck);
+    print_counterexample(ck, "reset state is outside environment inv", reset,
+                         nullptr);
+    oxidd_bdd_unref(reset);
+    return CHECK_CERT_FAILED;
+  }
+
+  for (int mode = -1; mode < (int)ck->nfair_disj; mode++) {
+    uint32_t current = mode < 0 ? 0u : (uint32_t)mode;
+    uint32_t advanced = (current + 1) % ck->nfair_disj;
+    Bdd counter_cube = assignment_cube(ck, mode);
+    Bdd *environment = ck->nu ? calloc(ck->nu, sizeof *environment) : nullptr;
+    Bdd *counter_next = calloc(ck->nfair_disj, sizeof *counter_next);
+    Bdd *next_state = calloc(ck->nstate, sizeof *next_state);
+    if ((ck->nu && !environment) || !counter_next || !next_state) {
+      oxidd_bdd_unref(counter_cube);
+      free(environment);
+      free(counter_next);
+      free(next_state);
+      return CHECK_UNKNOWN;
+    }
+    for (uint32_t i = 0; i < ck->nu; i++)
+      environment[i] = specialize(ck->policy_control[i], counter_cube);
+    for (uint32_t i = 0; i < ck->nfair_disj; i++)
+      counter_next[i] = specialize(ck->policy_curr_next[i], counter_cube);
+    oxidd_bdd_substitution_t *usub = environment_substitution(ck, environment);
+    if (ck->nu && !usub)
+      goto environment_unknown;
+    Bdd bad = usub ? oxidd_bdd_substitute(ck->game_bad, usub)
+                   : oxidd_bdd_ref(ck->game_bad);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      next_state[s] = usub ? oxidd_bdd_substitute(ck->game_next[s], usub)
+                           : oxidd_bdd_ref(ck->game_next[s]);
+    if (usub)
+      oxidd_bdd_substitution_free(usub);
+    Bdd fair_current = ck->nfair ? oxidd_bdd_ref(ck->fair[current])
+                                 : oxidd_bdd_true(ck->manager);
+    Bdd violation = oxidd_bdd_false(ck->manager);
+
+    for (uint32_t q = 0; q < ck->nfair_disj; q++) {
+      Bdd expected;
+      if (current == advanced && q == current) {
+        expected = oxidd_bdd_true(ck->manager);
+      } else if (q == current) {
+        expected = oxidd_bdd_not(fair_current);
+      } else if (q == advanced) {
+        expected = oxidd_bdd_ref(fair_current);
+      } else {
+        expected = oxidd_bdd_false(ck->manager);
+      }
+      Bdd differs = oxidd_bdd_xor(counter_next[q], expected);
+      Bdd relevant = oxidd_bdd_and(ck->cert_inv, differs);
+      bdd_or_into(ck, &violation, relevant);
+      oxidd_bdd_unref(expected);
+      oxidd_bdd_unref(differs);
+      oxidd_bdd_unref(relevant);
+    }
+
+    for (uint32_t branch = 0; branch < 2; branch++) {
+      if (current == advanced && branch == 1)
+        continue;
+      uint32_t phase = branch ? advanced : current;
+      Bdd guard = current == advanced ? oxidd_bdd_true(ck->manager)
+                                      : (branch ? oxidd_bdd_ref(fair_current)
+                                                : oxidd_bdd_not(fair_current));
+      Bdd previous_z = oxidd_bdd_false(ck->manager);
+      for (uint32_t k = 0; k < ck->ndual_levels; k++) {
+        Bdd not_previous_z = oxidd_bdd_not(previous_z);
+        Bdd outer_layer = oxidd_bdd_and(ck->dual_rank[k].z, not_previous_z);
+        oxidd_bdd_unref(not_previous_z);
+        Bdd previous_y = oxidd_bdd_false(ck->manager);
+        for (uint32_t j = 0; j < ck->ngoals; j++) {
+          Bdd not_previous_y = oxidd_bdd_not(previous_y);
+          Bdd selected0 = oxidd_bdd_and(outer_layer, ck->dual_rank[k].y[j]);
+          Bdd selected = oxidd_bdd_and(selected0, not_previous_y);
+          oxidd_bdd_unref(selected0);
+          oxidd_bdd_unref(not_previous_y);
+          DualInnerRank *inner =
+              &ck->dual_rank[k].inner[(size_t)j * ck->nfair_disj + phase];
+          Bdd previous_x = oxidd_bdd_false(ck->manager);
+          for (uint32_t l = 0; l < inner->levels; l++) {
+            Bdd not_previous_x = oxidd_bdd_not(previous_x);
+            Bdd inner_layer0 = oxidd_bdd_and(inner->x[l], not_previous_x);
+            Bdd inner_layer = oxidd_bdd_and(selected, inner_layer0);
+            Bdd guarded_layer = oxidd_bdd_and(guard, inner_layer);
+            oxidd_bdd_unref(not_previous_x);
+            oxidd_bdd_unref(inner_layer0);
+            oxidd_bdd_unref(inner_layer);
+
+            Bdd not_goal = oxidd_bdd_not(ck->goal[j]);
+            Bdd outer_progress = oxidd_bdd_or(previous_z, not_goal);
+            oxidd_bdd_unref(not_goal);
+            Bdd base = oxidd_bdd_and(outer_progress, ck->dual_rank[k].y[j]);
+            oxidd_bdd_unref(outer_progress);
+            Bdd phase_fair = ck->nfair ? oxidd_bdd_ref(ck->fair[phase])
+                                       : oxidd_bdd_true(ck->manager);
+            Bdd inner_progress = l ? oxidd_bdd_or(inner->x[l - 1], phase_fair)
+                                   : oxidd_bdd_ref(phase_fair);
+            oxidd_bdd_unref(phase_fair);
+            Bdd target = oxidd_bdd_and(base, inner_progress);
+            oxidd_bdd_unref(base);
+            oxidd_bdd_unref(inner_progress);
+            Bdd allowed = successor(ck, target, next_state);
+            oxidd_bdd_unref(target);
+            bdd_or_into(ck, &allowed, bad);
+            Bdd not_allowed = oxidd_bdd_not(allowed);
+            Bdd failed = oxidd_bdd_and(guarded_layer, not_allowed);
+            bdd_or_into(ck, &violation, failed);
+            oxidd_bdd_unref(not_allowed);
+            oxidd_bdd_unref(failed);
+            oxidd_bdd_unref(allowed);
+            oxidd_bdd_unref(guarded_layer);
+            oxidd_bdd_unref(previous_x);
+            previous_x = oxidd_bdd_ref(inner->x[l]);
+          }
+          oxidd_bdd_unref(previous_x);
+          oxidd_bdd_unref(selected);
+          Bdd more_y = oxidd_bdd_or(previous_y, ck->dual_rank[k].y[j]);
+          oxidd_bdd_unref(previous_y);
+          previous_y = more_y;
+        }
+        oxidd_bdd_unref(previous_y);
+        oxidd_bdd_unref(outer_layer);
+        oxidd_bdd_unref(previous_z);
+        previous_z = oxidd_bdd_ref(ck->dual_rank[k].z);
+      }
+      oxidd_bdd_unref(previous_z);
+      oxidd_bdd_unref(guard);
+    }
+    oxidd_bdd_unref(fair_current);
+    if (checked_satisfiable(ck, violation)) {
+      Bdd concrete = oxidd_bdd_and(violation, counter_cube);
+      print_counterexample(ck, "dual one-step certificate obligation", concrete,
+                           nullptr);
+      oxidd_bdd_unref(concrete);
+      oxidd_bdd_unref(violation);
+      oxidd_bdd_unref(bad);
+      goto environment_failed;
+    }
+    oxidd_bdd_unref(violation);
+    oxidd_bdd_unref(bad);
+    for (uint32_t i = 0; i < ck->nu; i++)
+      oxidd_bdd_unref(environment[i]);
+    for (uint32_t i = 0; i < ck->nfair_disj; i++)
+      oxidd_bdd_unref(counter_next[i]);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      oxidd_bdd_unref(next_state[s]);
+    oxidd_bdd_unref(counter_cube);
+    free(environment);
+    free(counter_next);
+    free(next_state);
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+    continue;
+
+  environment_failed:
+    for (uint32_t i = 0; i < ck->nu; i++)
+      oxidd_bdd_unref(environment[i]);
+    for (uint32_t i = 0; i < ck->nfair_disj; i++)
+      oxidd_bdd_unref(counter_next[i]);
+    for (uint32_t s = 0; s < ck->nstate; s++)
+      oxidd_bdd_unref(next_state[s]);
+    oxidd_bdd_unref(counter_cube);
+    free(environment);
+    free(counter_next);
+    free(next_state);
+    return CHECK_CERT_FAILED;
+
+  environment_unknown:
+    for (uint32_t i = 0; i < ck->nu; i++)
+      oxidd_bdd_unref(environment[i]);
+    for (uint32_t i = 0; i < ck->nfair_disj; i++)
+      oxidd_bdd_unref(counter_next[i]);
+    oxidd_bdd_unref(counter_cube);
+    free(environment);
+    free(counter_next);
+    free(next_state);
+    return CHECK_UNKNOWN;
+  }
+  return CHECK_VERIFIED;
+}
+
 static CheckResult check_certificate_mode(Checker *ck) {
+  if (ck->environment)
+    return check_environment_certificate_mode(ck);
   CheckResult shape = validate_certificate_predicates(ck);
   if (shape != CHECK_VERIFIED)
     return shape;
@@ -1608,7 +2210,7 @@ static Bdd initial_cube(Checker *ck) {
     bdd_and_into(ck, &initial, literal);
     oxidd_bdd_unref(literal);
   }
-  for (uint32_t j = 0; j < ck->ngoals; j++) {
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
     Bdd literal = oxidd_bdd_not(ck->q[ck->nstate + j]);
     bdd_and_into(ck, &initial, literal);
     oxidd_bdd_unref(literal);
@@ -1680,7 +2282,202 @@ static Bdd post_image(Checker *ck, Bdd states, Bdd relation, Bdd quantify,
   return result;
 }
 
+static Bdd pre_exists_safe(Checker *ck, Bdd target, const Bdd *next, Bdd bad,
+                           Bdd control_cube) {
+  oxidd_bdd_substitution_t *sub = oxidd_bdd_substitution_new(ck->nq);
+  if (!sub)
+    return (Bdd){0};
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_substitution_add_pair(sub, ck->qvar[q], next[q]);
+  Bdd image = oxidd_bdd_substitute(target, sub);
+  oxidd_bdd_substitution_free(sub);
+  Bdd not_bad = oxidd_bdd_not(bad);
+  Bdd safe_image = oxidd_bdd_and(not_bad, image);
+  oxidd_bdd_unref(not_bad);
+  oxidd_bdd_unref(image);
+  Bdd result = oxidd_bdd_exists(safe_image, control_cube);
+  oxidd_bdd_unref(safe_image);
+  return result;
+}
+
+static CheckResult check_environment_closed_loop_mode(Checker *ck) {
+  oxidd_bdd_substitution_t *usub =
+      environment_substitution(ck, ck->policy_control);
+  if (ck->nu && !usub)
+    return CHECK_UNKNOWN;
+  Bdd *next = calloc(ck->nq, sizeof *next);
+  if (!next) {
+    oxidd_bdd_substitution_free(usub);
+    return CHECK_UNKNOWN;
+  }
+  for (uint32_t s = 0; s < ck->nstate; s++)
+    next[s] = usub ? oxidd_bdd_substitute(ck->game_next[s], usub)
+                   : oxidd_bdd_ref(ck->game_next[s]);
+  for (uint32_t i = 0; i < ck->ncounter; i++)
+    next[ck->nstate + i] = oxidd_bdd_ref(ck->policy_curr_next[i]);
+  Bdd bad = usub ? oxidd_bdd_substitute(ck->game_bad, usub)
+                 : oxidd_bdd_ref(ck->game_bad);
+  if (usub)
+    oxidd_bdd_substitution_free(usub);
+
+  Bdd relation = build_relation(ck, next);
+  Bdd not_bad = oxidd_bdd_not(bad);
+  bdd_and_into(ck, &relation, not_bad);
+  oxidd_bdd_unref(not_bad);
+  uint32_t *quant_vars = calloc((size_t)ck->nq + ck->nc, sizeof *quant_vars);
+  if (!quant_vars)
+    goto unknown;
+  memcpy(quant_vars, ck->qvar, ck->nq * sizeof *quant_vars);
+  memcpy(quant_vars + ck->nq, ck->cvar, ck->nc * sizeof *quant_vars);
+  Bdd quantify = cube_of(ck->manager, quant_vars, ck->nq + ck->nc);
+  free(quant_vars);
+  Bdd control_cube = cube_of(ck->manager, ck->cvar, ck->nc);
+  oxidd_bdd_substitution_t *rename = oxidd_bdd_substitution_new(ck->nq);
+  if (!rename)
+    goto unknown_with_cubes;
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_substitution_add_pair(rename, ck->qpvar[q], ck->q[q]);
+
+  Bdd reachable = initial_cube(ck);
+  for (;;) {
+    Bdd post = post_image(ck, reachable, relation, quantify, rename);
+    Bdd expanded = oxidd_bdd_or(reachable, post);
+    oxidd_bdd_unref(post);
+    bool done = checked_bdd_eq(ck, expanded, reachable);
+    oxidd_bdd_unref(reachable);
+    reachable = expanded;
+    if (done || ck->bdd_failed || timed_out(ck))
+      break;
+  }
+  if (ck->bdd_failed || timed_out(ck))
+    goto unknown_reachable;
+
+  // A safe infinite path that eventually avoids one fairness assumption
+  // satisfies the original implication vacuously and refutes the purported
+  // environment counter-strategy.
+  for (uint32_t i = 0; i < ck->nfair; i++) {
+    Bdd not_fair = oxidd_bdd_not(ck->fair[i]);
+    Bdd allowed = oxidd_bdd_and(reachable, not_fair);
+    oxidd_bdd_unref(not_fair);
+    Bdd z = oxidd_bdd_ref(allowed);
+    for (;;) {
+      Bdd pre = pre_exists_safe(ck, z, next, bad, control_cube);
+      Bdd next_z = oxidd_bdd_and(allowed, pre);
+      oxidd_bdd_unref(pre);
+      bool done = checked_bdd_eq(ck, next_z, z);
+      oxidd_bdd_unref(z);
+      z = next_z;
+      if (done || ck->bdd_failed || timed_out(ck))
+        break;
+    }
+    oxidd_bdd_unref(allowed);
+    if (ck->bdd_failed || timed_out(ck)) {
+      oxidd_bdd_unref(z);
+      goto unknown_reachable;
+    }
+    if (checked_satisfiable(ck, z)) {
+      print_counterexample(ck, "safe cycle violates environment fairness", z,
+                           nullptr);
+      oxidd_bdd_unref(z);
+      goto refuted;
+    }
+    oxidd_bdd_unref(z);
+  }
+
+  // Otherwise the system refutes the counter-strategy exactly when it has a
+  // safe generalized-Buchi path visiting every fairness and every justice set.
+  Bdd z = oxidd_bdd_ref(reachable);
+  for (;;) {
+    Bdd new_z = oxidd_bdd_ref(reachable);
+    uint32_t acceptance_count = ck->nfair + ck->ngoals;
+    for (uint32_t a = 0; a < acceptance_count; a++) {
+      Bdd acceptance = a < ck->nfair ? oxidd_bdd_ref(ck->fair[a])
+                                     : oxidd_bdd_ref(ck->goal[a - ck->nfair]);
+      Bdd y = oxidd_bdd_false(ck->manager);
+      for (;;) {
+        Bdd pre_z = pre_exists_safe(ck, z, next, bad, control_cube);
+        Bdd hit = oxidd_bdd_and(acceptance, pre_z);
+        Bdd pre_y = pre_exists_safe(ck, y, next, bad, control_cube);
+        Bdd next_y = oxidd_bdd_or(hit, pre_y);
+        bdd_and_into(ck, &next_y, reachable);
+        oxidd_bdd_unref(pre_z);
+        oxidd_bdd_unref(hit);
+        oxidd_bdd_unref(pre_y);
+        bool done = checked_bdd_eq(ck, next_y, y);
+        oxidd_bdd_unref(y);
+        y = next_y;
+        if (done || ck->bdd_failed || timed_out(ck))
+          break;
+      }
+      oxidd_bdd_unref(acceptance);
+      if (ck->bdd_failed || timed_out(ck)) {
+        oxidd_bdd_unref(y);
+        oxidd_bdd_unref(new_z);
+        oxidd_bdd_unref(z);
+        goto unknown_reachable;
+      }
+      bdd_and_into(ck, &new_z, y);
+      oxidd_bdd_unref(y);
+    }
+    bool done = checked_bdd_eq(ck, new_z, z);
+    oxidd_bdd_unref(z);
+    z = new_z;
+    if (done || ck->bdd_failed || timed_out(ck))
+      break;
+  }
+  if (ck->bdd_failed || timed_out(ck)) {
+    oxidd_bdd_unref(z);
+    goto unknown_reachable;
+  }
+  if (checked_satisfiable(ck, z)) {
+    print_counterexample(ck, "safe fair cycle satisfies every justice", z,
+                         nullptr);
+    oxidd_bdd_unref(z);
+    goto refuted;
+  }
+  oxidd_bdd_unref(z);
+
+  oxidd_bdd_unref(reachable);
+  oxidd_bdd_substitution_free(rename);
+  oxidd_bdd_unref(control_cube);
+  oxidd_bdd_unref(quantify);
+  oxidd_bdd_unref(relation);
+  oxidd_bdd_unref(bad);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return CHECK_VERIFIED;
+
+refuted:
+  oxidd_bdd_unref(reachable);
+  oxidd_bdd_substitution_free(rename);
+  oxidd_bdd_unref(control_cube);
+  oxidd_bdd_unref(quantify);
+  oxidd_bdd_unref(relation);
+  oxidd_bdd_unref(bad);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return CHECK_REFUTED;
+
+unknown_reachable:
+  oxidd_bdd_unref(reachable);
+  oxidd_bdd_substitution_free(rename);
+unknown_with_cubes:
+  oxidd_bdd_unref(control_cube);
+  oxidd_bdd_unref(quantify);
+unknown:
+  oxidd_bdd_unref(relation);
+  oxidd_bdd_unref(bad);
+  for (uint32_t q = 0; q < ck->nq; q++)
+    oxidd_bdd_unref(next[q]);
+  free(next);
+  return CHECK_UNKNOWN;
+}
+
 static CheckResult check_closed_loop_mode(Checker *ck) {
+  if (ck->environment)
+    return check_environment_closed_loop_mode(ck);
   Bdd *next = nullptr;
   Bdd bad = {0};
   if (!build_closed_loop(ck, &next, &bad))
@@ -2030,7 +2827,7 @@ static void write_counterexample_json(FILE *out, const Checker *ck,
   }
   fputs("},\n        \"curr\": {", out);
   first = true;
-  for (uint32_t j = 0; j < ck->ngoals; j++) {
+  for (uint32_t j = 0; j < ck->ncounter; j++) {
     char name[64];
     snprintf(name, sizeof name, "curr_%u", j);
     json_named_value(out, &first, name, counterexample->curr[j]);
@@ -2137,10 +2934,27 @@ static void cleanup(Checker *ck) {
       free(ck->rank[j].y);
     }
   free(ck->rank);
+  if (ck->dual_rank)
+    for (uint32_t k = 0; k < ck->ndual_levels; k++) {
+      oxidd_bdd_unref(ck->dual_rank[k].z);
+      for (uint32_t j = 0; j < ck->ngoals; j++) {
+        oxidd_bdd_unref(ck->dual_rank[k].y[j]);
+        for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+          DualInnerRank *inner =
+              &ck->dual_rank[k].inner[(size_t)j * ck->nfair_disj + i];
+          for (uint32_t l = 0; l < inner->levels; l++)
+            oxidd_bdd_unref(inner->x[l]);
+          free(inner->x);
+        }
+      }
+      free(ck->dual_rank[k].y);
+      free(ck->dual_rank[k].inner);
+    }
+  free(ck->dual_rank);
   oxidd_bdd_unref(ck->cert_inv);
-  for (uint32_t i = 0; i < ck->nc; i++)
+  for (uint32_t i = 0; i < ck->npolicy_choices; i++)
     oxidd_bdd_unref(ck->policy_control ? ck->policy_control[i] : (Bdd){0});
-  for (uint32_t j = 0; j < ck->ngoals; j++)
+  for (uint32_t j = 0; j < ck->ncounter; j++)
     oxidd_bdd_unref(ck->policy_curr_next ? ck->policy_curr_next[j] : (Bdd){0});
   for (uint32_t s = 0; s < ck->nstate; s++)
     oxidd_bdd_unref(ck->game_next ? ck->game_next[s] : (Bdd){0});
@@ -2150,6 +2964,8 @@ static void cleanup(Checker *ck) {
     oxidd_bdd_unref(ck->cert_goal ? ck->cert_goal[j] : (Bdd){0});
   for (uint32_t i = 0; i < ck->nfair; i++)
     oxidd_bdd_unref(ck->fair ? ck->fair[i] : (Bdd){0});
+  for (uint32_t i = 0; i < ck->nfair; i++)
+    oxidd_bdd_unref(ck->cert_fair ? ck->cert_fair[i] : (Bdd){0});
   oxidd_bdd_unref(ck->game_bad);
   oxidd_bdd_unref(ck->input_cube);
   for (uint32_t q = 0; q < ck->nq; q++) {
@@ -2166,6 +2982,7 @@ static void cleanup(Checker *ck) {
   free(ck->goal);
   free(ck->cert_goal);
   free(ck->fair);
+  free(ck->cert_fair);
   free(ck->qvar);
   free(ck->qpvar);
   free(ck->uvar);
@@ -2240,8 +3057,8 @@ int main(int argc, char **argv) {
   }
 
   bool interface_ok = validate_game_names(&ck, message, sizeof message) &&
-                      validate_policy_interface(&ck, message, sizeof message) &&
-                      validate_sidecars(&ck, message, sizeof message);
+                      validate_sidecars(&ck, message, sizeof message) &&
+                      validate_policy_interface(&ck, message, sizeof message);
   if (interface_ok && ck.certificate)
     interface_ok =
         validate_certificate_interface(&ck, &levels, message, sizeof message);

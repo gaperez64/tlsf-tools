@@ -238,6 +238,8 @@ def check_exact(model: SampledGame, fixpoint: Fixpoint,
     sidecar = certificate.sidecar
     assert sidecar["status"] == ("realizable" if expected_real
                                  else "unrealizable")
+    assert sidecar["side"] == ("system" if expected_real else "environment")
+    assert sidecar["reduction_semantics"] == "exact"
     assert sidecar["counts"]["goals"] == len(fixpoint.goals)
     assert sidecar["counts"]["fairness_assumptions"] == len(fixpoint.fairness)
     assert sidecar["counts"]["levels_per_goal"] == [
@@ -593,13 +595,15 @@ def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
                 f"game {index}: solver status {result.returncode}, "
                 f"expected {'REAL' if expected_real else 'UNREAL'}: "
                 f"{result.stderr}")
-        certificate = Certificate(cert_aag, sidecar)
-        exact_checks += check_exact(model, fixpoint, certificate, expected_real)
         input_acceptance += bool(model.samples)
         if not expected_real:
             unreal += 1
-            assert sidecar["environment_counter_strategy_exported"] is False
+            assert sidecar["side"] == "environment"
+            assert sidecar["reduction_semantics"] == "exact"
+            assert sidecar["environment_counter_strategy_exported"] is True
             continue
+        certificate = Certificate(cert_aag, sidecar)
+        exact_checks += check_exact(model, fixpoint, certificate, expected_real)
         real += 1
         one_step_checks += check_one_step(model, certificate, result.stdout)
 
