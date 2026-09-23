@@ -133,13 +133,100 @@ def append_output_chain(text: str, name: str, count: int, *,
     return "\n".join(lines) + "\n"
 
 
+def xor_output_in_counter_mode(text: str, name: str, mode: int) -> str:
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, ni, nl, _no, na = header[:5]
+    if nl:
+        raise AssertionError("policy mutation expects a combinational AAG")
+    input_names = {}
+    for line in lines[symbol_start:]:
+        if line == "c":
+            break
+        if line.startswith("i"):
+            label, input_name = line.split(maxsplit=1)
+            input_names[input_name] = int(label[1:])
+    counters = sorted(
+        ((int(input_name.removeprefix("curr_")), index)
+         for input_name, index in input_names.items()
+         if input_name.startswith("curr_")))
+    if not counters:
+        raise AssertionError("policy has no counter inputs")
+    gates = []
+
+    def land(left: int, right: int) -> int:
+        nonlocal maxvar
+        maxvar += 1
+        literal = 2 * maxvar
+        gates.append(f"{literal} {left} {right}")
+        return literal
+
+    cube = 1
+    for counter, index in counters:
+        literal = int(lines[1 + index])
+        atom = literal if counter == mode else literal ^ 1
+        cube = atom if cube == 1 else land(cube, atom)
+    output_line = output_start + names[name]
+    old = int(lines[output_line])
+    left = land(old, cube ^ 1)
+    right = land(old ^ 1, cube)
+    lines[output_line] = str(land(left ^ 1, right ^ 1) ^ 1)
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
+def wrap_output_in_selectors(text: str, name: str, repetitions: int) -> str:
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, _ni, _nl, _no, na = header[:5]
+    input_names = {}
+    for line in lines[symbol_start:]:
+        if line == "c":
+            break
+        if line.startswith("i"):
+            label, input_name = line.split(maxsplit=1)
+            input_names[input_name] = int(label[1:])
+    counter_name = min(name for name in input_names
+                       if name.startswith("curr_"))
+    selector = int(lines[1 + input_names[counter_name]])
+    current = int(lines[output_start + names[name]])
+    gates = []
+
+    def land(left: int, right: int) -> int:
+        nonlocal maxvar
+        maxvar += 1
+        literal = 2 * maxvar
+        gates.append(f"{literal} {left} {right}")
+        return literal
+
+    for _ in range(repetitions):
+        positive = land(current, selector)
+        negative = land(current, selector ^ 1)
+        current = land(positive ^ 1, negative ^ 1) ^ 1
+    lines[output_start + names[name]] = str(current)
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
 def checker_stats(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
     line = next((line for line in result.stderr.splitlines()
                  if line.startswith("TLSFCERTCHECK_STATS ")), None)
     if line is None:
         raise AssertionError(f"checker did not emit --stats output: {result}")
+    integer_names = (
+        "aig_gates_visited|requested_roots|peak_live_nodes_sample|"
+        "policy_mode_builds|policy_counter_constants|"
+        "policy_specialized_gates|policy_unspecialized_gates")
     return {name: int(value) for name, value in re.findall(
-        r"(aig_gates_visited|requested_roots)=([0-9]+)", line)}
+        rf"({integer_names})=([0-9]+)", line)}
 
 
 def policy_analysis_explicit(game_text: str, policy_text: str):
@@ -424,6 +511,75 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "random suite did not expose a losing single-letter mutation")
 
+        # Keep the former post-compilation restrict path as a hidden oracle.
+        # It must agree with direct constant-input compilation on a genuine
+        # certificate and on an all-zero-only policy mutation.
+        game, policy, cert, sidecar = rank_seed
+        genuine_specialized = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate")
+        genuine_oracle = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate", "--test-unspecialized-policy")
+        if genuine_specialized.returncode != genuine_oracle.returncode:
+            raise AssertionError(
+                "specialized/unspecialized genuine status mismatch:\n"
+                f"{genuine_specialized.stdout}{genuine_oracle.stdout}")
+        policy_text = policy.read_text(encoding="utf-8")
+        policy_outputs = output_literals(policy_text)
+        all_zero_agreement = 0
+        for output_name in policy_outputs:
+            candidate_text = xor_output_in_counter_mode(
+                policy_text, output_name, -1)
+            candidate = root / f"policy-all-zero-{output_name}.aag"
+            candidate.write_text(candidate_text, encoding="utf-8")
+            pathlib.Path(str(candidate) + ".json").write_text(
+                pathlib.Path(str(policy) + ".json").read_text(
+                    encoding="utf-8"), encoding="utf-8")
+            specialized = run_checker(
+                checker, game, candidate, "--certificate", str(cert),
+                "--method", "certificate")
+            oracle = run_checker(
+                checker, game, candidate, "--certificate", str(cert),
+                "--method", "certificate", "--test-unspecialized-policy")
+            if specialized.returncode != oracle.returncode:
+                raise AssertionError(
+                    "all-zero specialized/oracle status mismatch for "
+                    f"{output_name}:\n{specialized.stdout}{oracle.stdout}")
+            if oracle.returncode == 6:
+                all_zero_agreement = 1
+                break
+        if not all_zero_agreement:
+            raise AssertionError("no all-zero-only policy mutation was rejected")
+
+        # A large semantically redundant selector stresses the policy cone.
+        # The diagnostics prove every specialized build received counter
+        # constants and that certificate-only checking built no full policy.
+        control_name = next(name for name in policy_outputs
+                            if not name.startswith("curr_next_"))
+        selector = root / "policy-large-counter-selector.aag"
+        selector.write_text(wrap_output_in_selectors(
+            policy_text, control_name, 512), encoding="utf-8")
+        pathlib.Path(str(selector) + ".json").write_text(
+            pathlib.Path(str(policy) + ".json").read_text(encoding="utf-8"),
+            encoding="utf-8")
+        selector_result = run_checker(
+            checker, game, selector, "--certificate", str(cert), "--method",
+            "certificate", "--stats")
+        if selector_result.returncode != 0:
+            raise AssertionError(
+                "equivalent large selector was not verified:\n"
+                f"{selector_result.stdout}{selector_result.stderr}")
+        selector_stats = checker_stats(selector_result)
+        goal_count = sidecar["counts"]["goals"]
+        if (selector_stats.get("policy_mode_builds") != goal_count + 1
+                or selector_stats.get("policy_counter_constants")
+                != (goal_count + 1) * goal_count
+                or selector_stats.get("policy_unspecialized_gates") != 0):
+            raise AssertionError(
+                f"selector was not built from per-mode constants: "
+                f"{selector_stats}")
+
         # move_* remains part of the certificate interface, but fixed-policy
         # checking does not use it as a premise.  An exclusive large cone must
         # therefore add no visited gates.  Structural validation is separate:
@@ -549,6 +705,14 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                 raise AssertionError(
                     f"{label} did not report CERT_FAILED:\n"
                     f"{cert_only.stdout}{cert_only.stderr}")
+            cert_oracle = run_checker(
+                checker, mutation_game, mutation_policy, "--certificate",
+                str(mutated), "--certificate-json", str(mutated_json),
+                "--method", "certificate", "--test-unspecialized-policy")
+            if cert_oracle.returncode != cert_only.returncode:
+                raise AssertionError(
+                    f"{label} specialized/oracle status mismatch:\n"
+                    f"{cert_only.stdout}{cert_oracle.stdout}")
             closed = run_checker(
                 checker, mutation_game, mutation_policy,
                 "--method", "closed-loop")
@@ -616,6 +780,16 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "counter mutation disagreed with explicit oracle:\n"
                 f"{result.stdout}{result.stderr}")
+        counter_specialized = run_checker(
+            checker, game, broken_counter, "--certificate", str(cert),
+            "--method", "certificate")
+        counter_oracle = run_checker(
+            checker, game, broken_counter, "--certificate", str(cert),
+            "--method", "certificate", "--test-unspecialized-policy")
+        if counter_specialized.returncode != counter_oracle.returncode:
+            raise AssertionError(
+                "counter-update specialized/oracle status mismatch:\n"
+                f"{counter_specialized.stdout}{counter_oracle.stdout}")
 
         # A certificate from a different state dimension must fail before any
         # proof check, even if output names happen to overlap.
@@ -680,6 +854,8 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         "default_output_unchanged": default_output_unchanged,
         "unused_move_cones_skipped": 1,
         "malformed_unused_cones_invalid": 1,
+        "specialized_policy_oracle_agreements": 8,
+        "large_selector_constant_modes": 1,
     }
 
 

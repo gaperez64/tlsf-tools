@@ -107,6 +107,7 @@ typedef struct {
   double timeout;
   size_t node_cap;
   bool stats;
+  bool test_unspecialized_policy;
 } Options;
 
 typedef struct {
@@ -136,7 +137,8 @@ typedef struct {
   OxiddRun run;
   double started;
   double setup_seconds, proof_seconds;
-  size_t requested_roots;
+  size_t requested_roots, policy_mode_builds, policy_counter_constants;
+  size_t policy_specialized_gates, policy_unspecialized_gates;
   size_t peak_nodes;
 } Checker;
 
@@ -237,6 +239,10 @@ static int parse_options(int argc, char **argv, Options *options,
     }
     if (!strcmp(argv[i], "--stats")) {
       options->stats = true;
+      continue;
+    }
+    if (!strcmp(argv[i], "--test-unspecialized-policy")) {
+      options->test_unspecialized_policy = true;
       continue;
     }
     const char **slot = nullptr;
@@ -1162,6 +1168,119 @@ static Bdd output_bdd(Checker *ck, const Aig *aig, const Compiled *compiled,
   return named_root(aig, compiled->root_by_output, compiled->roots, name);
 }
 
+static bool compile_policy_roots(Checker *ck, int mode, bool specialized,
+                                 Bdd *control, Bdd *counter_next) {
+  uint32_t ninputs = aig_num_inputs(ck->policy);
+  Bdd *inputs = calloc(ninputs, sizeof *inputs);
+  if (!inputs)
+    return false;
+  bool ok = true;
+  for (uint32_t p = 0; p < ninputs && ok; p++) {
+    const char *name = aig_input_name(ck->policy, p, nullptr);
+    bool found = false;
+    for (uint32_t j = 0; j < ck->nstate && !found; j++) {
+      char fallback[32];
+      const char *state_name =
+          latch_name(ck->game, j, fallback, sizeof fallback);
+      if (!strcmp(name, state_name)) {
+        inputs[p] = oxidd_bdd_ref(ck->q[j]);
+        found = true;
+      }
+    }
+    for (uint32_t j = 0; j < ck->ncounter && !found; j++) {
+      char counter[64];
+      snprintf(counter, sizeof counter, "curr_%u", j);
+      if (!strcmp(name, counter)) {
+        inputs[p] = specialized ? ((mode >= 0 && (uint32_t)mode == j)
+                                       ? oxidd_bdd_true(ck->manager)
+                                       : oxidd_bdd_false(ck->manager))
+                                : oxidd_bdd_ref(ck->q[ck->nstate + j]);
+        found = true;
+      }
+    }
+    for (uint32_t i = 0; i < ck->nu && !ck->environment && !found; i++) {
+      const char *input_name = aig_input_name(ck->game, ck->uinput[i], nullptr);
+      if (!strcmp(name, input_name)) {
+        inputs[p] = oxidd_bdd_ref(ck->u[i]);
+        found = true;
+      }
+    }
+    ok = found;
+  }
+  size_t count = (size_t)ck->npolicy_choices + ck->ncounter;
+  uint32_t *lits = ok ? calloc(count, sizeof *lits) : nullptr;
+  Bdd *roots = ok ? calloc(count, sizeof *roots) : nullptr;
+  ok = ok && lits && roots;
+  size_t root = 0;
+  for (uint32_t i = 0; i < ck->npolicy_choices && ok; i++) {
+    uint32_t game_input = ck->environment ? ck->uinput[i] : ck->cinput[i];
+    const char *name = aig_input_name(ck->game, game_input, nullptr);
+    lits[root++] = aig_output_lit(ck->policy, name);
+  }
+  char generated[96];
+  for (uint32_t j = 0; j < ck->ncounter && ok; j++) {
+    snprintf(generated, sizeof generated, "curr_next_%u", j);
+    lits[root++] = aig_output_lit(ck->policy, generated);
+  }
+  size_t gates_before = ck->run.built_gates;
+  if (ok)
+    ok = compile_aig_roots(ck, ck->policy, inputs, nullptr, lits, roots, count,
+                           specialized ? "checker_policy_mode"
+                                       : "checker_policy");
+  size_t built = ck->run.built_gates - gates_before;
+  if (specialized) {
+    ck->policy_mode_builds++;
+    ck->policy_counter_constants += ck->ncounter;
+    ck->policy_specialized_gates += built;
+  } else {
+    ck->policy_unspecialized_gates += built;
+  }
+  if (ok) {
+    root = 0;
+    for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
+      control[i] = roots[root];
+      roots[root++] = (Bdd){0};
+    }
+    for (uint32_t j = 0; j < ck->ncounter; j++) {
+      counter_next[j] = roots[root];
+      roots[root++] = (Bdd){0};
+    }
+  }
+  for (size_t i = 0; i < count; i++)
+    oxidd_bdd_unref(roots ? roots[i] : (Bdd){0});
+  for (uint32_t p = 0; p < ninputs; p++)
+    oxidd_bdd_unref(inputs[p]);
+  free(roots);
+  free(lits);
+  free(inputs);
+  return ok;
+}
+
+static bool ensure_full_policy(Checker *ck, char *message, size_t cap) {
+  if (ck->policy_curr_next)
+    return true;
+  ck->policy_control = ck->npolicy_choices ? calloc(ck->npolicy_choices,
+                                                    sizeof *ck->policy_control)
+                                           : nullptr;
+  ck->policy_curr_next = calloc(ck->ncounter, sizeof *ck->policy_curr_next);
+  if ((ck->npolicy_choices && !ck->policy_control) || !ck->policy_curr_next ||
+      !compile_policy_roots(ck, -1, false, ck->policy_control,
+                            ck->policy_curr_next)) {
+    for (uint32_t i = 0; i < ck->npolicy_choices; i++)
+      oxidd_bdd_unref(ck->policy_control ? ck->policy_control[i] : (Bdd){0});
+    for (uint32_t j = 0; j < ck->ncounter; j++)
+      oxidd_bdd_unref(ck->policy_curr_next ? ck->policy_curr_next[j]
+                                           : (Bdd){0});
+    free(ck->policy_control);
+    free(ck->policy_curr_next);
+    ck->policy_control = nullptr;
+    ck->policy_curr_next = nullptr;
+    snprintf(message, cap, "OxiDD capacity while compiling policy");
+    return false;
+  }
+  return true;
+}
+
 static void bdd_replace(Bdd *slot, Bdd value) {
   oxidd_bdd_unref(*slot);
   *slot = value;
@@ -1360,92 +1479,15 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
   }
   free(game_roots);
 
-  // Compile the unspecialized policy roots selected by the policy interface.
-  Bdd *policy_inputs =
-      calloc(aig_num_inputs(ck->policy), sizeof *policy_inputs);
-  if (!policy_inputs) {
-    snprintf(message, cap, "out of memory");
-    return false;
-  }
-  for (uint32_t p = 0; p < aig_num_inputs(ck->policy); p++) {
-    const char *name = aig_input_name(ck->policy, p, nullptr);
-    bool found = false;
-    for (uint32_t j = 0; j < ck->nstate && !found; j++) {
-      char fallback[32];
-      const char *state_name =
-          latch_name(ck->game, j, fallback, sizeof fallback);
-      if (!strcmp(name, state_name)) {
-        policy_inputs[p] = ck->q[j];
-        found = true;
-      }
-    }
-    for (uint32_t j = 0; j < ck->ncounter && !found; j++) {
-      char counter[64];
-      snprintf(counter, sizeof counter, "curr_%u", j);
-      if (!strcmp(name, counter)) {
-        policy_inputs[p] = ck->q[ck->nstate + j];
-        found = true;
-      }
-    }
-    for (uint32_t i = 0; i < ck->nu && !ck->environment && !found; i++) {
-      const char *input_name = aig_input_name(ck->game, ck->uinput[i], nullptr);
-      if (!strcmp(name, input_name)) {
-        policy_inputs[p] = ck->u[i];
-        found = true;
-      }
-    }
-  }
   ck->npolicy_choices = ck->environment ? ck->nu : ck->nc;
-  ck->policy_control = ck->npolicy_choices ? calloc(ck->npolicy_choices,
-                                                    sizeof *ck->policy_control)
-                                           : nullptr;
-  ck->policy_curr_next = calloc(ck->ncounter, sizeof *ck->policy_curr_next);
-  if ((ck->npolicy_choices && !ck->policy_control) || !ck->policy_curr_next) {
-    free(policy_inputs);
-    snprintf(message, cap, "out of memory");
+  bool need_full_policy =
+      ck->options.method == METHOD_CLOSED_LOOP ||
+      ck->options.method == METHOD_BOTH ||
+      (ck->options.method == METHOD_AUTO && !ck->certificate) ||
+      ck->options.test_unspecialized_policy;
+  if (need_full_policy && !ensure_full_policy(ck, message, cap))
     return false;
-  }
-  size_t policy_root_count = (size_t)ck->npolicy_choices + ck->ncounter;
-  uint32_t *policy_lits = calloc(policy_root_count, sizeof *policy_lits);
-  Bdd *policy_roots = calloc(policy_root_count, sizeof *policy_roots);
-  if (!policy_lits || !policy_roots) {
-    free(policy_inputs);
-    free(policy_lits);
-    free(policy_roots);
-    snprintf(message, cap, "out of memory");
-    return false;
-  }
   char generated[96];
-  root = 0;
-  for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
-    uint32_t game_input = ck->environment ? ck->uinput[i] : ck->cinput[i];
-    const char *name = aig_input_name(ck->game, game_input, nullptr);
-    policy_lits[root++] = aig_output_lit(ck->policy, name);
-  }
-  for (uint32_t j = 0; j < ck->ncounter; j++) {
-    snprintf(generated, sizeof generated, "curr_next_%u", j);
-    policy_lits[root++] = aig_output_lit(ck->policy, generated);
-  }
-  if (!compile_aig_roots(ck, ck->policy, policy_inputs, nullptr, policy_lits,
-                         policy_roots, policy_root_count, "checker_policy")) {
-    free(policy_inputs);
-    free(policy_lits);
-    free(policy_roots);
-    snprintf(message, cap, "OxiDD capacity while compiling policy");
-    return false;
-  }
-  free(policy_inputs);
-  free(policy_lits);
-  root = 0;
-  for (uint32_t i = 0; i < ck->npolicy_choices; i++) {
-    ck->policy_control[i] = policy_roots[root];
-    policy_roots[root++] = (Bdd){0};
-  }
-  for (uint32_t j = 0; j < ck->ncounter; j++) {
-    ck->policy_curr_next[j] = policy_roots[root];
-    policy_roots[root++] = (Bdd){0};
-  }
-  free(policy_roots);
 
   // Certificate predicates are compiled over independent state/u/c variables.
   // A closed-loop-only request still validates the supplied certificate above,
@@ -2028,10 +2070,19 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
       free(next_state);
       return CHECK_UNKNOWN;
     }
-    for (uint32_t i = 0; i < ck->nu; i++)
-      environment[i] = specialize(ck->policy_control[i], counter_cube);
-    for (uint32_t i = 0; i < ck->nfair_disj; i++)
-      counter_next[i] = specialize(ck->policy_curr_next[i], counter_cube);
+    if (ck->options.test_unspecialized_policy) {
+      for (uint32_t i = 0; i < ck->nu; i++)
+        environment[i] = specialize(ck->policy_control[i], counter_cube);
+      for (uint32_t i = 0; i < ck->nfair_disj; i++)
+        counter_next[i] = specialize(ck->policy_curr_next[i], counter_cube);
+    } else if (!compile_policy_roots(ck, mode, true, environment,
+                                     counter_next)) {
+      oxidd_bdd_unref(counter_cube);
+      free(environment);
+      free(counter_next);
+      free(next_state);
+      return CHECK_UNKNOWN;
+    }
     oxidd_bdd_substitution_t *usub = environment_substitution(ck, environment);
     if (ck->nu && !usub)
       goto environment_unknown;
@@ -2275,10 +2326,18 @@ static CheckResult check_certificate_mode(Checker *ck) {
       free(next_state);
       return CHECK_UNKNOWN;
     }
-    for (uint32_t i = 0; i < ck->nc; i++)
-      control[i] = specialize(ck->policy_control[i], counter_cube);
-    for (uint32_t j = 0; j < ck->ngoals; j++)
-      counter_next[j] = specialize(ck->policy_curr_next[j], counter_cube);
+    if (ck->options.test_unspecialized_policy) {
+      for (uint32_t i = 0; i < ck->nc; i++)
+        control[i] = specialize(ck->policy_control[i], counter_cube);
+      for (uint32_t j = 0; j < ck->ngoals; j++)
+        counter_next[j] = specialize(ck->policy_curr_next[j], counter_cube);
+    } else if (!compile_policy_roots(ck, mode, true, control, counter_next)) {
+      oxidd_bdd_unref(counter_cube);
+      free(control);
+      free(counter_next);
+      free(next_state);
+      return CHECK_UNKNOWN;
+    }
     oxidd_bdd_substitution_t *csub = control_substitution(ck, control);
     if (ck->nc && !csub) {
       for (uint32_t i = 0; i < ck->nc; i++)
@@ -3343,7 +3402,12 @@ int main(int argc, char **argv) {
   if (run_closed_loop) {
     double started = now_seconds();
     ck.current_counterexample = &closed_loop.counterexample;
-    closed_loop.result = check_closed_loop_mode(&ck);
+    if (!ensure_full_policy(&ck, message, sizeof message)) {
+      fprintf(stderr, "tlsfcertcheck: %s\n", message);
+      closed_loop.result = CHECK_UNKNOWN;
+    } else {
+      closed_loop.result = check_closed_loop_mode(&ck);
+    }
     closed_loop.seconds = now_seconds() - started;
     ck.proof_seconds += closed_loop.seconds;
     closed_loop.peak_nodes = ck.peak_nodes;
@@ -3375,7 +3439,11 @@ int main(int argc, char **argv) {
     exit_code = EXIT_REFUTED;
   } else if (certificate.result == CHECK_VERIFIED ||
              closed_loop.result == CHECK_VERIFIED) {
-    if (options.emit_path && !emit_controller(&ck, options.emit_path)) {
+    bool emitted = true;
+    if (options.emit_path)
+      emitted = ensure_full_policy(&ck, message, sizeof message) &&
+                emit_controller(&ck, options.emit_path);
+    if (!emitted) {
       printf("ERROR\n");
       fprintf(stderr, "tlsfcertcheck: cannot emit controller '%s'\n",
               options.emit_path);
@@ -3410,9 +3478,13 @@ finish:
     fprintf(stderr,
             "TLSFCERTCHECK_STATS aig_gates_visited=%zu requested_roots=%zu "
             "setup_seconds=%.9f proof_seconds=%.9f "
-            "peak_live_nodes_sample=%zu final_status=%s\n",
+            "peak_live_nodes_sample=%zu policy_mode_builds=%zu "
+            "policy_counter_constants=%zu policy_specialized_gates=%zu "
+            "policy_unspecialized_gates=%zu final_status=%s\n",
             ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
-            ck.proof_seconds, ck.peak_nodes, exit_name(exit_code));
+            ck.proof_seconds, ck.peak_nodes, ck.policy_mode_builds,
+            ck.policy_counter_constants, ck.policy_specialized_gates,
+            ck.policy_unspecialized_gates, exit_name(exit_code));
   counterexample_clear(&certificate.counterexample);
   counterexample_clear(&closed_loop.counterexample);
   cleanup(&ck);

@@ -154,10 +154,10 @@ def solve_export(solver: pathlib.Path, root: pathlib.Path, index: int,
 
 def checker(checker_path: pathlib.Path, game: pathlib.Path,
             policy: pathlib.Path, certificate: pathlib.Path,
-            method: str = "certificate"):
+            method: str = "certificate", *extra: str):
     return run([
         str(checker_path), "--certificate", str(certificate), "--method",
-        method, str(game), str(policy)
+        method, *extra, str(game), str(policy)
     ], (0, 1, 6))
 
 
@@ -197,6 +197,15 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             assert policy_sidecar["side"] == "environment"
             assert checker(checker_path, game, policy, certificate,
                            "both").returncode == 0
+            specialized = checker(
+                checker_path, game, policy, certificate, "certificate")
+            oracle = checker(
+                checker_path, game, policy, certificate, "certificate",
+                "--test-unspecialized-policy")
+            if specialized.returncode != oracle.returncode:
+                raise AssertionError(
+                    "environment specialized/oracle genuine mismatch:\n"
+                    f"{specialized.stdout}{oracle.stdout}")
             assert environment_policy_wins_explicit(
                 text, policy.read_text(), policy_sidecar)
             explicit += 1
@@ -262,6 +271,13 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             if verdict.returncode != 6:
                 raise AssertionError(
                     f"{label} mutation was not CERT_FAILED:\n{verdict.stdout}")
+            oracle = checker(
+                checker_path, game, policy, mutated, "certificate",
+                "--test-unspecialized-policy")
+            if oracle.returncode != verdict.returncode:
+                raise AssertionError(
+                    f"environment {label} specialized/oracle mismatch:\n"
+                    f"{verdict.stdout}{oracle.stdout}")
 
         (game, policy, certificate, _game_text, _policy_sidecar,
          losing_mutation) = policy_seed
@@ -272,6 +288,13 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             checker_path, game, mutated_policy, certificate, "certificate")
         if certificate_only.returncode != 6:
             raise AssertionError("policy mutation did not produce CERT_FAILED")
+        policy_oracle = checker(
+            checker_path, game, mutated_policy, certificate, "certificate",
+            "--test-unspecialized-policy")
+        if policy_oracle.returncode != certificate_only.returncode:
+            raise AssertionError(
+                "environment policy specialized/oracle mismatch:\n"
+                f"{certificate_only.stdout}{policy_oracle.stdout}")
         decided = checker(checker_path, game, mutated_policy, certificate,
                           "both")
         if decided.returncode != 1:
@@ -296,6 +319,7 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
         "rank_mutations_cert_failed": 1,
         "counterstrategy_mutations_refuted": 1,
         "strict_unreal_exports_refused": 1,
+        "specialized_policy_oracle_agreements": unreal + 3,
     }
 
 
