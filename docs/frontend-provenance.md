@@ -56,15 +56,21 @@ checks that the frontend SHA-256 equals the snapshot hash.
 
 ## Monitor game symbol namespace
 
-`gr1_monitor_game.py` writes every environment input as
-`uncontrollable_<TLSF name>` and every system output as
-`controllable_<TLSF name>` in the game AIG. This encoding is injective across
-roles, including TLSF names that already begin with either prefix or resemble
-monitor latches. Internal game symbols use neither prefix. Provenance signal
-records retain their TLSF `name` and include the encoded `game_symbol`.
-The solver and checker classify `controllable_` symbols as system moves;
-policy and certificate artifacts refer to the encoded game symbols.
-`tlsfcertcheck --emit-controller` restores the original TLSF input and output
-names. `verify_strategy_explicit.py` accepts standalone raw TLSF output names
-and game-prefixed strategy outputs by checking the complete interface.
+`gr1_monitor_game.py` assigns expanded environment inputs
+`uncontrollable_i<k>` and system outputs `controllable_o<k>`, where `k` is
+the zero-based order within that role's expanded declarations. The lowered
+LTL is tokenized according to the TLSF identifier alphabet, then its complete
+AP tokens are renamed before Spot parses it. Thus every AP in Spot, the AIG,
+policies, and certificates has a canonical structural name. TLSF spelling
+cannot change the game bytes or collide with monitor latches; the two role
+prefixes remain disjoint and internal symbols use neither prefix.
+
+For an AIG written with `--output game.aag`, the builder also writes
+`game.aag.symbols`. This map contains the exact game SHA-256 and ordered
+canonical-to-TLSF signal pairs. `tlsfcertcheck --emit-controller` validates
+that map against the game before restoring the original input and output
+names. Keep the map next to the game when exporting a controller. Provenance
+JSON retains the TLSF `name` and records the canonical `game_symbol` for each
+signal. `verify_strategy_explicit.py` accepts standalone raw TLSF output
+names and older game-prefixed outputs by checking the complete interface.
 Game AIG symbol bytes differ from previous versions.

@@ -26,6 +26,7 @@
 #include "tlsf/aiger.h"
 #include "tlsf/build_info.h"
 #include "tlsf/oxidd_common.h"
+#include "sha256.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -3814,11 +3815,111 @@ unknown:
   return CHECK_UNKNOWN;
 }
 
+static void free_export_names(char **names, uint32_t count) {
+  if (!names)
+    return;
+  for (uint32_t i = 0; i < count; i++)
+    free(names[i]);
+  free(names);
+}
+
+static char **load_export_names(const Checker *ck) {
+  char **names = calloc(ck->nin ? ck->nin : 1, sizeof *names);
+  if (!names)
+    return nullptr;
+  size_t path_size = strlen(ck->options.game_path) + sizeof ".symbols";
+  char *path = malloc(path_size);
+  if (!path)
+    goto fail;
+  snprintf(path, path_size, "%s.symbols", ck->options.game_path);
+  FILE *map = fopen(path, "r");
+  free(path);
+  if (!map) {
+    /* Older games have their TLSF spelling directly in the AIG symbols. */
+    uint32_t ui = 0, ci = 0;
+    bool canonical = ck->nin != 0;
+    for (uint32_t p = 0; p < ck->nin; p++) {
+      const char *symbol = aig_input_name(ck->game, p, nullptr);
+      char expected[64];
+      if (is_controllable(symbol))
+        snprintf(expected, sizeof expected, "controllable_o%u", ci++);
+      else
+        snprintf(expected, sizeof expected, "uncontrollable_i%u", ui++);
+      if (strcmp(symbol, expected))
+        canonical = false;
+    }
+    if (canonical)
+      goto fail;
+    for (uint32_t p = 0; p < ck->nin; p++) {
+      const char *symbol = aig_input_name(ck->game, p, nullptr);
+      const char *prefix =
+          is_controllable(symbol) ? CONTROLLABLE_PREFIX : UNCONTROLLABLE_PREFIX;
+      if (!strncmp(symbol, prefix, strlen(prefix)))
+        symbol += strlen(prefix);
+      names[p] = strdup(symbol);
+      if (!names[p])
+        goto fail;
+    }
+    return names;
+  }
+  char *line = nullptr;
+  size_t capacity = 0;
+  char *game_text = read_text_file(ck->options.game_path);
+  char digest[65];
+  bool ok = game_text != nullptr;
+  if (ok)
+    sha256_hex(game_text, strlen(game_text), digest);
+  free(game_text);
+  ok = ok && getline(&line, &capacity, map) > 0 &&
+       !strcmp(line, "tlsf-tools.game-symbol-map.v1\n");
+  if (ok) {
+    ok = getline(&line, &capacity, map) == 65 && !strncmp(line, digest, 64) &&
+         line[64] == '\n';
+  }
+  for (uint32_t p = 0; ok && p < ck->nin; p++) {
+    if (getline(&line, &capacity, map) <= 0) {
+      ok = false;
+      break;
+    }
+    char *first = strchr(line, '\t');
+    char *second = first ? strchr(first + 1, '\t') : nullptr;
+    char *end = second ? strchr(second + 1, '\n') : nullptr;
+    const char *symbol = aig_input_name(ck->game, p, nullptr);
+    if (!first || !second || !end || end[1] != '\0' || first != line + 1 ||
+        line[0] != (is_controllable(symbol) ? 'O' : 'I')) {
+      ok = false;
+      break;
+    }
+    *second = '\0';
+    *end = '\0';
+    if (strcmp(first + 1, symbol) || !second[1]) {
+      ok = false;
+      break;
+    }
+    names[p] = strdup(second + 1);
+    ok = names[p] != nullptr;
+  }
+  if (ok)
+    ok = getline(&line, &capacity, map) == -1 && !ferror(map);
+  free(line);
+  fclose(map);
+  if (ok)
+    return names;
+fail:
+  free_export_names(names, ck->nin);
+  return nullptr;
+}
+
 static bool emit_controller(Checker *ck, const char *path) {
+  char **export_names = load_export_names(ck);
+  if (!export_names)
+    return false;
   Bdd *next = nullptr;
   Bdd bad = {0};
-  if (!build_closed_loop(ck, &next, &bad))
+  if (!build_closed_loop(ck, &next, &bad)) {
+    free_export_names(export_names, ck->nin);
     return false;
+  }
   oxidd_bdd_unref(bad);
   Aig *controller = aig_new();
   uint32_t *var2lit = malloc(ck->nvars * sizeof *var2lit);
@@ -3832,10 +3933,7 @@ static bool emit_controller(Checker *ck, const char *path) {
   for (uint32_t v = 0; v < ck->nvars; v++)
     var2lit[v] = UINT32_MAX;
   for (uint32_t i = 0; i < ck->nu; i++) {
-    const char *name = aig_input_name(ck->game, ck->uinput[i], nullptr);
-    if (strncmp(name, UNCONTROLLABLE_PREFIX, strlen(UNCONTROLLABLE_PREFIX)) ==
-        0)
-      name += strlen(UNCONTROLLABLE_PREFIX);
+    const char *name = export_names[ck->uinput[i]];
     var2lit[ck->uvar[i]] = aig_input(controller, name);
   }
   for (uint32_t s = 0; s < ck->nstate; s++) {
@@ -3855,8 +3953,7 @@ static bool emit_controller(Checker *ck, const char *path) {
   }
   Bdd2Aig conversion = {controller, var2lit, 0, ck->nvars, {0}, false};
   for (uint32_t i = 0; i < ck->nc; i++) {
-    const char *name = aig_input_name(ck->game, ck->cinput[i], nullptr);
-    name += strlen(CONTROLLABLE_PREFIX);
+    const char *name = export_names[ck->cinput[i]];
     aig_set_output(controller, name,
                    bdd2aig(&conversion, ck->policy_control[i]));
   }
@@ -3882,12 +3979,14 @@ static bool emit_controller(Checker *ck, const char *path) {
   for (uint32_t q = 0; q < ck->nq; q++)
     oxidd_bdd_unref(next[q]);
   free(next);
+  free_export_names(export_names, ck->nin);
   return ok;
 
 fail:
   for (uint32_t q = 0; q < ck->nq; q++)
     oxidd_bdd_unref(next[q]);
   free(next);
+  free_export_names(export_names, ck->nin);
   return false;
 }
 

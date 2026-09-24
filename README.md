@@ -154,11 +154,14 @@ strategy AAG to stdout;
 status 1 means proven unrealizable and writes `UNREALIZABLE` to stderr; status
 2 reports an input, usage, or internal OxiDD solver failure.
 
-Games emitted by `scripts/gr1_monitor_game.py` prefix TLSF environment inputs
-with `uncontrollable_` and TLSF system outputs with `controllable_`. These
-disjoint namespaces prevent TLSF names from changing game ownership or
-colliding with monitor latches. The game AIG symbol bytes changed with this
-encoding; `tlsfcertcheck --emit-controller` restores the original TLSF names.
+Games emitted by `scripts/gr1_monitor_game.py` name expanded environment
+inputs `uncontrollable_i0`, `uncontrollable_i1`, etc., and system outputs
+`controllable_o0`, `controllable_o1`, etc., in declaration order. This keeps
+the game AIG independent of TLSF signal spelling, including legal `@` and
+apostrophe identifiers. For `--output game.aag`, the builder writes
+`game.aag.symbols`, a SHA-256-bound map back to TLSF names. Keep this file
+beside the game for `tlsfcertcheck --emit-controller`; provenance JSON also
+contains each TLSF name and its canonical `game_symbol`.
 
 For a large, memory-hungry game, try the `fanin-dfs` variable order with a
 smaller cache:

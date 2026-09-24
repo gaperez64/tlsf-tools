@@ -7,13 +7,14 @@ reachable latch valuations by BFS over every uncontrollable input valuation,
 and builds a Spot automaton for the resulting closed-loop traces.  Every edge
 is labelled with the full input/output letter and every state is accepting.
 Language inclusion is checked by taking the product with an automaton for the
-negation of the original formula.
+negation of the original formula. The lowered formula shares the canonical AP
+tokenizer with the monitor builder so legal TLSF identifiers parse in Spot.
 
 Results and exit codes are ``VERIFIED`` (0), ``REFUTED`` (1), tool/runtime
 ``ERROR`` (2), ``UNKNOWN(state cap)`` (3), and ``INVALID`` (4).  INVALID means
 the strategy is malformed or its declared input/output partition is not
 exactly the expanded TLSF interface.  The construction is independent of
-gr1_monitor_game.py and is intended for strategies that Spot's AIGER reader
+monitor-game artifacts and is intended for strategies that Spot's AIGER reader
 cannot ingest because of its latch-count or structural assertions.
 """
 
@@ -25,6 +26,8 @@ import pathlib
 import subprocess
 import sys
 from collections import deque
+
+from gr1_monitor_game import canonical_signals, parse_canonical_ltl, tlsf_formula
 
 
 CONTROLLABLE_PREFIX = "controllable_"
@@ -276,7 +279,7 @@ def verify(circuit: ParsedAag, formula, state_cap: int, spot_module,
 
     input_names = circuit.input_names
     available = set(input_names) | set(output_names)
-    formula_aps = {str(ap) for ap in spot_module.atomic_prop_collect(formula)}
+    formula_aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
     missing = sorted(formula_aps - available)
     if missing:
         raise ValueError("formula APs missing from strategy symbols: "
@@ -358,7 +361,10 @@ def main(argv: list[str]) -> int:
             args.tlsf2tlsf, args.tlsfinfo, args.tlsf, args.param)
         output_names = validate_interface(circuit, expected_inputs,
                                           expected_outputs)
-        formula = spot.formula(_run_formula(args.tlsf2ltl, args.tlsf, args.param))
+        symbols = canonical_signals(expected_inputs, expected_outputs)
+        formula = tlsf_formula(parse_canonical_ltl(
+            _run_formula(args.tlsf2ltl, args.tlsf, args.param), symbols, spot),
+            symbols, spot)
         result, counterexample = verify(
             circuit, formula, args.state_cap, spot, buddy, output_names)
     except InvalidStrategy as exc:

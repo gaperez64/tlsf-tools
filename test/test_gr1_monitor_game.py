@@ -141,8 +141,8 @@ def lasso_accepts_encoded(monitor, aag_text, signal_names, prefix, loop):
 
     def step(current, valuation):
         bits = 0
-        for name in signal_names:
-            bit = name_to_bit.get(game.UNCONTROLLABLE_PREFIX + name)
+        for index, name in enumerate(signal_names):
+            bit = name_to_bit.get(f"uncontrollable_i{index}")
             assert bit is not None
             if valuation[name]:
                 bits |= 1 << bit
@@ -352,48 +352,91 @@ def test_snapshot_binding(args, directory):
 def test_symbol_namespace(args, directory):
     def build(source: pathlib.Path, label: str):
         target = directory / f"{label}.aag"
+        provenance = directory / f"{label}.json"
         run([args.python, args.builder, *tool_args(args),
-             "--output", str(target), str(source)], 0)
-        return target
+             "--output", str(target), "--provenance-out", str(provenance),
+             str(source)], 0)
+        return target, json.loads(provenance.read_text())
 
     # The original review case changed ownership when its input was renamed.
     for label, name in (("plain", "a"), ("renamed", "controllable_a")):
         source = directory / f"ownership-{label}.tlsf"
         source.write_text(tiny_tlsf("Mealy", "true;", f"G !{name};")
                           .replace("INPUTS { i; }", f"INPUTS {{ {name}; }}"))
-        target = build(source, f"ownership-{label}")
+        target, data = build(source, f"ownership-{label}")
         circuit = explicit.parse_aag(target.read_text())
-        assert circuit.input_names == [f"uncontrollable_{name}",
-                                       "controllable_o"]
+        assert circuit.input_names == ["uncontrollable_i0", "controllable_o0"]
+        assert data["inputs"][0]["name"] == name
         run([args.solver, "--game-profile=gr1", str(target)], 1)
 
-    names = ["i", "controllable_a", "monitor_0_state_0",
-             "assumption_safety_violated", "uncontrollable_i"]
-    output_names = ["o", "monitor_0_state_0", "assumption_safety_violated",
-                    "controllable_b", "uncontrollable_o"]
-    guarantees = ["G ({i} -> {o});", "G F {o};", "G {o};",
-                  "G (!{i} || {o});"]
-    checked = 0
-    for index in range(20):
-        input_name = names[index % len(names)]
-        output_name = output_names[(index // len(names)) % len(output_names)]
-        if output_name == input_name:
-            output_name += "_out"
-        clauses = [guarantees[index % 4], guarantees[(index + 1) % 4]]
-        for variant, (i_name, o_name) in enumerate(
-                ((input_name, output_name), (f"env_{index}", f"sys_{index}"))):
+    # The focused reviewer's three alpha-equivalent names all build and solve.
+    for label, name in (("baseline", "i"), ("at", "@"),
+                        ("prime", "a'")):
+        source = directory / f"odd-alpha-{label}.tlsf"
+        source.write_text(tiny_tlsf("Mealy", "true;", f"G ({name} -> o);")
+                          .replace("INPUTS { i; }", f"INPUTS {{ {name}; }}"))
+        target, data = build(source, f"odd-alpha-{label}")
+        assert data["inputs"][0]["game_symbol"] == "uncontrollable_i0"
+        assert data["inputs"][0]["name"] == name
+        assert data["source_origin_metadata"]["available"] is True
+        if label == "baseline":
+            baseline_bytes = target.read_bytes()
+        else:
+            assert target.read_bytes() == baseline_bytes
+        policy = directory / f"odd-alpha-{label}-policy.aag"
+        certificate = directory / f"odd-alpha-{label}-certificate.aag"
+        controller = directory / f"odd-alpha-{label}-controller.aag"
+        run([args.solver, "--game-profile=gr1", "--policy", str(policy),
+             "--certificate", str(certificate), str(target)], 0)
+        checked = run([args.checker, "--method", "certificate",
+                       "--certificate", str(certificate),
+                       "--emit-controller", str(controller),
+                       str(target), str(policy)], 0)
+        assert checked.stdout.splitlines()[-1] == "VERIFIED"
+        standalone = explicit.parse_aag(controller.read_text())
+        assert standalone.input_names == [name]
+        verified = run([args.python, args.verifier,
+                        "--tlsf2ltl", args.tlsf2ltl,
+                        "--tlsf2tlsf", args.tlsf2tlsf,
+                        "--tlsfinfo", args.tlsfinfo,
+                        "--tlsf", str(source),
+                        "--strategy", str(controller)], 0)
+        assert verified.stdout.strip() == "VERIFIED"
+
+    rng = random.Random(0x20260924)
+    names = ["@", "a'", "req@i", "val'", "controllable_x",
+             "uncontrollable_x", "monitor_0_state_0",
+             "assumption_safety_violated", "curr_0", "_", "_0",
+             "controllable_", "uncontrollable_", "x", "y"]
+    guarantees = ["G ({i} -> {o});", "G !{i};", "G {o};",
+                  "G ({i} -> X {o});", "G ({i} -> {o}); G !{o};",
+                  "G F {o};", "G !{i}; G {o};"]
+    verdict_counts = {0: 0, 1: 0}
+    for index in range(40):
+        edge_names = [("@", "a'"),
+                      ("controllable_x", "uncontrollable_x"),
+                      ("monitor_0_state_0", "assumption_safety_violated"),
+                      ("req@i", "val'")]
+        chosen = edge_names[index] if index < len(edge_names) else rng.sample(names, 2)
+        variants = (("i", "o"), tuple(chosen))
+        results = []
+        for variant, (i_name, o_name) in enumerate(variants):
             source = directory / f"generated-{index}-{variant}.tlsf"
-            formula = " ".join(clause.format(i=i_name, o=o_name)
-                               for clause in clauses)
+            formula = guarantees[index % len(guarantees)].format(
+                i=i_name, o=o_name)
             source.write_text(
                 tiny_tlsf("Mealy", "true;", formula)
                 .replace("INPUTS { i; }", f"INPUTS {{ {i_name}; }}")
                 .replace("OUTPUTS { o; }", f"OUTPUTS {{ {o_name}; }}"))
             label = f"generated-{index}-{variant}"
-            target = build(source, label)
+            target, data = build(source, label)
             circuit = explicit.parse_aag(target.read_text())
-            assert circuit.input_names == [f"uncontrollable_{i_name}",
-                                           f"controllable_{o_name}"]
+            assert circuit.input_names == ["uncontrollable_i0", "controllable_o0"]
+            assert [item["name"] for item in data["inputs"] + data["outputs"]] \
+                == [i_name, o_name]
+            assert [item["game_symbol"] for item in
+                    data["inputs"] + data["outputs"]] == circuit.input_names
+            assert data["source_origin_metadata"]["available"] is True
             symbols = [*circuit.input_names, *circuit.latch_names,
                        *circuit.output_names]
             assert len(symbols) == len(set(symbols))
@@ -402,19 +445,24 @@ def test_symbol_namespace(args, directory):
                        for name in circuit.latch_names)
             policy = directory / f"{label}-policy.aag"
             certificate = directory / f"{label}-certificate.aag"
-            run([args.solver, "--game-profile=gr1", "--policy", str(policy),
-                 "--certificate", str(certificate), str(target)], 0)
-            controller = directory / f"{label}-controller.aag"
+            solve = run([args.solver, "--game-profile=gr1", "--policy", str(policy),
+                         "--certificate", str(certificate), str(target)])
+            assert solve.returncode in (0, 1), solve.stderr
             checked_result = run(
                 [args.checker, "--method", "certificate",
                  "--certificate", str(certificate),
-                 "--emit-controller", str(controller),
                  str(target), str(policy)], 0)
             assert "VERIFIED" in checked_result.stdout
-            standalone = explicit.parse_aag(controller.read_text())
-            assert standalone.input_names == [i_name]
-            assert standalone.output_names == [o_name]
-            if index == 15 and variant == 0:
+            if solve.returncode == 0:
+                controller = directory / f"{label}-controller.aag"
+                run([args.checker, "--method", "certificate",
+                     "--certificate", str(certificate),
+                     "--emit-controller", str(controller),
+                     str(target), str(policy)], 0)
+                standalone = explicit.parse_aag(controller.read_text())
+                assert standalone.input_names == [i_name]
+                assert standalone.output_names == [o_name]
+            if index == 15 and variant == 0 and solve.returncode == 0:
                 verified = run(
                     [args.python, args.verifier,
                      "--tlsf2ltl", args.tlsf2ltl,
@@ -423,8 +471,12 @@ def test_symbol_namespace(args, directory):
                      "--tlsf", str(source),
                      "--strategy", str(controller)], 0)
                 assert verified.stdout.strip() == "VERIFIED"
-        checked += 1
-    assert checked >= 20
+            results.append((target.read_bytes(), solve.returncode,
+                            checked_result.stdout.splitlines()[-1]))
+        assert results[0] == results[1], (index,
+            results[0][0] == results[1][0], results[0][1:], results[1][1:])
+        verdict_counts[results[0][1]] += 1
+    assert all(verdict_counts.values())
 
 
 def test_rejections_and_semantics(args, directory):

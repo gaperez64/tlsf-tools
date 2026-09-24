@@ -439,7 +439,8 @@ if research_tools
 
     tlsfcertcheck_exe = executable(
       'tlsfcertcheck',
-      sources: ['src/main_tlsfcertcheck.c', 'src/oxidd_common.c',
+      sources: ['src/main_tlsfcertcheck.c', 'src/sha256.c',
+                'src/oxidd_common.c',
                 'src/oxidd_host.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],

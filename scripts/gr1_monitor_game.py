@@ -45,6 +45,44 @@ DBA_CLASSES = frozenset("BGSOR")
 SAFETY_CLASSES = frozenset("BS")
 CONTROLLABLE_PREFIX = "controllable_"
 UNCONTROLLABLE_PREFIX = "uncontrollable_"
+_LTL_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_@][A-Za-z0-9_\'@]*')
+
+
+def canonical_signals(inputs: list[str], outputs: list[str]) -> dict[str, str]:
+    """Assign names from the expanded interface order, independent of spelling."""
+    names = [*inputs, *outputs]
+    if len(names) != len(set(names)):
+        raise ValueError("expanded TLSF signal names are not unique")
+    return {**{name: f"uncontrollable_i{index}"
+               for index, name in enumerate(inputs)},
+            **{name: f"controllable_o{index}"
+               for index, name in enumerate(outputs)}}
+
+
+def canonicalize_ltl(text: str, symbols: dict[str, str]) -> str:
+    """Rewrite complete lexer tokens, including TLSF's @ and prime identifiers.
+
+    The lowering tool emits LTL syntax around bare TLSF AP tokens.  A quoted
+    AP is handled as one token as well, so neither substrings nor quoted text
+    can be accidentally changed.  Spot's AP inventory is checked after parse.
+    """
+    def replace(match: re.Match[str]) -> str:
+        token = match.group()
+        if token.startswith('"'):
+            name = json.loads(token)
+            return symbols.get(name, token)
+        return symbols.get(token, token)
+
+    return _LTL_TOKEN.sub(replace, text)
+
+
+def parse_canonical_ltl(text: str, symbols: dict[str, str], spot_module):
+    formula = spot_module.formula(canonicalize_ltl(text, symbols))
+    aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
+    unknown = aps - set(symbols.values())
+    if unknown:
+        raise ValueError(f"lowered formula has undeclared APs: {sorted(unknown)}")
+    return formula
 
 
 def default_tool(name: str) -> str:
@@ -337,20 +375,16 @@ def _transition_formula(aut, edge, spot_module):
 
 
 def encode_game(monitors: list[Monitor], inputs: list[str], outputs: list[str],
-                semantics: str, spot_module):
-    if len(set([*inputs, *outputs])) != len(inputs) + len(outputs):
-        raise ValueError("expanded TLSF signal names are not unique")
-    game_inputs = [*(UNCONTROLLABLE_PREFIX + name for name in inputs),
-                   *(CONTROLLABLE_PREFIX + name for name in outputs)]
+                semantics: str, spot_module,
+                symbols: dict[str, str] | None = None):
+    symbols = symbols or canonical_signals(inputs, outputs)
+    game_inputs = [symbols[name] for name in [*inputs, *outputs]]
     builder = AagBuilder(game_inputs)
-    # Spot labels use TLSF names; AIG symbols use the disjoint role namespace.
-    builder.input_literals = {
-        name: builder.game_input_literals[UNCONTROLLABLE_PREFIX + name]
-        for name in inputs
-    }
+    # Canonical APs are used by the game.  Raw aliases permit direct callers
+    # that build monitors from already parsed formulas to use this encoder.
     builder.input_literals.update({
-        name: builder.game_input_literals[CONTROLLABLE_PREFIX + name]
-        for name in outputs
+        name: builder.game_input_literals[symbol]
+        for name, symbol in symbols.items()
     })
     for monitor_index, monitor in enumerate(monitors):
         initial = monitor.automaton.get_init_state_number()
@@ -496,7 +530,7 @@ def _frontend_bus_inventory(signals: list[dict]) -> dict[str, list[tuple[str, tu
 
 
 def _structural_template(formula, signals: dict[str, dict], spot_module) -> str:
-    names = {str(ap) for ap in spot_module.atomic_prop_collect(formula)}
+    names = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
     ordered = sorted((signals[name] for name in names),
                      key=lambda item: (item["direction"],
                                        item["declaration_id"],
@@ -520,7 +554,7 @@ def _display_indices(indices: list[tuple[int, ...]]) -> list:
 
 
 def _monitor_support(formula, buses, spot_module) -> tuple[dict, str]:
-    aps = {str(ap) for ap in spot_module.atomic_prop_collect(formula)}
+    aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
     supported: dict[str, list[tuple[int, ...]]] = {}
     bus_aps: set[str] = set()
     bus_wide = False
@@ -549,6 +583,12 @@ def _replace_aps(formula, replacements: dict[str, object], spot_module):
     return spot_module.relabel_apply(formula, mapping)
 
 
+def tlsf_formula(formula, symbols: dict[str, str], spot_module):
+    return _replace_aps(
+        formula, {canonical: spot_module.formula.ap(original)
+                  for original, canonical in symbols.items()}, spot_module)
+
+
 def _eval_boolean(formula, valuation: dict[str, bool], spot_module) -> bool:
     kind = formula.kind()
     if formula.is_tt():
@@ -556,7 +596,7 @@ def _eval_boolean(formula, valuation: dict[str, bool], spot_module) -> bool:
     if formula.is_ff():
         return False
     if kind == spot_module.op_ap:
-        return valuation[str(formula)]
+        return valuation[formula.ap_name()]
     if kind == spot_module.op_Not:
         return not _eval_boolean(formula[0], valuation, spot_module)
     if kind == spot_module.op_And:
@@ -588,7 +628,7 @@ def _symmetric_signature(formula, buses, spot_module):
     if formula.kind() != spot_module.op_G or not formula[0].is_boolean():
         return None
     body = formula[0]
-    aps = {str(ap) for ap in spot_module.atomic_prop_collect(body)}
+    aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(body)}
     relevant = {
         base: members for base, members in buses.items()
         if any(name in aps for name, _index in members)
@@ -638,7 +678,18 @@ def _symmetric_signature(formula, buses, spot_module):
 def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
                semantics: str, violated_lit: int | None, spot_module,
                frontend: dict | None = None,
-               frontend_error: str | None = None) -> dict:
+               frontend_error: str | None = None,
+               symbols: dict[str, str] | None = None) -> dict:
+    if symbols is None:
+        try:
+            symbols = canonical_signals(inputs, outputs)
+        except ValueError:
+            # Direct provenance audits can inspect malformed inventories;
+            # the game builder itself rejects these before this point.
+            symbols = {name: f"uncontrollable_i{index}"
+                       for index, name in enumerate(inputs)}
+            symbols.update({name: f"controllable_o{index}"
+                            for index, name in enumerate(outputs)})
     frontend_signals = {}
     semantic_candidates: list[tuple[object, dict]] = []
     frontend_valid = False
@@ -664,7 +715,9 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
             frontend_signals = {item["name"]: item
                                 for item in frontend["signals"]}
             for item in frontend["conjuncts"]:
-                parsed = spot_module.formula(item["formula"])
+                parsed = tlsf_formula(
+                    parse_canonical_ltl(item["formula"], symbols, spot_module),
+                    symbols, spot_module)
                 if item["block"] in ("REQUIRE", "ASSERT"):
                     parsed = spot_module.formula.G(parsed)
                 semantic_candidates.append((parsed, item))
@@ -673,8 +726,7 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
         base, indices = split_signal_index(name)
         record = {"name": name, "base_name": base, "index_tuple": indices,
                   "provenance_source": "suffix-heuristic"}
-        record["game_symbol"] = ((UNCONTROLLABLE_PREFIX if name in inputs
-                                  else CONTROLLABLE_PREFIX) + name)
+        record["game_symbol"] = symbols[name]
         if frontend_valid:
             record.update(frontend_signals[name])
             record["base_name"] = record["source_name"]
@@ -790,6 +842,17 @@ def load_frontend_provenance(args, params: list[str], snapshot: pathlib.Path,
     return data
 
 
+def write_symbol_map(output: str, aag: str, inputs: list[str],
+                     outputs: list[str], symbols: dict[str, str]) -> None:
+    """Write the export map alongside a game, bound to its exact AAG bytes."""
+    lines = ["tlsf-tools.game-symbol-map.v1",
+             hashlib.sha256(aag.encode("utf-8")).hexdigest()]
+    lines += [f"I\t{symbols[name]}\t{name}" for name in inputs]
+    lines += [f"O\t{symbols[name]}\t{name}" for name in outputs]
+    pathlib.Path(output + ".symbols").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _run(command: list[str], *, input_text: str | None = None) -> str:
     proc = subprocess.run(command, input=input_text, text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -874,7 +937,17 @@ def _build_snapshot(args, spot, snapshot: pathlib.Path,
             "strict UNREALIZABLE result is not a sound UNREAL claim for the "
             "plain implication\n")
 
-    formula = spot.formula(lowered)
+    inputs = [name for name in inputs_text.split(",") if name]
+    outputs = [name for name in outputs_text.split(",") if name]
+    try:
+        symbols = canonical_signals(inputs, outputs)
+        formula = parse_canonical_ltl(lowered, symbols, spot)
+    except ValueError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return EXIT_UNSUPPORTED
+    except RuntimeError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return 2
     assume, guarantee = split_objective(formula, spot)
     monitors: list[Monitor] = []
     try:
@@ -889,11 +962,9 @@ def _build_snapshot(args, spot, snapshot: pathlib.Path,
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return 2
 
-    inputs = [name for name in inputs_text.split(",") if name]
-    outputs = [name for name in outputs_text.split(",") if name]
     try:
         aag, _builder, violated = encode_game(
-            monitors, inputs, outputs, args.semantics, spot)
+            monitors, inputs, outputs, args.semantics, spot, symbols)
     except ValueError as exc:
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return EXIT_UNSUPPORTED
@@ -904,6 +975,7 @@ def _build_snapshot(args, spot, snapshot: pathlib.Path,
 
     if args.output:
         pathlib.Path(args.output).write_text(aag, encoding="utf-8")
+        write_symbol_map(args.output, aag, inputs, outputs, symbols)
     else:
         sys.stdout.write(aag)
     if args.provenance_out:
@@ -915,8 +987,10 @@ def _build_snapshot(args, spot, snapshot: pathlib.Path,
         except (OSError, RuntimeError, ValueError, KeyError) as exc:
             frontend_error = f"frontend provenance unavailable: {exc}"
         data = provenance(
-            monitors, inputs, outputs, args.semantics, violated, spot,
-            frontend, frontend_error)
+            [dataclasses.replace(monitor, formula=tlsf_formula(
+                monitor.formula, symbols, spot)) for monitor in monitors],
+            inputs, outputs, args.semantics, violated, spot,
+            frontend, frontend_error, symbols)
         pathlib.Path(args.provenance_out).write_text(
             json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
