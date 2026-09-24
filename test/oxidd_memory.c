@@ -265,34 +265,39 @@ static void roots_and_retry(void) {
 
 static void roots_with_prebuilt_gate(void) {
   // Gate 16 is a retained boundary root.  Building output 20 must reuse it,
-  // skip both gates in its fanin cone, and consume every caller-owned map ref.
+  // skip both gates in its fanin cone, preserve positive and complemented
+  // aliases, and consume every caller-owned map ref.
   Aig *g = read_game("aag 10 2 0 1 3\n2\n4\n20\n"
-                     "12 2 4\n16 12 5\n20 16 2\n");
+                     "12 2 4\n16 12 2\n20 16 2\n");
   oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 256, 1);
   oxidd_bdd_manager_add_vars(m, 2);
   OxiddSolveOptions opts = oxidd_solve_options_default();
   OxiddRun r;
   oxidd_run_init(&r, m, &opts, 4096, 256);
   Bdd a = oxidd_bdd_var(m, 0), b = oxidd_bdd_var(m, 1);
-  Bdd ab = oxidd_bdd_and(a, b);
-  Bdd not_b = oxidd_bdd_not(b);
-  Bdd boundary = oxidd_bdd_and(ab, not_b);
+  Bdd boundary = oxidd_bdd_and(a, b);
+  Bdd not_boundary = oxidd_bdd_not(boundary);
   Bdd expected = oxidd_bdd_and(boundary, a);
-  oxidd_bdd_unref(ab);
-  oxidd_bdd_unref(not_b);
+  Bdd not_expected = oxidd_bdd_not(expected);
   Bdd map[11] = {0};
   map[1] = oxidd_bdd_ref(a);
   map[2] = oxidd_bdd_ref(b);
   map[8] = oxidd_bdd_ref(boundary);
-  uint32_t lit = 20;
-  Bdd root = {0};
-  CHECK(oxidd_build_roots(&r, g, map, 10, &lit, &root, 1));
+  uint32_t lits[] = {16, 17, 20, 21};
+  Bdd roots[4] = {0};
+  CHECK(oxidd_build_roots(&r, g, map, 10, lits, roots, 4));
   CHECK(r.built_gates == 1 && r.relevant_gates == 1);
-  CHECK(bdd_eq(root, expected));
+  CHECK(bdd_eq(roots[0], boundary));
+  CHECK(bdd_eq(roots[1], not_boundary));
+  CHECK(bdd_eq(roots[2], expected));
+  CHECK(bdd_eq(roots[3], not_expected));
   for (unsigned i = 0; i < 11; i++)
     CHECK(bdd_invalid(map[i]));
-  oxidd_bdd_unref(root);
+  for (unsigned i = 0; i < 4; i++)
+    oxidd_bdd_unref(roots[i]);
+  oxidd_bdd_unref(not_expected);
   oxidd_bdd_unref(expected);
+  oxidd_bdd_unref(not_boundary);
   oxidd_bdd_unref(boundary);
   oxidd_bdd_unref(a);
   oxidd_bdd_unref(b);

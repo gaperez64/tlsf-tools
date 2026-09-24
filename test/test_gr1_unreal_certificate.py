@@ -165,6 +165,7 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
               seed: int):
     rng = random.Random(seed)
     real = unreal = explicit = 0
+    small_cache_agreements = 0
     successor_rebuild_agreements = 0
     rank_seed = None
     policy_seed = None
@@ -185,6 +186,19 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
                 pathlib.Path(str(certificate) + ".json").read_text())
             policy_sidecar = json.loads(
                 pathlib.Path(str(policy) + ".json").read_text())
+            fixture_default = checker(
+                checker_path, game, policy, certificate, "certificate")
+            fixture_small_cache = checker(
+                checker_path, game, policy, certificate, "certificate",
+                "--cache-cap", checker_test.SMALL_CACHE_CAP)
+            if (fixture_default.returncode != 0
+                    or checker_test.checker_status(fixture_default)
+                    != checker_test.checker_status(fixture_small_cache)):
+                raise AssertionError(
+                    f"small-cache fixture mismatch at game {index}:\n"
+                    f"default: {fixture_default.stdout}"
+                    f"small: {fixture_small_cache.stdout}")
+            small_cache_agreements += 1
             if expected_real:
                 real += 1
                 assert cert_sidecar["side"] == "system"
@@ -198,8 +212,7 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             assert policy_sidecar["side"] == "environment"
             assert checker(checker_path, game, policy, certificate,
                            "both").returncode == 0
-            specialized = checker(
-                checker_path, game, policy, certificate, "certificate")
+            specialized = fixture_default
             oracle = checker(
                 checker_path, game, policy, certificate, "certificate",
                 "--test-unspecialized-policy")
@@ -386,6 +399,7 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
         "unused_system_winning_cones_skipped": 1,
         "malformed_unused_system_winning_cones_invalid": 1,
         "specialized_policy_oracle_agreements": unreal + 3,
+        "small_cache_fixture_agreements": small_cache_agreements,
         "successor_rebuild_oracle_agreements": successor_rebuild_agreements,
     }
 

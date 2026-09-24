@@ -105,7 +105,9 @@ typedef struct {
   const char *emit_path;
   Method method;
   double timeout;
-  size_t node_cap;
+  size_t node_cap, cache_cap;
+  size_t effective_node_cap, effective_cache_cap;
+  bool cache_cap_explicit;
   bool stats;
   bool test_unspecialized_policy;
   bool test_rebuild_successor;
@@ -182,30 +184,35 @@ static void update_peak(Checker *ck) {
 }
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] GAME POLICY\n"
-          "Check a combinational GR(1) policy without solving the game.\n"
-          "  --policy-json FILE       policy mapping sidecar (default "
-          "POLICY.json)\n"
-          "  --certificate FILE       M2 certificate AAG\n"
-          "  --certificate-json FILE  M2 sidecar (default CERTIFICATE.json)\n"
-          "  --method NAME            auto|certificate|closed-loop|both\n"
-          "  --json-out FILE          write tlsf-gr1-checkresult-v1 JSON\n"
-          "  --emit-controller FILE   emit the checked standalone controller\n"
-          "  --timeout SECONDS        return UNKNOWN after the soft deadline\n"
-          "  --node-cap N             OxiDD inner-node cap (default 16777216)\n"
-          "  --stats                  write construction/proof diagnostics to "
-          "stderr\n"
-          "Exit 0 VERIFIED, 1 REFUTED, 2 ERROR, 3 UNKNOWN, 4 INVALID,\n"
-          "     5 INTERNAL-ERROR (verified certificate contradicted by the "
-          "closed loop),\n"
-          "     6 CERT_FAILED (a form of UNKNOWN: the certificate does not "
-          "prove this policy;\n"
-          "       nothing is concluded about the policy itself).\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] GAME POLICY\n"
+      "Check a combinational GR(1) policy without solving the game.\n"
+      "  --policy-json FILE       policy mapping sidecar (default "
+      "POLICY.json)\n"
+      "  --certificate FILE       M2 certificate AAG\n"
+      "  --certificate-json FILE  M2 sidecar (default CERTIFICATE.json)\n"
+      "  --method NAME            auto|certificate|closed-loop|both\n"
+      "  --json-out FILE          write tlsf-gr1-checkresult-v1 JSON\n"
+      "  --emit-controller FILE   emit the checked standalone controller\n"
+      "  --timeout SECONDS        return UNKNOWN after the soft deadline\n"
+      "  --node-cap N             OxiDD inner-node cap (default 16777216)\n"
+      "  --cache-cap N            OxiDD apply-cache cap in entries (default "
+      "node cap)\n"
+      "  --stats                  write construction/proof diagnostics to "
+      "stderr\n"
+      "Exit 0 VERIFIED, 1 REFUTED, 2 ERROR, 3 UNKNOWN, 4 INVALID,\n"
+      "     5 INTERNAL-ERROR (verified certificate contradicted by the "
+      "closed loop),\n"
+      "     6 CERT_FAILED (a form of UNKNOWN: the certificate does not "
+      "prove this policy;\n"
+      "       nothing is concluded about the policy itself).\n",
+      prog);
 }
 
 static bool parse_u64(const char *text, uint64_t *value) {
+  if (!text || *text == '-' || *text == '\0')
+    return false;
   char *end = nullptr;
   errno = 0;
   unsigned long long parsed = strtoull(text, &end, 10);
@@ -213,6 +220,47 @@ static bool parse_u64(const char *text, uint64_t *value) {
     return false;
   *value = (uint64_t)parsed;
   return true;
+}
+
+static bool next_power_of_two(size_t value, size_t *result) {
+  size_t power = 1;
+  while (power < value) {
+    if (power > SIZE_MAX / 2)
+      return false;
+    power *= 2;
+  }
+  *result = power;
+  return true;
+}
+
+static bool effective_oxidd_node_capacity(size_t requested, size_t *effective) {
+  /*
+   * These are the allocation rules of the pinned OxiDD index manager:
+   * external/oxidd/crates/oxidd/src/bdd.rs:24-25 supplies two terminals,
+   * external/oxidd/crates/oxidd/src/util/mod.rs:240-246 requires the inner and
+   * terminal capacities to sum to at most 2^32, and
+   * external/oxidd/crates/oxidd-manager-index/src/manager.rs:2196-2205 clamps
+   * the allocation (to UINT32_MAX / 24 on a 32-bit host).
+   */
+  if (requested > (size_t)UINT32_MAX - 1)
+    return false;
+#if SIZE_MAX > UINT32_MAX
+  *effective = requested;
+#else
+  size_t allocation_limit = (size_t)UINT32_MAX / 24;
+  *effective = requested < allocation_limit ? requested : allocation_limit;
+#endif
+  return true;
+}
+
+static bool effective_oxidd_cache_capacity(size_t requested,
+                                           size_t *effective) {
+  /*
+   * The pinned direct-mapped cache rounds with checked_next_power_of_two():
+   * external/oxidd/crates/oxidd-cache/src/direct.rs:275-283.  Compute the
+   * identical result without crossing its panic boundary.
+   */
+  return requested && next_power_of_two(requested, effective);
 }
 
 static bool parse_double(const char *text, double *value) {
@@ -317,6 +365,17 @@ static int parse_options(int argc, char **argv, Options *options,
       options->node_cap = (size_t)cap;
       continue;
     }
+    if (!strcmp(argv[i], "--cache-cap")) {
+      uint64_t cap;
+      if (++i == argc || !parse_u64(argv[i], &cap) || cap == 0 ||
+          cap > SIZE_MAX) {
+        fprintf(stderr, "%s: invalid --cache-cap\n", argv[0]);
+        return -1;
+      }
+      options->cache_cap = (size_t)cap;
+      options->cache_cap_explicit = true;
+      continue;
+    }
     if (argv[i][0] == '-') {
       fprintf(stderr, "%s: unknown option '%s'\n", argv[0], argv[i]);
       return -1;
@@ -329,6 +388,40 @@ static int parse_options(int argc, char **argv, Options *options,
   }
   if (npos != 2) {
     usage(argv[0]);
+    return -1;
+  }
+  if (!options->cache_cap)
+    options->cache_cap = options->node_cap;
+  if (options->cache_cap_explicit &&
+      (options->cache_cap & (options->cache_cap - 1)) != 0) {
+    fprintf(stderr, "%s: invalid --cache-cap: must be a power of two\n",
+            argv[0]);
+    return -1;
+  }
+  if (options->cache_cap_explicit &&
+      options->cache_cap > (size_t)UINT32_MAX - 1) {
+    fprintf(stderr, "%s: invalid --cache-cap: exceeds OxiDD's capacity limit\n",
+            argv[0]);
+    return -1;
+  }
+  if (!effective_oxidd_node_capacity(options->node_cap,
+                                     &options->effective_node_cap)) {
+    fprintf(stderr, "%s: invalid --node-cap: exceeds OxiDD's capacity limit\n",
+            argv[0]);
+    return -1;
+  }
+  if (!effective_oxidd_cache_capacity(options->cache_cap,
+                                      &options->effective_cache_cap)) {
+    fprintf(stderr, "%s: invalid --%s-cap: exceeds OxiDD's cache limit\n",
+            argv[0], options->cache_cap_explicit ? "cache" : "node");
+    return -1;
+  }
+  if (options->cache_cap_explicit &&
+      options->effective_cache_cap > options->effective_node_cap) {
+    fprintf(stderr,
+            "%s: invalid --cache-cap: must not exceed effective node capacity "
+            "(%zu)\n",
+            argv[0], options->effective_node_cap);
     return -1;
   }
   options->game_path = positional[0];
@@ -1642,7 +1735,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
   ck->nq = ck->nstate + ck->ncounter;
   ck->nvars = 2 * ck->nq + ck->nu + ck->nc;
   ck->manager =
-      oxidd_bdd_manager_new(ck->options.node_cap, ck->options.node_cap, 1);
+      oxidd_bdd_manager_new(ck->options.node_cap, ck->options.cache_cap, 1);
   if (!ck->manager._p) {
     snprintf(message, cap, "cannot create OxiDD manager");
     return false;
@@ -1650,10 +1743,10 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
   oxidd_bdd_manager_add_vars(ck->manager, ck->nvars);
   ck->bdd_options = oxidd_solve_options_default();
   ck->bdd_options.node_cap = ck->options.node_cap;
-  ck->bdd_options.cache_cap = ck->options.node_cap;
+  ck->bdd_options.cache_cap = ck->options.cache_cap;
   ck->bdd_options.failure = &ck->failure;
   oxidd_run_init(&ck->run, ck->manager, &ck->bdd_options, ck->options.node_cap,
-                 ck->options.node_cap);
+                 ck->options.cache_cap);
   ck->run_initialized = true;
 
   ck->qvar = calloc(ck->nq, sizeof *ck->qvar);
@@ -3910,7 +4003,8 @@ finish:
     oxidd_run_finish(&ck.run);
   if (options.stats)
     fprintf(stderr,
-            "TLSFCERTCHECK_STATS aig_gates_visited=%zu requested_roots=%zu "
+            "TLSFCERTCHECK_STATS node_cap=%zu cache_cap=%zu "
+            "aig_gates_visited=%zu requested_roots=%zu "
             "setup_seconds=%.9f proof_seconds=%.9f "
             "peak_live_nodes_sample=%zu policy_mode_builds=%zu "
             "policy_counter_constants=%zu policy_specialized_gates=%zu "
@@ -3921,6 +4015,7 @@ finish:
             "policy_full_cache_modes=%zu "
             "successor_substitutions=%zu "
             "successor_applications=%zu final_status=%s\n",
+            ck.options.effective_node_cap, ck.options.effective_cache_cap,
             ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
             ck.proof_seconds, ck.peak_nodes, ck.policy_mode_builds,
             ck.policy_counter_constants, ck.policy_specialized_gates,

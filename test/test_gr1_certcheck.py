@@ -23,6 +23,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import test_gr1_certificate as certificate_test  # noqa: E402
 import test_gr1_differential as differential  # noqa: E402
 
+SMALL_CACHE_CAP = str((1 << 24) // 16)
+
 
 def _sections(text: str):
     lines = text.splitlines()
@@ -216,13 +218,77 @@ def wrap_output_in_selectors(text: str, name: str, repetitions: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def shared_gate_mode_mutation(text: str, independent_output: str,
+                              dependent_output: str, mode: int,
+                              complement_shared: bool = False) -> str:
+    """Make one selected independent gate affect exactly one counter mode."""
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, _ni, nl, _no, na = header[:5]
+    if nl:
+        raise AssertionError("policy mutation expects a combinational AAG")
+    input_names = {}
+    for line in lines[symbol_start:]:
+        if line == "c":
+            break
+        if line.startswith("i"):
+            label, input_name = line.split(maxsplit=1)
+            input_names[input_name] = int(label[1:])
+    counters = sorted(
+        (int(name.removeprefix("curr_")), index)
+        for name, index in input_names.items() if name.startswith("curr_"))
+    ordinary = [index for name, index in input_names.items()
+                if not name.startswith("curr_")]
+    if not counters or not ordinary:
+        raise AssertionError("mutation needs counter and ordinary inputs")
+    gates = []
+
+    def land(left: int, right: int) -> int:
+        nonlocal maxvar
+        maxvar += 1
+        literal = 2 * maxvar
+        gates.append(f"{literal} {left} {right}")
+        return literal
+
+    def lxor(left: int, right: int) -> int:
+        keep_left = land(left, right ^ 1)
+        keep_right = land(left ^ 1, right)
+        return land(keep_left ^ 1, keep_right ^ 1) ^ 1
+
+    seed = int(lines[1 + ordinary[0]])
+    shared = land(seed, seed)
+    independent_line = output_start + names[independent_output]
+    old_independent = int(lines[independent_line])
+    positive = land(old_independent, shared)
+    negative = land(old_independent, shared ^ 1)
+    lines[independent_line] = str(land(positive ^ 1, negative ^ 1) ^ 1)
+
+    cube = 1
+    for counter, index in counters:
+        literal = int(lines[1 + index])
+        atom = literal if counter == mode else literal ^ 1
+        cube = atom if cube == 1 else land(cube, atom)
+    dependent_line = output_start + names[dependent_output]
+    trigger = land(cube, shared ^ int(complement_shared))
+    lines[dependent_line] = str(
+        lxor(int(lines[dependent_line]), trigger))
+
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
 def checker_stats(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
     line = next((line for line in result.stderr.splitlines()
                  if line.startswith("TLSFCERTCHECK_STATS ")), None)
     if line is None:
         raise AssertionError(f"checker did not emit --stats output: {result}")
     integer_names = (
-        "aig_gates_visited|requested_roots|peak_live_nodes_sample|"
+        "node_cap|cache_cap|aig_gates_visited|requested_roots|"
+        "peak_live_nodes_sample|"
         "policy_mode_builds|policy_counter_constants|"
         "policy_specialized_gates|policy_unspecialized_gates|"
         "policy_independent_gates|policy_independent_roots|"
@@ -323,6 +389,11 @@ def run_checker(checker: pathlib.Path, game: pathlib.Path, policy: pathlib.Path,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=20)
 
 
+def checker_status(result: subprocess.CompletedProcess[str]) -> tuple[int, str]:
+    lines = [line for line in result.stdout.splitlines() if line]
+    return result.returncode, lines[-1] if lines else ""
+
+
 def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
               seed: int) -> dict[str, int]:
     rng = random.Random(seed)
@@ -331,12 +402,32 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
     sampled_acceptance_verified = 0
     rare_state_rejected = 0
     default_output_unchanged = 0
+    default_cache_legacy_matches = 0
+    small_cache_agreements = 0
     successor_rebuild_agreements = 0
     rank_seed = None
     fairness_seed = None
     inv_seed = None
     with tempfile.TemporaryDirectory(prefix="tlsf-certcheck-") as directory:
         root = pathlib.Path(directory)
+        invalid_cache_cases = (
+            ("zero", ("--cache-cap", "0")),
+            ("non-power-of-two", ("--cache-cap", "1536")),
+            ("above-node-cap",
+             ("--node-cap", "1024", "--cache-cap", "2048")),
+            ("oxidd-limit",
+             ("--node-cap", "4294967296", "--cache-cap", "4294967296")),
+            ("overflow", ("--cache-cap", "18446744073709551616")),
+        )
+        for label, arguments in invalid_cache_cases:
+            invalid = run_checker(
+                checker, root / "missing-game.aag",
+                root / "missing-policy.aag", *arguments)
+            if (invalid.returncode != 2
+                    or "invalid --cache-cap" not in invalid.stderr):
+                raise AssertionError(
+                    f"{label} cache capacity was not rejected clearly:\n"
+                    f"{invalid.stdout}{invalid.stderr}")
         for index in range(games):
             game_text = differential.make_random_game(rng, index)
             parsed = differential.parse_aag(game_text)
@@ -378,6 +469,28 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             cached_certificate = run_checker(
                 checker, game, policy, "--certificate", str(cert),
                 "--method", "certificate")
+            small_cache_certificate = run_checker(
+                checker, game, policy, "--certificate", str(cert),
+                "--method", "certificate", "--cache-cap", SMALL_CACHE_CAP)
+            if checker_status(cached_certificate) != checker_status(
+                    small_cache_certificate):
+                raise AssertionError(
+                    f"small-cache status mismatch on game {index}:\n"
+                    f"default: {cached_certificate.stdout}"
+                    f"small: {small_cache_certificate.stdout}")
+            small_cache_agreements += 1
+            if not default_cache_legacy_matches:
+                explicit_legacy_cache = run_checker(
+                    checker, game, policy, "--certificate", str(cert),
+                    "--method", "certificate", "--cache-cap", "16777216")
+                if checker_status(cached_certificate) != checker_status(
+                        explicit_legacy_cache):
+                    raise AssertionError(
+                        "implicit cache default differs from the legacy "
+                        "node-cap-sized cache:\n"
+                        f"implicit: {cached_certificate.stdout}"
+                        f"explicit: {explicit_legacy_cache.stdout}")
+                default_cache_legacy_matches = 1
             rebuilt_certificate = run_checker(
                 checker, game, policy, "--certificate", str(cert),
                 "--method", "certificate", "--test-rebuild-successor")
@@ -657,6 +770,121 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "successor substitution/images were not reused per mode: "
                 f"cached={selector_stats} rebuilt={rebuilt_stats}")
+
+        # Nine counters force the bounded selected-output path.  A one-entry
+        # OxiDD apply cache necessarily replaces entries throughout these
+        # nontrivial builds; every status must still match the unspecialized
+        # policy oracle, including reset, early, and late counter modes.
+        high_builder = differential.AagBuilder(
+            ["u0", "controllable_c0"], [0])
+        high_game_text = high_builder.finish(
+            [high_builder.latches[0]], None, False, [1] * 9, [])
+        high_game = root / "nine-counter-game.aag"
+        high_policy = root / "nine-counter-policy.aag"
+        high_cert = root / "nine-counter-certificate.aag"
+        high_game.write_text(high_game_text, encoding="utf-8")
+        high_solve = subprocess.run(
+            [str(solver), "--policy", str(high_policy), "--certificate",
+             str(high_cert), str(high_game)], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            timeout=20)
+        if high_solve.returncode != 0:
+            raise AssertionError(
+                "solver failed on nine-counter cache fixture:\n"
+                f"{high_solve.stdout}{high_solve.stderr}")
+        high_text = high_policy.read_text(encoding="utf-8")
+        high_outputs = output_literals(high_text)
+        high_control = next(
+            name for name in high_outputs if not name.startswith("curr_next_"))
+        high_selector = root / "nine-counter-selector.aag"
+        high_selector.write_text(
+            wrap_output_in_selectors(high_text, high_control, 96),
+            encoding="utf-8")
+        pathlib.Path(str(high_selector) + ".json").write_text(
+            pathlib.Path(str(high_policy) + ".json").read_text(
+                encoding="utf-8"), encoding="utf-8")
+
+        high_default = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--stats")
+        high_legacy_rounded = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--node-cap", "1536",
+            "--stats")
+        high_explicit_cache = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--node-cap", "1536",
+            "--cache-cap", "1024", "--stats")
+        high_small = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--cache-cap", "1",
+            "--stats")
+        high_oracle = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--cache-cap", "1",
+            "--test-unspecialized-policy")
+        if (high_default.returncode != 0
+                or checker_status(high_small) != checker_status(high_oracle)
+                or checker_status(high_small) != checker_status(high_default)):
+            raise AssertionError(
+                "nine-counter selected-output cache disagreed with its "
+                "oracle:\n"
+                f"default: {high_default.stdout}{high_default.stderr}\n"
+                f"small: {high_small.stdout}{high_small.stderr}\n"
+                f"oracle: {high_oracle.stdout}{high_oracle.stderr}")
+        high_default_stats = checker_stats(high_default)
+        high_legacy_rounded_stats = checker_stats(high_legacy_rounded)
+        high_explicit_cache_stats = checker_stats(high_explicit_cache)
+        high_small_stats = checker_stats(high_small)
+        if (high_default_stats.get("node_cap") != 1 << 24
+                or high_default_stats.get("cache_cap") != 1 << 24
+                or high_legacy_rounded.returncode != 0
+                or high_legacy_rounded_stats.get("node_cap") != 1536
+                or high_legacy_rounded_stats.get("cache_cap") != 2048
+                or high_explicit_cache.returncode != 0
+                or high_explicit_cache_stats.get("node_cap") != 1536
+                or high_explicit_cache_stats.get("cache_cap") != 1024
+                or high_small_stats.get("node_cap") != 1 << 24
+                or high_small_stats.get("cache_cap") != 1
+                or high_small_stats.get("policy_mode_builds") != 10
+                or high_small_stats.get("policy_full_cache_modes") != 10):
+            raise AssertionError(
+                "nine-counter fixture did not exercise all modes and "
+                f"effective capacities: default={high_default_stats} "
+                f"legacy={high_legacy_rounded_stats} "
+                f"explicit={high_explicit_cache_stats} "
+                f"small={high_small_stats}")
+
+        mode_mutations = (
+            ("all-zero", -1, False, 1),
+            ("one-hot-0", 0, True, 2),
+            ("one-hot-8", 8, True, 10),
+        )
+        for label, mode, complement, expected_modes in mode_mutations:
+            mutation = root / f"nine-counter-{label}.aag"
+            mutation.write_text(shared_gate_mode_mutation(
+                high_selector.read_text(encoding="utf-8"), high_control,
+                "curr_next_0", mode, complement), encoding="utf-8")
+            pathlib.Path(str(mutation) + ".json").write_text(
+                pathlib.Path(str(high_policy) + ".json").read_text(
+                    encoding="utf-8"), encoding="utf-8")
+            specialized = run_checker(
+                checker, high_game, mutation, "--certificate", str(high_cert),
+                "--method", "certificate", "--cache-cap", "1", "--stats")
+            oracle = run_checker(
+                checker, high_game, mutation, "--certificate", str(high_cert),
+                "--method", "certificate", "--cache-cap", "1",
+                "--test-unspecialized-policy")
+            mutation_stats = checker_stats(specialized)
+            if (specialized.returncode != 6
+                    or checker_status(specialized) != checker_status(oracle)
+                    or mutation_stats.get("policy_full_cache_modes")
+                    != expected_modes):
+                raise AssertionError(
+                    f"nine-counter {label} cache/oracle mismatch: "
+                    f"stats={mutation_stats}\n"
+                    f"specialized: {specialized.stdout}{specialized.stderr}\n"
+                    f"oracle: {oracle.stdout}{oracle.stderr}")
 
         # move_* remains part of the certificate interface, but fixed-policy
         # checking does not use it as a premise.  An exclusive large cone must
@@ -947,6 +1175,10 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         "policy_interfaces_invalid": 1,
         "default_certificate_sidecar": 1,
         "default_output_unchanged": default_output_unchanged,
+        "default_cache_legacy_matches": default_cache_legacy_matches,
+        "small_cache_fixture_agreements": small_cache_agreements,
+        "invalid_cache_caps_rejected": len(invalid_cache_cases),
+        "bounded_selected_output_cache_modes": 10,
         "unused_move_cones_skipped": 1,
         "malformed_unused_cones_invalid": 1,
         "specialized_policy_oracle_agreements": 8,
