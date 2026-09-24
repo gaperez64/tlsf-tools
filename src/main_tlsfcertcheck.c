@@ -3831,9 +3831,13 @@ static bool emit_controller(Checker *ck, const char *path) {
   }
   for (uint32_t v = 0; v < ck->nvars; v++)
     var2lit[v] = UINT32_MAX;
-  for (uint32_t i = 0; i < ck->nu; i++)
-    var2lit[ck->uvar[i]] =
-        aig_input(controller, aig_input_name(ck->game, ck->uinput[i], nullptr));
+  for (uint32_t i = 0; i < ck->nu; i++) {
+    const char *name = aig_input_name(ck->game, ck->uinput[i], nullptr);
+    if (strncmp(name, UNCONTROLLABLE_PREFIX, strlen(UNCONTROLLABLE_PREFIX)) ==
+        0)
+      name += strlen(UNCONTROLLABLE_PREFIX);
+    var2lit[ck->uvar[i]] = aig_input(controller, name);
+  }
   for (uint32_t s = 0; s < ck->nstate; s++) {
     uint32_t reset;
     char fallback[32];

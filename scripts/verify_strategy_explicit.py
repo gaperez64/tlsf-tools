@@ -211,10 +211,14 @@ def reachable_graph(circuit: ParsedAag, state_cap: int):
     return transitions
 
 
-def _canonical_output(name: str) -> str:
-    if name.startswith(CONTROLLABLE_PREFIX):
-        return name[len(CONTROLLABLE_PREFIX):]
-    return name
+def _canonical_outputs(names: list[str], expected: list[str]) -> list[str]:
+    # Standalone controllers use TLSF names. Older strategy producers may
+    # retain game prefixes; choose one interpretation for the whole interface.
+    if set(names) == set(expected):
+        return names
+    return [name[len(CONTROLLABLE_PREFIX):]
+            if name.startswith(CONTROLLABLE_PREFIX) else name
+            for name in names]
 
 
 def _duplicates(names: list[str]) -> list[str]:
@@ -228,10 +232,10 @@ def _duplicates(names: list[str]) -> list[str]:
 
 
 def validate_interface(circuit: ParsedAag, expected_inputs: list[str],
-                       expected_outputs: list[str]) -> None:
+                       expected_outputs: list[str]) -> list[str]:
     """Require the strategy declarations to exactly match the TLSF partition."""
     actual_inputs = circuit.input_names
-    actual_outputs = [_canonical_output(name) for name in circuit.output_names]
+    actual_outputs = _canonical_outputs(circuit.output_names, expected_outputs)
     problems: list[str] = []
 
     for label, names in (("TLSF inputs", expected_inputs),
@@ -261,16 +265,16 @@ def validate_interface(circuit: ParsedAag, expected_inputs: list[str],
             problems.append(f"extra strategy {label}: {','.join(extra)}")
     if problems:
         raise InvalidStrategy("; ".join(problems))
+    return actual_outputs
 
 
 def verify(circuit: ParsedAag, formula, state_cap: int, spot_module,
-           buddy_module):
+           buddy_module, output_names: list[str]):
     graph = reachable_graph(circuit, state_cap)
     if graph is None:
         return "unknown", None
 
     input_names = circuit.input_names
-    output_names = [_canonical_output(name) for name in circuit.output_names]
     available = set(input_names) | set(output_names)
     formula_aps = {str(ap) for ap in spot_module.atomic_prop_collect(formula)}
     missing = sorted(formula_aps - available)
@@ -352,10 +356,11 @@ def main(argv: list[str]) -> int:
     try:
         expected_inputs, expected_outputs = _tlsf_interface(
             args.tlsf2tlsf, args.tlsfinfo, args.tlsf, args.param)
-        validate_interface(circuit, expected_inputs, expected_outputs)
+        output_names = validate_interface(circuit, expected_inputs,
+                                          expected_outputs)
         formula = spot.formula(_run_formula(args.tlsf2ltl, args.tlsf, args.param))
         result, counterexample = verify(
-            circuit, formula, args.state_cap, spot, buddy)
+            circuit, formula, args.state_cap, spot, buddy, output_names)
     except InvalidStrategy as exc:
         print("INVALID")
         sys.stderr.write(f"verify-strategy-explicit: {exc}\n")

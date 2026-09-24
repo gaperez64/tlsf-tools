@@ -44,6 +44,7 @@ EXIT_UNSUPPORTED = 3
 DBA_CLASSES = frozenset("BGSOR")
 SAFETY_CLASSES = frozenset("BS")
 CONTROLLABLE_PREFIX = "controllable_"
+UNCONTROLLABLE_PREFIX = "uncontrollable_"
 
 
 def default_tool(name: str) -> str:
@@ -204,9 +205,10 @@ class AagBuilder:
 
     def __init__(self, input_names: list[str]):
         self.input_names = input_names
-        self.input_literals = {
+        self.game_input_literals = {
             name: 2 * (index + 1) for index, name in enumerate(input_names)
         }
+        self.input_literals = self.game_input_literals.copy()
         self._next_var = len(input_names)
         self.latches: list[list[int | str]] = []  # current, next, reset, name
         self.ands: list[tuple[int, int, int]] = []
@@ -306,7 +308,8 @@ class AagBuilder:
             f"aag {self._next_var} {len(self.input_names)} {len(self.latches)} "
             f"1 {len(self.ands)} 0 0 {len(justice_lits)} {len(fairness)}"
         ]
-        lines.extend(str(self.input_literals[name]) for name in self.input_names)
+        lines.extend(str(self.game_input_literals[name])
+                     for name in self.input_names)
         for current, next_lit, reset, _name in self.latches:
             lines.append(f"{current} {next_lit} {reset}")
         lines.append(str(bad_lit))
@@ -335,8 +338,20 @@ def _transition_formula(aut, edge, spot_module):
 
 def encode_game(monitors: list[Monitor], inputs: list[str], outputs: list[str],
                 semantics: str, spot_module):
-    game_inputs = [*inputs, *(CONTROLLABLE_PREFIX + name for name in outputs)]
+    if len(set([*inputs, *outputs])) != len(inputs) + len(outputs):
+        raise ValueError("expanded TLSF signal names are not unique")
+    game_inputs = [*(UNCONTROLLABLE_PREFIX + name for name in inputs),
+                   *(CONTROLLABLE_PREFIX + name for name in outputs)]
     builder = AagBuilder(game_inputs)
+    # Spot labels use TLSF names; AIG symbols use the disjoint role namespace.
+    builder.input_literals = {
+        name: builder.game_input_literals[UNCONTROLLABLE_PREFIX + name]
+        for name in inputs
+    }
+    builder.input_literals.update({
+        name: builder.game_input_literals[CONTROLLABLE_PREFIX + name]
+        for name in outputs
+    })
     for monitor_index, monitor in enumerate(monitors):
         initial = monitor.automaton.get_init_state_number()
         monitor.latch_literals = [
@@ -353,12 +368,6 @@ def encode_game(monitors: list[Monitor], inputs: list[str], outputs: list[str],
     violated_lit = None
     if strict_safety_assumptions:
         violated_lit = builder.add_latch(0, "assumption_safety_violated")
-
-    # Inputs in Spot labels use the original output names, while the game marks
-    # those same variables controllable through its AIGER symbol prefix.
-    for name in outputs:
-        builder.input_literals[name] = builder.input_literals[
-            CONTROLLABLE_PREFIX + name]
 
     for monitor in monitors:
         incoming: list[list[int]] = [
@@ -664,6 +673,8 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
         base, indices = split_signal_index(name)
         record = {"name": name, "base_name": base, "index_tuple": indices,
                   "provenance_source": "suffix-heuristic"}
+        record["game_symbol"] = ((UNCONTROLLABLE_PREFIX if name in inputs
+                                  else CONTROLLABLE_PREFIX) + name)
         if frontend_valid:
             record.update(frontend_signals[name])
             record["base_name"] = record["source_name"]
@@ -883,6 +894,9 @@ def _build_snapshot(args, spot, snapshot: pathlib.Path,
     try:
         aag, _builder, violated = encode_game(
             monitors, inputs, outputs, args.semantics, spot)
+    except ValueError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return EXIT_UNSUPPORTED
     except RuntimeError as exc:
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return 2

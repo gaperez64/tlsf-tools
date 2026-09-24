@@ -142,8 +142,7 @@ def lasso_accepts_encoded(monitor, aag_text, signal_names, prefix, loop):
     def step(current, valuation):
         bits = 0
         for name in signal_names:
-            external = game.CONTROLLABLE_PREFIX + name
-            bit = name_to_bit.get(name, name_to_bit.get(external))
+            bit = name_to_bit.get(game.UNCONTROLLABLE_PREFIX + name)
             assert bit is not None
             if valuation[name]:
                 bits |= 1 << bit
@@ -306,9 +305,9 @@ def test_source_origin_fail_closed(args, directory):
     collision.write_text(
         tiny_tlsf("Mealy", "true;", "G (a_0 -> o);")
         .replace("INPUTS { i; }", "INPUTS { a[0..1]; a_0; }"))
-    data = build_provenance(args, directory, collision)
-    assert data["source_origin_metadata"]["available"] is False
-    assert data["provenance_source"] == "suffix-heuristic"
+    collision_result = run(
+        [args.python, args.builder, *tool_args(args), str(collision)], 3)
+    assert "signal names are not unique" in collision_result.stderr
 
     # A malformed frontend must also fail the independent Python inventory
     # check, even if it incorrectly reports ambiguous=false.
@@ -348,6 +347,84 @@ def test_snapshot_binding(args, directory):
     origin = next(item["source_origin"] for item in data["monitors"]
                   if item["conjunct"] == "Go")
     assert origin["source_formula_id"] == "GUARANTEE:1"
+
+
+def test_symbol_namespace(args, directory):
+    def build(source: pathlib.Path, label: str):
+        target = directory / f"{label}.aag"
+        run([args.python, args.builder, *tool_args(args),
+             "--output", str(target), str(source)], 0)
+        return target
+
+    # The original review case changed ownership when its input was renamed.
+    for label, name in (("plain", "a"), ("renamed", "controllable_a")):
+        source = directory / f"ownership-{label}.tlsf"
+        source.write_text(tiny_tlsf("Mealy", "true;", f"G !{name};")
+                          .replace("INPUTS { i; }", f"INPUTS {{ {name}; }}"))
+        target = build(source, f"ownership-{label}")
+        circuit = explicit.parse_aag(target.read_text())
+        assert circuit.input_names == [f"uncontrollable_{name}",
+                                       "controllable_o"]
+        run([args.solver, "--game-profile=gr1", str(target)], 1)
+
+    names = ["i", "controllable_a", "monitor_0_state_0",
+             "assumption_safety_violated", "uncontrollable_i"]
+    output_names = ["o", "monitor_0_state_0", "assumption_safety_violated",
+                    "controllable_b", "uncontrollable_o"]
+    guarantees = ["G ({i} -> {o});", "G F {o};", "G {o};",
+                  "G (!{i} || {o});"]
+    checked = 0
+    for index in range(20):
+        input_name = names[index % len(names)]
+        output_name = output_names[(index // len(names)) % len(output_names)]
+        if output_name == input_name:
+            output_name += "_out"
+        clauses = [guarantees[index % 4], guarantees[(index + 1) % 4]]
+        for variant, (i_name, o_name) in enumerate(
+                ((input_name, output_name), (f"env_{index}", f"sys_{index}"))):
+            source = directory / f"generated-{index}-{variant}.tlsf"
+            formula = " ".join(clause.format(i=i_name, o=o_name)
+                               for clause in clauses)
+            source.write_text(
+                tiny_tlsf("Mealy", "true;", formula)
+                .replace("INPUTS { i; }", f"INPUTS {{ {i_name}; }}")
+                .replace("OUTPUTS { o; }", f"OUTPUTS {{ {o_name}; }}"))
+            label = f"generated-{index}-{variant}"
+            target = build(source, label)
+            circuit = explicit.parse_aag(target.read_text())
+            assert circuit.input_names == [f"uncontrollable_{i_name}",
+                                           f"controllable_{o_name}"]
+            symbols = [*circuit.input_names, *circuit.latch_names,
+                       *circuit.output_names]
+            assert len(symbols) == len(set(symbols))
+            assert all(not name.startswith((game.UNCONTROLLABLE_PREFIX,
+                                            game.CONTROLLABLE_PREFIX))
+                       for name in circuit.latch_names)
+            policy = directory / f"{label}-policy.aag"
+            certificate = directory / f"{label}-certificate.aag"
+            run([args.solver, "--game-profile=gr1", "--policy", str(policy),
+                 "--certificate", str(certificate), str(target)], 0)
+            controller = directory / f"{label}-controller.aag"
+            checked_result = run(
+                [args.checker, "--method", "certificate",
+                 "--certificate", str(certificate),
+                 "--emit-controller", str(controller),
+                 str(target), str(policy)], 0)
+            assert "VERIFIED" in checked_result.stdout
+            standalone = explicit.parse_aag(controller.read_text())
+            assert standalone.input_names == [i_name]
+            assert standalone.output_names == [o_name]
+            if index == 15 and variant == 0:
+                verified = run(
+                    [args.python, args.verifier,
+                     "--tlsf2ltl", args.tlsf2ltl,
+                     "--tlsf2tlsf", args.tlsf2tlsf,
+                     "--tlsfinfo", args.tlsfinfo,
+                     "--tlsf", str(source),
+                     "--strategy", str(controller)], 0)
+                assert verified.stdout.strip() == "VERIFIED"
+        checked += 1
+    assert checked >= 20
 
 
 def test_rejections_and_semantics(args, directory):
@@ -492,6 +569,7 @@ def parse_args(argv):
     parser.add_argument("--tlsf2tlsf", required=True)
     parser.add_argument("--tlsfinfo", required=True)
     parser.add_argument("--solver", required=True)
+    parser.add_argument("--checker", required=True)
     return parser.parse_args(argv)
 
 
@@ -511,6 +589,7 @@ def main(argv):
         test_cross_n_provenance(args, directory)
         test_source_origin_fail_closed(args, directory)
         test_snapshot_binding(args, directory)
+        test_symbol_namespace(args, directory)
     print("gr1 monitor game tests: ok")
     return 0
 

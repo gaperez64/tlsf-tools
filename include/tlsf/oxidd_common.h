@@ -20,6 +20,7 @@
 #include <stdio.h>
 
 #define CONTROLLABLE_PREFIX "controllable_"
+#define UNCONTROLLABLE_PREFIX "uncontrollable_"
 
 typedef oxidd_bdd_t Bdd;
 

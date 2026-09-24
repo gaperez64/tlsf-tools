@@ -1189,7 +1189,8 @@ if research_tools and have_oxidd
              '--tlsf2ltl', tlsf2ltl_exe,
              '--tlsf2tlsf', tlsf2tlsf_exe,
              '--tlsfinfo', tlsfinfo_exe,
-             '--solver', tlsfsolve_exe],
+             '--solver', tlsfsolve_exe,
+             '--checker', tlsfcertcheck_exe],
       env: spot_python_env,
       timeout: 120,
     )

@@ -53,3 +53,18 @@ lifting must reject that fallback. The AIG output does not depend on any of
 these metadata decisions. The monitor builder reads the TLSF bytes once,
 passes that snapshot to both lowering tools and the provenance frontend, and
 checks that the frontend SHA-256 equals the snapshot hash.
+
+## Monitor game symbol namespace
+
+`gr1_monitor_game.py` writes every environment input as
+`uncontrollable_<TLSF name>` and every system output as
+`controllable_<TLSF name>` in the game AIG. This encoding is injective across
+roles, including TLSF names that already begin with either prefix or resemble
+monitor latches. Internal game symbols use neither prefix. Provenance signal
+records retain their TLSF `name` and include the encoded `game_symbol`.
+The solver and checker classify `controllable_` symbols as system moves;
+policy and certificate artifacts refer to the encoded game symbols.
+`tlsfcertcheck --emit-controller` restores the original TLSF input and output
+names. `verify_strategy_explicit.py` accepts standalone raw TLSF output names
+and game-prefixed strategy outputs by checking the complete interface.
+Game AIG symbol bytes differ from previous versions.
