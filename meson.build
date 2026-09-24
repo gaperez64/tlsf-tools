@@ -11,7 +11,7 @@ project(
     'warning_level=3',
     'werror=false',
     'b_ndebug=if-release',
-    'cpp_std=c++17',
+    'cpp_std=c++20',
   ],
 )
 
@@ -25,6 +25,7 @@ pkg = import('pkgconfig')
 
 cc = meson.get_compiler('c')
 research_tools = get_option('research_tools')
+native_gr1 = get_option('native_gr1').enabled()
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
@@ -198,12 +199,20 @@ elif oxidd_feature.auto()
           '`meson compile -C build oxidd-build`)')
 endif
 
+if native_gr1 and not have_oxidd
+  error('native_gr1 requires -Doxidd=enabled and the built OxiDD archive and headers')
+endif
+if native_gr1 and not spot_dep.found()
+  error('native_gr1 requires libspot (set PKG_CONFIG_PATH if needed)')
+endif
+
 build_info_conf = configuration_data()
 build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
-configure_file(
+build_config_h = configure_file(
   output: 'build_config.h',
   configuration: build_info_conf,
+  install_dir: join_paths(get_option('includedir'), 'tlsf'),
 )
 
 version_h = vcs_tag(
@@ -212,6 +221,8 @@ version_h = vcs_tag(
   output: 'version.h',
   fallback: meson.project_version(),
   replace_string: '@VCS_TAG@',
+  install: true,
+  install_dir: join_paths(get_option('includedir'), 'tlsf'),
 )
 
 # ---------------------------------------------------------------------------
@@ -255,6 +266,7 @@ bison_out = custom_target(
 
 inc = include_directories(
   'include',
+  'src',
   '.',            # so #include "tlsf_lex.h" / "tlsf_parse.h" resolve in builddir
 )
 
@@ -269,6 +281,7 @@ lib_sources = [
   'src/ast_api.c',
   'src/spec.c',
   'src/cli.c',
+  'src/diagnostic.c',
   'src/expand.c',
   'src/nnf.c',
   'src/rewrite.c',
@@ -290,6 +303,9 @@ lib_sources = [
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
+  'src/provenance.c',
+  'src/sha256.c',
+  'src/native/source.c',
   flex_out[0],
   bison_out[0],
   bison_out[1],   # tlsf_parse.h — declare as a source so the generated lexer
@@ -299,17 +315,35 @@ lib_sources = [
 if have_oxidd
   lib_sources += ['src/precheck_unreal.c']
 endif
+if native_gr1
+  lib_sources += [
+    'src/native/gr1_service.c',
+    'src/native/gr1_check.c',
+    'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+    'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c',
+  ]
+endif
 
 lib_c_args = have_oxidd ? ['-DHAVE_OXIDD'] : []
+lib_sources += [version_h]
+lib_compile_deps = have_oxidd ? [declare_dependency(
+  include_directories: include_directories('external/oxidd/build/include'),
+)] : []
 lib_deps = have_oxidd ? [oxidd_dep] : []
-pkg_private_libs = have_oxidd ? oxidd_link_args : []
+if native_gr1
+  lib_deps += [spot_dep]
+endif
+pkg_private_libs = have_oxidd ? ['-loxidd_ffi_c', '-lpthread', '-lm'] : []
+if have_oxidd and host_machine.system() != 'darwin'
+  pkg_private_libs += ['-ldl']
+endif
 
 tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: inc,
   c_args: lib_c_args,
-  dependencies: lib_deps,
+  dependencies: lib_compile_deps,
   install: true,
   pic: true,
 )
@@ -321,13 +355,42 @@ tlsf_dep = declare_dependency(
 )
 meson.override_dependency('tlsf', tlsf_dep)
 
-install_headers(
-  'include/tlsf/ast_api.h',
-  'include/tlsf/ast_api.hpp',
-  'include/tlsf/decompose.h',
-  'include/tlsf/decompose.hpp',
-  subdir: 'tlsf',
-)
+if native_gr1
+  native_api_c_exe = executable('native_api_c', 'test/native_api.c',
+    dependencies: [tlsf_dep])
+  test('native_api_c', native_api_c_exe)
+  native_api_cpp_exe = executable('native_api_cpp', 'test/native_api_cpp.cpp',
+    dependencies: [tlsf_dep])
+  test('native_api_cpp', native_api_cpp_exe)
+  old_abi_client_exe = executable('old_abi_client', 'test/old_abi_client.c',
+    include_directories: include_directories('test/old_abi/include'),
+    dependencies: [tlsf_dep])
+  test('old_abi_client', old_abi_client_exe)
+  if host_machine.system() == 'linux'
+    native_api_failure_exe = executable('native_api_failure',
+      'test/native_api_failure.c', dependencies: [tlsf_dep],
+      link_args: ['-Wl,--wrap=malloc', '-Wl,--wrap=calloc',
+                  '-Wl,--wrap=oxidd_host_calloc',
+                  '-Wl,--wrap=oxidd_host_realloc'])
+    test('native_api_failure', native_api_failure_exe)
+  endif
+endif
+
+excluded_headers = ['version.h.in']
+if not native_gr1
+  excluded_headers += [
+    'native.h', 'gr1_oxidd.h', 'gr1_check.h', 'oxidd_common.h',
+    'oxidd_options.h',
+    'safety_oxidd.h',
+  ]
+endif
+install_subdir('include/tlsf', install_dir: get_option('includedir'),
+               exclude_files: excluded_headers)
+if have_oxidd
+  install_subdir('external/oxidd/build/include/oxidd',
+                 install_dir: get_option('includedir'))
+  install_data(oxidd_lib_path, install_dir: get_option('libdir'))
+endif
 
 pkg.generate(
   tlsf_lib,
@@ -335,6 +398,7 @@ pkg.generate(
   filebase: 'tlsf',
   description: 'TLSF decomposition and preprocessing library',
   libraries_private: pkg_private_libs,
+  requires_private: native_gr1 ? ['libspot'] : [],
 )
 
 # ---------------------------------------------------------------------------
@@ -351,8 +415,7 @@ tlsf2ltl_exe = executable(
 
 tlsf2tlsf_exe = executable(
   'tlsf2tlsf',
-  sources: ['src/main_tlsf2tlsf.c', 'src/provenance.c', 'src/sha256.c',
-            bison_out[1], version_h],
+  sources: ['src/main_tlsf2tlsf.c', bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -426,10 +489,10 @@ if research_tools
 
     tlsfsolve_exe = executable(
       'tlsfsolve',
-      sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
-                'src/oxidd_order.c',
-                version_h],
+      sources: ['src/main_tlsfsolve.c', version_h] + (native_gr1 ? [] : [
+        'src/native/gr1_service.c', 'src/safety_oxidd.c',
+        'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
+        'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -439,20 +502,30 @@ if research_tools
 
     tlsfcertcheck_exe = executable(
       'tlsfcertcheck',
-      sources: ['src/main_tlsfcertcheck.c', 'src/sha256.c',
-                'src/oxidd_common.c',
-                'src/oxidd_host.c', version_h],
+      sources: ['src/main_tlsfcertcheck.c', version_h] + (native_gr1 ? [] : [
+        'src/native/gr1_check.c', 'src/oxidd_common.c',
+        'src/oxidd_host.c', 'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
     )
+    if native_gr1 and python3.found()
+      test('native_oracle_8b158d7', python3,
+        args: [files('test/native_oracle.py'), meson.current_build_dir()],
+        timeout: 900, is_parallel: false)
+      test('checker_link_independence', python3,
+        args: [files('test/checker_link_independence.py'),
+               meson.current_build_dir(), tlsfcertcheck_exe],
+        is_parallel: false)
+    endif
 
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
       sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
-                'test/tlsfsolve_failure_stub.c', version_h],
+                'test/tlsfsolve_failure_stub.c', version_h] +
+               (native_gr1 ? [] : ['src/native/gr1_service.c']),
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,

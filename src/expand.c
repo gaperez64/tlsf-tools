@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include "diagnostic.h"
 #include <string.h>
 
 // Guard against non-terminating (mis-written) recursive definitions.
@@ -264,7 +265,7 @@ static bool value_equal(const EvalValue *lhs, const EvalValue *rhs);
 static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
                      int64_t *out, int depth) {
   if (depth > MAX_DEPTH) {
-    fprintf(stderr, "expand: recursion too deep\n");
+    fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
     return false;
   }
   switch (n->kind) {
@@ -280,12 +281,13 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
       if (d)
         return eval_int(spec, d->body, env, out, depth + 1);
     }
-    fprintf(stderr, "expand: undefined parameter/variable '%s'\n", n->name);
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: undefined parameter/variable '%s'\n", n->name);
     return false;
   case NODE_SIZEOF:
     if (!bus_width(spec, n->sizeof_name, out)) {
-      fprintf(stderr, "expand: SIZEOF of unknown signal '%s'\n",
-              n->sizeof_name);
+      fprintf(tlsf_diagnostic_stream(),
+              "expand: SIZEOF of unknown signal '%s'\n", n->sizeof_name);
       return false;
     }
     return true;
@@ -300,20 +302,22 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
       return true;
     }
     if (set->count == 0) {
-      fprintf(stderr, "expand: %s of an empty set\n",
+      fprintf(tlsf_diagnostic_stream(), "expand: %s of an empty set\n",
               n->kind == NODE_SET_MIN ? "MIN" : "MAX");
       return false;
     }
     int64_t value;
     if (set->items[0].kind != EVAL_VALUE_INT) {
-      fprintf(stderr, "expand: %s requires a set of integers\n",
+      fprintf(tlsf_diagnostic_stream(),
+              "expand: %s requires a set of integers\n",
               n->kind == NODE_SET_MIN ? "MIN" : "MAX");
       return false;
     }
     value = set->items[0].integer;
     for (uint32_t i = 1; i < set->count; i++) {
       if (set->items[i].kind != EVAL_VALUE_INT) {
-        fprintf(stderr, "expand: %s requires a set of integers\n",
+        fprintf(tlsf_diagnostic_stream(),
+                "expand: %s requires a set of integers\n",
                 n->kind == NODE_SET_MIN ? "MIN" : "MAX");
         return false;
       }
@@ -335,8 +339,8 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
   case NODE_DEF_CALL: {
     const DefDecl *d = find_def(spec, n->callee, n->call_argc);
     if (!d) {
-      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
-              n->call_argc);
+      fprintf(tlsf_diagnostic_stream(), "expand: no definition '%s'/%u\n",
+              n->callee, n->call_argc);
       return false;
     }
     Node *body =
@@ -362,7 +366,7 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
         !eval_int(spec, n->rhs, env, &b, depth))
       return false;
     if ((n->kind == NODE_INT_DIV || n->kind == NODE_INT_MOD) && b == 0) {
-      fprintf(stderr, "expand: division by zero\n");
+      fprintf(tlsf_diagnostic_stream(), "expand: division by zero\n");
       return false;
     }
     switch (n->kind) {
@@ -385,7 +389,8 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
     return true;
   }
   default:
-    fprintf(stderr, "expand: non-integer expression in numeric context\n");
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: non-integer expression in numeric context\n");
     return false;
   }
 }
@@ -393,7 +398,7 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
 static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
                       bool *out, int depth) {
   if (depth > MAX_DEPTH) {
-    fprintf(stderr, "expand: recursion too deep\n");
+    fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
     return false;
   }
   switch (n->kind) {
@@ -491,8 +496,8 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
   case NODE_DEF_CALL: {
     const DefDecl *d = find_def(spec, n->callee, n->call_argc);
     if (!d) {
-      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
-              n->call_argc);
+      fprintf(tlsf_diagnostic_stream(), "expand: no definition '%s'/%u\n",
+              n->callee, n->call_argc);
       return false;
     }
     Node *body =
@@ -500,7 +505,8 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
     return eval_bool(spec, body, env, out, depth + 1);
   }
   default:
-    fprintf(stderr, "expand: non-boolean expression in a guard\n");
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: non-boolean expression in a guard\n");
     return false;
   }
 }
@@ -628,7 +634,7 @@ static bool set_add(Arena *arena, EvalSet *set, EvalValue value) {
 static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
                        EvalValue *out, int depth) {
   if (depth > MAX_DEPTH) {
-    fprintf(stderr, "expand: recursion too deep\n");
+    fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
     return false;
   }
   out->source = n;
@@ -674,8 +680,8 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
   case NODE_DEF_CALL: {
     const DefDecl *d = find_def(spec, n->callee, n->call_argc);
     if (!d) {
-      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
-              n->call_argc);
+      fprintf(tlsf_diagnostic_stream(), "expand: no definition '%s'/%u\n",
+              n->callee, n->call_argc);
       return false;
     }
     Node *body =
@@ -698,7 +704,7 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
 static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
                      EvalSet **out, int depth) {
   if (depth > MAX_DEPTH) {
-    fprintf(stderr, "expand: recursion too deep\n");
+    fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
     return false;
   }
   Arena *arena = spec->arena;
@@ -724,7 +730,7 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
       return false;
     int64_t step = second - first;
     if (step == 0) {
-      fprintf(stderr, "expand: zero step in set range\n");
+      fprintf(tlsf_diagnostic_stream(), "expand: zero step in set range\n");
       return false;
     }
     EvalSet *set = set_new(arena);
@@ -781,8 +787,8 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
   if (n->kind == NODE_DEF_CALL) {
     const DefDecl *d = find_def(spec, n->callee, n->call_argc);
     if (!d) {
-      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
-              n->call_argc);
+      fprintf(tlsf_diagnostic_stream(), "expand: no definition '%s'/%u\n",
+              n->callee, n->call_argc);
       return false;
     }
     Node *body = subst(arena, d->body, d->params, n->call_args, d->param_count);
@@ -797,7 +803,8 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
   if (n->kind == NODE_SET_BIG_UNION || n->kind == NODE_SET_BIG_INTER) {
     return eval_set_reduction(spec, n, env, out, depth + 1);
   }
-  fprintf(stderr, "expand: non-set expression in set context\n");
+  fprintf(tlsf_diagnostic_stream(),
+          "expand: non-set expression in set context\n");
   return false;
 }
 
@@ -841,7 +848,8 @@ static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
     return true;
   }
   if (!value->source) {
-    fprintf(stderr, "expand: set binder value cannot be substituted\n");
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: set binder value cannot be substituted\n");
     return false;
   }
   if (spec->capture_provenance)
@@ -879,7 +887,8 @@ static bool eval_set_reduction(const TlsfSpec *spec, const Node *n,
   if (!eval_domain(spec, n, env, &domain, depth + 1))
     return false;
   if (n->kind == NODE_SET_BIG_INTER && domain->count == 0) {
-    fprintf(stderr, "expand: intersection over an empty domain\n");
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: intersection over an empty domain\n");
     return false;
   }
   EvalSet *acc = set_new(spec->arena);
@@ -955,7 +964,7 @@ static bool match_pattern(const TlsfSpec *spec, Node *subject,
     if (strcmp(pattern->name, "_") == 0)
       return true;
     if (name_is_declared(spec, pattern->name)) {
-      fprintf(stderr,
+      fprintf(tlsf_diagnostic_stream(),
               "expand: Binding Error: pattern identifier '%s' has a "
               "conflicting definition\n",
               pattern->name);
@@ -999,7 +1008,7 @@ static bool match_pattern(const TlsfSpec *spec, Node *subject,
     return match_pattern(spec, subject->lhs, pattern->lhs, bindings, ok) &&
            match_pattern(spec, subject->rhs, pattern->rhs, bindings, ok);
   case NODE_DEF_CALL:
-    fprintf(stderr,
+    fprintf(tlsf_diagnostic_stream(),
             "expand: Binding Error: pattern identifier '%s' has a "
             "conflicting definition\n",
             pattern->callee);
@@ -1134,7 +1143,7 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
     return nullptr;
   Arena *a = spec->arena;
   if (depth > MAX_DEPTH) {
-    fprintf(stderr, "expand: recursion too deep\n");
+    fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
     *ok = false;
     return nullptr;
   }
@@ -1214,7 +1223,8 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
 
     if (bits) {
       if (bus->kind != NODE_AP) {
-        fprintf(stderr, "expand: enum label compared against a non-signal\n");
+        fprintf(tlsf_diagnostic_stream(),
+                "expand: enum label compared against a non-signal\n");
         *ok = false;
         return nullptr;
       }
@@ -1285,7 +1295,7 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
       return nullptr;
     }
     if (count < 0) {
-      fprintf(stderr, "expand: negative count in X[...]\n");
+      fprintf(tlsf_diagnostic_stream(), "expand: negative count in X[...]\n");
       *ok = false;
       return nullptr;
     }
@@ -1310,7 +1320,8 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
       return nullptr;
     }
     if (lo < 0 || hi < 0) {
-      fprintf(stderr, "expand: negative bound in G[..]/F[..]\n");
+      fprintf(tlsf_diagnostic_stream(),
+              "expand: negative bound in G[..]/F[..]\n");
       *ok = false;
       return nullptr;
     }
@@ -1354,8 +1365,8 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
   case NODE_DEF_CALL: {
     const DefDecl *d = find_def(spec, n->callee, n->call_argc);
     if (!d) {
-      fprintf(stderr, "expand: no definition '%s'/%u\n", n->callee,
-              n->call_argc);
+      fprintf(tlsf_diagnostic_stream(), "expand: no definition '%s'/%u\n",
+              n->callee, n->call_argc);
       *ok = false;
       return nullptr;
     }
@@ -1364,12 +1375,14 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
   }
 
   case NODE_PATTERN:
-    fprintf(stderr, "expand: pattern '%s' not supported\n", n->callee);
+    fprintf(tlsf_diagnostic_stream(), "expand: pattern '%s' not supported\n",
+            n->callee);
     *ok = false;
     return nullptr;
 
   default:
-    fprintf(stderr, "expand: unexpected node kind %d in formula\n", n->kind);
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: unexpected node kind %d in formula\n", n->kind);
     *ok = false;
     return nullptr;
   }
@@ -1604,13 +1617,15 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
         break;
       }
     if (!found) {
-      fprintf(stderr, "expand: unknown parameter '%s'\n", overrides[i].name);
+      fprintf(tlsf_diagnostic_stream(), "expand: unknown parameter '%s'\n",
+              overrides[i].name);
       return -1;
     }
   }
   for (uint16_t i = 0; i < spec->param_count; i++)
     if (!spec->params[i].has_default) {
-      fprintf(stderr, "expand: parameter '%s' has no value (use --param)\n",
+      fprintf(tlsf_diagnostic_stream(),
+              "expand: parameter '%s' has no value (use --param)\n",
               spec->params[i].name);
       return -1;
     }

@@ -2,13 +2,7 @@
 #define TLSF_GR1_OXIDD_H
 
 #include "tlsf/aiger.h"
-#include "tlsf/oxidd_options.h"
-#include <stddef.h>
-#include <stdint.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "tlsf/oxidd_common.h"
 
 /// Optional file export requested by tlsfsolve.  The AAG is a combinational
 /// circuit over solver state and game inputs; the JSON file is an optional
@@ -34,34 +28,6 @@ typedef struct {
   bool failed;
   char error[256];
 } Gr1CertificateOptions;
-
-#define TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION 2
-typedef struct {
-  const char *aag_path;
-  const char *json_path;
-  const char *policy_aag_path;
-  const char *policy_json_path;
-  Gr1CertificateSemantics semantics;
-  bool failed;
-  char error[256];
-  uint32_t abi_version;
-  size_t struct_size;
-  // Optional in-memory export. Each non-null buffer receives a malloc-owned
-  // NUL-terminated byte sequence; the caller frees it. Paths may be null.
-  char **aag_bytes, **json_bytes, **policy_aag_bytes, **policy_json_bytes;
-  size_t *aag_size, *json_size, *policy_aag_size, *policy_json_size;
-  size_t max_artifact_bytes; /* 0 = legacy unlimited export */
-} Gr1CertificateOptionsV2;
-
-[[nodiscard]] Aig *solve_gr1_oxidd_ex_v2(Aig *game, int *unreal,
-                                         const OxiddSolveOptionsV2 *opts);
-[[nodiscard]] Aig *
-solve_gr1_oxidd_ex_with_certificate_v2(Aig *game, int *unreal,
-                                       const OxiddSolveOptionsV2 *opts,
-                                       Gr1CertificateOptionsV2 *certificate);
-
-/* Validate the GR(1) AIGER profile before solving. */
-bool tlsf_gr1_validate_game(const Aig *game, char *message, size_t capacity);
 
 /// Solve a GR(1) game encoded in `game` (the standard AbsSynthe AIGER format:
 /// controllable inputs prefixed `controllable_`, `bad` output for safety,
@@ -92,9 +58,5 @@ solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
 solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
                                     const OxiddSolveOptions *opts,
                                     Gr1CertificateOptions *certificate);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // TLSF_GR1_OXIDD_H

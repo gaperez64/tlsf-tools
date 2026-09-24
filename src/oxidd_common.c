@@ -5,7 +5,7 @@
 // must be `oxidd_bdd_unref`'d (a no-op on the invalid/NULL handle).
 
 #define _POSIX_C_SOURCE 200809L
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -15,20 +15,23 @@
 // Small BDD helpers
 // ---------------------------------------------------------------------------
 
-OxiddSolveOptions oxidd_solve_options_default(void) {
+OxiddSolveOptionsV2 oxidd_solve_options_default_v2(void) {
 #ifdef NDEBUG
-  return (OxiddSolveOptions){.node_cap = 0,
-                             .cache_cap = 0,
-                             .gc_mode = OXIDD_GC_AUTO,
-                             .gc_threshold_percent = 80,
-                             .verbosity = 0,
-                             .trace = stderr,
-                             .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
-                             .safety_output_index = 0,
-                             .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
-                             .build_plan = OXIDD_BUILD_GATES};
+  return (OxiddSolveOptionsV2){.abi_version = TLSF_OXIDD_OPTIONS_ABI_VERSION,
+                               .struct_size = sizeof(OxiddSolveOptionsV2),
+                               .node_cap = 0,
+                               .cache_cap = 0,
+                               .gc_mode = OXIDD_GC_AUTO,
+                               .gc_threshold_percent = 80,
+                               .verbosity = 0,
+                               .trace = stderr,
+                               .safety_objective =
+                                   OXIDD_SAFETY_OBJECTIVE_OUTPUT,
+                               .safety_output_index = 0,
+                               .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
+                               .build_plan = OXIDD_BUILD_GATES};
 #else
-  OxiddSolveOptions options = {
+  OxiddSolveOptionsV2 options = {
       .node_cap = 0,
       .cache_cap = 0,
       .gc_mode = OXIDD_GC_AUTO,
@@ -40,11 +43,27 @@ OxiddSolveOptions oxidd_solve_options_default(void) {
       .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
       .build_plan = OXIDD_BUILD_GATES,
   };
+  options.abi_version = TLSF_OXIDD_OPTIONS_ABI_VERSION;
+  options.struct_size = sizeof options;
   options.trace_gate = UINT32_MAX;
   options.trace_node_limit = 100000;
   options.trace_scratch_bytes = (size_t)16 << 20;
   return options;
 #endif
+}
+
+OxiddSolveOptions oxidd_solve_options_default(void) {
+  OxiddSolveOptionsV2 extended = oxidd_solve_options_default_v2();
+  OxiddSolveOptions legacy;
+  memcpy(&legacy, &extended, sizeof legacy);
+  return legacy;
+}
+
+OxiddSolveOptionsV2 oxidd_options_upgrade(const OxiddSolveOptions *legacy) {
+  OxiddSolveOptionsV2 extended = oxidd_solve_options_default_v2();
+  if (legacy)
+    memcpy(&extended, legacy, sizeof *legacy);
+  return extended;
 }
 
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
@@ -56,7 +75,7 @@ size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
   return cap < min ? min : cap;
 }
 
-void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
+void oxidd_trace(const OxiddSolveOptionsV2 *opts, const char *phase,
                  const char *event, const char *fmt, ...) {
 #ifdef NDEBUG
   (void)opts;
@@ -90,9 +109,10 @@ static double monotonic_seconds(void) {
   return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
 }
 
-void oxidd_record_failure(const OxiddSolveOptions *opts, OxiddFailureKind kind,
-                          const char *phase, const char *operation,
-                          size_t operation_id, uint32_t index) {
+void oxidd_record_failure(const OxiddSolveOptionsV2 *opts,
+                          OxiddFailureKind kind, const char *phase,
+                          const char *operation, size_t operation_id,
+                          uint32_t index) {
   if (opts->failure && opts->failure->kind != OXIDD_FAILURE_NONE)
     return;
   if (opts->failure)
@@ -105,7 +125,8 @@ void oxidd_record_failure(const OxiddSolveOptions *opts, OxiddFailureKind kind,
 }
 
 void oxidd_run_init(OxiddRun *r, oxidd_bdd_manager_t m,
-                    const OxiddSolveOptions *opts, size_t nodes, size_t cache) {
+                    const OxiddSolveOptionsV2 *opts, size_t nodes,
+                    size_t cache) {
   *r = (OxiddRun){.manager = m,
                   .options = opts,
                   .phase = "construction",
@@ -151,7 +172,7 @@ static size_t collect(OxiddRun *r, const char *reason) {
 }
 
 bool oxidd_pressure_gc_checkpoint(OxiddRun *r) {
-  const OxiddSolveOptions *opts = r->options;
+  const OxiddSolveOptionsV2 *opts = r->options;
   if (opts->gc_mode != OXIDD_GC_PRESSURE || r->operations < r->next_gc)
     return false;
   unsigned threshold =
@@ -194,8 +215,34 @@ void oxidd_run_finish(OxiddRun *r) {
               r->sampled_peak, r->built_gates, r->relevant_gates);
 }
 
+bool oxidd_run_stopped(OxiddRun *r) {
+  if (r->stopped)
+    return true;
+  const OxiddSolveOptionsV2 *opts = r->options;
+  OxiddFailureKind reason = OXIDD_FAILURE_NONE;
+  if (opts->cancelled && opts->cancelled(opts->cancel_ctx))
+    reason = OXIDD_FAILURE_CANCELLED;
+  else if (opts->deadline_mono_ns) {
+    struct timespec now;
+    uint64_t deadline_sec = opts->deadline_mono_ns / 1000000000u;
+    uint64_t deadline_nsec = opts->deadline_mono_ns % 1000000000u;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 ||
+        (uint64_t)now.tv_sec > deadline_sec ||
+        ((uint64_t)now.tv_sec == deadline_sec &&
+         (uint64_t)now.tv_nsec >= deadline_nsec))
+      reason = OXIDD_FAILURE_DEADLINE;
+  }
+  if (reason == OXIDD_FAILURE_NONE)
+    return false;
+  r->stopped = true;
+  r->failed_operation = "limit";
+  oxidd_record_failure(opts, reason, r->phase, "limit", r->operations,
+                       r->index);
+  return true;
+}
+
 static bool operation_begin(OxiddRun *r, const char *op) {
-  if (r->failed_operation)
+  if (r->failed_operation || oxidd_run_stopped(r))
     return false;
   r->operations++;
   oxidd_pressure_gc_checkpoint(r);
@@ -209,7 +256,7 @@ static bool operation_begin(OxiddRun *r, const char *op) {
 static Bdd operation_end(OxiddRun *r, const char *op, Bdd result) {
   if (r->options->verbosity)
     sample_nodes(r);
-  if (bdd_invalid(result)) {
+  if (bdd_invalid(result) && !r->stopped) {
     r->failed_operation = op;
     oxidd_record_failure(r->options, OXIDD_FAILURE_BDD, r->phase, op,
                          r->operations, r->index);
@@ -927,7 +974,7 @@ void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap) {
   g_session_cache = cache_cap;
 }
 
-bool oxidd_session_config(const OxiddSolveOptions *opts, size_t *nodes,
+bool oxidd_session_config(const OxiddSolveOptionsV2 *opts, size_t *nodes,
                           size_t *cache) {
   *nodes = g_session_nodes;
   *cache = g_session_cache;
@@ -966,6 +1013,11 @@ void oxidd_session_gc(void) {
 uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f) {
   if (ctx->error)
     return AIG_FALSE;
+  if (ctx->budget_run && (ctx->visited++ & 255u) == 0 &&
+      oxidd_run_stopped(ctx->budget_run)) {
+    ctx->error = true;
+    return AIG_FALSE;
+  }
   if (bdd_invalid(f)) {
     ctx->error = true;
     return AIG_FALSE;

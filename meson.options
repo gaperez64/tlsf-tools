@@ -17,6 +17,9 @@ option(
                'external/oxidd artifacts',
 )
 
+option('native_gr1', type: 'feature', value: 'disabled',
+       description: 'Build the versioned native GR(1) C ABI into libtlsf')
+
 option(
   'cpu',
   type: 'combo',

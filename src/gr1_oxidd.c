@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 // gr1_oxidd.c — in-process GR(1) game solver on OxiDD BDDs.
 //
 // Implements the Piterman-Pnueli-Sa'ar (PPS) tri-nested fixpoint:
@@ -17,12 +18,112 @@
 
 #include "tlsf/gr1_oxidd.h"
 
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#ifdef __GLIBC__
+typedef struct {
+  char **output;
+  size_t *output_size;
+  char *data;
+  size_t size, capacity, limit;
+  bool failed;
+  const OxiddSolveOptionsV2 *options;
+} CappedExport;
+
+static ssize_t capped_export_write(void *opaque, const char *bytes,
+                                   size_t count) {
+  CappedExport *export = opaque;
+  if (export->failed || count > export->limit - export->size ||
+      count == SIZE_MAX - export->size) {
+    export->failed = true;
+    oxidd_record_failure(export->options, OXIDD_FAILURE_ARTIFACT_LIMIT,
+                         "export", "artifact_cap", 0, 0);
+    errno = EFBIG;
+    return 0;
+  }
+  size_t needed = export->size + count + 1;
+  if (needed > export->capacity) {
+    size_t maximum = export->limit == SIZE_MAX ? SIZE_MAX : export->limit + 1;
+    size_t capacity = export->capacity ? export->capacity : 256;
+    if (capacity > maximum)
+      capacity = maximum;
+    while (capacity < needed)
+      capacity = capacity > maximum / 2 ? maximum : capacity * 2;
+    char *data = realloc(export->data, capacity);
+    if (!data) {
+      export->failed = true;
+      errno = ENOMEM;
+      return 0;
+    }
+    export->data = data;
+    export->capacity = capacity;
+  }
+  memcpy(export->data + export->size, bytes, count);
+  export->size += count;
+  return (ssize_t)count;
+}
+
+static int capped_export_close(void *opaque) {
+  CappedExport *export = opaque;
+  if (export->failed) {
+    free(export->data);
+    free(export);
+    return -1;
+  }
+  if (!export->data) {
+    export->data = malloc(1);
+    if (!export->data) {
+      free(export);
+      return -1;
+    }
+  }
+  export->data[export->size] = '\0';
+  *export->output = export->data;
+  *export->output_size = export->size;
+  free(export);
+  return 0;
+}
+#endif
+
+static FILE *open_export_memstream(const OxiddRun *run,
+                                   const Gr1CertificateOptionsV2 *options,
+                                   char **output, size_t *size) {
+  size_t limit = options->max_artifact_bytes ? options->max_artifact_bytes
+                                             : run->options->max_artifact_bytes;
+  *output = nullptr;
+  *size = 0;
+#ifdef __GLIBC__
+  if (limit) {
+    CappedExport *export = oxidd_host_calloc(1, sizeof *export);
+    if (!export)
+      return nullptr;
+    export->output = output;
+    export->output_size = size;
+    export->limit = limit;
+    export->options = run->options;
+    cookie_io_functions_t io = {.write = capped_export_write,
+                                .close = capped_export_close};
+    FILE *stream = fopencookie(export, "w", io);
+    if (!stream) {
+      free(export);
+      return nullptr;
+    }
+    setvbuf(stream, nullptr, _IONBF, 0);
+    return stream;
+  }
+#endif
+#ifndef __GLIBC__
+  (void)limit;
+#endif
+  return open_memstream(output, size);
+}
 
 // ---------------------------------------------------------------------------
 // Dynamic array of BDD references (for μ-fixpoint Y-levels)
@@ -206,7 +307,7 @@ static const char *input_name_or_synthetic(const char *name, uint32_t index,
 // Certificate export
 // ---------------------------------------------------------------------------
 
-static void certificate_error(Gr1CertificateOptions *options,
+static void certificate_error(Gr1CertificateOptionsV2 *options,
                               const char *message, const char *path) {
   options->failed = true;
   if (path)
@@ -485,7 +586,7 @@ static bool write_certificate_json(
 }
 
 static bool export_certificate(
-    OxiddRun *run, Aig *game, Gr1CertificateOptions *options, bool unreal,
+    OxiddRun *run, Aig *game, Gr1CertificateOptionsV2 *options, bool unreal,
     uint32_t original_nlat, uint32_t m_goal_records, uint32_t m_goals,
     uint32_t m_fair, uint32_t n_fair_disj, uint32_t nin, uint32_t nlat,
     uint32_t nvars, uint32_t var_base, const uint32_t *goal_record,
@@ -522,7 +623,7 @@ static bool export_certificate(
     var2lit[p] = aig_input(certificate, name);
   }
 
-  Bdd2Aig ctx = {certificate, var2lit, var_base, nvars, {0}, false};
+  Bdd2Aig ctx = {certificate, var2lit, var_base, nvars, {0}, false, run, 0};
   aig_set_output(certificate, "inv", bdd2aig(&ctx, W));
   if (unreal) {
     Bdd losing = oxidd_run_not(run, W);
@@ -554,15 +655,19 @@ static bool export_certificate(
   memo_free(&ctx.memo);
   free(var2lit);
   if (ctx.error) {
-    oxidd_record_failure(run->options, OXIDD_FAILURE_CONVERSION, run->phase,
-                         "certificate_bdd2aig", run->operations, run->index);
+    if (!run->stopped)
+      oxidd_record_failure(run->options, OXIDD_FAILURE_CONVERSION, run->phase,
+                           "certificate_bdd2aig", run->operations, run->index);
     aig_free(certificate);
     certificate_error(options, "BDD-to-AIG certificate conversion failed",
                       nullptr);
     return false;
   }
 
-  FILE *aag = fopen(options->aag_path, "w");
+  FILE *aag = options->aag_bytes
+                  ? open_export_memstream(run, options, options->aag_bytes,
+                                          options->aag_size)
+                  : fopen(options->aag_path, "w");
   if (!aag) {
     aig_free(certificate);
     certificate_error(options, "cannot open certificate", options->aag_path);
@@ -578,8 +683,11 @@ static bool export_certificate(
     return false;
   }
 
-  if (options->json_path) {
-    FILE *json = fopen(options->json_path, "w");
+  if (options->json_path || options->json_bytes) {
+    FILE *json = options->json_bytes
+                     ? open_export_memstream(run, options, options->json_bytes,
+                                             options->json_size)
+                     : fopen(options->json_path, "w");
     if (!json) {
       aig_free(certificate);
       certificate_error(options, "cannot open certificate sidecar",
@@ -587,9 +695,10 @@ static bool export_certificate(
       return false;
     }
     bool json_ok = write_certificate_json(
-        json, certificate, game, options->aag_path, unreal, options->semantics,
-        original_nlat, m_goal_records, m_goals, m_fair, n_fair_disj,
-        goal_record, goal_member, y_levels);
+        json, certificate, game,
+        options->aag_path ? options->aag_path : "memory", unreal,
+        options->semantics, original_nlat, m_goal_records, m_goals, m_fair,
+        n_fair_disj, goal_record, goal_member, y_levels);
     if (fclose(json) != 0)
       json_ok = false;
     if (!json_ok) {
@@ -699,7 +808,7 @@ static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
 }
 
 static bool export_policy(OxiddRun *run, const Aig *game,
-                          Gr1CertificateOptions *options,
+                          Gr1CertificateOptionsV2 *options,
                           uint32_t original_nlat, uint32_t m_goals,
                           uint32_t nin, uint32_t nlat, uint32_t nvars,
                           uint32_t var_base, const uint32_t *cinput,
@@ -738,7 +847,7 @@ static bool export_policy(OxiddRun *run, const Aig *game,
       var2lit[p] = aig_input(policy, input_name);
   }
 
-  Bdd2Aig ctx = {policy, var2lit, var_base, nvars, {0}, false};
+  Bdd2Aig ctx = {policy, var2lit, var_base, nvars, {0}, false, run, 0};
   for (uint32_t k = 0; k < ncv; k++) {
     const char *output_name = aig_input_name(game, cinput[k], nullptr);
     aig_set_output(policy, output_name, bdd2aig(&ctx, strat_f[k]));
@@ -750,14 +859,19 @@ static bool export_policy(OxiddRun *run, const Aig *game,
   memo_free(&ctx.memo);
   free(var2lit);
   if (ctx.error) {
-    oxidd_record_failure(run->options, OXIDD_FAILURE_CONVERSION, run->phase,
-                         "policy_bdd2aig", run->operations, run->index);
+    if (!run->stopped)
+      oxidd_record_failure(run->options, OXIDD_FAILURE_CONVERSION, run->phase,
+                           "policy_bdd2aig", run->operations, run->index);
     aig_free(policy);
     certificate_error(options, "BDD-to-AIG policy conversion failed", nullptr);
     return false;
   }
 
-  FILE *aag = fopen(options->policy_aag_path, "w");
+  FILE *aag =
+      options->policy_aag_bytes
+          ? open_export_memstream(run, options, options->policy_aag_bytes,
+                                  options->policy_aag_size)
+          : fopen(options->policy_aag_path, "w");
   if (!aag) {
     aig_free(policy);
     certificate_error(options, "cannot open policy", options->policy_aag_path);
@@ -773,14 +887,20 @@ static bool export_policy(OxiddRun *run, const Aig *game,
     return false;
   }
 
-  FILE *json = fopen(options->policy_json_path, "w");
+  FILE *json =
+      options->policy_json_bytes
+          ? open_export_memstream(run, options, options->policy_json_bytes,
+                                  options->policy_json_size)
+          : fopen(options->policy_json_path, "w");
   if (!json) {
     aig_free(policy);
     certificate_error(options, "cannot open policy sidecar",
                       options->policy_json_path);
     return false;
   }
-  ok = write_policy_json(json, policy, game, options->policy_aag_path,
+  ok = write_policy_json(json, policy, game,
+                         options->policy_aag_path ? options->policy_aag_path
+                                                  : "memory",
                          original_nlat, m_goals, options->semantics);
   if (fclose(json) != 0)
     ok = false;
@@ -878,7 +998,7 @@ static bool write_environment_policy_json(FILE *out, const Aig *policy,
 }
 
 static bool export_environment_policy(OxiddRun *run, const Aig *game,
-                                      Gr1CertificateOptions *options,
+                                      Gr1CertificateOptionsV2 *options,
                                       uint32_t original_nlat, uint32_t goals,
                                       uint32_t fairness_counters, uint32_t nin,
                                       uint32_t nlat, uint32_t nvars,
@@ -909,7 +1029,7 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
     snprintf(name, sizeof name, "curr_%u", i);
     var2lit[nin + nlat + i] = aig_input(policy, name);
   }
-  Bdd2Aig conversion = {policy, var2lit, var_base, nvars, {0}, false};
+  Bdd2Aig conversion = {policy, var2lit, var_base, nvars, {0}, false, run, 0};
   for (uint32_t i = 0; i < nuv; i++)
     aig_set_output(policy, aig_input_name(game, uinput[i], nullptr),
                    bdd2aig(&conversion, strategy[i]));
@@ -924,29 +1044,40 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
     certificate_error(options, "BDD-to-AIG environment policy failed", nullptr);
     return false;
   }
-  FILE *aag = fopen(options->policy_aag_path, "w");
+  FILE *aag =
+      options->policy_aag_bytes
+          ? open_export_memstream(run, options, options->policy_aag_bytes,
+                                  options->policy_aag_size)
+          : fopen(options->policy_aag_path, "w");
   if (!aag) {
     aig_free(policy);
     certificate_error(options, "cannot open policy", options->policy_aag_path);
     return false;
   }
   aig_write_aag(aag, policy);
-  bool ok = !ferror(aag) && fclose(aag) == 0;
+  bool ok = !ferror(aag);
+  if (fclose(aag) != 0)
+    ok = false;
   if (!ok) {
     aig_free(policy);
     certificate_error(options, "cannot write policy", options->policy_aag_path);
     return false;
   }
-  FILE *json = fopen(options->policy_json_path, "w");
+  FILE *json =
+      options->policy_json_bytes
+          ? open_export_memstream(run, options, options->policy_json_bytes,
+                                  options->policy_json_size)
+          : fopen(options->policy_json_path, "w");
   if (!json) {
     aig_free(policy);
     certificate_error(options, "cannot open policy sidecar",
                       options->policy_json_path);
     return false;
   }
-  ok = write_environment_policy_json(json, policy, game,
-                                     options->policy_aag_path, original_nlat,
-                                     goals, fairness_counters);
+  ok = write_environment_policy_json(
+      json, policy, game,
+      options->policy_aag_path ? options->policy_aag_path : "memory",
+      original_nlat, goals, fairness_counters);
   if (fclose(json) != 0)
     ok = false;
   aig_free(policy);
@@ -1015,7 +1146,7 @@ static bool write_environment_certificate_json(
 }
 
 static bool export_environment_certificate(
-    OxiddRun *run, const Aig *game, Gr1CertificateOptions *options,
+    OxiddRun *run, const Aig *game, Gr1CertificateOptionsV2 *options,
     uint32_t original_nlat, uint32_t goals, uint32_t fairness,
     uint32_t fairness_counters, uint32_t nin, uint32_t nlat, uint32_t nvars,
     uint32_t var_base, const Bdd *goal_bdd, const Bdd *fair_bdd,
@@ -1046,7 +1177,8 @@ static bool export_environment_certificate(
         input_name_or_synthetic(aig_input_name(game, p, nullptr), p, fallback);
     var2lit[p] = aig_input(certificate, name);
   }
-  Bdd2Aig conversion = {certificate, var2lit, var_base, nvars, {0}, false};
+  Bdd2Aig conversion = {certificate, var2lit, var_base, nvars,
+                        {0},         false,   run,      0};
   aig_set_output(certificate, "inv", bdd2aig(&conversion, losing));
   Bdd system_winning = oxidd_run_not(run, losing);
   aig_set_output(certificate, "system_winning",
@@ -1090,21 +1222,29 @@ static bool export_environment_certificate(
                       nullptr);
     return false;
   }
-  FILE *aag = fopen(options->aag_path, "w");
+  FILE *aag = options->aag_bytes
+                  ? open_export_memstream(run, options, options->aag_bytes,
+                                          options->aag_size)
+                  : fopen(options->aag_path, "w");
   if (!aag) {
     aig_free(certificate);
     certificate_error(options, "cannot open certificate", options->aag_path);
     return false;
   }
   aig_write_aag(aag, certificate);
-  bool ok = !ferror(aag) && fclose(aag) == 0;
+  bool ok = !ferror(aag);
+  if (fclose(aag) != 0)
+    ok = false;
   if (!ok) {
     aig_free(certificate);
     certificate_error(options, "cannot write certificate", options->aag_path);
     return false;
   }
-  if (options->json_path) {
-    FILE *json = fopen(options->json_path, "w");
+  if (options->json_path || options->json_bytes) {
+    FILE *json = options->json_bytes
+                     ? open_export_memstream(run, options, options->json_bytes,
+                                             options->json_size)
+                     : fopen(options->json_path, "w");
     if (!json) {
       aig_free(certificate);
       certificate_error(options, "cannot open certificate sidecar",
@@ -1112,7 +1252,8 @@ static bool export_environment_certificate(
       return false;
     }
     ok = write_environment_certificate_json(
-        json, certificate, game, options->aag_path, original_nlat, goals,
+        json, certificate, game,
+        options->aag_path ? options->aag_path : "memory", original_nlat, goals,
         fairness, fairness_counters, levels);
     if (fclose(json) != 0)
       ok = false;
@@ -1528,14 +1669,20 @@ static void release_var_map(Bdd *var_bdd, uint32_t maxvar) {
   }
 }
 
-Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                         const OxiddSolveOptions *user_opts,
-                                         Gr1CertificateOptions *certificate) {
-  OxiddSolveOptions defaults = oxidd_solve_options_default();
-  const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
-  *unreal = 0;
+static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
+                                 const OxiddSolveOptionsV2 *user_opts,
+                                 Gr1CertificateOptionsV2 *certificate) {
+  OxiddSolveOptionsV2 defaults = oxidd_solve_options_default_v2();
+  const OxiddSolveOptionsV2 *opts = user_opts ? user_opts : &defaults;
   if (opts->failure)
     *opts->failure = (OxiddFailure){0};
+  if (!unreal) {
+    oxidd_record_failure(opts, OXIDD_FAILURE_INVALID, "configuration",
+                         "null_verdict_output", 0, 0);
+    aig_free(game);
+    return nullptr;
+  }
+  *unreal = 0;
   if (!game)
     return nullptr;
   if (opts->demand_transitions || opts->realizability_only) {
@@ -1545,12 +1692,28 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     return nullptr;
   }
 
-  bool want_certificate = certificate && certificate->aag_path;
-  bool want_certificate_json = want_certificate && certificate->json_path;
-  bool want_policy = certificate && certificate->policy_aag_path;
+  bool want_certificate =
+      certificate && (certificate->aag_path || certificate->aag_bytes);
+  bool want_certificate_json =
+      want_certificate && (certificate->json_path || certificate->json_bytes);
+  bool want_policy = certificate && (certificate->policy_aag_path ||
+                                     certificate->policy_aag_bytes);
   if (certificate) {
     certificate->failed = false;
     certificate->error[0] = '\0';
+    if ((certificate->aag_bytes && !certificate->aag_size) ||
+        (certificate->json_bytes && !certificate->json_size) ||
+        (certificate->policy_aag_bytes && !certificate->policy_aag_size) ||
+        (certificate->policy_json_bytes && !certificate->policy_json_size) ||
+        (want_policy && !certificate->policy_json_path &&
+         !certificate->policy_json_bytes)) {
+      certificate_error(certificate, "invalid in-memory export buffers",
+                        nullptr);
+      oxidd_record_failure(opts, OXIDD_FAILURE_INVALID, "configuration",
+                           "export_buffers", 0, 0);
+      aig_free(game);
+      return nullptr;
+    }
   }
 
   uint32_t original_nlat = aig_num_latches(game);
@@ -2292,7 +2455,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
     for (uint32_t k = 0; k < ncv; k++) {
       uint32_t lit;
       const char *name = aig_input_name(game, cinput[k], &lit);
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false, run, 0};
       uint32_t out = bdd2aig_root(&ctx, strat_f[k]);
       convert_error = convert_error || ctx.error;
       aig_set_output(strat, name, out);
@@ -2314,7 +2477,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
         convert_error = true;
         break;
       }
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false, run, 0};
       uint32_t nl = bdd2aig_root(&ctx, na);
       convert_error = convert_error || ctx.error;
       oxidd_bdd_unref(na);
@@ -2325,22 +2488,25 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
 
     // Goal-counter latch next-functions.
     for (uint32_t j = 0; j < m_goals && !convert_error; j++) {
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars, {0}, false, run, 0};
       uint32_t nl = bdd2aig_root(&ctx, next_curr[j]);
       convert_error = convert_error || ctx.error;
       aig_set_latch_next(strat, curr_latch_lit[j], nl);
     }
 
     if (convert_error) {
-      oxidd_record_failure(opts, OXIDD_FAILURE_CONVERSION, "conversion",
-                           "bdd2aig_or_substitution", run->operations,
-                           run->index);
+      if (!run->stopped)
+        oxidd_record_failure(opts, OXIDD_FAILURE_CONVERSION, "conversion",
+                             "bdd2aig_or_substitution", run->operations,
+                             run->index);
       aig_free(strat);
       strat = nullptr;
       ok = false;
     }
   }
 
+  if (ok && oxidd_run_stopped(run))
+    ok = false;
   if (ok && want_policy && !*unreal) {
     oxidd_phase(run, "policy");
     if (!export_policy(run, game, certificate, original_nlat, m_goals, nin,
@@ -2378,6 +2544,30 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
       strat = nullptr;
       ok = false;
     }
+  }
+
+  if (ok && oxidd_run_stopped(run))
+    ok = false;
+  size_t artifact_cap = certificate && certificate->max_artifact_bytes
+                            ? certificate->max_artifact_bytes
+                            : opts->max_artifact_bytes;
+  if (ok && artifact_cap && certificate &&
+      ((certificate->aag_size && *certificate->aag_size > artifact_cap) ||
+       (certificate->json_size && *certificate->json_size > artifact_cap) ||
+       (certificate->policy_aag_size &&
+        *certificate->policy_aag_size > artifact_cap) ||
+       (certificate->policy_json_size &&
+        *certificate->policy_json_size > artifact_cap))) {
+    certificate_error(certificate, "artifact cap exceeded", nullptr);
+    oxidd_record_failure(opts, OXIDD_FAILURE_ARTIFACT_LIMIT, "export",
+                         "artifact_cap", run->operations, run->index);
+    ok = false;
+  }
+  if (!ok && *unreal && (want_certificate || want_policy))
+    *unreal = 0;
+  if (!ok && strat) {
+    aig_free(strat);
+    strat = nullptr;
   }
 
   // -----------------------------------------------------------------------
@@ -2457,7 +2647,8 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   oxidd_bdd_unref(unc_cube);
   if (sub_lat)
     oxidd_bdd_substitution_free(sub_lat);
-  if (!strat && !*unreal && (!certificate || !certificate->failed))
+  if (!strat && !*unreal && (!certificate || !certificate->failed) &&
+      (!opts->failure || opts->failure->kind == OXIDD_FAILURE_NONE))
     oxidd_record_failure(opts, OXIDD_FAILURE_HOST, run->phase,
                          "host_allocation_or_invalid_input", run->operations,
                          run->index);
@@ -2482,18 +2673,282 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   return strat;
 }
 
-Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, opts, nullptr);
+typedef struct {
+  const char *path;
+  const char *bytes;
+  size_t size;
+  char *temporary, *backup;
+  bool published, had_original;
+} ExportStage;
+
+static char *nearby_name(const char *path, const char *suffix, int *fd) {
+  size_t length = strlen(path) + strlen(suffix) + 7;
+  char *name = malloc(length);
+  if (!name)
+    return nullptr;
+  snprintf(name, length, "%s%sXXXXXX", path, suffix);
+  *fd = mkstemp(name);
+  if (*fd < 0) {
+    free(name);
+    return nullptr;
+  }
+  return name;
+}
+
+static bool publish_exports(ExportStage files[4]) {
+  bool ok = true;
+  for (size_t i = 0; i < 4 && ok; i++) {
+    if (!files[i].path)
+      continue;
+    int fd;
+    files[i].temporary = nearby_name(files[i].path, ".stage-", &fd);
+    if (!files[i].temporary) {
+      ok = false;
+      break;
+    }
+    FILE *out = fdopen(fd, "wb");
+    if (!out) {
+      close(fd);
+      ok = false;
+      break;
+    }
+    ok = fwrite(files[i].bytes, 1, files[i].size, out) == files[i].size;
+    if (fclose(out) != 0)
+      ok = false;
+  }
+  for (size_t i = 0; i < 4 && ok; i++) {
+    if (!files[i].path)
+      continue;
+    if (access(files[i].path, F_OK) == 0) {
+      int fd;
+      files[i].backup = nearby_name(files[i].path, ".backup-", &fd);
+      if (!files[i].backup) {
+        ok = false;
+        break;
+      }
+      close(fd);
+      unlink(files[i].backup);
+      if (rename(files[i].path, files[i].backup) != 0) {
+        ok = false;
+        break;
+      }
+      files[i].had_original = true;
+    }
+    if (rename(files[i].temporary, files[i].path) != 0) {
+      ok = false;
+      break;
+    }
+    files[i].published = true;
+  }
+  if (!ok)
+    for (size_t i = 4; i-- > 0;) {
+      if (files[i].published)
+        unlink(files[i].path);
+      if (files[i].had_original)
+        rename(files[i].backup, files[i].path);
+    }
+  for (size_t i = 0; i < 4; i++) {
+    if (files[i].temporary)
+      unlink(files[i].temporary);
+    if (ok && files[i].backup)
+      unlink(files[i].backup);
+    free(files[i].temporary);
+    free(files[i].backup);
+  }
+  return ok;
+}
+
+static void clear_export_outputs(Gr1CertificateOptionsV2 *certificate) {
+  if (certificate->aag_bytes)
+    *certificate->aag_bytes = nullptr;
+  if (certificate->json_bytes)
+    *certificate->json_bytes = nullptr;
+  if (certificate->policy_aag_bytes)
+    *certificate->policy_aag_bytes = nullptr;
+  if (certificate->policy_json_bytes)
+    *certificate->policy_json_bytes = nullptr;
+  if (certificate->aag_size)
+    *certificate->aag_size = 0;
+  if (certificate->json_size)
+    *certificate->json_size = 0;
+  if (certificate->policy_aag_size)
+    *certificate->policy_aag_size = 0;
+  if (certificate->policy_json_size)
+    *certificate->policy_json_size = 0;
+}
+
+Aig *solve_gr1_oxidd_ex_with_certificate_v2(
+    Aig *game, int *unreal, const OxiddSolveOptionsV2 *options,
+    Gr1CertificateOptionsV2 *certificate) {
+  if ((options && (options->abi_version != TLSF_OXIDD_OPTIONS_ABI_VERSION ||
+                   options->struct_size != sizeof *options)) ||
+      (certificate &&
+       (certificate->abi_version != TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION ||
+        certificate->struct_size != sizeof *certificate))) {
+    if (unreal)
+      *unreal = 0;
+    aig_free(game);
+    return nullptr;
+  }
+  OxiddSolveOptionsV2 resolved =
+      options ? *options : oxidd_solve_options_default_v2();
+  OxiddFailure failure = {0};
+  resolved.failure = &failure;
+  if (!certificate) {
+    Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr);
+    if (options && options->failure)
+      *options->failure = failure;
+    return strategy;
+  }
+  if ((certificate->aag_bytes && !certificate->aag_size) ||
+      (certificate->json_bytes && !certificate->json_size) ||
+      (certificate->policy_aag_bytes && !certificate->policy_aag_size) ||
+      (certificate->policy_json_bytes && !certificate->policy_json_size) ||
+      ((certificate->json_path || certificate->json_bytes) &&
+       !certificate->aag_path && !certificate->aag_bytes) ||
+      ((certificate->policy_json_path || certificate->policy_json_bytes) &&
+       !certificate->policy_aag_path && !certificate->policy_aag_bytes) ||
+      ((certificate->policy_aag_path || certificate->policy_aag_bytes) &&
+       !certificate->policy_json_path && !certificate->policy_json_bytes)) {
+    clear_export_outputs(certificate);
+    certificate_error(certificate, "invalid in-memory export buffers", nullptr);
+    oxidd_record_failure(&resolved, OXIDD_FAILURE_INVALID, "configuration",
+                         "export_buffers", 0, 0);
+    if (options && options->failure)
+      *options->failure = failure;
+    if (unreal)
+      *unreal = 0;
+    aig_free(game);
+    return nullptr;
+  }
+  clear_export_outputs(certificate);
+  Gr1CertificateOptionsV2 staged = *certificate;
+  char *bytes[4] = {0};
+  size_t sizes[4] = {0};
+  bool requested[4] = {
+      certificate->aag_path || certificate->aag_bytes,
+      certificate->json_path || certificate->json_bytes,
+      certificate->policy_aag_path || certificate->policy_aag_bytes,
+      certificate->policy_json_path || certificate->policy_json_bytes,
+  };
+  staged.aag_bytes = requested[0] ? &bytes[0] : nullptr;
+  staged.json_bytes = requested[1] ? &bytes[1] : nullptr;
+  staged.policy_aag_bytes = requested[2] ? &bytes[2] : nullptr;
+  staged.policy_json_bytes = requested[3] ? &bytes[3] : nullptr;
+  staged.aag_size = requested[0] ? &sizes[0] : nullptr;
+  staged.json_size = requested[1] ? &sizes[1] : nullptr;
+  staged.policy_aag_size = requested[2] ? &sizes[2] : nullptr;
+  staged.policy_json_size = requested[3] ? &sizes[3] : nullptr;
+  Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, &staged);
+  certificate->failed = staged.failed;
+  memcpy(certificate->error, staged.error, sizeof certificate->error);
+  bool ok = !staged.failed && failure.kind == OXIDD_FAILURE_NONE &&
+            (strategy || (unreal && *unreal));
+  for (size_t i = 0; i < 4; i++)
+    if (ok && requested[i] && !bytes[i])
+      ok = false;
+  if (ok) {
+    ExportStage files[4] = {
+        {.path = certificate->aag_path, .bytes = bytes[0], .size = sizes[0]},
+        {.path = certificate->json_path, .bytes = bytes[1], .size = sizes[1]},
+        {.path = certificate->policy_aag_path,
+         .bytes = bytes[2],
+         .size = sizes[2]},
+        {.path = certificate->policy_json_path,
+         .bytes = bytes[3],
+         .size = sizes[3]},
+    };
+    for (size_t i = 0; i < 4 && ok; i++)
+      for (size_t j = 0; j < i; j++)
+        if (files[i].path && files[j].path &&
+            strcmp(files[i].path, files[j].path) == 0)
+          ok = false;
+    if (ok)
+      ok = publish_exports(files);
+    if (!ok) {
+      certificate_error(certificate, "cannot publish complete export", nullptr);
+      oxidd_record_failure(&resolved, OXIDD_FAILURE_HOST, "export", "publish",
+                           0, 0);
+    }
+  }
+  if (ok) {
+    char **outputs[4] = {certificate->aag_bytes, certificate->json_bytes,
+                         certificate->policy_aag_bytes,
+                         certificate->policy_json_bytes};
+    size_t *lengths[4] = {certificate->aag_size, certificate->json_size,
+                          certificate->policy_aag_size,
+                          certificate->policy_json_size};
+    for (size_t i = 0; i < 4; i++) {
+      if (outputs[i]) {
+        *outputs[i] = bytes[i];
+        *lengths[i] = sizes[i];
+        bytes[i] = nullptr;
+      }
+    }
+  } else {
+    if (strategy)
+      aig_free(strategy);
+    strategy = nullptr;
+    if (unreal)
+      *unreal = 0;
+    clear_export_outputs(certificate);
+    certificate->failed = true;
+    if (failure.kind == OXIDD_FAILURE_NONE)
+      oxidd_record_failure(&resolved, OXIDD_FAILURE_HOST, "export", "staging",
+                           0, 0);
+  }
+  for (size_t i = 0; i < 4; i++)
+    free(bytes[i]);
+  if (options && options->failure)
+    *options->failure = failure;
+  return strategy;
+}
+
+Aig *solve_gr1_oxidd_ex_v2(Aig *game, int *unreal,
+                           const OxiddSolveOptionsV2 *opts) {
+  return solve_gr1_oxidd_ex_with_certificate_v2(game, unreal, opts, nullptr);
+}
+
+static Aig *
+solve_gr1_oxidd_with_certificate_v2(Aig *game, int *unreal,
+                                    Gr1CertificateOptionsV2 *certificate) {
+  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
+  opts.safety_output_index = 0;
+  return solve_gr1_oxidd_ex_with_certificate_v2(game, unreal, &opts,
+                                                certificate);
+}
+
+Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
+  return solve_gr1_oxidd_with_certificate_v2(game, unreal, nullptr);
+}
+
+Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                         const OxiddSolveOptions *options,
+                                         Gr1CertificateOptions *certificate) {
+  OxiddSolveOptionsV2 extended = oxidd_options_upgrade(options);
+  Gr1CertificateOptionsV2 export = {0};
+  if (certificate) {
+    memcpy(&export, certificate, sizeof *certificate);
+    export.abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION;
+    export.struct_size = sizeof export;
+  }
+  Aig *strategy = solve_gr1_oxidd_ex_with_certificate_v2(
+      game, unreal, &extended, certificate ? &export : nullptr);
+  if (certificate) {
+    certificate->failed = export.failed;
+    memcpy(certificate->error, export.error, sizeof certificate->error);
+  }
+  return strategy;
+}
+
+Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
+                        const OxiddSolveOptions *options) {
+  return solve_gr1_oxidd_ex_with_certificate(game, unreal, options, nullptr);
 }
 
 Aig *solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
                                       Gr1CertificateOptions *certificate) {
-  OxiddSolveOptions opts = oxidd_solve_options_default();
-  opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
-  opts.safety_output_index = 0;
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, &opts, certificate);
-}
-
-Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
-  return solve_gr1_oxidd_with_certificate(game, unreal, nullptr);
+  return solve_gr1_oxidd_ex_with_certificate(game, unreal, nullptr,
+                                             certificate);
 }

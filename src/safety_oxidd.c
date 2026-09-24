@@ -24,7 +24,7 @@
 
 #include "tlsf/safety_oxidd.h"
 
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,9 +135,9 @@ static bool demand_updates(OxiddRun *run, const Aig *game, uint32_t base,
 }
 
 static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
-                              const OxiddSolveOptions *user_opts) {
-  OxiddSolveOptions defaults = oxidd_solve_options_default();
-  const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
+                              const OxiddSolveOptionsV2 *user_opts) {
+  OxiddSolveOptionsV2 defaults = oxidd_solve_options_default_v2();
+  const OxiddSolveOptionsV2 *opts = user_opts ? user_opts : &defaults;
   *unreal = 0;
   if (opts->failure)
     *opts->failure = (OxiddFailure){0};
@@ -475,7 +475,8 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
     for (uint32_t k = 0; k < ncv; k++) {
       uint32_t lit;
       const char *name = aig_input_name(game, cinput[k], &lit);
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local,
+                     {0},   false,   nullptr,  0};
       uint32_t out = bdd2aig_root(&ctx, strat_f[k]);
       convert_error = convert_error || ctx.error;
       aig_set_output(strat, name, out);
@@ -496,7 +497,8 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
         convert_error = true;
         break;
       }
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local,
+                     {0},   false,   nullptr,  0};
       uint32_t nl = bdd2aig_root(&ctx, na);
       convert_error = convert_error || ctx.error;
       oxidd_bdd_unref(na);
@@ -551,11 +553,11 @@ cleanup:
   return strat;
 }
 
-OxiddSolveResult solve_safety_oxidd_result(Aig *game,
-                                           const OxiddSolveOptions *user_opts) {
+OxiddSolveResult
+solve_safety_oxidd_result_v2(Aig *game, const OxiddSolveOptionsV2 *user_opts) {
   OxiddSolveResult result = {0};
-  OxiddSolveOptions opts =
-      user_opts ? *user_opts : oxidd_solve_options_default();
+  OxiddSolveOptionsV2 opts =
+      user_opts ? *user_opts : oxidd_solve_options_default_v2();
   opts.failure = &result.failure;
   int unreal = 0;
   bool winning = false;
@@ -569,8 +571,8 @@ OxiddSolveResult solve_safety_oxidd_result(Aig *game,
   return result;
 }
 
-Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
-                           const OxiddSolveOptions *opts) {
+Aig *solve_safety_oxidd_ex_v2(Aig *game, int *unreal,
+                              const OxiddSolveOptionsV2 *opts) {
   if (opts && opts->realizability_only) {
     *unreal = 0;
     if (opts->failure)
@@ -585,8 +587,20 @@ Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
 }
 
 Aig *solve_safety_oxidd(Aig *game, int *unreal) {
-  OxiddSolveOptions opts = oxidd_solve_options_default();
+  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
   opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
   opts.safety_output_index = 0;
-  return solve_safety_oxidd_ex(game, unreal, &opts);
+  return solve_safety_oxidd_ex_v2(game, unreal, &opts);
+}
+
+OxiddSolveResult solve_safety_oxidd_result(Aig *game,
+                                           const OxiddSolveOptions *options) {
+  OxiddSolveOptionsV2 extended = oxidd_options_upgrade(options);
+  return solve_safety_oxidd_result_v2(game, &extended);
+}
+
+Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+                           const OxiddSolveOptions *options) {
+  OxiddSolveOptionsV2 extended = oxidd_options_upgrade(options);
+  return solve_safety_oxidd_ex_v2(game, unreal, &extended);
 }

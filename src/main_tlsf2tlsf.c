@@ -13,11 +13,10 @@
 #include "tlsf/cli.h"
 #include "tlsf/expand.h"
 #include "tlsf/print_tlsf.h"
+#include "tlsf/pipeline.h"
 #include "tlsf/spec.h"
 
 #include "spec_internal.h"
-#include "provenance.h"
-#include "sha256.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -173,8 +172,11 @@ int main(int argc, char *argv[]) {
     source = read_source(fp, &source_size);
     if (input_file)
       fclose(fp);
-    if (source)
-      sha256_hex(source, source_size, source_sha256);
+    if (source &&
+        !tlsf_pipeline_source_sha256(source, source_size, source_sha256)) {
+      free(source);
+      source = nullptr;
+    }
     if (!source || !(fp = fmemopen(source, source_size, "r"))) {
       fprintf(stderr, "tlsf2tlsf: cannot read or hash source\n");
       free(source);
@@ -187,9 +189,9 @@ int main(int argc, char *argv[]) {
   free(source);
   if (!spec)
     return 1;
-  const ParamDecl *source_params = spec->params;
-  uint16_t source_param_count = spec->param_count;
-  spec->capture_provenance = provenance_file != nullptr;
+  char *provenance_bytes = nullptr;
+  size_t provenance_size = 0;
+  FILE *provenance_stream = nullptr;
 
   // --- Apply semantics/target overrides ---
   if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
@@ -219,10 +221,51 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
+  if (provenance_file) {
+    provenance_stream = open_memstream(&provenance_bytes, &provenance_size);
+    if (!provenance_stream) {
+      spec_free(spec);
+      return 1;
+    }
+  }
 
   if (to_basic) {
     // Full expansion to the basic fragment (drops the GLOBAL section).
-    if (expand(spec, overrides, n_overrides) != 0) {
+    // The historical CLI accepts repeated names, with the last value winning.
+    // The library entry point deliberately rejects duplicates for new callers.
+    ParamOverride effective[64];
+    size_t n_effective = 0;
+    for (size_t i = 0; i < n_overrides; i++) {
+      bool found = false;
+      for (uint16_t j = 0; j < spec->param_count; j++)
+        found |= strcmp(overrides[i].name, spec->params[j].name) == 0;
+      if (!found) {
+        fprintf(stderr, "expand: unknown parameter '%s'\n", overrides[i].name);
+        if (provenance_stream)
+          fclose(provenance_stream);
+        free(provenance_bytes);
+        spec_free(spec);
+        return 1;
+      }
+      size_t j = 0;
+      while (j < n_effective &&
+             strcmp(effective[j].name, overrides[i].name) != 0)
+        j++;
+      if (j == n_effective)
+        n_effective++;
+      effective[j] = overrides[i];
+    }
+    TlsfPipelineError expand_error = {0};
+    int expanded = tlsf_pipeline_expand_spec(
+        spec, effective, n_effective, provenance_stream,
+        provenance_file ? source_sha256 : nullptr, false, &expand_error);
+    if (provenance_stream && fclose(provenance_stream) != 0)
+      expanded = -1;
+    provenance_stream = nullptr;
+    if (expanded != 0) {
+      if (strncmp(expand_error.message, "expand:", 7) == 0)
+        fprintf(stderr, "%s\n", expand_error.message);
+      free(provenance_bytes);
       spec_free(spec);
       return 1;
     }
@@ -262,12 +305,14 @@ int main(int argc, char *argv[]) {
     fclose(out);
 
   if (provenance_file) {
-    FILE *provenance_out = fopen(provenance_file, "w");
+    FILE *provenance_out = fopen(provenance_file, "wb");
     int write_status =
-        provenance_out ? provenance_write(provenance_out, spec, source_params,
-                                          source_param_count, source_sha256)
-                       : -1;
+        provenance_out && fwrite(provenance_bytes, 1, provenance_size,
+                                 provenance_out) == provenance_size
+            ? 0
+            : -1;
     int close_status = provenance_out ? fclose(provenance_out) : -1;
+    free(provenance_bytes);
     if (write_status != 0 || close_status != 0) {
       fprintf(stderr, "tlsf2tlsf: cannot write provenance\n");
       spec_free(spec);

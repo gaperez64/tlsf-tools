@@ -20,11 +20,12 @@ jobs:
       # Pin clang-format via the PyPI package so the formatting check is
       # reproducible across machines (distro clang-format versions disagree).
       - name: Install clang-format
-        run: pip install 'clang-format==18.1.8'
+        run: pip install 'clang-format==22.1.8'
       - name: Check formatting
         run: |
           clang-format --version
-          clang-format --dry-run --Werror src/*.c include/tlsf/*.h
+          clang-format --dry-run --Werror src/*.c src/native/*.c \
+            include/tlsf/*.h test/native_api*.c test/native_api_cpp.cpp
 
   # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
   # once and share it with the explicit OxiDD research job as an artifact, so
@@ -39,8 +40,8 @@ jobs:
           submodules: recursive
       - name: Install Rust
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
       - name: OxiDD submodule revision
         id: rev
         run: echo "sha=$(git -C external/oxidd rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -52,14 +53,16 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             external/oxidd/target
-          key: oxidd-${{ runner.os }}-${{ steps.rev.outputs.sha }}
+          key: oxidd-${{ runner.os }}-rust-1.98.1-${{ steps.rev.outputs.sha }}
           restore-keys: |
             oxidd-${{ runner.os }}-
       - name: Install cbindgen
-        # ~/.cargo/bin is cached, so a restored cache already has cbindgen and a
-        # plain `cargo install` would fail with "binary already exists"; skip it
-        # when present (and --force on the rare miss to stay idempotent).
-        run: command -v cbindgen >/dev/null || cargo install cbindgen --locked --force
+        run: |
+          if ! command -v cbindgen >/dev/null || \
+             [ "$(cbindgen --version)" != 'cbindgen 0.29.2' ]; then
+            cargo install cbindgen --version 0.29.2 --locked --force
+          fi
+          test "$(cbindgen --version)" = 'cbindgen 0.29.2'
       - name: Build OxiDD FFI
         run: scripts/build_oxidd.sh
       - name: Upload OxiDD FFI artifact
@@ -180,6 +183,53 @@ jobs:
           meson setup build-oxidd -Doxidd=enabled -Dresearch_tools=true -Dcpu=avx2
           ninja -C build-oxidd
           meson test -C build-oxidd --print-errorlogs
+
+  build-native-gr1:
+    needs: oxidd
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build flex bison gcc-14 g++-14 make curl pkg-config
+      - name: Download OxiDD FFI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: oxidd-ffi
+          path: external/oxidd
+      - name: Build pinned Spot release
+        run: |
+          curl -fsSL https://www.lre.epita.fr/dload/spot/spot-2.16.tar.gz \
+            -o spot-2.16.tar.gz
+          tar -xf spot-2.16.tar.gz
+          cd spot-2.16
+          CC=gcc-14 CXX=g++-14 ./configure --disable-python \
+            --prefix="$GITHUB_WORKSPACE/.spot"
+          make -j2
+          make install
+      - name: Build and test native C ABI
+        env:
+          CC: gcc-14
+          CXX: g++-14
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.spot/lib/pkgconfig
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.spot/lib
+        run: |
+          pkg-config --modversion libspot
+          git rev-parse HEAD
+          git -C external/oxidd rev-parse HEAD
+          meson setup build-native-ci -Dnative_gr1=enabled -Doxidd=enabled \
+            -Dresearch_tools=true -Dcpp_std=c++20
+          meson compile -C build-native-ci -j1
+          meson test -C build-native-ci --num-processes 1 --print-errorlogs
+          meson setup build-oxidd-ci -Dnative_gr1=disabled -Doxidd=enabled \
+            -Dresearch_tools=true -Dcpp_std=c++20
+          python3 test/check_native_gate.py build-oxidd-ci
+          meson compile -C build-oxidd-ci -j1
 
   coverage:
     runs-on: ubuntu-24.04

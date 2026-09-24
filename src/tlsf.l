@@ -9,6 +9,7 @@
 /* tlsf.l — TLSF v1.1/v1.2 lexer */
 #include "tlsf/ast.h"
 #include "tlsf/spec.h"
+#include "diagnostic.h"
 #include "tlsf_parse.h"
 
 #include <stdlib.h>
@@ -222,7 +223,7 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 
   /* --- Error catch-all --- */
 .                   {
-                      fprintf(stderr, "%d:%d: unexpected character '%c'\n",
+                      fprintf(tlsf_diagnostic_stream(), "%d:%d: unexpected character '%c'\n",
                               yylineno, yycolumn, yytext[0]);
                       return TOK_ERROR;
                     }

@@ -12,7 +12,7 @@
 /// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
 
 #include "tlsf/aiger.h"
-#include "tlsf/oxidd_common.h"
+#include "tlsf/oxidd_options.h"
 
 /// Solve the safety game `game` (env-first / Mealy; inputs whose name starts
 /// with `controllable_` are the controllable moves, output `bad` is the unsafe
@@ -33,6 +33,9 @@
 [[nodiscard]] Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
                                          const OxiddSolveOptions *opts);
 
+[[nodiscard]] Aig *solve_safety_oxidd_ex_v2(Aig *game, int *unreal,
+                                            const OxiddSolveOptionsV2 *opts);
+
 typedef enum {
   OXIDD_SOLVE_ERROR,
   OXIDD_SOLVE_REALIZABLE,
@@ -45,6 +48,8 @@ typedef struct {
 } OxiddSolveResult;
 
 // Consumes game. Unlike the legacy entry points, supports verdict-only success.
+OxiddSolveResult solve_safety_oxidd_result_v2(Aig *game,
+                                              const OxiddSolveOptionsV2 *opts);
 OxiddSolveResult solve_safety_oxidd_result(Aig *game,
                                            const OxiddSolveOptions *opts);
 
