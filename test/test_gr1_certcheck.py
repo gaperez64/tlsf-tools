@@ -428,6 +428,58 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                 raise AssertionError(
                     f"{label} cache capacity was not rejected clearly:\n"
                     f"{invalid.stdout}{invalid.stderr}")
+
+        # AIGER's self-literal reset leaves a latch uninitialized.  Start from
+        # the concrete-reset-1 winning game q'=q, GF(q), then replace only its
+        # reset.  The q=0 initial state is losing, so interpreting either
+        # nonconstant reset as Boolean true would be unsound.
+        reset_game_text = """\
+aag 3 2 1 1 0 0 0 1 0
+2
+4
+6 6 1
+0
+1
+6
+i0 u0
+i1 controllable_c0
+o0 bad
+j0 justice_0
+"""
+        reset_game = root / "reset-one-game.aag"
+        reset_policy = root / "reset-one-policy.aag"
+        reset_certificate = root / "reset-one-certificate.aag"
+        reset_game.write_text(reset_game_text, encoding="utf-8")
+        reset_solve = subprocess.run(
+            [str(solver), "--policy", str(reset_policy), "--certificate",
+             str(reset_certificate), str(reset_game)], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            timeout=20)
+        if reset_solve.returncode != 0:
+            raise AssertionError(
+                "solver failed on concrete-reset fixture:\n"
+                f"{reset_solve.stdout}{reset_solve.stderr}")
+        for reset_label, reset_literal, diagnostic in (
+                ("uninitialized", 6,
+                 "unsupported uninitialized game latch reset"),
+                ("nonconstant", 2,
+                 "unsupported nonconstant game latch reset")):
+            unsupported_game = root / f"reset-{reset_label}-game.aag"
+            unsupported_game.write_text(
+                reset_game_text.replace("6 6 1\n", f"6 6 {reset_literal}\n"),
+                encoding="utf-8")
+            for method in ("certificate", "closed-loop", "both"):
+                certificate_args = (
+                    ("--certificate", str(reset_certificate))
+                    if method != "closed-loop" else ())
+                rejected = run_checker(
+                    checker, unsupported_game, reset_policy,
+                    "--method", method, *certificate_args)
+                if (checker_status(rejected) != (4, "INVALID")
+                        or diagnostic not in rejected.stderr):
+                    raise AssertionError(
+                        f"{method} accepted {reset_label} latch reset:\n"
+                        f"{rejected.stdout}{rejected.stderr}")
         for index in range(games):
             game_text = differential.make_random_game(rng, index)
             parsed = differential.parse_aag(game_text)
@@ -1178,6 +1230,7 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         "default_cache_legacy_matches": default_cache_legacy_matches,
         "small_cache_fixture_agreements": small_cache_agreements,
         "invalid_cache_caps_rejected": len(invalid_cache_cases),
+        "unsupported_latch_resets_invalid": 6,
         "bounded_selected_output_cache_modes": 10,
         "unused_move_cones_skipped": 1,
         "malformed_unused_cones_invalid": 1,

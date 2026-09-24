@@ -1127,9 +1127,19 @@ static bool validate_aig_structure(const Aig *aig, const char *kind,
   for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
     uint32_t current, next, reset;
     aig_latch_at(aig, i, &current, &next, &reset);
-    if (!defined_literal(defined, maxvar, next) ||
-        (reset > 1 && reset != current)) {
+    if (!defined_literal(defined, maxvar, next)) {
       snprintf(message, cap, "malformed %s AIG latch update %u", kind, i);
+      free(defined);
+      return false;
+    }
+    if (reset > 1) {
+      snprintf(message, cap,
+               reset == current
+                   ? "unsupported uninitialized %s latch reset at latch %u "
+                     "(literal %u)"
+                   : "unsupported nonconstant %s latch reset at latch %u "
+                     "(literal %u)",
+               kind, i, reset);
       free(defined);
       return false;
     }
