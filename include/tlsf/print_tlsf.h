@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+void print_tlsf_formula(FILE *out, const Node *formula);
 void print_tlsf(FILE *out, const TlsfSpec *spec, bool include_global);
 
 #endif // TLSF_PRINT_TLSF_H

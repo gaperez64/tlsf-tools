@@ -8,6 +8,7 @@
 ///   --output FILE       Write output to FILE (default: stdout).
 ///   --help
 
+#define _GNU_SOURCE
 #include "tlsf/build_info.h"
 #include "tlsf/cli.h"
 #include "tlsf/expand.h"
@@ -15,10 +16,42 @@
 #include "tlsf/spec.h"
 
 #include "spec_internal.h"
+#include "provenance.h"
+#include "sha256.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static char *read_source(FILE *in, size_t *size) {
+  size_t cap = 16384;
+  char *bytes = malloc(cap);
+  if (!bytes)
+    return nullptr;
+  *size = 0;
+  for (;;) {
+    if (*size == cap) {
+      size_t next = cap * 2;
+      char *grown = realloc(bytes, next);
+      if (!grown) {
+        free(bytes);
+        return nullptr;
+      }
+      bytes = grown;
+      cap = next;
+    }
+    size_t got = fread(bytes + *size, 1, cap - *size, in);
+    *size += got;
+    if (got == 0) {
+      if (ferror(in)) {
+        free(bytes);
+        return nullptr;
+      }
+      break;
+    }
+  }
+  return bytes;
+}
 
 static void usage(const char *prog) {
   fprintf(
@@ -35,6 +68,7 @@ static void usage(const char *prog) {
       "  --overwrite-semantics VALUE  replace the spec's SEMANTICS\n"
       "  --overwrite-target VALUE     replace the spec's TARGET\n"
       "  --output FILE                write to FILE (default: stdout)\n"
+      "  --provenance-out FILE        write source-origin expansion JSON\n"
       "  --version, --help\n",
       prog);
 }
@@ -66,6 +100,7 @@ static bool parse_override(const char *s, ParamOverride *out) {
 int main(int argc, char *argv[]) {
   const char *input_file = nullptr;
   const char *output_file = nullptr;
+  const char *provenance_file = nullptr;
   bool to_basic = false;
   bool fair_environment = false;
   const char *os_arg = nullptr;
@@ -98,6 +133,9 @@ int main(int argc, char *argv[]) {
         return 1;
     } else if (strcmp(argv[i], "--output") == 0) {
       output_file = NEED_ARG();
+    } else if (strcmp(argv[i], "--provenance-out") == 0) {
+      provenance_file = NEED_ARG();
+      to_basic = true;
     } else if (strcmp(argv[i], "--version") == 0) {
       printf("tlsf2tlsf %s\n", TLSF_PROJECT_VERSION);
       return 0;
@@ -118,14 +156,40 @@ int main(int argc, char *argv[]) {
   }
 #undef NEED_ARG
 
+  if (provenance_file && output_file &&
+      strcmp(provenance_file, output_file) == 0) {
+    fprintf(stderr,
+            "tlsf2tlsf: --output and --provenance-out need different files\n");
+    return 1;
+  }
+
   FILE *fp = cli_open_input(input_file, "tlsf2tlsf");
   if (!fp)
     return 1;
+  char *source = nullptr;
+  size_t source_size = 0;
+  char source_sha256[65] = {0};
+  if (provenance_file) {
+    source = read_source(fp, &source_size);
+    if (input_file)
+      fclose(fp);
+    if (source)
+      sha256_hex(source, source_size, source_sha256);
+    if (!source || !(fp = fmemopen(source, source_size, "r"))) {
+      fprintf(stderr, "tlsf2tlsf: cannot read or hash source\n");
+      free(source);
+      return 1;
+    }
+  }
   TlsfSpec *spec = cli_parse(fp, "tlsf2tlsf");
-  if (input_file)
+  if (input_file || provenance_file)
     fclose(fp);
+  free(source);
   if (!spec)
     return 1;
+  const ParamDecl *source_params = spec->params;
+  uint16_t source_param_count = spec->param_count;
+  spec->capture_provenance = provenance_file != nullptr;
 
   // --- Apply semantics/target overrides ---
   if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
@@ -196,6 +260,20 @@ int main(int argc, char *argv[]) {
   print_tlsf(out, spec, /*include_global=*/!to_basic);
   if (output_file)
     fclose(out);
+
+  if (provenance_file) {
+    FILE *provenance_out = fopen(provenance_file, "w");
+    int write_status =
+        provenance_out ? provenance_write(provenance_out, spec, source_params,
+                                          source_param_count, source_sha256)
+                       : -1;
+    int close_status = provenance_out ? fclose(provenance_out) : -1;
+    if (write_status != 0 || close_status != 0) {
+      fprintf(stderr, "tlsf2tlsf: cannot write provenance\n");
+      spec_free(spec);
+      return 1;
+    }
+  }
 
   spec_free(spec);
   return 0;

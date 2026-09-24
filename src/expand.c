@@ -26,6 +26,7 @@ typedef struct Binding {
 typedef struct Env {
   Binding b;
   const struct Env *parent;
+  uint32_t binder_id;
 } Env;
 
 static bool env_lookup(const Env *env, const char *name, int64_t *out) {
@@ -64,8 +65,18 @@ static const char *subst_name(const char *name, const char *const *formals,
   return name;
 }
 
+static Node *subst_impl(Arena *a, const Node *n, const char *const *formals,
+                        Node *const *actuals, uint16_t nf);
 static Node *subst(Arena *a, const Node *n, const char *const *formals,
                    Node *const *actuals, uint16_t nf) {
+  Node *result = subst_impl(a, n, formals, actuals, nf);
+  if (result && result != n && result->source_id == 0)
+    result->source_id = n->source_id;
+  return result;
+}
+
+static Node *subst_impl(Arena *a, const Node *n, const char *const *formals,
+                        Node *const *actuals, uint16_t nf) {
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
@@ -214,6 +225,8 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
                       bool *out, int depth);
 static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
                          bool *ok, int depth);
+static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
+                              bool *ok, int depth);
 static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
                               const Env *env, Node **out, int depth);
 
@@ -821,8 +834,9 @@ static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
   *body = n->qbody;
   *body_env = env;
   if (value->kind == EVAL_VALUE_INT) {
-    *child =
-        (Env){.b = {.name = n->qvar, .value = value->integer}, .parent = env};
+    *child = (Env){.b = {.name = n->qvar, .value = value->integer},
+                   .parent = env,
+                   .binder_id = n->source_id};
     *body_env = child;
     return true;
   }
@@ -830,6 +844,8 @@ static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
     fprintf(stderr, "expand: set binder value cannot be substituted\n");
     return false;
   }
+  if (spec->capture_provenance)
+    ((TlsfSpec *)spec)->provenance_ambiguous = true;
   const char *formal = n->qvar;
   Node *actual = (Node *)value->source;
   *body = subst(spec->arena, n->qbody, &formal, &actual, 1);
@@ -1083,6 +1099,37 @@ static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
 
 static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
                          bool *ok, int depth) {
+  Node *result = expand_node_impl(spec, n, env, ok, depth);
+  if (!result || !spec->capture_provenance)
+    return result;
+  Node *copy = ARENA_ALLOC(spec->arena, Node);
+  if (!copy) {
+    *ok = false;
+    return nullptr;
+  }
+  *copy = *result;
+  copy->source_id = n->source_id;
+  const OriginBinding *bindings = nullptr;
+  for (const Env *e = env; e; e = e->parent) {
+    if (!e->binder_id)
+      continue;
+    OriginBinding *entry = ARENA_ALLOC(spec->arena, OriginBinding);
+    if (!entry) {
+      *ok = false;
+      return nullptr;
+    }
+    *entry = (OriginBinding){.binder_id = e->binder_id,
+                             .name = e->b.name,
+                             .value = e->b.value,
+                             .parent = bindings};
+    bindings = entry;
+  }
+  copy->origin_bindings = bindings;
+  return copy;
+}
+
+static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
+                              bool *ok, int depth) {
   if (!*ok || !n)
     return nullptr;
   Arena *a = spec->arena;
@@ -1346,6 +1393,151 @@ static Env *build_param_env(TlsfSpec *spec) {
   return head;
 }
 
+// A narrow structural proof for a source-defined bit width: floor(log2(x))
+// by halving, then 1+floor(log2(x-1)). Callee and formal names are irrelevant.
+static bool is_formal(const Node *node, const char *formal) {
+  return node && (node->kind == NODE_AP || node->kind == NODE_INT_VAR) &&
+         node->name == formal;
+}
+
+static bool is_integer(const Node *node, int64_t value) {
+  return node && node->kind == NODE_INT && node->ival == value;
+}
+
+static bool is_formal_comparison(const Node *node, NodeKind kind,
+                                 const char *formal, int64_t value) {
+  return node && node->kind == kind && is_formal(node->lhs, formal) &&
+         is_integer(node->rhs, value);
+}
+
+static const Node *otherwise_value(const Node *node) {
+  return node && node->kind == NODE_ITE && node->if_cond &&
+                 node->if_cond->kind == NODE_TRUE
+             ? node->if_then
+             : nullptr;
+}
+
+static const Node *one_plus(const Node *node) {
+  if (!node || node->kind != NODE_INT_ADD)
+    return nullptr;
+  if (is_integer(node->lhs, 1))
+    return node->rhs;
+  return is_integer(node->rhs, 1) ? node->lhs : nullptr;
+}
+
+static bool proves_floor_log2(const DefDecl *def) {
+  if (!def || def->param_count != 1 || !def->body ||
+      def->body->kind != NODE_ITE)
+    return false;
+  const char *formal = def->params[0];
+  const Node *body = def->body;
+  if (!is_formal_comparison(body->if_cond, NODE_CMP_LE, formal, 1) ||
+      !is_integer(body->if_then, 0))
+    return false;
+  const Node *step = one_plus(otherwise_value(body->if_else));
+  return step && step->kind == NODE_DEF_CALL && step->callee == def->name &&
+         step->call_argc == 1 && step->call_args[0] &&
+         step->call_args[0]->kind == NODE_INT_DIV &&
+         is_formal(step->call_args[0]->lhs, formal) &&
+         is_integer(step->call_args[0]->rhs, 2);
+}
+
+static bool proves_bit_width(const TlsfSpec *spec, const Node *width) {
+  if (!width || width->kind != NODE_INT_SUB || !is_integer(width->rhs, 1) ||
+      !width->lhs || width->lhs->kind != NODE_DEF_CALL ||
+      width->lhs->call_argc != 1)
+    return false;
+  const DefDecl *def = find_def(spec, width->lhs->callee, 1);
+  if (!def || !def->body || def->body->kind != NODE_ITE ||
+      def->param_count != 1)
+    return false;
+  const char *formal = def->params[0];
+  const Node *body = def->body;
+  if (!is_formal_comparison(body->if_cond, NODE_CMP_EQ, formal, 0) ||
+      !is_integer(body->if_then, 0))
+    return false;
+  const Node *step = one_plus(otherwise_value(body->if_else));
+  if (!step || step->kind != NODE_DEF_CALL || step->call_argc != 1 ||
+      !step->call_args[0] || step->call_args[0]->kind != NODE_INT_SUB ||
+      !is_formal(step->call_args[0]->lhs, formal) ||
+      !is_integer(step->call_args[0]->rhs, 1))
+    return false;
+  return proves_floor_log2(find_def(spec, step->callee, 1));
+}
+
+static void assign_node_ids(Node *n, uint32_t *next) {
+  if (!n || n->source_id)
+    return;
+  n->source_id = (*next)++;
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_INT:
+  case NODE_AP:
+  case NODE_INT_VAR:
+  case NODE_SIZEOF:
+    return;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+  case NODE_INT_NEG:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+    assign_node_ids(n->arg, next);
+    return;
+  case NODE_BUS_INDEX:
+    assign_node_ids(n->bus_index, next);
+    return;
+  case NODE_DEF_CALL:
+  case NODE_PATTERN:
+    for (uint16_t i = 0; i < n->call_argc; i++)
+      assign_node_ids(n->call_args[i], next);
+    return;
+  case NODE_ITE:
+    assign_node_ids(n->if_cond, next);
+    assign_node_ids(n->if_then, next);
+    assign_node_ids(n->if_else, next);
+    return;
+  case NODE_FORALL:
+  case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
+  case NODE_G_RANGE:
+  case NODE_F_RANGE:
+    assign_node_ids(n->qlo, next);
+    assign_node_ids(n->qhi, next);
+    if (n->kind != NODE_G_RANGE && n->kind != NODE_F_RANGE)
+      assign_node_ids(n->qset, next);
+    assign_node_ids(n->qbody, next);
+    return;
+  case NODE_SET:
+  case NODE_SET_ENUM:
+    for (uint16_t i = 0; i < n->set_size; i++)
+      assign_node_ids(n->set_elems[i], next);
+    return;
+  default:
+    assign_node_ids(n->lhs, next);
+    assign_node_ids(n->rhs, next);
+    return;
+  }
+}
+
+static void assign_source_ids(TlsfSpec *spec) {
+  uint32_t next = 1;
+  for (uint16_t i = 0; i < spec->def_count; i++)
+    assign_node_ids(spec->defs[i].body, &next);
+  FormulaList *lists[] = {&spec->initially, &spec->preset, &spec->require,
+                          &spec->assert_,   &spec->assume, &spec->guarantee};
+  for (size_t k = 0; k < sizeof lists / sizeof *lists; k++)
+    for (uint32_t i = 0; i < lists[k]->count; i++)
+      assign_node_ids(lists[k]->formulas[i], &next);
+}
+
 static int explode_signals(TlsfSpec *spec, bool is_output) {
   SignalDecl *old = is_output ? spec->outputs : spec->inputs;
   uint32_t n = is_output ? spec->output_count : spec->input_count;
@@ -1365,6 +1557,9 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
     if (!s->is_bus) {
       if (!spec_add_signal(spec, is_output, s->name, false, nullptr, nullptr))
         return -1;
+      SignalDecl *expanded = is_output ? &spec->outputs[spec->output_count - 1]
+                                       : &spec->inputs[spec->input_count - 1];
+      expanded->origin_id = s->origin_id;
       continue;
     }
     for (int64_t v = s->bus_lo; v <= (int64_t)s->bus_hi; v++) {
@@ -1374,11 +1569,14 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
       SignalDecl *expanded = is_output ? &spec->outputs[spec->output_count - 1]
                                        : &spec->inputs[spec->input_count - 1];
       expanded->origin_name = s->name;
+      expanded->origin_id = s->origin_id;
       expanded->origin_index = (uint16_t)v;
       expanded->origin_bus_lo = s->bus_lo;
       expanded->origin_bus_hi = s->bus_hi;
       expanded->origin_is_bus = true;
       expanded->origin_is_enum = s->origin_is_enum;
+      expanded->origin_width_expr = s->origin_width_expr;
+      expanded->origin_is_encoded_bit = s->origin_is_encoded_bit;
     }
   }
   return 0;
@@ -1390,6 +1588,9 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
 
 int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
   assert(spec);
+
+  if (spec->capture_provenance)
+    assign_source_ids(spec);
 
   // --- Phase 1: resolve parameter values (apply overrides over defaults). ---
   for (size_t i = 0; i < n_overrides; i++) {
@@ -1431,7 +1632,20 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
         return -1;
       s->bus_lo = (uint16_t)lo;
       s->bus_hi = (uint16_t)hi;
+      s->origin_bus_lo = s->bus_lo;
+      s->origin_bus_hi = s->bus_hi;
     }
+
+  // Classify only widths whose source definitions have the proved structural
+  // shape above. Other computed widths remain undetermined.
+  if (spec->capture_provenance)
+    for (int k = 0; k < 2; k++)
+      for (uint32_t i = 0; i < sig_counts[k]; i++) {
+        SignalDecl *s = &sig_lists[k][i];
+        s->origin_is_encoded_bit = s->is_bus && s->bus_lo == 0 &&
+                                   s->bus_hi_expr &&
+                                   proves_bit_width(spec, s->bus_hi_expr);
+      }
 
   // --- Phase 3: expand every formula. ---
   bool ok = true;

@@ -292,6 +292,10 @@ static void print_formula(FILE *out, const Node *n) {
   }
 }
 
+void print_tlsf_formula(FILE *out, const Node *formula) {
+  print_formula(out, formula);
+}
+
 // Print one INPUTS/OUTPUTS subsection.  A bus prints its declared range; when
 // the bounds are parametric expressions (non-expanded re-emission) those are
 // printed faithfully, otherwise the resolved integer bounds are used.

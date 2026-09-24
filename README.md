@@ -99,6 +99,7 @@ tlsf2ltl  --safety | --liveness spec.tlsf # syntactic split of the formula
 tlsf2ltl  --fair-environment spec.tlsf     # assume every input toggles forever
 tlsf2tlsf --fair-environment spec.tlsf     # add scalar/quantified fairness
 tlsf2tlsf --basic spec.tlsf               # fully expanded basic TLSF
+tlsf2tlsf --provenance-out origin.json spec.tlsf  # expanded TLSF + source origins
 mealy2moore strategy.aag > strategy.moore.aag  # delay Mealy outputs one step
 
 # inspect

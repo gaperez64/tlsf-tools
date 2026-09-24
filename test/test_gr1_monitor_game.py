@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import pathlib
 import random
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -234,14 +236,15 @@ def test_cross_n_provenance(args, directory):
         "arbiter": range(2, 5),
         "round_robin_arbiter_unreal2": range(2, 4),
     }
-    expected_local = "G(!r_i0 | Fg_i0)"
     for family, sizes in families.items():
         for size in sizes:
             tlsf = (ACACIA_ROOT / "tlsf-corpus" /
                     f"{family}_pb_{size}_pe_.tlsf")
             data = build_provenance(args, directory, tlsf)
-            assert data["schema"].endswith(".v2")
-            assert data["source_origin_metadata"]["available"] is False
+            assert data["schema"].endswith(".v3")
+            assert data["provenance_source"] == "frontend"
+            assert data["source_origin_metadata"]["available"] is True
+            assert data["source_origin_metadata"]["provenance_source"] == "frontend"
             mutexes = [
                 monitor for monitor in data["monitors"]
                 if monitor.get("symmetric_signature") == {"g": [0, 1]}
@@ -251,12 +254,15 @@ def test_cross_n_provenance(args, directory):
                 assert mutex["arity_kind"] == "bus_wide"
                 assert mutex["support"]["buses"]["g"] == list(range(size))
                 assert mutex["symmetric"] is True
-                assert mutex["source_origin"] is None
+                assert mutex["source_origin"] is not None
+                assert mutex["provenance_source"] == "frontend"
             local_templates = {
                 monitor["template"] for monitor in data["monitors"]
                 if monitor["arity_kind"] == "local"
             }
-            assert expected_local in local_templates, (family, size)
+            assert any("s_input_1_i0" in template and
+                       "s_output_1_i0" in template
+                       for template in local_templates), (family, size)
 
 
 def tiny_tlsf(semantics, assumptions, guarantees):
@@ -275,6 +281,73 @@ MAIN
   GUARANTEES {{ {guarantees} }}
 }}
 '''
+
+
+def test_source_origin_fail_closed(args, directory):
+    duplicate = directory / "equivalent-duplicate.tlsf"
+    duplicate.write_text(tiny_tlsf("Mealy", "true;", "G o; G (o && true);"))
+    data = build_provenance(args, directory, duplicate)
+    assert data["source_origin_metadata"]["available"] is False
+    assert data["provenance_source"] == "suffix-heuristic"
+    assert all(monitor["source_origin"] is None
+               for monitor in data["monitors"])
+
+    numeric_scalar = directory / "numeric-scalar.tlsf"
+    numeric_scalar.write_text(
+        tiny_tlsf("Mealy", "true;", "G (i_1 -> F o);")
+        .replace("INPUTS { i; }", "INPUTS { i_1; }"))
+    data = build_provenance(args, directory, numeric_scalar)
+    assert data["source_origin_metadata"]["available"] is True
+    assert data["inputs"][0]["index_tuple"] == []
+    assert data["inputs"][0]["base_name"] == "i_1"
+    assert data["inputs"][0]["dimensions"] == 0
+
+    collision = directory / "collision.tlsf"
+    collision.write_text(
+        tiny_tlsf("Mealy", "true;", "G (a_0 -> o);")
+        .replace("INPUTS { i; }", "INPUTS { a[0..1]; a_0; }"))
+    data = build_provenance(args, directory, collision)
+    assert data["source_origin_metadata"]["available"] is False
+    assert data["provenance_source"] == "suffix-heuristic"
+
+    # A malformed frontend must also fail the independent Python inventory
+    # check, even if it incorrectly reports ambiguous=false.
+    fake = {"schema": "tlsf-tools.frontend-provenance.v1",
+            "ambiguous": False, "parameters": [], "conjuncts": [],
+            "signals": [{"name": "a_0", "direction": "input"},
+                        {"name": "a_0", "direction": "input"},
+                        {"name": "o", "direction": "output"}]}
+    checked = game.provenance([], ["a_0", "a_0"], ["o"],
+                              "exact", None, None, fake)
+    assert checked["source_origin_metadata"]["available"] is False
+
+
+def test_snapshot_binding(args, directory):
+    source = directory / "race.tlsf"
+    original = tiny_tlsf("Mealy", "true;", "G o; G p;").replace(
+        "OUTPUTS { o; }", "OUTPUTS { o; p; }")
+    source.write_text(original)
+    swapped = directory / "swapped.tlsf"
+    swapped.write_text(original.replace("G o; G p;", "G p; G o;"))
+    wrapper = directory / "race-ltl-wrapper.sh"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        f"cp {shlex.quote(str(swapped))} {shlex.quote(str(source))}\n"
+        f"exec {shlex.quote(args.tlsf2ltl)} \"$@\"\n")
+    wrapper.chmod(0o755)
+    game_path = directory / "race.aag"
+    sidecar = directory / "race.json"
+    run([args.python, args.builder, "--tlsf2ltl", str(wrapper),
+         "--tlsf2tlsf", args.tlsf2tlsf, "--tlsfinfo", args.tlsfinfo,
+         "--output", str(game_path), "--provenance-out", str(sidecar),
+         str(source)], 0)
+    data = json.loads(sidecar.read_text())
+    assert data["source_origin_metadata"]["source_sha256"] == \
+        hashlib.sha256(original.encode()).hexdigest()
+    assert source.read_text() != original
+    origin = next(item["source_origin"] for item in data["monitors"]
+                  if item["conjunct"] == "Go")
+    assert origin["source_formula_id"] == "GUARANTEE:1"
 
 
 def test_rejections_and_semantics(args, directory):
@@ -428,12 +501,16 @@ def main(argv):
     test_split_rule(args, spot)
     test_monitor_encoding(args, spot)
     test_symmetric_signature(spot)
-    with tempfile.TemporaryDirectory(prefix="gr1-monitor-test-") as temp:
+    with tempfile.TemporaryDirectory(
+            prefix="gr1-monitor-test-",
+            dir=pathlib.Path(args.tlsf2tlsf).resolve().parent) as temp:
         directory = pathlib.Path(temp)
         test_rejections_and_semantics(args, directory)
         test_explicit_checker(args, directory)
         test_explicit_checker_interface(args, directory)
         test_cross_n_provenance(args, directory)
+        test_source_origin_fail_closed(args, directory)
+        test_snapshot_binding(args, directory)
     print("gr1 monitor game tests: ok")
     return 0
 

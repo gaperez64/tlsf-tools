@@ -67,11 +67,14 @@ typedef struct {
   // used to retain indexed-family provenance without guessing from mangled
   // names.
   const char *origin_name; ///< source declaration name
+  uint32_t origin_id;      ///< one-based ordinal within INPUTS/OUTPUTS
   uint16_t origin_index;   ///< source bus index (0 for a scalar declaration)
   uint16_t origin_bus_lo;  ///< resolved source bus lower bound
   uint16_t origin_bus_hi;  ///< resolved source bus upper bound
   bool origin_is_bus;      ///< true when produced by a bus declaration
   bool origin_is_enum;     ///< true when produced by an enum-typed declaration
+  struct Node *origin_width_expr; ///< source high bound expression, if any
+  bool origin_is_encoded_bit;     ///< bit-width function proved from source AST
   // Parametric bounds: when non-null these integer expressions are evaluated
   // during expand() to fill bus_lo / bus_hi.  Literal ranges leave them null.
   struct Node *bus_lo_expr;
@@ -188,8 +191,10 @@ typedef struct TlsfSpec {
   uint16_t enum_label_cap;
   uint16_t enum_type_cap;
   uint16_t tag_cap;
-  FormulaList *cur_list; ///< formula subsection currently being parsed
-  bool cur_is_output;    ///< true while inside an OUTPUTS subsection
+  FormulaList *cur_list;     ///< formula subsection currently being parsed
+  bool cur_is_output;        ///< true while inside an OUTPUTS subsection
+  bool capture_provenance;   ///< retain source AST coordinates on expansion
+  bool provenance_ambiguous; ///< non-integer generator binding was substituted
 } TlsfSpec;
 
 // ---------------------------------------------------------------------------
