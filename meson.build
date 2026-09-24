@@ -1158,6 +1158,12 @@ if research_tools and have_oxidd
              '--games', '80'],
       timeout: 180,
     )
+    test('gr1_region', python3,
+      args: [files('test/test_gr1_region.py'),
+             '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,
+             '--games', '32'],
+      timeout: 180,
+    )
     test('gr1_unreal_certificate', python3,
       args: [files('test/test_gr1_unreal_certificate.py'),
              '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,

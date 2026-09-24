@@ -58,7 +58,8 @@ typedef enum {
   METHOD_AUTO,
   METHOD_CERTIFICATE,
   METHOD_CLOSED_LOOP,
-  METHOD_BOTH
+  METHOD_BOTH,
+  METHOD_REGION
 } Method;
 
 typedef struct {
@@ -152,6 +153,9 @@ typedef struct {
   size_t policy_cross_mode_root_reuses;
   size_t policy_dependent_gates_per_mode, policy_full_cache_modes;
   size_t successor_substitutions, successor_applications;
+  size_t region_game_roots, region_certificate_roots;
+  size_t region_modes, region_layers;
+  double region_mode_seconds, region_layer_seconds;
   size_t peak_nodes;
 } Checker;
 
@@ -165,6 +169,7 @@ typedef struct {
 static Bdd initial_cube(Checker *ck);
 static Bdd assignment_cube(Checker *ck, int counter);
 static Bdd specialize(Bdd value, Bdd cube);
+static const char *result_name(CheckResult result);
 
 static double now_seconds(void) {
   struct timespec ts;
@@ -187,13 +192,15 @@ static void usage(const char *prog) {
   fprintf(
       stderr,
       "Usage: %s [OPTIONS] GAME POLICY\n"
+      "       %s --method region --certificate FILE [OPTIONS] GAME\n"
       "Check a combinational GR(1) policy without solving the game.\n"
       "  --policy-json FILE       policy mapping sidecar (default "
       "POLICY.json)\n"
       "  --certificate FILE       M2 certificate AAG\n"
       "  --certificate-json FILE  M2 sidecar (default CERTIFICATE.json)\n"
-      "  --method NAME            auto|certificate|closed-loop|both\n"
-      "  --json-out FILE          write tlsf-gr1-checkresult-v1 JSON\n"
+      "  --method NAME            auto|certificate|closed-loop|both|region\n"
+      "                           region is policy-free gr1-region-v1\n"
+      "  --json-out FILE          write versioned method-result JSON\n"
       "  --emit-controller FILE   emit the checked standalone controller\n"
       "  --timeout SECONDS        return UNKNOWN after the soft deadline\n"
       "  --node-cap N             OxiDD inner-node cap (default 16777216)\n"
@@ -206,8 +213,9 @@ static void usage(const char *prog) {
       "closed loop),\n"
       "     6 CERT_FAILED (a form of UNKNOWN: the certificate does not "
       "prove this policy;\n"
-      "       nothing is concluded about the policy itself).\n",
-      prog);
+      "       nothing is concluded about the policy itself). Region success "
+      "is REGION_VERIFIED.\n",
+      prog, prog);
 }
 
 static bool parse_u64(const char *text, uint64_t *value) {
@@ -342,6 +350,8 @@ static int parse_options(int argc, char **argv, Options *options,
         options->method = METHOD_CLOSED_LOOP;
       else if (!strcmp(argv[i], "both"))
         options->method = METHOD_BOTH;
+      else if (!strcmp(argv[i], "region"))
+        options->method = METHOD_REGION;
       else {
         fprintf(stderr, "%s: unknown method '%s'\n", argv[0], argv[i]);
         return -1;
@@ -386,7 +396,8 @@ static int parse_options(int argc, char **argv, Options *options,
     }
     positional[npos++] = argv[i];
   }
-  if (npos != 2) {
+  uint32_t expected_positional = options->method == METHOD_REGION ? 1u : 2u;
+  if (npos != expected_positional) {
     usage(argv[0]);
     return -1;
   }
@@ -425,8 +436,8 @@ static int parse_options(int argc, char **argv, Options *options,
     return -1;
   }
   options->game_path = positional[0];
-  options->policy_path = positional[1];
-  if (!options->policy_json_path) {
+  options->policy_path = expected_positional == 2 ? positional[1] : nullptr;
+  if (options->policy_path && !options->policy_json_path) {
     *owned_policy_json = sidecar_default(options->policy_path);
     options->policy_json_path = *owned_policy_json;
   }
@@ -439,9 +450,18 @@ static int parse_options(int argc, char **argv, Options *options,
     return -1;
   }
   if ((options->method == METHOD_CERTIFICATE ||
-       options->method == METHOD_BOTH) &&
+       options->method == METHOD_BOTH || options->method == METHOD_REGION) &&
       !options->certificate_path) {
     fprintf(stderr, "%s: selected method requires --certificate\n", argv[0]);
+    return -1;
+  }
+  if (options->method == METHOD_REGION &&
+      (options->policy_json_path || options->emit_path ||
+       options->test_unspecialized_policy)) {
+    fprintf(stderr,
+            "%s: --method region does not accept policy options or emit a "
+            "controller\n",
+            argv[0]);
     return -1;
   }
   return 0;
@@ -661,6 +681,34 @@ static bool validate_sidecars(Checker *ck, char *message, size_t cap) {
     snprintf(message, cap, "certificate sidecar does not match this game");
     return false;
   }
+  return true;
+}
+
+static bool validate_region_sidecar(Checker *ck, char *message, size_t cap) {
+  char *certificate = read_text_file(ck->options.certificate_json_path);
+  if (!certificate) {
+    snprintf(message, cap, "cannot read certificate sidecar '%s'",
+             ck->options.certificate_json_path);
+    return false;
+  }
+  uint32_t nstate, goals, fairness;
+  bool ok = json_has_string(certificate, "format", "tlsf-gr1-certificate-v1") &&
+            json_has_string(certificate, "status", "realizable") &&
+            json_has_string(certificate, "side", "system") &&
+            json_uint(certificate, "state_variables", &nstate) &&
+            json_uint(certificate, "goals", &goals) &&
+            json_uint(certificate, "fairness_assumptions", &fairness) &&
+            nstate == ck->nstate && goals == ck->ngoals &&
+            fairness == ck->nfair;
+  free(certificate);
+  if (!ok) {
+    snprintf(message, cap,
+             "region-v1 requires a realizable system certificate matching "
+             "this game");
+    return false;
+  }
+  ck->environment = false;
+  ck->ncounter = ck->ngoals;
   return true;
 }
 
@@ -1267,9 +1315,21 @@ static bool certificate_output_is_selected(const Checker *ck,
                                            const char *name) {
   if (!name)
     return true;
+  // Both system proof methods derive their obligations from the actual game.
+  // move_* is interface evidence only and is never a trusted BDD root.  Keep
+  // this choice explicit here so a future method cannot inherit it silently.
   if (!strncmp(name, "move_", 5))
     return false;
-  return !ck->environment || strcmp(name, "system_winning");
+  switch (ck->options.method) {
+  case METHOD_REGION:
+  case METHOD_CERTIFICATE:
+  case METHOD_BOTH:
+  case METHOD_AUTO:
+    return !ck->environment || strcmp(name, "system_winning");
+  case METHOD_CLOSED_LOOP:
+    return false;
+  }
+  return false;
 }
 
 static bool compile_certificate_outputs(Checker *ck, const Aig *aig,
@@ -1802,6 +1862,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
                       ? aig_num_bad(ck->game)
                       : (aig_num_outputs(ck->game) == 1 ? 1u : 0u);
   size_t game_root_count = (size_t)ck->nstate + nbad + ck->ngoals + ck->nfair;
+  if (ck->options.method == METHOD_REGION)
+    ck->region_game_roots = game_root_count;
   uint32_t *game_lits = calloc(game_root_count, sizeof *game_lits);
   Bdd *game_roots = calloc(game_root_count, sizeof *game_roots);
   if (!game_lits || !game_roots) {
@@ -1951,6 +2013,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
       snprintf(message, cap, "OxiDD capacity while compiling certificate");
       return false;
     }
+    if (ck->options.method == METHOD_REGION)
+      ck->region_certificate_roots = cert_compiled.nroots;
     free(cert_inputs);
     ck->cert_inv = output_bdd(ck, ck->certificate, &cert_compiled, "inv");
     ck->cert_goal = calloc(ck->ngoals, sizeof *ck->cert_goal);
@@ -3021,6 +3085,295 @@ static CheckResult check_certificate_mode(Checker *ck) {
   return CHECK_VERIFIED;
 }
 
+static const char *region_mode_name(int mode, char *buffer, size_t cap) {
+  if (mode < 0)
+    return "all-zero";
+  snprintf(buffer, cap, "one-hot-%d", mode);
+  return buffer;
+}
+
+static Bdd region_not(Checker *ck, Bdd value) {
+  Bdd result = oxidd_run_not(&ck->run, value);
+  if (bdd_invalid(result))
+    ck->bdd_failed = true;
+  return result;
+}
+
+static Bdd region_and(Checker *ck, Bdd left, Bdd right) {
+  Bdd result = oxidd_run_and(&ck->run, left, right);
+  if (bdd_invalid(result))
+    ck->bdd_failed = true;
+  return result;
+}
+
+static bool region_or_into(Checker *ck, Bdd *slot, Bdd value) {
+  Bdd next = oxidd_run_or(&ck->run, *slot, value);
+  oxidd_bdd_unref(*slot);
+  *slot = next;
+  if (bdd_invalid(next))
+    ck->bdd_failed = true;
+  return !bdd_invalid(next);
+}
+
+static Bdd region_successor(Checker *ck, Bdd state_predicate,
+                            const oxidd_bdd_substitution_t *substitution) {
+  ck->successor_applications++;
+  Bdd result = oxidd_run_substitute(&ck->run, state_predicate, substitution);
+  if (bdd_invalid(result))
+    ck->bdd_failed = true;
+  return result;
+}
+
+static CheckResult check_region_layer(Checker *ck, int mode, const char *kind,
+                                      int k, int i, Bdd layer, Bdd good,
+                                      Bdd control_cube) {
+  double started = now_seconds();
+  Bdd has_control = oxidd_run_exists(&ck->run, good, control_cube);
+  if (bdd_invalid(has_control)) {
+    ck->bdd_failed = true;
+    return CHECK_UNKNOWN;
+  }
+  Bdd no_control = region_not(ck, has_control);
+  Bdd missing = region_and(ck, layer, no_control);
+  oxidd_bdd_unref(no_control);
+  oxidd_bdd_unref(has_control);
+  if (bdd_invalid(missing)) {
+    ck->bdd_failed = true;
+    return CHECK_UNKNOWN;
+  }
+  bool failed = checked_satisfiable(ck, missing);
+  double seconds = now_seconds() - started;
+  ck->region_layers++;
+  ck->region_layer_seconds += seconds;
+  if (ck->options.stats) {
+    char mode_buffer[32];
+    fprintf(stderr,
+            "TLSFCERTCHECK_REGION_LAYER mode=%s goal=%u kind=%s k=%d i=%d "
+            "seconds=%.9f status=%s\n",
+            region_mode_name(mode, mode_buffer, sizeof mode_buffer),
+            mode < 0 ? 0u : (uint32_t)mode, kind, k, i, seconds,
+            failed ? "NON_TOTAL" : "TOTAL");
+  }
+  if (failed) {
+    char reason[128], mode_buffer[32];
+    snprintf(reason, sizeof reason,
+             "region has no joint control in %s %s layer k=%d i=%d",
+             region_mode_name(mode, mode_buffer, sizeof mode_buffer), kind, k,
+             i);
+    Bdd counter = assignment_cube(ck, mode);
+    Bdd concrete = region_and(ck, missing, counter);
+    oxidd_bdd_unref(counter);
+    print_counterexample(ck, reason, concrete, nullptr);
+    oxidd_bdd_unref(concrete);
+    oxidd_bdd_unref(missing);
+    return ck->bdd_failed ? CHECK_UNKNOWN : CHECK_CERT_FAILED;
+  }
+  oxidd_bdd_unref(missing);
+  return ck->bdd_failed ? CHECK_UNKNOWN : CHECK_VERIFIED;
+}
+
+static CheckResult check_region_totality_mode(Checker *ck, int mode) {
+  double mode_started = now_seconds();
+  uint32_t goal = mode < 0 ? 0u : (uint32_t)mode;
+  Bdd control_cube = oxidd_run_cube(&ck->run, ck->cvar, ck->nc);
+  oxidd_bdd_substitution_t *substitution =
+      state_substitution(ck, ck->game_next);
+  Bdd next_inv = {0}, not_bad = {0}, safe_inv = {0}, at_goal = {0};
+  Bdd ranked = {0};
+  Bdd goal_and_inv = {0};
+  Bdd *fair_next = nullptr;
+  Bdd *lower_next = nullptr;
+  CheckResult result = CHECK_UNKNOWN;
+  if (bdd_invalid(control_cube) || !substitution)
+    goto done;
+
+  next_inv = region_successor(ck, ck->cert_inv, substitution);
+  not_bad = region_not(ck, ck->game_bad);
+  safe_inv = region_and(ck, not_bad, next_inv);
+  goal_and_inv = region_successor(ck, ck->goal[goal], substitution);
+  if (!bdd_invalid(goal_and_inv)) {
+    Bdd restricted_goal = region_and(ck, goal_and_inv, next_inv);
+    oxidd_bdd_unref(goal_and_inv);
+    goal_and_inv = restricted_goal;
+  }
+  if (ck->nfair) {
+    fair_next = calloc(ck->nfair_disj, sizeof *fair_next);
+    if (!fair_next)
+      goto done;
+    for (uint32_t i = 0; i < ck->nfair_disj; i++)
+      fair_next[i] = region_successor(ck, ck->fair[i], substitution);
+  }
+  if (ck->rank[goal].levels > 1) {
+    lower_next = calloc(ck->rank[goal].levels - 1, sizeof *lower_next);
+    if (!lower_next)
+      goto done;
+    for (uint32_t k = 1; k < ck->rank[goal].levels; k++)
+      lower_next[k - 1] =
+          region_successor(ck, ck->rank[goal].y[k - 1], substitution);
+  }
+  if (ck->bdd_failed || bdd_invalid(next_inv) || bdd_invalid(not_bad) ||
+      bdd_invalid(safe_inv) || bdd_invalid(goal_and_inv))
+    goto done;
+  for (uint32_t i = 0; i < ck->nfair_disj; i++)
+    if (fair_next && bdd_invalid(fair_next[i]))
+      goto done;
+  for (uint32_t k = 1; k < ck->rank[goal].levels; k++)
+    if (lower_next && bdd_invalid(lower_next[k - 1]))
+      goto done;
+
+  at_goal = region_and(ck, ck->cert_inv, ck->goal[goal]);
+  if (bdd_invalid(at_goal))
+    goto done;
+  result = check_region_layer(ck, mode, "goal", -1, -1, at_goal, safe_inv,
+                              control_cube);
+  if (result != CHECK_VERIFIED)
+    goto done;
+
+  ranked = oxidd_bdd_ref(at_goal);
+  for (uint32_t k = 0; k < ck->rank[goal].levels; k++) {
+    for (uint32_t i = 0; i < ck->nfair_disj; i++) {
+      Bdd not_ranked = region_not(ck, ranked);
+      Bdd unranked_x = region_and(ck, ck->rank[goal].x[k][i], not_ranked);
+      Bdd layer = region_and(ck, ck->cert_inv, unranked_x);
+      oxidd_bdd_unref(not_ranked);
+      oxidd_bdd_unref(unranked_x);
+
+      Bdd progress;
+      if (ck->nfair) {
+        Bdd next_x = region_successor(ck, ck->rank[goal].x[k][i], substitution);
+        Bdd not_fair = region_not(ck, fair_next[i]);
+        progress = region_and(ck, next_x, not_fair);
+        oxidd_bdd_unref(next_x);
+        oxidd_bdd_unref(not_fair);
+      } else {
+        progress = oxidd_bdd_false(ck->manager);
+      }
+      region_or_into(ck, &progress, goal_and_inv);
+      if (k)
+        region_or_into(ck, &progress, lower_next[k - 1]);
+      Bdd good = region_and(ck, safe_inv, progress);
+      oxidd_bdd_unref(progress);
+      if (bdd_invalid(layer) || bdd_invalid(good) || ck->bdd_failed) {
+        oxidd_bdd_unref(layer);
+        oxidd_bdd_unref(good);
+        result = CHECK_UNKNOWN;
+        goto done;
+      }
+      result = check_region_layer(ck, mode, "rank", (int)k, (int)i, layer, good,
+                                  control_cube);
+      oxidd_bdd_unref(layer);
+      oxidd_bdd_unref(good);
+      if (result != CHECK_VERIFIED)
+        goto done;
+      if (!region_or_into(ck, &ranked, ck->rank[goal].x[k][i])) {
+        result = CHECK_UNKNOWN;
+        goto done;
+      }
+      if (timed_out(ck)) {
+        result = CHECK_UNKNOWN;
+        goto done;
+      }
+    }
+  }
+  result = CHECK_VERIFIED;
+
+done:
+  oxidd_bdd_unref(ranked);
+  oxidd_bdd_unref(at_goal);
+  if (lower_next)
+    for (uint32_t k = 1; k < ck->rank[goal].levels; k++)
+      oxidd_bdd_unref(lower_next[k - 1]);
+  if (fair_next)
+    for (uint32_t i = 0; i < ck->nfair_disj; i++)
+      oxidd_bdd_unref(fair_next[i]);
+  free(lower_next);
+  free(fair_next);
+  oxidd_bdd_unref(goal_and_inv);
+  oxidd_bdd_unref(safe_inv);
+  oxidd_bdd_unref(not_bad);
+  oxidd_bdd_unref(next_inv);
+  oxidd_bdd_substitution_free(substitution);
+  oxidd_bdd_unref(control_cube);
+  double seconds = now_seconds() - mode_started;
+  ck->region_modes++;
+  ck->region_mode_seconds += seconds;
+  if (ck->options.stats) {
+    char mode_buffer[32];
+    fprintf(stderr,
+            "TLSFCERTCHECK_REGION_MODE mode=%s goal=%u seconds=%.9f "
+            "status=%s\n",
+            region_mode_name(mode, mode_buffer, sizeof mode_buffer), goal,
+            seconds, result_name(result));
+  }
+  update_peak(ck);
+  return result;
+}
+
+static CheckResult check_region_mode(Checker *ck) {
+  if (ck->environment)
+    return CHECK_INVALID;
+  CheckResult shape = validate_certificate_predicates(ck);
+  if (shape != CHECK_VERIFIED)
+    return shape;
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd mismatch = oxidd_bdd_xor(ck->cert_goal[j], ck->goal[j]);
+    if (checked_satisfiable(ck, mismatch)) {
+      char reason[128];
+      snprintf(reason, sizeof reason,
+               "certificate goal_%u differs from game justice", j);
+      print_counterexample(ck, reason, mismatch, nullptr);
+      oxidd_bdd_unref(mismatch);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(mismatch);
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+  }
+  if (!reset_in_predicate(ck, ck->cert_inv)) {
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+    Bdd reset = initial_cube(ck);
+    print_counterexample(ck, "reset state is outside region", reset, nullptr);
+    oxidd_bdd_unref(reset);
+    return CHECK_CERT_FAILED;
+  }
+  for (uint32_t j = 0; j < ck->ngoals; j++) {
+    Bdd covered = oxidd_bdd_false(ck->manager);
+    for (uint32_t k = 0; k < ck->rank[j].levels; k++)
+      for (uint32_t i = 0; i < ck->nfair_disj; i++)
+        if (!bdd_or_into(ck, &covered, ck->rank[j].x[k][i])) {
+          oxidd_bdd_unref(covered);
+          return CHECK_UNKNOWN;
+        }
+    Bdd not_covered = oxidd_bdd_not(covered);
+    Bdd missing = oxidd_bdd_and(ck->cert_inv, not_covered);
+    oxidd_bdd_unref(not_covered);
+    oxidd_bdd_unref(covered);
+    if (checked_satisfiable(ck, missing)) {
+      Bdd counter = assignment_cube(ck, (int)j);
+      Bdd concrete = oxidd_bdd_and(missing, counter);
+      print_counterexample(ck, "region state has no rank", concrete, nullptr);
+      oxidd_bdd_unref(concrete);
+      oxidd_bdd_unref(counter);
+      oxidd_bdd_unref(missing);
+      return CHECK_CERT_FAILED;
+    }
+    oxidd_bdd_unref(missing);
+    if (ck->bdd_failed)
+      return CHECK_UNKNOWN;
+  }
+
+  // The reset encoding and explicit one-hot goal 0 are distinct scheduler
+  // modes.  They have the same goal semantics but are deliberately proved in
+  // separate runs, followed by every remaining one-hot mode.
+  for (int mode = -1; mode < (int)ck->ngoals; mode++) {
+    CheckResult total = check_region_totality_mode(ck, mode);
+    if (total != CHECK_VERIFIED)
+      return total;
+  }
+  return CHECK_VERIFIED;
+}
+
 static Bdd initial_cube(Checker *ck) {
   Bdd initial = oxidd_bdd_true(ck->manager);
   for (uint32_t s = 0; s < ck->nstate; s++) {
@@ -3562,8 +3915,28 @@ static const char *method_name(Method method) {
     return "closed-loop";
   case METHOD_BOTH:
     return "both";
+  case METHOD_REGION:
+    return "region";
   }
   return "auto";
+}
+
+static const char *region_result_name(CheckResult result) {
+  switch (result) {
+  case CHECK_VERIFIED:
+    return "REGION_VERIFIED";
+  case CHECK_CERT_FAILED:
+    return "REGION_FAILED";
+  case CHECK_UNKNOWN:
+    return "UNKNOWN";
+  case CHECK_INVALID:
+    return "INVALID";
+  case CHECK_REFUTED:
+    return "REFUTED";
+  case CHECK_SKIPPED:
+    return "SKIPPED";
+  }
+  return "UNKNOWN";
 }
 
 static const char *exit_name(int exit_code) {
@@ -3584,6 +3957,11 @@ static const char *exit_name(int exit_code) {
     return "CERT_FAILED";
   }
   return "ERROR";
+}
+
+static const char *region_outcome_name(CheckResult result, int exit_code) {
+  return result == CHECK_SKIPPED ? exit_name(exit_code)
+                                 : region_result_name(result);
 }
 
 static void json_string(FILE *out, const char *text) {
@@ -3741,6 +4119,39 @@ static bool write_result_json(const Checker *ck,
   return ok;
 }
 
+static bool write_region_result_json(const Checker *ck,
+                                     const MethodReport *region, int exit_code,
+                                     double elapsed) {
+  if (!ck->options.json_out_path)
+    return true;
+  FILE *out = fopen(ck->options.json_out_path, "w");
+  if (!out)
+    return false;
+  fputs("{\n  \"format\": \"tlsf-gr1-region-checkresult-v1\",\n"
+        "  \"method\": \"gr1-region-v1\",\n"
+        "  \"verdict\": ",
+        out);
+  json_string(out, region_outcome_name(region->result, exit_code));
+  fprintf(out,
+          ",\n  \"exit_code\": %d,\n"
+          "  \"time_seconds\": %.9f,\n"
+          "  \"elapsed_seconds\": %.9f,\n"
+          "  \"peak_bdd_nodes\": %zu,\n"
+          "  \"roots\": {\"game\": %zu, \"certificate\": %zu},\n"
+          "  \"modes_checked\": %zu,\n"
+          "  \"layers_checked\": %zu,\n"
+          "  \"counterexample\": ",
+          exit_code, region->seconds, elapsed, ck->peak_nodes,
+          ck->region_game_roots, ck->region_certificate_roots, ck->region_modes,
+          ck->region_layers);
+  write_counterexample_json(out, ck, &region->counterexample);
+  fputs("\n}\n", out);
+  bool ok = !ferror(out);
+  if (fclose(out) != 0)
+    ok = false;
+  return ok;
+}
+
 static void cleanup(Checker *ck) {
   release_policy_independent(ck);
   if (ck->rank)
@@ -3834,15 +4245,18 @@ int main(int argc, char **argv) {
   Checker ck = {.options = options, .started = now_seconds()};
   MethodReport certificate = {.result = CHECK_SKIPPED};
   MethodReport closed_loop = {.result = CHECK_SKIPPED};
+  MethodReport region = {.result = CHECK_SKIPPED};
   int exit_code = EXIT_ERROR;
   uint32_t *levels = nullptr;
   char message[512] = {0};
   ck.game = read_aag(options.game_path, true, message, sizeof message);
-  ck.policy = read_aag(options.policy_path, false, message, sizeof message);
+  if (options.policy_path)
+    ck.policy = read_aag(options.policy_path, false, message, sizeof message);
   if (options.certificate_path)
     ck.certificate =
         read_aag(options.certificate_path, false, message, sizeof message);
-  if (!ck.game || !ck.policy || (options.certificate_path && !ck.certificate)) {
+  if (!ck.game || (options.policy_path && !ck.policy) ||
+      (options.certificate_path && !ck.certificate)) {
     printf("INVALID\n");
     fprintf(stderr, "tlsfcertcheck: %s\n", message);
     exit_code = EXIT_INVALID;
@@ -3850,7 +4264,8 @@ int main(int argc, char **argv) {
   }
   bool structure_ok =
       validate_aig_structure(ck.game, "game", message, sizeof message) &&
-      validate_aig_structure(ck.policy, "policy", message, sizeof message) &&
+      (!ck.policy ||
+       validate_aig_structure(ck.policy, "policy", message, sizeof message)) &&
       (!ck.certificate || validate_aig_structure(ck.certificate, "certificate",
                                                  message, sizeof message));
   if (!structure_ok) {
@@ -3888,9 +4303,12 @@ int main(int argc, char **argv) {
       ck.uinput[ck.nu++] = p;
   }
 
-  bool interface_ok = validate_game_names(&ck, message, sizeof message) &&
-                      validate_sidecars(&ck, message, sizeof message) &&
-                      validate_policy_interface(&ck, message, sizeof message);
+  bool interface_ok = validate_game_names(&ck, message, sizeof message);
+  if (interface_ok && options.method == METHOD_REGION)
+    interface_ok = validate_region_sidecar(&ck, message, sizeof message);
+  else if (interface_ok)
+    interface_ok = validate_sidecars(&ck, message, sizeof message) &&
+                   validate_policy_interface(&ck, message, sizeof message);
   if (interface_ok && ck.certificate)
     interface_ok =
         validate_certificate_interface(&ck, &levels, message, sizeof message);
@@ -3919,6 +4337,14 @@ int main(int argc, char **argv) {
   bool run_closed_loop = options.method == METHOD_CLOSED_LOOP ||
                          options.method == METHOD_BOTH ||
                          (options.method == METHOD_AUTO && !ck.certificate);
+  if (options.method == METHOD_REGION) {
+    double started = now_seconds();
+    ck.current_counterexample = &region.counterexample;
+    region.result = check_region_mode(&ck);
+    region.seconds = now_seconds() - started;
+    ck.proof_seconds += region.seconds;
+    region.peak_nodes = ck.peak_nodes;
+  }
   if (run_certificate) {
     double started = now_seconds();
     ck.current_counterexample = &certificate.counterexample;
@@ -3957,12 +4383,27 @@ int main(int argc, char **argv) {
   if (closed_loop.result != CHECK_SKIPPED)
     printf("METHOD closed-loop %s time=%.6f\n", result_name(closed_loop.result),
            closed_loop.seconds);
+  if (region.result != CHECK_SKIPPED)
+    printf("METHOD region %s version=gr1-region-v1 time=%.6f\n",
+           region_result_name(region.result), region.seconds);
   printf("STATS peak_bdd_nodes=%zu elapsed=%.6f\n", ck.peak_nodes,
          now_seconds() - ck.started);
 
   bool disagree = certificate.result == CHECK_VERIFIED &&
                   closed_loop.result == CHECK_REFUTED;
-  if (disagree) {
+  if (region.result == CHECK_VERIFIED) {
+    printf("REGION_VERIFIED\n");
+    exit_code = EXIT_VERIFIED;
+  } else if (region.result == CHECK_INVALID) {
+    printf("INVALID\n");
+    exit_code = EXIT_INVALID;
+  } else if (region.result == CHECK_UNKNOWN) {
+    printf("UNKNOWN\n");
+    exit_code = EXIT_UNKNOWN;
+  } else if (region.result == CHECK_CERT_FAILED) {
+    printf("REGION_FAILED\n");
+    exit_code = EXIT_CERT_FAILED;
+  } else if (disagree) {
     printf("INTERNAL-ERROR\n");
     fprintf(stderr,
             "tlsfcertcheck: certificate and closed-loop methods disagree\n");
@@ -4003,15 +4444,19 @@ int main(int argc, char **argv) {
 
 finish:
   free(levels);
-  if (!write_result_json(&ck, &certificate, &closed_loop, exit_code,
-                         now_seconds() - ck.started)) {
+  bool json_ok = options.method == METHOD_REGION
+                     ? write_region_result_json(&ck, &region, exit_code,
+                                                now_seconds() - ck.started)
+                     : write_result_json(&ck, &certificate, &closed_loop,
+                                         exit_code, now_seconds() - ck.started);
+  if (!json_ok) {
     fprintf(stderr, "tlsfcertcheck: cannot write JSON result '%s'\n",
             options.json_out_path);
     exit_code = EXIT_ERROR;
   }
   if (ck.run_initialized)
     oxidd_run_finish(&ck.run);
-  if (options.stats)
+  if (options.stats) {
     fprintf(stderr,
             "TLSFCERTCHECK_STATS node_cap=%zu cache_cap=%zu "
             "aig_gates_visited=%zu requested_roots=%zu "
@@ -4023,8 +4468,7 @@ finish:
             "policy_cross_mode_root_reuses=%zu "
             "policy_dependent_gates_per_mode=%zu "
             "policy_full_cache_modes=%zu "
-            "successor_substitutions=%zu "
-            "successor_applications=%zu final_status=%s\n",
+            "successor_substitutions=%zu successor_applications=%zu",
             ck.options.effective_node_cap, ck.options.effective_cache_cap,
             ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
             ck.proof_seconds, ck.peak_nodes, ck.policy_mode_builds,
@@ -4032,10 +4476,23 @@ finish:
             ck.policy_unspecialized_gates, ck.policy_independent_gates,
             ck.policy_independent_roots, ck.policy_cross_mode_root_reuses,
             ck.policy_dependent_gates_per_mode, ck.policy_full_cache_modes,
-            ck.successor_substitutions, ck.successor_applications,
-            exit_name(exit_code));
+            ck.successor_substitutions, ck.successor_applications);
+    if (options.method == METHOD_REGION)
+      fprintf(stderr,
+              " region_game_roots=%zu region_certificate_roots=%zu "
+              "region_modes=%zu region_layers=%zu "
+              "region_mode_seconds=%.9f region_layer_seconds=%.9f",
+              ck.region_game_roots, ck.region_certificate_roots,
+              ck.region_modes, ck.region_layers, ck.region_mode_seconds,
+              ck.region_layer_seconds);
+    fprintf(stderr, " final_status=%s\n",
+            options.method == METHOD_REGION
+                ? region_outcome_name(region.result, exit_code)
+                : exit_name(exit_code));
+  }
   counterexample_clear(&certificate.counterexample);
   counterexample_clear(&closed_loop.counterexample);
+  counterexample_clear(&region.counterexample);
   cleanup(&ck);
   free(owned_policy_json);
   free(owned_cert_json);
