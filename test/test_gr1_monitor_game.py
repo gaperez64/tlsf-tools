@@ -15,7 +15,13 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 TLSF_ROOT = HERE.parent
-ACACIA_ROOT = TLSF_ROOT.parents[1]
+ACACIA_ROOT = next(
+    (candidate for candidate in (
+        TLSF_ROOT.parent / "acacia-bonsai",
+        TLSF_ROOT.parents[1],
+    ) if (candidate / "benchmarking/param-lift-20260922/m0-census.py").is_file()),
+    TLSF_ROOT.parents[1],
+)
 sys.path.insert(0, str(TLSF_ROOT / "scripts"))
 
 import gr1_monitor_game as game  # noqa: E402

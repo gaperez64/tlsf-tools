@@ -14,6 +14,7 @@ import collections
 import json
 import pathlib
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,8 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import test_gr1_certificate as certificate_test  # noqa: E402
 import test_gr1_differential as differential  # noqa: E402
+
+SMALL_CACHE_CAP = str((1 << 24) // 16)
 
 
 def _sections(text: str):
@@ -103,6 +106,197 @@ def xor_output_on_cube(text: str, name: str, assignment: int) -> str:
     lines[0] = " ".join(fields)
     lines[symbol_start:symbol_start] = gates
     return "\n".join(lines) + "\n"
+
+
+def append_output_chain(text: str, name: str, count: int, *,
+                        malformed: bool = False) -> str:
+    """Replace one output with an exclusive, deliberately large AND cone."""
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, ni, _nl, _no, na = header[:5]
+    seed = int(lines[1]) if ni else 1
+    current = seed
+    gates = []
+    for index in range(count):
+        maxvar += 1
+        lhs = 2 * maxvar
+        right = seed if index & 1 else seed ^ 1
+        gates.append(f"{lhs} {current} {right}")
+        current = lhs
+    if malformed:
+        lhs, left, _right = gates[-1].split()
+        gates[-1] = f"{lhs} {left} {2 * (maxvar + 1)}"
+    lines[output_start + names[name]] = str(current)
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
+def xor_output_in_counter_mode(text: str, name: str, mode: int) -> str:
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, ni, nl, _no, na = header[:5]
+    if nl:
+        raise AssertionError("policy mutation expects a combinational AAG")
+    input_names = {}
+    for line in lines[symbol_start:]:
+        if line == "c":
+            break
+        if line.startswith("i"):
+            label, input_name = line.split(maxsplit=1)
+            input_names[input_name] = int(label[1:])
+    counters = sorted(
+        ((int(input_name.removeprefix("curr_")), index)
+         for input_name, index in input_names.items()
+         if input_name.startswith("curr_")))
+    if not counters:
+        raise AssertionError("policy has no counter inputs")
+    gates = []
+
+    def land(left: int, right: int) -> int:
+        nonlocal maxvar
+        maxvar += 1
+        literal = 2 * maxvar
+        gates.append(f"{literal} {left} {right}")
+        return literal
+
+    cube = 1
+    for counter, index in counters:
+        literal = int(lines[1 + index])
+        atom = literal if counter == mode else literal ^ 1
+        cube = atom if cube == 1 else land(cube, atom)
+    output_line = output_start + names[name]
+    old = int(lines[output_line])
+    left = land(old, cube ^ 1)
+    right = land(old ^ 1, cube)
+    lines[output_line] = str(land(left ^ 1, right ^ 1) ^ 1)
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
+def wrap_output_in_selectors(text: str, name: str, repetitions: int) -> str:
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, _ni, _nl, _no, na = header[:5]
+    input_names = {}
+    for line in lines[symbol_start:]:
+        if line == "c":
+            break
+        if line.startswith("i"):
+            label, input_name = line.split(maxsplit=1)
+            input_names[input_name] = int(label[1:])
+    counter_name = min(name for name in input_names
+                       if name.startswith("curr_"))
+    selector = int(lines[1 + input_names[counter_name]])
+    current = int(lines[output_start + names[name]])
+    gates = []
+
+    def land(left: int, right: int) -> int:
+        nonlocal maxvar
+        maxvar += 1
+        literal = 2 * maxvar
+        gates.append(f"{literal} {left} {right}")
+        return literal
+
+    for _ in range(repetitions):
+        positive = land(current, selector)
+        negative = land(current, selector ^ 1)
+        current = land(positive ^ 1, negative ^ 1) ^ 1
+    lines[output_start + names[name]] = str(current)
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
+def shared_gate_mode_mutation(text: str, independent_output: str,
+                              dependent_output: str, mode: int,
+                              complement_shared: bool = False) -> str:
+    """Make one selected independent gate affect exactly one counter mode."""
+    lines, header, output_start, _gate_start, symbol_start, names = _sections(
+        text)
+    maxvar, _ni, nl, _no, na = header[:5]
+    if nl:
+        raise AssertionError("policy mutation expects a combinational AAG")
+    input_names = {}
+    for line in lines[symbol_start:]:
+        if line == "c":
+            break
+        if line.startswith("i"):
+            label, input_name = line.split(maxsplit=1)
+            input_names[input_name] = int(label[1:])
+    counters = sorted(
+        (int(name.removeprefix("curr_")), index)
+        for name, index in input_names.items() if name.startswith("curr_"))
+    ordinary = [index for name, index in input_names.items()
+                if not name.startswith("curr_")]
+    if not counters or not ordinary:
+        raise AssertionError("mutation needs counter and ordinary inputs")
+    gates = []
+
+    def land(left: int, right: int) -> int:
+        nonlocal maxvar
+        maxvar += 1
+        literal = 2 * maxvar
+        gates.append(f"{literal} {left} {right}")
+        return literal
+
+    def lxor(left: int, right: int) -> int:
+        keep_left = land(left, right ^ 1)
+        keep_right = land(left ^ 1, right)
+        return land(keep_left ^ 1, keep_right ^ 1) ^ 1
+
+    seed = int(lines[1 + ordinary[0]])
+    shared = land(seed, seed)
+    independent_line = output_start + names[independent_output]
+    old_independent = int(lines[independent_line])
+    positive = land(old_independent, shared)
+    negative = land(old_independent, shared ^ 1)
+    lines[independent_line] = str(land(positive ^ 1, negative ^ 1) ^ 1)
+
+    cube = 1
+    for counter, index in counters:
+        literal = int(lines[1 + index])
+        atom = literal if counter == mode else literal ^ 1
+        cube = atom if cube == 1 else land(cube, atom)
+    dependent_line = output_start + names[dependent_output]
+    trigger = land(cube, shared ^ int(complement_shared))
+    lines[dependent_line] = str(
+        lxor(int(lines[dependent_line]), trigger))
+
+    fields = lines[0].split()
+    fields[1] = str(maxvar)
+    fields[5] = str(na + len(gates))
+    lines[0] = " ".join(fields)
+    lines[symbol_start:symbol_start] = gates
+    return "\n".join(lines) + "\n"
+
+
+def checker_stats(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
+    line = next((line for line in result.stderr.splitlines()
+                 if line.startswith("TLSFCERTCHECK_STATS ")), None)
+    if line is None:
+        raise AssertionError(f"checker did not emit --stats output: {result}")
+    integer_names = (
+        "node_cap|cache_cap|aig_gates_visited|requested_roots|"
+        "peak_live_nodes_sample|"
+        "policy_mode_builds|policy_counter_constants|"
+        "policy_specialized_gates|policy_unspecialized_gates|"
+        "policy_independent_gates|policy_independent_roots|"
+        "policy_cross_mode_root_reuses|"
+        "policy_dependent_gates_per_mode|policy_full_cache_modes|"
+        "successor_substitutions|successor_applications")
+    return {name: int(value) for name, value in re.findall(
+        rf"({integer_names})=([0-9]+)", line)}
 
 
 def policy_analysis_explicit(game_text: str, policy_text: str):
@@ -195,6 +389,11 @@ def run_checker(checker: pathlib.Path, game: pathlib.Path, policy: pathlib.Path,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=20)
 
 
+def checker_status(result: subprocess.CompletedProcess[str]) -> tuple[int, str]:
+    lines = [line for line in result.stdout.splitlines() if line]
+    return result.returncode, lines[-1] if lines else ""
+
+
 def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
               seed: int) -> dict[str, int]:
     rng = random.Random(seed)
@@ -203,11 +402,84 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
     sampled_acceptance_verified = 0
     rare_state_rejected = 0
     default_output_unchanged = 0
+    default_cache_legacy_matches = 0
+    small_cache_agreements = 0
+    successor_rebuild_agreements = 0
     rank_seed = None
     fairness_seed = None
     inv_seed = None
     with tempfile.TemporaryDirectory(prefix="tlsf-certcheck-") as directory:
         root = pathlib.Path(directory)
+        invalid_cache_cases = (
+            ("zero", ("--cache-cap", "0")),
+            ("non-power-of-two", ("--cache-cap", "1536")),
+            ("above-node-cap",
+             ("--node-cap", "1024", "--cache-cap", "2048")),
+            ("oxidd-limit",
+             ("--node-cap", "4294967296", "--cache-cap", "4294967296")),
+            ("overflow", ("--cache-cap", "18446744073709551616")),
+        )
+        for label, arguments in invalid_cache_cases:
+            invalid = run_checker(
+                checker, root / "missing-game.aag",
+                root / "missing-policy.aag", *arguments)
+            if (invalid.returncode != 2
+                    or "invalid --cache-cap" not in invalid.stderr):
+                raise AssertionError(
+                    f"{label} cache capacity was not rejected clearly:\n"
+                    f"{invalid.stdout}{invalid.stderr}")
+
+        # AIGER's self-literal reset leaves a latch uninitialized.  Start from
+        # the concrete-reset-1 winning game q'=q, GF(q), then replace only its
+        # reset.  The q=0 initial state is losing, so interpreting either
+        # nonconstant reset as Boolean true would be unsound.
+        reset_game_text = """\
+aag 3 2 1 1 0 0 0 1 0
+2
+4
+6 6 1
+0
+1
+6
+i0 u0
+i1 controllable_c0
+o0 bad
+j0 justice_0
+"""
+        reset_game = root / "reset-one-game.aag"
+        reset_policy = root / "reset-one-policy.aag"
+        reset_certificate = root / "reset-one-certificate.aag"
+        reset_game.write_text(reset_game_text, encoding="utf-8")
+        reset_solve = subprocess.run(
+            [str(solver), "--policy", str(reset_policy), "--certificate",
+             str(reset_certificate), str(reset_game)], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            timeout=20)
+        if reset_solve.returncode != 0:
+            raise AssertionError(
+                "solver failed on concrete-reset fixture:\n"
+                f"{reset_solve.stdout}{reset_solve.stderr}")
+        for reset_label, reset_literal, diagnostic in (
+                ("uninitialized", 6,
+                 "unsupported uninitialized game latch reset"),
+                ("nonconstant", 2,
+                 "unsupported nonconstant game latch reset")):
+            unsupported_game = root / f"reset-{reset_label}-game.aag"
+            unsupported_game.write_text(
+                reset_game_text.replace("6 6 1\n", f"6 6 {reset_literal}\n"),
+                encoding="utf-8")
+            for method in ("certificate", "closed-loop", "both"):
+                certificate_args = (
+                    ("--certificate", str(reset_certificate))
+                    if method != "closed-loop" else ())
+                rejected = run_checker(
+                    checker, unsupported_game, reset_policy,
+                    "--method", method, *certificate_args)
+                if (checker_status(rejected) != (4, "INVALID")
+                        or diagnostic not in rejected.stderr):
+                    raise AssertionError(
+                        f"{method} accepted {reset_label} latch reset:\n"
+                        f"{rejected.stdout}{rejected.stderr}")
         for index in range(games):
             game_text = differential.make_random_game(rng, index)
             parsed = differential.parse_aag(game_text)
@@ -246,6 +518,40 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                     f"genuine game {index} rejected:\n{checked.stdout}"
                     f"{checked.stderr}")
             genuine += 1
+            cached_certificate = run_checker(
+                checker, game, policy, "--certificate", str(cert),
+                "--method", "certificate")
+            small_cache_certificate = run_checker(
+                checker, game, policy, "--certificate", str(cert),
+                "--method", "certificate", "--cache-cap", SMALL_CACHE_CAP)
+            if checker_status(cached_certificate) != checker_status(
+                    small_cache_certificate):
+                raise AssertionError(
+                    f"small-cache status mismatch on game {index}:\n"
+                    f"default: {cached_certificate.stdout}"
+                    f"small: {small_cache_certificate.stdout}")
+            small_cache_agreements += 1
+            if not default_cache_legacy_matches:
+                explicit_legacy_cache = run_checker(
+                    checker, game, policy, "--certificate", str(cert),
+                    "--method", "certificate", "--cache-cap", "16777216")
+                if checker_status(cached_certificate) != checker_status(
+                        explicit_legacy_cache):
+                    raise AssertionError(
+                        "implicit cache default differs from the legacy "
+                        "node-cap-sized cache:\n"
+                        f"implicit: {cached_certificate.stdout}"
+                        f"explicit: {explicit_legacy_cache.stdout}")
+                default_cache_legacy_matches = 1
+            rebuilt_certificate = run_checker(
+                checker, game, policy, "--certificate", str(cert),
+                "--method", "certificate", "--test-rebuild-successor")
+            if cached_certificate.returncode != rebuilt_certificate.returncode:
+                raise AssertionError(
+                    f"successor-cache genuine status mismatch on game "
+                    f"{index}:\n{cached_certificate.stdout}"
+                    f"{rebuilt_certificate.stdout}")
+            successor_rebuild_agreements += 1
             sampled_acceptance_verified += bool(model.samples)
 
             policy_text = policy.read_text(encoding="utf-8")
@@ -284,6 +590,15 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                         f"certificate unsoundly decided policy mutation "
                         f"{label} on game {index}:\n"
                         f"{certificate.stdout}{certificate.stderr}")
+                rebuilt_certificate = run_checker(
+                    checker, game, corrupt, "--certificate", str(cert),
+                    "--method", "certificate", "--test-rebuild-successor")
+                if certificate.returncode != rebuilt_certificate.returncode:
+                    raise AssertionError(
+                        "successor-cache policy-mutation status mismatch on "
+                        f"game {index} mutation {label}:\n"
+                        f"{certificate.stdout}{rebuilt_certificate.stdout}")
+                successor_rebuild_agreements += 1
                 for method in ("both", "auto"):
                     combined = run_checker(
                         checker, game, corrupt, "--certificate", str(cert),
@@ -325,6 +640,15 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                             "certificate unsoundly refuted a single-letter "
                             f"mutation:\n{rare_certificate.stdout}"
                             f"{rare_certificate.stderr}")
+                    rebuilt_rare = run_checker(
+                        checker, game, rare, "--certificate", str(cert),
+                        "--method", "certificate",
+                        "--test-rebuild-successor")
+                    if rare_certificate.returncode != rebuilt_rare.returncode:
+                        raise AssertionError(
+                            "successor-cache rare-mutation status mismatch:\n"
+                            f"{rare_certificate.stdout}{rebuilt_rare.stdout}")
+                    successor_rebuild_agreements += 1
                     for method in ("both", "auto"):
                         rare_combined = run_checker(
                             checker, game, rare, "--certificate", str(cert),
@@ -386,6 +710,280 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         if not rare_state_rejected:
             raise AssertionError(
                 "random suite did not expose a losing single-letter mutation")
+
+        # Keep the former post-compilation restrict path as a hidden oracle.
+        # It must agree with direct constant-input compilation on a genuine
+        # certificate and on an all-zero-only policy mutation.
+        game, policy, cert, sidecar = rank_seed
+        genuine_specialized = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate")
+        genuine_oracle = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate", "--test-unspecialized-policy")
+        if genuine_specialized.returncode != genuine_oracle.returncode:
+            raise AssertionError(
+                "specialized/unspecialized genuine status mismatch:\n"
+                f"{genuine_specialized.stdout}{genuine_oracle.stdout}")
+        genuine_rebuilt = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate", "--test-rebuild-successor")
+        if genuine_specialized.returncode != genuine_rebuilt.returncode:
+            raise AssertionError(
+                "successor-cache rank-seed status mismatch:\n"
+                f"{genuine_specialized.stdout}{genuine_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
+        policy_text = policy.read_text(encoding="utf-8")
+        policy_outputs = output_literals(policy_text)
+        all_zero_agreement = 0
+        for output_name in policy_outputs:
+            candidate_text = xor_output_in_counter_mode(
+                policy_text, output_name, -1)
+            candidate = root / f"policy-all-zero-{output_name}.aag"
+            candidate.write_text(candidate_text, encoding="utf-8")
+            pathlib.Path(str(candidate) + ".json").write_text(
+                pathlib.Path(str(policy) + ".json").read_text(
+                    encoding="utf-8"), encoding="utf-8")
+            specialized = run_checker(
+                checker, game, candidate, "--certificate", str(cert),
+                "--method", "certificate")
+            oracle = run_checker(
+                checker, game, candidate, "--certificate", str(cert),
+                "--method", "certificate", "--test-unspecialized-policy")
+            if specialized.returncode != oracle.returncode:
+                raise AssertionError(
+                    "all-zero specialized/oracle status mismatch for "
+                    f"{output_name}:\n{specialized.stdout}{oracle.stdout}")
+            rebuilt = run_checker(
+                checker, game, candidate, "--certificate", str(cert),
+                "--method", "certificate", "--test-rebuild-successor")
+            if specialized.returncode != rebuilt.returncode:
+                raise AssertionError(
+                    "successor-cache all-zero status mismatch for "
+                    f"{output_name}:\n{specialized.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
+            if oracle.returncode == 6:
+                all_zero_agreement = 1
+                break
+        if not all_zero_agreement:
+            raise AssertionError("no all-zero-only policy mutation was rejected")
+
+        # A large semantically redundant selector stresses the policy cone.
+        # The diagnostics prove every specialized build received counter
+        # constants and that certificate-only checking built no full policy.
+        control_name = next(name for name in policy_outputs
+                            if not name.startswith("curr_next_"))
+        selector = root / "policy-large-counter-selector.aag"
+        selector.write_text(wrap_output_in_selectors(
+            policy_text, control_name, 512), encoding="utf-8")
+        pathlib.Path(str(selector) + ".json").write_text(
+            pathlib.Path(str(policy) + ".json").read_text(encoding="utf-8"),
+            encoding="utf-8")
+        selector_result = run_checker(
+            checker, game, selector, "--certificate", str(cert), "--method",
+            "certificate", "--stats")
+        if selector_result.returncode != 0:
+            raise AssertionError(
+                "equivalent large selector was not verified:\n"
+                f"{selector_result.stdout}{selector_result.stderr}")
+        selector_stats = checker_stats(selector_result)
+        selector_rebuilt = run_checker(
+            checker, game, selector, "--certificate", str(cert), "--method",
+            "certificate", "--stats", "--test-rebuild-successor")
+        if selector_result.returncode != selector_rebuilt.returncode:
+            raise AssertionError(
+                "successor-cache large-selector status mismatch:\n"
+                f"{selector_result.stdout}{selector_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
+        rebuilt_stats = checker_stats(selector_rebuilt)
+        goal_count = sidecar["counts"]["goals"]
+        if (selector_stats.get("policy_mode_builds") != goal_count + 1
+                or selector_stats.get("policy_counter_constants")
+                != (goal_count + 1) * goal_count
+                or selector_stats.get("policy_unspecialized_gates") != 0):
+            raise AssertionError(
+                f"selector was not built from per-mode constants: "
+                f"{selector_stats}")
+        independent_roots = selector_stats.get("policy_independent_roots", 0)
+        if (selector_stats.get("policy_independent_gates", 0) <= 0
+                or independent_roots <= 0
+                or selector_stats.get("policy_cross_mode_root_reuses")
+                != independent_roots * (goal_count + 1)):
+            raise AssertionError(
+                "counter-independent policy cones were not reused across "
+                f"modes: {selector_stats}")
+        if (selector_stats.get("successor_substitutions") != goal_count + 1
+                or rebuilt_stats.get("successor_substitutions")
+                != rebuilt_stats.get("successor_applications")
+                or selector_stats.get("successor_applications", 0)
+                >= rebuilt_stats.get("successor_applications", 0)
+                or selector_stats.get("successor_substitutions", 0)
+                >= rebuilt_stats.get("successor_substitutions", 0)):
+            raise AssertionError(
+                "successor substitution/images were not reused per mode: "
+                f"cached={selector_stats} rebuilt={rebuilt_stats}")
+
+        # Nine counters force the bounded selected-output path.  A one-entry
+        # OxiDD apply cache necessarily replaces entries throughout these
+        # nontrivial builds; every status must still match the unspecialized
+        # policy oracle, including reset, early, and late counter modes.
+        high_builder = differential.AagBuilder(
+            ["u0", "controllable_c0"], [0])
+        high_game_text = high_builder.finish(
+            [high_builder.latches[0]], None, False, [1] * 9, [])
+        high_game = root / "nine-counter-game.aag"
+        high_policy = root / "nine-counter-policy.aag"
+        high_cert = root / "nine-counter-certificate.aag"
+        high_game.write_text(high_game_text, encoding="utf-8")
+        high_solve = subprocess.run(
+            [str(solver), "--policy", str(high_policy), "--certificate",
+             str(high_cert), str(high_game)], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            timeout=20)
+        if high_solve.returncode != 0:
+            raise AssertionError(
+                "solver failed on nine-counter cache fixture:\n"
+                f"{high_solve.stdout}{high_solve.stderr}")
+        high_text = high_policy.read_text(encoding="utf-8")
+        high_outputs = output_literals(high_text)
+        high_control = next(
+            name for name in high_outputs if not name.startswith("curr_next_"))
+        high_selector = root / "nine-counter-selector.aag"
+        high_selector.write_text(
+            wrap_output_in_selectors(high_text, high_control, 96),
+            encoding="utf-8")
+        pathlib.Path(str(high_selector) + ".json").write_text(
+            pathlib.Path(str(high_policy) + ".json").read_text(
+                encoding="utf-8"), encoding="utf-8")
+
+        high_default = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--stats")
+        high_legacy_rounded = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--node-cap", "1536",
+            "--stats")
+        high_explicit_cache = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--node-cap", "1536",
+            "--cache-cap", "1024", "--stats")
+        high_small = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--cache-cap", "1",
+            "--stats")
+        high_oracle = run_checker(
+            checker, high_game, high_selector, "--certificate",
+            str(high_cert), "--method", "certificate", "--cache-cap", "1",
+            "--test-unspecialized-policy")
+        if (high_default.returncode != 0
+                or checker_status(high_small) != checker_status(high_oracle)
+                or checker_status(high_small) != checker_status(high_default)):
+            raise AssertionError(
+                "nine-counter selected-output cache disagreed with its "
+                "oracle:\n"
+                f"default: {high_default.stdout}{high_default.stderr}\n"
+                f"small: {high_small.stdout}{high_small.stderr}\n"
+                f"oracle: {high_oracle.stdout}{high_oracle.stderr}")
+        high_default_stats = checker_stats(high_default)
+        high_legacy_rounded_stats = checker_stats(high_legacy_rounded)
+        high_explicit_cache_stats = checker_stats(high_explicit_cache)
+        high_small_stats = checker_stats(high_small)
+        if (high_default_stats.get("node_cap") != 1 << 24
+                or high_default_stats.get("cache_cap") != 1 << 24
+                or high_legacy_rounded.returncode != 0
+                or high_legacy_rounded_stats.get("node_cap") != 1536
+                or high_legacy_rounded_stats.get("cache_cap") != 2048
+                or high_explicit_cache.returncode != 0
+                or high_explicit_cache_stats.get("node_cap") != 1536
+                or high_explicit_cache_stats.get("cache_cap") != 1024
+                or high_small_stats.get("node_cap") != 1 << 24
+                or high_small_stats.get("cache_cap") != 1
+                or high_small_stats.get("policy_mode_builds") != 10
+                or high_small_stats.get("policy_full_cache_modes") != 10):
+            raise AssertionError(
+                "nine-counter fixture did not exercise all modes and "
+                f"effective capacities: default={high_default_stats} "
+                f"legacy={high_legacy_rounded_stats} "
+                f"explicit={high_explicit_cache_stats} "
+                f"small={high_small_stats}")
+
+        mode_mutations = (
+            ("all-zero", -1, False, 1),
+            ("one-hot-0", 0, True, 2),
+            ("one-hot-8", 8, True, 10),
+        )
+        for label, mode, complement, expected_modes in mode_mutations:
+            mutation = root / f"nine-counter-{label}.aag"
+            mutation.write_text(shared_gate_mode_mutation(
+                high_selector.read_text(encoding="utf-8"), high_control,
+                "curr_next_0", mode, complement), encoding="utf-8")
+            pathlib.Path(str(mutation) + ".json").write_text(
+                pathlib.Path(str(high_policy) + ".json").read_text(
+                    encoding="utf-8"), encoding="utf-8")
+            specialized = run_checker(
+                checker, high_game, mutation, "--certificate", str(high_cert),
+                "--method", "certificate", "--cache-cap", "1", "--stats")
+            oracle = run_checker(
+                checker, high_game, mutation, "--certificate", str(high_cert),
+                "--method", "certificate", "--cache-cap", "1",
+                "--test-unspecialized-policy")
+            mutation_stats = checker_stats(specialized)
+            if (specialized.returncode != 6
+                    or checker_status(specialized) != checker_status(oracle)
+                    or mutation_stats.get("policy_full_cache_modes")
+                    != expected_modes):
+                raise AssertionError(
+                    f"nine-counter {label} cache/oracle mismatch: "
+                    f"stats={mutation_stats}\n"
+                    f"specialized: {specialized.stdout}{specialized.stderr}\n"
+                    f"oracle: {oracle.stdout}{oracle.stderr}")
+
+        # move_* remains part of the certificate interface, but fixed-policy
+        # checking does not use it as a premise.  An exclusive large cone must
+        # therefore add no visited gates.  Structural validation is separate:
+        # corrupting that same unused cone must still be INVALID.
+        game, policy, cert, _sidecar = rank_seed
+        baseline_stats_result = run_checker(
+            checker, game, policy, "--certificate", str(cert), "--method",
+            "certificate", "--stats")
+        if baseline_stats_result.returncode != 0:
+            raise AssertionError(
+                "genuine certificate failed stats probe:\n"
+                f"{baseline_stats_result.stdout}{baseline_stats_result.stderr}")
+        baseline_stats = checker_stats(baseline_stats_result)
+        enlarged = root / "cert-unused-move-cone.aag"
+        enlarged.write_text(append_output_chain(
+            cert.read_text(encoding="utf-8"), "move_0", 2048),
+            encoding="utf-8")
+        enlarged_json = pathlib.Path(str(enlarged) + ".json")
+        enlarged_json.write_text(
+            pathlib.Path(str(cert) + ".json").read_text(encoding="utf-8"),
+            encoding="utf-8")
+        enlarged_result = run_checker(
+            checker, game, policy, "--certificate", str(enlarged),
+            "--method", "certificate", "--stats")
+        if enlarged_result.returncode != 0:
+            raise AssertionError(
+                "unused move cone changed certificate verdict:\n"
+                f"{enlarged_result.stdout}{enlarged_result.stderr}")
+        if checker_stats(enlarged_result) != baseline_stats:
+            raise AssertionError(
+                "unused move cone was evaluated: "
+                f"baseline={baseline_stats} enlarged="
+                f"{checker_stats(enlarged_result)}")
+        malformed = root / "cert-malformed-unused-move-cone.aag"
+        malformed.write_text(append_output_chain(
+            cert.read_text(encoding="utf-8"), "move_0", 8,
+            malformed=True), encoding="utf-8")
+        pathlib.Path(str(malformed) + ".json").write_text(
+            enlarged_json.read_text(encoding="utf-8"), encoding="utf-8")
+        malformed_result = run_checker(
+            checker, game, policy, "--certificate", str(malformed),
+            "--method", "certificate")
+        if malformed_result.returncode != 4:
+            raise AssertionError(
+                "malformed unused move cone was not INVALID:\n"
+                f"{malformed_result.stdout}{malformed_result.stderr}")
 
         game, policy, cert, sidecar = rank_seed
         cert_text = cert.read_text(encoding="utf-8")
@@ -465,6 +1063,23 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
                 raise AssertionError(
                     f"{label} did not report CERT_FAILED:\n"
                     f"{cert_only.stdout}{cert_only.stderr}")
+            rebuilt = run_checker(
+                checker, mutation_game, mutation_policy, "--certificate",
+                str(mutated), "--certificate-json", str(mutated_json),
+                "--method", "certificate", "--test-rebuild-successor")
+            if cert_only.returncode != rebuilt.returncode:
+                raise AssertionError(
+                    f"successor-cache {label} status mismatch:\n"
+                    f"{cert_only.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
+            cert_oracle = run_checker(
+                checker, mutation_game, mutation_policy, "--certificate",
+                str(mutated), "--certificate-json", str(mutated_json),
+                "--method", "certificate", "--test-unspecialized-policy")
+            if cert_oracle.returncode != cert_only.returncode:
+                raise AssertionError(
+                    f"{label} specialized/oracle status mismatch:\n"
+                    f"{cert_only.stdout}{cert_oracle.stdout}")
             closed = run_checker(
                 checker, mutation_game, mutation_policy,
                 "--method", "closed-loop")
@@ -532,6 +1147,24 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
             raise AssertionError(
                 "counter mutation disagreed with explicit oracle:\n"
                 f"{result.stdout}{result.stderr}")
+        counter_specialized = run_checker(
+            checker, game, broken_counter, "--certificate", str(cert),
+            "--method", "certificate")
+        counter_oracle = run_checker(
+            checker, game, broken_counter, "--certificate", str(cert),
+            "--method", "certificate", "--test-unspecialized-policy")
+        if counter_specialized.returncode != counter_oracle.returncode:
+            raise AssertionError(
+                "counter-update specialized/oracle status mismatch:\n"
+                f"{counter_specialized.stdout}{counter_oracle.stdout}")
+        counter_rebuilt = run_checker(
+            checker, game, broken_counter, "--certificate", str(cert),
+            "--method", "certificate", "--test-rebuild-successor")
+        if counter_specialized.returncode != counter_rebuilt.returncode:
+            raise AssertionError(
+                "successor-cache counter-update status mismatch:\n"
+                f"{counter_specialized.stdout}{counter_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
 
         # A certificate from a different state dimension must fail before any
         # proof check, even if output names happen to overlap.
@@ -594,6 +1227,16 @@ def run_suite(solver: pathlib.Path, checker: pathlib.Path, games: int,
         "policy_interfaces_invalid": 1,
         "default_certificate_sidecar": 1,
         "default_output_unchanged": default_output_unchanged,
+        "default_cache_legacy_matches": default_cache_legacy_matches,
+        "small_cache_fixture_agreements": small_cache_agreements,
+        "invalid_cache_caps_rejected": len(invalid_cache_cases),
+        "unsupported_latch_resets_invalid": 6,
+        "bounded_selected_output_cache_modes": 10,
+        "unused_move_cones_skipped": 1,
+        "malformed_unused_cones_invalid": 1,
+        "specialized_policy_oracle_agreements": 8,
+        "large_selector_constant_modes": 1,
+        "successor_rebuild_oracle_agreements": successor_rebuild_agreements,
     }
 
 

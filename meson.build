@@ -412,7 +412,8 @@ if research_tools
       sources: ['src/main_tlsfcompose.c', 'src/compose_analysis.c',
                 'src/compose_games.c', 'src/compose_oxidd.c',
                 'src/compose_route.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_order.c',
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
+                'src/oxidd_order.c',
                 bison_out[1],
                 version_h],
       c_args: ['-DHAVE_OXIDD'],
@@ -425,7 +426,8 @@ if research_tools
     tlsfsolve_exe = executable(
       'tlsfsolve',
       sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_order.c',
+                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
+                'src/oxidd_order.c',
                 version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
@@ -436,7 +438,8 @@ if research_tools
 
     tlsfcertcheck_exe = executable(
       'tlsfcertcheck',
-      sources: ['src/main_tlsfcertcheck.c', 'src/oxidd_common.c', version_h],
+      sources: ['src/main_tlsfcertcheck.c', 'src/oxidd_common.c',
+                'src/oxidd_host.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,
@@ -446,7 +449,7 @@ if research_tools
 
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
-      sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c',
+      sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
                 'test/tlsfsolve_failure_stub.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
@@ -1052,8 +1055,8 @@ endif
 endif
 if research_tools and have_oxidd
   oxidd_memory_test = executable('oxidd_memory_test',
-    sources: ['test/oxidd_memory.c', 'src/oxidd_common.c', 'src/oxidd_order.c',
-              'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
+    sources: ['test/oxidd_memory.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
+              'src/oxidd_order.c', 'src/safety_oxidd.c', 'src/gr1_oxidd.c'],
     c_args: ['-DHAVE_OXIDD'],
     link_args: ['-Wl,--wrap=oxidd_bdd_and', '-Wl,--wrap=oxidd_bdd_substitute',
                 '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
@@ -1094,7 +1097,7 @@ if research_tools and have_oxidd
   aiger_game_roundtrip_exe = executable(
     'aiger-game-roundtrip',
     sources: ['test/aiger_game_roundtrip.c', 'src/gr1_oxidd.c',
-              'src/oxidd_common.c', 'src/oxidd_order.c'],
+              'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c'],
     c_args: ['-DHAVE_OXIDD'],
     dependencies: [oxidd_dep],
     link_with: tlsf_lib,
@@ -1153,6 +1156,12 @@ if research_tools and have_oxidd
       args: [files('test/test_gr1_certcheck.py'),
              '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,
              '--games', '80'],
+      timeout: 180,
+    )
+    test('gr1_region', python3,
+      args: [files('test/test_gr1_region.py'),
+             '--solver', tlsfsolve_exe, '--checker', tlsfcertcheck_exe,
+             '--games', '32'],
       timeout: 180,
     )
     test('gr1_unreal_certificate', python3,

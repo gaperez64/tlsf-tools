@@ -17,6 +17,7 @@ static unsigned fail_and, and_calls;
 static const char *fail_operation;
 static unsigned failures;
 static bool fail_calloc, fail_realloc;
+static unsigned fail_realloc_at, realloc_calls;
 void *__real_calloc(size_t n, size_t size);
 void *__wrap_calloc(size_t n, size_t size);
 void *__wrap_calloc(size_t n, size_t size) {
@@ -29,7 +30,8 @@ void *__wrap_calloc(size_t n, size_t size) {
 void *__real_oxidd_host_realloc(void *p, size_t size);
 void *__wrap_oxidd_host_realloc(void *p, size_t size);
 void *__wrap_oxidd_host_realloc(void *p, size_t size) {
-  if (fail_realloc) {
+  realloc_calls++;
+  if (fail_realloc || (fail_realloc_at && realloc_calls == fail_realloc_at)) {
     fail_realloc = false;
     return NULL;
   }
@@ -197,8 +199,21 @@ static void roots_and_retry(void) {
     map[leaf[i]] = eager[leaf[i]] = oxidd_bdd_var(m, i + 7);
   for (unsigned i = 0; i < 3; i++)
     oxidd_bdd_ref(eager[leaf[i]]);
-  fail_calloc = true;
-  CHECK(!oxidd_build_roots(&r, g, map, 12, lits, roots, 8));
+  // Both host allocations happen before map consumption or root publication.
+  // Inject each one and prove the caller's sentinel outputs stay untouched.
+  for (unsigned failure = 1; failure <= 2; failure++) {
+    Bdd sentinel = oxidd_bdd_true(m);
+    for (unsigned i = 0; i < 8; i++)
+      roots[i] = sentinel;
+    realloc_calls = 0;
+    fail_realloc_at = failure;
+    CHECK(!oxidd_build_roots(&r, g, map, 12, lits, roots, 8));
+    CHECK(realloc_calls == failure);
+    for (unsigned i = 0; i < 8; i++)
+      CHECK(bdd_same_identity(roots[i], sentinel));
+    oxidd_bdd_unref(sentinel);
+    fail_realloc_at = 0;
+  }
   for (uint32_t i = 0; i < aig_num_ands(g); i++) {
     uint32_t lhs, a, b;
     aig_and_at(g, i, &lhs, &a, &b);
@@ -217,6 +232,15 @@ static void roots_and_retry(void) {
     oxidd_bdd_unref(expected);
     oxidd_bdd_unref(roots[i]);
   }
+  // Invalid selected roots and invalid references in a selected cone fail;
+  // an unselected dead cone is not evaluated by this low-level constructor.
+  Bdd invalid_roots[1] = {0};
+  Bdd invalid_map[13] = {0};
+  invalid_map[1] = oxidd_bdd_var(m, 7);
+  uint32_t invalid_lit = 26;
+  CHECK(!oxidd_build_roots(&r, g, invalid_map, 12, &invalid_lit, invalid_roots,
+                           1));
+  oxidd_bdd_unref(invalid_map[1]);
   Bdd a = oxidd_bdd_var(m, 7), b = oxidd_bdd_var(m, 8);
   fail_and = 1;
   and_calls = 0;
@@ -235,6 +259,48 @@ static void roots_and_retry(void) {
   oxidd_bdd_unref(b);
   for (unsigned i = 0; i < 13; i++)
     oxidd_bdd_unref(eager[i]);
+  aig_free(g);
+  oxidd_bdd_manager_unref(m);
+}
+
+static void roots_with_prebuilt_gate(void) {
+  // Gate 16 is a retained boundary root.  Building output 20 must reuse it,
+  // skip both gates in its fanin cone, preserve positive and complemented
+  // aliases, and consume every caller-owned map ref.
+  Aig *g = read_game("aag 10 2 0 1 3\n2\n4\n20\n"
+                     "12 2 4\n16 12 2\n20 16 2\n");
+  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 256, 1);
+  oxidd_bdd_manager_add_vars(m, 2);
+  OxiddSolveOptions opts = oxidd_solve_options_default();
+  OxiddRun r;
+  oxidd_run_init(&r, m, &opts, 4096, 256);
+  Bdd a = oxidd_bdd_var(m, 0), b = oxidd_bdd_var(m, 1);
+  Bdd boundary = oxidd_bdd_and(a, b);
+  Bdd not_boundary = oxidd_bdd_not(boundary);
+  Bdd expected = oxidd_bdd_and(boundary, a);
+  Bdd not_expected = oxidd_bdd_not(expected);
+  Bdd map[11] = {0};
+  map[1] = oxidd_bdd_ref(a);
+  map[2] = oxidd_bdd_ref(b);
+  map[8] = oxidd_bdd_ref(boundary);
+  uint32_t lits[] = {16, 17, 20, 21};
+  Bdd roots[4] = {0};
+  CHECK(oxidd_build_roots(&r, g, map, 10, lits, roots, 4));
+  CHECK(r.built_gates == 1 && r.relevant_gates == 1);
+  CHECK(bdd_eq(roots[0], boundary));
+  CHECK(bdd_eq(roots[1], not_boundary));
+  CHECK(bdd_eq(roots[2], expected));
+  CHECK(bdd_eq(roots[3], not_expected));
+  for (unsigned i = 0; i < 11; i++)
+    CHECK(bdd_invalid(map[i]));
+  for (unsigned i = 0; i < 4; i++)
+    oxidd_bdd_unref(roots[i]);
+  oxidd_bdd_unref(not_expected);
+  oxidd_bdd_unref(expected);
+  oxidd_bdd_unref(not_boundary);
+  oxidd_bdd_unref(boundary);
+  oxidd_bdd_unref(a);
+  oxidd_bdd_unref(b);
   aig_free(g);
   oxidd_bdd_manager_unref(m);
 }
@@ -432,6 +498,7 @@ static void sessions(void) {
 int main(void) {
   variable_orders();
   roots_and_retry();
+  roots_with_prebuilt_gate();
   memo_churn();
   pressure_backoff();
   demand_avoids_unused_updates();

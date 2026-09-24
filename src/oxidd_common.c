@@ -56,8 +56,6 @@ size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
   return cap < min ? min : cap;
 }
 
-void *oxidd_host_realloc(void *ptr, size_t size) { return realloc(ptr, size); }
-
 void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
                  const char *event, const char *fmt, ...) {
 #ifdef NDEBUG
@@ -487,9 +485,24 @@ static const char *support_name(const unsigned char *classes, uint32_t lit) {
 
 bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
                        const uint32_t *lits, Bdd *roots, size_t count) {
-  size_t *uses = calloc((size_t)maxvar + 1, sizeof *uses);
-  if (!uses)
+  size_t uses_count = (size_t)maxvar + 1;
+  size_t *uses = oxidd_host_realloc(nullptr, uses_count * sizeof *uses);
+  if (!uses) {
+    oxidd_record_failure(r->options, OXIDD_FAILURE_HOST, r->phase, "realloc",
+                         r->operations, r->index);
     return false;
+  }
+  memset(uses, 0, uses_count * sizeof *uses);
+  Bdd *published =
+      count ? oxidd_host_realloc(nullptr, count * sizeof *published) : nullptr;
+  if (count && !published) {
+    oxidd_record_failure(r->options, OXIDD_FAILURE_HOST, r->phase, "realloc",
+                         r->operations, r->index);
+    free(uses);
+    return false;
+  }
+  if (published)
+    memset(published, 0, count * sizeof *published);
   bool ok = true;
   size_t retained = 0, peak = 0, released = 0;
 #ifndef NDEBUG
@@ -522,6 +535,12 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     aig_and_at(game, i - 1, &lhs, &a, &b);
     if (!uses[lhs / 2])
       continue;
+    // A caller may seed a gate result compiled in an earlier bounded scope.
+    // Treat it exactly like a primary leaf: consumers still account for and
+    // release this reference, but the already compiled fanin cone is not
+    // traced or evaluated again.
+    if (!bdd_invalid(map[lhs / 2]))
+      continue;
     if (a / 2 > maxvar || b / 2 > maxvar) {
       ok = false;
       break;
@@ -541,10 +560,16 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
       oxidd_bdd_unref(map[v]);
       map[v] = (Bdd){0};
     }
+  Bdd constant_false = oxidd_bdd_false(r->manager);
+  Bdd constant_true = oxidd_bdd_true(r->manager);
+  if (bdd_invalid(constant_false) || bdd_invalid(constant_true))
+    ok = false;
   for (uint32_t i = 0; i < ngates && ok; i++) {
     uint32_t lhs, a, b;
     aig_and_at(game, i, &lhs, &a, &b);
     if (!uses[lhs / 2])
+      continue;
+    if (!bdd_invalid(map[lhs / 2]))
       continue;
     r->index = i;
 #ifndef NDEBUG
@@ -566,7 +591,19 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
 #endif
     Bdd ba = run_literal(r, map, a);
     Bdd bb = run_literal(r, map, b);
-    Bdd result = oxidd_run_and(r, ba, bb);
+    Bdd result;
+    // Constant-cofactored policy muxes contain long dead branches.  Avoid an
+    // FFI/cache operation for the Boolean identities that the selected-root
+    // scheduler can establish from already built operands.
+    if (bdd_same_identity(ba, constant_false) ||
+        bdd_same_identity(bb, constant_false))
+      result = oxidd_bdd_ref(constant_false);
+    else if (bdd_same_identity(ba, constant_true))
+      result = oxidd_bdd_ref(bb);
+    else if (bdd_same_identity(bb, constant_true))
+      result = oxidd_bdd_ref(ba);
+    else
+      result = oxidd_run_and(r, ba, bb);
 #ifndef NDEBUG
     if (selected) {
       BoundedNodeCount left =
@@ -609,8 +646,8 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
     ok = !bdd_invalid(result);
   }
   for (size_t i = 0; i < count && ok; i++) {
-    roots[i] = run_literal(r, map, lits[i]);
-    ok = !bdd_invalid(roots[i]);
+    published[i] = run_literal(r, map, lits[i]);
+    ok = !bdd_invalid(published[i]);
     bool dropped = consume_literal(map, uses, lits[i]);
     retained -= dropped;
     released += dropped;
@@ -618,7 +655,7 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
 #ifndef NDEBUG
   if (r->options->verbosity && r->options->trace_roots && ok) {
     BoundedNodeCount root_union =
-        bounded_node_union(roots, count, r->options->trace_node_limit,
+        bounded_node_union(published, count, r->options->trace_node_limit,
                            r->options->trace_scratch_bytes);
     oxidd_trace(r->options, r->phase, "root_node_union",
                 ",\"distinct_inner_nodes_lower_bound\":%zu,\"complete\":%s,"
@@ -636,6 +673,16 @@ bool oxidd_build_roots(OxiddRun *r, const Aig *game, Bdd *map, uint32_t maxvar,
               ",\"map_references_peak\":%zu,\"map_references_released\":%zu,"
               "\"map_references_remaining\":%zu,\"requested_roots\":%zu",
               peak, released, retained, count);
+  if (ok)
+    for (size_t i = 0; i < count; i++) {
+      roots[i] = published[i];
+      published[i] = (Bdd){0};
+    }
+  for (size_t i = 0; i < count; i++)
+    oxidd_bdd_unref(published[i]);
+  oxidd_bdd_unref(constant_false);
+  oxidd_bdd_unref(constant_true);
+  free(published);
   free(uses);
   return ok;
 }

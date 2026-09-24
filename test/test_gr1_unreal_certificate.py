@@ -154,10 +154,10 @@ def solve_export(solver: pathlib.Path, root: pathlib.Path, index: int,
 
 def checker(checker_path: pathlib.Path, game: pathlib.Path,
             policy: pathlib.Path, certificate: pathlib.Path,
-            method: str = "certificate"):
+            method: str = "certificate", *extra: str):
     return run([
         str(checker_path), "--certificate", str(certificate), "--method",
-        method, str(game), str(policy)
+        method, *extra, str(game), str(policy)
     ], (0, 1, 6))
 
 
@@ -165,6 +165,8 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
               seed: int):
     rng = random.Random(seed)
     real = unreal = explicit = 0
+    small_cache_agreements = 0
+    successor_rebuild_agreements = 0
     rank_seed = None
     policy_seed = None
     with tempfile.TemporaryDirectory(prefix="tlsf-gr1-unreal-") as directory:
@@ -184,6 +186,19 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
                 pathlib.Path(str(certificate) + ".json").read_text())
             policy_sidecar = json.loads(
                 pathlib.Path(str(policy) + ".json").read_text())
+            fixture_default = checker(
+                checker_path, game, policy, certificate, "certificate")
+            fixture_small_cache = checker(
+                checker_path, game, policy, certificate, "certificate",
+                "--cache-cap", checker_test.SMALL_CACHE_CAP)
+            if (fixture_default.returncode != 0
+                    or checker_test.checker_status(fixture_default)
+                    != checker_test.checker_status(fixture_small_cache)):
+                raise AssertionError(
+                    f"small-cache fixture mismatch at game {index}:\n"
+                    f"default: {fixture_default.stdout}"
+                    f"small: {fixture_small_cache.stdout}")
+            small_cache_agreements += 1
             if expected_real:
                 real += 1
                 assert cert_sidecar["side"] == "system"
@@ -197,6 +212,22 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             assert policy_sidecar["side"] == "environment"
             assert checker(checker_path, game, policy, certificate,
                            "both").returncode == 0
+            specialized = fixture_default
+            oracle = checker(
+                checker_path, game, policy, certificate, "certificate",
+                "--test-unspecialized-policy")
+            if specialized.returncode != oracle.returncode:
+                raise AssertionError(
+                    "environment specialized/oracle genuine mismatch:\n"
+                    f"{specialized.stdout}{oracle.stdout}")
+            rebuilt = checker(
+                checker_path, game, policy, certificate, "certificate",
+                "--test-rebuild-successor")
+            if specialized.returncode != rebuilt.returncode:
+                raise AssertionError(
+                    "environment successor-cache genuine mismatch:\n"
+                    f"{specialized.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
             assert environment_policy_wins_explicit(
                 text, policy.read_text(), policy_sidecar)
             explicit += 1
@@ -228,6 +259,45 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             raise AssertionError("no UNREAL rank mutation seed")
         if policy_seed is None:
             raise AssertionError("no explicit losing counter-strategy mutation")
+
+        # system_winning remains a required part of the environment certificate
+        # interface, but fixed-policy checking does not use its Boolean value.
+        # Its exclusive cone must not be evaluated, while malformed structure in
+        # the same unselected cone must still be rejected before BDD construction.
+        game, policy, certificate = rank_seed
+        baseline_result = checker(
+            checker_path, game, policy, certificate, "certificate", "--stats")
+        baseline_stats = checker_test.checker_stats(baseline_result)
+        enlarged = root / "certificate-unused-system-winning-cone.aag"
+        enlarged.write_text(checker_test.append_output_chain(
+            certificate.read_text(), "system_winning", 2048))
+        enlarged_json = pathlib.Path(str(enlarged) + ".json")
+        enlarged_json.write_text(
+            pathlib.Path(str(certificate) + ".json").read_text())
+        enlarged_result = checker(
+            checker_path, game, policy, enlarged, "certificate", "--stats")
+        enlarged_stats = checker_test.checker_stats(enlarged_result)
+        if enlarged_result.returncode != baseline_result.returncode:
+            raise AssertionError(
+                "unused system_winning cone changed certificate verdict:\n"
+                f"{enlarged_result.stdout}{enlarged_result.stderr}")
+        if enlarged_stats != baseline_stats:
+            raise AssertionError(
+                "unused system_winning cone was evaluated: "
+                f"baseline={baseline_stats} enlarged={enlarged_stats}")
+        malformed = root / "certificate-malformed-system-winning-cone.aag"
+        malformed.write_text(checker_test.append_output_chain(
+            certificate.read_text(), "system_winning", 8, malformed=True))
+        pathlib.Path(str(malformed) + ".json").write_text(
+            enlarged_json.read_text())
+        malformed_result = run([
+            str(checker_path), "--certificate", str(malformed), "--method",
+            "certificate", str(game), str(policy)
+        ], (4,))
+        if malformed_result.returncode != 4:
+            raise AssertionError(
+                "malformed unused system_winning cone was not INVALID:\n"
+                f"{malformed_result.stdout}{malformed_result.stderr}")
 
         game, policy, certificate = rank_seed
         cert_text = certificate.read_text()
@@ -262,6 +332,21 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             if verdict.returncode != 6:
                 raise AssertionError(
                     f"{label} mutation was not CERT_FAILED:\n{verdict.stdout}")
+            oracle = checker(
+                checker_path, game, policy, mutated, "certificate",
+                "--test-unspecialized-policy")
+            if oracle.returncode != verdict.returncode:
+                raise AssertionError(
+                    f"environment {label} specialized/oracle mismatch:\n"
+                    f"{verdict.stdout}{oracle.stdout}")
+            rebuilt = checker(
+                checker_path, game, policy, mutated, "certificate",
+                "--test-rebuild-successor")
+            if rebuilt.returncode != verdict.returncode:
+                raise AssertionError(
+                    f"environment successor-cache {label} mismatch:\n"
+                    f"{verdict.stdout}{rebuilt.stdout}")
+            successor_rebuild_agreements += 1
 
         (game, policy, certificate, _game_text, _policy_sidecar,
          losing_mutation) = policy_seed
@@ -272,6 +357,21 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
             checker_path, game, mutated_policy, certificate, "certificate")
         if certificate_only.returncode != 6:
             raise AssertionError("policy mutation did not produce CERT_FAILED")
+        policy_oracle = checker(
+            checker_path, game, mutated_policy, certificate, "certificate",
+            "--test-unspecialized-policy")
+        if policy_oracle.returncode != certificate_only.returncode:
+            raise AssertionError(
+                "environment policy specialized/oracle mismatch:\n"
+                f"{certificate_only.stdout}{policy_oracle.stdout}")
+        policy_rebuilt = checker(
+            checker_path, game, mutated_policy, certificate, "certificate",
+            "--test-rebuild-successor")
+        if policy_rebuilt.returncode != certificate_only.returncode:
+            raise AssertionError(
+                "environment successor-cache policy mismatch:\n"
+                f"{certificate_only.stdout}{policy_rebuilt.stdout}")
+        successor_rebuild_agreements += 1
         decided = checker(checker_path, game, mutated_policy, certificate,
                           "both")
         if decided.returncode != 1:
@@ -296,6 +396,11 @@ def run_suite(solver: pathlib.Path, checker_path: pathlib.Path, games: int,
         "rank_mutations_cert_failed": 1,
         "counterstrategy_mutations_refuted": 1,
         "strict_unreal_exports_refused": 1,
+        "unused_system_winning_cones_skipped": 1,
+        "malformed_unused_system_winning_cones_invalid": 1,
+        "specialized_policy_oracle_agreements": unreal + 3,
+        "small_cache_fixture_agreements": small_cache_agreements,
+        "successor_rebuild_oracle_agreements": successor_rebuild_agreements,
     }
 
 
