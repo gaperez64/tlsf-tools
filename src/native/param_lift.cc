@@ -1475,17 +1475,21 @@ void run(const uint8_t *source,size_t size,
   cfg.bytes(candidate.policy.size(),"publish");
   cfg.bytes(candidate.policy_json.size(),"publish");
   cfg.bytes(candidate.check_json.size(),"publish");
-  char game_hash[65]{},cert_hash[65]{};
+  char game_hash[65]{},cert_hash[65]{},policy_hash[65]{};
   if(!tlsf_pipeline_source_sha256(candidate.game.data(),candidate.game.size(),game_hash) ||
      !tlsf_pipeline_source_sha256(candidate.certificate.data(),candidate.certificate.size(),cert_hash))
     throw Failure(TLSF_GR1_LIFT_ERROR,"publish","artifact hash failed");
+  if(candidate.method==TLSF_GR1_CHECK_CERTIFICATE &&
+     (candidate.policy.empty() ||
+      !tlsf_pipeline_source_sha256(candidate.policy.data(),candidate.policy.size(),policy_hash)))
+    throw Failure(TLSF_GR1_LIFT_ERROR,"publish","policy artifact hash failed");
   A values,roles;
   for(int v:window.sizes)values.emplace_back(v);
   for(const auto &[index,role]:target_view.roles)
     roles.emplace_back(O{{"index",index},{"signature",role}});
   O arities;
   for(const auto &[name,arity]:learned.arities)arities[name]=arity;
-  J evidence=O{{"format","tlsf-gr1-lift-evidence-v1"},
+  J evidence=O{{"format",TLSF_GR1_LIFT_EVIDENCE_FORMAT},
                {"source_sha256",source_hash},{"game_sha256",game_hash},
                {"certificate_sha256",cert_hash},{"axis",window.axis},
                {"seed_values",values},{"roles",roles},{"predicate_arities",arities},
@@ -1505,6 +1509,8 @@ void run(const uint8_t *source,size_t size,
                                    {"checker_cache",cfg.o.checker_cache},
                                    {"schema_nodes",cfg.o.schema_nodes},
                                    {"schema_cache",cfg.o.schema_cache}}}};
+  if(candidate.method==TLSF_GR1_CHECK_CERTIFICATE)
+    evidence.as_object()["policy_sha256"]=policy_hash;
   candidate.evidence=dump(evidence);
   cfg.bytes(candidate.evidence.size(),"publish");
   result.game_size=candidate.game.size();result.game_aag=copy_bytes(candidate.game);

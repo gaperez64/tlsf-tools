@@ -12,6 +12,9 @@ extern "C" {
 #endif
 
 #define TLSF_GR1_LIFT_ABI_VERSION 1
+/* Evidence v1.1 binds the policy AAG for certificate checks. Region checks
+ * have no policy artifact and must omit policy_sha256. */
+#define TLSF_GR1_LIFT_EVIDENCE_FORMAT "tlsf-gr1-lift-evidence-v1.1"
 
 typedef enum {
   TLSF_GR1_LIFT_OK,

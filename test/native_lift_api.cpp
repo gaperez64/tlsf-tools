@@ -106,6 +106,10 @@ int main() {
   assert(result.game_aag && result.certificate_aag && result.policy_aag);
   assert(result.evidence_json && strstr(result.evidence_json,"target_transition"));
   auto baseline=boost::json::parse(result.evidence_json).as_object();
+  assert(baseline.at("format")==TLSF_GR1_LIFT_EVIDENCE_FORMAT);
+  char policy_hash[65]{};
+  assert(tlsf_pipeline_source_sha256(result.policy_aag,result.policy_size,policy_hash));
+  assert(baseline.at("policy_sha256")==policy_hash);
   auto baseline_roles=baseline.at("roles");
   auto baseline_seeds=baseline.at("seed_values");
   FILE *fp=fmemopen(result.certificate_aag,result.certificate_size,"r");
@@ -154,6 +158,9 @@ int main() {
   assert(result.method==TLSF_GR1_CHECK_REGION);
   assert(result.verdict==TLSF_GR1_CHECK_REGION_VERIFIED);
   assert(!result.policy_aag && result.check_json);
+  auto region_evidence=boost::json::parse(result.evidence_json).as_object();
+  assert(region_evidence.at("format")==TLSF_GR1_LIFT_EVIDENCE_FORMAT);
+  assert(!region_evidence.if_contains("policy_sha256"));
   tlsf_gr1_lift_result_clear(&result);
   std::string mutable_source(source);
   Mutate mutation{mutable_source.data(),0};
