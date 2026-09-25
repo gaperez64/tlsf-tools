@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import itertools
 import json
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 
 
@@ -42,6 +44,45 @@ EXIT_UNSUPPORTED = 3
 DBA_CLASSES = frozenset("BGSOR")
 SAFETY_CLASSES = frozenset("BS")
 CONTROLLABLE_PREFIX = "controllable_"
+UNCONTROLLABLE_PREFIX = "uncontrollable_"
+_LTL_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_@][A-Za-z0-9_\'@]*')
+
+
+def canonical_signals(inputs: list[str], outputs: list[str]) -> dict[str, str]:
+    """Assign names from the expanded interface order, independent of spelling."""
+    names = [*inputs, *outputs]
+    if len(names) != len(set(names)):
+        raise ValueError("expanded TLSF signal names are not unique")
+    return {**{name: f"uncontrollable_i{index}"
+               for index, name in enumerate(inputs)},
+            **{name: f"controllable_o{index}"
+               for index, name in enumerate(outputs)}}
+
+
+def canonicalize_ltl(text: str, symbols: dict[str, str]) -> str:
+    """Rewrite complete lexer tokens, including TLSF's @ and prime identifiers.
+
+    The lowering tool emits LTL syntax around bare TLSF AP tokens.  A quoted
+    AP is handled as one token as well, so neither substrings nor quoted text
+    can be accidentally changed.  Spot's AP inventory is checked after parse.
+    """
+    def replace(match: re.Match[str]) -> str:
+        token = match.group()
+        if token.startswith('"'):
+            name = json.loads(token)
+            return symbols.get(name, token)
+        return symbols.get(token, token)
+
+    return _LTL_TOKEN.sub(replace, text)
+
+
+def parse_canonical_ltl(text: str, symbols: dict[str, str], spot_module):
+    formula = spot_module.formula(canonicalize_ltl(text, symbols))
+    aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
+    unknown = aps - set(symbols.values())
+    if unknown:
+        raise ValueError(f"lowered formula has undeclared APs: {sorted(unknown)}")
+    return formula
 
 
 def default_tool(name: str) -> str:
@@ -202,9 +243,10 @@ class AagBuilder:
 
     def __init__(self, input_names: list[str]):
         self.input_names = input_names
-        self.input_literals = {
+        self.game_input_literals = {
             name: 2 * (index + 1) for index, name in enumerate(input_names)
         }
+        self.input_literals = self.game_input_literals.copy()
         self._next_var = len(input_names)
         self.latches: list[list[int | str]] = []  # current, next, reset, name
         self.ands: list[tuple[int, int, int]] = []
@@ -304,7 +346,8 @@ class AagBuilder:
             f"aag {self._next_var} {len(self.input_names)} {len(self.latches)} "
             f"1 {len(self.ands)} 0 0 {len(justice_lits)} {len(fairness)}"
         ]
-        lines.extend(str(self.input_literals[name]) for name in self.input_names)
+        lines.extend(str(self.game_input_literals[name])
+                     for name in self.input_names)
         for current, next_lit, reset, _name in self.latches:
             lines.append(f"{current} {next_lit} {reset}")
         lines.append(str(bad_lit))
@@ -332,9 +375,17 @@ def _transition_formula(aut, edge, spot_module):
 
 
 def encode_game(monitors: list[Monitor], inputs: list[str], outputs: list[str],
-                semantics: str, spot_module):
-    game_inputs = [*inputs, *(CONTROLLABLE_PREFIX + name for name in outputs)]
+                semantics: str, spot_module,
+                symbols: dict[str, str] | None = None):
+    symbols = symbols or canonical_signals(inputs, outputs)
+    game_inputs = [symbols[name] for name in [*inputs, *outputs]]
     builder = AagBuilder(game_inputs)
+    # Canonical APs are used by the game.  Raw aliases permit direct callers
+    # that build monitors from already parsed formulas to use this encoder.
+    builder.input_literals.update({
+        name: builder.game_input_literals[symbol]
+        for name, symbol in symbols.items()
+    })
     for monitor_index, monitor in enumerate(monitors):
         initial = monitor.automaton.get_init_state_number()
         monitor.latch_literals = [
@@ -351,12 +402,6 @@ def encode_game(monitors: list[Monitor], inputs: list[str], outputs: list[str],
     violated_lit = None
     if strict_safety_assumptions:
         violated_lit = builder.add_latch(0, "assumption_safety_violated")
-
-    # Inputs in Spot labels use the original output names, while the game marks
-    # those same variables controllable through its AIGER symbol prefix.
-    for name in outputs:
-        builder.input_literals[name] = builder.input_literals[
-            CONTROLLABLE_PREFIX + name]
 
     for monitor in monitors:
         incoming: list[list[int]] = [
@@ -473,6 +518,35 @@ def _bus_inventory(signals: list[str]) -> dict[str, list[tuple[str, tuple[int, .
     return buses
 
 
+def _frontend_bus_inventory(signals: list[dict]) -> dict[str, list[tuple[str, tuple[int, ...]]]]:
+    buses: dict[str, list[tuple[str, tuple[int, ...]]]] = {}
+    for signal in signals:
+        if signal["dimensions"]:
+            buses.setdefault(signal["source_name"], []).append(
+                (signal["name"], tuple(signal["index_tuple"])))
+    for members in buses.values():
+        members.sort(key=lambda member: member[1])
+    return buses
+
+
+def _structural_template(formula, signals: dict[str, dict], spot_module) -> str:
+    names = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
+    ordered = sorted((signals[name] for name in names),
+                     key=lambda item: (item["direction"],
+                                       item["declaration_id"],
+                                       item["index_tuple"]))
+    coordinates: dict[int, int] = {}
+    replacements = {}
+    for signal in ordered:
+        direction, ordinal = signal["declaration_id"].split(":")
+        alias = f"s_{direction}_{ordinal}"
+        for value in signal["index_tuple"]:
+            coordinates.setdefault(value, len(coordinates))
+            alias += f"_i{coordinates[value]}"
+        replacements[signal["name"]] = spot_module.formula.ap(alias)
+    return str(_replace_aps(formula, replacements, spot_module))
+
+
 def _display_indices(indices: list[tuple[int, ...]]) -> list:
     if all(len(index) == 1 for index in indices):
         return [index[0] for index in indices]
@@ -480,7 +554,7 @@ def _display_indices(indices: list[tuple[int, ...]]) -> list:
 
 
 def _monitor_support(formula, buses, spot_module) -> tuple[dict, str]:
-    aps = {str(ap) for ap in spot_module.atomic_prop_collect(formula)}
+    aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
     supported: dict[str, list[tuple[int, ...]]] = {}
     bus_aps: set[str] = set()
     bus_wide = False
@@ -509,6 +583,12 @@ def _replace_aps(formula, replacements: dict[str, object], spot_module):
     return spot_module.relabel_apply(formula, mapping)
 
 
+def tlsf_formula(formula, symbols: dict[str, str], spot_module):
+    return _replace_aps(
+        formula, {canonical: spot_module.formula.ap(original)
+                  for original, canonical in symbols.items()}, spot_module)
+
+
 def _eval_boolean(formula, valuation: dict[str, bool], spot_module) -> bool:
     kind = formula.kind()
     if formula.is_tt():
@@ -516,7 +596,7 @@ def _eval_boolean(formula, valuation: dict[str, bool], spot_module) -> bool:
     if formula.is_ff():
         return False
     if kind == spot_module.op_ap:
-        return valuation[str(formula)]
+        return valuation[formula.ap_name()]
     if kind == spot_module.op_Not:
         return not _eval_boolean(formula[0], valuation, spot_module)
     if kind == spot_module.op_And:
@@ -548,7 +628,7 @@ def _symmetric_signature(formula, buses, spot_module):
     if formula.kind() != spot_module.op_G or not formula[0].is_boolean():
         return None
     body = formula[0]
-    aps = {str(ap) for ap in spot_module.atomic_prop_collect(body)}
+    aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(body)}
     relevant = {
         base: members for base, members in buses.items()
         if any(name in aps for name, _index in members)
@@ -596,16 +676,72 @@ def _symmetric_signature(formula, buses, spot_module):
 
 
 def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
-               semantics: str, violated_lit: int | None, spot_module) -> dict:
+               semantics: str, violated_lit: int | None, spot_module,
+               frontend: dict | None = None,
+               frontend_error: str | None = None,
+               symbols: dict[str, str] | None = None) -> dict:
+    if symbols is None:
+        try:
+            symbols = canonical_signals(inputs, outputs)
+        except ValueError:
+            # Direct provenance audits can inspect malformed inventories;
+            # the game builder itself rejects these before this point.
+            symbols = {name: f"uncontrollable_i{index}"
+                       for index, name in enumerate(inputs)}
+            symbols.update({name: f"controllable_o{index}"
+                            for index, name in enumerate(outputs)})
+    frontend_signals = {}
+    semantic_candidates: list[tuple[object, dict]] = []
+    frontend_valid = False
+    if frontend is not None:
+        signal_names = [item["name"] for item in frontend["signals"]]
+        conjunct_keys = [
+            (item["source_formula_id"], item["generated_position"])
+            for item in frontend["conjuncts"]]
+        frontend_valid = (
+            frontend.get("schema") == "tlsf-tools.frontend-provenance.v1"
+            and frontend.get("ambiguous") is False
+            and len(signal_names) == len(set(signal_names))
+            and len(conjunct_keys) == len(set(conjunct_keys))
+            and all(isinstance(item["generated_position"], int)
+                    and item["generated_position"] >= 0
+                    for item in frontend["conjuncts"])
+            and [item["name"] for item in frontend["signals"]
+                 if item["direction"] == "input"] == inputs
+            and [item["name"] for item in frontend["signals"]
+                 if item["direction"] == "output"] == outputs
+        )
+        if frontend_valid:
+            frontend_signals = {item["name"]: item
+                                for item in frontend["signals"]}
+            for item in frontend["conjuncts"]:
+                parsed = tlsf_formula(
+                    parse_canonical_ltl(item["formula"], symbols, spot_module),
+                    symbols, spot_module)
+                if item["block"] in ("REQUIRE", "ASSERT"):
+                    parsed = spot_module.formula.G(parsed)
+                semantic_candidates.append((parsed, item))
+
     def signal_record(name: str) -> dict:
         base, indices = split_signal_index(name)
-        return {"name": name, "base_name": base, "index_tuple": indices}
+        record = {"name": name, "base_name": base, "index_tuple": indices,
+                  "provenance_source": "suffix-heuristic"}
+        record["game_symbol"] = symbols[name]
+        if frontend_valid:
+            record.update(frontend_signals[name])
+            record["base_name"] = record["source_name"]
+            record["provenance_source"] = "frontend"
+        return record
 
-    buses = _bus_inventory([*inputs, *outputs])
+    buses = (_frontend_bus_inventory(frontend["signals"])
+             if frontend_valid else _bus_inventory([*inputs, *outputs]))
     monitor_records = []
     for index, monitor in enumerate(monitors):
         text = str(monitor.formula)
         template, indices = index_template(text)
+        if frontend_valid:
+            template = _structural_template(
+                monitor.formula, frontend_signals, spot_module)
         support, arity_kind = _monitor_support(
             monitor.formula, buses, spot_module)
         record = {
@@ -614,6 +750,8 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
             "mp_class": monitor.mp_class,
             "conjunct": text,
             "template": template,
+            "template_source": ("frontend" if frontend_valid
+                                else "suffix-heuristic"),
             "index_tuple": indices,
             "support": support,
             "arity_kind": arity_kind,
@@ -621,7 +759,30 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
             "latch_literals": monitor.latch_literals,
             "role": monitor.role,
             "source_origin": None,
+            "provenance_source": "suffix-heuristic",
         }
+        if frontend_valid:
+            candidates = []
+            for candidate, item in semantic_candidates:
+                if (str(candidate) == text or spot_module.are_equivalent(
+                        candidate, monitor.formula)):
+                    candidates.append(item)
+                    if len(candidates) > 1:
+                        break
+            if len(candidates) == 1:
+                origin = candidates[0]
+                bindings = origin["bindings"]
+                record["source_origin"] = {
+                    "block": origin["block"],
+                    "source_formula_id": origin["source_formula_id"],
+                    "source_node_id": origin["source_node_id"],
+                    "generated_position": origin["generated_position"],
+                    "bindings": bindings,
+                    "index_tuple": [binding["value"] for binding in bindings],
+                    "signals": origin["signals"],
+                }
+                record["index_tuple"] = record["source_origin"]["index_tuple"]
+                record["provenance_source"] = "frontend"
         if (arity_kind == "bus_wide"
                 and monitor.formula.kind() == spot_module.op_G
                 and monitor.formula[0].is_boolean()):
@@ -631,23 +792,65 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
             if isinstance(signature, dict):
                 record["symmetric_signature"] = signature
         monitor_records.append(record)
+    available = frontend_valid and all(
+        item["provenance_source"] == "frontend" for item in monitor_records)
+    if available:
+        reason = None
+    elif frontend_error:
+        reason = frontend_error
+    elif frontend is None:
+        reason = "frontend provenance was not requested"
+    elif not frontend_valid:
+        reason = "frontend provenance is ambiguous or signal inventory differs"
+    else:
+        reason = "expanded monitor has no unique source conjunct"
     return {
-        "schema": "tlsf-tools.gr1-monitor-game.provenance.v2",
+        "schema": "tlsf-tools.gr1-monitor-game.provenance.v3",
+        "provenance_source": ("frontend" if available
+                              else "suffix-heuristic"),
         "semantics": semantics,
         "latch_encoding": "one-hot",
         "inputs": [signal_record(name) for name in inputs],
         "outputs": [signal_record(name) for name in outputs],
+        "source_parameters": (frontend["parameters"]
+                              if frontend_valid else []),
+        "source_conjuncts": (frontend["conjuncts"]
+                             if frontend_valid else []),
         "monitors": monitor_records,
         "violated_latch_literal": violated_lit,
         "source_origin_metadata": {
-            "available": False,
-            "reason": (
-                "tlsf-tools preserves expanded indexed-signal families, but "
-                "does not expose stable source section/constraint/definition "
-                "identifiers for expanded top-level conjuncts"
-            ),
+            "available": available,
+            "provenance_source": ("frontend" if available
+                                  else "suffix-heuristic"),
+            "reason": reason,
+            "source_sha256": (frontend.get("source_sha256")
+                              if frontend_valid else None),
         },
     }
+
+
+def load_frontend_provenance(args, params: list[str], snapshot: pathlib.Path,
+                             snapshot_sha256: str) -> dict:
+    destination = pathlib.Path(args.provenance_out)
+    with tempfile.TemporaryDirectory(dir=destination.parent) as directory:
+        path = pathlib.Path(directory) / "frontend.json"
+        _run([args.tlsf2tlsf, *params, "--provenance-out", str(path),
+              "--output", "/dev/null", str(snapshot)])
+        data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("source_sha256") != snapshot_sha256:
+        raise RuntimeError("frontend source SHA-256 mismatch")
+    return data
+
+
+def write_symbol_map(output: str, aag: str, inputs: list[str],
+                     outputs: list[str], symbols: dict[str, str]) -> None:
+    """Write the export map alongside a game, bound to its exact AAG bytes."""
+    lines = ["tlsf-tools.game-symbol-map.v1",
+             hashlib.sha256(aag.encode("utf-8")).hexdigest()]
+    lines += [f"I\t{symbols[name]}\t{name}" for name in inputs]
+    lines += [f"O\t{symbols[name]}\t{name}" for name in outputs]
+    pathlib.Path(output + ".symbols").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _run(command: list[str], *, input_text: str | None = None) -> str:
@@ -694,15 +897,31 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(f"gr1-monitor-game: Spot Python bindings required: {exc}\n")
         return 2
 
+    try:
+        source_bytes = pathlib.Path(args.tlsf).read_bytes()
+    except OSError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return 2
+    snapshot_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    destination = pathlib.Path(args.provenance_out or args.output or ".")
+    snapshot_parent = destination.parent if destination.name != "." else destination
+    with tempfile.TemporaryDirectory(dir=snapshot_parent) as directory:
+        snapshot = pathlib.Path(directory) / "source.tlsf"
+        snapshot.write_bytes(source_bytes)
+        return _build_snapshot(args, spot, snapshot, snapshot_sha256)
+
+
+def _build_snapshot(args, spot, snapshot: pathlib.Path,
+                    snapshot_sha256: str) -> int:
     params = [item for value in args.param for item in ("--param", value)]
     try:
-        basic = _run([args.tlsf2tlsf, "--basic", *params, args.tlsf])
+        basic = _run([args.tlsf2tlsf, "--basic", *params, str(snapshot)])
         source_semantics = _tool_info(args.tlsfinfo, "--semantics", basic)
         target = _tool_info(args.tlsfinfo, "--target", basic)
         inputs_text = _tool_info(args.tlsfinfo, "--expanded-ins", basic)
         outputs_text = _tool_info(args.tlsfinfo, "--expanded-outs", basic)
         lowered = _run(
-            [args.tlsf2ltl, "--format", "ltl", *params, args.tlsf])
+            [args.tlsf2ltl, "--format", "ltl", *params, str(snapshot)])
     except (OSError, RuntimeError) as exc:
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return 2
@@ -718,7 +937,17 @@ def main(argv: list[str]) -> int:
             "strict UNREALIZABLE result is not a sound UNREAL claim for the "
             "plain implication\n")
 
-    formula = spot.formula(lowered)
+    inputs = [name for name in inputs_text.split(",") if name]
+    outputs = [name for name in outputs_text.split(",") if name]
+    try:
+        symbols = canonical_signals(inputs, outputs)
+        formula = parse_canonical_ltl(lowered, symbols, spot)
+    except ValueError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return EXIT_UNSUPPORTED
+    except RuntimeError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return 2
     assume, guarantee = split_objective(formula, spot)
     monitors: list[Monitor] = []
     try:
@@ -733,11 +962,12 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return 2
 
-    inputs = [name for name in inputs_text.split(",") if name]
-    outputs = [name for name in outputs_text.split(",") if name]
     try:
         aag, _builder, violated = encode_game(
-            monitors, inputs, outputs, args.semantics, spot)
+            monitors, inputs, outputs, args.semantics, spot, symbols)
+    except ValueError as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return EXIT_UNSUPPORTED
     except RuntimeError as exc:
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return 2
@@ -745,11 +975,22 @@ def main(argv: list[str]) -> int:
 
     if args.output:
         pathlib.Path(args.output).write_text(aag, encoding="utf-8")
+        write_symbol_map(args.output, aag, inputs, outputs, symbols)
     else:
         sys.stdout.write(aag)
     if args.provenance_out:
+        frontend = None
+        frontend_error = None
+        try:
+            frontend = load_frontend_provenance(
+                args, params, snapshot, snapshot_sha256)
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            frontend_error = f"frontend provenance unavailable: {exc}"
         data = provenance(
-            monitors, inputs, outputs, args.semantics, violated, spot)
+            [dataclasses.replace(monitor, formula=tlsf_formula(
+                monitor.formula, symbols, spot)) for monitor in monitors],
+            inputs, outputs, args.semantics, violated, spot,
+            frontend, frontend_error, symbols)
         pathlib.Path(args.provenance_out).write_text(
             json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0

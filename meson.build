@@ -351,7 +351,8 @@ tlsf2ltl_exe = executable(
 
 tlsf2tlsf_exe = executable(
   'tlsf2tlsf',
-  sources: ['src/main_tlsf2tlsf.c', bison_out[1], version_h],
+  sources: ['src/main_tlsf2tlsf.c', 'src/provenance.c', 'src/sha256.c',
+            bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -438,7 +439,8 @@ if research_tools
 
     tlsfcertcheck_exe = executable(
       'tlsfcertcheck',
-      sources: ['src/main_tlsfcertcheck.c', 'src/oxidd_common.c',
+      sources: ['src/main_tlsfcertcheck.c', 'src/sha256.c',
+                'src/oxidd_common.c',
                 'src/oxidd_host.c', version_h],
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
@@ -503,6 +505,13 @@ aiger_roundtrip_exe = executable(
 test('aiger_roundtrip', aiger_roundtrip_exe)
 
 if python3.found()
+  test('frontend_provenance', python3,
+    args: [files('test/test_frontend_provenance.py'),
+           '--tlsf2tlsf', tlsf2tlsf_exe,
+           '--tlsfinfo', tlsfinfo_exe,
+           '--tlsf2ltl', tlsf2ltl_exe],
+    timeout: 60,
+  )
   aigtoaig_check = find_program('aigtoaig', required: false)
   aigmove_check = find_program('aigmove', required: false)
   combine_aiger_check = find_program('combine-aiger', required: false)
@@ -1181,7 +1190,8 @@ if research_tools and have_oxidd
              '--tlsf2ltl', tlsf2ltl_exe,
              '--tlsf2tlsf', tlsf2tlsf_exe,
              '--tlsfinfo', tlsfinfo_exe,
-             '--solver', tlsfsolve_exe],
+             '--solver', tlsfsolve_exe,
+             '--checker', tlsfcertcheck_exe],
       env: spot_python_env,
       timeout: 120,
     )

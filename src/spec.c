@@ -208,7 +208,9 @@ bool spec_add_signal(TlsfSpec *s, bool is_output, const char *name, bool is_bus,
   SignalDecl d = {.name = name,
                   .is_bus = is_bus,
                   .origin_name = name,
+                  .origin_id = *count + 1,
                   .origin_is_bus = is_bus,
+                  .origin_width_expr = hi_expr,
                   .bus_lo_expr = lo_expr,
                   .bus_hi_expr = hi_expr};
   // Resolve literal bounds immediately so non-expanding consumers see them.

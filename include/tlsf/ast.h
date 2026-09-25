@@ -111,6 +111,14 @@ typedef enum NodeKind {
 // ---------------------------------------------------------------------------
 
 typedef struct Node Node;
+typedef struct OriginBinding OriginBinding;
+
+struct OriginBinding {
+  uint32_t binder_id;
+  const char *name;
+  int64_t value;
+  const OriginBinding *parent;
+};
 
 typedef enum BoundedTemporalOrigin {
   BOUNDED_NONE,
@@ -129,6 +137,10 @@ typedef struct {
 
 struct Node {
   NodeKind kind;
+  // Filled only by provenance-enabled expansion. IDs identify source AST
+  // positions, including positions in definitions, before substitution.
+  uint32_t source_id;
+  const OriginBinding *origin_bindings;
 
   union {
     // NODE_AP, NODE_INT_VAR, NODE_DEF_CALL (callee name before arg list)
