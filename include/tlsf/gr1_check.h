@@ -48,7 +48,6 @@ typedef struct {
 } TlsfGr1CheckInput;
 
 typedef struct {
-  uint32_t abi_version;
   TlsfGr1CheckMethod method;
   size_t node_cap, cache_cap, max_artifact_bytes;
   uint64_t deadline_mono_ns;

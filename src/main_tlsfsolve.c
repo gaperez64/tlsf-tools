@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
   char *default_certificate_json = nullptr;
   char *default_policy_json = nullptr;
   GameProfile requested_profile = PROFILE_AUTO, resolved_profile = PROFILE_AUTO;
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   OxiddFailure failure = {0};
   bool named_order = false;
   opts.failure = &failure;
@@ -627,9 +627,8 @@ int main(int argc, char **argv) {
     free(default_policy_json);
     return 2;
   }
-  Gr1CertificateOptionsV2 certificate = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions certificate = {
+
       .aag_path = certificate_path,
       .json_path = certificate_json_path,
       .policy_aag_path = policy_path,
@@ -647,11 +646,11 @@ int main(int argc, char **argv) {
       return 2;
     }
     strat = certificate_path || policy_path
-                ? solve_gr1_oxidd_ex_with_certificate_v2(game, &unreal, &opts,
-                                                         &certificate)
-                : solve_gr1_oxidd_ex_v2(game, &unreal, &opts);
+                ? solve_gr1_oxidd_ex_with_certificate(game, &unreal, &opts,
+                                                      &certificate)
+                : solve_gr1_oxidd_ex(game, &unreal, &opts);
   } else {
-    OxiddSolveResult result = solve_safety_oxidd_result_v2(game, &opts);
+    OxiddSolveResult result = solve_safety_oxidd_result(game, &opts);
     strat = result.strategy;
     unreal = result.status == OXIDD_SOLVE_UNREALIZABLE;
     if (result.status == OXIDD_SOLVE_REALIZABLE && opts.realizability_only) {

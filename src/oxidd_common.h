@@ -38,7 +38,6 @@ typedef oxidd_bdd_t Bdd;
 
 #include "tlsf/oxidd_options.h"
 
-OxiddSolveOptionsV2 oxidd_options_upgrade(const OxiddSolveOptions *legacy);
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
 // Project-owned boundary for injecting host allocation failures without
 // interposing on OxiDD's Rust allocator.
@@ -52,19 +51,18 @@ typedef struct {
   const char *name;
 } OxiddResolvedOrder;
 
-bool oxidd_resolve_var_order(const Aig *game,
-                             const OxiddSolveOptionsV2 *options,
+bool oxidd_resolve_var_order(const Aig *game, const OxiddSolveOptions *options,
                              uint32_t auxiliary_vars,
                              OxiddResolvedOrder *resolved);
 bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
-                           const OxiddSolveOptionsV2 *options,
+                           const OxiddSolveOptions *options,
                            const OxiddResolvedOrder *resolved);
 void oxidd_resolved_order_free(OxiddResolvedOrder *resolved);
-bool oxidd_var_order_is_default(const OxiddSolveOptionsV2 *options);
+bool oxidd_var_order_is_default(const OxiddSolveOptions *options);
 const char *oxidd_var_order_name(OxiddVarOrder order);
 typedef struct {
   oxidd_bdd_manager_t manager;
-  const OxiddSolveOptionsV2 *options;
+  const OxiddSolveOptions *options;
   const char *phase, *failed_operation;
   size_t node_cap, cache_cap, sampled_peak, operations, next_gc;
   size_t retries, recovered, explicit_gc, built_gates, relevant_gates;
@@ -74,16 +72,15 @@ typedef struct {
 } OxiddRun;
 
 void oxidd_run_init(OxiddRun *run, oxidd_bdd_manager_t manager,
-                    const OxiddSolveOptionsV2 *options, size_t nodes,
+                    const OxiddSolveOptions *options, size_t nodes,
                     size_t cache);
 void oxidd_phase(OxiddRun *run, const char *phase);
 bool oxidd_pressure_gc_checkpoint(OxiddRun *run);
 bool oxidd_run_stopped(OxiddRun *run);
 void oxidd_run_finish(OxiddRun *run);
-void oxidd_record_failure(const OxiddSolveOptionsV2 *opts,
-                          OxiddFailureKind kind, const char *phase,
-                          const char *operation, size_t operation_id,
-                          uint32_t index);
+void oxidd_record_failure(const OxiddSolveOptions *opts, OxiddFailureKind kind,
+                          const char *phase, const char *operation,
+                          size_t operation_id, uint32_t index);
 Bdd oxidd_run_not(OxiddRun *run, Bdd a);
 Bdd oxidd_run_var(OxiddRun *run, uint32_t var);
 Bdd oxidd_run_and(OxiddRun *run, Bdd a, Bdd b);
@@ -109,7 +106,7 @@ bool oxidd_build_game(OxiddRun *run, const Aig *game, Bdd *map, uint32_t maxvar,
                       Bdd *bad, Bdd *next, Bdd *goals, Bdd *fair);
 bool oxidd_state_support(Bdd root, uint32_t base, uint32_t count,
                          bool *support);
-void oxidd_trace(const OxiddSolveOptionsV2 *opts, const char *phase,
+void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
                  const char *event, const char *fmt, ...);
 
 /// OxiDD returns an invalid handle (`_p == NULL`) on out-of-memory instead of
@@ -175,7 +172,7 @@ uint32_t bdd2aig_root(Bdd2Aig *ctx, Bdd f);
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
 void oxidd_session_free(void);
 oxidd_bdd_manager_t oxidd_session_get(void);
-bool oxidd_session_config(const OxiddSolveOptionsV2 *opts, size_t *nodes,
+bool oxidd_session_config(const OxiddSolveOptions *opts, size_t *nodes,
                           size_t *cache);
 /// Allocate `n` new variables in the session manager; returns the base index
 /// for this cluster's variables (add to all local var indices 0..n-1).

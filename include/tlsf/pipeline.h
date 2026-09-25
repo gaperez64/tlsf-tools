@@ -36,25 +36,11 @@ typedef struct {
   ParamOverride *overrides;
   size_t n_overrides;
   const char *tool_name;
-} TlsfPipelineOptions;
-
-#define TLSF_PIPELINE_OPTIONS_ABI_VERSION 2
-typedef struct {
-  bool split;
-  bool certify;
-  unsigned template_mask;
-  const char *overwrite_semantics;
-  const char *overwrite_target;
-  ParamOverride *overrides;
-  size_t n_overrides;
-  const char *tool_name;
-  uint32_t abi_version;
-  size_t struct_size;
   FILE *provenance_out;
   const char *source_sha256;
   bool require_unambiguous_origin;
   TlsfPipelineError *error;
-} TlsfPipelineOptionsV2;
+} TlsfPipelineOptions;
 
 typedef struct {
   TlsfSpec *spec;
@@ -74,10 +60,8 @@ typedef struct {
 [[nodiscard]] TlsfPipeline *tlsf_pipeline_load(FILE *fp,
                                                const TlsfPipelineOptions *opts);
 [[nodiscard]] TlsfPipeline *
-tlsf_pipeline_load_v2(FILE *fp, const TlsfPipelineOptionsV2 *opts);
-[[nodiscard]] TlsfPipeline *
-tlsf_pipeline_load_bytes_v2(const uint8_t *source, size_t size,
-                            const TlsfPipelineOptionsV2 *opts);
+tlsf_pipeline_load_bytes(const uint8_t *source, size_t size,
+                         const TlsfPipelineOptions *opts);
 /* Hash an immutable source snapshot. Embedded NUL is rejected. */
 bool tlsf_pipeline_source_sha256(const void *source, size_t size,
                                  char output[65]);

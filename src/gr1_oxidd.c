@@ -34,7 +34,7 @@ typedef struct {
   char *data;
   size_t size, capacity, limit;
   bool failed;
-  const OxiddSolveOptionsV2 *options;
+  const OxiddSolveOptions *options;
 } CappedExport;
 
 static ssize_t capped_export_write(void *opaque, const char *bytes,
@@ -93,7 +93,7 @@ static int capped_export_close(void *opaque) {
 #endif
 
 static FILE *open_export_memstream(const OxiddRun *run,
-                                   const Gr1CertificateOptionsV2 *options,
+                                   const Gr1CertificateOptions *options,
                                    char **output, size_t *size) {
   size_t limit = options->max_artifact_bytes ? options->max_artifact_bytes
                                              : run->options->max_artifact_bytes;
@@ -307,7 +307,7 @@ static const char *input_name_or_synthetic(const char *name, uint32_t index,
 // Certificate export
 // ---------------------------------------------------------------------------
 
-static void certificate_error(Gr1CertificateOptionsV2 *options,
+static void certificate_error(Gr1CertificateOptions *options,
                               const char *message, const char *path) {
   options->failed = true;
   if (path)
@@ -586,7 +586,7 @@ static bool write_certificate_json(
 }
 
 static bool export_certificate(
-    OxiddRun *run, Aig *game, Gr1CertificateOptionsV2 *options, bool unreal,
+    OxiddRun *run, Aig *game, Gr1CertificateOptions *options, bool unreal,
     uint32_t original_nlat, uint32_t m_goal_records, uint32_t m_goals,
     uint32_t m_fair, uint32_t n_fair_disj, uint32_t nin, uint32_t nlat,
     uint32_t nvars, uint32_t var_base, const uint32_t *goal_record,
@@ -808,7 +808,7 @@ static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
 }
 
 static bool export_policy(OxiddRun *run, const Aig *game,
-                          Gr1CertificateOptionsV2 *options,
+                          Gr1CertificateOptions *options,
                           uint32_t original_nlat, uint32_t m_goals,
                           uint32_t nin, uint32_t nlat, uint32_t nvars,
                           uint32_t var_base, const uint32_t *cinput,
@@ -998,7 +998,7 @@ static bool write_environment_policy_json(FILE *out, const Aig *policy,
 }
 
 static bool export_environment_policy(OxiddRun *run, const Aig *game,
-                                      Gr1CertificateOptionsV2 *options,
+                                      Gr1CertificateOptions *options,
                                       uint32_t original_nlat, uint32_t goals,
                                       uint32_t fairness_counters, uint32_t nin,
                                       uint32_t nlat, uint32_t nvars,
@@ -1146,7 +1146,7 @@ static bool write_environment_certificate_json(
 }
 
 static bool export_environment_certificate(
-    OxiddRun *run, const Aig *game, Gr1CertificateOptionsV2 *options,
+    OxiddRun *run, const Aig *game, Gr1CertificateOptions *options,
     uint32_t original_nlat, uint32_t goals, uint32_t fairness,
     uint32_t fairness_counters, uint32_t nin, uint32_t nlat, uint32_t nvars,
     uint32_t var_base, const Bdd *goal_bdd, const Bdd *fair_bdd,
@@ -1670,10 +1670,10 @@ static void release_var_map(Bdd *var_bdd, uint32_t maxvar) {
 }
 
 static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
-                                 const OxiddSolveOptionsV2 *user_opts,
-                                 Gr1CertificateOptionsV2 *certificate) {
-  OxiddSolveOptionsV2 defaults = oxidd_solve_options_default_v2();
-  const OxiddSolveOptionsV2 *opts = user_opts ? user_opts : &defaults;
+                                 const OxiddSolveOptions *user_opts,
+                                 Gr1CertificateOptions *certificate) {
+  OxiddSolveOptions defaults = oxidd_solve_options_default();
+  const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
   if (opts->failure)
     *opts->failure = (OxiddFailure){0};
   if (!unreal) {
@@ -2758,7 +2758,7 @@ static bool publish_exports(ExportStage files[4]) {
   return ok;
 }
 
-static void clear_export_outputs(Gr1CertificateOptionsV2 *certificate) {
+static void clear_export_outputs(Gr1CertificateOptions *certificate) {
   if (certificate->aag_bytes)
     *certificate->aag_bytes = nullptr;
   if (certificate->json_bytes)
@@ -2777,21 +2777,11 @@ static void clear_export_outputs(Gr1CertificateOptionsV2 *certificate) {
     *certificate->policy_json_size = 0;
 }
 
-Aig *solve_gr1_oxidd_ex_with_certificate_v2(
-    Aig *game, int *unreal, const OxiddSolveOptionsV2 *options,
-    Gr1CertificateOptionsV2 *certificate) {
-  if ((options && (options->abi_version != TLSF_OXIDD_OPTIONS_ABI_VERSION ||
-                   options->struct_size != sizeof *options)) ||
-      (certificate &&
-       (certificate->abi_version != TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION ||
-        certificate->struct_size != sizeof *certificate))) {
-    if (unreal)
-      *unreal = 0;
-    aig_free(game);
-    return nullptr;
-  }
-  OxiddSolveOptionsV2 resolved =
-      options ? *options : oxidd_solve_options_default_v2();
+Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                         const OxiddSolveOptions *options,
+                                         Gr1CertificateOptions *certificate) {
+  OxiddSolveOptions resolved =
+      options ? *options : oxidd_solve_options_default();
   OxiddFailure failure = {0};
   resolved.failure = &failure;
   if (!certificate) {
@@ -2822,7 +2812,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate_v2(
     return nullptr;
   }
   clear_export_outputs(certificate);
-  Gr1CertificateOptionsV2 staged = *certificate;
+  Gr1CertificateOptions staged = *certificate;
   char *bytes[4] = {0};
   size_t sizes[4] = {0};
   bool requested[4] = {
@@ -2904,51 +2894,19 @@ Aig *solve_gr1_oxidd_ex_with_certificate_v2(
   return strategy;
 }
 
-Aig *solve_gr1_oxidd_ex_v2(Aig *game, int *unreal,
-                           const OxiddSolveOptionsV2 *opts) {
-  return solve_gr1_oxidd_ex_with_certificate_v2(game, unreal, opts, nullptr);
+Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
+  return solve_gr1_oxidd_ex_with_certificate(game, unreal, opts, nullptr);
 }
 
 static Aig *
-solve_gr1_oxidd_with_certificate_v2(Aig *game, int *unreal,
-                                    Gr1CertificateOptionsV2 *certificate) {
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+solve_gr1_oxidd_with_certificate_internal(Aig *game, int *unreal,
+                                          Gr1CertificateOptions *certificate) {
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
   opts.safety_output_index = 0;
-  return solve_gr1_oxidd_ex_with_certificate_v2(game, unreal, &opts,
-                                                certificate);
+  return solve_gr1_oxidd_ex_with_certificate(game, unreal, &opts, certificate);
 }
 
 Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
-  return solve_gr1_oxidd_with_certificate_v2(game, unreal, nullptr);
-}
-
-Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                         const OxiddSolveOptions *options,
-                                         Gr1CertificateOptions *certificate) {
-  OxiddSolveOptionsV2 extended = oxidd_options_upgrade(options);
-  Gr1CertificateOptionsV2 export = {0};
-  if (certificate) {
-    memcpy(&export, certificate, sizeof *certificate);
-    export.abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION;
-    export.struct_size = sizeof export;
-  }
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate_v2(
-      game, unreal, &extended, certificate ? &export : nullptr);
-  if (certificate) {
-    certificate->failed = export.failed;
-    memcpy(certificate->error, export.error, sizeof certificate->error);
-  }
-  return strategy;
-}
-
-Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
-                        const OxiddSolveOptions *options) {
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, options, nullptr);
-}
-
-Aig *solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
-                                      Gr1CertificateOptions *certificate) {
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, nullptr,
-                                             certificate);
+  return solve_gr1_oxidd_with_certificate_internal(game, unreal, nullptr);
 }

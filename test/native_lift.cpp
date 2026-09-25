@@ -17,8 +17,7 @@ int main(int argc,char **argv){
   if(!file){std::cerr<<"cannot read input\n";return 2;}
   std::string bytes(std::istreambuf_iterator<char>{file},{});
   TlsfGr1LiftOptions options{};
-  options.abi_version=TLSF_GR1_LIFT_ABI_VERSION;
-  options.struct_size=sizeof options;
+
   options.solver_nodes=1u<<18;options.solver_cache=1u<<16;
   options.checker_nodes=1u<<18;options.checker_cache=1u<<16;
   options.schema_nodes=1u<<18;options.schema_cache=1u<<16;
@@ -30,8 +29,9 @@ int main(int argc,char **argv){
                            uint64_t(seconds*1e9);
   TlsfGr1LiftResult result{};
   TlsfGr1LiftError error{};
-  auto status=tlsf_gr1_lift_v1(reinterpret_cast<const uint8_t *>(bytes.data()),
-                               bytes.size(),nullptr,0,&options,&result,&error);
+  auto status =
+      tlsf_gr1_lift(reinterpret_cast<const uint8_t *>(bytes.data()),
+                    bytes.size(), nullptr, 0, &options, &result, &error);
   std::cout<<"status="<<status<<" stage="<<error.stage<<" message="<<error.message<<"\n";
   if(status==TLSF_GR1_LIFT_OK){
     std::cout<<"method="<<result.method<<" verdict="<<result.verdict<<"\n";

@@ -10,11 +10,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *pipeline_tool_name(const TlsfPipelineOptionsV2 *opts) {
+static const char *pipeline_tool_name(const TlsfPipelineOptions *opts) {
   return opts && opts->tool_name ? opts->tool_name : "tlsf";
 }
 
-static void pipeline_status(const TlsfPipelineOptionsV2 *opts,
+static void pipeline_status(const TlsfPipelineOptions *opts,
                             TlsfPipelineStatus status, const char *stage,
                             const char *message) {
   if (opts && opts->error) {
@@ -25,10 +25,7 @@ static void pipeline_status(const TlsfPipelineOptionsV2 *opts,
 }
 
 static TlsfPipeline *pipeline_load_impl(FILE *fp,
-                                        const TlsfPipelineOptionsV2 *opts) {
-  if (opts && (opts->abi_version != TLSF_PIPELINE_OPTIONS_ABI_VERSION ||
-               opts->struct_size != sizeof *opts))
-    return nullptr;
+                                        const TlsfPipelineOptions *opts) {
   const char *tool = pipeline_tool_name(opts);
   TlsfPipeline *p = calloc(1, sizeof(*p));
   if (!p) {
@@ -135,8 +132,7 @@ fail:
   return nullptr;
 }
 
-TlsfPipeline *tlsf_pipeline_load_v2(FILE *fp,
-                                    const TlsfPipelineOptionsV2 *opts) {
+TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
   char *diagnostic = nullptr;
   size_t size = 0;
   FILE *capture = open_memstream(&diagnostic, &size);
@@ -167,13 +163,4 @@ void tlsf_pipeline_free(TlsfPipeline *p) {
   free((void *)p->source_bytes);
   free(p->frontend_provenance_json);
   free(p);
-}
-
-TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *options) {
-  TlsfPipelineOptionsV2 converted = {0};
-  if (options)
-    memcpy(&converted, options, sizeof *options);
-  converted.abi_version = TLSF_PIPELINE_OPTIONS_ABI_VERSION;
-  converted.struct_size = sizeof converted;
-  return tlsf_pipeline_load_v2(fp, options ? &converted : nullptr);
 }

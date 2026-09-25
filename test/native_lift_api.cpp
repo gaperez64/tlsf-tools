@@ -54,7 +54,7 @@ static int mutate_after_snapshot(void *raw) {
 }
 static TlsfGr1LiftOptions options() {
   TlsfGr1LiftOptions o{};
-  o.abi_version=TLSF_GR1_LIFT_ABI_VERSION;o.struct_size=sizeof o;
+
   o.deadline_mono_ns=deadline(10);
   o.solver_nodes=1u<<18;o.solver_cache=1u<<16;
   o.checker_nodes=1u<<18;o.checker_cache=1u<<16;
@@ -64,8 +64,8 @@ static TlsfGr1LiftOptions options() {
 }
 static TlsfGr1LiftStatus lift(const char *bytes,const TlsfGr1LiftOptions &o,
                              TlsfGr1LiftResult *r,TlsfGr1LiftError *e) {
-  return tlsf_gr1_lift_v1(reinterpret_cast<const uint8_t *>(bytes),strlen(bytes),
-                          nullptr,0,&o,r,e);
+  return tlsf_gr1_lift(reinterpret_cast<const uint8_t *>(bytes), strlen(bytes),
+                       nullptr, 0, &o, r, e);
 }
 int main() {
   TlsfGr1LiftResult result{};
@@ -127,7 +127,7 @@ int main() {
   input.policy_aag={(const uint8_t *)result.policy_aag,result.policy_size};
   input.policy_json={(const uint8_t *)result.policy_json,result.policy_json_size};
   TlsfGr1CheckOptions check_options{};
-  check_options.abi_version=1;check_options.method=TLSF_GR1_CHECK_CERTIFICATE;
+  check_options.method = TLSF_GR1_CHECK_CERTIFICATE;
   check_options.node_cap=1u<<18;check_options.cache_cap=1u<<16;
   check_options.max_artifact_bytes=4u<<20;
   check_options.deadline_mono_ns=deadline(10);
@@ -174,14 +174,14 @@ int main() {
   smaller_source.replace(position,10,"extent = 2");
   ParamOverride override{"extent",5};
   o=options();
-  assert(tlsf_gr1_lift_v1((const uint8_t *)smaller_source.data(),
-                          smaller_source.size(),&override,1,&o,&result,&error)
-         ==TLSF_GR1_LIFT_OK);
+  assert(tlsf_gr1_lift((const uint8_t *)smaller_source.data(),
+                       smaller_source.size(), &override, 1, &o, &result,
+                       &error) == TLSF_GR1_LIFT_OK);
   assert(result.evidence_json && strstr(result.evidence_json,"\"axis\":\"extent\""));
   tlsf_gr1_lift_result_clear(&result);
   ParamOverride duplicates[2]={{"extent",5},{"extent",6}};
-  assert(tlsf_gr1_lift_v1((const uint8_t *)source,strlen(source),duplicates,2,
-                          &o,&result,&error)==TLSF_GR1_LIFT_INVALID);
+  assert(tlsf_gr1_lift((const uint8_t *)source, strlen(source), duplicates, 2,
+                       &o, &result, &error) == TLSF_GR1_LIFT_INVALID);
   assert(!result.game_aag);
   tlsf_gr1_lift_result_clear(nullptr);
   return 0;

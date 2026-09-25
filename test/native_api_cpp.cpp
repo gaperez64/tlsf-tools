@@ -1,4 +1,8 @@
-#include "tlsf/native.h"
+#include "tlsf/pipeline.h"
+#include "tlsf/gr1_oxidd.h"
+#include "tlsf/gr1_check.h"
+#include "tlsf/gr1_reduction.h"
+#include "tlsf/gr1_lift.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -17,7 +21,7 @@ int main() {
   char hash[65];
   assert(tlsf_pipeline_source_sha256(source.data(), source.size(), hash));
   assert(std::strlen(hash) == 64);
-  TlsfPipeline *pipeline = tlsf_pipeline_load_bytes_v2(
+  TlsfPipeline *pipeline = tlsf_pipeline_load_bytes(
       reinterpret_cast<const uint8_t *>(source.data()), source.size(), nullptr);
   assert(pipeline);
   tlsf_pipeline_free(pipeline);
@@ -38,18 +42,17 @@ int main() {
   assert(game);
   char reason[128];
   assert(tlsf_gr1_validate_game(game, reason, sizeof reason));
-  OxiddSolveOptionsV2 solve_options = oxidd_solve_options_default_v2();
+  OxiddSolveOptions solve_options = oxidd_solve_options_default();
   solve_options.node_cap = solve_options.cache_cap = 1u << 16;
   char *certificate = nullptr;
   size_t certificate_size = 0;
-  Gr1CertificateOptionsV2 export_options{};
-  export_options.abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION;
-  export_options.struct_size = sizeof export_options;
+  Gr1CertificateOptions export_options{};
+
   export_options.aag_bytes = &certificate;
   export_options.aag_size = &certificate_size;
   export_options.max_artifact_bytes = 1u << 20;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate_v2(
+  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
       game, &unreal, &solve_options, &export_options);
   assert(strategy && !unreal && !export_options.failed);
   assert(certificate_size > 0);

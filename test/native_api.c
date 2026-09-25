@@ -1,5 +1,9 @@
 #define _GNU_SOURCE
-#include "tlsf/native.h"
+#include "tlsf/pipeline.h"
+#include "tlsf/gr1_oxidd.h"
+#include "tlsf/gr1_check.h"
+#include "tlsf/gr1_reduction.h"
+#include "tlsf/gr1_lift.h"
 #include "tlsf/print_tlsf.h"
 
 #ifdef NDEBUG
@@ -52,7 +56,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
   Aig *game = parse_game(game_text);
   char reason[128];
   assert(tlsf_gr1_validate_game(game, reason, sizeof reason));
-  OxiddSolveOptionsV2 options = oxidd_solve_options_default_v2();
+  OxiddSolveOptions options = oxidd_solve_options_default();
   OxiddFailure failure = {0};
   options.failure = &failure;
   options.node_cap = options.cache_cap = 1u << 16;
@@ -60,9 +64,8 @@ static void roundtrip(const char *game_text, int expect_unreal) {
   char *cert = NULL, *cert_json = NULL, *policy = NULL, *policy_json = NULL;
   size_t cert_size = 0, cert_json_size = 0, policy_size = 0;
   size_t policy_json_size = 0;
-  Gr1CertificateOptionsV2 export = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions export = {
+
       .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
       .aag_bytes = &cert,
       .json_bytes = &cert_json,
@@ -76,7 +79,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
   };
   int unreal = 0;
   Aig *strategy =
-      solve_gr1_oxidd_ex_with_certificate_v2(game, &unreal, &options, &export);
+      solve_gr1_oxidd_ex_with_certificate(game, &unreal, &options, &export);
   assert(unreal == expect_unreal);
   assert(failure.kind == OXIDD_FAILURE_NONE && !export.failed);
   assert((strategy != NULL) == !unreal);
@@ -91,7 +94,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
       .policy_json = span(policy_json, policy_json_size),
   };
   TlsfGr1CheckOptions check_options = {
-      .abi_version = TLSF_NATIVE_ABI_VERSION,
+
       .method = TLSF_GR1_CHECK_CERTIFICATE,
       .node_cap = 1u << 16,
       .cache_cap = 1u << 16,
@@ -222,9 +225,8 @@ static void mid_compile_cancellation(void) {
   assert((size_t)used < sizeof game_text);
   char *bytes[4] = {0};
   size_t sizes[4] = {0};
-  Gr1CertificateOptionsV2 export = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions export = {
+
       .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
       .aag_bytes = &bytes[0],
       .json_bytes = &bytes[1],
@@ -236,10 +238,10 @@ static void mid_compile_cancellation(void) {
       .policy_json_size = &sizes[3],
       .max_artifact_bytes = 1u << 20,
   };
-  OxiddSolveOptionsV2 options = oxidd_solve_options_default_v2();
+  OxiddSolveOptions options = oxidd_solve_options_default();
   options.node_cap = options.cache_cap = 1u << 16;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate_v2(
+  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
       parse_game(game_text), &unreal, &options, &export);
   assert(strategy && !unreal && !export.failed);
   aig_free(strategy);
@@ -251,7 +253,7 @@ static void mid_compile_cancellation(void) {
       .policy_json = span(bytes[3], sizes[3]),
   };
   TlsfGr1CheckOptions check_options = {
-      .abi_version = TLSF_NATIVE_ABI_VERSION,
+
       .method = TLSF_GR1_CHECK_CERTIFICATE,
       .node_cap = 1u << 16,
       .cache_cap = 1u << 16,
@@ -276,42 +278,39 @@ static void mid_compile_cancellation(void) {
 }
 
 static void solver_limits(void) {
-  OxiddSolveOptionsV2 options = oxidd_solve_options_default_v2();
+  OxiddSolveOptions options = oxidd_solve_options_default();
   OxiddFailure failure = {0};
   options.failure = &failure;
   options.node_cap = options.cache_cap = 1u << 16;
   options.cancelled = cancelled;
   int unreal = 0;
-  Aig *strategy =
-      solve_gr1_oxidd_ex_v2(parse_game(real_game), &unreal, &options);
+  Aig *strategy = solve_gr1_oxidd_ex(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal);
   assert(failure.kind == OXIDD_FAILURE_CANCELLED);
   options.cancelled = NULL;
   options.deadline_mono_ns = 1;
-  strategy = solve_gr1_oxidd_ex_v2(parse_game(real_game), &unreal, &options);
+  strategy = solve_gr1_oxidd_ex(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal);
   assert(failure.kind == OXIDD_FAILURE_DEADLINE);
   options.deadline_mono_ns = 0;
   char *certificate = NULL;
   size_t certificate_size = 0;
-  Gr1CertificateOptionsV2 export = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions export = {
+
       .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
       .aag_bytes = &certificate,
       .aag_size = &certificate_size,
       .max_artifact_bytes = 1,
   };
-  strategy = solve_gr1_oxidd_ex_with_certificate_v2(parse_game(real_game),
-                                                    &unreal, &options, &export);
+  strategy = solve_gr1_oxidd_ex_with_certificate(parse_game(real_game), &unreal,
+                                                 &options, &export);
   assert(!strategy && !unreal && export.failed);
   assert(!certificate && !certificate_size);
   free(certificate);
   char *aag = NULL, *json = NULL, *policy = NULL, *policy_json = NULL;
   size_t aag_size = 0, json_size = 0, policy_size = 0, policy_json_size = 0;
-  Gr1CertificateOptionsV2 partial = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions partial = {
+
       .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
       .aag_bytes = &aag,
       .json_bytes = &json,
@@ -324,21 +323,20 @@ static void solver_limits(void) {
       .max_artifact_bytes = 500,
   };
   failure = (OxiddFailure){0};
-  strategy = solve_gr1_oxidd_ex_with_certificate_v2(
-      parse_game(real_game), &unreal, &options, &partial);
+  strategy = solve_gr1_oxidd_ex_with_certificate(parse_game(real_game), &unreal,
+                                                 &options, &partial);
   assert(!strategy && !unreal && partial.failed);
   assert(failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT);
   assert(!aag && !json && !policy && !policy_json);
   assert(!aag_size && !json_size && !policy_size && !policy_json_size);
-  Gr1CertificateOptionsV2 invalid_export = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions invalid_export = {
+
       .aag_bytes = &certificate};
-  strategy = solve_gr1_oxidd_ex_with_certificate_v2(
-      parse_game(real_game), &unreal, &options, &invalid_export);
+  strategy = solve_gr1_oxidd_ex_with_certificate(parse_game(real_game), &unreal,
+                                                 &options, &invalid_export);
   assert(!strategy && !unreal && invalid_export.failed);
   assert(failure.kind == OXIDD_FAILURE_INVALID);
-  strategy = solve_gr1_oxidd_ex_v2(parse_game(real_game), NULL, &options);
+  strategy = solve_gr1_oxidd_ex(parse_game(real_game), NULL, &options);
   assert(!strategy && failure.kind == OXIDD_FAILURE_INVALID);
 }
 
@@ -402,9 +400,8 @@ static void export_game_file(const char *game_path,
   char *cert = NULL, *cert_json = NULL, *policy = NULL, *policy_json = NULL;
   size_t cert_size = 0, cert_json_size = 0, policy_size = 0;
   size_t policy_json_size = 0;
-  Gr1CertificateOptionsV2 export = {
-      .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(Gr1CertificateOptionsV2),
+  Gr1CertificateOptions export = {
+
       .aag_path = certificate_path,
       .json_path = cert_json_path,
       .policy_aag_path = policy_path,
@@ -420,11 +417,11 @@ static void export_game_file(const char *game_path,
       .policy_json_size = &policy_json_size,
       .max_artifact_bytes = 1u << 20,
   };
-  OxiddSolveOptionsV2 options = oxidd_solve_options_default_v2();
+  OxiddSolveOptions options = oxidd_solve_options_default();
   options.max_artifact_bytes = 1u << 20;
   int unreal = 0;
   Aig *strategy =
-      solve_gr1_oxidd_ex_with_certificate_v2(game, &unreal, &options, &export);
+      solve_gr1_oxidd_ex_with_certificate(game, &unreal, &options, &export);
   assert(!export.failed && (strategy || unreal));
   aig_free(strategy);
   assert(cert && cert_json && policy && policy_json);
@@ -458,12 +455,11 @@ int main(int argc, char **argv) {
   char hash[65];
   assert(!tlsf_pipeline_source_sha256("x\0y", 3, hash));
   TlsfPipelineError pipeline_error;
-  TlsfPipelineOptionsV2 pipeline_options = {
-      .abi_version = TLSF_PIPELINE_OPTIONS_ABI_VERSION,
-      .struct_size = sizeof(TlsfPipelineOptionsV2),
+  TlsfPipelineOptions pipeline_options = {
+
       .error = &pipeline_error};
-  assert(!tlsf_pipeline_load_bytes_v2((const uint8_t *)"x\0y", 3,
-                                      &pipeline_options));
+  assert(
+      !tlsf_pipeline_load_bytes((const uint8_t *)"x\0y", 3, &pipeline_options));
   assert(pipeline_error.status == TLSF_PIPELINE_INVALID);
   int error_pipe[2];
   assert(pipe(error_pipe) == 0);
@@ -472,8 +468,8 @@ int main(int argc, char **argv) {
   fflush(stderr);
   assert(dup2(error_pipe[1], STDERR_FILENO) >= 0);
   close(error_pipe[1]);
-  assert(!tlsf_pipeline_load_bytes_v2((const uint8_t *)"not TLSF", 8,
-                                      &pipeline_options));
+  assert(!tlsf_pipeline_load_bytes((const uint8_t *)"not TLSF", 8,
+                                   &pipeline_options));
   fflush(stderr);
   assert(dup2(saved_error, STDERR_FILENO) >= 0);
   close(saved_error);
@@ -489,7 +485,7 @@ int main(int argc, char **argv) {
   assert(tlsf_pipeline_source_sha256(source, strlen(source), hash));
   char source_copy[sizeof source];
   memcpy(source_copy, source, sizeof source);
-  TlsfPipeline *pipeline = tlsf_pipeline_load_bytes_v2(
+  TlsfPipeline *pipeline = tlsf_pipeline_load_bytes(
       (const uint8_t *)source_copy, strlen(source_copy), NULL);
   assert(pipeline);
   source_copy[0] = 'X';

@@ -20,5 +20,5 @@ plan = json.loads((build / "meson-info/intro-install_plan.json").read_text())
 headers = next(value for key, value in plan["install_subdirs"].items()
                if key.endswith("/include/tlsf"))
 excluded = set(headers["exclude_files"])
-assert {"native.h", "gr1_oxidd.h", "gr1_check.h", "oxidd_options.h",
+assert {"gr1_oxidd.h", "gr1_check.h", "oxidd_options.h",
         "oxidd_common.h"} <= excluded

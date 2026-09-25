@@ -11,7 +11,6 @@
 extern "C" {
 #endif
 
-#define TLSF_GR1_LIFT_ABI_VERSION 1
 /* Evidence v1.1 binds the policy AAG for certificate checks. Region checks
  * have no policy artifact and must omit policy_sha256. */
 #define TLSF_GR1_LIFT_EVIDENCE_FORMAT "tlsf-gr1-lift-evidence-v1.1"
@@ -48,8 +47,6 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_MAX_MONITOR_STATES 10000u
 
 typedef struct {
-  uint32_t abi_version;
-  size_t struct_size;
   uint64_t deadline_mono_ns;
   int (*cancelled)(void *);
   void *cancel_ctx;
@@ -82,12 +79,12 @@ typedef struct {
   TlsfGr1CheckVerdict verdict;
 } TlsfGr1LiftResult;
 
-TlsfGr1LiftStatus tlsf_gr1_lift_v1(const uint8_t *source, size_t source_size,
-                                   const ParamOverride *target_overrides,
-                                   size_t target_override_count,
-                                   const TlsfGr1LiftOptions *options,
-                                   TlsfGr1LiftResult *result,
-                                   TlsfGr1LiftError *error);
+TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
+                                const ParamOverride *target_overrides,
+                                size_t target_override_count,
+                                const TlsfGr1LiftOptions *options,
+                                TlsfGr1LiftResult *result,
+                                TlsfGr1LiftError *error);
 void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result);
 
 #ifdef __cplusplus

@@ -37,12 +37,12 @@ const char *oxidd_var_order_name(OxiddVarOrder order) {
   return "invalid";
 }
 
-bool oxidd_var_order_is_default(const OxiddSolveOptionsV2 *options) {
+bool oxidd_var_order_is_default(const OxiddSolveOptions *options) {
   return options->var_order == OXIDD_VAR_ORDER_INPUT_FIRST &&
          !options->order_file;
 }
 
-static bool fail(const OxiddSolveOptionsV2 *options, OxiddFailureKind kind,
+static bool fail(const OxiddSolveOptions *options, OxiddFailureKind kind,
                  const char *operation) {
   oxidd_record_failure(options, kind, "manager_create", operation, 0, 0);
   return false;
@@ -67,7 +67,7 @@ static bool parse_decimal_line(char *line, uint64_t *value) {
   return true;
 }
 
-static bool parse_order_file(const OxiddSolveOptionsV2 *options, size_t count,
+static bool parse_order_file(const OxiddSolveOptions *options, size_t count,
                              OxiddResolvedOrder *resolved) {
   FILE *input = fopen(options->order_file, "r");
   if (!input)
@@ -143,7 +143,7 @@ static uint32_t max_aig_var(const Aig *game) {
   return maxvar;
 }
 
-static bool collect_roots(const Aig *game, const OxiddSolveOptionsV2 *options,
+static bool collect_roots(const Aig *game, const OxiddSolveOptions *options,
                           uint32_t **roots_out, size_t *count_out) {
   bool typed = options->safety_objective == OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR;
   uint32_t objectives = typed ? aig_num_bad(game) : 1;
@@ -182,7 +182,7 @@ static bool collect_roots(const Aig *game, const OxiddSolveOptionsV2 *options,
   return true;
 }
 
-static bool fanin_dfs_order(const Aig *game, const OxiddSolveOptionsV2 *options,
+static bool fanin_dfs_order(const Aig *game, const OxiddSolveOptions *options,
                             uint32_t auxiliary_vars,
                             OxiddResolvedOrder *resolved) {
   uint32_t ni = aig_num_inputs(game), nl = aig_num_latches(game);
@@ -285,8 +285,7 @@ done:
   return ok;
 }
 
-bool oxidd_resolve_var_order(const Aig *game,
-                             const OxiddSolveOptionsV2 *options,
+bool oxidd_resolve_var_order(const Aig *game, const OxiddSolveOptions *options,
                              uint32_t auxiliary_vars,
                              OxiddResolvedOrder *resolved) {
   *resolved = (OxiddResolvedOrder){0};
@@ -332,7 +331,7 @@ bool oxidd_resolve_var_order(const Aig *game,
 }
 
 bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
-                           const OxiddSolveOptionsV2 *options,
+                           const OxiddSolveOptions *options,
                            const OxiddResolvedOrder *resolved) {
   oxidd_var_no_t *absolute =
       resolved->count ? malloc(resolved->count * sizeof *absolute) : nullptr;

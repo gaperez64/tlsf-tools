@@ -160,7 +160,7 @@ typedef struct {
   bool run_initialized;
   Counterexample *current_counterexample;
   OxiddFailure failure;
-  OxiddSolveOptionsV2 bdd_options;
+  OxiddSolveOptions bdd_options;
   OxiddRun run;
   double started;
   double setup_seconds, proof_seconds;
@@ -1970,7 +1970,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     return false;
   }
   oxidd_bdd_manager_add_vars(ck->manager, ck->nvars);
-  ck->bdd_options = oxidd_solve_options_default_v2();
+  ck->bdd_options = oxidd_solve_options_default();
   ck->bdd_options.node_cap = ck->options.node_cap;
   ck->bdd_options.cache_cap = ck->options.cache_cap;
   ck->bdd_options.failure = &ck->failure;
@@ -4990,9 +4990,8 @@ TlsfGr1CheckStatus tlsf_gr1_check(const TlsfGr1CheckInput *input,
   bool has_certificate =
       input && input->certificate_aag.data && input->certificate_aag.size &&
       input->certificate_json.data && input->certificate_json.size;
-  if (!input || !options || options->abi_version != 1 ||
-      options->method > TLSF_GR1_CHECK_BOTH || !valid_span(input->game_aag) ||
-      (needs_certificate && !has_certificate) ||
+  if (!input || !options || options->method > TLSF_GR1_CHECK_BOTH ||
+      !valid_span(input->game_aag) || (needs_certificate && !has_certificate) ||
       (has_certificate && (!valid_span(input->certificate_aag) ||
                            !valid_span(input->certificate_json))) ||
       (!has_certificate &&

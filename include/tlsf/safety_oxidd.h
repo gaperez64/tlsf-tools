@@ -28,13 +28,9 @@
 /// falls back to ltlsynt, exactly like the AbsSynthe path).
 [[nodiscard]] Aig *solve_safety_oxidd(Aig *game, int *unreal);
 
-/// Extended entry point used by tlsfsolve after profile resolution.  Takes the
-/// same ownership as `solve_safety_oxidd()`.
+/// Solve with a caller-supplied OxiDD profile. Takes ownership of `game`.
 [[nodiscard]] Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
                                          const OxiddSolveOptions *opts);
-
-[[nodiscard]] Aig *solve_safety_oxidd_ex_v2(Aig *game, int *unreal,
-                                            const OxiddSolveOptionsV2 *opts);
 
 typedef enum {
   OXIDD_SOLVE_ERROR,
@@ -47,9 +43,7 @@ typedef struct {
   OxiddFailure failure;
 } OxiddSolveResult;
 
-// Consumes game. Unlike the legacy entry points, supports verdict-only success.
-OxiddSolveResult solve_safety_oxidd_result_v2(Aig *game,
-                                              const OxiddSolveOptionsV2 *opts);
+// Consumes game and supports verdict-only success.
 OxiddSolveResult solve_safety_oxidd_result(Aig *game,
                                            const OxiddSolveOptions *opts);
 

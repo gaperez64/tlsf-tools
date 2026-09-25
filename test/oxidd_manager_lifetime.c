@@ -1,5 +1,4 @@
 #include "tlsf/gr1_check.h"
-#include "tlsf/native.h"
 #include <oxidd/capi.h>
 
 /* Test assertions also perform checked I/O; keep them active in release builds. */
@@ -116,7 +115,6 @@ static void checker_lifetimes(const char *directory, unsigned iterations) {
       .policy_json = load(directory, "target.policy.aag.json"),
   };
   TlsfGr1CheckOptions options = {
-      .abi_version = TLSF_NATIVE_ABI_VERSION,
       .method = TLSF_GR1_CHECK_CERTIFICATE,
       .node_cap = 1u << 22,
       .cache_cap = 1u << 20,

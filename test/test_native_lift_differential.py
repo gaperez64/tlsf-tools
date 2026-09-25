@@ -202,12 +202,15 @@ def main() -> None:
     args.bindings_python = args.bindings_python.resolve()
     args.obfuscator = (args.obfuscator or args.oracle_root /
                        "benchmarking/gr1-par2-20260923/obfuscate-tlsf.py").resolve()
-    sys.path.insert(0, str(args.oracle_root.resolve() / "scripts"))
+    oracle_package_root = args.oracle_root.resolve() / "benchmarking/gr1-par2-20260923/oracle"
+    if not (oracle_package_root / "acacia_lift/runner.py").is_file():
+        oracle_package_root = args.oracle_root.resolve() / "scripts"
+    sys.path.insert(0, str(oracle_package_root))
     sys.path.insert(0, str(args.bindings_site))
     output = args.builddir.resolve() / "lift-differential" / f"run-{time.time_ns()}"
     output.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join((str(args.oracle_root.resolve() / "scripts"),
+    env["PYTHONPATH"] = os.pathsep.join((str(oracle_package_root),
                                         str(args.bindings_site), env.get("PYTHONPATH", "")))
     env["LD_LIBRARY_PATH"] = os.pathsep.join(("/usr/local/lib", "/usr/local/lib64",
                                               env.get("LD_LIBRARY_PATH", "")))

@@ -118,7 +118,7 @@ static void variable_orders(void) {
   CHECK(aig_set_latch_next(game, s1, g1));
   aig_set_output(game, "bad", g0);
 
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   uint32_t output_lit = UINT32_MAX, next0 = UINT32_MAX, next1 = UINT32_MAX;
   aig_output_at(game, 0, &output_lit);
   aig_latch_at(game, 0, nullptr, &next0, nullptr);
@@ -153,7 +153,7 @@ static void variable_orders(void) {
   CHECK(file);
   fputs("tlsfsolve-order-v1 6\n2\n0\n3\n1\n5\n4\n", file);
   CHECK(fclose(file) == 0);
-  opts = oxidd_solve_options_default_v2();
+  opts = oxidd_solve_options_default();
   opts.order_file = path;
   const uint32_t custom[] = {2, 0, 3, 1, 5, 4};
   CHECK(oxidd_resolve_var_order(game, &opts, 2, &order));
@@ -173,7 +173,7 @@ static void variable_orders(void) {
 
   Aig *constant = aig_new();
   aig_set_output(constant, "bad", 0);
-  opts = oxidd_solve_options_default_v2();
+  opts = oxidd_solve_options_default();
   opts.var_order = OXIDD_VAR_ORDER_FANIN_DFS;
   CHECK(oxidd_resolve_var_order(constant, &opts, 0, &order));
   CHECK(order.count == 0);
@@ -189,7 +189,7 @@ static void roots_and_retry(void) {
                      "12 2 2\n16 12 5\n18 16 8\n20 2 4\n24 18 13\n");
   oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 256, 1);
   oxidd_bdd_manager_add_vars(m, 10);
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   OxiddRun r;
   oxidd_run_init(&r, m, &opts, 4096, 256);
   uint32_t lits[] = {12, 16, 19, 24, 12, 8, 0, 1};
@@ -271,7 +271,7 @@ static void roots_with_prebuilt_gate(void) {
                      "12 2 4\n16 12 2\n20 16 2\n");
   oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 256, 1);
   oxidd_bdd_manager_add_vars(m, 2);
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   OxiddRun r;
   oxidd_run_init(&r, m, &opts, 4096, 256);
   Bdd a = oxidd_bdd_var(m, 0), b = oxidd_bdd_var(m, 1);
@@ -350,7 +350,7 @@ static void pressure_backoff(void) {
   oxidd_bdd_manager_t m = oxidd_bdd_manager_new(4096, 64, 1);
   oxidd_bdd_manager_add_vars(m, 1);
   Bdd pinned = oxidd_bdd_var(m, 0);
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   opts.gc_mode = OXIDD_GC_PRESSURE;
   OxiddRun r;
   // A deliberately low policy threshold forces checkpoints without filling
@@ -395,19 +395,18 @@ static void demand_avoids_unused_updates(void) {
   // Data-before-address ordering makes this unused mux update expensive.
   // Safety is nevertheless trivial. Compare like-for-like verdict-only runs,
   // and check that full synthesis still tries to preserve the latch update.
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   opts.node_cap = 1024;
   opts.cache_cap = 64;
   opts.realizability_only = true;
-  OxiddSolveResult result =
-      solve_safety_oxidd_result_v2(unused_mux_game(), &opts);
+  OxiddSolveResult result = solve_safety_oxidd_result(unused_mux_game(), &opts);
   CHECK(result.status == OXIDD_SOLVE_ERROR &&
         result.failure.kind == OXIDD_FAILURE_BDD);
   opts.demand_transitions = true;
-  result = solve_safety_oxidd_result_v2(unused_mux_game(), &opts);
+  result = solve_safety_oxidd_result(unused_mux_game(), &opts);
   CHECK(result.status == OXIDD_SOLVE_REALIZABLE && !result.strategy);
   opts.realizability_only = false;
-  result = solve_safety_oxidd_result_v2(unused_mux_game(), &opts);
+  result = solve_safety_oxidd_result(unused_mux_game(), &opts);
   CHECK(result.status == OXIDD_SOLVE_ERROR &&
         result.failure.kind == OXIDD_FAILURE_BDD);
   CHECK(!strcmp(result.failure.phase, "strategy_updates"));
@@ -419,21 +418,21 @@ static void sessions(void) {
   const char *gr1 =
       "aag 3 2 1 1 0 0 0 1 0\n2\n4\n6 4\n0\n1\n6\ni0 env\ni1 controllable_c\n";
   oxidd_session_init(4096, 256);
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   opts.gc_mode = OXIDD_GC_PRESSURE;
   for (unsigned i = 0; i < 12; i++) {
     int unreal = -1;
-    Aig *strat = solve_safety_oxidd_ex_v2(read_game(safe), &unreal, &opts);
+    Aig *strat = solve_safety_oxidd_ex(read_game(safe), &unreal, &opts);
     CHECK(strat && !unreal);
     aig_free(strat);
     opts.demand_transitions = true;
     opts.realizability_only = true;
     OxiddSolveResult verdict =
-        solve_safety_oxidd_result_v2(read_game(safe), &opts);
+        solve_safety_oxidd_result(read_game(safe), &opts);
     CHECK(verdict.status == OXIDD_SOLVE_REALIZABLE && !verdict.strategy);
     opts.demand_transitions = false;
     opts.realizability_only = false;
-    strat = solve_gr1_oxidd_ex_v2(read_game(gr1), &unreal, &opts);
+    strat = solve_gr1_oxidd_ex(read_game(gr1), &unreal, &opts);
     CHECK(strat && !unreal);
     aig_free(strat);
   }
@@ -448,8 +447,8 @@ static void sessions(void) {
         OxiddFailure failure = {0};
         opts.failure = &failure;
         int unreal = -1;
-        Aig *strat = kind ? solve_gr1_oxidd_ex_v2(game, &unreal, &opts)
-                          : solve_safety_oxidd_ex_v2(game, &unreal, &opts);
+        Aig *strat = kind ? solve_gr1_oxidd_ex(game, &unreal, &opts)
+                          : solve_safety_oxidd_ex(game, &unreal, &opts);
         CHECK(failures == 0 && !unreal);
         if (n == 1)
           CHECK(strat && failure.kind == OXIDD_FAILURE_NONE);
@@ -465,7 +464,7 @@ static void sessions(void) {
   opts.failure = &allocation_failure;
   fail_realloc = true;
   int failed_unreal = -1;
-  CHECK(!solve_gr1_oxidd_ex_v2(game, &failed_unreal, &opts) && !failed_unreal);
+  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
   CHECK(!fail_realloc);
   CHECK(allocation_failure.kind == OXIDD_FAILURE_HOST &&
         !strcmp(allocation_failure.operation, "realloc"));
@@ -480,17 +479,17 @@ static void sessions(void) {
   aig_add_justice(game, &impossible, 1, "impossible");
   aig_add_fairness(game, state, "even");
   aig_add_fairness(game, aig_not(state), "odd");
-  CHECK(!solve_gr1_oxidd_ex_v2(game, &failed_unreal, &opts) && failed_unreal);
+  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && failed_unreal);
   opts.node_cap = 8192;
   OxiddFailure failure = {0};
   opts.failure = &failure;
   int unreal = -1;
-  CHECK(!solve_safety_oxidd_ex_v2(read_game(safe), &unreal, &opts));
+  CHECK(!solve_safety_oxidd_ex(read_game(safe), &unreal, &opts));
   CHECK(!unreal && failure.kind == OXIDD_FAILURE_CONFIGURATION);
   opts.node_cap = 0;
   opts.var_order = OXIDD_VAR_ORDER_STATE_FIRST;
   failure = (OxiddFailure){0};
-  CHECK(!solve_safety_oxidd_ex_v2(read_game(safe), &unreal, &opts));
+  CHECK(!solve_safety_oxidd_ex(read_game(safe), &unreal, &opts));
   CHECK(!unreal && failure.kind == OXIDD_FAILURE_CONFIGURATION &&
         !strcmp(failure.operation, "session_nondefault_order"));
   oxidd_session_free();

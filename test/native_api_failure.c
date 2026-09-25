@@ -1,5 +1,9 @@
 #define _GNU_SOURCE
-#include "tlsf/native.h"
+#include "tlsf/pipeline.h"
+#include "tlsf/gr1_oxidd.h"
+#include "tlsf/gr1_check.h"
+#include "tlsf/gr1_reduction.h"
+#include "tlsf/gr1_lift.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -66,13 +70,12 @@ static void deeper_failures(void) {
     char *bytes[4] = {0};
     size_t sizes[4] = {0};
     OxiddFailure failure = {0};
-    OxiddSolveOptionsV2 options = oxidd_solve_options_default_v2();
+    OxiddSolveOptions options = oxidd_solve_options_default();
     options.node_cap = options.cache_cap = 1u << 16;
     options.failure = &failure;
     options.max_artifact_bytes = 1u << 20;
-    Gr1CertificateOptionsV2 export = {
-        .abi_version = TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION,
-        .struct_size = sizeof(Gr1CertificateOptionsV2),
+    Gr1CertificateOptions export = {
+
         .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
         .aag_bytes = &bytes[0],
         .json_bytes = &bytes[1],
@@ -88,8 +91,8 @@ static void deeper_failures(void) {
     export_calls = 0;
     fail_export_at = injection;
     int unreal = 0;
-    Aig *strategy = solve_gr1_oxidd_ex_with_certificate_v2(game, &unreal,
-                                                           &options, &export);
+    Aig *strategy =
+        solve_gr1_oxidd_ex_with_certificate(game, &unreal, &options, &export);
     fail_export_at = 0;
     if (injection) {
       assert(!strategy && !unreal && export.failed);
@@ -109,13 +112,13 @@ static void deeper_failures(void) {
       free(bytes[i]);
   }
   OxiddFailure solver_failure = {0};
-  OxiddSolveOptionsV2 solver_options = oxidd_solve_options_default_v2();
+  OxiddSolveOptions solver_options = oxidd_solve_options_default();
   solver_options.node_cap = solver_options.cache_cap = 1u << 16;
   solver_options.failure = &solver_failure;
   realloc_calls = 0;
   fail_realloc_at = 1;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex_v2(game_new(), &unreal, &solver_options);
+  Aig *strategy = solve_gr1_oxidd_ex(game_new(), &unreal, &solver_options);
   fail_realloc_at = 0;
   assert(realloc_calls > 0);
   assert(!strategy && !unreal && solver_failure.kind != OXIDD_FAILURE_NONE);
@@ -127,7 +130,7 @@ static void deeper_failures(void) {
       .policy_json = {(const uint8_t *)valid[3], valid_sizes[3]},
   };
   TlsfGr1CheckOptions check_options = {
-      .abi_version = TLSF_NATIVE_ABI_VERSION,
+
       .method = TLSF_GR1_CHECK_CERTIFICATE,
       .node_cap = 1u << 16,
       .cache_cap = 1u << 16,
@@ -160,19 +163,16 @@ int main(void) {
       "TARGET: Mealy }\n"
       "MAIN { INPUTS { a; } OUTPUTS { b; } GUARANTEES { G b; } }\n";
   TlsfPipelineError error;
-  TlsfPipelineOptionsV2 options = {.abi_version =
-                                       TLSF_PIPELINE_OPTIONS_ABI_VERSION,
-                                   .struct_size = sizeof(TlsfPipelineOptionsV2),
-                                   .error = &error};
+  TlsfPipelineOptions options = {.error = &error};
   fail_malloc = 1;
-  TlsfPipeline *pipeline = tlsf_pipeline_load_bytes_v2(
-      (const uint8_t *)source, strlen(source), &options);
+  TlsfPipeline *pipeline = tlsf_pipeline_load_bytes((const uint8_t *)source,
+                                                    strlen(source), &options);
   fail_malloc = 0;
   assert(!pipeline && error.status == TLSF_PIPELINE_LIMIT);
 
   fail_calloc = 1;
-  pipeline = tlsf_pipeline_load_bytes_v2((const uint8_t *)source,
-                                         strlen(source), &options);
+  pipeline = tlsf_pipeline_load_bytes((const uint8_t *)source, strlen(source),
+                                      &options);
   fail_calloc = 0;
   assert(!pipeline && error.status == TLSF_PIPELINE_LIMIT);
 
@@ -184,7 +184,7 @@ int main(void) {
       .policy_json = {(const uint8_t *)"{}", 2},
   };
   TlsfGr1CheckOptions check_options = {
-      .abi_version = TLSF_NATIVE_ABI_VERSION,
+
       .method = TLSF_GR1_CHECK_CERTIFICATE,
       .node_cap = 1u << 16,
       .cache_cap = 1u << 16,

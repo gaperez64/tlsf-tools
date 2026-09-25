@@ -1200,9 +1200,9 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
 }
 
 extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
-                   const TlsfGr1ReductionOptions *options,
-                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
+tlsf_gr1_reduce(const TlsfPipeline *pipeline,
+                const TlsfGr1ReductionOptions *options,
+                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
   if (result && (result->game || result->aag || result->aag_size ||
                  result->metadata_json || result->metadata_size ||
                  result->provenance_json || result->provenance_size ||
@@ -1212,9 +1212,7 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
   }
   if (!pipeline || !pipeline->spec || !pipeline->source_bytes ||
       !pipeline->source_size || !options || !result ||
-      options->abi_version != TLSF_GR1_REDUCTION_ABI_VERSION ||
-      options->struct_size != sizeof *options || !options->max_artifact_bytes ||
-      !options->max_monitor_states ||
+      !options->max_artifact_bytes || !options->max_monitor_states ||
       (options->semantics != TLSF_GR1_EXACT &&
        options->semantics != TLSF_GR1_STRICT)) {
     report(error, TLSF_GR1_REDUCE_INVALID, "reduce", "invalid argument");

@@ -11,7 +11,6 @@
 extern "C" {
 #endif
 
-#define TLSF_GR1_REDUCTION_ABI_VERSION 1
 
 typedef enum {
   TLSF_GR1_REDUCE_OK,
@@ -27,8 +26,6 @@ typedef enum {
 typedef enum { TLSF_GR1_EXACT, TLSF_GR1_STRICT } TlsfGr1ReductionSemantics;
 
 typedef struct {
-  uint32_t abi_version;
-  size_t struct_size;
   TlsfGr1ReductionSemantics semantics;
   /* Absolute CLOCK_MONOTONIC nanoseconds; zero disables the deadline.
    * Deadline and cancellation are checked cooperatively between Spot calls.
@@ -69,12 +66,12 @@ typedef struct {
   size_t symbol_map_size;
 } TlsfGr1Reduction;
 
-/* pipeline must come from tlsf_pipeline_load_bytes_v2 so its retained source
+/* pipeline must come from tlsf_pipeline_load_bytes so its retained source
  * and frontend provenance are bound to the same snapshot. */
-TlsfGr1ReductionStatus
-tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
-                   const TlsfGr1ReductionOptions *options,
-                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error);
+TlsfGr1ReductionStatus tlsf_gr1_reduce(const TlsfPipeline *pipeline,
+                                       const TlsfGr1ReductionOptions *options,
+                                       TlsfGr1Reduction *result,
+                                       TlsfGr1ReductionError *error);
 void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result);
 
 #ifdef __cplusplus

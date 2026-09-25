@@ -125,12 +125,8 @@ int tlsf_pipeline_expand_spec(TlsfSpec *spec, const ParamOverride *overrides,
   return result;
 }
 
-TlsfPipeline *
-tlsf_pipeline_load_bytes_v2(const uint8_t *source, size_t size,
-                            const TlsfPipelineOptionsV2 *options) {
-  if (options && (options->abi_version != TLSF_PIPELINE_OPTIONS_ABI_VERSION ||
-                  options->struct_size != sizeof *options))
-    return nullptr;
+TlsfPipeline *tlsf_pipeline_load_bytes(const uint8_t *source, size_t size,
+                                       const TlsfPipelineOptions *options) {
   char hash[65];
   if (!tlsf_pipeline_source_sha256(source, size, hash)) {
     pipeline_error(options ? options->error : nullptr, -1,
@@ -152,16 +148,13 @@ tlsf_pipeline_load_bytes_v2(const uint8_t *source, size_t size,
                    "source", "cannot open source stream");
     return nullptr;
   }
-  TlsfPipelineOptionsV2 resolved =
-      options ? *options : (TlsfPipelineOptionsV2){0};
+  TlsfPipelineOptions resolved = options ? *options : (TlsfPipelineOptions){0};
   if (!options) {
     resolved.certify = true;
     resolved.template_mask = TPL_ALL;
   }
-  resolved.abi_version = TLSF_PIPELINE_OPTIONS_ABI_VERSION;
-  resolved.struct_size = sizeof resolved;
   resolved.source_sha256 = hash;
-  TlsfPipeline *pipeline = tlsf_pipeline_load_v2(in, &resolved);
+  TlsfPipeline *pipeline = tlsf_pipeline_load(in, &resolved);
   fclose(in);
   if (pipeline) {
     pipeline->source_bytes = snapshot;

@@ -135,9 +135,9 @@ static bool demand_updates(OxiddRun *run, const Aig *game, uint32_t base,
 }
 
 static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
-                              const OxiddSolveOptionsV2 *user_opts) {
-  OxiddSolveOptionsV2 defaults = oxidd_solve_options_default_v2();
-  const OxiddSolveOptionsV2 *opts = user_opts ? user_opts : &defaults;
+                              const OxiddSolveOptions *user_opts) {
+  OxiddSolveOptions defaults = oxidd_solve_options_default();
+  const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
   *unreal = 0;
   if (opts->failure)
     *opts->failure = (OxiddFailure){0};
@@ -553,11 +553,11 @@ cleanup:
   return strat;
 }
 
-OxiddSolveResult
-solve_safety_oxidd_result_v2(Aig *game, const OxiddSolveOptionsV2 *user_opts) {
+OxiddSolveResult solve_safety_oxidd_result(Aig *game,
+                                           const OxiddSolveOptions *user_opts) {
   OxiddSolveResult result = {0};
-  OxiddSolveOptionsV2 opts =
-      user_opts ? *user_opts : oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts =
+      user_opts ? *user_opts : oxidd_solve_options_default();
   opts.failure = &result.failure;
   int unreal = 0;
   bool winning = false;
@@ -571,8 +571,8 @@ solve_safety_oxidd_result_v2(Aig *game, const OxiddSolveOptionsV2 *user_opts) {
   return result;
 }
 
-Aig *solve_safety_oxidd_ex_v2(Aig *game, int *unreal,
-                              const OxiddSolveOptionsV2 *opts) {
+Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+                           const OxiddSolveOptions *opts) {
   if (opts && opts->realizability_only) {
     *unreal = 0;
     if (opts->failure)
@@ -587,20 +587,8 @@ Aig *solve_safety_oxidd_ex_v2(Aig *game, int *unreal,
 }
 
 Aig *solve_safety_oxidd(Aig *game, int *unreal) {
-  OxiddSolveOptionsV2 opts = oxidd_solve_options_default_v2();
+  OxiddSolveOptions opts = oxidd_solve_options_default();
   opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
   opts.safety_output_index = 0;
-  return solve_safety_oxidd_ex_v2(game, unreal, &opts);
-}
-
-OxiddSolveResult solve_safety_oxidd_result(Aig *game,
-                                           const OxiddSolveOptions *options) {
-  OxiddSolveOptionsV2 extended = oxidd_options_upgrade(options);
-  return solve_safety_oxidd_result_v2(game, &extended);
-}
-
-Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
-                           const OxiddSolveOptions *options) {
-  OxiddSolveOptionsV2 extended = oxidd_options_upgrade(options);
-  return solve_safety_oxidd_ex_v2(game, unreal, &extended);
+  return solve_safety_oxidd_ex(game, unreal, &opts);
 }

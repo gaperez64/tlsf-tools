@@ -127,9 +127,7 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   for (const auto &[name, value] : overrides)
     params.push_back({name.c_str(), value});
   TlsfPipelineError perr{};
-  TlsfPipelineOptionsV2 popts{};
-  popts.abi_version = TLSF_PIPELINE_OPTIONS_ABI_VERSION;
-  popts.struct_size = sizeof popts;
+  TlsfPipelineOptions popts{};
   popts.certify = true;
   popts.template_mask = TPL_ALL;
   popts.overrides = params.data();
@@ -137,7 +135,7 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   popts.require_unambiguous_origin = true;
   popts.error = &perr;
   auto pipeline = std::unique_ptr<TlsfPipeline, decltype(&tlsf_pipeline_free)>(
-      tlsf_pipeline_load_bytes_v2(source, size, &popts), &tlsf_pipeline_free);
+      tlsf_pipeline_load_bytes(source, size, &popts), &tlsf_pipeline_free);
   if (!pipeline) {
     if (perr.status == TLSF_PIPELINE_LIMIT)
       throw Failure(TLSF_GR1_LIFT_LIMIT, "expand", perr.message);
@@ -145,8 +143,6 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   }
   cfg.check("reduce");
   TlsfGr1ReductionOptions ro{};
-  ro.abi_version = TLSF_GR1_REDUCTION_ABI_VERSION;
-  ro.struct_size = sizeof ro;
   ro.semantics = semantics;
   ro.deadline_mono_ns = cfg.o.deadline_mono_ns;
   ro.cancelled = cfg.o.cancelled;
@@ -154,7 +150,7 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   ro.max_artifact_bytes = cfg.o.max_artifact_bytes;
   ro.max_monitor_states = cfg.o.max_monitor_states;
   TlsfGr1ReductionError err{};
-  auto status = tlsf_gr1_reduce_v1(pipeline.get(), &ro, &instance->r, &err);
+  auto status = tlsf_gr1_reduce(pipeline.get(), &ro, &instance->r, &err);
   if (status != TLSF_GR1_REDUCE_OK) {
     TlsfGr1LiftStatus mapped = TLSF_GR1_LIFT_DECLINED;
     if (status == TLSF_GR1_REDUCE_LIMIT) mapped = TLSF_GR1_LIFT_LIMIT;
@@ -508,7 +504,7 @@ void solve_seed(Instance &i, const Config &cfg) {
     decline("seed_solve",reason);
   auto copy = parse_aig(i.r.aag,i.r.aag_size);
   OxiddFailure failure{};
-  OxiddSolveOptionsV2 options=oxidd_solve_options_default_v2();
+  OxiddSolveOptions options = oxidd_solve_options_default();
   options.node_cap=cfg.o.solver_nodes;
   options.cache_cap=cfg.o.solver_cache;
   options.deadline_mono_ns=cfg.o.deadline_mono_ns;
@@ -518,9 +514,7 @@ void solve_seed(Instance &i, const Config &cfg) {
   options.failure=&failure;
   char *cert=nullptr,*meta=nullptr;
   size_t cert_size=0,meta_size=0;
-  Gr1CertificateOptionsV2 export_options{};
-  export_options.abi_version=TLSF_GR1_CERTIFICATE_OPTIONS_ABI_VERSION;
-  export_options.struct_size=sizeof export_options;
+  Gr1CertificateOptions export_options{};
   export_options.semantics=GR1_CERTIFICATE_SEMANTICS_EXACT;
   export_options.aag_bytes=&cert;
   export_options.aag_size=&cert_size;
@@ -528,8 +522,8 @@ void solve_seed(Instance &i, const Config &cfg) {
   export_options.json_size=&meta_size;
   export_options.max_artifact_bytes=cfg.o.max_artifact_bytes;
   int unreal=0;
-  Aig *strategy=solve_gr1_oxidd_ex_with_certificate_v2(
-      copy.release(),&unreal,&options,&export_options);
+  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
+      copy.release(), &unreal, &options, &export_options);
   aig_free(strategy);
   std::unique_ptr<char,decltype(&free)> cert_guard(cert,&free),meta_guard(meta,&free);
   if (!strategy || unreal || export_options.failed || !cert || !meta) {
@@ -1315,7 +1309,7 @@ TlsfGr1CheckResult check(const Candidate &candidate,const Config &cfg,
     input.policy_json={(const uint8_t *)candidate.policy_json.data(),candidate.policy_json.size()};
   }
   TlsfGr1CheckOptions options{};
-  options.abi_version=1;options.method=method;
+  options.method = method;
   options.node_cap=cfg.o.checker_nodes;options.cache_cap=cfg.o.checker_cache;
   options.max_artifact_bytes=cfg.o.max_artifact_bytes;
   options.deadline_mono_ns=deadline;
@@ -1540,19 +1534,18 @@ extern "C" void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result){
   free(result->policy_aag);free(result->policy_json);free(result->check_json);
   free(result->evidence_json);memset(result,0,sizeof *result);
 }
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_v1(
-    const uint8_t *source,size_t source_size,
-    const ParamOverride *target_overrides,size_t target_override_count,
-    const TlsfGr1LiftOptions *options,
-    TlsfGr1LiftResult *result,TlsfGr1LiftError *error){
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift(const uint8_t *source, size_t source_size,
+              const ParamOverride *target_overrides,
+              size_t target_override_count, const TlsfGr1LiftOptions *options,
+              TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
   if(error)memset(error,0,sizeof *error);
-  if(!result || !source || !source_size ||
-     (target_override_count && !target_overrides) ||
-     (options && (options->abi_version!=TLSF_GR1_LIFT_ABI_VERSION ||
-                  options->struct_size!=sizeof(TlsfGr1LiftOptions)))){
+  if (!result || !source || !source_size ||
+      (target_override_count && !target_overrides)) {
     if(error){error->status=TLSF_GR1_LIFT_INVALID;
       snprintf(error->stage,sizeof error->stage,"arguments");
-      snprintf(error->message,sizeof error->message,"invalid arguments or ABI version");}
+      snprintf(error->message, sizeof error->message, "invalid arguments");
+    }
     return TLSF_GR1_LIFT_INVALID;
   }
   if(result->game_aag || result->certificate_aag || result->certificate_json ||

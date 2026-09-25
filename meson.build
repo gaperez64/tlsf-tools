@@ -417,10 +417,6 @@ if native_gr1
   native_api_cpp_exe = executable('native_api_cpp', 'test/native_api_cpp.cpp',
     dependencies: [tlsf_dep])
   test('native_api_cpp', native_api_cpp_exe)
-  old_abi_client_exe = executable('old_abi_client', 'test/old_abi_client.c',
-    include_directories: include_directories('test/old_abi/include'),
-    dependencies: [tlsf_dep])
-  test('old_abi_client', old_abi_client_exe)
   if host_machine.system() == 'linux'
     native_api_failure_exe = executable('native_api_failure',
       'test/native_api_failure.c', dependencies: [tlsf_dep],
@@ -434,7 +430,7 @@ endif
 excluded_headers = ['version.h.in']
 if not native_gr1
   excluded_headers += [
-    'native.h', 'gr1_oxidd.h', 'gr1_check.h', 'gr1_reduction.h', 'oxidd_common.h',
+    'gr1_oxidd.h', 'gr1_check.h', 'gr1_reduction.h', 'oxidd_common.h',
     'oxidd_options.h',
     'safety_oxidd.h',
   ]

@@ -1,8 +1,8 @@
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/safety_oxidd.h"
 
-OxiddSolveResult solve_safety_oxidd_result_v2(Aig *game,
-                                              const OxiddSolveOptionsV2 *opts) {
+OxiddSolveResult solve_safety_oxidd_result(Aig *game,
+                                           const OxiddSolveOptions *opts) {
   if (opts && opts->failure)
     *opts->failure =
         (OxiddFailure){OXIDD_FAILURE_BDD, "construction", "and", 42, 7};
@@ -16,8 +16,8 @@ Aig *solve_safety_oxidd(Aig *game, int *unreal) {
   return nullptr;
 }
 
-Aig *solve_safety_oxidd_ex_v2(Aig *game, int *unreal,
-                              const OxiddSolveOptionsV2 *opts) {
+Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
+                           const OxiddSolveOptions *opts) {
   (void)opts;
   return solve_safety_oxidd(game, unreal);
 }
@@ -28,21 +28,14 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
   return nullptr;
 }
 
-Aig *solve_gr1_oxidd_ex_v2(Aig *game, int *unreal,
-                           const OxiddSolveOptionsV2 *opts) {
+Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
   (void)opts;
   return solve_gr1_oxidd(game, unreal);
 }
 
-Aig *solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
-                                      Gr1CertificateOptions *certificate) {
-  (void)certificate;
-  return solve_gr1_oxidd(game, unreal);
-}
-
-Aig *solve_gr1_oxidd_ex_with_certificate_v2(
-    Aig *game, int *unreal, const OxiddSolveOptionsV2 *opts,
-    Gr1CertificateOptionsV2 *certificate) {
+Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                         const OxiddSolveOptions *opts,
+                                         Gr1CertificateOptions *certificate) {
   (void)opts;
   (void)certificate;
   return solve_gr1_oxidd(game, unreal);
