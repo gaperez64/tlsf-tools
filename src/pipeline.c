@@ -65,13 +65,44 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
     goto fail;
   }
 
+  char *provenance_buffer = nullptr;
+  size_t provenance_size = 0;
+  FILE *provenance_stream =
+      opts && opts->source_sha256
+          ? open_memstream(&provenance_buffer, &provenance_size)
+          : nullptr;
+  if (opts && opts->source_sha256 && !provenance_stream) {
+    pipeline_status(opts, TLSF_PIPELINE_LIMIT, "provenance", "out of memory");
+    goto fail;
+  }
   if (tlsf_pipeline_expand_spec(p->spec, opts ? opts->overrides : nullptr,
                                 opts ? opts->n_overrides : 0,
-                                opts ? opts->provenance_out : nullptr,
+                                provenance_stream ? provenance_stream
+                                : opts            ? opts->provenance_out
+                                                  : nullptr,
                                 opts ? opts->source_sha256 : nullptr,
                                 opts && opts->require_unambiguous_origin,
-                                opts ? opts->error : nullptr) != 0)
+                                opts ? opts->error : nullptr) != 0) {
+    if (provenance_stream)
+      fclose(provenance_stream);
+    free(provenance_buffer);
     goto fail;
+  }
+  if (provenance_stream) {
+    if (fclose(provenance_stream) != 0) {
+      free(provenance_buffer);
+      pipeline_status(opts, TLSF_PIPELINE_LIMIT, "provenance", "output failed");
+      goto fail;
+    }
+    p->frontend_provenance_json = provenance_buffer;
+    p->frontend_provenance_size = provenance_size;
+    if (opts->provenance_out &&
+        fwrite(provenance_buffer, 1, provenance_size, opts->provenance_out) !=
+            provenance_size) {
+      pipeline_status(opts, TLSF_PIPELINE_LIMIT, "provenance", "output failed");
+      goto fail;
+    }
+  }
   if (!spec_adapt_target(p->spec)) {
     pipeline_status(opts, TLSF_PIPELINE_LIMIT, "adapt", "adaptation failed");
     fprintf(tlsf_diagnostic_stream(),
@@ -134,6 +165,7 @@ void tlsf_pipeline_free(TlsfPipeline *p) {
   csnf_free(p->csnf);
   spec_free(p->spec);
   free((void *)p->source_bytes);
+  free(p->frontend_provenance_json);
   free(p);
 }
 

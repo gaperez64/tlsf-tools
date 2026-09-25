@@ -76,6 +76,35 @@ def canonicalize_ltl(text: str, symbols: dict[str, str]) -> str:
     return _LTL_TOKEN.sub(replace, text)
 
 
+def canonical_formula_text(formula, spot_module) -> str:
+    """Print commutative operands in lexical order, independent of Spot IDs."""
+    kind = formula.kind()
+    if kind in (spot_module.op_And, spot_module.op_Or):
+        operator = " & " if kind == spot_module.op_And else " | "
+        return "(" + operator.join(sorted(
+            canonical_formula_text(child, spot_module) for child in formula)) + ")"
+    for operator, name in ((spot_module.op_G, "G"),
+                           (spot_module.op_F, "F"),
+                           (spot_module.op_X, "X"),
+                           (spot_module.op_Not, "!")):
+        if kind == operator:
+            return name + "(" + canonical_formula_text(formula[0], spot_module) + ")"
+    for operator, name in ((spot_module.op_Xor, "xor"),
+                           (spot_module.op_Implies, "->"),
+                           (spot_module.op_Equiv, "<->"),
+                           (spot_module.op_U, "U"),
+                           (spot_module.op_R, "R"),
+                           (spot_module.op_W, "W"),
+                           (spot_module.op_M, "M")):
+        if kind == operator:
+            children = [canonical_formula_text(formula[index], spot_module)
+                        for index in (0, 1)]
+            if kind in (spot_module.op_Xor, spot_module.op_Equiv):
+                children.sort()
+            return "(" + (" " + name + " ").join(children) + ")"
+    return str(formula)
+
+
 def parse_canonical_ltl(text: str, symbols: dict[str, str], spot_module):
     formula = spot_module.formula(canonicalize_ltl(text, symbols))
     aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
@@ -377,15 +406,15 @@ def _transition_formula(aut, edge, spot_module):
 def encode_game(monitors: list[Monitor], inputs: list[str], outputs: list[str],
                 semantics: str, spot_module,
                 symbols: dict[str, str] | None = None):
+    raw_monitor_aps = symbols is None
     symbols = symbols or canonical_signals(inputs, outputs)
     game_inputs = [symbols[name] for name in [*inputs, *outputs]]
     builder = AagBuilder(game_inputs)
-    # Canonical APs are used by the game.  Raw aliases permit direct callers
-    # that build monitors from already parsed formulas to use this encoder.
-    builder.input_literals.update({
-        name: builder.game_input_literals[symbol]
-        for name, symbol in symbols.items()
-    })
+    # Direct callers can pass monitors over raw APs.  The CLI path parses
+    # canonical APs, so aliases there could overwrite a different signal.
+    if raw_monitor_aps:
+        for name, symbol in symbols.items():
+            builder.input_literals[name] = builder.game_input_literals[symbol]
     for monitor_index, monitor in enumerate(monitors):
         initial = monitor.automaton.get_init_state_number()
         monitor.latch_literals = [
@@ -544,7 +573,8 @@ def _structural_template(formula, signals: dict[str, dict], spot_module) -> str:
             coordinates.setdefault(value, len(coordinates))
             alias += f"_i{coordinates[value]}"
         replacements[signal["name"]] = spot_module.formula.ap(alias)
-    return str(_replace_aps(formula, replacements, spot_module))
+    return canonical_formula_text(
+        _replace_aps(formula, replacements, spot_module), spot_module)
 
 
 def _display_indices(indices: list[tuple[int, ...]]) -> list:
@@ -737,7 +767,7 @@ def provenance(monitors: list[Monitor], inputs: list[str], outputs: list[str],
              if frontend_valid else _bus_inventory([*inputs, *outputs]))
     monitor_records = []
     for index, monitor in enumerate(monitors):
-        text = str(monitor.formula)
+        text = canonical_formula_text(monitor.formula, spot_module)
         template, indices = index_template(text)
         if frontend_valid:
             template = _structural_template(

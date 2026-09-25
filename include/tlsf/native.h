@@ -7,5 +7,6 @@
 #include "tlsf/pipeline.h"
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/gr1_check.h"
+#include "tlsf/gr1_reduction.h"
 
 #endif

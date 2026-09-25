@@ -39,3 +39,5 @@ option(
 )
 option('issue24_corpus', type: 'string', value: '',
        description: 'Offline directory containing the five pinned issue-24 AAG files; enables serial corpus suites')
+option('native_reduction_corpus', type: 'string', value: '',
+       description: 'Optional TLSF corpus directory for native GR(1) differential tests')

@@ -319,6 +319,7 @@ if native_gr1
   lib_sources += [
     'src/native/gr1_service.c',
     'src/native/gr1_check.c',
+    'src/native/gr1_reduction.cc',
     'src/safety_oxidd.c', 'src/gr1_oxidd.c',
     'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c',
   ]
@@ -331,9 +332,14 @@ lib_compile_deps = have_oxidd ? [declare_dependency(
 )] : []
 lib_deps = have_oxidd ? [oxidd_dep] : []
 if native_gr1
-  lib_deps += [spot_dep]
+  cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
+  lib_deps += [spot_dep, dependency('boost', modules: ['json']),
+               meson.get_compiler('cpp').find_library(cpp_runtime)]
 endif
 pkg_private_libs = have_oxidd ? ['-loxidd_ffi_c', '-lpthread', '-lm'] : []
+if native_gr1
+  pkg_private_libs += ['-lboost_json', '-l' + cpp_runtime]
+endif
 if have_oxidd and host_machine.system() != 'darwin'
   pkg_private_libs += ['-ldl']
 endif
@@ -356,6 +362,11 @@ tlsf_dep = declare_dependency(
 meson.override_dependency('tlsf', tlsf_dep)
 
 if native_gr1
+  native_reduction_exe = executable('native_reduction',
+    'test/native_reduction.cpp', dependencies: [tlsf_dep])
+  native_reduction_c_exe = executable('native_reduction_c',
+    'test/native_reduction_c.c', dependencies: [tlsf_dep], link_language: 'c')
+  test('native_reduction_c', native_reduction_c_exe)
   native_api_c_exe = executable('native_api_c', 'test/native_api.c',
     dependencies: [tlsf_dep])
   test('native_api_c', native_api_c_exe)
@@ -379,7 +390,7 @@ endif
 excluded_headers = ['version.h.in']
 if not native_gr1
   excluded_headers += [
-    'native.h', 'gr1_oxidd.h', 'gr1_check.h', 'oxidd_common.h',
+    'native.h', 'gr1_oxidd.h', 'gr1_check.h', 'gr1_reduction.h', 'oxidd_common.h',
     'oxidd_options.h',
     'safety_oxidd.h',
   ]
@@ -428,6 +439,28 @@ tlsfinfo_exe = executable(
   include_directories: inc,
   install: true,
 )
+
+if native_gr1 and spot_python_found
+  native_diff_args = [files('test/test_native_reduction.py'),
+                      '--native', native_reduction_exe,
+                      '--builder', files('scripts/gr1_monitor_game.py'),
+                      '--tlsf2ltl', tlsf2ltl_exe,
+                      '--tlsf2tlsf', tlsf2tlsf_exe,
+                      '--tlsfinfo', tlsfinfo_exe,
+                      '--fixtures', meson.current_source_dir() / 'test/cases',
+                      '--builddir', meson.current_build_dir()]
+  if get_option('native_reduction_corpus') != ''
+    native_diff_args += ['--corpus', get_option('native_reduction_corpus')]
+  endif
+  test('native_reduction_differential', spot_python,
+       args: native_diff_args, env: spot_python_env, timeout: 1800)
+  test('native_reduction_language', spot_python,
+       args: [files('test/test_native_reduction_language.py'),
+              '--native', native_reduction_exe,
+              '--tlsf2ltl', tlsf2ltl_exe,
+              '--builddir', meson.current_build_dir()],
+       env: spot_python_env, timeout: 120)
+endif
 
 tlsfnorm_exe = executable(
   'tlsfnorm',

@@ -65,6 +65,10 @@ typedef struct {
   const uint8_t *source_bytes;
   size_t source_size;
   char source_sha256[65];
+  /* Frontend provenance captured before expansion discards parameter records.
+   * Owned by the pipeline; null when no source hash was supplied. */
+  char *frontend_provenance_json;
+  size_t frontend_provenance_size;
 } TlsfPipeline;
 
 [[nodiscard]] TlsfPipeline *tlsf_pipeline_load(FILE *fp,
