@@ -331,14 +331,15 @@ int main(int argc, char **argv) {
     }
 #endif
     if (!strcmp(arg, "--version")) {
-      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s\n",
+      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s oxidd_patch=%s\n",
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
              tlsf_build_simd(),
 #ifndef NDEBUG
-             "yes"
+             "yes",
 #else
-             "no"
+             "no",
 #endif
+             tlsf_build_oxidd_patch()
       );
       return 0;
     }

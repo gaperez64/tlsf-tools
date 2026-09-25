@@ -323,9 +323,9 @@ static int parse_options(int argc, char **argv, Options *options,
       return 1;
     }
     if (!strcmp(argv[i], "--version")) {
-      printf("tlsfcertcheck %s oxidd=%s research=%s simd=%s\n",
+      printf("tlsfcertcheck %s oxidd=%s research=%s simd=%s oxidd_patch=%s\n",
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
-             tlsf_build_simd());
+             tlsf_build_simd(), tlsf_build_oxidd_patch());
       return 1;
     }
     if (!strcmp(argv[i], "--stats")) {

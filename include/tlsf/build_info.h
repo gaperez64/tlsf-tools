@@ -13,6 +13,10 @@ static inline const char *tlsf_build_oxidd(void) {
 #endif
 }
 
+static inline const char *tlsf_build_oxidd_patch(void) {
+  return TLSF_BUILD_OXIDD_PATCH;
+}
+
 static inline const char *tlsf_build_research(void) {
 #if TLSF_BUILD_RESEARCH
   return "yes";

@@ -8,9 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int fail_malloc, fail_calloc;
-static size_t fail_malloc_at, malloc_calls;
-static size_t fail_export_at, export_calls, fail_realloc_at, realloc_calls;
+/* Fault injection belongs to the caller. OxiDD's GC/worker threads may also
+ * allocate while this test is probing a C-side failure path. */
+static _Thread_local int fail_malloc, fail_calloc;
+static _Thread_local size_t fail_malloc_at, malloc_calls;
+static _Thread_local size_t fail_export_at, export_calls, fail_realloc_at,
+    realloc_calls;
 
 void *__real_malloc(size_t size);
 void *__real_calloc(size_t count, size_t size);

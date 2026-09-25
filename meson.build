@@ -156,6 +156,7 @@ oxidd_build_sh = join_paths(meson.project_source_root(), 'scripts', 'build_oxidd
 oxidd_lib_path = join_paths(oxidd_dir, 'target', 'release', 'liboxidd_ffi_c.a')
 oxidd_inc_path = join_paths(oxidd_dir, 'build', 'include')
 oxidd_capi_h = join_paths(oxidd_inc_path, 'oxidd', 'capi.h')
+oxidd_patch_info_path = join_paths(oxidd_dir, 'build', 'oxidd-patch-info.txt')
 oxidd_submodule_ready = fs.exists(join_paths(oxidd_dir, 'crates', 'oxidd-ffi-c', 'Cargo.toml'))
 
 if git.found()
@@ -170,7 +171,8 @@ if bash.found()
   run_target('oxidd-build', command: [bash, oxidd_build_sh])
 endif
 
-oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h)
+oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h) and fs.exists(oxidd_patch_info_path)
+oxidd_patch_record = 'none'
 oxidd_dep = dependency('', required: false)  # null dependency by default
 have_oxidd = false
 if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
@@ -183,6 +185,11 @@ if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
       '-Doxidd=enabled --buildtype=release',
     )
   endif
+  oxidd_verify = run_command(bash, oxidd_build_sh, '--verify', check: false)
+  if oxidd_verify.returncode() != 0
+    error('OxiDD patch verification failed: ' + oxidd_verify.stderr().strip())
+  endif
+  oxidd_patch_record = fs.read(oxidd_patch_info_path).strip()
   # Rust staticlib pulls in the system threading/dl/math runtime.
   oxidd_link_args = [oxidd_lib_path, '-lpthread', '-lm']
   if host_machine.system() != 'darwin'
@@ -208,6 +215,7 @@ endif
 
 build_info_conf = configuration_data()
 build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
+build_info_conf.set_quoted('TLSF_BUILD_OXIDD_PATCH', oxidd_patch_record)
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
 build_config_h = configure_file(
   output: 'build_config.h',
@@ -370,6 +378,15 @@ if native_gr1
   native_api_c_exe = executable('native_api_c', 'test/native_api.c',
     dependencies: [tlsf_dep])
   test('native_api_c', native_api_c_exe)
+  oxidd_manager_lifetime_exe = executable('oxidd_manager_lifetime',
+    'test/oxidd_manager_lifetime.c', dependencies: [tlsf_dep])
+  test('oxidd_manager_lifetime_manager', oxidd_manager_lifetime_exe,
+    args: ['manager', meson.current_source_dir()], timeout: 120,
+    is_parallel: false)
+  test('oxidd_manager_lifetime_checker', oxidd_manager_lifetime_exe,
+    args: ['checker', join_paths(meson.current_source_dir(), 'test',
+                                 'fixtures', 'oxidd-manager-lifetime')],
+    timeout: 900, is_parallel: false)
   native_api_cpp_exe = executable('native_api_cpp', 'test/native_api_cpp.cpp',
     dependencies: [tlsf_dep])
   test('native_api_cpp', native_api_cpp_exe)

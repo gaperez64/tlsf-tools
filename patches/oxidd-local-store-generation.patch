@@ -1,0 +1,460 @@
+diff --git a/crates/oxidd-manager-index/src/manager.rs b/crates/oxidd-manager-index/src/manager.rs
+index 3797bd2..a13f80a 100644
+--- a/crates/oxidd-manager-index/src/manager.rs
++++ b/crates/oxidd-manager-index/src/manager.rs
+@@ -21,8 +21,8 @@ use std::iter::FusedIterator;
+ use std::marker::PhantomData;
+ use std::mem::ManuallyDrop;
+ use std::ops::Range;
+-use std::sync::atomic::AtomicU64;
+-use std::sync::atomic::Ordering::{Acquire, Relaxed};
++use std::sync::atomic::{AtomicU64, AtomicUsize};
++use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
+ use std::sync::Arc;
+ 
+ use crossbeam_utils::CachePadded;
+@@ -102,6 +102,10 @@ enum GCSignal {
+     Quit,
+ }
+ 
++// A store address can be reused once its GC thread has released the last Arc.
++// Thread-local slot caches must distinguish those separate lifetimes.
++static NEXT_STORE_GENERATION: AtomicU64 = AtomicU64::new(1);
++
+ pub struct Store<'id, N, ET, TM, R, MD, const TERMINALS: usize>
+ where
+     N: NodeBase + InnerNode<Edge<'id, N, ET>>,
+@@ -114,6 +118,10 @@ where
+     terminal_manager: TM,
+     state: CachePadded<Mutex<SharedStoreState>>,
+     gc_signal: (Mutex<GCSignal>, Condvar),
++    gc_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
++    /// Counts ManagerRefs, excluding the GC thread's own Store Arc.
++    external_refs: AtomicUsize,
++    generation: u64,
+     workers: crate::workers::Workers,
+ }
+ 
+@@ -206,6 +214,8 @@ struct LocalStoreState {
+     /// Before using slots from this `LocalStoreState`, the implementation needs
+     /// to ensure that the slots come from the respective `Store`.
+     current_store: Cell<usize>,
++    /// Lifetime of `current_store`; an address alone is not a store identity.
++    current_generation: Cell<u64>,
+ 
+     /// Local changes to the shared node counter
+     ///
+@@ -221,11 +231,75 @@ thread_local! {
+             next_free: Cell::new(0),
+             initialized: Cell::new(0),
+             current_store: Cell::new(0),
++            current_generation: Cell::new(0),
+             node_count_delta: Cell::new(0),
+         }
+     };
+ }
+ 
++impl LocalStoreState {
++    #[inline(always)]
++    fn belongs_to(&self, address: usize, generation: u64) -> bool {
++        self.current_store.get() == address && self.current_generation.get() == generation
++    }
++
++    /// Select a store for local allocation, including a new store at an old
++    /// address. A different live store may already own this thread's cache.
++    #[inline]
++    fn activate(&self, address: usize, generation: u64) -> bool {
++        if self.current_store.get() != 0
++            && (self.current_store.get() != address
++                || self.current_generation.get() == generation)
++        {
++            return false;
++        }
++        self.next_free.set(0);
++        self.initialized.set(0);
++        self.node_count_delta.set(0);
++        self.current_store.set(address);
++        self.current_generation.set(generation);
++        true
++    }
++
++    #[inline(always)]
++    fn retire(&self) {
++        self.current_store.set(0);
++        self.current_generation.set(0);
++    }
++}
++
++#[cfg(test)]
++mod local_store_lifetime_tests {
++    use super::{LocalStoreState, CHUNK_SIZE, LOCAL_STORE_STATE};
++
++    #[test]
++    fn reused_address_gets_a_fresh_local_store() {
++        LOCAL_STORE_STATE.with(|state: &LocalStoreState| {
++            state.retire();
++            assert!(state.activate(0x1234, 1));
++            state.next_free.set(17);
++            state.initialized.set(CHUNK_SIZE);
++            state.node_count_delta.set(3);
++
++            // Simulate a retired store whose address is immediately reused.
++            assert!(!state.belongs_to(0x1234, 2));
++            assert!(state.activate(0x1234, 2));
++            assert_eq!(state.next_free.get(), 0);
++            assert_eq!(state.initialized.get(), 0);
++            assert_eq!(state.node_count_delta.get(), 0);
++            assert!(state.belongs_to(0x1234, 2));
++
++            // A different manager cannot take over a live local cache.
++            assert!(!state.activate(0x5678, 3));
++            assert!(state.belongs_to(0x1234, 2));
++            state.retire();
++            assert!(state.activate(0x1234, 3));
++            assert_eq!(state.initialized.get(), 0);
++            state.retire();
++        });
++    }
++}
++
+ struct LocalStoreStateGuard<'a, 'id, N, ET, TM, R, MD, const TERMINALS: usize>(
+     &'a Store<'id, N, ET, TM, R, MD, TERMINALS>,
+ )
+@@ -517,11 +591,7 @@ where
+         &self,
+     ) -> Option<LocalStoreStateGuard<'_, 'id, N, ET, TM, R, MD, TERMINALS>> {
+         LOCAL_STORE_STATE.with(|state| {
+-            if state.current_store.get() == 0 {
+-                state.next_free.set(0);
+-                state.initialized.set(0);
+-                state.current_store.set(self.addr());
+-                debug_assert_eq!(state.node_count_delta.get(), 0);
++            if state.activate(self.addr(), self.generation) {
+                 Some(LocalStoreStateGuard(self))
+             } else {
+                 None
+@@ -536,7 +606,7 @@ where
+     fn add_node(&self, node: N) -> AllocResult<[Edge<'id, N, ET>; 2]> {
+         debug_assert_eq!(node.load_rc(Relaxed), 2);
+         let res = LOCAL_STORE_STATE.with(|state| {
+-            let node_count_delta = if state.current_store.get() == self.addr() {
++            let node_count_delta = if state.belongs_to(self.addr(), self.generation) {
+                 let delta = state.node_count_delta.get() + 1;
+                 let id = state.next_free.get();
+                 if id != 0 {
+@@ -620,7 +690,7 @@ where
+             self.gc_signal.1.notify_one();
+         }
+ 
+-        if local.current_store.get() == self.addr() {
++        if local.belongs_to(self.addr(), self.generation) {
+             debug_assert_eq!(local.next_free.get(), 0);
+             debug_assert_eq!(local.initialized.get() % CHUNK_SIZE, 0);
+ 
+@@ -710,7 +780,7 @@ where
+         unsafe { ManuallyDrop::take(&mut slot.node) }.drop_with(|edge| self.drop_edge(edge));
+ 
+         LOCAL_STORE_STATE.with(|state| {
+-            if state.current_store.get() == self.addr() {
++            if state.belongs_to(self.addr(), self.generation) {
+                 slot.next_free = state.next_free.get();
+                 state.next_free.set(id);
+ 
+@@ -829,7 +899,7 @@ where
+             terminals: u32,
+         ) {
+             LOCAL_STORE_STATE.with(|local| {
+-                local.current_store.set(0);
++                local.retire();
+                 let start = local.initialized.get();
+                 let next_free = if start % CHUNK_SIZE != 0 {
+                     // We cannot simply give an uninitialized chunk back. Hence,
+@@ -860,12 +930,17 @@ where
+         }
+ 
+         LOCAL_STORE_STATE.with(|local| {
+-            if self.0.addr() == local.current_store.get()
+-                && (local.next_free.get() != 0
++            if local.belongs_to(self.0.addr(), self.0.generation) {
++                if local.next_free.get() != 0
+                     || local.initialized.get() % CHUNK_SIZE != 0
+-                    || local.node_count_delta.get() != 0)
+-            {
+-                drop_slow(&self.0.inner_nodes.slots, &self.0.state, TERMINALS as u32);
++                    || local.node_count_delta.get() != 0
++                {
++                    drop_slow(&self.0.inner_nodes.slots, &self.0.state, TERMINALS as u32);
++                }
++                // Even a clean guard may retain `initialized == CHUNK_SIZE`.
++                // Leaving its address selected can reuse that chunk in a new
++                // manager allocated at the same address.
++                local.retire();
+             }
+         });
+     }
+@@ -1963,7 +2038,6 @@ where
+ // === ManagerRef ==============================================================
+ 
+ #[repr(transparent)]
+-#[derive_where(Clone)]
+ pub struct ManagerRef<
+     NC: InnerNodeCons<ET>,
+     ET: Tag,
+@@ -1985,6 +2059,21 @@ pub struct ManagerRef<
+     >,
+ );
+ 
++impl<
++        NC: InnerNodeCons<ET>,
++        ET: Tag,
++        TMC: TerminalManagerCons<NC, ET, TERMINALS>,
++        RC: DiagramRulesCons<NC, ET, TMC, MDC, TERMINALS>,
++        MDC: ManagerDataCons<NC, ET, TMC, RC, TERMINALS>,
++        const TERMINALS: usize,
++    > Clone for ManagerRef<NC, ET, TMC, RC, MDC, TERMINALS>
++{
++    fn clone(&self) -> Self {
++        self.0.external_refs.fetch_add(1, Relaxed);
++        Self(self.0.clone())
++    }
++}
++
+ impl<
+         NC: InnerNodeCons<ET>,
+         ET: Tag,
+@@ -1995,12 +2084,22 @@ impl<
+     > Drop for ManagerRef<NC, ET, TMC, RC, MDC, TERMINALS>
+ {
+     fn drop(&mut self) {
+-        if Arc::strong_count(&self.0) == 2 {
+-            // This is the second last reference. The last reference belongs to
+-            // the gc thread. Terminate it.
++        if self.0.external_refs.fetch_sub(1, AcqRel) == 1 {
++            // The GC thread has its own Store Arc, which is not counted here.
++            // Only the last ManagerRef signals and joins, even if several
++            // references are dropped concurrently.
+             let gc_signal = &self.0.gc_signal;
+             *gc_signal.0.lock() = GCSignal::Quit;
+             gc_signal.1.notify_one();
++            // Release this mutex before joining: GC may drop a transient
++            // ManagerRef as it exits and enter this Drop implementation too.
++            let thread = self.0.gc_thread.lock().take();
++            if let Some(thread) = thread {
++                // The GC thread can itself release a transient ManagerRef.
++                if thread.thread().id() != std::thread::current().id() {
++                    thread.join().expect("OxiDD GC thread panicked");
++                }
++            }
+         }
+     }
+ }
+@@ -2130,6 +2229,7 @@ impl<
+         //   `&Manager` reference, the counter is at least 1.
+         ManagerRef(unsafe {
+             let manager = &*ptr;
++            (*manager.store).external_refs.fetch_add(1, Relaxed);
+             Arc::increment_strong_count(manager.store);
+             Arc::from_raw(manager.store)
+         })
+@@ -2234,6 +2334,9 @@ pub fn new_manager<
+         }),
+         terminal_manager: TMC::T::<'static>::with_capacity(terminal_node_capacity),
+         gc_signal: (Mutex::new(GCSignal::RunGc), Condvar::new()),
++        gc_thread: Mutex::new(None),
++        external_refs: AtomicUsize::new(1),
++        generation: NEXT_STORE_GENERATION.fetch_add(1, Relaxed),
+         workers: crate::workers::Workers::new(threads),
+     });
+ 
+@@ -2242,22 +2345,32 @@ pub fn new_manager<
+     drop(manager);
+ 
+     let store_addr = arc.addr();
++    let store_generation = arc.generation;
+     arc.workers.pool.spawn_broadcast(move |_| {
+         // The workers are dedicated to this store.
+-        LOCAL_STORE_STATE.with(|state| state.current_store.set(store_addr))
++        LOCAL_STORE_STATE.with(|state| {
++            state.current_store.set(store_addr);
++            state.current_generation.set(store_generation);
++        })
+     });
+ 
+-    // spell-checker:ignore mref
+-    let gc_mref: ManagerRef<NC, ET, TMC, RC, MDC, TERMINALS> = ManagerRef(arc.clone());
+-    std::thread::Builder::new()
++    let gc_store = arc.clone();
++    let gc_thread = std::thread::Builder::new()
+         .name("oxidd mi gc".to_string())
+         .spawn(move || {
+             // The worker is dedicated to this store.
+-            LOCAL_STORE_STATE.with(|state| state.current_store.set(store_addr));
++            LOCAL_STORE_STATE.with(|state| {
++                state.current_store.set(store_addr);
++                state.current_generation.set(store_generation);
++            });
+ 
+-            let store = &*gc_mref.0;
++            let store = &*gc_store;
+             loop {
+                 let mut lock = store.gc_signal.0.lock();
++                // Quit may have arrived before this thread first waited.
++                if *lock == GCSignal::Quit {
++                    break;
++                }
+                 store.gc_signal.1.wait(&mut lock);
+                 if *lock == GCSignal::Quit {
+                     break;
+@@ -2265,9 +2378,9 @@ pub fn new_manager<
+                 drop(lock);
+ 
+                 // parking_lot `Condvar`s have no spurious wakeups -> run gc now
+-                oxidd_core::ManagerRef::with_manager_shared(&gc_mref, |manager| {
+-                    oxidd_core::Manager::gc(manager);
+-                });
++                let local_guard = store.prepare_local_state();
++                oxidd_core::Manager::gc(&*store.manager.shared());
++                drop(local_guard);
+ 
+                 let mut shared = store.state.lock();
+                 LOCAL_STORE_STATE.with(|local| {
+@@ -2284,6 +2397,7 @@ pub fn new_manager<
+             }
+         })
+         .unwrap();
++    *arc.gc_thread.lock() = Some(gc_thread);
+ 
+     // initialize the manager data
+     let local_guard = arc.prepare_local_state();
+@@ -2428,6 +2542,7 @@ unsafe impl<
+         //   `&Manager` reference, the counter is at least 1.
+         let store = ManagerRef(unsafe {
+             let manager = &*ptr;
++            (*manager.store).external_refs.fetch_add(1, Relaxed);
+             Arc::increment_strong_count(manager.store);
+             Arc::from_raw(manager.store)
+         });
+diff --git a/crates/oxidd/src/bdd.rs b/crates/oxidd/src/bdd.rs
+index a4799da..ac90ca4 100644
+--- a/crates/oxidd/src/bdd.rs
++++ b/crates/oxidd/src/bdd.rs
+@@ -38,6 +38,119 @@ pub fn print_stats() {
+     oxidd_rules_bdd::simple::print_stats();
+ }
+ 
++#[cfg(all(test, feature = "manager-index", not(feature = "manager-pointer")))]
++mod manager_lifetime_tests {
++    use super::{new_manager, BDDFunction};
++    use crate::{BooleanFunction, Manager, ManagerRef};
++
++    // On Linux, observe the GC thread belonging to each new manager. Checking
++    // its task ID after drop makes asynchronous retirement fail deterministically.
++    #[cfg(target_os = "linux")]
++    fn gc_threads() -> std::collections::HashSet<std::path::PathBuf> {
++        std::fs::read_dir("/proc/self/task")
++            .unwrap()
++            .map(|entry| entry.unwrap().path())
++            .filter(|task| {
++                std::fs::read_to_string(task.join("comm"))
++                    .map(|name| name.trim() == "oxidd mi gc")
++                    .unwrap_or(false)
++            })
++            .collect()
++    }
++
++    #[test]
++    fn repeated_manager_lifetimes_on_one_thread() {
++        for lifetime in 0..1_000 {
++            #[cfg(target_os = "linux")]
++            let previous_gc_threads = gc_threads();
++            let manager = new_manager(4096, 256, 1);
++            let (x, y, z) = manager.with_manager_exclusive(|m| {
++                m.add_named_vars(["x", "y", "z"]).unwrap();
++                (
++                    BDDFunction::var(m, 0).unwrap(),
++                    BDDFunction::var(m, 1).unwrap(),
++                    BDDFunction::var(m, 2).unwrap(),
++                )
++            });
++            for _ in 0..16 {
++                let f = x.and(&y).unwrap().or(&z).unwrap();
++                assert!(f.satisfiable(), "manager lifetime {lifetime}");
++            }
++            #[cfg(target_os = "linux")]
++            let mut new_gc_threads = Vec::new();
++            #[cfg(target_os = "linux")]
++            for _ in 0..1_000 {
++                new_gc_threads = gc_threads()
++                    .difference(&previous_gc_threads)
++                    .cloned()
++                    .collect();
++                if !new_gc_threads.is_empty() {
++                    break;
++                }
++                std::thread::yield_now();
++            }
++            #[cfg(target_os = "linux")]
++            assert_eq!(new_gc_threads.len(), 1, "manager lifetime {lifetime}");
++            drop((x, y, z));
++            drop(manager);
++            #[cfg(target_os = "linux")]
++            {
++                // /proc may briefly retain a task entry after pthread_join.
++                for _ in 0..1_000 {
++                    if !new_gc_threads[0].exists() {
++                        break;
++                    }
++                    std::thread::yield_now();
++                }
++                assert!(
++                    !new_gc_threads[0].exists(),
++                    "GC thread outlived manager lifetime {lifetime}"
++                );
++            }
++        }
++    }
++
++    #[cfg(target_os = "linux")]
++    #[test]
++    fn concurrent_final_refs_retire_gc() {
++        for lifetime in 0..1_000 {
++            let before = gc_threads();
++            let manager = new_manager(1024, 128, 1);
++            let mut gc_task = None;
++            for _ in 0..1_000 {
++                gc_task = gc_threads().difference(&before).next().cloned();
++                if gc_task.is_some() {
++                    break;
++                }
++                std::thread::yield_now();
++            }
++            let gc_task = gc_task.expect("manager GC thread did not start");
++            let other = manager.clone();
++            let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
++            let first_barrier = barrier.clone();
++            let first = std::thread::spawn(move || {
++                first_barrier.wait();
++                drop(manager);
++            });
++            let second_barrier = barrier.clone();
++            let second = std::thread::spawn(move || {
++                second_barrier.wait();
++                drop(other);
++            });
++            barrier.wait();
++            first.join().unwrap();
++            second.join().unwrap();
++            for _ in 0..1_000 {
++                if !gc_task.exists() {
++                    break;
++                }
++                std::thread::yield_now();
++            }
++            assert!(!gc_task.exists(), "GC thread outlived lifetime {lifetime}");
++        }
++    }
++}
++
+ #[cfg(all(feature = "manager-index", not(feature = "manager-pointer")))]
+ mod index {
+     use oxidd_manager_index::node::fixed_arity::NodeWithLevelCons;
