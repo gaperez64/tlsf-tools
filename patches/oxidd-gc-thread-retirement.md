@@ -1,7 +1,7 @@
 # OxiDD GC thread retirement on upstream main
 
 Upstream checkout: `be2f69bd704a4b9baf993fe54ff92c7ca17bb177`.
-Patch: `oxidd-local-store-generation.patch` (filename retained for build-script continuity).
+Patch: `oxidd-gc-thread-retirement.patch`.
 
 Upstream commit `9fd1ed0278f69b235d6f87b87a414c64c4ab6026` fixes the stale
 `current_store` address: `LocalStoreStateGuard::drop` now clears it even when

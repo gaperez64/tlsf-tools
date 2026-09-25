@@ -24,9 +24,12 @@ jobs:
       - name: Check formatting
         run: |
           clang-format --version
-          find src include/tlsf test -type f \
-            \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' \) \
-            -print0 | xargs -0 clang-format --dry-run --Werror
+          git ls-files -z --cached --others --exclude-standard -- \
+            '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' \
+            ':!:external/**' ':!:build*/**' |
+          while IFS= read -r -d '' file; do
+            if [ -f "$file" ]; then printf '%s\0' "$file"; fi
+          done | xargs -0 -r clang-format --dry-run --Werror
 
   # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
   # once and share it with the explicit OxiDD research job as an artifact, so
@@ -54,7 +57,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             external/oxidd/target
-          key: oxidd-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'patches/**') }}
+          key: oxidd-gc-thread-retirement-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'patches/oxidd-gc-thread-retirement.patch') }}
       - name: Install cbindgen
         run: |
           if ! command -v cbindgen >/dev/null || \
@@ -71,7 +74,7 @@ jobs:
           path: |
             external/oxidd/target/release/liboxidd_ffi_c.a
             external/oxidd/build/include
-            external/oxidd/build/oxidd-patch-info.txt
+            external/oxidd/build/oxidd-gc-thread-retirement-info.txt
           if-no-files-found: error
           retention-days: 1
 
@@ -196,7 +199,7 @@ jobs:
           name: oxidd-ffi
           path: external/oxidd
       - name: Apply OxiDD source patch
-        run: git -C external/oxidd apply ../../patches/oxidd-local-store-generation.patch
+        run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
       - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
           CC: gcc-14
@@ -231,7 +234,7 @@ jobs:
           name: oxidd-ffi
           path: external/oxidd
       - name: Apply OxiDD source patch
-        run: git -C external/oxidd apply ../../patches/oxidd-local-store-generation.patch
+        run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
       - name: Build pinned Spot release
         run: |
           curl -fsSL https://www.lre.epita.fr/dload/spot/spot-2.16.tar.gz \

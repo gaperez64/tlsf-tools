@@ -13,8 +13,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 oxidd="$root/external/oxidd"
 crate="$oxidd/crates/oxidd-ffi-c"
 incdir="$oxidd/build/include/oxidd"
-patch="$root/patches/oxidd-local-store-generation.patch"
-patch_info="$oxidd/build/oxidd-patch-info.txt"
+patch="$root/patches/oxidd-gc-thread-retirement.patch"
+patch_info="$oxidd/build/oxidd-gc-thread-retirement-info.txt"
 archive="$oxidd/target/release/liboxidd_ffi_c.a"
 upstream_commit=be2f69bd704a4b9baf993fe54ff92c7ca17bb177
 
@@ -33,7 +33,7 @@ if [ ! -s "$patch" ]; then
   exit 1
 fi
 patch_sha=$(sha256sum "$patch" | cut -d ' ' -f 1)
-patch_record="oxidd-$upstream_commit+gc-retirement+$patch_sha"
+patch_record="oxidd-$upstream_commit+gc-thread-retirement+$patch_sha"
 patched_source_matches() {
   git -C "$oxidd" diff | cmp -s - "$patch"
 }
