@@ -80,8 +80,12 @@ static bool classify_rec(const Node *n, LiveAcc *acc) {
       return false;
     }
     return true;
-  case NODE_AND:
-    return classify_rec(n->lhs, acc) & classify_rec(n->rhs, acc);
+  case NODE_AND: {
+    // Visit both sides, left first: each accumulates its obligations.
+    bool lhs = classify_rec(n->lhs, acc);
+    bool rhs = classify_rec(n->rhs, acc);
+    return lhs && rhs;
+  }
   case NODE_IMPL:
     // TLSF residuals often retain the shape assumptions -> guarantee.  Treat
     // the guarantee side as the liveness obligation and ignore assumptions for
