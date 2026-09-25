@@ -28,22 +28,13 @@ check_output_dir = files('check_output_dir.sh')
 check_output_dir_fail = files('check_output_dir_fail.sh')
 check_version = files('check_version.sh')
 
-test('version_tlsf2ltl', check_version, args: ['tlsf2ltl', exe['tlsf2ltl']])
-test('version_tlsf2tlsf', check_version, args: ['tlsf2tlsf', exe['tlsf2tlsf']])
-test('version_tlsfinfo', check_version, args: ['tlsfinfo', exe['tlsfinfo']])
-test('version_tlsfnorm', check_version, args: ['tlsfnorm', exe['tlsfnorm']])
-test('version_mealy2moore', check_version,
-  args: ['mealy2moore', exe['mealy2moore']])
+foreach name, tool : exe
+  test('version_' + name, check_version, args: [name, tool])
+endforeach
 if research_tools
-  test('version_tlsftemplates', check_version,
-    args: ['tlsftemplates', exe['tlsftemplates']])
-  test('version_tlsfbenchgraph', check_version,
-    args: ['tlsfbenchgraph', exe['tlsfbenchgraph']])
   test('tlsfbenchgraph_schema', files('check_benchgraph_schema.sh'),
     args: [exe['tlsfbenchgraph'],
            files(cases / 'normalization_match.tlsf')])
-  test('version_tlsfresidual', check_version,
-    args: ['tlsfresidual', exe['tlsfresidual']])
   if python3.found()
     test('automata_study_bundle', files('check_automata_study.sh'),
       args: [files(scripts / 'automata_study.py'), exe['tlsfnorm'],
@@ -53,14 +44,6 @@ if research_tools
     test('automata_study_evaluator', python3,
       args: [files('check_evaluate_automata_study.py'),
              files(scripts / 'evaluate_automata_study.py')])
-  endif
-  if have_oxidd
-    test('version_tlsfcompose', check_version,
-      args: ['tlsfcompose', exe['tlsfcompose']])
-    test('version_tlsfsolve', check_version,
-      args: ['tlsfsolve', exe['tlsfsolve']])
-    test('version_tlsfcertcheck', check_version,
-      args: ['tlsfcertcheck', exe['tlsfcertcheck']])
   endif
 endif
 
@@ -97,35 +80,16 @@ test('ltl_full_parens', check,
          files(cases / 'Patterns_Uright_uright06.tlsf')])
 
 # Output dialects (--format) and formula transformations.
-test('ltl_format_ltl', check,
-  args: [files(cases / 'operators.ltlfmt.ltl'),
-         exe['tlsf2ltl'], '--format', 'ltl',
-         files(cases / 'operators.tlsf')])
-
-test('ltl_format_latex', check,
-  args: [files(cases / 'operators.latex.ltl'),
-         exe['tlsf2ltl'], '--format', 'latex',
-         files(cases / 'operators.tlsf')])
-
-test('ltl_strong_simplify', check,
-  args: [files(cases / 'operators.s1.ltl'),
-         exe['tlsf2ltl'], '--strong-simplify',
-         files(cases / 'operators.tlsf')])
-
-test('ltl_no_derived', check,
-  args: [files(cases / 'operators.nd.ltl'),
-         exe['tlsf2ltl'], '--no-derived',
-         files(cases / 'operators.tlsf')])
-
-test('ltl_no_release', check,
-  args: [files(cases / 'operators.nr.ltl'),
-         exe['tlsf2ltl'], '--no-release',
-         files(cases / 'operators.tlsf')])
-
-test('ltl_no_strong_release', check,
-  args: [files(cases / 'operators.nsr.ltl'),
-         exe['tlsf2ltl'], '--no-strong-release',
-         files(cases / 'operators.tlsf')])
+foreach t : [['ltl_format_ltl', 'ltlfmt', ['--format', 'ltl']],
+             ['ltl_format_latex', 'latex', ['--format', 'latex']],
+             ['ltl_strong_simplify', 's1', ['--strong-simplify']],
+             ['ltl_no_derived', 'nd', ['--no-derived']],
+             ['ltl_no_release', 'nr', ['--no-release']],
+             ['ltl_no_strong_release', 'nsr', ['--no-strong-release']]]
+  test(t[0], check,
+    args: [files(cases / 'operators.' + t[1] + '.ltl'), exe['tlsf2ltl']] +
+          t[2] + [files(cases / 'operators.tlsf')])
+endforeach
 
 # Environment fairness: scalar + parameterized bus inputs, preserved existing
 # assumptions, rewrites and safety/liveness guarantee selection.
@@ -264,54 +228,27 @@ test('obligation_census', files('check_obligation_census.sh'),
   args: [exe['tlsftemplates'], files(cases / 'arbiter1formula.nnfbool.tlsf')])
 
 # tlsftemplates (M5): certify CSNF for template blocks + soundness declines.
-test('tmpl_definition', check_wl,
-  args: [files(cases / 'def_demo.csnf'), exe['tlsftemplates'],
-         '--certify', '--solve', '--format', 'csnf',
-         files(cases / 'def_demo.tlsf')])
-test('tmpl_round_robin', check_wl,
-  args: [files(cases / 'roundrobin2.csnf'), exe['tlsftemplates'],
-         '--certify', '--solve', '--format', 'csnf',
-         files(cases / 'roundrobin2.tlsf')])
-test('tmpl_guarded_next', check_wl,
-  args: [files(cases / 'gnext_one_sided.csnf'), exe['tlsftemplates'],
-         '--certify', '--solve', '--format', 'csnf',
-         files(cases / 'gnext_one_sided.tlsf')])
-test('tmpl_set_reset', check_wl,
-  args: [files(cases / 'gnext_demo.csnf'), exe['tlsftemplates'],
-         '--certify', '--solve', '--format', 'csnf',
-         files(cases / 'gnext_demo.tlsf')])
-test('tmpl_set_reset_declined', check_wl,
-  args: [files(cases / 'gnext_unsafe.csnf'), exe['tlsftemplates'],
-         '--certify', '--format', 'csnf',
-         files(cases / 'gnext_unsafe.tlsf')])
-test('tmpl_set_reset_strong_finite_declined', check_wl,
-  args: [files(cases / 'gnext_strong_fin.csnf'), exe['tlsftemplates'],
-         '--certify', '--format', 'csnf',
-         files(cases / 'gnext_strong_fin.tlsf')])
-test('tmpl_toggle', check_wl,
-  args: [files(cases / 'toggle_demo.csnf'), exe['tlsftemplates'],
-         '--certify', '--solve', '--format', 'csnf',
-         files(cases / 'toggle_demo.tlsf')])
-test('tmpl_toggle_strong_finite_declined', check_wl,
-  args: [files(cases / 'toggle_strong_fin.csnf'), exe['tlsftemplates'],
-         '--certify', '--format', 'csnf',
-         files(cases / 'toggle_strong_fin.tlsf')])
-test('tmpl_fixed_delay', check_wl,
-  args: [files(cases / 'fdelay_demo.csnf'), exe['tlsftemplates'],
-         '--certify', '--solve', '--format', 'csnf',
-         files(cases / 'fdelay_demo.tlsf')])
-test('tmpl_fixed_delay_declined', check_wl,
-  args: [files(cases / 'fdelay_blocked.csnf'), exe['tlsftemplates'],
-         '--certify', '--format', 'csnf',
-         files(cases / 'fdelay_blocked.tlsf')])
-test('tmpl_fixed_delay_strong_finite_declined', check_wl,
-  args: [files(cases / 'fdelay_strong_fin.csnf'), exe['tlsftemplates'],
-         '--certify', '--format', 'csnf',
-         files(cases / 'fdelay_strong_fin.tlsf')])
-test('tmpl_delayed_def_strong_finite_declined', check_wl,
-  args: [files(cases / 'ddef_strong_fin.csnf'), exe['tlsftemplates'],
-         '--certify', '--format', 'csnf',
-         files(cases / 'ddef_strong_fin.tlsf')])
+foreach t : [['tmpl_definition', 'def_demo'],
+             ['tmpl_round_robin', 'roundrobin2'],
+             ['tmpl_guarded_next', 'gnext_one_sided'],
+             ['tmpl_set_reset', 'gnext_demo'],
+             ['tmpl_toggle', 'toggle_demo'],
+             ['tmpl_fixed_delay', 'fdelay_demo']]
+  test(t[0], check_wl,
+    args: [files(cases / t[1] + '.csnf'), exe['tlsftemplates'],
+           '--certify', '--solve', '--format', 'csnf',
+           files(cases / t[1] + '.tlsf')])
+endforeach
+foreach t : [['tmpl_set_reset_declined', 'gnext_unsafe'],
+             ['tmpl_set_reset_strong_finite_declined', 'gnext_strong_fin'],
+             ['tmpl_toggle_strong_finite_declined', 'toggle_strong_fin'],
+             ['tmpl_fixed_delay_declined', 'fdelay_blocked'],
+             ['tmpl_fixed_delay_strong_finite_declined', 'fdelay_strong_fin'],
+             ['tmpl_delayed_def_strong_finite_declined', 'ddef_strong_fin']]
+  test(t[0], check_wl,
+    args: [files(cases / t[1] + '.csnf'), exe['tlsftemplates'],
+           '--certify', '--format', 'csnf', files(cases / t[1] + '.tlsf')])
+endforeach
 # Template-coverage expansion: free-liveness family, reaction, delayed-def,
 # fair arbiter — each with a solved and a declined (non-free / non-exclusive) case.
 foreach name : ['reach_free', 'reach_blocked', 'persist_free', 'reaction_ok',
@@ -433,36 +370,6 @@ if have_oxidd
     args: [files(cases / 'compose_demo.response_monitor.route_stats'),
            exe['tlsfcompose'], '--split', '--route-stats',
            files(cases / 'compose_demo.tlsf')])
-  test('compose_route_stats_initial_x_assume', check,
-    args: [files(cases / 'initial_x_assume.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'initial_x_assume.tlsf')])
-  test('compose_route_stats_delayed_global', check,
-    args: [files(cases / 'delayed_global.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'delayed_global.tlsf')])
-  test('compose_route_stats_gr1_recurrence', check,
-    args: [files(cases / 'gr1_recurrence.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'gr1_recurrence.tlsf')])
-  test('compose_route_stats_strict_safety', check,
-    args: [files(cases / 'strict_safety.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'strict_safety.tlsf')])
-  test('compose_route_stats_wr_response', check,
-    args: [files(cases / 'wr_response.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'wr_response.tlsf')])
-  test('compose_route_stats_reaction_ok', check,
-    args: [files(cases / 'reaction_ok.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'reaction_ok.tlsf')])
-  test('compose_route_stats_response_same_cycle', check,
-    args: [files(cases / 'response_same_cycle.route_stats'),
-           exe['tlsfcompose'], '--split', '--route-stats',
-           files(cases / 'response_same_cycle.tlsf')])
-  test('compose_route_stats_eventual_output', check,
-    args: [files(cases / 'eventual_output.route_stats'),
-           exe['tlsfcompose'], '--split', '--route-stats',
-           files(cases / 'eventual_output.tlsf')])
-  test('compose_route_stats_until_input_target', check,
-    args: [files(cases / 'until_input_target.route_stats'),
-           exe['tlsfcompose'], '--split', '--route-stats',
-           files(cases / 'until_input_target.tlsf')])
   test('compose_route_stats_policy_off', check,
     args: [files(cases / 'gr1_spec.policy_off.route_stats'),
            exe['tlsfcompose'], '--split', '--route-stats',
@@ -472,8 +379,11 @@ if have_oxidd
            exe['tlsfcompose'], '--split', '--route-stats',
            '--preprocess-policy', 'profitable',
            files(cases / 'policy_profitable_skip.tlsf')])
-  foreach name : ['liveness_eventual', 'liveness_until', 'liveness_mixed',
-                  'liveness_nested']
+  foreach name : ['initial_x_assume', 'delayed_global', 'gr1_recurrence',
+                  'strict_safety', 'wr_response', 'reaction_ok',
+                  'response_same_cycle', 'eventual_output',
+                  'until_input_target', 'liveness_eventual', 'liveness_until',
+                  'liveness_mixed', 'liveness_nested']
     test('compose_route_stats_' + name, check,
       args: [files(cases / name + '.route_stats'), exe['tlsfcompose'],
              '--split', '--route-stats',
@@ -574,10 +484,15 @@ if research_tools and have_oxidd
     args: ['0', files(cases / 'solve_real.out.aag'),
            files(cases / 'empty'), exe['tlsfsolve'],
            files(cases / 'solve_real_unnamed_output.aag')])
-  test('tlsfsolve_unreal', check_status,
-    args: ['1', files(cases / 'empty'),
-           files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
-           files(cases / 'solve_unreal.aag')])
+  foreach t : [['tlsfsolve_unreal', 'solve_unreal'],
+               ['tlsfsolve_gr1_fair1_unreal', 'gr1_fair1'],
+               ['tlsfsolve_gr1_fair2_unreal', 'gr1_fair2'],
+               ['tlsfsolve_gr1_input_fairness_unreal', 'gr1_input_fairness']]
+    test(t[0], check_status,
+      args: ['1', files(cases / 'empty'),
+             files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
+             files(cases / t[1] + '.aag')])
+  endforeach
   test('tlsfsolve_multi_bad_explicit', check_status,
     args: ['1', files(cases / 'empty'),
            files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
@@ -586,18 +501,6 @@ if research_tools and have_oxidd
   test('tlsfsolve_multi_bad_auto_refuses', check_contains,
     args: ['cannot infer synthesis game profile.*multi-safety', exe['tlsfsolve'],
            files(cases / 'solve_multi_bad_unreal.aag')])
-  test('tlsfsolve_gr1_fair1_unreal', check_status,
-    args: ['1', files(cases / 'empty'),
-           files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
-           files(cases / 'gr1_fair1.aag')])
-  test('tlsfsolve_gr1_fair2_unreal', check_status,
-    args: ['1', files(cases / 'empty'),
-           files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
-           files(cases / 'gr1_fair2.aag')])
-  test('tlsfsolve_gr1_input_fairness_unreal', check_status,
-    args: ['1', files(cases / 'empty'),
-           files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
-           files(cases / 'gr1_input_fairness.aag')])
   test('tlsfsolve_failure', check_status,
     args: ['2', files(cases / 'empty'),
            files(cases / 'solve_failure.stderr'), tlsfsolve_failure_exe,
