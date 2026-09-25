@@ -1,0 +1,281 @@
+/// tlsfresidual — what is left of a spec after template certification.
+///
+/// Runs the cover -> recognize -> certify -> compose pipeline, keeps the
+/// maximal sound set of SOLVED blocks (csnf_compose), and re-emits the
+/// remaining (residual) obligations as a single LTL formula, ready to hand to
+/// an external synthesizer (e.g. `ltlsynt --ins=.. --outs=..`).  The certified
+/// controllers plus a controller for this residual realise the whole spec.
+
+#include "build_info.h"
+#include "cli.h"
+#include "tlsf/pipeline.h"
+#include "print_ltlxba.h"
+#include "residual.h"
+
+#include <ctype.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void usage(const char *prog) {
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Emit the residual LTL of a spec after template certification.\n"
+      "  --split                      decompose constraints first\n"
+      "  --single                     emit the whole residual as one formula\n"
+      "  --output-dir DIR             write one residual.<k>.ltl per cluster\n"
+      "  --lowercase                  lowercase emitted formulas and "
+      "interfaces\n"
+      "  --format ltlxba|ltl          output dialect (default ltlxba)\n"
+      "  --overwrite-semantics VALUE  replace SEMANTICS\n"
+      "  --overwrite-target VALUE     replace TARGET\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --output FILE                write to FILE (default stdout)\n"
+      "  --version, --help\n",
+      prog);
+}
+
+static bool parse_override(const char *s, ParamOverride *out) {
+  const char *eq = strchr(s, '=');
+  if (!eq || eq == s) {
+    fprintf(stderr, "tlsfresidual: bad --param '%s'\n", s);
+    return false;
+  }
+  size_t nlen = (size_t)(eq - s);
+  char *name = malloc(nlen + 1);
+  if (!name)
+    return false;
+  memcpy(name, s, nlen);
+  name[nlen] = '\0';
+  char *end;
+  long long val = strtoll(eq + 1, &end, 10);
+  if (*end != '\0') {
+    fprintf(stderr, "tlsfresidual: non-integer value in --param '%s'\n", s);
+    free(name);
+    return false;
+  }
+  out->name = name;
+  out->value = (int64_t)val;
+  return true;
+}
+
+static void residual_print_signals_case(FILE *out, ConstraintCover *cov,
+                                        const bool *seen, uint8_t flag,
+                                        bool lower) {
+  bool first = true;
+  for (uint32_t a = 0; a < cov->aps.count; a++) {
+    if (!seen[a] || !residual_signal_matches(cov, a, flag))
+      continue;
+    fputs(first ? "" : ",", out);
+    const char *name = ap_table_name(&cov->aps, a);
+    if (lower) {
+      for (const char *p = name; *p; p++)
+        fputc(tolower((unsigned char)*p), out);
+    } else {
+      fputs(name, out);
+    }
+    first = false;
+  }
+}
+
+int main(int argc, char *argv[]) {
+  bool split = false, single = false, lowercase = false;
+  LtlFormat fmt = LTL_FMT_LTLXBA;
+  const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;
+  const char *os_arg = nullptr, *ot_arg = nullptr;
+  ParamOverride overrides[64];
+  size_t n_overrides = 0;
+
+#define NEED_ARG()                                                             \
+  (++i >= argc ? (fprintf(stderr, "tlsfresidual: %s requires an argument\n",   \
+                          argv[i - 1]),                                        \
+                  exit(1), nullptr)                                            \
+               : argv[i])
+
+  for (int i = 1; i < argc; i++) {
+    const char *a = argv[i];
+    if (strcmp(a, "--split") == 0) {
+      split = true;
+    } else if (strcmp(a, "--single") == 0) {
+      single = true;
+    } else if (strcmp(a, "--lowercase") == 0) {
+      lowercase = true;
+    } else if (strcmp(a, "--output-dir") == 0) {
+      out_dir = NEED_ARG();
+    } else if (strcmp(a, "--format") == 0) {
+      const char *v = NEED_ARG();
+      if (!strcmp(v, "ltlxba"))
+        fmt = LTL_FMT_LTLXBA;
+      else if (!strcmp(v, "ltl"))
+        fmt = LTL_FMT_LTL;
+      else {
+        fprintf(stderr, "tlsfresidual: unknown format '%s'\n", v);
+        return 1;
+      }
+    } else if (strcmp(a, "--overwrite-semantics") == 0) {
+      os_arg = NEED_ARG();
+    } else if (strcmp(a, "--overwrite-target") == 0) {
+      ot_arg = NEED_ARG();
+    } else if (strcmp(a, "--param") == 0) {
+      const char *v = NEED_ARG();
+      if (n_overrides >= 64) {
+        fprintf(stderr, "tlsfresidual: too many --param overrides\n");
+        return 1;
+      }
+      if (!parse_override(v, &overrides[n_overrides++]))
+        return 1;
+    } else if (strcmp(a, "--output") == 0) {
+      output_file = NEED_ARG();
+    } else if (strcmp(a, "--version") == 0) {
+      printf("tlsfresidual %s\n", TLSF_PROJECT_VERSION);
+      return 0;
+    } else if (strcmp(a, "--help") == 0) {
+      usage(argv[0]);
+      return 0;
+    } else if (a[0] != '-') {
+      if (input_file) {
+        fprintf(stderr, "tlsfresidual: multiple input files not supported\n");
+        return 1;
+      }
+      input_file = a;
+    } else {
+      fprintf(stderr, "tlsfresidual: unknown option '%s'\n", a);
+      usage(argv[0]);
+      return 1;
+    }
+  }
+#undef NEED_ARG
+
+  FILE *fp = cli_open_input(input_file, "tlsfresidual");
+  if (!fp)
+    return 1;
+  TlsfPipelineOptions popts = {
+      .split = split,
+      .certify = true,
+      .template_mask = TPL_ALL,
+      .overwrite_semantics = os_arg,
+      .overwrite_target = ot_arg,
+      .overrides = overrides,
+      .n_overrides = n_overrides,
+      .tool_name = "tlsfresidual",
+  };
+  TlsfPipeline *p = tlsf_pipeline_load(fp, &popts);
+  if (input_file)
+    fclose(fp);
+  for (size_t i = 0; i < n_overrides; i++)
+    free((void *)overrides[i].name);
+  if (!p)
+    return 1;
+
+  TlsfSpec *spec = p->spec;
+  ConstraintCover *cov = p->cover;
+  CsnfComposition *comp = p->composition;
+  if (lowercase && !spec_validate_lowercase_signals(spec, "tlsfresidual")) {
+    tlsf_pipeline_free(p);
+    return 1;
+  }
+
+  FILE *out = cli_open_output(output_file, "tlsfresidual");
+  if (!out) {
+    tlsf_pipeline_free(p);
+    return 1;
+  }
+
+  uint32_t A = cov->aps.count, N = cov->count, tot = N;
+  int rc = 0;
+
+  if (comp->fully_solved)
+    fprintf(out, "c composition: fully-solved\n");
+  else
+    fprintf(out,
+            "c composition: residual=%u/%u constraints (%.0f%% eliminated), "
+            "outputs owned=%u, conflicts=%u\n",
+            comp->nresidual, tot,
+            tot ? 100.0 * (double)comp->neliminated / (double)tot : 0.0,
+            comp->nowned_outputs, comp->nconflicts);
+
+  // Substitute solved combinational outputs out of every residual constraint.
+  const Node **rf = calloc(N ? N : 1, sizeof(Node *));
+  for (uint32_t i = 0; i < N; i++)
+    if (comp->residual_constraint[i])
+      rf[i] =
+          residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
+
+  bool *seen = calloc(A ? A : 1, sizeof(bool));
+  bool finite = semantics_is_finite(spec->info.semantics);
+
+  if (single) {
+    Node *root = residual_build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true,
+                                        /*prune=*/true, N, seen);
+    if (!root) {
+      rc = 1;
+    } else {
+      fprintf(out, "c outs=");
+      residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
+      fprintf(out, "\nc ins=");
+      residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
+      fprintf(out, "\n");
+      print_ltl(out, root, fmt, /*full_parens=*/false, finite,
+                /*lower_atoms=*/lowercase);
+    }
+  } else {
+    // Cluster residual constraints by shared output (output-disjoint
+    // decomposition: E -> AND Gi == AND (E -> Gi)).
+    uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
+    uint32_t *keys = nullptr;
+    uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
+
+    fprintf(out, "c clusters %u\n", K);
+    for (uint32_t k = 0; k < K && rc == 0; k++) {
+      Node *root =
+          residual_build_cluster(spec, cov, rf, key, keys[k],
+                                 /*all=*/false, /*prune=*/true, N, seen);
+      if (!root) {
+        rc = 1;
+        break;
+      }
+      if (out_dir) {
+        char path[4096];
+        snprintf(path, sizeof path, "%s/residual.%u.ltl", out_dir, k);
+        FILE *cf = fopen(path, "w");
+        if (!cf) {
+          fprintf(stderr, "tlsfresidual: cannot write %s\n", path);
+          rc = 1;
+          break;
+        }
+        fprintf(cf, "c outs=");
+        residual_print_signals_case(cf, cov, seen, AP_FLAG_OUTPUT, lowercase);
+        fprintf(cf, "\nc ins=");
+        residual_print_signals_case(cf, cov, seen, AP_FLAG_INPUT, lowercase);
+        fprintf(cf, "\n");
+        print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/lowercase);
+        fclose(cf);
+        fprintf(out, "c cluster %u file=residual.%u.ltl outs=", k, k);
+        residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
+        fprintf(out, " ins=");
+        residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
+        fprintf(out, "\n");
+      } else {
+        fprintf(out, "c cluster %u outs=", k);
+        residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
+        fprintf(out, " ins=");
+        residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
+        fprintf(out, "\n");
+        print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/lowercase);
+      }
+    }
+    free(key);
+    free(keys);
+  }
+
+  free(seen);
+  free(rf);
+  if (rc)
+    fprintf(stderr, "tlsfresidual: classification failed (OOM)\n");
+  if (output_file)
+    fclose(out);
+  tlsf_pipeline_free(p);
+  return rc;
+}

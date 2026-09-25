@@ -435,13 +435,31 @@ safety/liveness output modes.
 > tree has no `F`, `U`, or internally derived strong-release node. A safety
 > property written with liveness operators is classified as liveness.
 
+## Source layout
+
+```
+include/tlsf/      public API; every header here is installed
+src/lib/           libtlsf and its private headers; the OxiDD solvers and GR(1)
+                   checker build a second archive, tlsf-oxidd, folded into
+                   libtlsf under -Dnative_gr1=enabled
+src/tools/<tool>/  one directory per executable (common/ holds shared helpers)
+test/unit/         programs testing internal units
+test/api/          programs using only the installed headers
+test/cli/          checks of the executables against golden outputs
+test/oracle/       Python oracles and differentials
+test/fixtures/     fake solvers, stubs and the case corpus (cases/)
+```
+
+Each area has its own `meson.build`; the executables are declared at the top
+level so they build to `build/<tool>`.
+
 ## Tests, formatting, benchmarking
 
 ```sh
 meson test -C build                                  # fast golden-output suite
 meson setup build-cov -Dresearch_tools=true -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
-clang-format -i src/*.c include/tlsf/*.h             # style (LLVM, 2-space, 80col)
-clang-tidy -p build src/*.c                          # lint
+git ls-files '*.[ch]' '*.cc' '*.cpp' '*.hh' '*.hpp' | xargs clang-format -i  # style
+clang-tidy -p build src/lib/*.c src/tools/*/*.c      # lint
 bench/bench.sh [--baseline|--check]                  # wall/RSS perf-regression guard
 ```
 

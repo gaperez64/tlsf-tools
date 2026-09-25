@@ -106,13 +106,13 @@ jobs:
         run: |
           set -e
           for args in \
-            "tlsf2ltl test/cases/Patterns_Uright_uright06.tlsf" \
-            "tlsf2ltl --parenthesize test/cases/Random_Lydia_case_03_50_05.tlsf" \
-            "tlsf2ltl test/cases/operators.tlsf" \
-            "tlsf2tlsf test/cases/defs.tlsf" \
-            "tlsfinfo --generalized-reactivity test/cases/gr4_spec.tlsf" \
-            "mealy2moore test/cases/mealy2moore_simple.in.aag" \
-            "tlsf2tlsf --param n=5 test/cases/param_demo.tlsf"; do
+            "tlsf2ltl test/fixtures/cases/Patterns_Uright_uright06.tlsf" \
+            "tlsf2ltl --parenthesize test/fixtures/cases/Random_Lydia_case_03_50_05.tlsf" \
+            "tlsf2ltl test/fixtures/cases/operators.tlsf" \
+            "tlsf2tlsf test/fixtures/cases/defs.tlsf" \
+            "tlsfinfo --generalized-reactivity test/fixtures/cases/gr4_spec.tlsf" \
+            "mealy2moore test/fixtures/cases/mealy2moore_simple.in.aag" \
+            "tlsf2tlsf --param n=5 test/fixtures/cases/param_demo.tlsf"; do
             echo "valgrind: $args"
             valgrind --error-exitcode=1 --leak-check=full \
               --errors-for-leak-kinds=definite,indirect ./build/$args >/dev/null
@@ -167,14 +167,15 @@ jobs:
           CC: gcc-14
         run: |
           meson setup build-simd-${{ matrix.cpu }} -Doxidd=disabled -Dcpu=${{ matrix.cpu }}
-          ninja -C build-simd-${{ matrix.cpu }} simd_check
+          meson compile -C build-simd-${{ matrix.cpu }} simd_check
           meson test -C build-simd-${{ matrix.cpu }} simd_kernels --print-errorlogs
 
   # OxiDD-enabled build: links the shared FFI artifact, compiles the in-process
-  # safety + GR(1) solvers (src/safety_oxidd.c, src/gr1_oxidd.c, src/aiger.c via
-  # tlsfcompose/tlsfsolve) and runs the full research suite. The Spot-verified
-  # verify_aiger_oxidd* tests auto-gate on Spot (absent here) and run locally;
-  # bounded_synthesis_harness still exercises a real in-process solve.
+  # safety + GR(1) solvers (src/lib/safety_oxidd.c, src/lib/gr1_oxidd.c,
+  # src/lib/aiger.c via tlsfcompose/tlsfsolve) and runs the full research
+  # suite. The Spot-verified verify_aiger_oxidd* tests auto-gate on Spot
+  # (absent here) and run locally; bounded_synthesis_harness still exercises a
+  # real in-process solve.
   build-oxidd:
     needs: oxidd
     runs-on: ubuntu-24.04
@@ -205,7 +206,7 @@ jobs:
           CC: gcc-14
         run: |
           # GitHub x86 runners are Haswell+ (AVX2-safe); exercises the
-          # compile-time SIMD path in include/tlsf/simd.h.
+          # compile-time SIMD path in src/lib/simd.h.
           meson setup build-oxidd -Doxidd=enabled -Dresearch_tools=true -Dcpu=avx2
           ninja -C build-oxidd
           meson test -C build-oxidd --print-errorlogs
@@ -261,8 +262,12 @@ jobs:
           meson test -C build-native-ci --num-processes 1 --print-errorlogs
           meson setup build-oxidd-ci -Dnative_gr1=disabled -Doxidd=enabled \
             -Dresearch_tools=true -Dcpp_std=c++20
-          python3 test/check_native_gate.py build-oxidd-ci
           meson compile -C build-oxidd-ci -j1
+          python3 test/api/check_native_gate.py build-oxidd-ci
+          # The configuration Acacia-Bonsai builds as a subproject.
+          meson setup build-native-lib -Dnative_gr1=enabled -Doxidd=enabled \
+            -Dresearch_tools=false -Dcpp_std=c++23
+          meson compile -C build-native-lib -j1
 
   coverage:
     runs-on: ubuntu-24.04
@@ -293,7 +298,7 @@ jobs:
           # the parsed line percentage.
           # aiger.c is excluded for the same reason as the solver files: it is an
           # OxiDD-path TU (the AIG game model) whose only callers
-          # (main_tlsfcompose / csnf_emit_local_aiger) need -DHAVE_OXIDD, so it is
+          # (tlsfcompose / csnf_emit_local_aiger) need -DHAVE_OXIDD, so it is
           # never exercised in this dependency-free build (0% here), yet it links
           # into the shared lib. It is covered by the local verify_aiger_oxidd*
           # suite. Counting its ~780 untestable-here lines just makes the gate
