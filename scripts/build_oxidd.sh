@@ -35,7 +35,15 @@ fi
 patch_sha=$(sha256sum "$patch" | cut -d ' ' -f 1)
 patch_record="oxidd-$upstream_commit+gc-thread-retirement+$patch_sha"
 patched_source_matches() {
-  git -C "$oxidd" diff | cmp -s - "$patch"
+  # git diff omits a newly added, untracked file until it is staged. Include
+  # the upstream patch's new Rust test module without touching the index.
+  test -f "$oxidd/crates/oxidd-manager-index/src/manager_lifetime_tests.rs" &&
+    {
+      git -C "$oxidd" diff
+      git -C "$oxidd" diff --no-index -- /dev/null \
+        crates/oxidd-manager-index/src/manager_lifetime_tests.rs ||
+        [ "$?" -eq 1 ]
+    } | cmp -s - "$patch"
 }
 
 if [ "${1:-}" = "--verify" ]; then
