@@ -331,7 +331,8 @@ int main(int argc, char **argv) {
     }
 #endif
     if (!strcmp(arg, "--version")) {
-      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s oxidd_patch=%s\n",
+      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s "
+             "oxidd_patch=%s\n",
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
              tlsf_build_simd(),
 #ifndef NDEBUG
@@ -339,8 +340,7 @@ int main(int argc, char **argv) {
 #else
              "no",
 #endif
-             tlsf_build_oxidd_patch()
-      );
+             tlsf_build_oxidd_patch());
       return 0;
     }
     const char *val = option_value(&i, argc, argv, arg, "--certificate");

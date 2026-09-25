@@ -11,7 +11,6 @@
 extern "C" {
 #endif
 
-
 typedef enum {
   TLSF_GR1_REDUCE_OK,
   TLSF_GR1_REDUCE_UNSUPPORTED,

@@ -52,8 +52,8 @@ typedef struct {
   void *cancel_ctx;
   size_t solver_nodes, solver_cache, checker_nodes, checker_cache;
   size_t schema_nodes, schema_cache, max_artifact_bytes;
-  uint32_t max_monitor_states, max_sizes_per_axis,
-      max_predicate_arity, max_subsets_per_predicate;
+  uint32_t max_monitor_states, max_sizes_per_axis, max_predicate_arity,
+      max_subsets_per_predicate;
   double policy_proof_fraction, discovery_share;
   /* The Python default is true. Set to 2 to disable confirmation. */
   uint32_t seed_confirmation;

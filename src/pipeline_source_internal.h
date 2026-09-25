@@ -8,7 +8,8 @@
 extern "C" {
 #endif
 
-/* Count declarations in the parsed, unexpanded source. -1 means parse failure. */
+/* Count declarations in the parsed, unexpanded source. -1 means parse failure.
+ */
 int tlsf_source_parameter_count(const uint8_t *source, size_t size);
 
 #ifdef __cplusplus

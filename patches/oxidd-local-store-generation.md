@@ -23,16 +23,14 @@ uses a `Store` `Arc` directly, checks an already pending `Quit` before waiting,
 and keeps the existing local-store guard around collection. The Rust tests
 exercise repeated same-thread manager creation and concurrent final drops.
 
-Validation on this machine used a temporary offline dependency substitution:
-upstream's exact Cargo.lock requires uncached crates and crates.io DNS is
-unavailable. The temporary build substituted a local `dashu-int` implementation
-only for its integer-conversion API, downgraded the derive crate to cached
-`syn` 2 with its one corresponding source adjustment, and resolved compatible
-cached crate versions. Those changes were restored before saving the patch;
-only `manager.rs` and the Rust lifetime tests in `bdd.rs` differ from upstream.
-The lifetime regressions do not use the integer-conversion API. Rebuild from
-the original upstream lockfile once the exact crates are available for a fully
-reproducible release archive.
+Initial validation used temporary offline dependency substitutions while crates
+from upstream's exact Cargo.lock were unavailable. Those substitutions were
+restored before saving the patch; only `manager.rs` and the Rust lifetime tests
+in `bdd.rs` differ from upstream. After the exact crates were fetched, the
+patched archive was rebuilt offline with `cargo build -j 1 --release --locked`
+through `scripts/build_oxidd.sh`. On that archive, the C manager and checker
+lifetime modes each passed 10/10 runs, the Rust same-thread lifetime test passed,
+and the full serial Meson suite passed 300/300 tests.
 
 With the rebased patch, both Rust lifetime tests passed, as did ten consecutive
 C manager runs and ten consecutive C checker runs (300 checks per run). The

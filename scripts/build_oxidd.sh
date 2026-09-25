@@ -76,7 +76,7 @@ if ! patched_source_matches; then
 fi
 
 mkdir -p "$incdir"
-cargo build -j 1 --release --manifest-path "$crate/Cargo.toml"
+cargo build -j 1 --release --locked --manifest-path "$crate/Cargo.toml"
 cbindgen --output "$incdir/capi.h" "$crate"
 printf '/* C-only OxiDD config (no C++ extras) */\n' > "$incdir/config.h"
 archive_sha=$(sha256sum "$archive" | cut -d ' ' -f 1)

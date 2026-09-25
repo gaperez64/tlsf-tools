@@ -6,6 +6,7 @@ project(
     'scripts/git-version.py',
     check: true,
   ).stdout().strip(),
+  meson_version: '>= 1.7.0',
   license: 'MIT',
   default_options: [
     'warning_level=3',

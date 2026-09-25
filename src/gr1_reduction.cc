@@ -1006,9 +1006,10 @@ json::value provenance(const TlsfPipeline *pipeline,
         json::array refs;
         for (const auto &name : row.at("signals").as_array()) {
           const auto &signal = signal_by_name.at(name.as_string()).as_object();
-          refs.push_back(json::object{{"declaration_id", signal.at("declaration_id")},
-                                      {"index_tuple", signal.at("index_tuple")},
-                                      {"index_role", signal.at("index_role")}});
+          refs.push_back(
+              json::object{{"declaration_id", signal.at("declaration_id")},
+                           {"index_tuple", signal.at("index_tuple")},
+                           {"index_role", signal.at("index_role")}});
         }
         row["signal_refs"] = std::move(refs);
         candidates.emplace_back(parsed, std::move(row));
@@ -1022,8 +1023,8 @@ json::value provenance(const TlsfPipeline *pipeline,
     if (frontend_valid) {
       const auto &signal = signal_by_name.at(name).as_object();
       if (signal.at("dimensions").as_int64())
-        buses[std::string(signal.at("declaration_id").as_string())].emplace_back(
-            name, json_indices(signal.at("index_tuple")));
+        buses[std::string(signal.at("declaration_id").as_string())]
+            .emplace_back(name, json_indices(signal.at("index_tuple")));
     } else {
       auto [base, indices] = split_signal_index(name);
       if (!indices.empty())
@@ -1037,7 +1038,8 @@ json::value provenance(const TlsfPipeline *pipeline,
   for (auto &[base, members] : buses)
     std::sort(members.begin(), members.end(),
               [](const auto &a, const auto &b) { return a.second < b.second; });
-  auto signal_record = [&](const std::string &name, uint32_t literal) -> json::object {
+  auto signal_record = [&](const std::string &name,
+                           uint32_t literal) -> json::object {
     auto [base, indices] = split_signal_index(name);
     json::object record{{"name", name},
                         {"base_name", base},
@@ -1057,7 +1059,8 @@ json::value provenance(const TlsfPipeline *pipeline,
   for (size_t p = 0; p < inputs.size(); ++p)
     input_records.push_back(signal_record(inputs[p], uint32_t(2 * (p + 1))));
   for (size_t p = 0; p < outputs.size(); ++p)
-    output_records.push_back(signal_record(outputs[p], uint32_t(2 * (inputs.size() + p + 1))));
+    output_records.push_back(
+        signal_record(outputs[p], uint32_t(2 * (inputs.size() + p + 1))));
   bool available = frontend_valid;
   unsigned justice_index = 0;
   for (size_t index = 0; index < monitors.size(); ++index) {

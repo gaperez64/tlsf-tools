@@ -1,10 +1,14 @@
 #include "tlsf/gr1_lift.h"
 #include <assert.h>
 #include <string.h>
-static int cancelled(void *ctx) { (void)ctx; return 1; }
+static int cancelled(void *ctx) {
+  (void)ctx;
+  return 1;
+}
 int main(void) {
   static const char source[] =
-      "INFO { TITLE: \"x\" DESCRIPTION: \"x\" SEMANTICS: Mealy TARGET: Mealy }\n"
+      "INFO { TITLE: \"x\" DESCRIPTION: \"x\" SEMANTICS: Mealy TARGET: Mealy "
+      "}\n"
       "GLOBAL { PARAMETERS { n = 5; } }\n"
       "MAIN { INPUTS { a[n]; } OUTPUTS { b[n]; } GUARANTEES { G F b[0]; } }\n";
   TlsfGr1LiftOptions options = {0};

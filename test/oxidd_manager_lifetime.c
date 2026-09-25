@@ -1,7 +1,8 @@
 #include "tlsf/gr1_check.h"
 #include <oxidd/capi.h>
 
-/* Test assertions also perform checked I/O; keep them active in release builds. */
+/* Test assertions also perform checked I/O; keep them active in release builds.
+ */
 #undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
@@ -26,15 +27,15 @@ static long gc_thread_tid(void) {
     if (entry->d_name[0] == '.')
       continue;
     char path[128];
-    int len = snprintf(path, sizeof path, "/proc/self/task/%s/comm",
-                       entry->d_name);
+    int len =
+        snprintf(path, sizeof path, "/proc/self/task/%s/comm", entry->d_name);
     assert(len > 0 && (size_t)len < sizeof path);
     FILE *comm = fopen(path, "r");
     if (!comm) /* A thread may exit between readdir and fopen. */
       continue;
     char name[32];
-    bool match = fgets(name, sizeof name, comm) &&
-                 strcmp(name, "oxidd mi gc\n") == 0;
+    bool match =
+        fgets(name, sizeof name, comm) && strcmp(name, "oxidd mi gc\n") == 0;
     assert(fclose(comm) == 0);
     if (match) {
       tid = strtol(entry->d_name, NULL, 10);
@@ -57,7 +58,8 @@ static bool gc_thread_alive(long tid) {
 #endif
 
 /* Both loops deliberately stay on the calling thread. Each check constructs
- * and destroys its own OxiDD manager, as the native certificate checker does. */
+ * and destroys its own OxiDD manager, as the native certificate checker does.
+ */
 static void manager_lifetimes(void) {
   for (unsigned i = 0; i < 1000; ++i) {
     oxidd_bdd_manager_t manager = oxidd_bdd_manager_new(4096, 256, 1);
@@ -127,8 +129,8 @@ static void checker_lifetimes(const char *directory, unsigned iterations) {
     TlsfGr1CheckStatus status = tlsf_gr1_check(&input, &options, &result);
     if (status != TLSF_GR1_CHECK_OK ||
         result.verdict != TLSF_GR1_CHECK_VERIFIED) {
-      fprintf(stderr, "check %u: status=%d verdict=%d stage=%s message=%s\n",
-              i, status, result.verdict, result.stage, result.message);
+      fprintf(stderr, "check %u: status=%d verdict=%d stage=%s message=%s\n", i,
+              status, result.verdict, result.stage, result.message);
       abort();
     }
     tlsf_gr1_check_result_clear(&result);
@@ -145,8 +147,8 @@ int main(int argc, char **argv) {
   if (strcmp(argv[1], "manager") == 0)
     manager_lifetimes();
   else if (strcmp(argv[1], "checker") == 0)
-    checker_lifetimes(argv[2], argc == 4 ? (unsigned)strtoul(argv[3], NULL, 10)
-                                           : 300);
+    checker_lifetimes(argv[2],
+                      argc == 4 ? (unsigned)strtoul(argv[3], NULL, 10) : 300);
   else
     abort();
   return 0;

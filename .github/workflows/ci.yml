@@ -11,10 +11,10 @@ jobs:
   format:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       # Pin clang-format via the PyPI package so the formatting check is
@@ -24,8 +24,9 @@ jobs:
       - name: Check formatting
         run: |
           clang-format --version
-          clang-format --dry-run --Werror src/*.c src/native/*.c \
-            include/tlsf/*.h test/native_api*.c test/native_api_cpp.cpp
+          find src include/tlsf test -type f \
+            \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' \) \
+            -print0 | xargs -0 clang-format --dry-run --Werror
 
   # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
   # once and share it with the explicit OxiDD research job as an artifact, so
@@ -34,7 +35,7 @@ jobs:
   oxidd:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
@@ -46,16 +47,14 @@ jobs:
         id: rev
         run: echo "sha=$(git -C external/oxidd rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo + OxiDD build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin
             external/oxidd/target
-          key: oxidd-${{ runner.os }}-rust-1.98.1-${{ steps.rev.outputs.sha }}
-          restore-keys: |
-            oxidd-${{ runner.os }}-
+          key: oxidd-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'patches/**') }}
       - name: Install cbindgen
         run: |
           if ! command -v cbindgen >/dev/null || \
@@ -66,26 +65,32 @@ jobs:
       - name: Build OxiDD FFI
         run: scripts/build_oxidd.sh
       - name: Upload OxiDD FFI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oxidd-ffi
           path: |
             external/oxidd/target/release/liboxidd_ffi_c.a
             external/oxidd/build/include
+            external/oxidd/build/oxidd-patch-info.txt
           if-no-files-found: error
           retention-days: 1
 
   build-test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 valgrind
+            ninja-build flex bison gcc-14 valgrind
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Configure
         env:
           CC: gcc-14
@@ -113,14 +118,19 @@ jobs:
   build-clang:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison clang
+            ninja-build flex bison clang
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Configure, build and test
         env:
           CC: clang
@@ -136,14 +146,19 @@ jobs:
       matrix:
         cpu: [baseline, x86-64-v2, avx2]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14
+            ninja-build flex bison gcc-14
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Configure, build, and test SIMD kernels
         env:
           CC: gcc-14
@@ -161,19 +176,27 @@ jobs:
     needs: oxidd
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 python3
+            ninja-build flex bison gcc-14 python3
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Download OxiDD FFI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: oxidd-ffi
           path: external/oxidd
+      - name: Apply OxiDD source patch
+        run: git -C external/oxidd apply ../../patches/oxidd-local-store-generation.patch
       - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
           CC: gcc-14
@@ -188,20 +211,27 @@ jobs:
     needs: oxidd
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 g++-14 make curl pkg-config
+            ninja-build flex bison gcc-14 g++-14 make curl pkg-config
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Download OxiDD FFI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: oxidd-ffi
           path: external/oxidd
+      - name: Apply OxiDD source patch
+        run: git -C external/oxidd apply ../../patches/oxidd-local-store-generation.patch
       - name: Build pinned Spot release
         run: |
           curl -fsSL https://www.lre.epita.fr/dload/spot/spot-2.16.tar.gz \
@@ -234,14 +264,19 @@ jobs:
   coverage:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc gcovr
+            ninja-build flex bison gcc gcovr
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Build with coverage and report
         run: |
           # Coverage is measured on the dependency-free build with the
@@ -274,14 +309,19 @@ jobs:
   perf-regression:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 time
+            ninja-build flex bison gcc-14 time
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Build
         env:
           CC: gcc-14
