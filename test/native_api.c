@@ -356,7 +356,7 @@ static void expand_source(const char *source_path,
   assert(tlsf_pipeline_source_sha256(source, (size_t)length, hash));
   FILE *stream = fmemopen(source, (size_t)length, "r");
   assert(stream);
-  TlsfSpec *spec = cli_parse(stream, "native-api-test");
+  TlsfSpec *spec = spec_parse(stream, "native-api-test");
   fclose(stream);
   assert(spec);
   FILE *provenance = fopen(provenance_path, "wb");

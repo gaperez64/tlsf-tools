@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
       return 1;
     }
   }
-  TlsfSpec *spec = cli_parse(fp, "tlsf2tlsf");
+  TlsfSpec *spec = spec_parse(fp, "tlsf2tlsf");
   if (input_file || provenance_file)
     fclose(fp);
   free(source);

@@ -297,7 +297,7 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
   FILE *fp = cli_open_input(path, "tlsfbenchgraph");
   if (!fp)
     return m;
-  TlsfSpec *spec = cli_parse(fp, "tlsfbenchgraph");
+  TlsfSpec *spec = spec_parse(fp, "tlsfbenchgraph");
   fclose(fp);
   if (!spec)
     return m;

@@ -235,7 +235,7 @@ int main(int argc, char *argv[]) {
   FILE *fp = cli_open_input(input_file, "tlsf2ltl");
   if (!fp)
     return 1;
-  TlsfSpec *spec = cli_parse(fp, "tlsf2ltl");
+  TlsfSpec *spec = spec_parse(fp, "tlsf2ltl");
   if (input_file)
     fclose(fp);
   if (!spec)

@@ -736,7 +736,7 @@ int main(int argc, char *argv[]) {
   FILE *fp = cli_open_input(input_file, "tlsfcompose");
   if (!fp)
     return 1;
-  TlsfSpec *spec = cli_parse(fp, "tlsfcompose");
+  TlsfSpec *spec = spec_parse(fp, "tlsfcompose");
   if (input_file)
     fclose(fp);
   if (!spec)

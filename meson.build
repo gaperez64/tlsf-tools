@@ -292,6 +292,7 @@ lib_sources = [
   'src/ast_api.c',
   'src/spec.c',
   'src/cli.c',
+  'src/spec_parse.c',
   'src/diagnostic.c',
   'src/expand.c',
   'src/nnf.c',

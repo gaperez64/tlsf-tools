@@ -27,7 +27,7 @@ int tlsf_source_parameter_count(const uint8_t *source, size_t size) {
     return -1;
   }
   FILE *previous = tlsf_diagnostic_swap(capture);
-  TlsfSpec *spec = cli_parse(in, "tlsf-lift");
+  TlsfSpec *spec = spec_parse(in, "tlsf-lift");
   tlsf_diagnostic_swap(previous);
   fclose(capture);
   fclose(in);

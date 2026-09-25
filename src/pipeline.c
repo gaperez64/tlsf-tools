@@ -34,7 +34,7 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
     return nullptr;
   }
 
-  p->spec = cli_parse(fp, tool);
+  p->spec = spec_parse(fp, tool);
   if (!p->spec) {
     pipeline_status(opts, TLSF_PIPELINE_INVALID, "parse", "TLSF parse failed");
     goto fail;

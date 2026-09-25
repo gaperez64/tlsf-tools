@@ -1,7 +1,6 @@
 #ifndef TLSF_PIPELINE_H
 #define TLSF_PIPELINE_H
 
-#include "tlsf/cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
 #include "tlsf/templates.h"
