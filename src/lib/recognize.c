@@ -1,4 +1,5 @@
 #include "recognize.h"
+#include "ast_query.h"
 
 // ---------------------------------------------------------------------------
 // Small AST-shape helpers (matching is on the original formula, not the NNF, so
@@ -12,71 +13,7 @@ static bool is_output(ConstraintCover *cov, const Node *n) {
   int32_t i = ap_idx(cov, n);
   return i >= 0 && (ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT);
 }
-static bool is_next_kind(NodeKind k) {
-  return k == NODE_X || k == NODE_X_STRONG;
-}
-
 // True if `n` mentions any temporal operator (so it is not purely Boolean).
-static bool has_temporal(const Node *n) {
-  switch (n->kind) {
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return true;
-  case NODE_NOT:
-    return has_temporal(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    return has_temporal(n->lhs) || has_temporal(n->rhs);
-  default:
-    return false;
-  }
-}
-
-static bool has_output_ref(ConstraintCover *cov, const Node *n) {
-  switch (n->kind) {
-  case NODE_AP:
-    return is_output(cov, n);
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return has_output_ref(cov, n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return has_output_ref(cov, n->lhs) || has_output_ref(cov, n->rhs);
-  default:
-    return false;
-  }
-}
-
-static const Node *next_chain_target(const Node *n, uint32_t *steps,
-                                     bool *strong) {
-  *steps = 0;
-  *strong = false;
-  while (is_next_kind(n->kind)) {
-    if (n->kind == NODE_X_STRONG)
-      *strong = true;
-    (*steps)++;
-    n = n->arg;
-  }
-  return n;
-}
-
 // G(r -> F g)  or  G(!r || F g)
 static void match_response(ConstraintCover *cov, Constraint *c) {
   if (constraint_match_formula(c)->kind != NODE_G)
@@ -175,7 +112,7 @@ static void match_fixed_delay_response(ConstraintCover *cov, Constraint *c) {
 
   uint32_t steps;
   bool strong;
-  const Node *target = next_chain_target(cons, &steps, &strong);
+  const Node *target = ast_next_chain(cons, &steps, &strong);
   (void)strong;
   if (steps < 2 || !is_output(cov, target))
     return;
@@ -211,7 +148,8 @@ static void match_global_recurrence_switch(ConstraintCover *cov,
     rec = constraint_match_formula(c)->rhs;
     guard = global_guard_side(constraint_match_formula(c)->lhs);
   }
-  if (!rec || !guard || has_temporal(guard) || has_output_ref(cov, guard))
+  if (!rec || !guard || ast_has_temporal(guard) ||
+      cover_has_output_ref(cov, guard))
     return;
   constraint_add_candidate(cov, c, "global-recurrence-switch");
 }
@@ -224,9 +162,9 @@ static void match_delayed_definition(ConstraintCover *cov, Constraint *c) {
   const Node *body = constraint_match_formula(c)->arg;
   if (body->kind != NODE_EQUIV)
     return;
-  const Node *xside = is_next_kind(body->lhs->kind)   ? body->lhs
-                      : is_next_kind(body->rhs->kind) ? body->rhs
-                                                      : nullptr;
+  const Node *xside = ast_is_next(body->lhs->kind)   ? body->lhs
+                      : ast_is_next(body->rhs->kind) ? body->rhs
+                                                     : nullptr;
   if (!xside || !is_output(cov, xside->arg))
     return;
   constraint_add_candidate(cov, c, "delayed-definition");
@@ -244,7 +182,7 @@ static void match_guarded_next(ConstraintCover *cov, Constraint *c) {
   if (body->kind != NODE_IMPL)
     return;
   const Node *cons = body->rhs;
-  if (!is_next_kind(cons->kind))
+  if (!ast_is_next(cons->kind))
     return;
   const Node *o = cons->arg;
   if (o->kind == NODE_NOT)
@@ -263,12 +201,12 @@ static void match_toggle_register(ConstraintCover *cov, Constraint *c) {
   const Node *eq = body->rhs;
   const Node *lhs = eq->lhs;
   const Node *rhs = eq->rhs;
-  if (!is_next_kind(lhs->kind)) {
+  if (!ast_is_next(lhs->kind)) {
     const Node *tmp = lhs;
     lhs = rhs;
     rhs = tmp;
   }
-  if (!is_next_kind(lhs->kind) || lhs->arg->kind != NODE_AP ||
+  if (!ast_is_next(lhs->kind) || lhs->arg->kind != NODE_AP ||
       rhs->kind != NODE_NOT || rhs->arg->kind != NODE_AP ||
       lhs->arg->name != rhs->arg->name || !is_output(cov, lhs->arg))
     return;
@@ -304,7 +242,7 @@ static void match_definition(ConstraintCover *cov, Constraint *c) {
 static void match_invariant(ConstraintCover *cov, Constraint *c) {
   if (constraint_match_formula(c)->kind != NODE_G)
     return;
-  if (has_temporal(constraint_match_formula(c)->arg))
+  if (ast_has_temporal(constraint_match_formula(c)->arg))
     return;
   constraint_add_candidate(cov, c, "safety-invariant");
 }

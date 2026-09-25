@@ -1,4 +1,5 @@
 #include "tlsf/print_tlsf.h"
+#include "spec_internal.h"
 
 #include <assert.h>
 
@@ -340,28 +341,6 @@ static void print_formula_list(FILE *out, const FormulaList *list,
 // Semantics / target string helpers
 // ---------------------------------------------------------------------------
 
-static const char *semantics_str(Semantics s) {
-  switch (s) {
-  case SEM_MEALY:
-    return "Mealy";
-  case SEM_MOORE:
-    return "Moore";
-  case SEM_MEALY_STRICT:
-    return "Strict,Mealy";
-  case SEM_MOORE_STRICT:
-    return "Strict,Moore";
-  case SEM_MEALY_FINITE:
-    return "Finite,Mealy";
-  case SEM_MOORE_FINITE:
-    return "Finite,Moore";
-  }
-  return "Mealy";
-}
-
-static const char *target_str(Target t) {
-  return t == TARGET_MOORE ? "Moore" : "Mealy";
-}
-
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -424,8 +403,9 @@ void print_tlsf(FILE *out, const TlsfSpec *spec, bool include_global) {
   if (spec->info.description)
     fprintf(out, "  DESCRIPTION: \"%s\";\n", spec->info.description);
 
-  fprintf(out, "  SEMANTICS:   %s;\n", semantics_str(spec->info.semantics));
-  fprintf(out, "  TARGET:      %s;\n", target_str(spec->info.target));
+  fprintf(out, "  SEMANTICS:   %s;\n",
+          spec_semantics_name(spec->info.semantics));
+  fprintf(out, "  TARGET:      %s;\n", spec_target_name(spec->info.target));
 
   if (spec->info.tag_count > 0) {
     fprintf(out, "  TAGS:        ");

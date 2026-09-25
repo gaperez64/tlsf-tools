@@ -992,29 +992,6 @@ missing:
   return false;
 }
 
-static uint32_t max_aig_var(const Aig *aig) {
-  uint32_t maxvar = 0;
-  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
-    uint32_t lit;
-    aig_input_name(aig, i, &lit);
-    if (lit / 2 > maxvar)
-      maxvar = lit / 2;
-  }
-  for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
-    uint32_t lit;
-    aig_latch_at(aig, i, &lit, nullptr, nullptr);
-    if (lit / 2 > maxvar)
-      maxvar = lit / 2;
-  }
-  for (uint32_t i = 0; i < aig_num_ands(aig); i++) {
-    uint32_t lit;
-    aig_and_at(aig, i, &lit, nullptr, nullptr);
-    if (lit / 2 > maxvar)
-      maxvar = lit / 2;
-  }
-  return maxvar;
-}
-
 static bool defined_literal(const bool *defined, uint32_t maxvar,
                             uint32_t lit) {
   return lit < 2 || (lit / 2 <= maxvar && defined[lit / 2]);
@@ -1022,7 +999,7 @@ static bool defined_literal(const bool *defined, uint32_t maxvar,
 
 static bool validate_aig_structure(const Aig *aig, const char *kind,
                                    char *message, size_t cap) {
-  uint32_t maxvar = max_aig_var(aig);
+  uint32_t maxvar = oxidd_max_aig_var(aig);
   bool *defined = calloc((size_t)maxvar + 1, sizeof *defined);
   if (!defined) {
     snprintf(message, cap, "out of memory validating %s AIG", kind);
@@ -1124,7 +1101,7 @@ static bool compile_aig_roots_seeded(Checker *ck, const Aig *aig,
                                      const Bdd *seed_roots, size_t seed_count,
                                      const uint32_t *lits, Bdd *roots,
                                      size_t count, const char *phase) {
-  uint32_t maxvar = max_aig_var(aig);
+  uint32_t maxvar = oxidd_max_aig_var(aig);
   Bdd *map = calloc((size_t)maxvar + 1, sizeof *map);
   if (!map)
     return false;
@@ -1346,7 +1323,7 @@ static void release_policy_independent(Checker *ck) {
 static bool prepare_policy_independent(Checker *ck) {
   if (ck->policy_independent_ready)
     return true;
-  uint32_t maxvar = max_aig_var(ck->policy);
+  uint32_t maxvar = oxidd_max_aig_var(ck->policy);
   bool *counter_dependent =
       calloc((size_t)maxvar + 1, sizeof *counter_dependent);
   bool *needed = calloc((size_t)maxvar + 1, sizeof *needed);

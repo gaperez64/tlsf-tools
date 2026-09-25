@@ -363,6 +363,28 @@ bool parse_target(const char *s, Target *out) {
   return false;
 }
 
+const char *spec_semantics_name(Semantics s) {
+  switch (s) {
+  case SEM_MEALY:
+    return "Mealy";
+  case SEM_MOORE:
+    return "Moore";
+  case SEM_MEALY_STRICT:
+    return "Strict,Mealy";
+  case SEM_MOORE_STRICT:
+    return "Strict,Moore";
+  case SEM_MEALY_FINITE:
+    return "Finite,Mealy";
+  case SEM_MOORE_FINITE:
+    return "Finite,Moore";
+  }
+  return "Mealy";
+}
+
+const char *spec_target_name(Target t) {
+  return t == TARGET_MOORE ? "Moore" : "Mealy";
+}
+
 static bool node_has_strong_next(const Node *n) {
   if (!n)
     return false;

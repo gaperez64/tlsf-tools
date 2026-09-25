@@ -296,14 +296,6 @@ static bool dualvec_push_take(OxiddRun *run, DualVec *levels,
   return true;
 }
 
-static const char *input_name_or_synthetic(const char *name, uint32_t index,
-                                           char buf[32]) {
-  if (name)
-    return name;
-  snprintf(buf, 32, "i%u", index);
-  return buf;
-}
-
 // ---------------------------------------------------------------------------
 // Certificate export
 // ---------------------------------------------------------------------------
@@ -470,7 +462,7 @@ static bool write_certificate_json(
     const char *input_name = aig_input_name(game, p, &lit);
     bool control = is_controllable(input_name);
     char fallback[32];
-    input_name = input_name_or_synthetic(input_name, p, fallback);
+    input_name = oxidd_input_name_or_synthetic(input_name, p, fallback);
     yyjson_mut_val *row = jb_obj(&builder);
     jb_push(&builder, control ? controllable : uncontrollable, row);
     JB_UINT(&builder, row, "certificate_input", nlat + p);
@@ -554,7 +546,7 @@ static bool export_certificate(
   for (uint32_t p = 0; p < nin; p++) {
     const char *name = aig_input_name(game, p, nullptr);
     char fallback[32];
-    name = input_name_or_synthetic(name, p, fallback);
+    name = oxidd_input_name_or_synthetic(name, p, fallback);
     var2lit[p] = aig_input(certificate, name);
   }
 
@@ -1144,8 +1136,8 @@ static bool export_environment_certificate(
   }
   for (uint32_t p = 0; p < nin; p++) {
     char fallback[32];
-    const char *name =
-        input_name_or_synthetic(aig_input_name(game, p, nullptr), p, fallback);
+    const char *name = oxidd_input_name_or_synthetic(
+        aig_input_name(game, p, nullptr), p, fallback);
     var2lit[p] = aig_input(certificate, name);
   }
   Bdd2Aig conversion = {certificate, var2lit, var_base, nvars,
@@ -1631,15 +1623,6 @@ static bool extract_environment_counterstrategy(
 // Solver
 // ---------------------------------------------------------------------------
 
-static void release_var_map(Bdd *var_bdd, uint32_t maxvar) {
-  if (!var_bdd)
-    return;
-  for (uint32_t v = 0; v <= maxvar; v++) {
-    oxidd_bdd_unref(var_bdd[v]);
-    var_bdd[v] = (Bdd){0};
-  }
-}
-
 static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
                                  const OxiddSolveOptions *user_opts,
                                  Gr1CertificateOptions *certificate) {
@@ -1716,25 +1699,7 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
   uint32_t n_fair_disj = m_fair ? m_fair : 1;
 
   // Highest AIG variable index, to size the literal -> BDD map.
-  uint32_t maxvar = 0;
-  for (uint32_t i = 0; i < nin; i++) {
-    uint32_t lit;
-    aig_input_name(game, i, &lit);
-    if (lit / 2 > maxvar)
-      maxvar = lit / 2;
-  }
-  for (uint32_t i = 0; i < nlat; i++) {
-    uint32_t cur;
-    aig_latch_at(game, i, &cur, nullptr, nullptr);
-    if (cur / 2 > maxvar)
-      maxvar = cur / 2;
-  }
-  for (uint32_t i = 0; i < nand; i++) {
-    uint32_t lhs;
-    aig_and_at(game, i, &lhs, nullptr, nullptr);
-    if (lhs / 2 > maxvar)
-      maxvar = lhs / 2;
-  }
+  uint32_t maxvar = oxidd_max_aig_var(game);
 
   // Allocations.
   // BDD var layout: 0..nin-1 = inputs, nin..nin+nlat-1 = latches,
@@ -1943,7 +1908,7 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
     }
   }
   if (ok) {
-    release_var_map(var_bdd, maxvar);
+    oxidd_release_var_map(var_bdd, maxvar);
     free(var_bdd);
     var_bdd = nullptr;
     oxidd_phase(run, "root_release");
@@ -2403,8 +2368,8 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
       uint32_t lit;
       const char *name = aig_input_name(game, p, &lit);
       if (!is_controllable(name))
-        var2lit[p] =
-            aig_input(strat, input_name_or_synthetic(name, p, (char[32]){0}));
+        var2lit[p] = aig_input(
+            strat, oxidd_input_name_or_synthetic(name, p, (char[32]){0}));
     }
 
     // Game latches (same reset values, next wired below).
@@ -2609,7 +2574,7 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
   }
   for (uint32_t j = 0; j < nlat; j++)
     oxidd_bdd_unref(next_bdd[j]);
-  release_var_map(var_bdd, maxvar);
+  oxidd_release_var_map(var_bdd, maxvar);
   oxidd_bdd_unref(bad);
   oxidd_bdd_unref(notbad);
   oxidd_bdd_unref(W);

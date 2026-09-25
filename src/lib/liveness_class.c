@@ -1,4 +1,5 @@
 #include "liveness_class.h"
+#include "ast_query.h"
 
 typedef struct {
   uint32_t n_eventual;
@@ -8,24 +9,6 @@ typedef struct {
   bool has_nested_temporal;
   bool unknown;
 } LiveAcc;
-
-static bool has_temporal(const Node *n) {
-  if (!n)
-    return false;
-  if (node_kind_is_temporal(n->kind))
-    return true;
-  switch (n->kind) {
-  case NODE_NOT:
-    return has_temporal(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    return has_temporal(n->lhs) || has_temporal(n->rhs);
-  default:
-    return false;
-  }
-}
 
 static bool has_liveness_temporal(const Node *n) {
   if (!n)
@@ -73,7 +56,7 @@ static bool current_bool_ok(const Node *n) {
 }
 
 static void mark_temporal_body(LiveAcc *acc, const Node *n) {
-  if (has_temporal(n))
+  if (ast_has_temporal(n))
     acc->has_nested_temporal = true;
   else
     acc->unknown = true;
@@ -154,7 +137,7 @@ static bool classify_rec(const Node *n, LiveAcc *acc) {
   case NODE_EQUIV:
   case NODE_M:
     if (has_liveness_temporal(n)) {
-      acc->has_nested_temporal = has_temporal(n);
+      acc->has_nested_temporal = ast_has_temporal(n);
       acc->unknown = !acc->has_nested_temporal;
       return false;
     }

@@ -120,29 +120,6 @@ static bool parse_order_file(const OxiddSolveOptions *options, size_t count,
   return true;
 }
 
-static uint32_t max_aig_var(const Aig *game) {
-  uint32_t maxvar = 0;
-  for (uint32_t i = 0; i < aig_num_inputs(game); i++) {
-    uint32_t lit;
-    aig_input_name(game, i, &lit);
-    if (lit / 2 > maxvar)
-      maxvar = lit / 2;
-  }
-  for (uint32_t i = 0; i < aig_num_latches(game); i++) {
-    uint32_t cur;
-    aig_latch_at(game, i, &cur, nullptr, nullptr);
-    if (cur / 2 > maxvar)
-      maxvar = cur / 2;
-  }
-  for (uint32_t i = 0; i < aig_num_ands(game); i++) {
-    uint32_t lhs;
-    aig_and_at(game, i, &lhs, nullptr, nullptr);
-    if (lhs / 2 > maxvar)
-      maxvar = lhs / 2;
-  }
-  return maxvar;
-}
-
 static bool collect_roots(const Aig *game, const OxiddSolveOptions *options,
                           uint32_t **roots_out, size_t *count_out) {
   bool typed = options->safety_objective == OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR;
@@ -186,7 +163,7 @@ static bool fanin_dfs_order(const Aig *game, const OxiddSolveOptions *options,
                             uint32_t auxiliary_vars,
                             OxiddResolvedOrder *resolved) {
   uint32_t ni = aig_num_inputs(game), nl = aig_num_latches(game);
-  uint32_t maxvar = max_aig_var(game);
+  uint32_t maxvar = oxidd_max_aig_var(game);
   uint32_t *local = malloc(((size_t)maxvar + 1) * sizeof *local);
   uint32_t *left = calloc((size_t)maxvar + 1, sizeof *left);
   uint32_t *right = calloc((size_t)maxvar + 1, sizeof *right);

@@ -39,6 +39,13 @@ typedef oxidd_bdd_t Bdd;
 #include "tlsf/oxidd_options.h"
 
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
+// Highest AIG variable index of `aig`, to size a literal -> BDD map.
+uint32_t oxidd_max_aig_var(const Aig *aig);
+// Unreference and clear var_bdd[0..maxvar]; a null map is a no-op.
+void oxidd_release_var_map(Bdd *var_bdd, uint32_t maxvar);
+// `name`, or the synthetic "i<index>" for an unnamed input, written to `buf`.
+const char *oxidd_input_name_or_synthetic(const char *name, uint32_t index,
+                                          char buf[32]);
 // Project-owned boundary for injecting host allocation failures without
 // interposing on OxiDD's Rust allocator.
 void *oxidd_host_realloc(void *ptr, size_t size);

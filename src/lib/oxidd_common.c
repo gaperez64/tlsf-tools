@@ -1038,3 +1038,43 @@ uint32_t bdd2aig_root(Bdd2Aig *ctx, Bdd f) {
   memo_free(&ctx->memo);
   return lit;
 }
+
+uint32_t oxidd_max_aig_var(const Aig *aig) {
+  uint32_t maxvar = 0;
+  for (uint32_t i = 0; i < aig_num_inputs(aig); i++) {
+    uint32_t lit;
+    aig_input_name(aig, i, &lit);
+    if (lit / 2 > maxvar)
+      maxvar = lit / 2;
+  }
+  for (uint32_t i = 0; i < aig_num_latches(aig); i++) {
+    uint32_t lit;
+    aig_latch_at(aig, i, &lit, nullptr, nullptr);
+    if (lit / 2 > maxvar)
+      maxvar = lit / 2;
+  }
+  for (uint32_t i = 0; i < aig_num_ands(aig); i++) {
+    uint32_t lit;
+    aig_and_at(aig, i, &lit, nullptr, nullptr);
+    if (lit / 2 > maxvar)
+      maxvar = lit / 2;
+  }
+  return maxvar;
+}
+
+void oxidd_release_var_map(Bdd *var_bdd, uint32_t maxvar) {
+  if (!var_bdd)
+    return;
+  for (uint32_t v = 0; v <= maxvar; v++) {
+    oxidd_bdd_unref(var_bdd[v]);
+    var_bdd[v] = (Bdd){0};
+  }
+}
+
+const char *oxidd_input_name_or_synthetic(const char *name, uint32_t index,
+                                          char buf[32]) {
+  if (name)
+    return name;
+  snprintf(buf, 32, "i%u", index);
+  return buf;
+}

@@ -8,6 +8,7 @@
 #include "cli.h"
 #include "tlsf/expand.h"
 #include "gr.h"
+#include "spec_internal.h"
 #include "tlsf/spec.h"
 
 #include <inttypes.h>
@@ -18,28 +19,6 @@
 // ---------------------------------------------------------------------------
 // Enum → string helpers (kept in sync with print_tlsf.c)
 // ---------------------------------------------------------------------------
-
-static const char *semantics_str(Semantics s) {
-  switch (s) {
-  case SEM_MEALY:
-    return "Mealy";
-  case SEM_MOORE:
-    return "Moore";
-  case SEM_MEALY_STRICT:
-    return "Strict,Mealy";
-  case SEM_MOORE_STRICT:
-    return "Strict,Moore";
-  case SEM_MEALY_FINITE:
-    return "Finite,Mealy";
-  case SEM_MOORE_FINITE:
-    return "Finite,Moore";
-  }
-  return "Mealy";
-}
-
-static const char *target_str(Target t) {
-  return t == TARGET_MOORE ? "Moore" : "Mealy";
-}
 
 // ---------------------------------------------------------------------------
 // Selected-output printers
@@ -84,8 +63,8 @@ static void print_info_block(FILE *out, const TlsfSpec *s) {
   fprintf(out, "Title:         \"%s\"\n", s->info.title ? s->info.title : "");
   fprintf(out, "Description:   \"%s\"\n",
           s->info.description ? s->info.description : "");
-  fprintf(out, "Semantics:     %s\n", semantics_str(s->info.semantics));
-  fprintf(out, "Target:        %s\n", target_str(s->info.target));
+  fprintf(out, "Semantics:     %s\n", spec_semantics_name(s->info.semantics));
+  fprintf(out, "Target:        %s\n", spec_target_name(s->info.target));
   if (s->info.tag_count > 0) {
     fprintf(out, "Tags:          ");
     print_tags(out, s);
@@ -311,10 +290,10 @@ int main(int argc, char *argv[]) {
     fprintf(out, "%s\n", spec->info.description ? spec->info.description : "");
     break;
   case SEL_SEMANTICS:
-    fprintf(out, "%s\n", semantics_str(spec->info.semantics));
+    fprintf(out, "%s\n", spec_semantics_name(spec->info.semantics));
     break;
   case SEL_TARGET:
-    fprintf(out, "%s\n", target_str(spec->info.target));
+    fprintf(out, "%s\n", spec_target_name(spec->info.target));
     break;
   case SEL_TAGS:
     print_tags(out, spec);

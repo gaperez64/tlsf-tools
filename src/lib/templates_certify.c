@@ -7,6 +7,7 @@
 // templates_internal.h.
 
 #include "templates_internal.h"
+#include "ast_query.h"
 
 #include "tlsf/apset.h"
 #include "tlsf/arena.h"
@@ -113,23 +114,6 @@ static bool guard_pairs_exclusive(ConstraintCover *cov, const Node **pos,
   return true;
 }
 
-static bool is_next_kind(NodeKind k) {
-  return k == NODE_X || k == NODE_X_STRONG;
-}
-
-static const Node *next_chain_target(const Node *n, uint32_t *steps,
-                                     bool *strong) {
-  *steps = 0;
-  *strong = false;
-  while (is_next_kind(n->kind)) {
-    if (n->kind == NODE_X_STRONG)
-      *strong = true;
-    (*steps)++;
-    n = n->arg;
-  }
-  return n;
-}
-
 // Parse G(alpha -> X o) / G(alpha -> X !o) (also X[!]); returns guard, output
 // index, sign, and whether the next operator is strong.
 static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
@@ -139,7 +123,7 @@ static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
       constraint_match_formula(c)->arg->kind != NODE_IMPL)
     return false;
   const Node *body = constraint_match_formula(c)->arg;
-  if (!is_next_kind(body->rhs->kind))
+  if (!ast_is_next(body->rhs->kind))
     return false;
   *strong = body->rhs->kind == NODE_X_STRONG;
   const Node *t = body->rhs->arg;
@@ -171,12 +155,12 @@ static bool parse_toggle(ConstraintCover *cov, const Constraint *c,
   const Node *eq = body->rhs;
   const Node *lhs = eq->lhs;
   const Node *rhs = eq->rhs;
-  if (!is_next_kind(lhs->kind)) {
+  if (!ast_is_next(lhs->kind)) {
     const Node *tmp = lhs;
     lhs = rhs;
     rhs = tmp;
   }
-  if (!is_next_kind(lhs->kind) || lhs->arg->kind != NODE_AP ||
+  if (!ast_is_next(lhs->kind) || lhs->arg->kind != NODE_AP ||
       rhs->kind != NODE_NOT || rhs->arg->kind != NODE_AP ||
       lhs->arg->name != rhs->arg->name)
     return false;
@@ -208,7 +192,7 @@ static bool parse_fixed_delay_response(ConstraintCover *cov,
     return false;
   }
 
-  const Node *target = next_chain_target(cons, steps, strong);
+  const Node *target = ast_next_chain(cons, steps, strong);
   if (*steps < 2 || target->kind != NODE_AP)
     return false;
   int32_t i = ap_table_find(&cov->aps, target->name);
@@ -267,55 +251,6 @@ static bool has_next(const Node *n) {
   }
 }
 
-static bool has_temporal(const Node *n) {
-  switch (n->kind) {
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return true;
-  case NODE_NOT:
-    return has_temporal(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-    return has_temporal(n->lhs) || has_temporal(n->rhs);
-  default:
-    return false;
-  }
-}
-
-static bool has_output_ref(ConstraintCover *cov, const Node *n) {
-  switch (n->kind) {
-  case NODE_AP: {
-    int32_t i = ap_table_find(&cov->aps, n->name);
-    return i >= 0 && (ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT);
-  }
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return has_output_ref(cov, n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return has_output_ref(cov, n->lhs) || has_output_ref(cov, n->rhs);
-  default:
-    return false;
-  }
-}
-
 // Parse G(alpha -> o) / G(alpha -> !o); returns guard, output index, sign.
 static bool parse_reaction(ConstraintCover *cov, const Constraint *c,
                            const Node **alpha, int32_t *out, bool *neg) {
@@ -366,7 +301,7 @@ static bool parse_global_recurrence_switch(ConstraintCover *cov,
   if (i < 0 || !(ap_table_flags(&cov->aps, (uint32_t)i) & AP_FLAG_OUTPUT))
     return false;
   const Node *body = gside->arg;
-  if (has_temporal(body) || has_output_ref(cov, body))
+  if (ast_has_temporal(body) || cover_has_output_ref(cov, body))
     return false;
   *guard = body;
   *out = i;
@@ -1127,7 +1062,7 @@ void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
     const Node *eq = constraint_match_formula(cc)->arg; // G(<eq>)
     bool strong =
         eq->lhs->kind == NODE_X_STRONG || eq->rhs->kind == NODE_X_STRONG;
-    const Node *theta = is_next_kind(eq->lhs->kind) ? eq->rhs : eq->lhs;
+    const Node *theta = ast_is_next(eq->lhs->kind) ? eq->rhs : eq->lhs;
     uint32_t o = (uint32_t)ddef_output;
     Block *blk = new_block(c);
     if (!blk)

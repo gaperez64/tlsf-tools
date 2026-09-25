@@ -33,14 +33,6 @@
 // Solver
 // ---------------------------------------------------------------------------
 
-static const char *input_name_or_synthetic(const char *name, uint32_t index,
-                                           char buf[32]) {
-  if (name)
-    return name;
-  snprintf(buf, 32, "i%u", index);
-  return buf;
-}
-
 static bool fill_initial_assignment(const Aig *game,
                                     oxidd_var_no_bool_pair_t *args,
                                     uint32_t nlat, uint32_t var_base,
@@ -55,15 +47,6 @@ static bool fill_initial_assignment(const Aig *game,
     args[j].val = reset != 0;
   }
   return true;
-}
-
-static void release_var_map(Bdd *var_bdd, uint32_t maxvar) {
-  if (!var_bdd)
-    return;
-  for (uint32_t v = 0; v <= maxvar; v++) {
-    oxidd_bdd_unref(var_bdd[v]);
-    var_bdd[v] = (Bdd){0};
-  }
 }
 
 static bool demand_updates(OxiddRun *run, const Aig *game, uint32_t base,
@@ -127,7 +110,7 @@ static bool demand_updates(OxiddRun *run, const Aig *game, uint32_t base,
   if (roots)
     for (uint32_t j = 0; j < missing; j++)
       oxidd_bdd_unref(roots[j]);
-  release_var_map(map, maxvar);
+  oxidd_release_var_map(map, maxvar);
   free(map);
   free(roots);
   free(lits);
@@ -149,25 +132,7 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
   uint32_t nand = aig_num_ands(game);
 
   // Highest AIG variable, to size the literal -> BDD map.
-  uint32_t maxvar = 0;
-  for (uint32_t i = 0; i < nin; i++) {
-    uint32_t lit;
-    aig_input_name(game, i, &lit);
-    if (lit / 2 > maxvar)
-      maxvar = lit / 2;
-  }
-  for (uint32_t i = 0; i < nlat; i++) {
-    uint32_t cur;
-    aig_latch_at(game, i, &cur, nullptr, nullptr);
-    if (cur / 2 > maxvar)
-      maxvar = cur / 2;
-  }
-  for (uint32_t i = 0; i < nand; i++) {
-    uint32_t lhs;
-    aig_and_at(game, i, &lhs, nullptr, nullptr);
-    if (lhs / 2 > maxvar)
-      maxvar = lhs / 2;
-  }
+  uint32_t maxvar = oxidd_max_aig_var(game);
 
   // Manager: reuse the session manager when active (amortises allocation cost
   // across clusters); otherwise right-size a fresh per-cluster manager.
@@ -311,7 +276,7 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
     }
   }
   if (ok) {
-    release_var_map(var_bdd, maxvar);
+    oxidd_release_var_map(var_bdd, maxvar);
     free(var_bdd);
     var_bdd = nullptr;
     oxidd_phase(run, "root_release");
@@ -459,8 +424,8 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
       uint32_t lit;
       const char *name = aig_input_name(game, p, &lit);
       if (!is_controllable(name))
-        var2lit[p] =
-            aig_input(strat, input_name_or_synthetic(name, p, (char[32]){0}));
+        var2lit[p] = aig_input(
+            strat, oxidd_input_name_or_synthetic(name, p, (char[32]){0}));
       // controllables stay UINT32_MAX
     }
     for (uint32_t j = 0; j < nlat; j++) {
@@ -522,7 +487,7 @@ cleanup:
       oxidd_bdd_unref(strat_f[k]);
   for (uint32_t j = 0; j < nlat; j++)
     oxidd_bdd_unref(next_bdd[j]);
-  release_var_map(var_bdd, maxvar);
+  oxidd_release_var_map(var_bdd, maxvar);
   oxidd_bdd_unref(bad);
   oxidd_bdd_unref(notbad);
   oxidd_bdd_unref(Z);
