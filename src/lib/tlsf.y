@@ -296,14 +296,14 @@ info_section
   ;
 
 info_fields
-  : /* empty */
+  : %empty
   | info_fields info_field
   ;
 
 /* TLSF INFO fields are not semicolon-terminated; the bundled smoke test
  * uses trailing semicolons, so accept them optionally. */
 semi_opt
-  : /* empty */
+  : %empty
   | TOK_SEMI
   ;
 
@@ -350,12 +350,12 @@ tag_list
  * ===================================================================== */
 
 global_section_opt
-  : /* empty */
+  : %empty
   | TOK_GLOBAL TOK_LBRACE global_decls TOK_RBRACE
   ;
 
 global_decls
-  : /* empty */
+  : %empty
   | global_decls global_decl
   ;
 
@@ -370,7 +370,7 @@ param_decl
   ;
 
 param_entries
-  : /* empty */
+  : %empty
   | param_items
   ;
 
@@ -393,7 +393,7 @@ def_decl
   ;
 
 def_entries
-  : /* empty */
+  : %empty
   | def_entries def_entry
   ;
 
@@ -498,7 +498,7 @@ main_section
   ;
 
 main_subsections
-  : /* empty */
+  : %empty
   | main_subsections main_subsection
   ;
 
@@ -532,7 +532,7 @@ outputs_subsection
 /* Separator-style list: ';' separates entries and a trailing ';' is optional
  * (TLSF lets the final entry omit it).  Empty lists are allowed. */
 signal_decl_list
-  : /* empty */
+  : %empty
   | signal_decl_items
   ;
 
@@ -623,7 +623,7 @@ guarantee_subsection
   ;
 
 formula_list
-  : /* empty */
+  : %empty
   | formula_items
   ;
 
@@ -900,7 +900,7 @@ lt_or_leq
 
 /* Call argument list — zero or more ltl/int expressions */
 call_arg_list
-  : /* empty */
+  : %empty
     { $$ = nullptr; }
   | ltl_expr
     { $$ = node_list_append(spec->arena, nullptr, $1); }
