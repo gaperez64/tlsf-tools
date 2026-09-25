@@ -21,6 +21,40 @@ import buddy
 _bdd_vars = 0
 
 
+def legacy_provenance(native: dict) -> dict:
+    """Check native typed provenance, then compare its legacy projection."""
+    rows = native["inputs"] + native["outputs"]
+    by_name = {row["name"]: row for row in rows}
+    by_id = {row["declaration_id"]: row["source_name"] for row in rows
+             if "declaration_id" in row}
+    for index, row in enumerate(rows):
+        assert row.pop("game_literal") == 2 * (index + 1)
+
+    def check_refs(record: dict) -> None:
+        refs = record.pop("signal_refs")
+        assert refs == [{key: by_name[name][key]
+                         for key in ("declaration_id", "index_tuple", "index_role")}
+                        for name in record["signals"]]
+
+    for record in native["source_conjuncts"]:
+        check_refs(record)
+    justice = 0
+    for monitor in native["monitors"]:
+        if monitor["role"] == "justice":
+            assert monitor.pop("justice_index") == justice
+            justice += 1
+        if monitor["source_origin"] is not None:
+            check_refs(monitor["source_origin"])
+        monitor["support"]["buses"] = {
+            by_id.get(identifier, identifier): value
+            for identifier, value in monitor["support"]["buses"].items()}
+        if "symmetric_signature" in monitor:
+            monitor["symmetric_signature"] = {
+                by_id[identifier]: value
+                for identifier, value in monitor["symmetric_signature"].items()}
+    return native
+
+
 def run(command: list[str]) -> tuple[subprocess.CompletedProcess[str], float]:
     start = time.monotonic()
     process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE,
@@ -264,7 +298,7 @@ def compare(source: pathlib.Path, semantics: str, directory: pathlib.Path,
         assert symbol_entries(prefix.with_suffix(".symbols"), native_aag) == \
             symbol_entries(pathlib.Path(str(python_aag) + ".symbols"),
                            oracle_aag), (source, semantics, "symbol map")
-        assert json.loads(prefix.with_suffix(".json").read_text()) == \
+        assert legacy_provenance(json.loads(prefix.with_suffix(".json").read_text())) == \
             json.loads(python_json.read_text()), (source, semantics, "provenance")
         return 1, native_time, python_time
     assert native.returncode in (2, 3), (source, semantics, native.stderr)

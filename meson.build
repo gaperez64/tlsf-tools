@@ -328,6 +328,7 @@ if native_gr1
     'src/native/gr1_service.c',
     'src/native/gr1_check.c',
     'src/native/gr1_reduction.cc',
+    'src/native/param_lift.cc',
     'src/safety_oxidd.c', 'src/gr1_oxidd.c',
     'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c',
   ]
@@ -370,6 +371,32 @@ tlsf_dep = declare_dependency(
 meson.override_dependency('tlsf', tlsf_dep)
 
 if native_gr1
+  native_lift_exe = executable('native_lift',
+    'test/native_lift.cpp', dependencies: [tlsf_dep])
+  native_lift_api_exe = executable('native_lift_api',
+    'test/native_lift_api.cpp', 'src/native/param_lift.cc',
+    cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'], dependencies: [tlsf_dep])
+  test('native_lift_api', native_lift_api_exe,
+       timeout: 30, is_parallel: false)
+  native_lift_c_exe = executable('native_lift_c',
+    'test/native_lift_c.c', dependencies: [tlsf_dep], link_language: 'c')
+  test('native_lift_c', native_lift_c_exe,
+       timeout: 10, is_parallel: false)
+  if get_option('native_lift_oracle_root') != '' and spot_python_found
+    lift_diff_args = [files('test/test_native_lift_differential.py'),
+                      '--native', native_lift_exe,
+                      '--builddir', meson.current_build_dir(),
+                      '--oracle-root', get_option('native_lift_oracle_root'),
+                      '--tools-build', meson.current_build_dir()]
+    if get_option('native_lift_corpus_root') != ''
+      lift_diff_args += ['--corpus-root', get_option('native_lift_corpus_root'),
+                         '--corpus-limit', '8', '--seconds', '12']
+    endif
+    test('native_lift_differential', spot_python,
+         args: lift_diff_args, env: spot_python_env,
+         timeout: get_option('native_lift_corpus_root') != '' ? 180 : 90,
+         is_parallel: false)
+  endif
   native_reduction_exe = executable('native_reduction',
     'test/native_reduction.cpp', dependencies: [tlsf_dep])
   native_reduction_c_exe = executable('native_reduction_c',

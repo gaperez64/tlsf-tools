@@ -1002,15 +1002,27 @@ json::value provenance(const TlsfPipeline *pipeline,
         });
         if (item.at("block") == "REQUIRE" || item.at("block") == "ASSERT")
           parsed = Formula::G(parsed);
-        candidates.emplace_back(parsed, item);
+        json::object row = item;
+        json::array refs;
+        for (const auto &name : row.at("signals").as_array()) {
+          const auto &signal = signal_by_name.at(name.as_string()).as_object();
+          refs.push_back(json::object{{"declaration_id", signal.at("declaration_id")},
+                                      {"index_tuple", signal.at("index_tuple")},
+                                      {"index_role", signal.at("index_role")}});
+        }
+        row["signal_refs"] = std::move(refs);
+        candidates.emplace_back(parsed, std::move(row));
       }
   }
+  json::array source_conjuncts;
+  for (const auto &candidate : candidates)
+    source_conjuncts.push_back(candidate.second);
   Buses buses;
   auto add_bus = [&](const std::string &name) {
     if (frontend_valid) {
       const auto &signal = signal_by_name.at(name).as_object();
       if (signal.at("dimensions").as_int64())
-        buses[std::string(signal.at("source_name").as_string())].emplace_back(
+        buses[std::string(signal.at("declaration_id").as_string())].emplace_back(
             name, json_indices(signal.at("index_tuple")));
     } else {
       auto [base, indices] = split_signal_index(name);
@@ -1025,13 +1037,14 @@ json::value provenance(const TlsfPipeline *pipeline,
   for (auto &[base, members] : buses)
     std::sort(members.begin(), members.end(),
               [](const auto &a, const auto &b) { return a.second < b.second; });
-  auto signal_record = [&](const std::string &name) -> json::object {
+  auto signal_record = [&](const std::string &name, uint32_t literal) -> json::object {
     auto [base, indices] = split_signal_index(name);
     json::object record{{"name", name},
                         {"base_name", base},
                         {"index_tuple", numbers(indices)},
                         {"provenance_source", "suffix-heuristic"},
-                        {"game_symbol", symbols.at(name)}};
+                        {"game_symbol", symbols.at(name)},
+                        {"game_literal", literal}};
     if (frontend_valid) {
       for (const auto &[key, value] : signal_by_name.at(name).as_object())
         record[key] = value;
@@ -1041,11 +1054,12 @@ json::value provenance(const TlsfPipeline *pipeline,
     return record;
   };
   json::array input_records, output_records, monitor_records;
-  for (const auto &name : inputs)
-    input_records.push_back(signal_record(name));
-  for (const auto &name : outputs)
-    output_records.push_back(signal_record(name));
+  for (size_t p = 0; p < inputs.size(); ++p)
+    input_records.push_back(signal_record(inputs[p], uint32_t(2 * (p + 1))));
+  for (size_t p = 0; p < outputs.size(); ++p)
+    output_records.push_back(signal_record(outputs[p], uint32_t(2 * (inputs.size() + p + 1))));
   bool available = frontend_valid;
+  unsigned justice_index = 0;
   for (size_t index = 0; index < monitors.size(); ++index) {
     limits.check("provenance");
     const auto &monitor = monitors[index];
@@ -1076,6 +1090,8 @@ json::value provenance(const TlsfPipeline *pipeline,
         {"role", monitor.role},
         {"source_origin", nullptr},
         {"provenance_source", "suffix-heuristic"}};
+    if (monitor.role == "justice")
+      record["justice_index"] = justice_index++;
     if (frontend_valid) {
       const json::object *matched = nullptr;
       for (const auto &[candidate, item] : candidates) {
@@ -1102,6 +1118,7 @@ json::value provenance(const TlsfPipeline *pipeline,
             {"generated_position", matched->at("generated_position")},
             {"bindings", bindings},
             {"index_tuple", bound_indices},
+            {"signal_refs", matched->at("signal_refs")},
             {"signals", matched->at("signals")}};
         record["index_tuple"] = bound_indices;
         record["provenance_source"] = "frontend";
@@ -1142,8 +1159,7 @@ json::value provenance(const TlsfPipeline *pipeline,
       {"source_parameters", frontend_valid
                                 ? frontend.as_object().at("parameters")
                                 : json::value(json::array{})},
-      {"source_conjuncts", frontend_valid ? frontend.as_object().at("conjuncts")
-                                          : json::value(json::array{})},
+      {"source_conjuncts", source_conjuncts},
       {"monitors", monitor_records},
       {"violated_latch_literal", encoded.has_violated
                                      ? json::value(encoded.violated)

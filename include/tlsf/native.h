@@ -8,5 +8,6 @@
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/gr1_check.h"
 #include "tlsf/gr1_reduction.h"
+#include "tlsf/gr1_lift.h"
 
 #endif

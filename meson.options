@@ -19,6 +19,10 @@ option(
 
 option('native_gr1', type: 'feature', value: 'disabled',
        description: 'Build the versioned native GR(1) C ABI into libtlsf')
+option('native_lift_oracle_root', type: 'string', value: '',
+       description: 'Acacia source root for optional test-only Stage C differential')
+option('native_lift_corpus_root', type: 'string', value: '',
+       description: 'Optional parametric TLSF corpus root, up to eight serial cases')
 
 option(
   'cpu',

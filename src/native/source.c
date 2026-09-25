@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "tlsf/pipeline.h"
+#include "source_internal.h"
 
 #include "provenance.h"
 #include "sha256.h"
@@ -9,6 +10,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Internal pre-expansion inspection for native lifting. The parser owns the
+ * source declaration table; expansion later clears it. */
+int tlsf_source_parameter_count(const uint8_t *source, size_t size) {
+  if (!source || !size || memchr(source, '\0', size))
+    return -1;
+  FILE *in = fmemopen((void *)source, size, "r");
+  if (!in)
+    return -1;
+  char *diagnostic = NULL;
+  size_t diagnostic_size = 0;
+  FILE *capture = open_memstream(&diagnostic, &diagnostic_size);
+  if (!capture) {
+    fclose(in);
+    return -1;
+  }
+  FILE *previous = tlsf_diagnostic_swap(capture);
+  TlsfSpec *spec = cli_parse(in, "tlsf-lift");
+  tlsf_diagnostic_swap(previous);
+  fclose(capture);
+  fclose(in);
+  free(diagnostic);
+  if (!spec)
+    return -1;
+  int count = spec->param_count;
+  spec_free(spec);
+  return count;
+}
 
 static int pipeline_error(TlsfPipelineError *error, int result,
                           TlsfPipelineStatus status, const char *stage,
