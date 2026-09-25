@@ -37,9 +37,11 @@ def equal(label, left, right):
 equal("pinned reference", command("git", "rev-parse", "8b158d7^{commit}").strip(),
       SHA.encode())
 submodule_revision = command("git", "ls-tree", SHA, "external/oxidd").split()[2]
-equal("pinned OxiDD submodule",
+equal("pinned reference OxiDD submodule", submodule_revision,
+      b"9158645e51ab03b44355aff222fb39aec4d0a0f8")
+equal("native OxiDD main",
       command("git", "-C", str(ROOT / "external/oxidd"), "rev-parse", "HEAD").strip(),
-      submodule_revision)
+      b"be2f69bd704a4b9baf993fe54ff92c7ca17bb177")
 WORK.mkdir(exist_ok=True)
 if not (SOURCE / ".oracle-extracted").exists():
     if SOURCE.exists():

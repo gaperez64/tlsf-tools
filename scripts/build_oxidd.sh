@@ -16,7 +16,7 @@ incdir="$oxidd/build/include/oxidd"
 patch="$root/patches/oxidd-local-store-generation.patch"
 patch_info="$oxidd/build/oxidd-patch-info.txt"
 archive="$oxidd/target/release/liboxidd_ffi_c.a"
-upstream_commit=9158645e51ab03b44355aff222fb39aec4d0a0f8
+upstream_commit=be2f69bd704a4b9baf993fe54ff92c7ca17bb177
 
 if [ ! -f "$crate/Cargo.toml" ]; then
   echo "build_oxidd: $crate not found; run 'git submodule update --init" \
@@ -33,7 +33,7 @@ if [ ! -s "$patch" ]; then
   exit 1
 fi
 patch_sha=$(sha256sum "$patch" | cut -d ' ' -f 1)
-patch_record="oxidd-$upstream_commit+local-store-generation+$patch_sha"
+patch_record="oxidd-$upstream_commit+gc-retirement+$patch_sha"
 patched_source_matches() {
   git -C "$oxidd" diff | cmp -s - "$patch"
 }
@@ -65,7 +65,7 @@ if git -C "$oxidd" apply -R --check "$patch" 2>/dev/null; then
   echo "build_oxidd: patch already applied"
 else
   git -C "$oxidd" apply --check "$patch" || {
-    echo "build_oxidd: local-store patch does not apply cleanly" >&2
+    echo "build_oxidd: GC-retirement patch does not apply cleanly" >&2
     exit 1
   }
   git -C "$oxidd" apply "$patch"

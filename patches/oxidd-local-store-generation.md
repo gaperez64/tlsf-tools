@@ -1,76 +1,50 @@
-# OxiDD index manager: retire GC threads and identify local stores by lifetime
+# OxiDD GC thread retirement on upstream main
 
-Upstream base: `9158645e51ab03b44355aff222fb39aec4d0a0f8`.
-Patch: `oxidd-local-store-generation.patch`.
+Upstream checkout: `be2f69bd704a4b9baf993fe54ff92c7ca17bb177`.
+Patch: `oxidd-local-store-generation.patch` (filename retained for build-script continuity).
 
-## Symptom
+Upstream commit `9fd1ed0278f69b235d6f87b87a414c64c4ab6026` fixes the stale
+`current_store` address: `LocalStoreStateGuard::drop` now clears it even when
+there are no preallocated slots. The former local generation and slot-cache
+changes are therefore absent from this rebased patch.
 
-A process that creates and drops many index based BDD managers on the same
-caller thread can leave a manager's GC thread alive after the caller drops its
-last reference. In a real certificate checker that constructs a fresh manager
-for each check, repeated checks on one thread occasionally recurse indefinitely
-in BDD `apply_bin` and abort at the stack guard page. The pinned archive failed
-19 of 200 same thread checker runs on the affected certificate. Disabling only
-`prepare_local_state()` passed 200 of 200 runs, which implicates the local
-allocation path; that experiment does not by itself identify the exact bad slot.
+Upstream main still lets the index manager's GC thread outlive the last caller
+reference. `ManagerRef::drop` checks an `Arc` count but does not wait for that
+thread, and a `Quit` sent before the thread's first wait can be missed. On the
+unmodified `be2f69b` checkout, the C same-thread manager loop aborted on its
+first run because the old GC task was still alive after `drop(manager)`. The
+Rust `repeated_manager_lifetimes_on_one_thread` regression failed at lifetime
+zero. One unmodified 300-check C checker run passed; that workload is useful
+coverage but is not a deterministic detector of GC retirement.
 
-## Minimal reproduction
+The patch counts external `ManagerRef`s separately from the GC thread's `Arc`.
+The final external drop signals `Quit` and joins the GC thread. The GC worker
+uses a `Store` `Arc` directly, checks an already pending `Quit` before waiting,
+and keeps the existing local-store guard around collection. The Rust tests
+exercise repeated same-thread manager creation and concurrent final drops.
 
-The added Rust test `bdd::manager_lifetime_tests::repeated_manager_lifetimes_on_one_thread`
-creates, uses, and drops 1,000 BDD managers on one test thread. On Linux it
-records the GC task ID of each manager while alive and asserts that task has
-exited after `drop(manager)` returns, allowing a short bounded poll for `/proc`
-to remove a task entry after `pthread_join`. Against the upstream manager source, it
-fails immediately with `GC thread outlived manager lifetime 0`; with this patch
-it passes. Run it with:
+Validation on this machine used a temporary offline dependency substitution:
+upstream's exact Cargo.lock requires uncached crates and crates.io DNS is
+unavailable. The temporary build substituted a local `dashu-int` implementation
+only for its integer-conversion API, downgraded the derive crate to cached
+`syn` 2 with its one corresponding source adjustment, and resolved compatible
+cached crate versions. Those changes were restored before saving the patch;
+only `manager.rs` and the Rust lifetime tests in `bdd.rs` differ from upstream.
+The lifetime regressions do not use the integer-conversion API. Rebuild from
+the original upstream lockfile once the exact crates are available for a fully
+reproducible release archive.
+
+With the rebased patch, both Rust lifetime tests passed, as did ten consecutive
+C manager runs and ten consecutive C checker runs (300 checks per run). The
+full serial Meson suite passed 300/300 tests with a doubled per-test timeout;
+the 80-game certificate checker took 196 seconds. The Clang ASan/UBSan native
+API selection passed 8/8 tests, including the manager and checker lifetime
+modes. Lift and reduction differential tests passed in the full suite.
+
+Regression commands (one job, serial):
 
 ```sh
-cargo test -j 1 --offline -p oxidd --lib repeated_manager_lifetimes_on_one_thread -- --exact bdd::manager_lifetime_tests::repeated_manager_lifetimes_on_one_thread
+cargo test -j 1 -p oxidd --lib manager_lifetime_tests
+build-native4/oxidd_manager_lifetime manager "$PWD"
+build-native4/oxidd_manager_lifetime checker "$PWD/test/fixtures/oxidd-manager-lifetime"
 ```
-
-The independent C reproducer in `tlsf-tools/test/oxidd_manager_lifetime.c`
-creates and destroys 1,000 managers, then separately calls `tlsf_gr1_check`
-300 times on the same thread using the recorded certificate fixture. Both
-loops are registered in Meson test. On Linux, the manager loop also asserts
-that each manager's GC task ID has exited when unref returns. This assertion
-fails on the pinned unpatched archive and passes with the patch. The 300-check
-workload passed one unpatched run, so it remains useful workload coverage but
-is not a deterministic standalone detector of this race.
-
-## Cause in 9158645
-
-`crates/oxidd-manager-index/src/manager.rs:203-229` stores the current `Store`
-address and allocation slots in thread local `LOCAL_STORE_STATE` but has no
-store lifetime identifier. `prepare_local_state()` at `manager.rs:515-529`
-selects a store using only whether the thread local address is zero; node
-allocation at `manager.rs:538-540` recognizes a store by address alone. An
-allocator can reuse that address after the previous store is freed, allowing
-old slot indices to appear to belong to a new store. In addition,
-`ManagerRef::drop` at `manager.rs:1995-2004` only signals `Quit`; it does not
-wait for the GC thread. Its startup/wait loop at `manager.rs:2244-2262` can
-also miss a `Quit` sent before the thread first waits.
-
-## Change
-
-Give every store a monotonically assigned generation and require both address
-and generation to match when using a thread local slot cache. Reset the cache
-when a new lifetime selects a reused address, and retire it even when a guard
-has no pending slots. Count `ManagerRef` instances atomically, separate from
-the GC thread's own `Store` reference, so concurrent final reference drops
-cannot both miss retirement. Save the GC thread handle, check for a preexisting
-`Quit` before waiting, and join the thread at final manager reference release.
-Take the handle out of its mutex before joining, because GC can drop a
-transient `ManagerRef` as it exits.
-
-## Test
-
-The Rust test fails against the original manager source and passes with this
-patch. A second Rust test drops final references concurrently. The C manager
-loop fails against the unpatched archive at the GC
-retirement assertion; both C loops pass with the patched archive. Run
-`meson test -C build-native2 --num-processes 1` after building the patched
-archive with `scripts/build_oxidd.sh`. In `tlsf-tools`, the full serial Meson
-suite passed 298 of 298 tests. The C loops also passed when the test translation
-unit was built with Clang AddressSanitizer; LeakSanitizer was disabled because
-the test sandbox prevents its ptrace based scan. The Rust archive itself was
-not sanitizer instrumented.
