@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "tlsf/pipeline.h"
-#include "source_internal.h"
+#include "pipeline_source_internal.h"
 
 #include "provenance.h"
 #include "sha256.h"

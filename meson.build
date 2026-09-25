@@ -313,7 +313,7 @@ lib_sources = [
   'src/print_tlsf.c',
   'src/provenance.c',
   'src/sha256.c',
-  'src/native/source.c',
+  'src/pipeline_source.c',
   flex_out[0],
   bison_out[0],
   bison_out[1],   # tlsf_parse.h — declare as a source so the generated lexer
@@ -325,10 +325,10 @@ if have_oxidd
 endif
 if native_gr1
   lib_sources += [
-    'src/native/gr1_service.c',
-    'src/native/gr1_check.c',
-    'src/native/gr1_reduction.cc',
-    'src/native/param_lift.cc',
+    'src/gr1_service.c',
+    'src/gr1_check.c',
+    'src/gr1_reduction.cc',
+    'src/gr1_lift.cc',
     'src/safety_oxidd.c', 'src/gr1_oxidd.c',
     'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c',
   ]
@@ -374,7 +374,7 @@ if native_gr1
   native_lift_exe = executable('native_lift',
     'test/native_lift.cpp', dependencies: [tlsf_dep])
   native_lift_api_exe = executable('native_lift_api',
-    'test/native_lift_api.cpp', 'src/native/param_lift.cc',
+    'test/native_lift_api.cpp', 'src/gr1_lift.cc',
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'], dependencies: [tlsf_dep])
   test('native_lift_api', native_lift_api_exe,
        timeout: 30, is_parallel: false)
@@ -430,7 +430,8 @@ endif
 excluded_headers = ['version.h.in']
 if not native_gr1
   excluded_headers += [
-    'gr1_oxidd.h', 'gr1_check.h', 'gr1_reduction.h', 'oxidd_common.h',
+    'gr1_oxidd.h', 'gr1_check.h', 'gr1_reduction.h', 'gr1_lift.h',
+    'oxidd_common.h',
     'oxidd_options.h',
     'safety_oxidd.h',
   ]
@@ -563,7 +564,7 @@ if research_tools
     tlsfsolve_exe = executable(
       'tlsfsolve',
       sources: ['src/main_tlsfsolve.c', version_h] + (native_gr1 ? [] : [
-        'src/native/gr1_service.c', 'src/safety_oxidd.c',
+        'src/gr1_service.c', 'src/safety_oxidd.c',
         'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
         'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
@@ -576,7 +577,7 @@ if research_tools
     tlsfcertcheck_exe = executable(
       'tlsfcertcheck',
       sources: ['src/main_tlsfcertcheck.c', version_h] + (native_gr1 ? [] : [
-        'src/native/gr1_check.c', 'src/oxidd_common.c',
+        'src/gr1_check.c', 'src/oxidd_common.c',
         'src/oxidd_host.c', 'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
@@ -598,7 +599,7 @@ if research_tools
       'tlsfsolve-failure-stub',
       sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
                 'test/tlsfsolve_failure_stub.c', version_h] +
-               (native_gr1 ? [] : ['src/native/gr1_service.c']),
+               (native_gr1 ? [] : ['src/gr1_service.c']),
       c_args: ['-DHAVE_OXIDD'],
       dependencies: [oxidd_dep],
       link_with: tlsf_lib,

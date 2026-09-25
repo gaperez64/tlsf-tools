@@ -1,5 +1,5 @@
-#ifndef TLSF_SOURCE_INTERNAL_H
-#define TLSF_SOURCE_INTERNAL_H
+#ifndef TLSF_PIPELINE_SOURCE_INTERNAL_H
+#define TLSF_PIPELINE_SOURCE_INTERNAL_H
 
 #include <stddef.h>
 #include <stdint.h>

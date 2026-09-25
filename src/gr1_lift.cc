@@ -3,7 +3,7 @@
 #include "tlsf/oxidd_options.h"
 #include "tlsf/templates.h"
 #include "oxidd_common.h"
-#include "source_internal.h"
+#include "pipeline_source_internal.h"
 
 #include <boost/json.hpp>
 #include <algorithm>
