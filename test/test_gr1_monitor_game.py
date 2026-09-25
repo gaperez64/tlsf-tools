@@ -14,6 +14,8 @@ import subprocess
 import sys
 import tempfile
 
+import spot
+
 
 HERE = pathlib.Path(__file__).resolve().parent
 TLSF_ROOT = HERE.parent
@@ -345,7 +347,8 @@ def test_snapshot_binding(args, directory):
         hashlib.sha256(original.encode()).hexdigest()
     assert source.read_text() != original
     origin = next(item["source_origin"] for item in data["monitors"]
-                  if item["conjunct"] == "Go")
+                  if spot.are_equivalent(spot.formula(item["conjunct"]),
+                                         spot.formula("G o")))
     assert origin["source_formula_id"] == "GUARANTEE:1"
 
 

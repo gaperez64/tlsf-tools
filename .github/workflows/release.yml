@@ -22,9 +22,12 @@ jobs:
             cpu: neon
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
 
       - name: Verify runner platform
         run: |
@@ -39,14 +42,17 @@ jobs:
           if [ "${{ runner.os }}" = "Linux" ]; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends \
-              meson ninja-build flex bison gcc-14
+              ninja-build flex bison gcc-14
             echo "CC=gcc-14" >> "$GITHUB_ENV"
           else
             brew update
-            brew install meson ninja flex bison
+            brew install ninja flex bison
             echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
             echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           fi
+
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
 
       - name: Configure and build stable tools
         run: |
@@ -106,7 +112,7 @@ jobs:
           echo "ARCHIVE=dist/${archive}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}-archive
           path: ${{ env.ARCHIVE }}

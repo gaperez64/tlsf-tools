@@ -4,6 +4,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include "diagnostic.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -449,7 +450,8 @@ bool spec_validate_semantics(const TlsfSpec *s, const char *prog) {
 
   for (uint16_t i = 0; i < s->def_count; i++)
     if (node_has_strong_next(s->defs[i].body)) {
-      fprintf(stderr, "%s: X[!] is only valid under finite semantics\n", prog);
+      fprintf(tlsf_diagnostic_stream(),
+              "%s: X[!] is only valid under finite semantics\n", prog);
       return false;
     }
 
@@ -459,7 +461,8 @@ bool spec_validate_semantics(const TlsfSpec *s, const char *prog) {
       formula_list_has_strong_next(&s->preset) ||
       formula_list_has_strong_next(&s->assert_) ||
       formula_list_has_strong_next(&s->guarantee)) {
-    fprintf(stderr, "%s: X[!] is only valid under finite semantics\n", prog);
+    fprintf(tlsf_diagnostic_stream(),
+            "%s: X[!] is only valid under finite semantics\n", prog);
     return false;
   }
 
@@ -488,7 +491,7 @@ bool spec_validate_lowercase_signals(const TlsfSpec *s, const char *prog) {
           const char *lhs = lists[left_list][left].name;
           const char *rhs = lists[right_list][right].name;
           if (strcmp(lhs, rhs) != 0 && names_equal_ignoring_case(lhs, rhs)) {
-            fprintf(stderr,
+            fprintf(tlsf_diagnostic_stream(),
                     "%s: lowercasing would merge distinct signals '%s' and "
                     "'%s'\n",
                     prog, lhs, rhs);

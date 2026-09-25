@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define AIG_FALSE 0u
 #define AIG_TRUE 1u
 
@@ -166,5 +170,9 @@ bool aig_merge(Aig *dst, const Aig *src);
 /// Emit `dst` as ASCII `aag` (variables renumbered to the canonical
 /// inputs / latches / and-gates order).
 void aig_write_aag(FILE *out, const Aig *g);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TLSF_AIGER_H

@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 #include "tlsf/safety_oxidd.h"
 #include "tlsf/gr1_oxidd.h"
 #include <stdlib.h>
@@ -310,7 +310,7 @@ static void memo_churn(void) {
   oxidd_bdd_manager_add_vars(m, 9);
   Aig *g = aig_new();
   uint32_t mapping[2] = {aig_input(g, "a"), aig_input(g, "b")};
-  Bdd2Aig ctx = {g, mapping, 7, 2, {0}, false};
+  Bdd2Aig ctx = {.strat = g, .var2lit = mapping, .var_base = 7, .var_count = 2};
   for (unsigned i = 0; i < 40; i++) {
     Bdd a = oxidd_bdd_var(m, 7), b = oxidd_bdd_var(m, 8);
     Bdd root = i % 2 ? oxidd_bdd_or(a, b) : oxidd_bdd_and(a, b);

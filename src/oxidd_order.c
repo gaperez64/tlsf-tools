@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 
 #include <ctype.h>
 #include <errno.h>

@@ -2,39 +2,11 @@
 #include "provenance.h"
 
 #include "tlsf/print_tlsf.h"
+#include "yyjson_builder.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-
-static void json_string(FILE *out, const char *value) {
-  fputc('"', out);
-  for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
-    switch (*p) {
-    case '"':
-      fputs("\\\"", out);
-      break;
-    case '\\':
-      fputs("\\\\", out);
-      break;
-    case '\n':
-      fputs("\\n", out);
-      break;
-    case '\r':
-      fputs("\\r", out);
-      break;
-    case '\t':
-      fputs("\\t", out);
-      break;
-    default:
-      if (*p < 32)
-        fprintf(out, "\\u%04x", *p);
-      else
-        fputc(*p, out);
-    }
-  }
-  fputc('"', out);
-}
 
 static char *formula_text(const Node *node) {
   char *buf = nullptr;
@@ -137,68 +109,61 @@ static void mark_aps(const Node *node, const SignalDecl *inputs,
   }
 }
 
-static void emit_signal(FILE *out, const SignalDecl *signal, bool is_output,
-                        bool *first) {
-  if (!*first)
-    fputs(",\n", out);
-  *first = false;
-  fprintf(out, "    {\"name\": ");
-  json_string(out, signal->name);
-  fprintf(out,
-          ", \"direction\": \"%s\", \"declaration_id\": \"%s:%u\", "
-          "\"source_name\": ",
-          is_output ? "output" : "input", is_output ? "output" : "input",
-          signal->origin_id);
-  json_string(out, signal->origin_name);
-  fprintf(out, ", \"dimensions\": %u, \"index_tuple\": [",
-          signal->origin_is_bus ? 1u : 0u);
+static void emit_signal(JsonBuilder *builder, yyjson_mut_val *signals,
+                        const SignalDecl *signal, bool is_output) {
+  yyjson_mut_val *row = jb_obj(builder);
+  jb_push(builder, signals, row);
+  JB_STR(builder, row, "name", signal->name);
+  JB_STR(builder, row, "direction", is_output ? "output" : "input");
+  char id[64];
+  snprintf(id, sizeof id, "%s:%u", is_output ? "output" : "input",
+           signal->origin_id);
+  JB_STR(builder, row, "declaration_id", id);
+  JB_STR(builder, row, "source_name", signal->origin_name);
+  JB_UINT(builder, row, "dimensions", signal->origin_is_bus ? 1u : 0u);
+  yyjson_mut_val *tuple = jb_arr(builder);
   if (signal->origin_is_bus)
-    fprintf(out, "%u", signal->origin_index);
-  fprintf(out,
-          "], \"bounds\": [%u, %u], \"width\": %u, "
-          "\"width_kind\": ",
-          signal->origin_bus_lo, signal->origin_bus_hi,
+    jb_push(builder, tuple, jb_uint(builder, signal->origin_index));
+  jb_put(builder, row, "index_tuple", tuple);
+  yyjson_mut_val *bounds = jb_arr(builder);
+  jb_push(builder, bounds, jb_uint(builder, signal->origin_bus_lo));
+  jb_push(builder, bounds, jb_uint(builder, signal->origin_bus_hi));
+  jb_put(builder, row, "bounds", bounds);
+  JB_UINT(builder, row, "width",
           signal->origin_is_bus
               ? (unsigned)(signal->origin_bus_hi - signal->origin_bus_lo + 1u)
               : 1u);
-  if (!signal->origin_is_bus)
-    json_string(out, "scalar");
-  else if (signal->origin_is_enum)
-    json_string(out, "enum-encoding");
-  else if (signal->origin_is_encoded_bit)
-    json_string(out, "proved-logarithmic-encoding");
-  else if (contains_definition_call(signal->origin_width_expr))
-    json_string(out, "derived-width");
-  else
-    json_string(out, "range");
-  fputs(", \"width_expression\": ", out);
+  const char *width_kind =
+      !signal->origin_is_bus          ? "scalar"
+      : signal->origin_is_enum        ? "enum-encoding"
+      : signal->origin_is_encoded_bit ? "proved-logarithmic-encoding"
+      : contains_definition_call(signal->origin_width_expr) ? "derived-width"
+                                                            : "range";
+  JB_STR(builder, row, "width_kind", width_kind);
   char *expression = signal->origin_width_expr
                          ? formula_text(signal->origin_width_expr)
                          : nullptr;
-  if (expression)
-    json_string(out, expression);
-  else
-    fputs("null", out);
+  if (signal->origin_width_expr && !expression)
+    builder->failed = true;
+  jb_put(builder, row, "width_expression",
+         expression ? jb_str(builder, expression) : jb_null(builder));
   free(expression);
-  fputs(", \"index_role\": ", out);
-  if (!signal->origin_is_bus)
-    json_string(out, "scalar");
-  else if (signal->origin_is_enum || signal->origin_is_encoded_bit)
-    json_string(out, "representation-bit");
-  else if (contains_definition_call(signal->origin_width_expr))
-    json_string(out, "undetermined");
-  else
-    json_string(out, "element");
-  fputc('}', out);
+  const char *index_role =
+      !signal->origin_is_bus ? "scalar"
+      : signal->origin_is_enum || signal->origin_is_encoded_bit
+          ? "representation-bit"
+      : contains_definition_call(signal->origin_width_expr) ? "undetermined"
+                                                            : "element";
+  JB_STR(builder, row, "index_role", index_role);
 }
 
 typedef struct {
-  FILE *out;
+  JsonBuilder *builder;
+  yyjson_mut_val *conjuncts;
   const TlsfSpec *spec;
   const char *block;
   uint32_t ordinal;
   uint32_t generated_position;
-  bool first;
   bool failed;
   bool unresolved;
 } ConjunctWriter;
@@ -223,32 +188,27 @@ static void emit_conjunct(ConjunctWriter *writer, const Node *node,
     writer->failed = true;
     return;
   }
-  FILE *out = writer->out;
-  if (!writer->first)
-    fputs(",\n", out);
-  writer->first = false;
-  uint32_t position = writer->generated_position++;
-  fputs("    {\"block\": ", out);
-  json_string(out, writer->block);
-  fprintf(out,
-          ", \"source_formula_id\": \"%s:%u\", "
-          "\"source_node_id\": %u, \"generated_position\": %u, "
-          "\"formula\": ",
-          writer->block, writer->ordinal, node->source_id, position);
-  json_string(out, text);
+  JsonBuilder *builder = writer->builder;
+  yyjson_mut_val *row = jb_obj(builder);
+  jb_push(builder, writer->conjuncts, row);
+  JB_STR(builder, row, "block", writer->block);
+  char id[64];
+  snprintf(id, sizeof id, "%s:%u", writer->block, writer->ordinal);
+  JB_STR(builder, row, "source_formula_id", id);
+  JB_UINT(builder, row, "source_node_id", node->source_id);
+  JB_UINT(builder, row, "generated_position", writer->generated_position++);
+  JB_STR(builder, row, "formula", text);
   free(text);
-  fputs(", \"bindings\": [", out);
-  bool first = true;
+  yyjson_mut_val *bindings = jb_arr(builder);
   for (const OriginBinding *binding = node->origin_bindings; binding;
        binding = binding->parent) {
-    if (!first)
-      fputs(", ", out);
-    first = false;
-    fprintf(out, "{\"binder_id\": %u, \"name\": ", binding->binder_id);
-    json_string(out, binding->name);
-    fprintf(out, ", \"value\": %lld}", (long long)binding->value);
+    yyjson_mut_val *item = jb_obj(builder);
+    jb_push(builder, bindings, item);
+    JB_UINT(builder, item, "binder_id", binding->binder_id);
+    JB_STR(builder, item, "name", binding->name);
+    JB_SINT(builder, item, "value", binding->value);
   }
-  fputs("], \"signals\": [", out);
+  jb_put(builder, row, "bindings", bindings);
   uint32_t count = writer->spec->input_count + writer->spec->output_count;
   bool *used = calloc(count ? count : 1, sizeof *used);
   if (!used) {
@@ -261,22 +221,19 @@ static void emit_conjunct(ConjunctWriter *writer, const Node *node,
            &unresolved);
   if (unresolved)
     writer->unresolved = true;
-  first = true;
+  yyjson_mut_val *signals = jb_arr(builder);
   for (uint32_t i = 0; i < count; i++) {
     if (!used[i])
       continue;
-    if (!first)
-      fputs(", ", out);
-    first = false;
     const SignalDecl *signal =
         i < writer->spec->input_count
             ? &writer->spec->inputs[i]
             : &writer->spec->outputs[i - writer->spec->input_count];
-    json_string(out, signal->name);
+    jb_push(builder, signals, jb_str(builder, signal->name));
   }
   free(used);
-  fprintf(out, "], \"unresolved_signal_reference\": %s}",
-          unresolved ? "true" : "false");
+  jb_put(builder, row, "signals", signals);
+  JB_BOOL(builder, row, "unresolved_signal_reference", unresolved);
 }
 
 int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
@@ -294,25 +251,29 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
         duplicate_signals = true;
     }
   }
-  fprintf(out, "{\n  \"schema\": \"tlsf-tools.frontend-provenance.v1\",\n"
-               "  \"format_version\": 1,\n  \"source_sha256\": ");
-  json_string(out, source_sha256);
-  fputs(",\n  \"parameters\": [", out);
+  JsonBuilder builder = jb_new();
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "schema", "tlsf-tools.frontend-provenance.v1");
+  JB_UINT(&builder, root, "format_version", 1);
+  JB_STR(&builder, root, "source_sha256", source_sha256);
+  yyjson_mut_val *parameters = jb_arr(&builder);
   for (uint16_t i = 0; i < param_count; i++) {
-    if (i)
-      fputs(", ", out);
-    fprintf(out, "{\"id\": %u, \"name\": ", (unsigned)i + 1);
-    json_string(out, params[i].name);
-    fprintf(out, ", \"value\": %lld}", (long long)params[i].value);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, parameters, row);
+    JB_UINT(&builder, row, "id", (unsigned)i + 1);
+    JB_STR(&builder, row, "name", params[i].name);
+    JB_SINT(&builder, row, "value", params[i].value);
   }
-  fputs("],\n  \"signals\": [\n", out);
-  bool first = true;
+  jb_put(&builder, root, "parameters", parameters);
+  yyjson_mut_val *signals = jb_arr(&builder);
   for (uint32_t i = 0; i < spec->input_count; i++)
-    emit_signal(out, &spec->inputs[i], false, &first);
+    emit_signal(&builder, signals, &spec->inputs[i], false);
   for (uint32_t i = 0; i < spec->output_count; i++)
-    emit_signal(out, &spec->outputs[i], true, &first);
-  fputs("\n  ],\n  \"conjuncts\": [\n", out);
-  ConjunctWriter writer = {.out = out, .spec = spec, .first = true};
+    emit_signal(&builder, signals, &spec->outputs[i], true);
+  jb_put(&builder, root, "signals", signals);
+  yyjson_mut_val *conjuncts = jb_arr(&builder);
+  ConjunctWriter writer = {
+      .builder = &builder, .conjuncts = conjuncts, .spec = spec};
   const struct {
     const char *name;
     const FormulaList *list;
@@ -328,9 +289,9 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
       emit_conjunct(&writer, blocks[k].list->formulas[i], false);
     }
   }
-  fprintf(out, "\n  ],\n  \"ambiguous\": %s\n}\n",
-          spec->provenance_ambiguous || writer.unresolved || duplicate_signals
-              ? "true"
-              : "false");
-  return writer.failed || ferror(out) ? -1 : 0;
+  jb_put(&builder, root, "conjuncts", conjuncts);
+  JB_BOOL(&builder, root, "ambiguous",
+          spec->provenance_ambiguous || writer.unresolved || duplicate_signals);
+  builder.failed |= writer.failed;
+  return jb_write(&builder, root, out) ? 0 : -1;
 }

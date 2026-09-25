@@ -1,4 +1,5 @@
 #include "tlsf/cli.h"
+#include "diagnostic.h"
 
 #include "tlsf_parse.h"
 #include "tlsf_lex.h"
@@ -28,7 +29,7 @@ FILE *cli_open_output(const char *path, const char *prog) {
 TlsfSpec *cli_parse(FILE *in, const char *prog) {
   TlsfSpec *spec = spec_new();
   if (!spec) {
-    fprintf(stderr, "%s: out of memory\n", prog);
+    fprintf(tlsf_diagnostic_stream(), "%s: out of memory\n", prog);
     return nullptr;
   }
 

@@ -2,7 +2,13 @@
 #define TLSF_GR1_OXIDD_H
 
 #include "tlsf/aiger.h"
-#include "tlsf/oxidd_common.h"
+#include "tlsf/oxidd_options.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /// Optional file export requested by tlsfsolve.  The AAG is a combinational
 /// circuit over solver state and game inputs; the JSON file is an optional
@@ -16,18 +22,33 @@ typedef enum {
 typedef struct {
   const char *aag_path;
   const char *json_path;
-  /// Optional combinational policy export.  Its inputs are game state,
+  /// Optional combinational policy export. Its inputs are game state,
   /// curr_0..curr_(m-1), and uncontrollable inputs; its outputs are the
   /// controllable game inputs and curr_next_0..curr_next_(m-1).
   const char *policy_aag_path;
   const char *policy_json_path;
-  /// Semantics of the reduction that produced the game.  Strict reductions
+  /// Semantics of the reduction that produced the game. Strict reductions
   /// are REAL-sound only, so an environment certificate is never exported for
   /// them.
   Gr1CertificateSemantics semantics;
   bool failed;
   char error[256];
+  // Optional in-memory export. Each non-null buffer receives a malloc-owned
+  // NUL-terminated byte sequence; the caller frees it. Paths may be null.
+  char **aag_bytes, **json_bytes, **policy_aag_bytes, **policy_json_bytes;
+  size_t *aag_size, *json_size, *policy_aag_size, *policy_json_size;
+  size_t max_artifact_bytes; /* 0 = unlimited export */
 } Gr1CertificateOptions;
+
+[[nodiscard]] Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
+                                      const OxiddSolveOptions *opts);
+[[nodiscard]] Aig *
+solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                    const OxiddSolveOptions *opts,
+                                    Gr1CertificateOptions *certificate);
+
+/* Validate the GR(1) AIGER profile before solving. */
+bool tlsf_gr1_validate_game(const Aig *game, char *message, size_t capacity);
 
 /// Solve a GR(1) game encoded in `game` (the standard AbsSynthe AIGER format:
 /// controllable inputs prefixed `controllable_`, `bad` output for safety,
@@ -41,22 +62,8 @@ typedef struct {
 /// nullptr without setting `*unreal` (caller should fall back).
 [[nodiscard]] Aig *solve_gr1_oxidd(Aig *game, int *unreal);
 
-/// Extended entry point used by tlsfsolve after profile resolution.  Takes the
-/// same ownership as `solve_gr1_oxidd()`.
-[[nodiscard]] Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
-                                      const OxiddSolveOptions *opts);
-
-/// As `solve_gr1_oxidd`, additionally exporting the final PPS fixpoint and
-/// pre-Skolem strategy relations when `certificate` is non-null.
-[[nodiscard]] Aig *
-solve_gr1_oxidd_with_certificate(Aig *game, int *unreal,
-                                 Gr1CertificateOptions *certificate);
-
-/// Combined extended entry point: retain the resolved OxiDD profile and its
-/// failure reporting while exporting a certificate.
-[[nodiscard]] Aig *
-solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                    const OxiddSolveOptions *opts,
-                                    Gr1CertificateOptions *certificate);
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TLSF_GR1_OXIDD_H

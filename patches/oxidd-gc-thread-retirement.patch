@@ -1,0 +1,493 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index f3429b4..3b14a11 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -633,6 +633,7 @@ dependencies = [
+  "hugealloc",
+  "linear-hashtbl",
+  "oxidd-core",
++ "oxidd-rules-bdd",
+  "parking_lot",
+  "rayon",
+  "rustc-hash",
+diff --git a/crates/oxidd-manager-index/Cargo.toml b/crates/oxidd-manager-index/Cargo.toml
+index 0aeea5b..67bb738 100644
+--- a/crates/oxidd-manager-index/Cargo.toml
++++ b/crates/oxidd-manager-index/Cargo.toml
+@@ -47,6 +47,9 @@ derive-where = "1.5"
+ # run actions when unwinding
+ scopeguard = { version = "1.2", default-features = false }
+ 
++[dev-dependencies]
++oxidd-rules-bdd = { workspace = true, features = ["simple"] }
++
+ 
+ [features]
+ default = ["hugealloc"]
+diff --git a/crates/oxidd-manager-index/src/manager.rs b/crates/oxidd-manager-index/src/manager.rs
+index 1f82f5c..c5f2b5a 100644
+--- a/crates/oxidd-manager-index/src/manager.rs
++++ b/crates/oxidd-manager-index/src/manager.rs
+@@ -22,8 +22,8 @@ use std::marker::PhantomData;
+ use std::mem::ManuallyDrop;
+ use std::ops::Range;
+ use std::sync::Arc;
+-use std::sync::atomic::AtomicU64;
+-use std::sync::atomic::Ordering::{Acquire, Relaxed};
++use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
++use std::sync::atomic::{AtomicU64, AtomicUsize};
+ 
+ use crossbeam_utils::CachePadded;
+ use derive_where::derive_where;
+@@ -117,6 +117,7 @@ pub trait ManagerDataCons<
+ enum GCSignal {
+     RunGc,
+     Quit,
++    Exited,
+ }
+ 
+ pub struct Store<'id, N, ET, TM, R, MD, const TERMINALS: usize>
+@@ -131,6 +132,9 @@ where
+     terminal_manager: TM,
+     state: CachePadded<Mutex<SharedStoreState>>,
+     gc_signal: (Mutex<GCSignal>, Condvar),
++    gc_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
++    /// Counts manager references without the GC thread's own Store Arc.
++    external_refs: AtomicUsize,
+     workers: crate::workers::Workers,
+ }
+ 
+@@ -533,6 +537,17 @@ where
+         );
+     };
+ 
++    /// Creation from a live `&Manager` can revive a zero external count in a
++    /// GC callback. Serialize that transition with the worker's exit check.
++    fn retain_external_from_manager(&self) {
++        let mut signal = self.gc_signal.0.lock();
++        if self.external_refs.fetch_add(1, Relaxed) == 0 {
++            debug_assert_ne!(*signal, GCSignal::Exited);
++            *signal = GCSignal::RunGc;
++            self.gc_signal.1.notify_all();
++        }
++    }
++
+     #[inline]
+     fn prepare_local_state(
+         &self,
+@@ -2032,8 +2047,16 @@ where
+ 
+ // === ManagerRef ==============================================================
+ 
++/// A caller-owned reference to an index-based manager.
++///
++/// Function handles also own an external manager reference. Dropping the last
++/// manager or function handle may wait for an ongoing collection to finish.
++/// This also applies to C `*_unref` and Python finalization. A handle created
++/// by a GC callback may revive a zero count and keep the worker running; the
++/// prior final drop then returns once it observes the revival. A final drop on
++/// the GC thread signals retirement without joining itself. A worker panic is
++/// propagated by a joining drop unless that thread is already unwinding.
+ #[repr(transparent)]
+-#[derive_where(Clone)]
+ pub struct ManagerRef<
+     NC: InnerNodeCons<ET>,
+     ET: Tag,
+@@ -2055,6 +2078,21 @@ pub struct ManagerRef<
+     >,
+ );
+ 
++impl<
++    NC: InnerNodeCons<ET>,
++    ET: Tag,
++    TMC: TerminalManagerCons<NC, ET, TERMINALS>,
++    RC: DiagramRulesCons<NC, ET, TMC, MDC, TERMINALS>,
++    MDC: ManagerDataCons<NC, ET, TMC, RC, TERMINALS>,
++    const TERMINALS: usize,
++> Clone for ManagerRef<NC, ET, TMC, RC, MDC, TERMINALS>
++{
++    fn clone(&self) -> Self {
++        self.0.external_refs.fetch_add(1, Relaxed);
++        Self(self.0.clone())
++    }
++}
++
+ impl<
+     NC: InnerNodeCons<ET>,
+     ET: Tag,
+@@ -2064,13 +2102,40 @@ impl<
+     const TERMINALS: usize,
+ > Drop for ManagerRef<NC, ET, TMC, RC, MDC, TERMINALS>
+ {
++    /// Retire the GC thread when this is the last external reference. If this
++    /// runs on the GC thread, signal it without attempting to join itself.
+     fn drop(&mut self) {
+-        if Arc::strong_count(&self.0) == 2 {
+-            // This is the second last reference. The last reference belongs to
+-            // the gc thread. Terminate it.
+-            let gc_signal = &self.0.gc_signal;
+-            *gc_signal.0.lock() = GCSignal::Quit;
+-            gc_signal.1.notify_one();
++        let gc_signal = &self.0.gc_signal;
++        let mut signal = gc_signal.0.lock();
++        if self.0.external_refs.fetch_sub(1, AcqRel) == 1 {
++            if *signal != GCSignal::Exited {
++                *signal = GCSignal::Quit;
++                gc_signal.1.notify_one();
++            }
++            if self
++                .0
++                .gc_thread
++                .lock()
++                .as_ref()
++                .is_some_and(|thread| thread.thread().id() == std::thread::current().id())
++            {
++                return;
++            }
++            while *signal == GCSignal::Quit {
++                gc_signal.1.wait(&mut signal);
++            }
++            if *signal == GCSignal::Exited {
++                drop(signal);
++                // Hold this mutex through join so another zero drop cannot
++                // return before the worker has actually exited.
++                let mut thread = self.0.gc_thread.lock();
++                if let Some(thread) = thread.take()
++                    && thread.join().is_err()
++                    && !std::thread::panicking()
++                {
++                    panic!("OxiDD GC thread panicked");
++                }
++            }
+         }
+     }
+ }
+@@ -2200,6 +2265,7 @@ impl<
+         //   `&Manager` reference, the counter is at least 1.
+         ManagerRef(unsafe {
+             let manager = &*ptr;
++            (*manager.store).retain_external_from_manager();
+             Arc::increment_strong_count(manager.store);
+             Arc::from_raw(manager.store)
+         })
+@@ -2304,6 +2370,8 @@ pub fn new_manager<
+         }),
+         terminal_manager: TMC::T::<'static>::with_capacity(terminal_node_capacity),
+         gc_signal: (Mutex::new(GCSignal::RunGc), Condvar::new()),
++        gc_thread: Mutex::new(None),
++        external_refs: AtomicUsize::new(1),
+         workers: crate::workers::Workers::new(threads),
+     });
+ 
+@@ -2317,17 +2385,24 @@ pub fn new_manager<
+         LOCAL_STORE_STATE.with(|state| state.current_store.set(store_addr))
+     });
+ 
+-    // spell-checker:ignore mref
+-    let gc_mref: ManagerRef<NC, ET, TMC, RC, MDC, TERMINALS> = ManagerRef(arc.clone());
+-    std::thread::Builder::new()
++    let gc_store = arc.clone();
++    let gc_thread = std::thread::Builder::new()
+         .name("oxidd mi gc".to_string())
+         .spawn(move || {
++            let _on_exit = scopeguard::guard(&*gc_store, |store| {
++                *store.gc_signal.0.lock() = GCSignal::Exited;
++                store.gc_signal.1.notify_all();
++            });
+             // The worker is dedicated to this store.
+             LOCAL_STORE_STATE.with(|state| state.current_store.set(store_addr));
+ 
+-            let store = &*gc_mref.0;
++            let store = &*gc_store;
+             loop {
+                 let mut lock = store.gc_signal.0.lock();
++                // Quit may have arrived before this thread first waited.
++                if *lock == GCSignal::Quit {
++                    break;
++                }
+                 store.gc_signal.1.wait(&mut lock);
+                 if *lock == GCSignal::Quit {
+                     break;
+@@ -2335,9 +2410,9 @@ pub fn new_manager<
+                 drop(lock);
+ 
+                 // parking_lot `Condvar`s have no spurious wakeups -> run gc now
+-                oxidd_core::ManagerRef::with_manager_shared(&gc_mref, |manager| {
+-                    oxidd_core::Manager::gc(manager);
+-                });
++                let local_guard = store.prepare_local_state();
++                oxidd_core::Manager::gc(&*store.manager.shared());
++                drop(local_guard);
+ 
+                 let mut shared = store.state.lock();
+                 LOCAL_STORE_STATE.with(|local| {
+@@ -2354,6 +2429,7 @@ pub fn new_manager<
+             }
+         })
+         .unwrap();
++    *arc.gc_thread.lock() = Some(gc_thread);
+ 
+     // initialize the manager data
+     let local_guard = arc.prepare_local_state();
+@@ -2380,6 +2456,10 @@ impl<
+     }
+ }
+ 
++#[cfg(test)]
++#[path = "manager_lifetime_tests.rs"]
++mod manager_lifetime_tests;
++
+ // === Function ================================================================
+ 
+ #[repr(C)]
+@@ -2498,6 +2578,7 @@ unsafe impl<
+         //   `&Manager` reference, the counter is at least 1.
+         let store = ManagerRef(unsafe {
+             let manager = &*ptr;
++            (*manager.store).retain_external_from_manager();
+             Arc::increment_strong_count(manager.store);
+             Arc::from_raw(manager.store)
+         });
+diff --git a/crates/oxidd-manager-index/src/manager_lifetime_tests.rs b/crates/oxidd-manager-index/src/manager_lifetime_tests.rs
+new file mode 100644
+index 0000000..08bf90f
+--- /dev/null
++++ b/crates/oxidd-manager-index/src/manager_lifetime_tests.rs
+@@ -0,0 +1,237 @@
++use super::*;
++use crate::node::fixed_arity::NodeWithLevelCons;
++use crate::terminal_manager::StaticTerminalManagerCons;
++use oxidd_core::Manager as _;
++use oxidd_core::ManagerRef as _;
++use oxidd_core::function::Function as _;
++use oxidd_rules_bdd::simple::{BDDRules, BDDTerminal};
++use std::sync::mpsc::{self, Receiver, Sender};
++use std::time::{Duration, Instant};
++
++type Nodes = NodeWithLevelCons<2>;
++type Terminals = StaticTerminalManagerCons<BDDTerminal>;
++type TestRef = ManagerRef<Nodes, (), Terminals, Rules, Data, 2>;
++type TestFunc = Function<Nodes, (), Terminals, Rules, Data, 2>;
++type TestManager<'id> = M<'id, Nodes, (), Terminals, Rules, Data, 2>;
++type TestEdge<'id> = Edge<'id, <Nodes as InnerNodeCons<()>>::T<'id>, ()>;
++
++struct Rules;
++impl DiagramRulesCons<Nodes, (), Terminals, Data, 2> for Rules {
++    type T<'id> = BDDRules;
++}
++
++struct Data;
++impl ManagerDataCons<Nodes, (), Terminals, Rules, 2> for Data {
++    type T<'id> = TestData;
++}
++
++struct TestData {
++    hook: Option<Arc<Hook>>,
++}
++
++impl<'id> DropWith<TestEdge<'id>> for TestData {
++    fn drop_with(self, _drop_edge: impl Fn(TestEdge<'id>)) {}
++}
++
++struct Hook {
++    entered: Sender<()>,
++    resume: Mutex<Receiver<()>>,
++    revived: Option<Sender<TestRef>>,
++    revived_once: std::sync::atomic::AtomicBool,
++    drop_on_worker: bool,
++}
++
++impl<'id> ManagerEventSubscriber<TestManager<'id>> for TestData {
++    fn pre_gc(&self, manager: &TestManager<'id>) {
++        if let Some(hook) = &self.hook {
++            let _ = hook.entered.send(());
++            let _ = hook.resume.lock().recv();
++            if let Some(revived) = &hook.revived
++                && !hook.revived_once.swap(true, Relaxed)
++            {
++                let _ = revived.send(TestRef::from(manager));
++            }
++            if hook.drop_on_worker {
++                drop(TestRef::from(manager));
++            }
++        }
++    }
++}
++
++fn new_test_manager(hook: Option<Arc<Hook>>) -> TestRef {
++    new_manager::<Nodes, (), Terminals, Rules, Data, 2>(1024, 2, 1, TestData { hook })
++}
++
++fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
++    let deadline = Instant::now() + Duration::from_secs(30);
++    while Instant::now() < deadline {
++        if condition() {
++            return true;
++        }
++        std::thread::sleep(Duration::from_millis(1));
++    }
++    condition()
++}
++
++fn wait_for_worker_gc(manager: &TestRef, entered: &Receiver<()>) {
++    assert!(
++        wait_until(|| {
++            manager.0.gc_signal.1.notify_one();
++            entered.try_recv().is_ok()
++        }),
++        "this manager's GC worker did not enter the callback"
++    );
++}
++
++#[test]
++fn repeated_manager_lifetimes_on_one_thread() {
++    for lifetime in 0..100 {
++        let manager = new_test_manager(None);
++        let worker = manager.0.gc_thread.lock().as_ref().unwrap().thread().id();
++        assert_ne!(worker, std::thread::current().id());
++        let weak = Arc::downgrade(&manager.0);
++        let function = manager.with_manager_shared(|m| {
++            TestFunc::from_edge(m, m.get_terminal(BDDTerminal::True).unwrap())
++        });
++        drop(manager);
++        assert!(weak.upgrade().is_some(), "function lost store {lifetime}");
++        drop(function);
++        assert!(weak.upgrade().is_none(), "worker survived {lifetime}");
++    }
++}
++
++#[test]
++fn concurrent_final_refs_retire_gc() {
++    for lifetime in 0..100 {
++        let manager = new_test_manager(None);
++        let weak = Arc::downgrade(&manager.0);
++        let other = manager.clone();
++        let barrier = Arc::new(std::sync::Barrier::new(3));
++        let first_barrier = barrier.clone();
++        let first = std::thread::spawn(move || {
++            first_barrier.wait();
++            drop(manager);
++        });
++        let second_barrier = barrier.clone();
++        let second = std::thread::spawn(move || {
++            second_barrier.wait();
++            drop(other);
++        });
++        barrier.wait();
++        first.join().unwrap();
++        second.join().unwrap();
++        assert!(weak.upgrade().is_none(), "worker survived {lifetime}");
++    }
++}
++
++#[test]
++fn final_drop_during_background_gc() {
++    let (entered_tx, entered_rx) = mpsc::channel();
++    let (resume_tx, resume_rx) = mpsc::channel();
++    let manager = new_test_manager(Some(Arc::new(Hook {
++        entered: entered_tx,
++        resume: Mutex::new(resume_rx),
++        revived: None,
++        revived_once: std::sync::atomic::AtomicBool::new(false),
++        drop_on_worker: false,
++    })));
++    let weak = Arc::downgrade(&manager.0);
++    wait_for_worker_gc(&manager, &entered_rx);
++
++    let (done_tx, done_rx) = mpsc::channel();
++    let dropping = std::thread::spawn(move || {
++        drop(manager);
++        done_tx.send(()).unwrap();
++    });
++    let reached_zero = wait_until(|| {
++        weak.upgrade()
++            .is_some_and(|store| store.external_refs.load(Acquire) == 0)
++    });
++    let still_waiting = done_rx.try_recv().is_err();
++    resume_tx.send(()).unwrap();
++    assert!(reached_zero, "final drop did not reach zero");
++    assert!(still_waiting, "final drop returned during collection");
++    done_rx.recv_timeout(Duration::from_secs(30)).unwrap();
++    dropping.join().unwrap();
++    assert!(weak.upgrade().is_none(), "this manager's worker survived");
++}
++
++#[test]
++fn gc_callback_revives_zero_external_count() {
++    let (entered_tx, entered_rx) = mpsc::channel();
++    let (resume_tx, resume_rx) = mpsc::channel();
++    let (revived_tx, revived_rx) = mpsc::channel();
++    let manager = new_test_manager(Some(Arc::new(Hook {
++        entered: entered_tx,
++        resume: Mutex::new(resume_rx),
++        revived: Some(revived_tx),
++        revived_once: std::sync::atomic::AtomicBool::new(false),
++        drop_on_worker: false,
++    })));
++    let weak = Arc::downgrade(&manager.0);
++    wait_for_worker_gc(&manager, &entered_rx);
++
++    let (done_tx, done_rx) = mpsc::channel();
++    let dropping = std::thread::spawn(move || {
++        drop(manager);
++        done_tx.send(()).unwrap();
++    });
++    let reached_zero = wait_until(|| {
++        weak.upgrade()
++            .is_some_and(|store| store.external_refs.load(Acquire) == 0)
++    });
++    resume_tx.send(()).unwrap();
++    assert!(reached_zero, "final drop did not reach zero");
++    let revived = revived_rx.recv_timeout(Duration::from_secs(30)).unwrap();
++    done_rx.recv_timeout(Duration::from_secs(30)).unwrap();
++    dropping.join().unwrap();
++    assert!(weak.upgrade().is_some(), "revived handle lost its store");
++    wait_for_worker_gc(&revived, &entered_rx);
++    let (final_done_tx, final_done_rx) = mpsc::channel();
++    let final_drop = std::thread::spawn(move || {
++        drop(revived);
++        final_done_tx.send(()).unwrap();
++    });
++    let reached_zero_again = wait_until(|| {
++        weak.upgrade()
++            .is_some_and(|store| store.external_refs.load(Acquire) == 0)
++    });
++    resume_tx.send(()).unwrap();
++    assert!(reached_zero_again, "revived handle did not reach zero");
++    final_done_rx.recv_timeout(Duration::from_secs(30)).unwrap();
++    final_drop.join().unwrap();
++    assert!(
++        weak.upgrade().is_none(),
++        "revived handle did not retire worker"
++    );
++}
++
++#[test]
++fn gc_worker_can_drop_the_last_transient_handle() {
++    let (entered_tx, entered_rx) = mpsc::channel();
++    let (resume_tx, resume_rx) = mpsc::channel();
++    let manager = new_test_manager(Some(Arc::new(Hook {
++        entered: entered_tx,
++        resume: Mutex::new(resume_rx),
++        revived: None,
++        revived_once: std::sync::atomic::AtomicBool::new(false),
++        drop_on_worker: true,
++    })));
++    let weak = Arc::downgrade(&manager.0);
++    wait_for_worker_gc(&manager, &entered_rx);
++
++    let (done_tx, done_rx) = mpsc::channel();
++    let dropping = std::thread::spawn(move || {
++        drop(manager);
++        done_tx.send(()).unwrap();
++    });
++    let reached_zero = wait_until(|| {
++        weak.upgrade()
++            .is_some_and(|store| store.external_refs.load(Acquire) == 0)
++    });
++    resume_tx.send(()).unwrap();
++    assert!(reached_zero, "final drop did not reach zero");
++    done_rx.recv_timeout(Duration::from_secs(30)).unwrap();
++    dropping.join().unwrap();
++    assert!(weak.upgrade().is_none(), "this manager's worker survived");
++}

@@ -17,6 +17,13 @@ option(
                'external/oxidd artifacts',
 )
 
+option('native_gr1', type: 'feature', value: 'disabled',
+       description: 'Build the native GR(1) C API into libtlsf')
+option('native_lift_oracle_root', type: 'string', value: '',
+       description: 'Acacia source root for optional test-only Stage C differential')
+option('native_lift_corpus_root', type: 'string', value: '',
+       description: 'Optional parametric TLSF corpus root, up to eight serial cases')
+
 option(
   'cpu',
   type: 'combo',
@@ -36,3 +43,5 @@ option(
 )
 option('issue24_corpus', type: 'string', value: '',
        description: 'Offline directory containing the five pinned issue-24 AAG files; enables serial corpus suites')
+option('native_reduction_corpus', type: 'string', value: '',
+       description: 'Optional TLSF corpus directory for native GR(1) differential tests')

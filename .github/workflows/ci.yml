@@ -11,20 +11,25 @@ jobs:
   format:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       # Pin clang-format via the PyPI package so the formatting check is
       # reproducible across machines (distro clang-format versions disagree).
       - name: Install clang-format
-        run: pip install 'clang-format==18.1.8'
+        run: pip install 'clang-format==22.1.8'
       - name: Check formatting
         run: |
           clang-format --version
-          clang-format --dry-run --Werror src/*.c include/tlsf/*.h
+          git ls-files -z --cached --others --exclude-standard -- \
+            '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' \
+            ':!:external/**' ':!:build*/**' |
+          while IFS= read -r -d '' file; do
+            if [ -f "$file" ]; then printf '%s\0' "$file"; fi
+          done | xargs -0 -r clang-format --dry-run --Werror
 
   # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
   # once and share it with the explicit OxiDD research job as an artifact, so
@@ -33,56 +38,62 @@ jobs:
   oxidd:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
       - name: Install Rust
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
       - name: OxiDD submodule revision
         id: rev
         run: echo "sha=$(git -C external/oxidd rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo + OxiDD build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin
             external/oxidd/target
-          key: oxidd-${{ runner.os }}-${{ steps.rev.outputs.sha }}
-          restore-keys: |
-            oxidd-${{ runner.os }}-
+          key: oxidd-gc-thread-retirement-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'patches/oxidd-gc-thread-retirement.patch') }}
       - name: Install cbindgen
-        # ~/.cargo/bin is cached, so a restored cache already has cbindgen and a
-        # plain `cargo install` would fail with "binary already exists"; skip it
-        # when present (and --force on the rare miss to stay idempotent).
-        run: command -v cbindgen >/dev/null || cargo install cbindgen --locked --force
+        run: |
+          if ! command -v cbindgen >/dev/null || \
+             [ "$(cbindgen --version)" != 'cbindgen 0.29.2' ]; then
+            cargo install cbindgen --version 0.29.2 --locked --force
+          fi
+          test "$(cbindgen --version)" = 'cbindgen 0.29.2'
       - name: Build OxiDD FFI
         run: scripts/build_oxidd.sh
       - name: Upload OxiDD FFI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oxidd-ffi
           path: |
             external/oxidd/target/release/liboxidd_ffi_c.a
             external/oxidd/build/include
+            external/oxidd/build/oxidd-gc-thread-retirement-info.txt
           if-no-files-found: error
           retention-days: 1
 
   build-test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 valgrind
+            ninja-build flex bison gcc-14 valgrind
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Configure
         env:
           CC: gcc-14
@@ -110,14 +121,19 @@ jobs:
   build-clang:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison clang
+            ninja-build flex bison clang
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Configure, build and test
         env:
           CC: clang
@@ -133,14 +149,19 @@ jobs:
       matrix:
         cpu: [baseline, x86-64-v2, avx2]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14
+            ninja-build flex bison gcc-14
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Configure, build, and test SIMD kernels
         env:
           CC: gcc-14
@@ -158,19 +179,27 @@ jobs:
     needs: oxidd
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 python3
+            ninja-build flex bison gcc-14 python3
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Download OxiDD FFI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: oxidd-ffi
           path: external/oxidd
+      - name: Apply OxiDD source patch
+        run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
       - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
           CC: gcc-14
@@ -181,17 +210,76 @@ jobs:
           ninja -C build-oxidd
           meson test -C build-oxidd --print-errorlogs
 
-  coverage:
+  build-native-gr1:
+    needs: oxidd
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc gcovr
+            ninja-build flex bison gcc-14 g++-14 make curl pkg-config
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
+      - name: Download OxiDD FFI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: oxidd-ffi
+          path: external/oxidd
+      - name: Apply OxiDD source patch
+        run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
+      - name: Build pinned Spot release
+        run: |
+          curl -fsSL https://www.lre.epita.fr/dload/spot/spot-2.16.tar.gz \
+            -o spot-2.16.tar.gz
+          tar -xf spot-2.16.tar.gz
+          cd spot-2.16
+          CC=gcc-14 CXX=g++-14 ./configure --disable-python \
+            --prefix="$GITHUB_WORKSPACE/.spot"
+          make -j2
+          make install
+      - name: Build and test native C ABI
+        env:
+          CC: gcc-14
+          CXX: g++-14
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.spot/lib/pkgconfig
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.spot/lib
+        run: |
+          pkg-config --modversion libspot
+          git rev-parse HEAD
+          git -C external/oxidd rev-parse HEAD
+          meson setup build-native-ci -Dnative_gr1=enabled -Doxidd=enabled \
+            -Dresearch_tools=true -Dcpp_std=c++20
+          meson compile -C build-native-ci -j1
+          meson test -C build-native-ci --num-processes 1 --print-errorlogs
+          meson setup build-oxidd-ci -Dnative_gr1=disabled -Doxidd=enabled \
+            -Dresearch_tools=true -Dcpp_std=c++20
+          python3 test/check_native_gate.py build-oxidd-ci
+          meson compile -C build-oxidd-ci -j1
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build flex bison gcc gcovr
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Build with coverage and report
         run: |
           # Coverage is measured on the dependency-free build with the
@@ -224,14 +312,19 @@ jobs:
   perf-regression:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            meson ninja-build flex bison gcc-14 time
+            ninja-build flex bison gcc-14 time
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
       - name: Build
         env:
           CC: gcc-14

@@ -5,7 +5,7 @@
 // must be `oxidd_bdd_unref`'d (a no-op on the invalid/NULL handle).
 
 #define _POSIX_C_SOURCE 200809L
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -194,8 +194,34 @@ void oxidd_run_finish(OxiddRun *r) {
               r->sampled_peak, r->built_gates, r->relevant_gates);
 }
 
+bool oxidd_run_stopped(OxiddRun *r) {
+  if (r->stopped)
+    return true;
+  const OxiddSolveOptions *opts = r->options;
+  OxiddFailureKind reason = OXIDD_FAILURE_NONE;
+  if (opts->cancelled && opts->cancelled(opts->cancel_ctx))
+    reason = OXIDD_FAILURE_CANCELLED;
+  else if (opts->deadline_mono_ns) {
+    struct timespec now;
+    uint64_t deadline_sec = opts->deadline_mono_ns / 1000000000u;
+    uint64_t deadline_nsec = opts->deadline_mono_ns % 1000000000u;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 ||
+        (uint64_t)now.tv_sec > deadline_sec ||
+        ((uint64_t)now.tv_sec == deadline_sec &&
+         (uint64_t)now.tv_nsec >= deadline_nsec))
+      reason = OXIDD_FAILURE_DEADLINE;
+  }
+  if (reason == OXIDD_FAILURE_NONE)
+    return false;
+  r->stopped = true;
+  r->failed_operation = "limit";
+  oxidd_record_failure(opts, reason, r->phase, "limit", r->operations,
+                       r->index);
+  return true;
+}
+
 static bool operation_begin(OxiddRun *r, const char *op) {
-  if (r->failed_operation)
+  if (r->failed_operation || oxidd_run_stopped(r))
     return false;
   r->operations++;
   oxidd_pressure_gc_checkpoint(r);
@@ -209,7 +235,7 @@ static bool operation_begin(OxiddRun *r, const char *op) {
 static Bdd operation_end(OxiddRun *r, const char *op, Bdd result) {
   if (r->options->verbosity)
     sample_nodes(r);
-  if (bdd_invalid(result)) {
+  if (bdd_invalid(result) && !r->stopped) {
     r->failed_operation = op;
     oxidd_record_failure(r->options, OXIDD_FAILURE_BDD, r->phase, op,
                          r->operations, r->index);
@@ -966,6 +992,11 @@ void oxidd_session_gc(void) {
 uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f) {
   if (ctx->error)
     return AIG_FALSE;
+  if (ctx->budget_run && (ctx->visited++ & 255u) == 0 &&
+      oxidd_run_stopped(ctx->budget_run)) {
+    ctx->error = true;
+    return AIG_FALSE;
+  }
   if (bdd_invalid(f)) {
     ctx->error = true;
     return AIG_FALSE;

@@ -24,7 +24,7 @@
 
 #include "tlsf/safety_oxidd.h"
 
-#include "tlsf/oxidd_common.h"
+#include "oxidd_common.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -475,7 +475,8 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
     for (uint32_t k = 0; k < ncv; k++) {
       uint32_t lit;
       const char *name = aig_input_name(game, cinput[k], &lit);
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local,
+                     {0},   false,   nullptr,  0};
       uint32_t out = bdd2aig_root(&ctx, strat_f[k]);
       convert_error = convert_error || ctx.error;
       aig_set_output(strat, name, out);
@@ -496,7 +497,8 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
         convert_error = true;
         break;
       }
-      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local, {0}, false};
+      Bdd2Aig ctx = {strat, var2lit, var_base, nvars_local,
+                     {0},   false,   nullptr,  0};
       uint32_t nl = bdd2aig_root(&ctx, na);
       convert_error = convert_error || ctx.error;
       oxidd_bdd_unref(na);

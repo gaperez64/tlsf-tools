@@ -15,6 +15,7 @@
 #include "tlsf/build_info.h"
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/safety_oxidd.h"
+#include "oxidd_common.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -330,15 +331,16 @@ int main(int argc, char **argv) {
     }
 #endif
     if (!strcmp(arg, "--version")) {
-      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s\n",
+      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s "
+             "oxidd_patch=%s\n",
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
              tlsf_build_simd(),
 #ifndef NDEBUG
-             "yes"
+             "yes",
 #else
-             "no"
+             "no",
 #endif
-      );
+             tlsf_build_oxidd_patch());
       return 0;
     }
     const char *val = option_value(&i, argc, argv, arg, "--certificate");
@@ -584,6 +586,16 @@ int main(int argc, char **argv) {
     free(default_policy_json);
     return 2;
   }
+  if (resolved_profile == PROFILE_GR1) {
+    char reason[128];
+    if (!tlsf_gr1_validate_game(game, reason, sizeof reason)) {
+      fprintf(stderr, "%s: %s\n", argv[0], reason);
+      aig_free(game);
+      free(default_certificate_json);
+      free(default_policy_json);
+      return 2;
+    }
+  }
 
   oxidd_trace(&opts, "resolve_profile", "game",
               ",\"profile_requested\":\"%s\",\"profile\":\"%s\","
@@ -615,13 +627,14 @@ int main(int argc, char **argv) {
     free(default_policy_json);
     return 2;
   }
-  Gr1CertificateOptions certificate = {certificate_path,
-                                       certificate_json_path,
-                                       policy_path,
-                                       policy_json_path,
-                                       certificate_semantics,
-                                       false,
-                                       {0}};
+  Gr1CertificateOptions certificate = {
+
+      .aag_path = certificate_path,
+      .json_path = certificate_json_path,
+      .policy_aag_path = policy_path,
+      .policy_json_path = policy_json_path,
+      .semantics = certificate_semantics,
+  };
   Aig *strat = nullptr;
   if (resolved_profile == PROFILE_GR1) {
     if (opts.demand_transitions || opts.realizability_only) {

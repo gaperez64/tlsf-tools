@@ -6,12 +6,13 @@ project(
     'scripts/git-version.py',
     check: true,
   ).stdout().strip(),
+  meson_version: '>= 1.7.0',
   license: 'MIT',
   default_options: [
     'warning_level=3',
     'werror=false',
     'b_ndebug=if-release',
-    'cpp_std=c++17',
+    'cpp_std=c++20',
   ],
 )
 
@@ -25,6 +26,7 @@ pkg = import('pkgconfig')
 
 cc = meson.get_compiler('c')
 research_tools = get_option('research_tools')
+native_gr1 = get_option('native_gr1').enabled()
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
@@ -106,6 +108,8 @@ bison = find_program('bison', required: true)
 # Optional: used by wrapper/benchmark tests that shell out to ltlsynt.
 ltlsynt = find_program('ltlsynt', required: false)
 spot_dep = dependency('libspot', required: false)
+yyjson_dep = dependency('yyjson', version: '>=0.12.0',
+                        fallback: ['yyjson', 'yyjson_dep'])
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
 python3 = find_program('python3', required: false)
@@ -155,6 +159,7 @@ oxidd_build_sh = join_paths(meson.project_source_root(), 'scripts', 'build_oxidd
 oxidd_lib_path = join_paths(oxidd_dir, 'target', 'release', 'liboxidd_ffi_c.a')
 oxidd_inc_path = join_paths(oxidd_dir, 'build', 'include')
 oxidd_capi_h = join_paths(oxidd_inc_path, 'oxidd', 'capi.h')
+oxidd_patch_info_path = join_paths(oxidd_dir, 'build', 'oxidd-gc-thread-retirement-info.txt')
 oxidd_submodule_ready = fs.exists(join_paths(oxidd_dir, 'crates', 'oxidd-ffi-c', 'Cargo.toml'))
 
 if git.found()
@@ -169,7 +174,8 @@ if bash.found()
   run_target('oxidd-build', command: [bash, oxidd_build_sh])
 endif
 
-oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h)
+oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h) and fs.exists(oxidd_patch_info_path)
+oxidd_patch_record = 'none'
 oxidd_dep = dependency('', required: false)  # null dependency by default
 have_oxidd = false
 if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
@@ -182,6 +188,11 @@ if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
       '-Doxidd=enabled --buildtype=release',
     )
   endif
+  oxidd_verify = run_command(bash, oxidd_build_sh, '--verify', check: false)
+  if oxidd_verify.returncode() != 0
+    error('OxiDD patch verification failed: ' + oxidd_verify.stderr().strip())
+  endif
+  oxidd_patch_record = fs.read(oxidd_patch_info_path).strip()
   # Rust staticlib pulls in the system threading/dl/math runtime.
   oxidd_link_args = [oxidd_lib_path, '-lpthread', '-lm']
   if host_machine.system() != 'darwin'
@@ -198,12 +209,21 @@ elif oxidd_feature.auto()
           '`meson compile -C build oxidd-build`)')
 endif
 
+if native_gr1 and not have_oxidd
+  error('native_gr1 requires -Doxidd=enabled and the built OxiDD archive and headers')
+endif
+if native_gr1 and not spot_dep.found()
+  error('native_gr1 requires libspot (set PKG_CONFIG_PATH if needed)')
+endif
+
 build_info_conf = configuration_data()
 build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
+build_info_conf.set_quoted('TLSF_BUILD_OXIDD_PATCH', oxidd_patch_record)
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
-configure_file(
+build_config_h = configure_file(
   output: 'build_config.h',
   configuration: build_info_conf,
+  install_dir: join_paths(get_option('includedir'), 'tlsf'),
 )
 
 version_h = vcs_tag(
@@ -212,6 +232,8 @@ version_h = vcs_tag(
   output: 'version.h',
   fallback: meson.project_version(),
   replace_string: '@VCS_TAG@',
+  install: true,
+  install_dir: join_paths(get_option('includedir'), 'tlsf'),
 )
 
 # ---------------------------------------------------------------------------
@@ -255,6 +277,7 @@ bison_out = custom_target(
 
 inc = include_directories(
   'include',
+  'src',
   '.',            # so #include "tlsf_lex.h" / "tlsf_parse.h" resolve in builddir
 )
 
@@ -269,6 +292,7 @@ lib_sources = [
   'src/ast_api.c',
   'src/spec.c',
   'src/cli.c',
+  'src/diagnostic.c',
   'src/expand.c',
   'src/nnf.c',
   'src/rewrite.c',
@@ -290,6 +314,9 @@ lib_sources = [
   'src/gr.c',
   'src/print_ltlxba.c',
   'src/print_tlsf.c',
+  'src/provenance.c',
+  'src/sha256.c',
+  'src/pipeline_source.c',
   flex_out[0],
   bison_out[0],
   bison_out[1],   # tlsf_parse.h — declare as a source so the generated lexer
@@ -299,17 +326,45 @@ lib_sources = [
 if have_oxidd
   lib_sources += ['src/precheck_unreal.c']
 endif
+if native_gr1
+  lib_sources += [
+    'src/gr1_service.c',
+    'src/gr1_check.c',
+    'src/gr1_reduction.cc',
+    'src/gr1_lift.cc',
+    'src/safety_oxidd.c', 'src/gr1_oxidd.c',
+    'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c',
+  ]
+endif
 
 lib_c_args = have_oxidd ? ['-DHAVE_OXIDD'] : []
-lib_deps = have_oxidd ? [oxidd_dep] : []
-pkg_private_libs = have_oxidd ? oxidd_link_args : []
+lib_sources += [version_h]
+lib_compile_deps = [yyjson_dep] + (have_oxidd ? [declare_dependency(
+  include_directories: include_directories('external/oxidd/build/include'),
+)] : [])
+lib_deps = [yyjson_dep] + (have_oxidd ? [oxidd_dep] : [])
+if native_gr1
+  cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
+  lib_compile_deps += [
+    spot_dep.partial_dependency(compile_args: true, includes: true),
+  ]
+  lib_deps += [spot_dep,
+               meson.get_compiler('cpp').find_library(cpp_runtime)]
+endif
+pkg_private_libs = have_oxidd ? ['-loxidd_ffi_c', '-lpthread', '-lm'] : []
+if native_gr1
+  pkg_private_libs += ['-l' + cpp_runtime]
+endif
+if have_oxidd and host_machine.system() != 'darwin'
+  pkg_private_libs += ['-ldl']
+endif
 
 tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: inc,
   c_args: lib_c_args,
-  dependencies: lib_deps,
+  dependencies: lib_compile_deps,
   install: true,
   pic: true,
 )
@@ -321,20 +376,88 @@ tlsf_dep = declare_dependency(
 )
 meson.override_dependency('tlsf', tlsf_dep)
 
-install_headers(
-  'include/tlsf/ast_api.h',
-  'include/tlsf/ast_api.hpp',
-  'include/tlsf/decompose.h',
-  'include/tlsf/decompose.hpp',
-  subdir: 'tlsf',
-)
+if native_gr1
+  native_lift_exe = executable('native_lift',
+    'test/native_lift.cpp', dependencies: [tlsf_dep])
+  native_lift_api_exe = executable('native_lift_api',
+    'test/native_lift_api.cpp', 'src/gr1_lift.cc',
+    cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'], dependencies: [tlsf_dep])
+  test('native_lift_api', native_lift_api_exe,
+       timeout: 30, is_parallel: false)
+  native_lift_c_exe = executable('native_lift_c',
+    'test/native_lift_c.c', dependencies: [tlsf_dep], link_language: 'c')
+  test('native_lift_c', native_lift_c_exe,
+       timeout: 10, is_parallel: false)
+  if get_option('native_lift_oracle_root') != '' and spot_python_found
+    lift_diff_args = [files('test/test_native_lift_differential.py'),
+                      '--native', native_lift_exe,
+                      '--builddir', meson.current_build_dir(),
+                      '--oracle-root', get_option('native_lift_oracle_root'),
+                      '--tools-build', meson.current_build_dir()]
+    if get_option('native_lift_corpus_root') != ''
+      lift_diff_args += ['--corpus-root', get_option('native_lift_corpus_root'),
+                         '--corpus-limit', '8', '--seconds', '12']
+    endif
+    test('native_lift_differential', spot_python,
+         args: lift_diff_args, env: spot_python_env,
+         timeout: get_option('native_lift_corpus_root') != '' ? 180 : 90,
+         is_parallel: false)
+  endif
+  native_reduction_exe = executable('native_reduction',
+    'test/native_reduction.cpp', dependencies: [tlsf_dep])
+  native_reduction_c_exe = executable('native_reduction_c',
+    'test/native_reduction_c.c', dependencies: [tlsf_dep], link_language: 'c')
+  test('native_reduction_c', native_reduction_c_exe)
+  native_api_c_exe = executable('native_api_c', 'test/native_api.c',
+    dependencies: [tlsf_dep])
+  test('native_api_c', native_api_c_exe)
+  oxidd_manager_lifetime_exe = executable('oxidd_manager_lifetime',
+    'test/oxidd_manager_lifetime.c', dependencies: [tlsf_dep])
+  test('oxidd_manager_lifetime_manager', oxidd_manager_lifetime_exe,
+    args: ['manager', meson.current_source_dir()], timeout: 120,
+    is_parallel: false)
+  test('oxidd_manager_lifetime_checker', oxidd_manager_lifetime_exe,
+    args: ['checker', join_paths(meson.current_source_dir(), 'test',
+                                 'fixtures', 'oxidd-manager-lifetime')],
+    timeout: 900, is_parallel: false)
+  native_api_cpp_exe = executable('native_api_cpp', 'test/native_api_cpp.cpp',
+    dependencies: [tlsf_dep])
+  test('native_api_cpp', native_api_cpp_exe)
+  if host_machine.system() == 'linux'
+    native_api_failure_exe = executable('native_api_failure',
+      'test/native_api_failure.c', dependencies: [tlsf_dep],
+      link_args: ['-Wl,--wrap=malloc', '-Wl,--wrap=calloc',
+                  '-Wl,--wrap=oxidd_host_calloc',
+                  '-Wl,--wrap=oxidd_host_realloc'])
+    test('native_api_failure', native_api_failure_exe)
+  endif
+endif
+
+excluded_headers = ['version.h.in']
+if not native_gr1
+  excluded_headers += [
+    'gr1_oxidd.h', 'gr1_check.h', 'gr1_reduction.h', 'gr1_lift.h',
+    'oxidd_common.h',
+    'oxidd_options.h',
+    'safety_oxidd.h',
+  ]
+endif
+install_subdir('include/tlsf', install_dir: get_option('includedir'),
+               exclude_files: excluded_headers)
+if have_oxidd
+  install_subdir('external/oxidd/build/include/oxidd',
+                 install_dir: get_option('includedir'))
+  install_data(oxidd_lib_path, install_dir: get_option('libdir'))
+endif
 
 pkg.generate(
-  tlsf_lib,
+  libraries: ['-L${libdir}', '-ltlsf'],
   name: 'tlsf',
   filebase: 'tlsf',
   description: 'TLSF decomposition and preprocessing library',
+  version: meson.project_version(),
   libraries_private: pkg_private_libs,
+  requires_private: ['yyjson'] + (native_gr1 ? ['libspot'] : []),
 )
 
 # ---------------------------------------------------------------------------
@@ -351,8 +474,7 @@ tlsf2ltl_exe = executable(
 
 tlsf2tlsf_exe = executable(
   'tlsf2tlsf',
-  sources: ['src/main_tlsf2tlsf.c', 'src/provenance.c', 'src/sha256.c',
-            bison_out[1], version_h],
+  sources: ['src/main_tlsf2tlsf.c', bison_out[1], version_h],
   link_with: tlsf_lib,
   include_directories: inc,
   install: true,
@@ -365,6 +487,28 @@ tlsfinfo_exe = executable(
   include_directories: inc,
   install: true,
 )
+
+if native_gr1 and spot_python_found
+  native_diff_args = [files('test/test_native_reduction.py'),
+                      '--native', native_reduction_exe,
+                      '--builder', files('scripts/gr1_monitor_game.py'),
+                      '--tlsf2ltl', tlsf2ltl_exe,
+                      '--tlsf2tlsf', tlsf2tlsf_exe,
+                      '--tlsfinfo', tlsfinfo_exe,
+                      '--fixtures', meson.current_source_dir() / 'test/cases',
+                      '--builddir', meson.current_build_dir()]
+  if get_option('native_reduction_corpus') != ''
+    native_diff_args += ['--corpus', get_option('native_reduction_corpus')]
+  endif
+  test('native_reduction_differential', spot_python,
+       args: native_diff_args, env: spot_python_env, timeout: 1800)
+  test('native_reduction_language', spot_python,
+       args: [files('test/test_native_reduction_language.py'),
+              '--native', native_reduction_exe,
+              '--tlsf2ltl', tlsf2ltl_exe,
+              '--builddir', meson.current_build_dir()],
+       env: spot_python_env, timeout: 120)
+endif
 
 tlsfnorm_exe = executable(
   'tlsfnorm',
@@ -418,7 +562,7 @@ if research_tools
                 bison_out[1],
                 version_h],
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
@@ -426,12 +570,12 @@ if research_tools
 
     tlsfsolve_exe = executable(
       'tlsfsolve',
-      sources: ['src/main_tlsfsolve.c', 'src/safety_oxidd.c',
-                'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
-                'src/oxidd_order.c',
-                version_h],
+      sources: ['src/main_tlsfsolve.c', version_h] + (native_gr1 ? [] : [
+        'src/gr1_service.c', 'src/safety_oxidd.c',
+        'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
+        'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
@@ -439,22 +583,32 @@ if research_tools
 
     tlsfcertcheck_exe = executable(
       'tlsfcertcheck',
-      sources: ['src/main_tlsfcertcheck.c', 'src/sha256.c',
-                'src/oxidd_common.c',
-                'src/oxidd_host.c', version_h],
+      sources: ['src/main_tlsfcertcheck.c', version_h] + (native_gr1 ? [] : [
+        'src/gr1_check.c', 'src/oxidd_common.c',
+        'src/oxidd_host.c', 'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
     )
+    if native_gr1 and python3.found()
+      test('native_oracle_8b158d7', python3,
+        args: [files('test/native_oracle.py'), meson.current_build_dir()],
+        timeout: 900, is_parallel: false)
+      test('checker_link_independence', python3,
+        args: [files('test/checker_link_independence.py'),
+               meson.current_build_dir(), tlsfcertcheck_exe],
+        is_parallel: false)
+    endif
 
     tlsfsolve_failure_exe = executable(
       'tlsfsolve-failure-stub',
       sources: ['src/main_tlsfsolve.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
-                'test/tlsfsolve_failure_stub.c', version_h],
+                'test/tlsfsolve_failure_stub.c', version_h] +
+               (native_gr1 ? [] : ['src/gr1_service.c']),
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
     )
@@ -1071,7 +1225,7 @@ if research_tools and have_oxidd
                 '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
                 '-Wl,--wrap=oxidd_bdd_exists', '-Wl,--wrap=oxidd_bdd_restrict',
                 '-Wl,--wrap=calloc', '-Wl,--wrap=oxidd_host_realloc'],
-    dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
+    dependencies: [oxidd_dep, yyjson_dep], link_with: tlsf_lib, include_directories: inc)
   test('oxidd_memory', oxidd_memory_test)
   test('gr1_fairness_alternating_unreal', check_status,
     args: ['1', files('test/cases/empty'),
@@ -1108,7 +1262,7 @@ if research_tools and have_oxidd
     sources: ['test/aiger_game_roundtrip.c', 'src/gr1_oxidd.c',
               'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c'],
     c_args: ['-DHAVE_OXIDD'],
-    dependencies: [oxidd_dep],
+    dependencies: [oxidd_dep, yyjson_dep],
     link_with: tlsf_lib,
     include_directories: inc,
   )

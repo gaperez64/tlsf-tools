@@ -1,6 +1,7 @@
 %{
 /* tlsf.y — TLSF v1.1/v1.2 parser */
 #include <stdio.h>
+#include "diagnostic.h"
 #include <stdlib.h>
 #include <string.h>
 %}
@@ -419,7 +420,7 @@ def_entry
           : 0;
       for (uint16_t label = prev_end; label < end; ++label)
         if (!enum_values_have_width(spec->enum_labels[label].bits, w)) {
-          fprintf(stderr, "%d: enum '%s' has inconsistent valuation widths\n",
+          fprintf(tlsf_diagnostic_stream(), "%d: enum '%s' has inconsistent valuation widths\n",
                   @2.first_line, $2);
           YYERROR;
         }
@@ -562,7 +563,7 @@ signal_decl
   | TOK_IDENT signal_name
     { const EnumType *et = spec_find_enum_type(spec, $1);
       if (!et) {
-        fprintf(stderr, "%d: unknown enum type '%s'\n", @1.first_line, $1);
+        fprintf(tlsf_diagnostic_stream(), "%d: unknown enum type '%s'\n", @1.first_line, $1);
         YYERROR;
       }
       Node *lo = node_int(spec->arena, 0);
@@ -759,21 +760,21 @@ ltl_expr
     { $$ = node_next_n(spec->arena, $3, $5); }
   | TOK_NEXT TOK_LBRACKET_STRONG ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr, "%d:%d: parse error: strong bounded X is only valid "
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded X is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
       $$ = node_next_n(spec->arena, $3, $5); $$->bounded.strong = true; }
   | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET_STRONG ltl_expr %prec TOK_NEXT
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr, "%d:%d: parse error: strong bounded X is only valid "
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded X is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
       $$ = node_next_n(spec->arena, $3, $5); $$->bounded.strong = true; }
   | TOK_SNEXT ltl_expr
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr,
+        fprintf(tlsf_diagnostic_stream(),
                 "%d:%d: parse error: X[!] is only valid under finite "
                 "semantics\n",
                 @1.first_line, @1.first_column);
@@ -788,7 +789,7 @@ ltl_expr
   | TOK_FINALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_FINALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr, "%d:%d: parse error: strong bounded F is only valid "
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded F is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
@@ -796,7 +797,7 @@ ltl_expr
   | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
     %prec TOK_FINALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr, "%d:%d: parse error: strong bounded F is only valid "
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded F is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
@@ -809,7 +810,7 @@ ltl_expr
   | TOK_GLOBALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_GLOBALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr, "%d:%d: parse error: strong bounded G is only valid "
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded G is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
@@ -817,7 +818,7 @@ ltl_expr
   | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
     %prec TOK_GLOBALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(stderr, "%d:%d: parse error: strong bounded G is only valid "
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded G is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
@@ -917,6 +918,6 @@ void yyerror(YYLTYPE *lloc, yyscan_t scanner,
              TlsfSpec *spec, const char *msg) {
   (void)scanner;
   (void)spec;
-  fprintf(stderr, "%d:%d: parse error: %s\n",
+  fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: %s\n",
           lloc->first_line, lloc->first_column, msg);
 }
