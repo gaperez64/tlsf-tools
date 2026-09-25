@@ -1,6 +1,6 @@
 #include "tlsf/gr1_lift.h"
 #include "tlsf/pipeline.h"
-#include <boost/json.hpp>
+#include "yyjson_cpp.hh"
 #include <cassert>
 #include <chrono>
 #include <cstdio>
@@ -117,13 +117,17 @@ int main() {
          strstr(error.message, "selected seed choice") && !result.game_aag);
   tlsf_gr1_lift_test_set_fault(0);
   o = options();
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  auto status = lift(source, o, &result, &error);
+  if (status != TLSF_GR1_LIFT_OK)
+    fprintf(stderr, "native lift failed: status=%d stage=%s message=%s\n",
+            status, error.stage, error.message);
+  assert(status == TLSF_GR1_LIFT_OK);
   assert(result.verdict == TLSF_GR1_CHECK_VERIFIED);
   assert(result.method == TLSF_GR1_CHECK_CERTIFICATE);
   assert(result.game_aag && result.certificate_aag && result.policy_aag);
   assert(result.evidence_json &&
          strstr(result.evidence_json, "target_transition"));
-  auto baseline = boost::json::parse(result.evidence_json).as_object();
+  auto baseline = tlsf_json::parse(result.evidence_json).as_object();
   assert(baseline.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
   char policy_hash[65]{};
   assert(tlsf_pipeline_source_sha256(result.policy_aag, result.policy_size,
@@ -159,6 +163,44 @@ int main() {
   check_options.max_artifact_bytes = 4u << 20;
   check_options.deadline_mono_ns = deadline(10);
   TlsfGr1CheckResult check{};
+  input.certificate_aag = {(const uint8_t *)result.certificate_aag,
+                           result.certificate_size};
+  std::string original_policy(result.policy_json, result.policy_json_size);
+  assert(!original_policy.empty() && original_policy.front() == '{');
+  auto replace_once = [](std::string text, const char *from, const char *to) {
+    size_t at = text.find(from);
+    assert(at != std::string::npos);
+    text.replace(at, strlen(from), to);
+    return text;
+  };
+  auto check_policy = [&](const std::string &policy,
+                          TlsfGr1CheckVerdict expected) {
+    input.policy_json = {(const uint8_t *)policy.data(), policy.size()};
+    check_options.deadline_mono_ns = deadline(10);
+    assert(tlsf_gr1_check(&input, &check_options, &check) == TLSF_GR1_CHECK_OK);
+    assert(check.verdict == expected);
+    tlsf_gr1_check_result_clear(&check);
+  };
+  check_policy(original_policy, TLSF_GR1_CHECK_VERIFIED);
+  check_policy(replace_once(original_policy, "\"format\"", "\"for\\u006dat\""),
+               TLSF_GR1_CHECK_VERIFIED);
+  check_policy(replace_once(original_policy, "tlsf-gr1-policy-v1",
+                            "tlsf-gr1-policy-\\u00761"),
+               TLSF_GR1_CHECK_VERIFIED);
+  std::string duplicate_format = original_policy;
+  duplicate_format.insert(1, "\"for\\u006dat\":\"tlsf-gr1-policy-v1\",");
+  check_policy(duplicate_format, TLSF_GR1_CHECK_INVALID);
+  std::string duplicate_source = original_policy;
+  duplicate_source.insert(
+      1, "\"source_sha256\":\"first\",\"source_\\u0073ha256\":\"second\",");
+  check_policy(duplicate_source, TLSF_GR1_CHECK_INVALID);
+  std::string duplicate_policy =
+      "{\"source_sha256\":\"first\",\"source_sha256\":\"second\"," +
+      original_policy.substr(1);
+  check_policy(duplicate_policy, TLSF_GR1_CHECK_INVALID);
+  input.certificate_aag = {(const uint8_t *)bytes, size};
+  input.policy_json = {(const uint8_t *)result.policy_json,
+                       result.policy_json_size};
   tlsf_gr1_check(&input, &check_options, &check);
   assert(check.verdict != TLSF_GR1_CHECK_VERIFIED);
   tlsf_gr1_check_result_clear(&check);
@@ -177,9 +219,11 @@ int main() {
   rename_all("response", "assumption_safety_violated");
   o = options();
   assert(lift(renamed.c_str(), o, &result, &error) == TLSF_GR1_LIFT_OK);
-  auto renamed_evidence = boost::json::parse(result.evidence_json).as_object();
-  assert(renamed_evidence.at("roles") == baseline_roles);
-  assert(renamed_evidence.at("seed_values") == baseline_seeds);
+  auto renamed_evidence = tlsf_json::parse(result.evidence_json).as_object();
+  assert(tlsf_json::serialize(renamed_evidence.at("roles")) ==
+         tlsf_json::serialize(baseline_roles));
+  assert(tlsf_json::serialize(renamed_evidence.at("seed_values")) ==
+         tlsf_json::serialize(baseline_seeds));
   tlsf_gr1_lift_result_clear(&result);
   o = options();
   o.policy_proof_fraction = 1e-12;
@@ -187,7 +231,7 @@ int main() {
   assert(result.method == TLSF_GR1_CHECK_REGION);
   assert(result.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
   assert(!result.policy_aag && result.check_json);
-  auto region_evidence = boost::json::parse(result.evidence_json).as_object();
+  auto region_evidence = tlsf_json::parse(result.evidence_json).as_object();
   assert(region_evidence.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
   assert(!region_evidence.if_contains("policy_sha256"));
   tlsf_gr1_lift_result_clear(&result);

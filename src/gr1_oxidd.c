@@ -19,6 +19,7 @@
 #include "tlsf/gr1_oxidd.h"
 
 #include "oxidd_common.h"
+#include "yyjson_builder.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -317,58 +318,19 @@ static void certificate_error(Gr1CertificateOptions *options,
     snprintf(options->error, sizeof options->error, "%s", message);
 }
 
-static void json_string(FILE *out, const char *value) {
-  fputc('"', out);
-  for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
-    switch (*p) {
-    case '"':
-      fputs("\\\"", out);
-      break;
-    case '\\':
-      fputs("\\\\", out);
-      break;
-    case '\b':
-      fputs("\\b", out);
-      break;
-    case '\f':
-      fputs("\\f", out);
-      break;
-    case '\n':
-      fputs("\\n", out);
-      break;
-    case '\r':
-      fputs("\\r", out);
-      break;
-    case '\t':
-      fputs("\\t", out);
-      break;
-    default:
-      if (*p < 0x20)
-        fprintf(out, "\\u%04x", *p);
-      else
-        fputc(*p, out);
-    }
-  }
-  fputc('"', out);
-}
-
-static void json_predicate(FILE *out, bool *first, const char *name,
-                           const char *kind, int goal, int level,
-                           int fairness) {
-  if (!*first)
-    fputs(",\n", out);
-  *first = false;
-  fputs("    {\"name\": ", out);
-  json_string(out, name);
-  fputs(", \"kind\": ", out);
-  json_string(out, kind);
+static void json_predicate(JsonBuilder *builder, yyjson_mut_val *outputs,
+                           const char *name, const char *kind, int goal,
+                           int level, int fairness) {
+  yyjson_mut_val *row = jb_obj(builder);
+  jb_push(builder, outputs, row);
+  JB_STR(builder, row, "name", name);
+  JB_STR(builder, row, "kind", kind);
   if (goal >= 0)
-    fprintf(out, ", \"goal\": %d", goal);
+    JB_SINT(builder, row, "goal", goal);
   if (level >= 0)
-    fprintf(out, ", \"level\": %d", level);
+    JB_SINT(builder, row, "level", level);
   if (fairness >= 0)
-    fprintf(out, ", \"fairness\": %d", fairness);
-  fputc('}', out);
+    JB_SINT(builder, row, "fairness", fairness);
 }
 
 static bool write_certificate_json(
@@ -376,7 +338,7 @@ static bool write_certificate_json(
     bool unreal, Gr1CertificateSemantics semantics, uint32_t original_nlat,
     uint32_t m_goal_records, uint32_t m_goals, uint32_t m_fair,
     uint32_t n_fair_disj, const uint32_t *goal_record,
-    const uint32_t *goal_member, const BddVec *y_levels) {
+    const uint32_t *goal_member, const BddVec *y_levels, size_t artifact_cap) {
   uint32_t nin = aig_num_inputs(game);
   uint32_t nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
@@ -387,78 +349,77 @@ static bool write_certificate_json(
     else
       nu++;
   }
-
-  fputs("{\n  \"format\": \"tlsf-gr1-certificate-v1\",\n", out);
-  fputs("  \"status\": ", out);
-  json_string(out, unreal ? "unrealizable" : "realizable");
-  fputs(",\n  \"side\": ", out);
-  json_string(out, unreal ? "environment" : "system");
-  fputs(",\n  \"reduction_semantics\": ", out);
-  json_string(out, semantics == GR1_CERTIFICATE_SEMANTICS_EXACT ? "exact"
-                                                                : "strict");
-  fputs(",\n  \"circuit\": {\"path\": ", out);
-  json_string(out, aag_path);
-  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
-  fputs("  \"fixpoint\": ", out);
-  json_string(out, "Z = nu Z. AND_j mu Y. OR_i nu X. "
-                   "cpre((Z & goal_j) | Y | (X & !fair_i))");
-  fputs(",\n  \"counts\": {\n", out);
-  fprintf(out,
-          "    \"goals\": %u,\n    \"justice_records\": %u,\n"
-          "    \"fairness_assumptions\": %u,\n"
-          "    \"state_variables\": %u,\n"
-          "    \"original_game_latches\": %u,\n"
-          "    \"sampling_latches\": %u,\n"
-          "    \"uncontrollable_inputs\": %u,\n"
-          "    \"controllable_inputs\": %u,\n"
-          "    \"predicates\": %u,\n    \"aig_inputs\": %u,\n"
-          "    \"aig_latches\": %u,\n    \"aig_ands\": %u,\n"
-          "    \"levels_per_goal\": [",
-          m_goals, m_goal_records, m_fair, nlat, original_nlat,
-          nlat - original_nlat, nu, nc, aig_num_outputs(certificate),
-          aig_num_inputs(certificate), aig_num_latches(certificate),
-          aig_num_ands(certificate));
+  JsonBuilder builder = jb_new_bounded(artifact_cap);
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "format", "tlsf-gr1-certificate-v1");
+  JB_STR(&builder, root, "status", unreal ? "unrealizable" : "realizable");
+  JB_STR(&builder, root, "side", unreal ? "environment" : "system");
+  JB_STR(&builder, root, "reduction_semantics",
+         semantics == GR1_CERTIFICATE_SEMANTICS_EXACT ? "exact" : "strict");
+  yyjson_mut_val *circuit = jb_obj(&builder);
+  JB_STR(&builder, circuit, "path", aag_path);
+  JB_STR(&builder, circuit, "kind", "ASCII AIGER combinational");
+  jb_put(&builder, root, "circuit", circuit);
+  JB_STR(&builder, root, "fixpoint",
+         "Z = nu Z. AND_j mu Y. OR_i nu X. "
+         "cpre((Z & goal_j) | Y | (X & !fair_i))");
+  yyjson_mut_val *counts = jb_obj(&builder);
+  JB_UINT(&builder, counts, "goals", m_goals);
+  JB_UINT(&builder, counts, "justice_records", m_goal_records);
+  JB_UINT(&builder, counts, "fairness_assumptions", m_fair);
+  JB_UINT(&builder, counts, "state_variables", nlat);
+  JB_UINT(&builder, counts, "original_game_latches", original_nlat);
+  JB_UINT(&builder, counts, "sampling_latches", nlat - original_nlat);
+  JB_UINT(&builder, counts, "uncontrollable_inputs", nu);
+  JB_UINT(&builder, counts, "controllable_inputs", nc);
+  JB_UINT(&builder, counts, "predicates", aig_num_outputs(certificate));
+  JB_UINT(&builder, counts, "aig_inputs", aig_num_inputs(certificate));
+  JB_UINT(&builder, counts, "aig_latches", aig_num_latches(certificate));
+  JB_UINT(&builder, counts, "aig_ands", aig_num_ands(certificate));
+  yyjson_mut_val *levels = jb_arr(&builder);
   for (uint32_t j = 0; j < m_goals; j++)
-    fprintf(out, "%s%u", j ? ", " : "", y_levels[j].n);
-  fputs("]\n  },\n", out);
-
-  fputs("  \"outputs\": [\n", out);
-  bool first = true;
-  json_predicate(out, &first, "inv", "winning_region", -1, -1, -1);
+    jb_push(&builder, levels, jb_uint(&builder, y_levels[j].n));
+  jb_put(&builder, counts, "levels_per_goal", levels);
+  jb_put(&builder, root, "counts", counts);
+  yyjson_mut_val *outputs = jb_arr(&builder);
+  json_predicate(&builder, outputs, "inv", "winning_region", -1, -1, -1);
   if (unreal)
-    json_predicate(out, &first, "losing", "nonwinning_region", -1, -1, -1);
+    json_predicate(&builder, outputs, "losing", "nonwinning_region", -1, -1,
+                   -1);
   char name[96];
   for (uint32_t j = 0; j < m_goals; j++) {
     snprintf(name, sizeof name, "goal_%u", j);
-    json_predicate(out, &first, name, "goal", (int)j, -1, -1);
+    json_predicate(&builder, outputs, name, "goal", (int)j, -1, -1);
   }
   for (uint32_t j = 0; j < m_goals; j++)
     for (uint32_t k = 0; k < y_levels[j].n; k++) {
       snprintf(name, sizeof name, "y_%u_%u", j, k);
-      json_predicate(out, &first, name, "mu_level", (int)j, (int)k, -1);
+      json_predicate(&builder, outputs, name, "mu_level", (int)j, (int)k, -1);
     }
   for (uint32_t j = 0; j < m_goals; j++)
     for (uint32_t k = 0; k < y_levels[j].n; k++)
       for (uint32_t i = 0; i < n_fair_disj; i++) {
         snprintf(name, sizeof name, "x_%u_%u_%u", j, k, i);
-        json_predicate(out, &first, name, "nu_level", (int)j, (int)k, (int)i);
+        json_predicate(&builder, outputs, name, "nu_level", (int)j, (int)k,
+                       (int)i);
       }
   if (!unreal)
     for (uint32_t j = 0; j < m_goals; j++) {
       snprintf(name, sizeof name, "move_%u", j);
-      json_predicate(out, &first, name, "move_relation", (int)j, -1, -1);
+      json_predicate(&builder, outputs, name, "move_relation", (int)j, -1, -1);
     }
-  fputs("\n  ],\n", out);
-
-  fputs("  \"goals\": [", out);
-  for (uint32_t j = 0; j < m_goals; j++)
-    fprintf(out,
-            "%s{\"goal\": %u, \"justice_record\": %u, "
-            "\"record_member\": %u}",
-            j ? ", " : "", j, goal_record[j], goal_member[j]);
-  fputs("],\n", out);
-
-  fputs("  \"variables\": {\n    \"state\": [\n", out);
+  jb_put(&builder, root, "outputs", outputs);
+  yyjson_mut_val *goals = jb_arr(&builder);
+  for (uint32_t j = 0; j < m_goals; j++) {
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, goals, row);
+    JB_UINT(&builder, row, "goal", j);
+    JB_UINT(&builder, row, "justice_record", goal_record[j]);
+    JB_UINT(&builder, row, "record_member", goal_member[j]);
+  }
+  jb_put(&builder, root, "goals", goals);
+  yyjson_mut_val *variables = jb_obj(&builder);
+  yyjson_mut_val *state = jb_arr(&builder);
   for (uint32_t j = 0; j < nlat; j++) {
     uint32_t cur, next, reset;
     aig_latch_at(game, j, &cur, &next, &reset);
@@ -468,121 +429,95 @@ static bool write_certificate_json(
       snprintf(fallback, sizeof fallback, "l%u", j);
       latch_name = fallback;
     }
-    fprintf(out,
-            "%s      {\"certificate_input\": %u, \"name\": ", j ? ",\n" : "",
-            j);
-    json_string(out, latch_name);
-    fprintf(out,
-            ", \"game_latch\": %u, \"game_literal\": %u, "
-            "\"next_game_literal\": %u, \"reset\": %u, "
-            "\"solver_added\": %s",
-            j, cur, next, reset, j >= original_nlat ? "true" : "false");
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, state, row);
+    JB_UINT(&builder, row, "certificate_input", j);
+    JB_STR(&builder, row, "name", latch_name);
+    JB_UINT(&builder, row, "game_latch", j);
+    JB_UINT(&builder, row, "game_literal", cur);
+    JB_UINT(&builder, row, "next_game_literal", next);
+    JB_UINT(&builder, row, "reset", reset);
+    JB_BOOL(&builder, row, "solver_added", j >= original_nlat);
     if (j >= original_nlat) {
-      bool found = false;
-      for (uint32_t r = 0; r < m_goal_records && !found; r++) {
+      yyjson_mut_val *source = nullptr;
+      for (uint32_t r = 0; r < m_goal_records && !source; r++) {
         const uint32_t *lits;
         uint32_t count;
         aig_justice_at(game, r, &lits, &count);
         for (uint32_t k = 0; k < count; k++)
           if (lits[k] == cur) {
-            fprintf(out,
-                    ", \"source\": {\"kind\": \"justice\", "
-                    "\"record\": %u, \"member\": %u}",
-                    r, k);
-            found = true;
+            source = jb_obj(&builder);
+            JB_STR(&builder, source, "kind", "justice");
+            JB_UINT(&builder, source, "record", r);
+            JB_UINT(&builder, source, "member", k);
             break;
           }
       }
-      for (uint32_t i = 0; i < m_fair && !found; i++)
+      for (uint32_t i = 0; i < m_fair && !source; i++)
         if (aig_fairness_at(game, i) == cur) {
-          fprintf(out,
-                  ", \"source\": {\"kind\": \"fairness\", "
-                  "\"index\": %u}",
-                  i);
-          found = true;
+          source = jb_obj(&builder);
+          JB_STR(&builder, source, "kind", "fairness");
+          JB_UINT(&builder, source, "index", i);
         }
-      if (!found)
-        fputs(", \"source\": null", out);
+      jb_put(&builder, row, "source", source ? source : jb_null(&builder));
     }
-    fputc('}', out);
   }
-  fputs("\n    ],\n    \"uncontrollable\": [", out);
-  first = true;
+  jb_put(&builder, variables, "state", state);
+  yyjson_mut_val *uncontrollable = jb_arr(&builder);
+  yyjson_mut_val *controllable = jb_arr(&builder);
   for (uint32_t p = 0; p < nin; p++) {
     uint32_t lit;
     const char *input_name = aig_input_name(game, p, &lit);
-    if (is_controllable(input_name))
-      continue;
+    bool control = is_controllable(input_name);
     char fallback[32];
     input_name = input_name_or_synthetic(input_name, p, fallback);
-    fprintf(out,
-            "%s{\"certificate_input\": %u, \"game_input\": %u, "
-            "\"game_literal\": %u, \"name\": ",
-            first ? "" : ", ", nlat + p, p, lit);
-    json_string(out, input_name);
-    fputc('}', out);
-    first = false;
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, control ? controllable : uncontrollable, row);
+    JB_UINT(&builder, row, "certificate_input", nlat + p);
+    JB_UINT(&builder, row, "game_input", p);
+    JB_UINT(&builder, row, "game_literal", lit);
+    JB_STR(&builder, row, "name", input_name);
   }
-  fputs("],\n    \"controllable\": [", out);
-  first = true;
-  for (uint32_t p = 0; p < nin; p++) {
-    uint32_t lit;
-    const char *input_name = aig_input_name(game, p, &lit);
-    if (!is_controllable(input_name))
-      continue;
-    char fallback[32];
-    input_name = input_name_or_synthetic(input_name, p, fallback);
-    fprintf(out,
-            "%s{\"certificate_input\": %u, \"game_input\": %u, "
-            "\"game_literal\": %u, \"name\": ",
-            first ? "" : ", ", nlat + p, p, lit);
-    json_string(out, input_name);
-    fputc('}', out);
-    first = false;
-  }
-  fputs("]\n  },\n", out);
-
-  fputs("  \"sampling_semantics\": ", out);
-  json_string(out,
-              "Each solver-added reset-0 latch stores the preceding letter's "
-              "input-dependent acceptance literal: next(sample)=source. "
-              "The corresponding GF predicate is replaced by sample because "
-              "GF p iff GF X p.");
-  fputs(",\n  \"goal_counter_latches\": [", out);
+  jb_put(&builder, variables, "uncontrollable", uncontrollable);
+  jb_put(&builder, variables, "controllable", controllable);
+  jb_put(&builder, root, "variables", variables);
+  JB_STR(&builder, root, "sampling_semantics",
+         "Each solver-added reset-0 latch stores the preceding letter's "
+         "input-dependent acceptance literal: next(sample)=source. "
+         "The corresponding GF predicate is replaced by sample because "
+         "GF p iff GF X p.");
+  yyjson_mut_val *counters = jb_arr(&builder);
   for (uint32_t j = 0; j < m_goals; j++) {
     char counter_name[64];
     snprintf(counter_name, sizeof counter_name, "__tlsf_gr1_goal_counter_%u",
              j);
-    fprintf(out, "%s{\"strategy_latch\": %u, \"name\": ", j ? ", " : "",
-            nlat + j);
-    json_string(out, counter_name);
-    fprintf(out,
-            ", \"goal\": %u, "
-            "\"reset\": 0, \"effective_initial\": %s, "
-            "\"advance_to_goal\": %u}",
-            j, j == 0 ? "true" : "false", (j + 1) % m_goals);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, counters, row);
+    JB_UINT(&builder, row, "strategy_latch", nlat + j);
+    JB_STR(&builder, row, "name", counter_name);
+    JB_UINT(&builder, row, "goal", j);
+    JB_UINT(&builder, row, "reset", 0);
+    JB_BOOL(&builder, row, "effective_initial", j == 0);
+    JB_UINT(&builder, row, "advance_to_goal", (j + 1) % m_goals);
   }
-  fputs("],\n  \"goal_counter_semantics\": ", out);
-  json_string(out,
-              "Strategy latches after the game/sampling latches are one-hot "
-              "goal counters. All reset to 0; all-zero is interpreted as "
-              "goal 0, then goal j advances to (j+1) mod goals exactly when "
-              "inv & goal_j holds.");
-  fputs(",\n  \"rank_semantics\": ", out);
-  json_string(out,
-              "For goal j the selected rank is the least lexicographic (k,i) "
-              "whose x_j_k_i contains the state; y_j_k is the union of the "
-              "fairness disjuncts at mu level k.");
-  fputs(",\n  \"move_semantics\": ", out);
-  json_string(out,
-              "move_j is the pre-Skolem most-permissive relation over state, "
-              "uncontrollable inputs and controllable inputs: advance safely "
-              "inside inv at goal_j; otherwise move to goal/lower rank or "
-              "stay in the selected x_j_k_i while fair_i is false.");
+  jb_put(&builder, root, "goal_counter_latches", counters);
+  JB_STR(&builder, root, "goal_counter_semantics",
+         "Strategy latches after the game/sampling latches are one-hot "
+         "goal counters. All reset to 0; all-zero is interpreted as "
+         "goal 0, then goal j advances to (j+1) mod goals exactly when "
+         "inv & goal_j holds.");
+  JB_STR(&builder, root, "rank_semantics",
+         "For goal j the selected rank is the least lexicographic (k,i) "
+         "whose x_j_k_i contains the state; y_j_k is the union of the "
+         "fairness disjuncts at mu level k.");
+  JB_STR(&builder, root, "move_semantics",
+         "move_j is the pre-Skolem most-permissive relation over state, "
+         "uncontrollable inputs and controllable inputs: advance safely "
+         "inside inv at goal_j; otherwise move to goal/lower rank or "
+         "stay in the selected x_j_k_i while fair_i is false.");
   if (unreal)
-    fputs(",\n  \"environment_counter_strategy_exported\": false", out);
-  fputs("\n}\n", out);
-  return !ferror(out);
+    JB_BOOL(&builder, root, "environment_counter_strategy_exported", false);
+  return jb_write(&builder, root, out);
 }
 
 static bool export_certificate(
@@ -698,7 +633,8 @@ static bool export_certificate(
         json, certificate, game,
         options->aag_path ? options->aag_path : "memory", unreal,
         options->semantics, original_nlat, m_goal_records, m_goals, m_fair,
-        n_fair_disj, goal_record, goal_member, y_levels);
+        n_fair_disj, goal_record, goal_member, y_levels,
+        options->max_artifact_bytes);
     if (fclose(json) != 0)
       json_ok = false;
     if (!json_ok) {
@@ -715,37 +651,39 @@ static bool export_certificate(
 static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
                               const char *aag_path, uint32_t original_nlat,
                               uint32_t m_goals,
-                              Gr1CertificateSemantics semantics) {
-  uint32_t nin = aig_num_inputs(game);
-  uint32_t nlat = aig_num_latches(game);
+                              Gr1CertificateSemantics semantics,
+                              size_t artifact_cap) {
+  uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
   for (uint32_t p = 0; p < nin; p++) {
-    const char *name = aig_input_name(game, p, nullptr);
-    if (is_controllable(name))
+    if (is_controllable(aig_input_name(game, p, nullptr)))
       nc++;
     else
       nu++;
   }
-
-  fputs("{\n  \"format\": \"tlsf-gr1-policy-v1\",\n", out);
-  fputs("  \"side\": \"system\",\n  \"reduction_semantics\": ", out);
-  json_string(out, semantics == GR1_CERTIFICATE_SEMANTICS_EXACT ? "exact"
-                                                                : "strict");
-  fputs(",\n", out);
-  fputs("  \"circuit\": {\"path\": ", out);
-  json_string(out, aag_path);
-  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
-  fprintf(out,
-          "  \"counts\": {\"game_state_variables\": %u, "
-          "\"original_game_latches\": %u, \"sampling_latches\": %u, "
-          "\"goals\": %u, \"uncontrollable_inputs\": %u, "
-          "\"controllable_outputs\": %u, \"aig_inputs\": %u, "
-          "\"aig_outputs\": %u, \"aig_ands\": %u},\n",
-          nlat, original_nlat, nlat - original_nlat, m_goals, nu, nc,
-          aig_num_inputs(policy), aig_num_outputs(policy),
-          aig_num_ands(policy));
-
-  fputs("  \"inputs\": {\n    \"state\": [", out);
+  JsonBuilder builder = jb_new_bounded(artifact_cap);
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "format", "tlsf-gr1-policy-v1");
+  JB_STR(&builder, root, "side", "system");
+  JB_STR(&builder, root, "reduction_semantics",
+         semantics == GR1_CERTIFICATE_SEMANTICS_EXACT ? "exact" : "strict");
+  yyjson_mut_val *circuit = jb_obj(&builder);
+  JB_STR(&builder, circuit, "path", aag_path);
+  JB_STR(&builder, circuit, "kind", "ASCII AIGER combinational");
+  jb_put(&builder, root, "circuit", circuit);
+  yyjson_mut_val *counts = jb_obj(&builder);
+  JB_UINT(&builder, counts, "game_state_variables", nlat);
+  JB_UINT(&builder, counts, "original_game_latches", original_nlat);
+  JB_UINT(&builder, counts, "sampling_latches", nlat - original_nlat);
+  JB_UINT(&builder, counts, "goals", m_goals);
+  JB_UINT(&builder, counts, "uncontrollable_inputs", nu);
+  JB_UINT(&builder, counts, "controllable_outputs", nc);
+  JB_UINT(&builder, counts, "aig_inputs", aig_num_inputs(policy));
+  JB_UINT(&builder, counts, "aig_outputs", aig_num_outputs(policy));
+  JB_UINT(&builder, counts, "aig_ands", aig_num_ands(policy));
+  jb_put(&builder, root, "counts", counts);
+  yyjson_mut_val *inputs = jb_obj(&builder);
+  yyjson_mut_val *state = jb_arr(&builder);
   for (uint32_t j = 0; j < nlat; j++) {
     const char *name = aig_latch_name(game, j);
     char fallback[32];
@@ -753,58 +691,71 @@ static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
       snprintf(fallback, sizeof fallback, "l%u", j);
       name = fallback;
     }
-    fprintf(out, "%s{\"policy_input\": %u, \"game_latch\": %u, \"name\": ",
-            j ? ", " : "", j, j);
-    json_string(out, name);
-    fputc('}', out);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, state, row);
+    JB_UINT(&builder, row, "policy_input", j);
+    JB_UINT(&builder, row, "game_latch", j);
+    JB_STR(&builder, row, "name", name);
   }
-  fputs("],\n    \"counter\": [", out);
-  for (uint32_t j = 0; j < m_goals; j++)
-    fprintf(out,
-            "%s{\"policy_input\": %u, \"goal\": %u, "
-            "\"name\": \"curr_%u\", \"reset\": 0, "
-            "\"effective_initial\": %s}",
-            j ? ", " : "", nlat + j, j, j, j == 0 ? "true" : "false");
-  fputs("],\n    \"uncontrollable\": [", out);
-  bool first = true;
+  jb_put(&builder, inputs, "state", state);
+  yyjson_mut_val *counter = jb_arr(&builder);
+  for (uint32_t j = 0; j < m_goals; j++) {
+    char name[64];
+    snprintf(name, sizeof name, "curr_%u", j);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, counter, row);
+    JB_UINT(&builder, row, "policy_input", nlat + j);
+    JB_UINT(&builder, row, "goal", j);
+    JB_STR(&builder, row, "name", name);
+    JB_UINT(&builder, row, "reset", 0);
+    JB_BOOL(&builder, row, "effective_initial", j == 0);
+  }
+  jb_put(&builder, inputs, "counter", counter);
+  yyjson_mut_val *uncontrollable = jb_arr(&builder);
   uint32_t policy_input = nlat + m_goals;
   for (uint32_t p = 0; p < nin; p++) {
     const char *name = aig_input_name(game, p, nullptr);
     if (is_controllable(name))
       continue;
-    fprintf(out, "%s{\"policy_input\": %u, \"game_input\": %u, \"name\": ",
-            first ? "" : ", ", policy_input++, p);
-    json_string(out, name);
-    fputc('}', out);
-    first = false;
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, uncontrollable, row);
+    JB_UINT(&builder, row, "policy_input", policy_input++);
+    JB_UINT(&builder, row, "game_input", p);
+    JB_STR(&builder, row, "name", name);
   }
-  fputs("]\n  },\n  \"outputs\": {\n    \"controllable\": [", out);
-  first = true;
+  jb_put(&builder, inputs, "uncontrollable", uncontrollable);
+  jb_put(&builder, root, "inputs", inputs);
+  yyjson_mut_val *outputs = jb_obj(&builder);
+  yyjson_mut_val *controllable = jb_arr(&builder);
   uint32_t policy_output = 0;
   for (uint32_t p = 0; p < nin; p++) {
     const char *name = aig_input_name(game, p, nullptr);
     if (!is_controllable(name))
       continue;
-    fprintf(out, "%s{\"policy_output\": %u, \"game_input\": %u, \"name\": ",
-            first ? "" : ", ", policy_output++, p);
-    json_string(out, name);
-    fputc('}', out);
-    first = false;
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, controllable, row);
+    JB_UINT(&builder, row, "policy_output", policy_output++);
+    JB_UINT(&builder, row, "game_input", p);
+    JB_STR(&builder, row, "name", name);
   }
-  fputs("],\n    \"counter_next\": [", out);
-  for (uint32_t j = 0; j < m_goals; j++)
-    fprintf(out,
-            "%s{\"policy_output\": %u, \"goal\": %u, "
-            "\"name\": \"curr_next_%u\"}",
-            j ? ", " : "", policy_output + j, j, j);
-  fputs("]\n  },\n", out);
-  fputs("  \"counter_semantics\": ", out);
-  json_string(out,
-              "All curr bits reset to zero; all-zero is interpreted as curr_0. "
-              "Every transition produces exactly one hot next bit, advancing "
-              "from j to (j+1) mod goals iff goal_j holds, otherwise staying.");
-  fputs("\n}\n", out);
-  return !ferror(out);
+  jb_put(&builder, outputs, "controllable", controllable);
+  yyjson_mut_val *next = jb_arr(&builder);
+  for (uint32_t j = 0; j < m_goals; j++) {
+    char name[64];
+    snprintf(name, sizeof name, "curr_next_%u", j);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, next, row);
+    JB_UINT(&builder, row, "policy_output", policy_output + j);
+    JB_UINT(&builder, row, "goal", j);
+    JB_STR(&builder, row, "name", name);
+  }
+  jb_put(&builder, outputs, "counter_next", next);
+  jb_put(&builder, root, "outputs", outputs);
+  JB_STR(&builder, root, "counter_semantics",
+         "All curr bits reset to zero; all-zero is interpreted as curr_0. "
+         "Every transition produces exactly one hot next bit, advancing "
+         "from j to (j+1) mod goals iff goal_j holds, otherwise staying.");
+  return jb_write(&builder, root, out);
 }
 
 static bool export_policy(OxiddRun *run, const Aig *game,
@@ -898,10 +849,10 @@ static bool export_policy(OxiddRun *run, const Aig *game,
                       options->policy_json_path);
     return false;
   }
-  ok = write_policy_json(json, policy, game,
-                         options->policy_aag_path ? options->policy_aag_path
-                                                  : "memory",
-                         original_nlat, m_goals, options->semantics);
+  ok = write_policy_json(
+      json, policy, game,
+      options->policy_aag_path ? options->policy_aag_path : "memory",
+      original_nlat, m_goals, options->semantics, options->max_artifact_bytes);
   if (fclose(json) != 0)
     ok = false;
   aig_free(policy);
@@ -917,9 +868,9 @@ static bool write_environment_policy_json(FILE *out, const Aig *policy,
                                           const Aig *game, const char *aag_path,
                                           uint32_t original_nlat,
                                           uint32_t goals,
-                                          uint32_t fairness_counters) {
-  uint32_t nin = aig_num_inputs(game);
-  uint32_t nlat = aig_num_latches(game);
+                                          uint32_t fairness_counters,
+                                          size_t artifact_cap) {
+  uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
   for (uint32_t p = 0; p < nin; p++) {
     if (is_controllable(aig_input_name(game, p, nullptr)))
@@ -927,26 +878,32 @@ static bool write_environment_policy_json(FILE *out, const Aig *policy,
     else
       nu++;
   }
-  fputs("{\n  \"format\": \"tlsf-gr1-policy-v1\",\n"
-        "  \"side\": \"environment\",\n"
-        "  \"reduction_semantics\": \"exact\",\n"
-        "  \"system_strategy_semantics\": \"mealy\",\n"
-        "  \"strategy_semantics\": \"moore\",\n"
-        "  \"duality_delay_steps\": 1,\n"
-        "  \"circuit\": {\"path\": ",
-        out);
-  json_string(out, aag_path);
-  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n", out);
-  fprintf(out,
-          "  \"counts\": {\"game_state_variables\": %u, "
-          "\"original_game_latches\": %u, \"sampling_latches\": %u, "
-          "\"goals\": %u, \"fairness_counters\": %u, "
-          "\"controllable_inputs\": %u, \"uncontrollable_outputs\": %u, "
-          "\"aig_inputs\": %u, \"aig_outputs\": %u, \"aig_ands\": %u},\n",
-          nlat, original_nlat, nlat - original_nlat, goals, fairness_counters,
-          nc, nu, aig_num_inputs(policy), aig_num_outputs(policy),
-          aig_num_ands(policy));
-  fputs("  \"inputs\": {\n    \"state\": [", out);
+  JsonBuilder builder = jb_new_bounded(artifact_cap);
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "format", "tlsf-gr1-policy-v1");
+  JB_STR(&builder, root, "side", "environment");
+  JB_STR(&builder, root, "reduction_semantics", "exact");
+  JB_STR(&builder, root, "system_strategy_semantics", "mealy");
+  JB_STR(&builder, root, "strategy_semantics", "moore");
+  JB_UINT(&builder, root, "duality_delay_steps", 1);
+  yyjson_mut_val *circuit = jb_obj(&builder);
+  JB_STR(&builder, circuit, "path", aag_path);
+  JB_STR(&builder, circuit, "kind", "ASCII AIGER combinational");
+  jb_put(&builder, root, "circuit", circuit);
+  yyjson_mut_val *counts = jb_obj(&builder);
+  JB_UINT(&builder, counts, "game_state_variables", nlat);
+  JB_UINT(&builder, counts, "original_game_latches", original_nlat);
+  JB_UINT(&builder, counts, "sampling_latches", nlat - original_nlat);
+  JB_UINT(&builder, counts, "goals", goals);
+  JB_UINT(&builder, counts, "fairness_counters", fairness_counters);
+  JB_UINT(&builder, counts, "controllable_inputs", nc);
+  JB_UINT(&builder, counts, "uncontrollable_outputs", nu);
+  JB_UINT(&builder, counts, "aig_inputs", aig_num_inputs(policy));
+  JB_UINT(&builder, counts, "aig_outputs", aig_num_outputs(policy));
+  JB_UINT(&builder, counts, "aig_ands", aig_num_ands(policy));
+  jb_put(&builder, root, "counts", counts);
+  yyjson_mut_val *inputs = jb_obj(&builder);
+  yyjson_mut_val *state = jb_arr(&builder);
   for (uint32_t j = 0; j < nlat; j++) {
     char fallback[32];
     const char *name = aig_latch_name(game, j);
@@ -954,47 +911,60 @@ static bool write_environment_policy_json(FILE *out, const Aig *policy,
       snprintf(fallback, sizeof fallback, "l%u", j);
       name = fallback;
     }
-    fprintf(out, "%s{\"policy_input\": %u, \"game_latch\": %u, \"name\": ",
-            j ? ", " : "", j, j);
-    json_string(out, name);
-    fputc('}', out);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, state, row);
+    JB_UINT(&builder, row, "policy_input", j);
+    JB_UINT(&builder, row, "game_latch", j);
+    JB_STR(&builder, row, "name", name);
   }
-  fputs("],\n    \"counter\": [", out);
-  for (uint32_t i = 0; i < fairness_counters; i++)
-    fprintf(out,
-            "%s{\"policy_input\": %u, \"fairness\": %u, "
-            "\"name\": \"curr_%u\", \"reset\": 0, "
-            "\"effective_initial\": %s}",
-            i ? ", " : "", nlat + i, i, i, i == 0 ? "true" : "false");
-  fputs("],\n    \"controllable\": []\n  },\n"
-        "  \"outputs\": {\n    \"uncontrollable\": [",
-        out);
-  bool first = true;
+  jb_put(&builder, inputs, "state", state);
+  yyjson_mut_val *counter = jb_arr(&builder);
+  for (uint32_t i = 0; i < fairness_counters; i++) {
+    char name[64];
+    snprintf(name, sizeof name, "curr_%u", i);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, counter, row);
+    JB_UINT(&builder, row, "policy_input", nlat + i);
+    JB_UINT(&builder, row, "fairness", i);
+    JB_STR(&builder, row, "name", name);
+    JB_UINT(&builder, row, "reset", 0);
+    JB_BOOL(&builder, row, "effective_initial", i == 0);
+  }
+  jb_put(&builder, inputs, "counter", counter);
+  jb_put(&builder, inputs, "controllable", jb_arr(&builder));
+  jb_put(&builder, root, "inputs", inputs);
+  yyjson_mut_val *outputs = jb_obj(&builder);
+  yyjson_mut_val *uncontrollable = jb_arr(&builder);
   uint32_t output = 0;
   for (uint32_t p = 0; p < nin; p++) {
     const char *name = aig_input_name(game, p, nullptr);
     if (is_controllable(name))
       continue;
-    fprintf(out, "%s{\"policy_output\": %u, \"game_input\": %u, \"name\": ",
-            first ? "" : ", ", output++, p);
-    json_string(out, name);
-    fputc('}', out);
-    first = false;
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, uncontrollable, row);
+    JB_UINT(&builder, row, "policy_output", output++);
+    JB_UINT(&builder, row, "game_input", p);
+    JB_STR(&builder, row, "name", name);
   }
-  fputs("],\n    \"counter_next\": [", out);
-  for (uint32_t i = 0; i < fairness_counters; i++)
-    fprintf(out,
-            "%s{\"policy_output\": %u, \"fairness\": %u, "
-            "\"name\": \"curr_next_%u\"}",
-            i ? ", " : "", output + i, i, i);
-  fputs("]\n  },\n  \"counter_semantics\": ", out);
-  json_string(out,
-              "The all-zero state means fairness counter 0. At a state where "
-              "fair_i holds the counter advances to (i+1) modulo the number "
-              "of fairness assumptions. The uncontrollable outputs do not "
-              "read the current controllable letter.");
-  fputs("\n}\n", out);
-  return !ferror(out);
+  jb_put(&builder, outputs, "uncontrollable", uncontrollable);
+  yyjson_mut_val *next = jb_arr(&builder);
+  for (uint32_t i = 0; i < fairness_counters; i++) {
+    char name[64];
+    snprintf(name, sizeof name, "curr_next_%u", i);
+    yyjson_mut_val *row = jb_obj(&builder);
+    jb_push(&builder, next, row);
+    JB_UINT(&builder, row, "policy_output", output + i);
+    JB_UINT(&builder, row, "fairness", i);
+    JB_STR(&builder, row, "name", name);
+  }
+  jb_put(&builder, outputs, "counter_next", next);
+  jb_put(&builder, root, "outputs", outputs);
+  JB_STR(&builder, root, "counter_semantics",
+         "The all-zero state means fairness counter 0. At a state where "
+         "fair_i holds the counter advances to (i+1) modulo the number "
+         "of fairness assumptions. The uncontrollable outputs do not "
+         "read the current controllable letter.");
+  return jb_write(&builder, root, out);
 }
 
 static bool export_environment_policy(OxiddRun *run, const Aig *game,
@@ -1077,7 +1047,7 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
   ok = write_environment_policy_json(
       json, policy, game,
       options->policy_aag_path ? options->policy_aag_path : "memory",
-      original_nlat, goals, fairness_counters);
+      original_nlat, goals, fairness_counters, options->max_artifact_bytes);
   if (fclose(json) != 0)
     ok = false;
   aig_free(policy);
@@ -1090,7 +1060,7 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
 static bool write_environment_certificate_json(
     FILE *out, const Aig *certificate, const Aig *game, const char *aag_path,
     uint32_t original_nlat, uint32_t goals, uint32_t fairness,
-    uint32_t fairness_counters, const DualVec *levels) {
+    uint32_t fairness_counters, const DualVec *levels, size_t artifact_cap) {
   uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
   for (uint32_t p = 0; p < nin; p++) {
@@ -1099,50 +1069,51 @@ static bool write_environment_certificate_json(
     else
       nu++;
   }
-  fputs("{\n  \"format\": \"tlsf-gr1-certificate-v1\",\n"
-        "  \"status\": \"unrealizable\",\n"
-        "  \"side\": \"environment\",\n"
-        "  \"reduction_semantics\": \"exact\",\n"
-        "  \"system_strategy_semantics\": \"mealy\",\n"
-        "  \"strategy_semantics\": \"moore\",\n"
-        "  \"duality_delay_steps\": 1,\n"
-        "  \"environment_counter_strategy_exported\": true,\n"
-        "  \"witness_condition\": \"nonempty intersection of the delayed "
-        "environment counter-strategy language with the specification "
-        "complement\",\n"
-        "  \"circuit\": {\"path\": ",
-        out);
-  json_string(out, aag_path);
-  fputs(", \"kind\": \"ASCII AIGER combinational\"},\n"
-        "  \"fixpoint\": ",
-        out);
-  json_string(out, "L = mu Z. OR_j nu Y. AND_i mu X. "
-                   "dpre((Z | !goal_j) & Y & (X | fair_i))");
-  fprintf(out,
-          ",\n  \"counts\": {\"goals\": %u, "
-          "\"fairness_assumptions\": %u, \"fairness_counters\": %u, "
-          "\"state_variables\": %u, \"original_game_latches\": %u, "
-          "\"sampling_latches\": %u, \"uncontrollable_inputs\": %u, "
-          "\"controllable_inputs\": %u, \"outer_levels\": %u, "
-          "\"predicates\": %u, \"aig_inputs\": %u, "
-          "\"aig_latches\": %u, \"aig_ands\": %u},\n",
-          goals, fairness, fairness_counters, nlat, original_nlat,
-          nlat - original_nlat, nu, nc, levels->n, aig_num_outputs(certificate),
-          aig_num_inputs(certificate), aig_num_latches(certificate),
-          aig_num_ands(certificate));
-  fputs("  \"rank_semantics\": ", out);
-  json_string(out,
-              "The least outer level and least goal identify the co-Buchi "
-              "goal. For the active fairness counter, the least inner X level "
-              "must decrease until fair_i holds. Outer-rank decreases permit "
-              "only finitely many goal changes.");
-  fputs(",\n  \"move_semantics\": ", out);
-  json_string(out,
-              "move_i is the pre-Skolem relation bad | target(next). The "
-              "exported uncontrollable policy is Skolemized only after "
-              "universal quantification of every current controllable input.");
-  fputs("\n}\n", out);
-  return !ferror(out);
+  JsonBuilder builder = jb_new_bounded(artifact_cap);
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "format", "tlsf-gr1-certificate-v1");
+  JB_STR(&builder, root, "status", "unrealizable");
+  JB_STR(&builder, root, "side", "environment");
+  JB_STR(&builder, root, "reduction_semantics", "exact");
+  JB_STR(&builder, root, "system_strategy_semantics", "mealy");
+  JB_STR(&builder, root, "strategy_semantics", "moore");
+  JB_UINT(&builder, root, "duality_delay_steps", 1);
+  JB_BOOL(&builder, root, "environment_counter_strategy_exported", true);
+  JB_STR(&builder, root, "witness_condition",
+         "nonempty intersection of the delayed environment counter-strategy "
+         "language with the specification complement");
+  yyjson_mut_val *circuit = jb_obj(&builder);
+  JB_STR(&builder, circuit, "path", aag_path);
+  JB_STR(&builder, circuit, "kind", "ASCII AIGER combinational");
+  jb_put(&builder, root, "circuit", circuit);
+  JB_STR(&builder, root, "fixpoint",
+         "L = mu Z. OR_j nu Y. AND_i mu X. "
+         "dpre((Z | !goal_j) & Y & (X | fair_i))");
+  yyjson_mut_val *counts = jb_obj(&builder);
+  JB_UINT(&builder, counts, "goals", goals);
+  JB_UINT(&builder, counts, "fairness_assumptions", fairness);
+  JB_UINT(&builder, counts, "fairness_counters", fairness_counters);
+  JB_UINT(&builder, counts, "state_variables", nlat);
+  JB_UINT(&builder, counts, "original_game_latches", original_nlat);
+  JB_UINT(&builder, counts, "sampling_latches", nlat - original_nlat);
+  JB_UINT(&builder, counts, "uncontrollable_inputs", nu);
+  JB_UINT(&builder, counts, "controllable_inputs", nc);
+  JB_UINT(&builder, counts, "outer_levels", levels->n);
+  JB_UINT(&builder, counts, "predicates", aig_num_outputs(certificate));
+  JB_UINT(&builder, counts, "aig_inputs", aig_num_inputs(certificate));
+  JB_UINT(&builder, counts, "aig_latches", aig_num_latches(certificate));
+  JB_UINT(&builder, counts, "aig_ands", aig_num_ands(certificate));
+  jb_put(&builder, root, "counts", counts);
+  JB_STR(&builder, root, "rank_semantics",
+         "The least outer level and least goal identify the co-Buchi "
+         "goal. For the active fairness counter, the least inner X level "
+         "must decrease until fair_i holds. Outer-rank decreases permit "
+         "only finitely many goal changes.");
+  JB_STR(&builder, root, "move_semantics",
+         "move_i is the pre-Skolem relation bad | target(next). The "
+         "exported uncontrollable policy is Skolemized only after "
+         "universal quantification of every current controllable input.");
+  return jb_write(&builder, root, out);
 }
 
 static bool export_environment_certificate(
@@ -1254,7 +1225,7 @@ static bool export_environment_certificate(
     ok = write_environment_certificate_json(
         json, certificate, game,
         options->aag_path ? options->aag_path : "memory", original_nlat, goals,
-        fairness, fairness_counters, levels);
+        fairness, fairness_counters, levels, options->max_artifact_bytes);
     if (fclose(json) != 0)
       ok = false;
   }

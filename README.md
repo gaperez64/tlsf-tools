@@ -79,6 +79,11 @@ Sanitizers are available for development builds with
 
 ### Dependencies
 
+JSON support uses yyjson 0.12.0. Meson uses an installed yyjson when available
+and otherwise builds the pinned `subprojects/yyjson.wrap`. The fallback installs
+yyjson and its pkg-config file with `libtlsf`, so static consumers can resolve
+the private JSON dependency with `pkg-config --static --libs tlsf`.
+
 The default production build is OxiDD-free and packages only the stable TLSF
 preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
 research-build dependency for the in-process safety/GR(1) solver tools.

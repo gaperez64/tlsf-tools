@@ -5,7 +5,7 @@
 #include "oxidd_common.h"
 #include "pipeline_source_internal.h"
 
-#include <boost/json.hpp>
+#include "yyjson_cpp.hh"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -27,7 +27,7 @@
 #include <vector>
 
 namespace {
-namespace j = boost::json;
+namespace j = tlsf_json;
 using namespace oxidd::capi;
 using J = j::value;
 using O = j::object;

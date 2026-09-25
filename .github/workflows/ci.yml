@@ -225,7 +225,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build flex bison gcc-14 g++-14 make curl pkg-config libboost-json-dev
+            ninja-build flex bison gcc-14 g++-14 make curl pkg-config
       - name: Install Meson
         run: pip install 'meson==1.12.1'
       - name: Download OxiDD FFI artifact

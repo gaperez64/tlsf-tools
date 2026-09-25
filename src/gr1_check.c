@@ -22,21 +22,27 @@
 /// Buchi fixpoint to search for a reachable fair cycle missing one justice.
 /// --json-out writes tlsf-gr1-checkresult-v1: an overall verdict and resource
 /// totals plus per-method verdict, time, peak nodes, and structured witness.
+/// Sidecars are compared as decoded JSON: escaped key and string spellings
+/// have the same meaning as plain spellings. Duplicate keys are rejected after
+/// decoding, and extra fields are allowed.
 
 #include "tlsf/aiger.h"
 #include "tlsf/build_info.h"
 #include "oxidd_common.h"
 #include "sha256.h"
+#include "yyjson_builder.h"
 #include "tlsf/gr1_check.h"
 
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
+#include <yyjson.h>
 
 int tlsf_certcheck_cli_main(int argc, char **argv);
 
@@ -522,177 +528,171 @@ static char *read_text_file(const char *path) {
   return text;
 }
 
-static const char *json_space(const char *p) {
-  while (isspace((unsigned char)*p))
-    p++;
-  return p;
-}
+typedef struct {
+  size_t used, limit;
+  bool allocation_failed;
+} JsonBudget;
 
-static const char *json_string_end(const char *p) {
-  if (*p++ != '"')
+typedef struct {
+  yyjson_doc *doc;
+  JsonBudget *budget;
+} JsonDocument;
+
+static void *json_budget_malloc(void *opaque, size_t size) {
+  JsonBudget *budget = opaque;
+  if (size > SIZE_MAX - sizeof(size_t) ||
+      size + sizeof(size_t) > budget->limit - budget->used) {
+    budget->allocation_failed = true;
     return nullptr;
-  while (*p) {
-    unsigned char c = (unsigned char)*p++;
-    if (c == '"')
-      return p;
-    if (c < 0x20)
-      return nullptr;
-    if (c != '\\')
-      continue;
-    char escape = *p++;
-    if (strchr("\"\\/bfnrt", escape) && escape)
-      continue;
-    if (escape != 'u')
-      return nullptr;
-    for (int i = 0; i < 4; i++) {
-      if (!isxdigit((unsigned char)*p))
-        return nullptr;
-      p++;
-    }
   }
-  return nullptr;
+  size_t *block = malloc(size + sizeof(size_t));
+  if (!block) {
+    budget->allocation_failed = true;
+    return nullptr;
+  }
+  *block = size + sizeof(size_t);
+  budget->used += *block;
+  return block + 1;
 }
 
-static const char *json_number_end(const char *p) {
-  if (*p == '-')
-    p++;
-  if (*p == '0') {
-    p++;
-  } else {
-    if (*p < '1' || *p > '9')
-      return nullptr;
-    do {
-      p++;
-    } while (*p >= '0' && *p <= '9');
+static void *json_budget_realloc(void *opaque, void *ptr, size_t old_size,
+                                 size_t size) {
+  (void)old_size;
+  if (!ptr)
+    return json_budget_malloc(opaque, size);
+  JsonBudget *budget = opaque;
+  size_t *block = (size_t *)ptr - 1;
+  size_t old = *block;
+  if (size > SIZE_MAX - sizeof(size_t) ||
+      size + sizeof(size_t) > budget->limit - (budget->used - old)) {
+    budget->allocation_failed = true;
+    return nullptr;
   }
-  if (*p == '.') {
-    p++;
-    if (*p < '0' || *p > '9')
-      return nullptr;
-    do {
-      p++;
-    } while (*p >= '0' && *p <= '9');
+  size_t *grown = realloc(block, size + sizeof(size_t));
+  if (!grown) {
+    budget->allocation_failed = true;
+    return nullptr;
   }
-  if (*p == 'e' || *p == 'E') {
-    p++;
-    if (*p == '+' || *p == '-')
-      p++;
-    if (*p < '0' || *p > '9')
-      return nullptr;
-    do {
-      p++;
-    } while (*p >= '0' && *p <= '9');
-  }
-  return p;
+  *grown = size + sizeof(size_t);
+  budget->used = budget->used - old + *grown;
+  return grown + 1;
 }
 
-static const char *json_value_end(const char *p, unsigned depth) {
+static void json_budget_free(void *opaque, void *ptr) {
+  if (!ptr)
+    return;
+  JsonBudget *budget = opaque;
+  size_t *block = (size_t *)ptr - 1;
+  budget->used -= *block;
+  free(block);
+}
+
+static bool json_unique(yyjson_val *value, unsigned depth, JsonBudget *budget) {
   if (depth > 64)
-    return nullptr;
-  p = json_space(p);
-  if (*p == '"')
-    return json_string_end(p);
-  if (*p == '{') {
-    p = json_space(p + 1);
-    if (*p == '}')
-      return p + 1;
-    for (;;) {
-      p = json_string_end(p);
-      if (!p || *(p = json_space(p)) != ':')
-        return nullptr;
-      p = json_value_end(p + 1, depth + 1);
-      if (!p)
-        return nullptr;
-      p = json_space(p);
-      if (*p == '}')
-        return p + 1;
-      if (*p != ',')
-        return nullptr;
-      p = json_space(p + 1);
+    return false;
+  if (yyjson_is_obj(value)) {
+    size_t entries = yyjson_obj_size(value);
+    if (entries > SIZE_MAX / 2)
+      return false;
+    size_t slots = 8;
+    while (slots < entries * 2) {
+      if (slots > SIZE_MAX / 2)
+        return false;
+      slots *= 2;
     }
-  }
-  if (*p == '[') {
-    p = json_space(p + 1);
-    if (*p == ']')
-      return p + 1;
-    for (;;) {
-      p = json_value_end(p, depth + 1);
-      if (!p)
-        return nullptr;
-      p = json_space(p);
-      if (*p == ']')
-        return p + 1;
-      if (*p != ',')
-        return nullptr;
-      p = json_space(p + 1);
+    if (slots > SIZE_MAX / sizeof(yyjson_val *))
+      return false;
+    yyjson_val **keys = json_budget_malloc(budget, slots * sizeof *keys);
+    if (!keys)
+      return false;
+    memset(keys, 0, slots * sizeof *keys);
+    size_t i, n;
+    yyjson_val *key, *member;
+    yyjson_obj_foreach(value, i, n, key, member) {
+      const unsigned char *bytes = (const unsigned char *)yyjson_get_str(key);
+      size_t length = yyjson_get_len(key);
+      uint64_t hash = UINT64_C(14695981039346656037);
+      for (size_t k = 0; k < length; k++)
+        hash = (hash ^ bytes[k]) * UINT64_C(1099511628211);
+      size_t position = (size_t)hash & (slots - 1);
+      while (keys[position]) {
+        yyjson_val *prior = keys[position];
+        if (yyjson_get_len(prior) == length &&
+            memcmp(yyjson_get_str(prior), bytes, length) == 0) {
+          json_budget_free(budget, keys);
+          return false;
+        }
+        position = (position + 1) & (slots - 1);
+      }
+      keys[position] = key;
+      if (!json_unique(member, depth + 1, budget)) {
+        json_budget_free(budget, keys);
+        return false;
+      }
     }
+    json_budget_free(budget, keys);
+  } else if (yyjson_is_arr(value)) {
+    size_t i, n;
+    yyjson_val *member;
+    yyjson_arr_foreach(
+        value, i, n,
+        member) if (!json_unique(member, depth + 1, budget)) return false;
   }
-  for (size_t i = 0; i < 3; i++) {
-    const char *literal = (const char *[]){"true", "false", "null"}[i];
-    size_t size = strlen(literal);
-    if (!strncmp(p, literal, size))
-      return p + size;
-  }
-  if (*p == '-' || (*p >= '0' && *p <= '9'))
-    return json_number_end(p);
-  return nullptr;
-}
-
-static bool json_complete_object(const char *text) {
-  const char *begin = json_space(text);
-  if (*begin != '{')
-    return false;
-  const char *end = json_value_end(begin, 0);
-  return end && *json_space(end) == 0;
-}
-
-static bool json_has_string(const char *text, const char *key,
-                            const char *value) {
-  char pattern[256];
-  snprintf(pattern, sizeof pattern, "\"%s\"", key);
-  const char *p = strstr(text, pattern);
-  if (!p)
-    return false;
-  p = strchr(p + strlen(pattern), ':');
-  if (!p)
-    return false;
-  p++;
-  while (isspace((unsigned char)*p))
-    p++;
-  size_t n = strlen(value);
-  return *p == '"' && strncmp(p + 1, value, n) == 0 && p[n + 1] == '"';
-}
-
-static bool json_uint(const char *text, const char *key, uint32_t *value) {
-  char pattern[256];
-  snprintf(pattern, sizeof pattern, "\"%s\"", key);
-  const char *p = strstr(text, pattern);
-  if (!p || !(p = strchr(p + strlen(pattern), ':')))
-    return false;
-  p++;
-  while (isspace((unsigned char)*p))
-    p++;
-  char *end;
-  unsigned long parsed = strtoul(p, &end, 10);
-  if (end == p || parsed > UINT32_MAX)
-    return false;
-  *value = (uint32_t)parsed;
   return true;
 }
 
-static bool json_bool(const char *text, const char *key, bool value) {
-  char pattern[256];
-  snprintf(pattern, sizeof pattern, "\"%s\"", key);
-  const char *p = strstr(text, pattern);
-  if (!p || !(p = strchr(p + strlen(pattern), ':')))
+static JsonDocument json_parse_object(const char *text, size_t cap) {
+  JsonDocument result = {0};
+  size_t len = strlen(text);
+  if (cap && len > cap)
+    return result;
+  result.budget = calloc(1, sizeof *result.budget);
+  if (!result.budget)
+    return result;
+  /* yyjson's DOM can use several times the input size. Keep its arena bounded.
+   */
+  size_t basis = cap ? cap : len;
+  result.budget->limit =
+      basis > (SIZE_MAX - 4096) / 16 ? SIZE_MAX : basis * 16 + 4096;
+  yyjson_alc allocator = {.malloc = json_budget_malloc,
+                          .realloc = json_budget_realloc,
+                          .free = json_budget_free,
+                          .ctx = result.budget};
+  result.doc = yyjson_read_opts((char *)text, len, 0, &allocator, nullptr);
+  if (!result.doc || !yyjson_is_obj(yyjson_doc_get_root(result.doc)) ||
+      !json_unique(yyjson_doc_get_root(result.doc), 0, result.budget)) {
+    yyjson_doc_free(result.doc);
+    result.doc = nullptr;
+  }
+  return result;
+}
+
+static void json_document_free(JsonDocument *parsed) {
+  yyjson_doc_free(parsed->doc);
+  free(parsed->budget);
+  *parsed = (JsonDocument){0};
+}
+
+static bool json_has_string(yyjson_val *object, const char *key,
+                            const char *expected) {
+  yyjson_val *value = yyjson_obj_get(object, key);
+  size_t length = strlen(expected);
+  return yyjson_is_str(value) && yyjson_get_len(value) == length &&
+         memcmp(yyjson_get_str(value), expected, length) == 0;
+}
+
+static bool json_uint(yyjson_val *object, const char *key, uint32_t *value) {
+  yyjson_val *counts = yyjson_obj_get(object, "counts");
+  yyjson_val *item = yyjson_obj_get(counts, key);
+  if (!yyjson_is_uint(item) || yyjson_get_uint(item) > UINT32_MAX)
     return false;
-  p++;
-  while (isspace((unsigned char)*p))
-    p++;
-  const char *expected = value ? "true" : "false";
-  size_t n = strlen(expected);
-  return strncmp(p, expected, n) == 0 && !isalnum((unsigned char)p[n]) &&
-         p[n] != '_';
+  *value = (uint32_t)yyjson_get_uint(item);
+  return true;
+}
+
+static bool json_bool(yyjson_val *object, const char *key, bool expected) {
+  yyjson_val *item = yyjson_obj_get(object, key);
+  return yyjson_is_bool(item) && yyjson_get_bool(item) == expected;
 }
 
 static Aig *read_aag(const char *path, bool game, char *error,
@@ -784,23 +784,30 @@ static bool validate_sidecars(Checker *ck, char *message, size_t cap) {
     return false;
   }
   uint32_t nstate, goals;
-  bool policy_environment = json_has_string(policy, "side", "environment");
+  JsonDocument policy_doc =
+      json_parse_object(policy, ck->options.max_artifact_bytes);
+  yyjson_val *policy_root =
+      policy_doc.doc ? yyjson_doc_get_root(policy_doc.doc) : nullptr;
+  bool policy_environment =
+      policy_root && json_has_string(policy_root, "side", "environment");
   bool policy_system =
-      json_has_string(policy, "side", "system") || !strstr(policy, "\"side\"");
-  bool ok = json_complete_object(policy) &&
-            json_has_string(policy, "format", "tlsf-gr1-policy-v1") &&
-            json_uint(policy, "game_state_variables", &nstate) &&
-            json_uint(policy, "goals", &goals) && nstate == ck->nstate &&
+      policy_root && (json_has_string(policy_root, "side", "system") ||
+                      !yyjson_obj_get(policy_root, "side"));
+  bool ok = policy_root &&
+            json_has_string(policy_root, "format", "tlsf-gr1-policy-v1") &&
+            json_uint(policy_root, "game_state_variables", &nstate) &&
+            json_uint(policy_root, "goals", &goals) && nstate == ck->nstate &&
             goals == ck->ngoals && (policy_environment || policy_system);
   if (ok && policy_environment) {
     uint32_t counters;
-    ok = json_has_string(policy, "reduction_semantics", "exact") &&
-         json_has_string(policy, "strategy_semantics", "moore") &&
-         json_uint(policy, "fairness_counters", &counters) &&
+    ok = json_has_string(policy_root, "reduction_semantics", "exact") &&
+         json_has_string(policy_root, "strategy_semantics", "moore") &&
+         json_uint(policy_root, "fairness_counters", &counters) &&
          counters == ck->nfair_disj;
   }
   ck->environment = policy_environment;
   ck->ncounter = ck->environment ? ck->nfair_disj : ck->ngoals;
+  json_document_free(&policy_doc);
   free(policy);
   if (!ok) {
     snprintf(message, cap, "policy sidecar does not match this game");
@@ -817,21 +824,28 @@ static bool validate_sidecars(Checker *ck, char *message, size_t cap) {
     return false;
   }
   uint32_t fairness;
+  JsonDocument certificate_doc =
+      json_parse_object(certificate, ck->options.max_artifact_bytes);
+  yyjson_val *certificate_root =
+      certificate_doc.doc ? yyjson_doc_get_root(certificate_doc.doc) : nullptr;
   bool certificate_environment =
-      json_has_string(certificate, "side", "environment");
-  ok = json_complete_object(certificate) &&
-       json_has_string(certificate, "format", "tlsf-gr1-certificate-v1") &&
-       json_has_string(certificate, "status",
+      certificate_root &&
+      json_has_string(certificate_root, "side", "environment");
+  ok = certificate_root &&
+       json_has_string(certificate_root, "format", "tlsf-gr1-certificate-v1") &&
+       json_has_string(certificate_root, "status",
                        ck->environment ? "unrealizable" : "realizable") &&
        certificate_environment == ck->environment &&
-       json_uint(certificate, "state_variables", &nstate) &&
-       json_uint(certificate, "goals", &goals) &&
-       json_uint(certificate, "fairness_assumptions", &fairness) &&
+       json_uint(certificate_root, "state_variables", &nstate) &&
+       json_uint(certificate_root, "goals", &goals) &&
+       json_uint(certificate_root, "fairness_assumptions", &fairness) &&
        nstate == ck->nstate && goals == ck->ngoals && fairness == ck->nfair;
   if (ok && ck->environment)
-    ok = json_has_string(certificate, "reduction_semantics", "exact") &&
-         json_has_string(certificate, "strategy_semantics", "moore") &&
-         json_bool(certificate, "environment_counter_strategy_exported", true);
+    ok = json_has_string(certificate_root, "reduction_semantics", "exact") &&
+         json_has_string(certificate_root, "strategy_semantics", "moore") &&
+         json_bool(certificate_root, "environment_counter_strategy_exported",
+                   true);
+  json_document_free(&certificate_doc);
   free(certificate);
   if (!ok) {
     snprintf(message, cap, "certificate sidecar does not match this game");
@@ -850,15 +864,19 @@ static bool validate_region_sidecar(Checker *ck, char *message, size_t cap) {
     return false;
   }
   uint32_t nstate, goals, fairness;
-  bool ok = json_complete_object(certificate) &&
-            json_has_string(certificate, "format", "tlsf-gr1-certificate-v1") &&
-            json_has_string(certificate, "status", "realizable") &&
-            json_has_string(certificate, "side", "system") &&
-            json_uint(certificate, "state_variables", &nstate) &&
-            json_uint(certificate, "goals", &goals) &&
-            json_uint(certificate, "fairness_assumptions", &fairness) &&
-            nstate == ck->nstate && goals == ck->ngoals &&
-            fairness == ck->nfair;
+  JsonDocument certificate_doc =
+      json_parse_object(certificate, ck->options.max_artifact_bytes);
+  yyjson_val *root =
+      certificate_doc.doc ? yyjson_doc_get_root(certificate_doc.doc) : nullptr;
+  bool ok =
+      root && json_has_string(root, "format", "tlsf-gr1-certificate-v1") &&
+      json_has_string(root, "status", "realizable") &&
+      json_has_string(root, "side", "system") &&
+      json_uint(root, "state_variables", &nstate) &&
+      json_uint(root, "goals", &goals) &&
+      json_uint(root, "fairness_assumptions", &fairness) &&
+      nstate == ck->nstate && goals == ck->ngoals && fairness == ck->nfair;
+  json_document_free(&certificate_doc);
   free(certificate);
   if (!ok) {
     snprintf(message, cap,
@@ -4238,103 +4256,69 @@ static const char *region_outcome_name(CheckResult result, int exit_code) {
                                  : region_result_name(result);
 }
 
-static void json_string(FILE *out, const char *text) {
-  fputc('"', out);
-  for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
-    switch (*p) {
-    case '"':
-      fputs("\\\"", out);
-      break;
-    case '\\':
-      fputs("\\\\", out);
-      break;
-    case '\b':
-      fputs("\\b", out);
-      break;
-    case '\f':
-      fputs("\\f", out);
-      break;
-    case '\n':
-      fputs("\\n", out);
-      break;
-    case '\r':
-      fputs("\\r", out);
-      break;
-    case '\t':
-      fputs("\\t", out);
-      break;
-    default:
-      if (*p < 0x20)
-        fprintf(out, "\\u%04x", *p);
-      else
-        fputc(*p, out);
-    }
+static yyjson_mut_val *json_named_values(JsonBuilder *builder,
+                                         const Checker *ck,
+                                         const uint8_t *values, uint32_t count,
+                                         unsigned kind) {
+  yyjson_mut_val *object = jb_obj(builder);
+  for (uint32_t i = 0; i < count; i++) {
+    char fallback[64];
+    const char *name;
+    if (kind == 0)
+      name = latch_name(ck->game, i, fallback, sizeof fallback);
+    else if (kind == 1) {
+      snprintf(fallback, sizeof fallback, "curr_%u", i);
+      name = fallback;
+    } else
+      name = aig_input_name(ck->game, kind == 2 ? ck->uinput[i] : ck->cinput[i],
+                            nullptr);
+    JB_BOOL(builder, object, name, values[i]);
   }
-  fputc('"', out);
+  return object;
 }
 
-static void json_named_value(FILE *out, bool *first, const char *name,
-                             bool value) {
-  if (!*first)
-    fputs(", ", out);
-  *first = false;
-  json_string(out, name);
-  fprintf(out, ": %s", value ? "true" : "false");
+static yyjson_mut_val *counterexample_json(JsonBuilder *builder,
+                                           const Checker *ck,
+                                           const Counterexample *witness) {
+  if (!witness->present)
+    return jb_null(builder);
+  yyjson_mut_val *object = jb_obj(builder);
+  JB_STR(builder, object, "reason", witness->reason);
+  jb_put(builder, object, "state",
+         json_named_values(builder, ck, witness->state, ck->nstate, 0));
+  jb_put(builder, object, "curr",
+         json_named_values(builder, ck, witness->curr, ck->ncounter, 1));
+  jb_put(builder, object, "uncontrollable_inputs",
+         json_named_values(builder, ck, witness->inputs, ck->nu, 2));
+  jb_put(builder, object, "control_choice",
+         witness->has_control
+             ? json_named_values(builder, ck, witness->control, ck->nc, 3)
+             : jb_null(builder));
+  return object;
 }
 
-static void write_counterexample_json(FILE *out, const Checker *ck,
-                                      const Counterexample *counterexample) {
-  if (!counterexample->present) {
-    fputs("null", out);
-    return;
+static yyjson_mut_val *fixed9(JsonBuilder *builder, double number) {
+  if (!isfinite(number)) {
+    builder->failed = true;
+    return nullptr;
   }
-  fputs("{\n        \"reason\": ", out);
-  json_string(out, counterexample->reason);
-  fputs(",\n        \"state\": {", out);
-  bool first = true;
-  for (uint32_t j = 0; j < ck->nstate; j++) {
-    char fallback[32];
-    const char *name = latch_name(ck->game, j, fallback, sizeof fallback);
-    json_named_value(out, &first, name, counterexample->state[j]);
-  }
-  fputs("},\n        \"curr\": {", out);
-  first = true;
-  for (uint32_t j = 0; j < ck->ncounter; j++) {
-    char name[64];
-    snprintf(name, sizeof name, "curr_%u", j);
-    json_named_value(out, &first, name, counterexample->curr[j]);
-  }
-  fputs("},\n        \"uncontrollable_inputs\": {", out);
-  first = true;
-  for (uint32_t i = 0; i < ck->nu; i++)
-    json_named_value(out, &first,
-                     aig_input_name(ck->game, ck->uinput[i], nullptr),
-                     counterexample->inputs[i]);
-  fputs("},\n        \"control_choice\": ", out);
-  if (!counterexample->has_control) {
-    fputs("null\n      }", out);
-    return;
-  }
-  fputc('{', out);
-  first = true;
-  for (uint32_t i = 0; i < ck->nc; i++)
-    json_named_value(out, &first,
-                     aig_input_name(ck->game, ck->cinput[i], nullptr),
-                     counterexample->control[i]);
-  fputs("}\n      }", out);
+  char text[128];
+  snprintf(text, sizeof text, "%.9f", number);
+  yyjson_mut_val *value =
+      builder->doc ? yyjson_mut_rawcpy(builder->doc, text) : nullptr;
+  builder->failed |= !value;
+  return value;
 }
 
-static void write_method_json(FILE *out, const Checker *ck,
-                              const MethodReport *report) {
-  fputs("{\n      \"verdict\": ", out);
-  json_string(out, result_name(report->result));
-  fprintf(out,
-          ",\n      \"time_seconds\": %.9f,\n"
-          "      \"peak_bdd_nodes\": %zu,\n"
-          "      \"counterexample\": ",
-          report->seconds, report->peak_nodes);
-  write_counterexample_json(out, ck, &report->counterexample);
-  fputs("\n    }", out);
+static yyjson_mut_val *method_json(JsonBuilder *builder, const Checker *ck,
+                                   const MethodReport *report) {
+  yyjson_mut_val *object = jb_obj(builder);
+  JB_STR(builder, object, "verdict", result_name(report->result));
+  jb_put(builder, object, "time_seconds", fixed9(builder, report->seconds));
+  JB_UINT(builder, object, "peak_bdd_nodes", report->peak_nodes);
+  jb_put(builder, object, "counterexample",
+         counterexample_json(builder, ck, &report->counterexample));
+  return object;
 }
 
 typedef struct {
@@ -4448,6 +4432,19 @@ static FILE *open_result_stream(const Options *options) {
   return stream;
 }
 
+static bool close_result_json(const Checker *ck, JsonBuilder *builder,
+                              yyjson_mut_val *root, FILE *out) {
+  bool ok = jb_write(builder, root, out);
+  if (builder->limited && ck->options.json_limited)
+    *ck->options.json_limited = true;
+  if (builder->failed && ck->options.json_allocation_failed &&
+      (!ck->options.json_limited || !*ck->options.json_limited))
+    *ck->options.json_allocation_failed = true;
+  if (fclose(out) != 0)
+    ok = false;
+  return ok;
+}
+
 static bool write_result_json(const Checker *ck,
                               const MethodReport *certificate,
                               const MethodReport *closed_loop, int exit_code,
@@ -4470,38 +4467,27 @@ static bool write_result_json(const Checker *ck,
     counterexample = &closed_loop->counterexample;
     counterexample_method = "closed-loop";
   }
-  fputs("{\n  \"format\": \"tlsf-gr1-checkresult-v1\",\n"
-        "  \"requested_method\": ",
-        out);
-  json_string(out, method_name(ck->options.method));
-  fputs(",\n  \"verdict\": ", out);
-  json_string(out, exit_name(exit_code));
-  fprintf(out,
-          ",\n  \"exit_code\": %d,\n"
-          "  \"methods\": {\n    \"certificate\": ",
-          exit_code);
-  write_method_json(out, ck, certificate);
-  fputs(",\n    \"closed_loop\": ", out);
-  write_method_json(out, ck, closed_loop);
-  fprintf(out,
-          "\n  },\n  \"peak_bdd_nodes\": %zu,\n"
-          "  \"elapsed_seconds\": %.9f,\n"
-          "  \"counterexample_method\": ",
-          ck->peak_nodes, elapsed);
-  if (counterexample_method)
-    json_string(out, counterexample_method);
-  else
-    fputs("null", out);
-  fputs(",\n  \"counterexample\": ", out);
-  if (counterexample)
-    write_counterexample_json(out, ck, counterexample);
-  else
-    fputs("null", out);
-  fputs("\n}\n", out);
-  bool ok = !ferror(out);
-  if (fclose(out) != 0)
-    ok = false;
-  return ok;
+  JsonBuilder builder = jb_new_bounded(ck->options.max_artifact_bytes);
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "format", "tlsf-gr1-checkresult-v1");
+  JB_STR(&builder, root, "requested_method", method_name(ck->options.method));
+  JB_STR(&builder, root, "verdict", exit_name(exit_code));
+  JB_SINT(&builder, root, "exit_code", exit_code);
+  yyjson_mut_val *methods = jb_obj(&builder);
+  jb_put(&builder, methods, "certificate",
+         method_json(&builder, ck, certificate));
+  jb_put(&builder, methods, "closed_loop",
+         method_json(&builder, ck, closed_loop));
+  jb_put(&builder, root, "methods", methods);
+  JB_UINT(&builder, root, "peak_bdd_nodes", ck->peak_nodes);
+  jb_put(&builder, root, "elapsed_seconds", fixed9(&builder, elapsed));
+  jb_put(&builder, root, "counterexample_method",
+         counterexample_method ? jb_str(&builder, counterexample_method)
+                               : jb_null(&builder));
+  jb_put(&builder, root, "counterexample",
+         counterexample ? counterexample_json(&builder, ck, counterexample)
+                        : jb_null(&builder));
+  return close_result_json(ck, &builder, root, out);
 }
 
 static bool write_region_result_json(const Checker *ck,
@@ -4512,29 +4498,25 @@ static bool write_region_result_json(const Checker *ck,
   FILE *out = open_result_stream(&ck->options);
   if (!out)
     return false;
-  fputs("{\n  \"format\": \"tlsf-gr1-region-checkresult-v1\",\n"
-        "  \"method\": \"gr1-region-v1\",\n"
-        "  \"verdict\": ",
-        out);
-  json_string(out, region_outcome_name(region->result, exit_code));
-  fprintf(out,
-          ",\n  \"exit_code\": %d,\n"
-          "  \"time_seconds\": %.9f,\n"
-          "  \"elapsed_seconds\": %.9f,\n"
-          "  \"peak_bdd_nodes\": %zu,\n"
-          "  \"roots\": {\"game\": %zu, \"certificate\": %zu},\n"
-          "  \"modes_checked\": %zu,\n"
-          "  \"layers_checked\": %zu,\n"
-          "  \"counterexample\": ",
-          exit_code, region->seconds, elapsed, ck->peak_nodes,
-          ck->region_game_roots, ck->region_certificate_roots, ck->region_modes,
-          ck->region_layers);
-  write_counterexample_json(out, ck, &region->counterexample);
-  fputs("\n}\n", out);
-  bool ok = !ferror(out);
-  if (fclose(out) != 0)
-    ok = false;
-  return ok;
+  JsonBuilder builder = jb_new_bounded(ck->options.max_artifact_bytes);
+  yyjson_mut_val *root = jb_obj(&builder);
+  JB_STR(&builder, root, "format", "tlsf-gr1-region-checkresult-v1");
+  JB_STR(&builder, root, "method", "gr1-region-v1");
+  JB_STR(&builder, root, "verdict",
+         region_outcome_name(region->result, exit_code));
+  JB_SINT(&builder, root, "exit_code", exit_code);
+  jb_put(&builder, root, "time_seconds", fixed9(&builder, region->seconds));
+  jb_put(&builder, root, "elapsed_seconds", fixed9(&builder, elapsed));
+  JB_UINT(&builder, root, "peak_bdd_nodes", ck->peak_nodes);
+  yyjson_mut_val *roots = jb_obj(&builder);
+  JB_UINT(&builder, roots, "game", ck->region_game_roots);
+  JB_UINT(&builder, roots, "certificate", ck->region_certificate_roots);
+  jb_put(&builder, root, "roots", roots);
+  JB_UINT(&builder, root, "modes_checked", ck->region_modes);
+  JB_UINT(&builder, root, "layers_checked", ck->region_layers);
+  jb_put(&builder, root, "counterexample",
+         counterexample_json(&builder, ck, &region->counterexample));
+  return close_result_json(ck, &builder, root, out);
 }
 
 static void cleanup(Checker *ck) {

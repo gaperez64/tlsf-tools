@@ -8,7 +8,7 @@ extern "C" {
 #include "tlsf/spec.h"
 }
 
-#include <boost/json.hpp>
+#include "yyjson_cpp.hh"
 #include <spot/misc/optionmap.hh>
 #include <spot/tl/apcollect.hh>
 #include <spot/tl/hierarchy.hh>
@@ -46,7 +46,7 @@ extern "C" {
 #include <vector>
 
 namespace {
-namespace json = boost::json;
+namespace json = tlsf_json;
 using Formula = spot::formula;
 
 struct Failure : std::runtime_error {

@@ -108,6 +108,8 @@ bison = find_program('bison', required: true)
 # Optional: used by wrapper/benchmark tests that shell out to ltlsynt.
 ltlsynt = find_program('ltlsynt', required: false)
 spot_dep = dependency('libspot', required: false)
+yyjson_dep = dependency('yyjson', version: '>=0.12.0',
+                        fallback: ['yyjson', 'yyjson_dep'])
 git = find_program('git', required: false)
 bash = find_program('bash', required: false)
 python3 = find_program('python3', required: false)
@@ -337,23 +339,21 @@ endif
 
 lib_c_args = have_oxidd ? ['-DHAVE_OXIDD'] : []
 lib_sources += [version_h]
-lib_compile_deps = have_oxidd ? [declare_dependency(
+lib_compile_deps = [yyjson_dep] + (have_oxidd ? [declare_dependency(
   include_directories: include_directories('external/oxidd/build/include'),
-)] : []
-lib_deps = have_oxidd ? [oxidd_dep] : []
+)] : [])
+lib_deps = [yyjson_dep] + (have_oxidd ? [oxidd_dep] : [])
 if native_gr1
   cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
-  boost_json_dep = dependency('boost', modules: ['json'])
   lib_compile_deps += [
     spot_dep.partial_dependency(compile_args: true, includes: true),
-    boost_json_dep.partial_dependency(compile_args: true, includes: true),
   ]
-  lib_deps += [spot_dep, boost_json_dep,
+  lib_deps += [spot_dep,
                meson.get_compiler('cpp').find_library(cpp_runtime)]
 endif
 pkg_private_libs = have_oxidd ? ['-loxidd_ffi_c', '-lpthread', '-lm'] : []
 if native_gr1
-  pkg_private_libs += ['-lboost_json', '-l' + cpp_runtime]
+  pkg_private_libs += ['-l' + cpp_runtime]
 endif
 if have_oxidd and host_machine.system() != 'darwin'
   pkg_private_libs += ['-ldl']
@@ -451,12 +451,13 @@ if have_oxidd
 endif
 
 pkg.generate(
-  tlsf_lib,
+  libraries: ['-L${libdir}', '-ltlsf'],
   name: 'tlsf',
   filebase: 'tlsf',
   description: 'TLSF decomposition and preprocessing library',
+  version: meson.project_version(),
   libraries_private: pkg_private_libs,
-  requires_private: native_gr1 ? ['libspot'] : [],
+  requires_private: ['yyjson'] + (native_gr1 ? ['libspot'] : []),
 )
 
 # ---------------------------------------------------------------------------
@@ -561,7 +562,7 @@ if research_tools
                 bison_out[1],
                 version_h],
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
@@ -574,7 +575,7 @@ if research_tools
         'src/gr1_oxidd.c', 'src/oxidd_common.c', 'src/oxidd_host.c',
         'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
@@ -586,7 +587,7 @@ if research_tools
         'src/gr1_check.c', 'src/oxidd_common.c',
         'src/oxidd_host.c', 'src/oxidd_order.c']),
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
       install: true,
@@ -607,7 +608,7 @@ if research_tools
                 'test/tlsfsolve_failure_stub.c', version_h] +
                (native_gr1 ? [] : ['src/gr1_service.c']),
       c_args: ['-DHAVE_OXIDD'],
-      dependencies: [oxidd_dep],
+      dependencies: [oxidd_dep, yyjson_dep],
       link_with: tlsf_lib,
       include_directories: inc,
     )
@@ -1224,7 +1225,7 @@ if research_tools and have_oxidd
                 '-Wl,--wrap=oxidd_bdd_apply_exists', '-Wl,--wrap=oxidd_bdd_forall',
                 '-Wl,--wrap=oxidd_bdd_exists', '-Wl,--wrap=oxidd_bdd_restrict',
                 '-Wl,--wrap=calloc', '-Wl,--wrap=oxidd_host_realloc'],
-    dependencies: [oxidd_dep], link_with: tlsf_lib, include_directories: inc)
+    dependencies: [oxidd_dep, yyjson_dep], link_with: tlsf_lib, include_directories: inc)
   test('oxidd_memory', oxidd_memory_test)
   test('gr1_fairness_alternating_unreal', check_status,
     args: ['1', files('test/cases/empty'),
@@ -1261,7 +1262,7 @@ if research_tools and have_oxidd
     sources: ['test/aiger_game_roundtrip.c', 'src/gr1_oxidd.c',
               'src/oxidd_common.c', 'src/oxidd_host.c', 'src/oxidd_order.c'],
     c_args: ['-DHAVE_OXIDD'],
-    dependencies: [oxidd_dep],
+    dependencies: [oxidd_dep, yyjson_dep],
     link_with: tlsf_lib,
     include_directories: inc,
   )

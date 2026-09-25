@@ -80,19 +80,20 @@ for label, args in (
         provenance.unlink(missing_ok=True)
         result = invoke(build, "tlsf2tlsf", *args)
         outcomes.append((result.returncode, result.stdout, result.stderr,
-                         provenance.read_bytes() if provenance.exists() else None))
+                         json.loads(provenance.read_text())
+                         if provenance.exists() else None))
     equal(label, *outcomes)
 
 reference = invoke(REFERENCE, "tlsf2tlsf", "--basic", "--param", "n=4",
                    "--provenance-out", provenance, cases / "expand_demo.tlsf")
 equal("reference expansion exit", reference.returncode, 0)
-origin = provenance.read_bytes()
+origin = json.loads(provenance.read_text())
 provenance.unlink()
 direct = invoke(BUILD, "native_api_c", "--expand", cases / "expand_demo.tlsf",
                 provenance)
 equal("direct expansion exit", direct.returncode, 0)
 equal("direct expansion bytes", direct.stdout, reference.stdout)
-equal("direct provenance bytes", provenance.read_bytes(), origin)
+equal("direct provenance fields", json.loads(provenance.read_text()), origin)
 
 real = WORK / "real.aag"
 real.write_text("aag 3 2 1 1 0 0 0 1 0\n2\n4\n6 6 1\n0\n1\n6\n"
@@ -110,7 +111,8 @@ for label, game, expected in (("real", real, 0),
         solve = invoke(build, "tlsfsolve", "--certificate", certificate,
                        "--policy", policy, game)
         equal(f"{label} solve exit", solve.returncode, expected)
-        artifacts = tuple(path.read_bytes() for path in paths)
+        artifacts = tuple(json.loads(path.read_text()) if path.suffix == ".json"
+                          else path.read_bytes() for path in paths)
         evidence = WORK / "evidence.json"
         check = invoke(build, "tlsfcertcheck", "--method", "certificate",
                        "--certificate", certificate, "--policy-json", paths[3],
@@ -127,9 +129,11 @@ for label, game, expected in (("real", real, 0),
     equal(f"{label} direct exit", direct.returncode, 0)
     equal(f"{label} direct side", direct.stdout.strip(), str(expected).encode())
     equal(f"{label} direct artifacts",
-          tuple(pathlib.Path(f"{prefix}{suffix}").read_bytes() for suffix in
-                (".certificate.aag", ".certificate.json", ".policy.aag",
-                 ".policy.json")), outcomes[0][2])
+          tuple(json.loads(pathlib.Path(f"{prefix}{suffix}").read_text())
+                if suffix.endswith(".json")
+                else pathlib.Path(f"{prefix}{suffix}").read_bytes()
+                for suffix in (".certificate.aag", ".certificate.json",
+                               ".policy.aag", ".policy.json")), outcomes[0][2])
     if label == "real":
         for method in ("auto", "closed-loop", "both", "region"):
             reports = []

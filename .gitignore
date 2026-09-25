@@ -44,3 +44,10 @@ bench/route_stats_*.tsv
 handoff.md
 tlsf-selection-2026/
 tlsf-fin-selection-2026/
+
+# Meson WrapDB downloads and extracted sources; keep subprojects/*.wrap.
+/subprojects/packagecache/
+/subprojects/.wraplock
+/subprojects/*/
+!/subprojects/packagefiles/
+!/subprojects/packagefiles/**
