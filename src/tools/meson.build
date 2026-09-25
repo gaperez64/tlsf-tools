@@ -2,7 +2,8 @@
 # only that tool uses. common/ has the file helpers several tools share. The
 # top-level meson.build turns each entry of `tools` into build/<tool>.
 
-tools_common = static_library('tlsf-tools-common', 'common/cli.c')
+tools_common = static_library('tlsf-tools-common', 'common/cli.c',
+                               include_directories: public_inc)
 tool_dep = declare_dependency(
   include_directories: include_directories('common'),
   link_with: tools_common,

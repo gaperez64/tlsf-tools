@@ -66,32 +66,6 @@ static void usage(const char *prog) {
 }
 
 // Parse a "NAME=VALUE" override string.
-static bool parse_override(const char *s, ParamOverride *out) {
-  const char *eq = strchr(s, '=');
-  if (!eq || eq == s) {
-    fprintf(stderr, "tlsf2ltl: bad --param argument '%s' (expect NAME=VALUE)\n",
-            s);
-    return false;
-  }
-  // Temporary copy of the name part (not interned yet).
-  size_t nlen = (size_t)(eq - s);
-  char *name = malloc(nlen + 1);
-  if (!name)
-    return false;
-  memcpy(name, s, nlen);
-  name[nlen] = '\0';
-  char *end;
-  long long val = strtoll(eq + 1, &end, 10);
-  if (*end != '\0') {
-    fprintf(stderr, "tlsf2ltl: non-integer value in --param '%s'\n", s);
-    free(name);
-    return false;
-  }
-  out->name = name; // caller frees after expand()
-  out->value = (int64_t)val;
-  return true;
-}
-
 // ---------------------------------------------------------------------------
 // Apply NNF to all formula lists in the spec.
 // ---------------------------------------------------------------------------
@@ -208,7 +182,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsf2ltl: too many --param overrides\n");
         return 1;
       }
-      if (!parse_override(a, &overrides[n_overrides++]))
+      if (!cli_parse_param(a, "tlsf2ltl", &overrides[n_overrides++]))
         return 1;
     } else if (strcmp(argv[i], "--version") == 0) {
       printf("tlsf2ltl %s oxidd=%s research=%s simd=%s\n", TLSF_PROJECT_VERSION,

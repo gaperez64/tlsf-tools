@@ -72,30 +72,6 @@ static void usage(const char *prog) {
       prog);
 }
 
-static bool parse_override(const char *s, ParamOverride *out) {
-  const char *eq = strchr(s, '=');
-  if (!eq || eq == s) {
-    fprintf(stderr, "tlsf2tlsf: bad --param '%s'\n", s);
-    return false;
-  }
-  size_t nlen = (size_t)(eq - s);
-  char *name = malloc(nlen + 1);
-  if (!name)
-    return false;
-  memcpy(name, s, nlen);
-  name[nlen] = '\0';
-  char *end;
-  long long val = strtoll(eq + 1, &end, 10);
-  if (*end != '\0') {
-    fprintf(stderr, "tlsf2tlsf: non-integer value in --param '%s'\n", s);
-    free(name);
-    return false;
-  }
-  out->name = name;
-  out->value = (int64_t)val;
-  return true;
-}
-
 int main(int argc, char *argv[]) {
   const char *input_file = nullptr;
   const char *output_file = nullptr;
@@ -128,7 +104,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsf2tlsf: too many --param overrides\n");
         return 1;
       }
-      if (!parse_override(a, &overrides[n_overrides++]))
+      if (!cli_parse_param(a, "tlsf2tlsf", &overrides[n_overrides++]))
         return 1;
     } else if (strcmp(argv[i], "--output") == 0) {
       output_file = NEED_ARG();

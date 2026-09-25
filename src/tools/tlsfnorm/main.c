@@ -48,30 +48,6 @@ static void usage(const char *prog) {
           prog);
 }
 
-static bool parse_override(const char *s, ParamOverride *out) {
-  const char *eq = strchr(s, '=');
-  if (!eq || eq == s) {
-    fprintf(stderr, "tlsfnorm: bad --param '%s'\n", s);
-    return false;
-  }
-  size_t nlen = (size_t)(eq - s);
-  char *name = malloc(nlen + 1);
-  if (!name)
-    return false;
-  memcpy(name, s, nlen);
-  name[nlen] = '\0';
-  char *end;
-  long long val = strtoll(eq + 1, &end, 10);
-  if (*end != '\0') {
-    fprintf(stderr, "tlsfnorm: non-integer value in --param '%s'\n", s);
-    free(name);
-    return false;
-  }
-  out->name = name;
-  out->value = (int64_t)val;
-  return true;
-}
-
 typedef enum { STATS_OFF, STATS_HUMAN, STATS_TSV } StatsMode;
 
 // Apply one post-expansion pass spec to one section list (in spec->arena).
@@ -174,7 +150,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsfnorm: too many --param overrides\n");
         return 1;
       }
-      if (!parse_override(v, &overrides[n_overrides++]))
+      if (!cli_parse_param(v, "tlsfnorm", &overrides[n_overrides++]))
         return 1;
     } else if (strcmp(a, "--output") == 0) {
       output_file = NEED_ARG();
