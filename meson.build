@@ -343,7 +343,12 @@ lib_compile_deps = have_oxidd ? [declare_dependency(
 lib_deps = have_oxidd ? [oxidd_dep] : []
 if native_gr1
   cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
-  lib_deps += [spot_dep, dependency('boost', modules: ['json']),
+  boost_json_dep = dependency('boost', modules: ['json'])
+  lib_compile_deps += [
+    spot_dep.partial_dependency(compile_args: true, includes: true),
+    boost_json_dep.partial_dependency(compile_args: true, includes: true),
+  ]
+  lib_deps += [spot_dep, boost_json_dep,
                meson.get_compiler('cpp').find_library(cpp_runtime)]
 endif
 pkg_private_libs = have_oxidd ? ['-loxidd_ffi_c', '-lpthread', '-lm'] : []
