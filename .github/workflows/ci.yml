@@ -236,7 +236,17 @@ jobs:
           path: external/oxidd
       - name: Apply OxiDD source patch
         run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
+      # Spot takes most of this job to build; reuse the installed prefix. It is
+      # saved right after building, so a later test failure still keeps it.
+      # Bump the key's suffix when the build step's flags or toolchain change.
+      - name: Restore pinned Spot build
+        id: spot-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .spot
+          key: spot-2.16-${{ runner.os }}-ubuntu-24.04-gcc-14-no-python-v1
       - name: Build pinned Spot release
+        if: steps.spot-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://www.lre.epita.fr/dload/spot/spot-2.16.tar.gz \
             -o spot-2.16.tar.gz
@@ -246,6 +256,12 @@ jobs:
             --prefix="$GITHUB_WORKSPACE/.spot"
           make -j2
           make install
+      - name: Save pinned Spot build
+        if: steps.spot-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .spot
+          key: ${{ steps.spot-cache.outputs.cache-primary-key }}
       - name: Build and test native C ABI
         env:
           CC: gcc-14
