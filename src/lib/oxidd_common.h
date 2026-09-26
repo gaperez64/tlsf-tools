@@ -1,0 +1,194 @@
+#ifndef TLSF_OXIDD_COMMON_H
+#define TLSF_OXIDD_COMMON_H
+
+/// oxidd_common.h — BDD helpers shared by the in-process OxiDD solvers
+/// (`safety_oxidd.c` and `gr1_oxidd.c`): the literal/cube builders, the
+/// BDD-equality test, and the memoised BDD->AIG ite-expansion.  The games these
+/// solvers consume use the same AIGER conventions (env-first / Mealy; inputs
+/// named `controllable_*` are controllable moves; output `bad` is the unsafe
+/// predicate; latches are state).
+///
+/// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
+
+#include "tlsf/aiger.h"
+
+#include <oxidd/capi.h>
+
+#ifdef __cplusplus
+using oxidd::capi::oxidd_bdd_manager_t;
+using oxidd::capi::oxidd_bdd_substitution_t;
+using oxidd::capi::oxidd_bdd_t;
+using oxidd::capi::oxidd_boolean_operator;
+using oxidd::capi::oxidd_var_no_t;
+#endif
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdio.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define CONTROLLABLE_PREFIX "controllable_"
+#define UNCONTROLLABLE_PREFIX "uncontrollable_"
+
+typedef oxidd_bdd_t Bdd;
+
+#include "tlsf/oxidd_options.h"
+
+size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
+// Highest AIG variable index of `aig`, to size a literal -> BDD map.
+uint32_t oxidd_max_aig_var(const Aig *aig);
+// Unreference and clear var_bdd[0..maxvar]; a null map is a no-op.
+void oxidd_release_var_map(Bdd *var_bdd, uint32_t maxvar);
+// `name`, or the synthetic "i<index>" for an unnamed input, written to `buf`.
+const char *oxidd_input_name_or_synthetic(const char *name, uint32_t index,
+                                          char buf[32]);
+// Project-owned boundary for injecting host allocation failures without
+// interposing on OxiDD's Rust allocator.
+void *oxidd_host_realloc(void *ptr, size_t size);
+void *oxidd_host_calloc(size_t count, size_t size);
+
+typedef struct {
+  oxidd_var_no_t *local;
+  size_t count;
+  uint64_t hash, file_hash;
+  const char *name;
+} OxiddResolvedOrder;
+
+bool oxidd_resolve_var_order(const Aig *game, const OxiddSolveOptions *options,
+                             uint32_t auxiliary_vars,
+                             OxiddResolvedOrder *resolved);
+bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
+                           const OxiddSolveOptions *options,
+                           const OxiddResolvedOrder *resolved);
+void oxidd_resolved_order_free(OxiddResolvedOrder *resolved);
+bool oxidd_var_order_is_default(const OxiddSolveOptions *options);
+const char *oxidd_var_order_name(OxiddVarOrder order);
+typedef struct {
+  oxidd_bdd_manager_t manager;
+  const OxiddSolveOptions *options;
+  const char *phase, *failed_operation;
+  size_t node_cap, cache_cap, sampled_peak, operations, next_gc;
+  size_t retries, recovered, explicit_gc, built_gates, relevant_gates;
+  bool stopped;
+  uint32_t index;
+  double phase_started;
+} OxiddRun;
+
+void oxidd_run_init(OxiddRun *run, oxidd_bdd_manager_t manager,
+                    const OxiddSolveOptions *options, size_t nodes,
+                    size_t cache);
+void oxidd_phase(OxiddRun *run, const char *phase);
+bool oxidd_pressure_gc_checkpoint(OxiddRun *run);
+bool oxidd_run_stopped(OxiddRun *run);
+void oxidd_run_finish(OxiddRun *run);
+void oxidd_record_failure(const OxiddSolveOptions *opts, OxiddFailureKind kind,
+                          const char *phase, const char *operation,
+                          size_t operation_id, uint32_t index);
+Bdd oxidd_run_not(OxiddRun *run, Bdd a);
+Bdd oxidd_run_var(OxiddRun *run, uint32_t var);
+Bdd oxidd_run_and(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_or(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_exists(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_forall(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_restrict(OxiddRun *run, Bdd a, Bdd b);
+Bdd oxidd_run_substitute(OxiddRun *run, Bdd a,
+                         const oxidd_bdd_substitution_t *sub);
+Bdd oxidd_run_apply_exists(OxiddRun *run, oxidd_boolean_operator op, Bdd a,
+                           Bdd b, Bdd vars);
+Bdd oxidd_run_cube(OxiddRun *run, const uint32_t *vars, uint32_t n);
+
+// Consumes map entries as their final consumers finish.  In addition to
+// primary inputs and latches, map may contain prebuilt AND-gate results; these
+// are treated as retained leaves and their fanin cones are not rebuilt.  Root
+// publication is transactional: on failure roots is unchanged, while map
+// remains caller-owned and may contain partially constructed results.
+bool oxidd_build_roots(OxiddRun *run, const Aig *game, Bdd *map,
+                       uint32_t maxvar, const uint32_t *lits, Bdd *roots,
+                       size_t count);
+bool oxidd_build_game(OxiddRun *run, const Aig *game, Bdd *map, uint32_t maxvar,
+                      Bdd *bad, Bdd *next, Bdd *goals, Bdd *fair);
+bool oxidd_state_support(Bdd root, uint32_t base, uint32_t count,
+                         bool *support);
+void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,
+                 const char *event, const char *fmt, ...);
+
+/// OxiDD returns an invalid handle (`_p == NULL`) on out-of-memory instead of
+/// aborting; callers check this before the FFI calls that would panic on it.
+static inline bool bdd_invalid(Bdd f) { return f._p == NULL; }
+
+/// True iff `name` is a controllable input (the `controllable_` prefix).
+static inline bool is_controllable(const char *name) {
+  if (!name)
+    return false;
+  return strncmp(name, CONTROLLABLE_PREFIX, strlen(CONTROLLABLE_PREFIX)) == 0;
+}
+
+/// BDD for AIG literal `lit` (a new reference): 0/1 are the constants,
+/// otherwise the stored var-BDD `var_bdd[lit/2]`, complemented when `lit` is
+/// odd.
+Bdd lit_to_bdd(oxidd_bdd_manager_t m, const Bdd *var_bdd, uint32_t lit);
+
+/// Conjunction of the variables `vars[0..n)` as a cube BDD (⊤ when n == 0).
+Bdd cube_of(oxidd_bdd_manager_t m, const uint32_t *vars, uint32_t n);
+
+/// True iff `a` and `b` are the same Boolean function.
+bool bdd_eq(Bdd a, Bdd b);
+bool bdd_same_identity(Bdd a, Bdd b);
+
+/// BDD-node -> AIG memo (open-addressing hash on the 16-byte handle identity;
+/// equal BDD functions share a node, so the handle bytes are a canonical key).
+typedef struct {
+  Bdd *keys;
+  uint32_t *lits;
+  bool *used;
+  size_t cap, n;
+} Memo;
+
+void memo_free(Memo *t);
+
+/// BDD -> AIG (memoised ite expansion over the strategy AIG).
+typedef struct {
+  Aig *strat;
+  const uint32_t *var2lit; // bdd var index (relative to var_base) -> AIG lit
+  uint32_t var_base;       // subtract from oxidd_bdd_node_var() before lookup
+  uint32_t var_count;      // number of valid `var2lit` entries
+  Memo memo;
+  bool error;
+  OxiddRun *budget_run; /* optional deadline/cancellation during expansion */
+  size_t visited;
+} Bdd2Aig;
+
+/// Expand BDD `f` into and-gates on `ctx->strat`, returning its literal.  Sets
+/// `ctx->error` if a variable with no `var2lit` mapping is reached (e.g. a
+/// controllable that should have been substituted away) or on allocation
+/// failure; subsequent calls are no-ops returning AIG_FALSE.
+uint32_t bdd2aig(Bdd2Aig *ctx, Bdd f);
+uint32_t bdd2aig_root(Bdd2Aig *ctx, Bdd f);
+
+/// Persistent BDD manager session (one per tlsfcompose invocation).
+/// When active, the safety and GR(1) solvers reuse this manager across
+/// clusters instead of creating a new one per solve call.  Variables
+/// accumulate with a per-cluster base offset; BDD nodes are reclaimed by GC
+/// after each cluster.  Call oxidd_session_init() before the first solve and
+/// oxidd_session_free() after the last.  If the session is never initialised
+/// the solvers fall back to per-cluster managers (same as before).
+void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap);
+void oxidd_session_free(void);
+oxidd_bdd_manager_t oxidd_session_get(void);
+bool oxidd_session_config(const OxiddSolveOptions *opts, size_t *nodes,
+                          size_t *cache);
+/// Allocate `n` new variables in the session manager; returns the base index
+/// for this cluster's variables (add to all local var indices 0..n-1).
+uint32_t oxidd_session_alloc_vars(uint32_t n);
+/// Run a GC pass on the session manager (call after freeing cluster BDDs).
+void oxidd_session_gc(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // TLSF_OXIDD_COMMON_H

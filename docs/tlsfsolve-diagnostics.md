@@ -227,7 +227,7 @@ simulation or witness replay; neither alone proves unbounded safety.
 Run the external-tool regression checks directly:
 
 ```sh
-python3 test/check_aiger_safety.py \
+python3 test/oracle/check_aiger_safety.py \
   --aiger-dir /path/to/aiger \
   --combine-aiger /path/to/combine-aiger --abc /path/to/abc
 ```

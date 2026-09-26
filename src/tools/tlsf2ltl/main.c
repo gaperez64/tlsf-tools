@@ -1,0 +1,322 @@
+/// tlsf2ltl — parse a TLSF spec (file or stdin) and emit LTL in ltlxba format.
+/// See --help for the options.
+
+#include "classify.h"
+#include "build_info.h"
+#include "cli.h"
+#include "tlsf/expand.h"
+#include "nnf.h"
+#include "print_ltlxba.h"
+#include "rewrite.h"
+#include "tlsf/spec.h"
+
+#include "spec_internal.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static void usage(const char *prog) {
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Reads FILE (or stdin) and writes the spec's LTL formula.\n"
+      "  --format VALUE               output dialect: ltlxba (default), ltl,\n"
+      "                               or latex\n"
+      "  --safety, --liveness         emit only safety / liveness "
+      "guarantees\n"
+      "  --fair-environment           require every Boolean input to visit\n"
+      "                               both values infinitely often\n"
+      "  --parenthesize               fully parenthesise (default: minimal\n"
+      "                               parentheses by operator precedence)\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --overwrite-semantics VALUE  replace the spec's SEMANTICS\n"
+      "  --overwrite-target VALUE     replace the spec's TARGET\n"
+      "  --output FILE                write to FILE (default: stdout)\n"
+      "  --version, --help\n"
+      "\n"
+      "Formula transformations (equivalence-preserving, off by default):\n"
+      "  --weak-simplify              constant folding / redundancy (syfco "
+      "-s0)\n"
+      "  --strong-simplify            -s0 + NNF + replace/pull set (syfco "
+      "-s1)\n"
+      "  --nnf                        convert to negation normal form\n"
+      "  --no-weak-until              a W b => (a U b) || G a\n"
+      "  --no-release                 a R b => b W (a && b)\n"
+      "  --no-strong-release          a M b => b U (a && b)\n"
+      "  --no-finally                 F a => true U a\n"
+      "  --no-globally                G a => false R a\n"
+      "  --no-derived                 --no-weak-until --no-finally "
+      "--no-globally\n"
+      "  --push-globally-in           G(a && b) => G a && G b\n"
+      "  --push-finally-in            F(a || b) => F a || F b\n"
+      "  --push-next-in               X(a && b) => X a && X b (and ||)\n"
+      "  --pull-globally-out          G a && G b => G(a && b)\n"
+      "  --pull-finally-out           F a || F b => F(a || b)\n"
+      "  --pull-next-out              X a && X b => X(a && b) (and ||)\n"
+      "\n"
+      "Mealy/Moore and finite/infinite are taken from SEMANTICS; when\n"
+      "SEMANTICS and TARGET disagree on Mealy vs Moore the formula is\n"
+      "converted to the target.\n",
+      prog);
+}
+
+// Parse a "NAME=VALUE" override string.
+// ---------------------------------------------------------------------------
+// Apply NNF to all formula lists in the spec.
+// ---------------------------------------------------------------------------
+
+static int apply_nnf_all(TlsfSpec *spec) {
+#define NNF_LIST(list)                                                         \
+  do {                                                                         \
+    for (uint32_t _i = 0; _i < (list).count; _i++) {                           \
+      Node *_n = to_nnf(spec->arena, (list).formulas[_i], true);               \
+      if (!_n) {                                                               \
+        fprintf(stderr, "tlsf2ltl: NNF transform failed (OOM)\n");             \
+        return -1;                                                             \
+      }                                                                        \
+      (list).formulas[_i] = _n;                                                \
+    }                                                                          \
+  } while (0)
+
+  NNF_LIST(spec->initially);
+  NNF_LIST(spec->preset);
+  NNF_LIST(spec->require);
+  NNF_LIST(spec->assert_);
+  NNF_LIST(spec->assume);
+  NNF_LIST(spec->guarantee);
+  return 0;
+#undef NNF_LIST
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+int main(int argc, char *argv[]) {
+  PrintMode mode = PRINT_ALL;
+  bool full_parens = false;
+  LtlFormat fmt = LTL_FMT_LTLXBA;
+  unsigned rw_flags = RW_NONE;
+  const char *os_arg = nullptr;
+  const char *ot_arg = nullptr;
+  const char *input_file = nullptr;
+  const char *output_file = nullptr;
+  bool fair_environment = false;
+
+  // Temporary override storage (max 64 overrides).
+  ParamOverride overrides[64];
+  size_t n_overrides = 0;
+
+#define NEED_ARG()                                                             \
+  (++i >= argc                                                                 \
+       ? (fprintf(stderr, "tlsf2ltl: %s requires an argument\n", argv[i - 1]), \
+          exit(1), nullptr)                                                    \
+       : argv[i])
+
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--safety") == 0) {
+      mode = PRINT_SAFETY;
+    } else if (strcmp(argv[i], "--liveness") == 0) {
+      mode = PRINT_LIVENESS;
+    } else if (strcmp(argv[i], "--fair-environment") == 0) {
+      fair_environment = true;
+    } else if (strcmp(argv[i], "--overwrite-semantics") == 0) {
+      os_arg = NEED_ARG();
+    } else if (strcmp(argv[i], "--overwrite-target") == 0) {
+      ot_arg = NEED_ARG();
+    } else if (strcmp(argv[i], "--parenthesize") == 0) {
+      full_parens = true;
+    } else if (strcmp(argv[i], "--format") == 0) {
+      const char *v = NEED_ARG();
+      if (strcmp(v, "ltlxba") == 0)
+        fmt = LTL_FMT_LTLXBA;
+      else if (strcmp(v, "ltl") == 0)
+        fmt = LTL_FMT_LTL;
+      else if (strcmp(v, "latex") == 0)
+        fmt = LTL_FMT_LATEX;
+      else {
+        fprintf(stderr,
+                "tlsf2ltl: unknown format '%s' (ltlxba, ltl, or latex)\n", v);
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--weak-simplify") == 0) {
+      rw_flags |= RW_SIMPLIFY_WEAK;
+    } else if (strcmp(argv[i], "--strong-simplify") == 0) {
+      rw_flags |= RW_STRONG_SIMPLIFY;
+    } else if (strcmp(argv[i], "--nnf") == 0) {
+      rw_flags |= RW_NNF;
+    } else if (strcmp(argv[i], "--no-weak-until") == 0) {
+      rw_flags |= RW_NO_WEAK_UNTIL;
+    } else if (strcmp(argv[i], "--no-release") == 0) {
+      rw_flags |= RW_NO_RELEASE;
+    } else if (strcmp(argv[i], "--no-strong-release") == 0) {
+      rw_flags |= RW_NO_STRONG_RELEASE;
+    } else if (strcmp(argv[i], "--no-finally") == 0) {
+      rw_flags |= RW_NO_FINALLY;
+    } else if (strcmp(argv[i], "--no-globally") == 0) {
+      rw_flags |= RW_NO_GLOBALLY;
+    } else if (strcmp(argv[i], "--no-derived") == 0) {
+      rw_flags |= RW_NO_DERIVED;
+    } else if (strcmp(argv[i], "--push-globally-in") == 0) {
+      rw_flags |= RW_PUSH_G_IN;
+    } else if (strcmp(argv[i], "--push-finally-in") == 0) {
+      rw_flags |= RW_PUSH_F_IN;
+    } else if (strcmp(argv[i], "--push-next-in") == 0) {
+      rw_flags |= RW_PUSH_X_IN;
+    } else if (strcmp(argv[i], "--pull-globally-out") == 0) {
+      rw_flags |= RW_PULL_G_OUT;
+    } else if (strcmp(argv[i], "--pull-finally-out") == 0) {
+      rw_flags |= RW_PULL_F_OUT;
+    } else if (strcmp(argv[i], "--pull-next-out") == 0) {
+      rw_flags |= RW_PULL_X_OUT;
+    } else if (strcmp(argv[i], "--output") == 0) {
+      output_file = NEED_ARG();
+    } else if (strcmp(argv[i], "--param") == 0) {
+      const char *a = NEED_ARG();
+      if (n_overrides >= 64) {
+        fprintf(stderr, "tlsf2ltl: too many --param overrides\n");
+        return 1;
+      }
+      if (!cli_parse_param(a, "tlsf2ltl", &overrides[n_overrides++]))
+        return 1;
+    } else if (strcmp(argv[i], "--version") == 0) {
+      printf("tlsf2ltl %s oxidd=%s research=%s simd=%s\n", TLSF_PROJECT_VERSION,
+             tlsf_build_oxidd(), tlsf_build_research(), tlsf_build_simd());
+      return 0;
+    } else if (strcmp(argv[i], "--help") == 0) {
+      usage(argv[0]);
+      return 0;
+    } else if (argv[i][0] != '-') {
+      if (input_file) {
+        fprintf(stderr, "tlsf2ltl: multiple input files not supported\n");
+        return 1;
+      }
+      input_file = argv[i];
+    } else {
+      fprintf(stderr, "tlsf2ltl: unknown option '%s'\n", argv[i]);
+      usage(argv[0]);
+      return 1;
+    }
+  }
+#undef NEED_ARG
+
+  // --- Parse (FILE or stdin) ---
+  FILE *fp = cli_open_input(input_file, "tlsf2ltl");
+  if (!fp)
+    return 1;
+  TlsfSpec *spec = spec_parse(fp, "tlsf2ltl");
+  if (input_file)
+    fclose(fp);
+  if (!spec)
+    return 1;
+
+  // --- Apply semantics/target overrides ---
+  if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
+    fprintf(stderr, "tlsf2ltl: invalid semantics '%s'\n", os_arg);
+    spec_free(spec);
+    return 1;
+  }
+  if (ot_arg && !parse_target(ot_arg, &spec->info.target)) {
+    fprintf(stderr, "tlsf2ltl: invalid target '%s' (expect Mealy or Moore)\n",
+            ot_arg);
+    spec_free(spec);
+    return 1;
+  }
+  if (!spec_validate_semantics(spec, "tlsf2ltl")) {
+    spec_free(spec);
+    return 1;
+  }
+  if (fair_environment && semantics_is_finite(spec->info.semantics)) {
+    fprintf(stderr,
+            "tlsf2ltl: --fair-environment is only available for infinite "
+            "semantics\n");
+    spec_free(spec);
+    return 1;
+  }
+  if (fair_environment && !spec_add_fair_environment(spec)) {
+    fprintf(stderr, "tlsf2ltl: fair-environment transform failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- Expand ---
+  if (expand(spec, overrides, n_overrides) != 0) {
+    spec_free(spec);
+    return 1;
+  }
+
+  // Free override name copies.
+  for (size_t i = 0; i < n_overrides; i++)
+    free((void *)overrides[i].name);
+
+  // --- Mealy/Moore adaptation (after expansion: signals are scalar) ---
+  if (!spec_adapt_target(spec)) {
+    fprintf(stderr, "tlsf2ltl: semantics/target adaptation failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
+  if (fmt == LTL_FMT_LTLXBA &&
+      !spec_validate_lowercase_signals(spec, "tlsf2ltl")) {
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- NNF ---
+  // NNF is only needed to classify formulas correctly for the --safety /
+  // --liveness split (the syntactic F/U/M test must see negations pushed to
+  // the leaves, so that e.g. !(G p) is recognised as the liveness F !p).  The
+  // default full-formula output emits every guarantee regardless of class, so
+  // we skip NNF there and print the formula as written.
+  if (mode != PRINT_ALL && apply_nnf_all(spec) != 0) {
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- Classify ---
+  ClassifiedSpec *cs = classify_spec(spec);
+  if (!cs) {
+    fprintf(stderr, "tlsf2ltl: classification failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- Build the single spec formula, then apply any requested transforms ---
+  Node *root = build_spec_formula(spec, cs, mode);
+
+  // Finite-word (ltlxba-fin) output: ltl2ba-fin has no
+  // weak-until/strong-release operators, so eliminate them with the LTLf-valid
+  // identities (a W b = (a U b) || G a, a M b = b U (a && b)).  Strong vs weak
+  // next is still distinguished as X[!] vs X by the printer's `finite` flag.
+  bool finite = semantics_is_finite(spec->info.semantics);
+  if (finite)
+    rw_flags |= RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE;
+
+  root = apply_rewrites(spec->arena, root, rw_flags);
+  if (!root) {
+    fprintf(stderr, "tlsf2ltl: transform failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
+
+  // --- Emit ---
+  FILE *out = cli_open_output(output_file, "tlsf2ltl");
+  if (!out) {
+    spec_free(spec);
+    return 1;
+  }
+  // Preserve the historical SyFCo/classic-ltl2ba convention of lowercasing
+  // ltlxba atoms.  Spot accepts case-preserving TLSF identifiers; callers that
+  // need that fidelity should select the `ltl` dialect instead.
+  print_ltl(out, root, fmt, full_parens, finite,
+            /*lower_atoms=*/fmt == LTL_FMT_LTLXBA);
+  if (output_file)
+    fclose(out);
+
+  spec_free(spec);
+  return 0;
+}

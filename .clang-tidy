@@ -1,6 +1,7 @@
-# Static analysis for the hand-written sources only. The flex/bison-generated
-# tlsf_lex.* / tlsf_parse.* live in the build dir and are excluded by
-# HeaderFilterRegex (which only matches our own headers).
+# Static analysis for the hand-written sources only. HeaderFilterRegex matches
+# the public and private headers under include/tlsf and src/; the flex/bison-
+# generated tlsf_lex.h / tlsf_parse.h land in <build>/src/lib and are excluded
+# by their tl prefix, which no hand-written header uses.
 Checks: >
   bugprone-*,
   cert-*,
@@ -36,5 +37,5 @@ Checks: >
   -clang-diagnostic-switch-enum,
   -clang-diagnostic-switch
 
-HeaderFilterRegex: 'include/tlsf/.*\.h$'
+HeaderFilterRegex: '(include/tlsf|src/lib|src/tools/[a-z0-9_]+)/([^t/]|t[^l/])[^/]*\.(h|hh|hpp)$'
 WarningsAsErrors: ''

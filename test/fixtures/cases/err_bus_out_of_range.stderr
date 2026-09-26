@@ -1,0 +1,1 @@
+expand: bus 'r' range [0..65536] is outside 0..65535

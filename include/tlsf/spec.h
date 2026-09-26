@@ -19,6 +19,7 @@
 #include "tlsf/intern.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------------------
 // Semantics / target enumerations
@@ -207,6 +208,11 @@ typedef struct TlsfSpec {
 
 /// Free the spec and all arena memory it owns.
 void spec_free(TlsfSpec *s);
+
+/// Parse a TLSF specification from `in` into a fresh spec.  Returns null on a
+/// parse error or OOM; the message, prefixed with `prog`, goes to the
+/// diagnostic stream.
+[[nodiscard]] TlsfSpec *spec_parse(FILE *in, const char *prog);
 
 // ---------------------------------------------------------------------------
 // FormulaList helpers
