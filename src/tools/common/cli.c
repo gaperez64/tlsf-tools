@@ -1,5 +1,7 @@
 #include "cli.h"
 
+#include <ctype.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,10 +41,17 @@ bool cli_parse_param(const char *arg, const char *prog, ParamOverride *out) {
     return false;
   memcpy(name, arg, nlen);
   name[nlen] = '\0';
+  const char *value = eq + 1;
   char *end;
-  long long val = strtoll(eq + 1, &end, 10);
-  if (*end != '\0') {
+  errno = 0;
+  long long val = strtoll(value, &end, 10);
+  if (end == value || *end != '\0' || isspace((unsigned char)*value)) {
     fprintf(stderr, "%s: non-integer value in --param '%s'\n", prog, arg);
+    free(name);
+    return false;
+  }
+  if (errno == ERANGE) {
+    fprintf(stderr, "%s: value out of range in --param '%s'\n", prog, arg);
     free(name);
     return false;
   }

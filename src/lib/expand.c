@@ -1645,6 +1645,20 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
         return -1;
       if (s->bus_hi_expr && !eval_int(spec, s->bus_hi_expr, env, &hi, 0))
         return -1;
+      // Signal indices are stored as uint16_t; an empty or wider range would
+      // otherwise wrap into a bus of up to 65536 bits.
+      if (lo > hi) {
+        fprintf(tlsf_diagnostic_stream(),
+                "expand: bus '%s' has an empty range [%lld..%lld]\n", s->name,
+                (long long)lo, (long long)hi);
+        return -1;
+      }
+      if (lo < 0 || hi > UINT16_MAX) {
+        fprintf(tlsf_diagnostic_stream(),
+                "expand: bus '%s' range [%lld..%lld] is outside 0..%d\n",
+                s->name, (long long)lo, (long long)hi, UINT16_MAX);
+        return -1;
+      }
       s->bus_lo = (uint16_t)lo;
       s->bus_hi = (uint16_t)hi;
       s->origin_bus_lo = s->bus_lo;
@@ -1683,8 +1697,10 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
 #undef EXPAND_LIST
 
   // Explode bus declarations into scalar signals (basic fragment).
-  if (explode_signals(spec, false) != 0 || explode_signals(spec, true) != 0)
+  if (explode_signals(spec, false) != 0 || explode_signals(spec, true) != 0) {
+    fprintf(tlsf_diagnostic_stream(), "expand: out of memory\n");
     return -1;
+  }
 
   // Clear the GLOBAL section — it has been expanded away.
   spec->params = nullptr;

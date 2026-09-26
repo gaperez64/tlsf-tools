@@ -745,6 +745,16 @@ test('err_strong_next_overwrite', xfail,
 # Expansion failure (an unbound parameter) must error.
 test('err_expand',       xfail,
   args: [exe['tlsf2ltl'], files(cases / 'bad_expand.tlsf')])
+# --param takes a whole integer, and a bus range must be non-empty and fit
+# 0..65535; an empty one used to wrap into a 65536-bit bus.
+foreach t : [['err_param_empty_value', 'n='],
+             ['err_param_out_of_range', 'n=99999999999999999999'],
+             ['err_bus_empty_range', 'n=0'],
+             ['err_bus_out_of_range', 'n=65537']]
+  test(t[0], check_fail_stderr,
+    args: [files(cases / t[0] + '.stderr'), exe['tlsf2ltl'], '--param', t[1],
+           files(cases / 'expand_demo.tlsf')])
+endforeach
 
 # Definition expansion: nullary + parameterised definitions, recursive
 # case-definitions (with `otherwise`), integer-returning defs, and SIZEOF.
