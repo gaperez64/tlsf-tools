@@ -21,6 +21,8 @@ GLOBAL {
     product = *[i IN {1, 2, 3}] i;
     unions = (+)[i IN {{1, 2}, {2, 3}}] i;
     intersections = (*)[i IN {{1, 2}, {2, 3}}] i;
+    unions_op = (+)[i IN {{1, 2}, {2, 3}}] i;
+    intersections_op = (*)[i IN {{1, 2}, {2, 3}}] i;
   }
 
 }
@@ -51,6 +53,8 @@ MAIN {
       (product == 6);
       (SIZE (unions) == 3);
       (SIZE (intersections) == 1);
+      (SIZE (unions_op) == 3);
+      (SIZE (intersections_op) == 1);
       !(false);
       (true && true);
       (true || false);

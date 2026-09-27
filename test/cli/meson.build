@@ -175,6 +175,10 @@ test('ltl_precedence_v12', check,
 test('ltl_sets_v12', check,
   args: [files(cases / 'sets_v12.ltl'), exe['tlsf2ltl'], '--format', 'ltl',
          files(cases / 'sets_v12.tlsf')])
+# TLSF v1.2 has big (+) and (*) but no big (-).
+test('err_big_setminus_v12', check_fail_stderr,
+  args: [files(cases / 'big_setminus.stderr'), exe['tlsf2ltl'],
+         files(cases / 'big_setminus.tlsf')])
 test('tlsf_sets_v12_reemit', check,
   args: [files(cases / 'sets_v12.reemit.tlsf'), exe['tlsf2tlsf'],
          files(cases / 'sets_v12.tlsf')])
