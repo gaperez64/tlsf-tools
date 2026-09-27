@@ -1,0 +1,12 @@
+INFO {
+  TITLE: "big_setminus"
+  DESCRIPTION: "TLSF v1.2 has no big (-) operator"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL { DEFINITIONS { D = (-)[i IN {{1, 2}, {2, 3}}] i; } }
+MAIN {
+  INPUTS { a; }
+  OUTPUTS { o; }
+  GUARANTEE { G (a -> o); }
+}

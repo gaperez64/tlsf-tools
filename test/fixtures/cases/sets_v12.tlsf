@@ -19,6 +19,8 @@ GLOBAL {
     product = PROD[i IN {1, 2, 3}] i;
     unions = CUP[i IN {{1, 2}, {2, 3}}] i;
     intersections = CAP[i IN {{1, 2}, {2, 3}}] i;
+    unions_op = (+)[i IN {{1, 2}, {2, 3}}] i;
+    intersections_op = (*)[i IN {{1, 2}, {2, 3}}] i;
   }
 }
 MAIN {
@@ -40,6 +42,8 @@ MAIN {
     product EQ 6;
     SIZE unions EQ 3;
     SIZE intersections EQ 1;
+    SIZE unions_op EQ 3;
+    SIZE intersections_op EQ 1;
     NOT false;
     true AND true;
     true OR false;

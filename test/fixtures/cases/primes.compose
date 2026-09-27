@@ -1,0 +1,3 @@
+c compose: controllers=1 clusters=0
+ctl grant' := req'
+c realizable iff every cluster is realizable (controllers are trusted)

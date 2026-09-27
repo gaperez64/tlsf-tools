@@ -1,0 +1,11 @@
+INFO {
+  TITLE: "undeclared_at_atom"
+  DESCRIPTION: "an undeclared atom with @, which ltl2ba would truncate at"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant; }
+  GUARANTEE { G (req -> grant U ack@1); }
+}

@@ -26,7 +26,8 @@ static void usage(const char *prog) {
       "Usage: %s [OPTIONS] [FILE]\n"
       "Reads FILE (or stdin) and writes the spec's LTL formula.\n"
       "  --format VALUE               output dialect: ltlxba (default), ltl,\n"
-      "                               or latex\n"
+      "                               or latex (ltlxba rejects ' and @ in "
+      "atoms)\n"
       "  --safety, --liveness         emit only safety / liveness "
       "guarantees\n"
       "  --fair-environment           require every Boolean input to visit\n"
@@ -261,7 +262,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   if (fmt == LTL_FMT_LTLXBA &&
-      !spec_validate_lowercase_signals(spec, "tlsf2ltl")) {
+      (!spec_validate_lowercase_signals(spec, "tlsf2ltl") ||
+       !spec_validate_ltlxba_atoms(spec, "tlsf2ltl"))) {
     spec_free(spec);
     return 1;
   }
