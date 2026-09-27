@@ -1,13 +1,18 @@
 #include "tlsf/gr1_lift.h"
 #include "tlsf/pipeline.h"
 #include "yyjson_cpp.hh"
-#include <cassert>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
+#define CHECK(condition) do { \
+  if (!(condition)) { \
+    std::fprintf(stderr, "check failed at line %d: %s\n", __LINE__, #condition); \
+    std::abort(); \
+  } \
+} while (false)
 extern "C" void tlsf_gr1_lift_test_set_fault(int);
 
 static const char *source =
@@ -84,36 +89,36 @@ int main() {
   TlsfGr1LiftResult result{};
   TlsfGr1LiftError error{};
   auto o = options();
-  assert(lift(nonparam, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  assert(!strcmp(error.stage, "parameters") && !result.game_aag);
-  assert(lift(nonparam_moore, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  assert(!strcmp(error.stage, "parameters") && !result.game_aag);
-  assert(lift(encoded_width, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  assert(!strcmp(error.stage, "seed_window") && !result.game_aag);
-  assert(lift(large_arity, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  assert(!strcmp(error.stage, "bus_schema") && !result.game_aag);
-  assert(lift(rank_chain, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  assert(!strcmp(error.stage, "schema") &&
+  CHECK(lift(nonparam, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
+  CHECK(lift(nonparam_moore, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
+  CHECK(lift(encoded_width, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "seed_window") && !result.game_aag);
+  CHECK(lift(large_arity, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "bus_schema") && !result.game_aag);
+  CHECK(lift(rank_chain, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "schema") &&
          strstr(error.message, "rank depth changed from") && !result.game_aag);
   o = options();
   o.cancelled = cancelled;
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
-  assert(!result.certificate_aag);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
+  CHECK(!result.certificate_aag);
   o = options();
   o.deadline_mono_ns = 1;
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DEADLINE);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DEADLINE);
   o = options();
   o.max_artifact_bytes = 1;
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
-  assert(!result.game_aag && !result.policy_aag);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!result.game_aag && !result.policy_aag);
   o = options();
   o.max_subsets_per_predicate = 1;
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
-  assert(!result.game_aag && !result.certificate_aag);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!result.game_aag && !result.certificate_aag);
   o = options();
   tlsf_gr1_lift_test_set_fault(1);
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  assert(!strcmp(error.stage, "seed_window") &&
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "seed_window") &&
          strstr(error.message, "selected seed choice") && !result.game_aag);
   tlsf_gr1_lift_test_set_fault(0);
   o = options();
@@ -121,33 +126,33 @@ int main() {
   if (status != TLSF_GR1_LIFT_OK)
     fprintf(stderr, "native lift failed: status=%d stage=%s message=%s\n",
             status, error.stage, error.message);
-  assert(status == TLSF_GR1_LIFT_OK);
-  assert(result.verdict == TLSF_GR1_CHECK_VERIFIED);
-  assert(result.method == TLSF_GR1_CHECK_CERTIFICATE);
-  assert(result.game_aag && result.certificate_aag && result.policy_aag);
-  assert(result.evidence_json &&
+  CHECK(status == TLSF_GR1_LIFT_OK);
+  CHECK(result.verdict == TLSF_GR1_CHECK_VERIFIED);
+  CHECK(result.method == TLSF_GR1_CHECK_CERTIFICATE);
+  CHECK(result.game_aag && result.certificate_aag && result.policy_aag);
+  CHECK(result.evidence_json &&
          strstr(result.evidence_json, "target_transition"));
   auto baseline = tlsf_json::parse(result.evidence_json).as_object();
-  assert(baseline.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
+  CHECK(baseline.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
   char policy_hash[65]{};
-  assert(tlsf_pipeline_source_sha256(result.policy_aag, result.policy_size,
+  CHECK(tlsf_pipeline_source_sha256(result.policy_aag, result.policy_size,
                                      policy_hash));
-  assert(baseline.at("policy_sha256") == policy_hash);
+  CHECK(baseline.at("policy_sha256") == policy_hash);
   auto baseline_roles = baseline.at("roles");
   auto baseline_seeds = baseline.at("seed_values");
   FILE *fp = fmemopen(result.certificate_aag, result.certificate_size, "r");
-  assert(fp);
+  CHECK(fp);
   std::unique_ptr<Aig, decltype(&aig_free)> mutated(aig_read_aag(fp),
                                                     &aig_free);
   fclose(fp);
-  assert(mutated);
+  CHECK(mutated);
   aig_set_output(mutated.get(), "inv", AIG_FALSE);
   char *bytes = nullptr;
   size_t size = 0;
   fp = open_memstream(&bytes, &size);
-  assert(fp);
+  CHECK(fp);
   aig_write_aag(fp, mutated.get());
-  assert(fclose(fp) == 0);
+  CHECK(fclose(fp) == 0);
   TlsfGr1CheckInput input{};
   input.game_aag = {(const uint8_t *)result.game_aag, result.game_size};
   input.certificate_aag = {(const uint8_t *)bytes, size};
@@ -166,10 +171,10 @@ int main() {
   input.certificate_aag = {(const uint8_t *)result.certificate_aag,
                            result.certificate_size};
   std::string original_policy(result.policy_json, result.policy_json_size);
-  assert(!original_policy.empty() && original_policy.front() == '{');
+  CHECK(!original_policy.empty() && original_policy.front() == '{');
   auto replace_once = [](std::string text, const char *from, const char *to) {
     size_t at = text.find(from);
-    assert(at != std::string::npos);
+    CHECK(at != std::string::npos);
     text.replace(at, strlen(from), to);
     return text;
   };
@@ -177,8 +182,8 @@ int main() {
                           TlsfGr1CheckVerdict expected) {
     input.policy_json = {(const uint8_t *)policy.data(), policy.size()};
     check_options.deadline_mono_ns = deadline(10);
-    assert(tlsf_gr1_check(&input, &check_options, &check) == TLSF_GR1_CHECK_OK);
-    assert(check.verdict == expected);
+    CHECK(tlsf_gr1_check(&input, &check_options, &check) == TLSF_GR1_CHECK_OK);
+    CHECK(check.verdict == expected);
     tlsf_gr1_check_result_clear(&check);
   };
   check_policy(original_policy, TLSF_GR1_CHECK_VERIFIED);
@@ -202,11 +207,11 @@ int main() {
   input.policy_json = {(const uint8_t *)result.policy_json,
                        result.policy_json_size};
   tlsf_gr1_check(&input, &check_options, &check);
-  assert(check.verdict != TLSF_GR1_CHECK_VERIFIED);
+  CHECK(check.verdict != TLSF_GR1_CHECK_VERIFIED);
   tlsf_gr1_check_result_clear(&check);
   free(bytes);
   tlsf_gr1_lift_result_clear(&result);
-  assert(!result.game_aag);
+  CHECK(!result.game_aag);
   std::string renamed(source);
   auto rename_all = [&](const std::string &from, const std::string &to) {
     size_t at = 0;
@@ -218,47 +223,47 @@ int main() {
   rename_all("demand", "monitor_17_state_3");
   rename_all("response", "assumption_safety_violated");
   o = options();
-  assert(lift(renamed.c_str(), o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(lift(renamed.c_str(), o, &result, &error) == TLSF_GR1_LIFT_OK);
   auto renamed_evidence = tlsf_json::parse(result.evidence_json).as_object();
-  assert(tlsf_json::serialize(renamed_evidence.at("roles")) ==
+  CHECK(tlsf_json::serialize(renamed_evidence.at("roles")) ==
          tlsf_json::serialize(baseline_roles));
-  assert(tlsf_json::serialize(renamed_evidence.at("seed_values")) ==
+  CHECK(tlsf_json::serialize(renamed_evidence.at("seed_values")) ==
          tlsf_json::serialize(baseline_seeds));
   tlsf_gr1_lift_result_clear(&result);
   o = options();
   o.policy_proof_fraction = 1e-12;
-  assert(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
-  assert(result.method == TLSF_GR1_CHECK_REGION);
-  assert(result.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
-  assert(!result.policy_aag && result.check_json);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(result.method == TLSF_GR1_CHECK_REGION);
+  CHECK(result.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  CHECK(!result.policy_aag && result.check_json);
   auto region_evidence = tlsf_json::parse(result.evidence_json).as_object();
-  assert(region_evidence.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
-  assert(!region_evidence.if_contains("policy_sha256"));
+  CHECK(region_evidence.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
+  CHECK(!region_evidence.if_contains("policy_sha256"));
   tlsf_gr1_lift_result_clear(&result);
   std::string mutable_source(source);
   Mutate mutation{mutable_source.data(), 0};
   o = options();
   o.cancelled = mutate_after_snapshot;
   o.cancel_ctx = &mutation;
-  assert(lift(mutable_source.c_str(), o, &result, &error) == TLSF_GR1_LIFT_OK);
-  assert(mutation.calls >= 2 && mutable_source[0] == 'X');
+  CHECK(lift(mutable_source.c_str(), o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(mutation.calls >= 2 && mutable_source[0] == 'X');
   tlsf_gr1_lift_result_clear(&result);
   std::string smaller_source(source);
   auto position = smaller_source.find("extent = 5");
-  assert(position != std::string::npos);
+  CHECK(position != std::string::npos);
   smaller_source.replace(position, 10, "extent = 2");
   ParamOverride override{"extent", 5};
   o = options();
-  assert(tlsf_gr1_lift((const uint8_t *)smaller_source.data(),
+  CHECK(tlsf_gr1_lift((const uint8_t *)smaller_source.data(),
                        smaller_source.size(), &override, 1, &o, &result,
                        &error) == TLSF_GR1_LIFT_OK);
-  assert(result.evidence_json &&
+  CHECK(result.evidence_json &&
          strstr(result.evidence_json, "\"axis\":\"extent\""));
   tlsf_gr1_lift_result_clear(&result);
   ParamOverride duplicates[2] = {{"extent", 5}, {"extent", 6}};
-  assert(tlsf_gr1_lift((const uint8_t *)source, strlen(source), duplicates, 2,
+  CHECK(tlsf_gr1_lift((const uint8_t *)source, strlen(source), duplicates, 2,
                        &o, &result, &error) == TLSF_GR1_LIFT_INVALID);
-  assert(!result.game_aag);
+  CHECK(!result.game_aag);
   tlsf_gr1_lift_result_clear(nullptr);
   return 0;
 }

@@ -35,6 +35,7 @@ extern "C" {
 #include <functional>
 #include <limits>
 #include <map>
+#include <malloc.h>
 #include <memory>
 #include <regex>
 #include <set>
@@ -44,10 +45,61 @@ extern "C" {
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <sys/resource.h>
 
 namespace {
 namespace json = tlsf_json;
 using Formula = spot::formula;
+
+uint64_t stats_clock(clockid_t clock) noexcept {
+  timespec ts{};
+  return clock_gettime(clock, &ts) == 0
+             ? uint64_t(ts.tv_sec) * 1000000000ull + uint64_t(ts.tv_nsec)
+             : 0;
+}
+struct StatsScope {
+  TlsfGr1ReductionStats *stats;
+  TlsfGr1ReductionStatsStage stage;
+  void (*callback)(void *, TlsfGr1ReductionStatsStage,
+                   const TlsfGr1ReductionStageStats *);
+  void *context;
+  uint64_t wall = 0, cpu = 0;
+  StatsScope(TlsfGr1ReductionStats *stats_arg,
+             void (*callback_arg)(void *, TlsfGr1ReductionStatsStage,
+                                  const TlsfGr1ReductionStageStats *),
+             void *context_arg, TlsfGr1ReductionStatsStage which) noexcept
+      : stats(stats_arg), stage(which), callback(callback_arg),
+        context(context_arg) {
+    if (stats) {
+      wall = stats_clock(CLOCK_MONOTONIC);
+      cpu = stats_clock(CLOCK_PROCESS_CPUTIME_ID);
+    }
+  }
+  ~StatsScope() noexcept { finish(); }
+  void finish() noexcept {
+    if (!stats || !wall) return;
+    auto &row = stats->stages[stage];
+    row.wall_ns += stats_clock(CLOCK_MONOTONIC) - wall;
+    row.cpu_ns += stats_clock(CLOCK_PROCESS_CPUTIME_ID) - cpu;
+    row.rss_kb = -1;
+    if (FILE *file = fopen("/proc/self/status", "r")) {
+      char line[256];
+      while (fgets(line, sizeof line, file))
+        if (sscanf(line, "VmRSS: %ld kB", &row.rss_kb) == 1) break;
+      fclose(file);
+    }
+    rusage usage{};
+    getrusage(RUSAGE_SELF, &usage);
+    row.peak_rss_kb = usage.ru_maxrss;
+    const auto heap = mallinfo2();
+    row.arena = heap.arena;
+    row.hblkhd = heap.hblkhd;
+    row.uordblks = heap.uordblks;
+    row.fordblks = heap.fordblks;
+    wall = 0;
+    if (callback) callback(context, stage, &row);
+  }
+};
 
 struct Failure : std::runtime_error {
   TlsfGr1ReductionStatus status;
@@ -1203,9 +1255,14 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
 }
 
 extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce(const TlsfPipeline *pipeline,
+tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
                 const TlsfGr1ReductionOptions *options,
-                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
+                TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                TlsfGr1ReductionStats *stats,
+                void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
+                                       const TlsfGr1ReductionStageStats *),
+                void *stats_context) {
+  if (stats) *stats = {};
   if (result && (result->game || result->aag || result->aag_size ||
                  result->metadata_json || result->metadata_size ||
                  result->provenance_json || result->provenance_size ||
@@ -1222,6 +1279,8 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     return TLSF_GR1_REDUCE_INVALID;
   }
   try {
+    StatsScope source_stats(stats, stats_callback, stats_context,
+                            TLSF_GR1_REDUCE_STATS_SOURCE);
     Limits limits{*options};
     limits.check("reduce");
     char snapshot_sha256[65];
@@ -1268,22 +1327,36 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     } else {
       conjuncts(formula, guarantees);
     }
+    source_stats.finish();
+    StatsScope monitor_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_MONITORS);
     std::vector<Monitor> monitors;
     uint64_t total_states = 0;
     auto append = [&](Formula item, bool assumption) {
       Monitor monitor = make_monitor(item, assumption, limits);
       total_states += monitor.automaton->num_states();
+      if (stats)
+        stats->monitor_states = total_states;
       if (total_states > options->max_monitor_states)
         throw Failure(TLSF_GR1_REDUCE_LIMIT, "monitor",
                       "total monitor state cap exceeded");
       monitors.push_back(std::move(monitor));
+      if (stats)
+        stats->monitor_count = monitors.size();
     };
     for (Formula item : assumptions)
       append(item, true);
     for (Formula item : guarantees)
       append(item, false);
+    if (stats) {
+      stats->monitor_count = monitors.size();
+      stats->monitor_states = total_states;
+    }
+    monitor_stats.finish();
+    StatsScope encode_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_ENCODE);
     bool strict = options->semantics == TLSF_GR1_STRICT;
     Encoded encoded = encode(monitors, inputs, outputs, strict, limits);
+    encode_stats.finish();
+    StatsScope publish_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_PUBLISH);
     std::string provenance_json = json::serialize(provenance(
         pipeline, monitors, inputs, outputs, symbols, strict, encoded, limits));
     provenance_json += '\n';
@@ -1317,6 +1390,10 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     Aig *game = aig_read_aag(source.get());
     if (!game)
       throw Failure(TLSF_GR1_REDUCE_ERROR, "aag", "generated AAG is invalid");
+    if (stats) {
+      stats->game_latches = aig_num_latches(game);
+      stats->game_ands = aig_num_ands(game);
+    }
     result->game = game;
     result->aag = copy_text(encoded.aag);
     result->aag_size = encoded.aag.size();
@@ -1345,4 +1422,12 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     report(error, TLSF_GR1_REDUCE_ERROR, "reduce", "unknown exception");
     return TLSF_GR1_REDUCE_ERROR;
   }
+}
+
+extern "C" TlsfGr1ReductionStatus
+tlsf_gr1_reduce(const TlsfPipeline *pipeline,
+                const TlsfGr1ReductionOptions *options,
+                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
+  return tlsf_gr1_reduce_with_stats(pipeline, options, result, error,
+                                     nullptr, nullptr, nullptr);
 }

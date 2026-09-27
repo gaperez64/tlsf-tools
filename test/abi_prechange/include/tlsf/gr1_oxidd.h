@@ -20,13 +20,6 @@ typedef enum {
 } Gr1CertificateSemantics;
 
 typedef struct {
-  uint64_t solve_wall_ns, solve_cpu_ns;
-  uint64_t export_wall_ns, export_cpu_ns;
-  uint64_t teardown_wall_ns, teardown_cpu_ns;
-  size_t nodes_at_export, nodes_before_teardown;
-} Gr1CertificateStats;
-
-typedef struct {
   const char *aag_path;
   const char *json_path;
   /// Optional combinational policy export. Its inputs are game state,
@@ -53,10 +46,6 @@ typedef struct {
 solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
                                     const OxiddSolveOptions *opts,
                                     Gr1CertificateOptions *certificate);
-[[nodiscard]] Aig *
-solve_gr1_oxidd_ex_with_certificate_and_stats(
-    Aig *game, int *unreal, const OxiddSolveOptions *opts,
-    Gr1CertificateOptions *certificate, Gr1CertificateStats *stats);
 
 /* Validate the GR(1) AIGER profile before solving. */
 bool tlsf_gr1_validate_game(const Aig *game, char *message, size_t capacity);

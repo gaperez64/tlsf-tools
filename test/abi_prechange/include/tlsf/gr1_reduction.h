@@ -24,23 +24,6 @@ typedef enum {
 
 typedef enum { TLSF_GR1_EXACT, TLSF_GR1_STRICT } TlsfGr1ReductionSemantics;
 
-typedef enum {
-  TLSF_GR1_REDUCE_STATS_SOURCE,
-  TLSF_GR1_REDUCE_STATS_MONITORS,
-  TLSF_GR1_REDUCE_STATS_ENCODE,
-  TLSF_GR1_REDUCE_STATS_PUBLISH,
-  TLSF_GR1_REDUCE_STATS_COUNT
-} TlsfGr1ReductionStatsStage;
-typedef struct {
-  uint64_t wall_ns, cpu_ns;
-  int64_t rss_kb, peak_rss_kb;
-  uint64_t arena, hblkhd, uordblks, fordblks;
-} TlsfGr1ReductionStageStats;
-typedef struct {
-  TlsfGr1ReductionStageStats stages[TLSF_GR1_REDUCE_STATS_COUNT];
-  uint64_t monitor_count, monitor_states, game_latches, game_ands;
-} TlsfGr1ReductionStats;
-
 typedef struct {
   TlsfGr1ReductionSemantics semantics;
   /* Absolute CLOCK_MONOTONIC nanoseconds; zero disables the deadline.
@@ -88,13 +71,6 @@ TlsfGr1ReductionStatus tlsf_gr1_reduce(const TlsfPipeline *pipeline,
                                        const TlsfGr1ReductionOptions *options,
                                        TlsfGr1Reduction *result,
                                        TlsfGr1ReductionError *error);
-TlsfGr1ReductionStatus tlsf_gr1_reduce_with_stats(
-    const TlsfPipeline *pipeline, const TlsfGr1ReductionOptions *options,
-    TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
-    TlsfGr1ReductionStats *stats,
-    void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
-                           const TlsfGr1ReductionStageStats *),
-    void *stats_context);
 void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result);
 
 #ifdef __cplusplus
