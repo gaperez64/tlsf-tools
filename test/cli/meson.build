@@ -171,8 +171,9 @@ test('ltl_precedence_v12', check,
   args: [files(cases / 'precedence_v12.ltl'), exe['tlsf2ltl'],
          '--parenthesize', files(cases / 'precedence_v12.tlsf')])
 
+# The ltl dialect, since the spec declares @a (see ltlxba_rejects_primes).
 test('ltl_sets_v12', check,
-  args: [files(cases / 'sets_v12.ltl'), exe['tlsf2ltl'],
+  args: [files(cases / 'sets_v12.ltl'), exe['tlsf2ltl'], '--format', 'ltl',
          files(cases / 'sets_v12.tlsf')])
 test('tlsf_sets_v12_reemit', check,
   args: [files(cases / 'sets_v12.reemit.tlsf'), exe['tlsf2tlsf'],
@@ -324,6 +325,12 @@ test('residual_split', check,
 test('residual_lowercase', check,
   args: [files(cases / 'upper_atoms.lower.residual'), exe['tlsfresidual'],
          '--split', '--lowercase', files(cases / 'upper_atoms.tlsf')])
+test('residual_ltlxba_rejects_primes', check_fail_stderr,
+  args: [files(cases / 'primes.residual.stderr'), exe['tlsfresidual'],
+         files(cases / 'primes.tlsf')])
+test('residual_primes_ltl', check,
+  args: [files(cases / 'primes.residual'), exe['tlsfresidual'],
+         '--format', 'ltl', files(cases / 'primes.tlsf')])
 test('residual_param', check,
   args: [files(cases / 'residual_param_demo.residual'), exe['tlsfresidual'],
          '--param', 'n=5', '--param', 'k=2',
@@ -337,6 +344,17 @@ if have_oxidd
   test('compose_lowercase', check,
     args: [files(cases / 'upper_atoms.lower.compose'), exe['tlsfcompose'],
            '--split', '--lowercase', files(cases / 'upper_atoms.tlsf')])
+  test('compose_ltlxba_rejects_primes', check_fail_stderr,
+    args: [files(cases / 'primes.compose.stderr'), exe['tlsfcompose'],
+           files(cases / 'primes.tlsf')])
+  test('compose_primes_ltl', check,
+    args: [files(cases / 'primes.compose'), exe['tlsfcompose'],
+           '--format', 'ltl', files(cases / 'primes.tlsf')])
+  # The verdict-only mode prints no formula, so it keeps accepting them.
+  test('compose_primes_realizability', check_status,
+    args: ['0', files(cases / 'empty'),
+           files(cases / 'primes.realizability.stderr'), exe['tlsfcompose'],
+           '--realizability', files(cases / 'primes.tlsf')])
   test('compose_merge_mode', check,
     args: [files(cases / 'compose_demo.merged.aag'), exe['tlsfcompose'],
            '--merge', files(cases / 'compose_demo.merged.aag')])
@@ -679,8 +697,16 @@ test('primes_inputs', check,
   args: [files(cases / 'primes.inputs'), exe['tlsfinfo'], '--input-signals',
          files(cases / 'primes.tlsf')])
 test('primes_ltl', check,
-  args: [files(cases / 'primes.ltl'), exe['tlsf2ltl'],
+  args: [files(cases / 'primes.ltl'), exe['tlsf2ltl'], '--format', 'ltl',
          files(cases / 'primes.tlsf')])
+# ltl2ba and ltl3ba silently truncate a formula at ' or @, so ltlxba rejects
+# them in declared signals and in any other atom.
+test('ltlxba_rejects_primes', check_fail_stderr,
+  args: [files(cases / 'primes.ltlxba.stderr'), exe['tlsf2ltl'],
+         files(cases / 'primes.tlsf')])
+test('ltlxba_rejects_undeclared_at', check_fail_stderr,
+  args: [files(cases / 'undeclared_at_atom.stderr'), exe['tlsf2ltl'],
+         files(cases / 'undeclared_at_atom.tlsf')])
 
 # Uppercase atom names: ltlxba lowercases them (spot/ltl2ba read uppercase as
 # operators, so this is what ltlsynt consumes, matching syfco -f ltlxba); the

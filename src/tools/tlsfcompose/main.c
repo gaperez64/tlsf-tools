@@ -810,6 +810,13 @@ int main(int argc, char *argv[]) {
     return 2;
   }
 
+  // Every remaining mode except --route-stats prints formulas in `fmt`.
+  if (fmt == LTL_FMT_LTLXBA && !route_stats &&
+      !spec_validate_ltlxba_atoms(spec, "tlsfcompose")) {
+    spec_free(spec);
+    return 1;
+  }
+
   // Match normalization (opt-in) rewrites match_formula only; residual/routing
   // and the self-verification gate still use the original formula, so a wrong
   // normalization stays sound (it can only fail to recognize, never mis-solve).

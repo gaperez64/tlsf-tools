@@ -297,6 +297,9 @@ atoms, so lowercase the interface to match; the faithful `ltl` dialect keeps
 the original case. Spot accepts uppercase TLSF identifiers. `tlsfcompose` and
 `tlsfresidual` keep original case by default and apply lowercasing to formulas
 and interfaces only with `--lowercase`; all lowercase exports reject collisions.
+TLSF identifiers may contain `'` and `@`, but ltl2ba and ltl3ba silently
+truncate a formula at either character, so every `ltlxba` export rejects specs
+whose signals or atoms contain them; use `--format ltl` for such specs.
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
