@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import pathlib
 import random
@@ -19,13 +18,7 @@ import spot
 
 HERE = pathlib.Path(__file__).resolve().parent
 TLSF_ROOT = HERE.parents[1]
-ACACIA_ROOT = next(
-    (candidate for candidate in (
-        TLSF_ROOT.parent / "acacia-bonsai",
-        TLSF_ROOT.parents[1],
-    ) if (candidate / "benchmarking/param-lift-20260922/m0-census.py").is_file()),
-    TLSF_ROOT.parents[1],
-)
+FIXTURES = TLSF_ROOT / "test/fixtures/gr1_monitor_game"
 sys.path.insert(0, str(TLSF_ROOT / "scripts"))
 
 import gr1_monitor_game as game  # noqa: E402
@@ -58,22 +51,29 @@ def assert_gr1_layout(text, expected_bad=None):
         assert int(lines[1 + ni + nl]) == expected_bad
 
 
+def reference_conjuncts(formula, spot):
+    """Flatten conjunctions and globally scoped conjunctions independently."""
+    if formula.kind() == spot.op_And:
+        for child in formula:
+            yield from reference_conjuncts(child, spot)
+    elif formula.kind() == spot.op_G and formula[0].kind() == spot.op_And:
+        for child in formula[0]:
+            yield from reference_conjuncts(spot.formula.G(child), spot)
+    elif not formula.is_tt():
+        yield formula
+
+
 def test_split_rule(args, spot):
-    census_path = ACACIA_ROOT / "benchmarking/param-lift-20260922/m0-census.py"
-    spec = importlib.util.spec_from_file_location("m0_census", census_path)
-    census = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(census)
-    tlsf = ACACIA_ROOT / "tlsf-corpus/arbiter_pb_2_pe_.tlsf"
+    tlsf = FIXTURES / "arbiter_pb_2_pe_.tlsf"
     lowered = run([args.tlsf2ltl, "--format", "ltl", str(tlsf)], 0).stdout
     formula = spot.formula(lowered)
     assumptions, guarantees = game.split_objective(formula, spot)
     if formula.kind() == spot.op_Implies:
-        reference_a = list(census.conjuncts(formula[0]))
-        reference_g = list(census.conjuncts(formula[1]))
+        reference_a = list(reference_conjuncts(formula[0], spot))
+        reference_g = list(reference_conjuncts(formula[1], spot))
     else:
         reference_a = []
-        reference_g = list(census.conjuncts(formula))
+        reference_g = list(reference_conjuncts(formula, spot))
     assert [str(f) for f in assumptions] == [str(f) for f in reference_a]
     assert [str(f) for f in guarantees] == [str(f) for f in reference_g]
 
@@ -169,8 +169,8 @@ def lasso_accepts_encoded(monitor, aag_text, signal_names, prefix, loop):
 def test_monitor_encoding(args, spot):
     rng = random.Random(0x20260922)
     real_instances = [
-        ACACIA_ROOT / "tlsf-corpus/arbiter_pb_2_pe_.tlsf",
-        ACACIA_ROOT / "tlsf-corpus/arbiter_on_inpchange_pb_2_pe_.tlsf",
+        FIXTURES / "arbiter_pb_2_pe_.tlsf",
+        FIXTURES / "arbiter_on_inpchange_pb_2_pe_.tlsf",
     ]
     checked = 0
     parity_fallback_checked = 0
@@ -239,8 +239,7 @@ def test_cross_n_provenance(args, directory):
     }
     for family, sizes in families.items():
         for size in sizes:
-            tlsf = (ACACIA_ROOT / "tlsf-corpus" /
-                    f"{family}_pb_{size}_pe_.tlsf")
+            tlsf = FIXTURES / f"{family}_pb_{size}_pe_.tlsf"
             data = build_provenance(args, directory, tlsf)
             assert data["schema"].endswith(".v3")
             assert data["provenance_source"] == "frontend"
@@ -546,10 +545,8 @@ def mutate_first_latch(text):
 
 
 def test_explicit_checker(args, directory):
-    controller = (ACACIA_ROOT /
-                  "benchmarking/witness-lifting-20260918/families/seeds/"
-                  "arbiter/controllers/arbiter_n2.aag")
-    tlsf = ACACIA_ROOT / "tlsf-corpus/arbiter_pb_2_pe_.tlsf"
+    controller = FIXTURES / "arbiter_n2.aag"
+    tlsf = FIXTURES / "arbiter_pb_2_pe_.tlsf"
     base = [args.python, args.verifier, "--tlsf2ltl", args.tlsf2ltl,
             "--tlsf2tlsf", args.tlsf2tlsf, "--tlsfinfo", args.tlsfinfo,
             "--tlsf", str(tlsf), "--strategy"]

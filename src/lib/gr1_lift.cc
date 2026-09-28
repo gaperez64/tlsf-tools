@@ -8,7 +8,6 @@
 #include "yyjson_cpp.hh"
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -57,11 +56,24 @@ struct Config {
   void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
                          const TlsfGr1LiftStageStats *) = nullptr;
   void *stats_context = nullptr;
+  uint64_t max_seed_probes = TLSF_GR1_LIFT_DEFAULT_SEED_PROBES;
+  uint64_t max_bdd_ops = TLSF_GR1_LIFT_DEFAULT_DISCOVERY_BDD_OPS;
+  uint64_t max_policy_bdd_ops = TLSF_GR1_LIFT_DEFAULT_POLICY_BDD_OPS;
+  uint64_t policy_proof_ns = TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_NS;
+  uint64_t phase_deadline_ns = 0;
+  uint64_t effective_deadline() const {
+    if (!phase_deadline_ns)
+      return o.deadline_mono_ns;
+    return o.deadline_mono_ns ? std::min(phase_deadline_ns, o.deadline_mono_ns)
+                              : phase_deadline_ns;
+  }
   void check(const char *stage) const {
     if (o.cancelled && o.cancelled(o.cancel_ctx))
       throw Failure(TLSF_GR1_LIFT_CANCELLED, stage, "cancelled");
     if (o.deadline_mono_ns && now_ns() >= o.deadline_mono_ns)
       throw Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+    if (phase_deadline_ns && now_ns() >= phase_deadline_ns)
+      throw Failure(TLSF_GR1_LIFT_LIMIT, stage, "fixed phase budget exhausted");
     if (budget && budget->max_rss_bytes) {
       rusage usage{};
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
@@ -97,6 +109,8 @@ struct StatsScope {
                    const TlsfGr1LiftStageStats *);
   void *context;
   uint64_t wall = 0, cpu = 0;
+  const size_t *work_counter = nullptr;
+  size_t work_start = 0;
   StatsScope(const Config &cfg, TlsfGr1LiftStatsStage which) noexcept
       : stats(cfg.stats), stage(which), callback(cfg.stats_callback),
         context(cfg.stats_context) {
@@ -106,13 +120,17 @@ struct StatsScope {
     }
   }
   ~StatsScope() noexcept { finish(); }
+  void count_bdd_ops(const size_t *counter) noexcept {
+    work_counter = counter;
+    work_start = *counter;
+  }
   void finish() noexcept {
     if (!stats || !wall)
       return;
     TlsfGr1LiftStageStats event{};
     event.wall_ns = stats_clock(CLOCK_MONOTONIC) - wall;
     event.cpu_ns = stats_clock(CLOCK_PROCESS_CPUTIME_ID) - cpu;
-    event.calls = 1;
+    event.calls = work_counter ? *work_counter - work_start : 1;
     auto &row = stats->stages[stage];
     event.rss_kb = -1;
     if (FILE *file = fopen("/proc/self/status", "r")) {
@@ -132,7 +150,7 @@ struct StatsScope {
     event.fordblks = heap.fordblks;
     row.wall_ns += event.wall_ns;
     row.cpu_ns += event.cpu_ns;
-    row.calls++;
+    row.calls += event.calls;
     row.rss_kb = event.rss_kb;
     row.peak_rss_kb = event.peak_rss_kb;
     row.arena = event.arena;
@@ -629,6 +647,7 @@ Window discover(const uint8_t *source, size_t size, Instance &target,
   auto axes = parameters(target);
   if (axes.empty())
     decline("parameters", "absent");
+  uint64_t probes_tried = 0;
   for (const auto &[axis, value] : axes) {
     struct Probe {
       int size;
@@ -637,6 +656,10 @@ Window discover(const uint8_t *source, size_t size, Instance &target,
     std::vector<Probe> probes;
     for (int k = 1; k < value && k <= int(cfg.o.max_sizes_per_axis); k++) {
       cfg.check("seed_window");
+      if (probes_tried >= cfg.max_seed_probes)
+        throw Failure(TLSF_GR1_LIFT_LIMIT, "seed_window",
+                      "fixed seed probe budget exhausted");
+      ++probes_tried;
       if (cfg.stats)
         cfg.stats->seed_probes++;
       auto values = axes;
@@ -977,6 +1000,9 @@ public:
   Schema(const Schema &) = delete;
   void set_config(const Config &config) { cfg = &config; }
   void tick(const char *stage = "schema") {
+    if (cfg->max_bdd_ops && calls >= cfg->max_bdd_ops)
+      throw Failure(TLSF_GR1_LIFT_LIMIT, stage,
+                    "fixed BDD operation budget exhausted");
     if ((++calls & 127u) == 0) {
       cfg->check(stage);
       if (oxidd_bdd_manager_approx_num_inner_nodes(manager) >
@@ -985,6 +1011,11 @@ public:
                       "node cap exceeded");
     }
   }
+  void begin_phase(const Config &config) {
+    cfg = &config;
+    calls = 0;
+  }
+  const size_t *operation_counter() const { return &calls; }
   int width() const { return int(oxidd_bdd_manager_num_vars(manager)); }
   size_t node_count() const {
     return oxidd_bdd_manager_approx_num_inner_nodes(manager);
@@ -1849,6 +1880,7 @@ Candidate prove(Schema &bdd, const GameView &target,
   Candidate candidate;
   candidate.game.assign(target.inst->r.aag, target.inst->r.aag_size);
   StatsScope candidate_stats(cfg, TLSF_GR1_LIFT_STATS_CANDIDATE_INSTANTIATION);
+  candidate_stats.count_bdd_ops(bdd.operation_counter());
   auto cert = emit_certificate(bdd, target, learned, cfg);
   candidate.certificate = render_aig(cert.get(), cfg);
   candidate.certificate_json =
@@ -1862,20 +1894,18 @@ Candidate prove(Schema &bdd, const GameView &target,
   // The candidate scope ends before policy generation and verification.
   candidate_stats.finish();
   cfg.check("policy");
-  uint64_t proof_deadline = cfg.o.deadline_mono_ns;
-  if (proof_deadline) {
-    uint64_t now = now_ns();
-    if (now >= proof_deadline)
-      throw Failure(TLSF_GR1_LIFT_DEADLINE, "policy", "deadline exceeded");
-    proof_deadline = now + uint64_t(double(proof_deadline - now) *
-                                    cfg.o.policy_proof_fraction);
-  }
+  uint64_t now = now_ns();
   Config policy_cfg = cfg;
-  policy_cfg.o.deadline_mono_ns = proof_deadline;
+  policy_cfg.phase_deadline_ns = cfg.policy_proof_ns > UINT64_MAX - now
+                                     ? UINT64_MAX
+                                     : now + cfg.policy_proof_ns;
+  policy_cfg.max_bdd_ops = cfg.max_policy_bdd_ops;
+  uint64_t proof_deadline = policy_cfg.effective_deadline();
   bool capacity_fallback = false;
   try {
     StatsScope policy_stats(cfg, TLSF_GR1_LIFT_STATS_POLICY_EXPORT);
-    bdd.set_config(policy_cfg);
+    bdd.begin_phase(policy_cfg);
+    policy_stats.count_bdd_ops(bdd.operation_counter());
     auto policy = emit_policy(bdd, target, cert.get(), policy_cfg);
     candidate.policy = render_aig(policy.get(), policy_cfg);
     candidate.policy_json =
@@ -1982,16 +2012,11 @@ TlsfGr1LiftOptions defaults(const TlsfGr1LiftOptions *provided) {
   if (!out.max_subsets_per_predicate)
     out.max_subsets_per_predicate =
         TLSF_GR1_LIFT_DEFAULT_MAX_SUBSETS_PER_PREDICATE;
-  if (!out.policy_proof_fraction)
-    out.policy_proof_fraction = TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_FRACTION;
-  if (!out.discovery_share)
-    out.discovery_share = TLSF_GR1_LIFT_DEFAULT_DISCOVERY_SHARE;
   return out;
 }
 void run(const uint8_t *source, size_t size,
          const std::map<std::string, int64_t> &target_overrides,
          const Config &cfg, TlsfGr1LiftResult &result) {
-  uint64_t started = now_ns();
   StatsScope source_stats(cfg, TLSF_GR1_LIFT_STATS_SOURCE);
   cfg.check("source");
   char source_hash[65]{};
@@ -2025,13 +2050,6 @@ void run(const uint8_t *source, size_t size,
   if (axes.empty())
     decline("parameters", "absent");
   Config discovery_cfg = cfg;
-  if (cfg.o.deadline_mono_ns) {
-    cfg.check("seed_window");
-    uint64_t elapsed_budget = cfg.o.deadline_mono_ns - started;
-    discovery_cfg.o.deadline_mono_ns = std::min(
-        cfg.o.deadline_mono_ns,
-        started + uint64_t(double(elapsed_budget) * cfg.o.discovery_share));
-  }
   StatsScope window_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_WINDOW);
   auto window = discover(source, size, *target, semantics, discovery_cfg);
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
@@ -2063,6 +2081,7 @@ void run(const uint8_t *source, size_t size,
     width = std::max(width, uint32_t(seed.variables.size()));
   Schema bdd(discovery_cfg, width);
   StatsScope schema_stats(cfg, TLSF_GR1_LIFT_STATS_SCHEMA_LEARNING);
+  schema_stats.count_bdd_ops(bdd.operation_counter());
   auto learned = learn_certificate(bdd, seeds, target_view, discovery_cfg);
   if (cfg.stats)
     cfg.stats->schema_nodes_after_learning = bdd.node_count();
@@ -2120,8 +2139,10 @@ void run(const uint8_t *source, size_t size,
          {"max_predicate_arity", cfg.o.max_predicate_arity},
          {"max_subsets_per_predicate", cfg.o.max_subsets_per_predicate},
          {"seed_confirmation", cfg.o.seed_confirmation != 2},
-         {"policy_proof_fraction", cfg.o.policy_proof_fraction},
-         {"discovery_share", cfg.o.discovery_share},
+         {"max_seed_probes", cfg.max_seed_probes},
+         {"max_discovery_bdd_ops", cfg.max_bdd_ops},
+         {"max_policy_bdd_ops", cfg.max_policy_bdd_ops},
+         {"policy_proof_ns", cfg.policy_proof_ns},
          {"solver_nodes", cfg.o.solver_nodes},
          {"solver_cache", cfg.o.solver_cache},
          {"checker_nodes", cfg.o.checker_nodes},
@@ -2173,7 +2194,7 @@ extern "C" void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result) {
   free(result->evidence_json);
   memset(result, 0, sizeof *result);
 }
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_phase_budget_v2(
     const uint8_t *source, size_t source_size,
     const ParamOverride *target_overrides, size_t target_override_count,
     const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
@@ -2181,7 +2202,8 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
     void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
                            const TlsfGr1LiftStageStats *),
     void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work) {
+    TlsfGr1ConstructionWork *work,
+    const TlsfGr1LiftPhaseBudgetV2 *phase_budget) {
   if (stats)
     memset(stats, 0, sizeof *stats);
   if (work)
@@ -2190,7 +2212,8 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
     memset(error, 0, sizeof *error);
   if (!result || !source || !source_size ||
       (target_override_count && !target_overrides) ||
-      (budget && (budget->size != sizeof *budget || !work))) {
+      (budget && (budget->size != sizeof *budget || !work)) ||
+      (phase_budget && phase_budget->size != sizeof *phase_budget)) {
     if (error) {
       error->status = TLSF_GR1_LIFT_INVALID;
       snprintf(error->stage, sizeof error->stage, "arguments");
@@ -2212,12 +2235,16 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
   try {
     Config cfg{defaults(options), budget,       work, stats,
                stats_callback,    stats_context};
-    if (!std::isfinite(cfg.o.policy_proof_fraction) ||
-        cfg.o.policy_proof_fraction <= 0 || cfg.o.policy_proof_fraction > 1 ||
-        !std::isfinite(cfg.o.discovery_share) || cfg.o.discovery_share <= 0 ||
-        cfg.o.discovery_share > 1)
-      throw Failure(TLSF_GR1_LIFT_INVALID, "options",
-                    "invalid deadline fractions");
+    if (phase_budget) {
+      if (phase_budget->max_seed_probes)
+        cfg.max_seed_probes = phase_budget->max_seed_probes;
+      if (phase_budget->max_discovery_bdd_ops)
+        cfg.max_bdd_ops = phase_budget->max_discovery_bdd_ops;
+      if (phase_budget->max_policy_bdd_ops)
+        cfg.max_policy_bdd_ops = phase_budget->max_policy_bdd_ops;
+      if (phase_budget->policy_proof_ns)
+        cfg.policy_proof_ns = phase_budget->policy_proof_ns;
+    }
     std::map<std::string, int64_t> overrides;
     for (size_t p = 0; p < target_override_count; p++) {
       const ParamOverride &row = target_overrides[p];
@@ -2275,6 +2302,21 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
     }
     return TLSF_GR1_LIFT_ERROR;
   }
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
+    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
+    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
+                           const TlsfGr1LiftStageStats *),
+    void *stats_context, const TlsfGr1ConstructionBudget *budget,
+    TlsfGr1ConstructionWork *work) {
+  return tlsf_gr1_lift_with_phase_budget_v2(
+      source, source_size, target_overrides, target_override_count, options,
+      result, error, stats, stats_callback, stats_context, budget, work,
+      nullptr);
 }
 
 extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_stats(

@@ -35,8 +35,16 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SIZES_PER_AXIS 6u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_PREDICATE_ARITY 4u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SUBSETS_PER_PREDICATE 2000u
+/* Deprecated names retained for source compatibility; neither value is used. */
 #define TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_FRACTION 0.75
 #define TLSF_GR1_LIFT_DEFAULT_DISCOVERY_SHARE 0.20
+/* Fixed per-run lifting work and proof budgets. The legacy fraction fields
+ * below are ignored. Only tlsf_gr1_lift_with_phase_budget_v2 can override
+ * these values; the absolute deadline remains a hard stop in every phase. */
+#define TLSF_GR1_LIFT_DEFAULT_SEED_PROBES 24u
+#define TLSF_GR1_LIFT_DEFAULT_DISCOVERY_BDD_OPS 2000000ull
+#define TLSF_GR1_LIFT_DEFAULT_POLICY_BDD_OPS 2000000ull
+#define TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_NS 12000000000ull
 #define TLSF_GR1_LIFT_DEFAULT_SOLVER_NODES (1u << 25)
 #define TLSF_GR1_LIFT_DEFAULT_SOLVER_CACHE (1u << 23)
 #define TLSF_GR1_LIFT_DEFAULT_CHECKER_NODES (1u << 26)
@@ -62,6 +70,8 @@ typedef enum {
   TLSF_GR1_LIFT_STATS_COUNT
 } TlsfGr1LiftStatsStage;
 typedef struct {
+  /* calls counts BDD operations for schema learning, candidate instantiation,
+   * and policy export; for other stages it counts stage invocations. */
   uint64_t wall_ns, cpu_ns, calls;
   int64_t rss_kb, peak_rss_kb;
   uint64_t arena, hblkhd, uordblks, fordblks;
@@ -85,10 +95,18 @@ typedef struct {
   size_t schema_nodes, schema_cache, max_artifact_bytes;
   uint32_t max_monitor_states, max_sizes_per_axis, max_predicate_arity,
       max_subsets_per_predicate;
+  /* Deprecated and ignored. Retained for source and binary compatibility. */
   double policy_proof_fraction, discovery_share;
   /* The Python default is true. Set to 2 to disable confirmation. */
   uint32_t seed_confirmation;
 } TlsfGr1LiftOptions;
+
+/* Opt-in v2 budgets. A zero member selects the fixed global default. */
+typedef struct {
+  size_t size;
+  uint64_t max_seed_probes, max_discovery_bdd_ops, max_policy_bdd_ops,
+      policy_proof_ns;
+} TlsfGr1LiftPhaseBudgetV2;
 
 typedef struct {
   TlsfGr1LiftStatus status;
@@ -134,6 +152,16 @@ TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
                            const TlsfGr1LiftStageStats *),
     void *stats_context, const TlsfGr1ConstructionBudget *budget,
     TlsfGr1ConstructionWork *work);
+TlsfGr1LiftStatus tlsf_gr1_lift_with_phase_budget_v2(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
+    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
+    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
+                           const TlsfGr1LiftStageStats *),
+    void *stats_context, const TlsfGr1ConstructionBudget *budget,
+    TlsfGr1ConstructionWork *work,
+    const TlsfGr1LiftPhaseBudgetV2 *phase_budget);
 void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result);
 
 #ifdef __cplusplus
