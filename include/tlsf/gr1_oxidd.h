@@ -53,8 +53,7 @@ typedef struct {
 solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
                                     const OxiddSolveOptions *opts,
                                     Gr1CertificateOptions *certificate);
-[[nodiscard]] Aig *
-solve_gr1_oxidd_ex_with_certificate_and_stats(
+[[nodiscard]] Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
     Aig *game, int *unreal, const OxiddSolveOptions *opts,
     Gr1CertificateOptions *certificate, Gr1CertificateStats *stats);
 

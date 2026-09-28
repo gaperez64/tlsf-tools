@@ -1,4 +1,5 @@
-/* This translation unit sees only the headers copied from before phase-stats. */
+/* This translation unit sees only the headers copied from before phase-stats.
+ */
 #include "tlsf/gr1_lift.h"
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/gr1_reduction.h"
@@ -8,15 +9,18 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define CHECK(test) do { if (!(test)) { \
-  fprintf(stderr, "old ABI check failed at %d: %s\n", __LINE__, #test); \
-  abort(); \
-} } while (0)
+#define CHECK(test)                                                            \
+  do {                                                                         \
+    if (!(test)) {                                                             \
+      fprintf(stderr, "old ABI check failed at %d: %s\n", __LINE__, #test);    \
+      abort();                                                                 \
+    }                                                                          \
+  } while (0)
 
-static const char source[] =
-    "INFO { TITLE: \"ABI\" DESCRIPTION: \"ABI\" SEMANTICS: Mealy TARGET: Mealy }\n"
-    "MAIN { INPUTS { i; } OUTPUTS { o; } "
-    "GUARANTEE { G (i -> o); G F o; } }\n";
+static const char source[] = "INFO { TITLE: \"ABI\" DESCRIPTION: \"ABI\" "
+                             "SEMANTICS: Mealy TARGET: Mealy }\n"
+                             "MAIN { INPUTS { i; } OUTPUTS { o; } "
+                             "GUARANTEE { G (i -> o); G F o; } }\n";
 
 static const char param_source[] =
     "INFO { TITLE: \"ABI lift\" DESCRIPTION: \"ABI lift\" SEMANTICS: Mealy "
@@ -25,7 +29,8 @@ static const char param_source[] =
     "MAIN { INPUTS { demand[extent]; } OUTPUTS { response[extent]; } "
     "GUARANTEES { &&[0 <= i < extent] G F response[i]; } }\n";
 
-static void *guarded_copy(const void *source_bytes, size_t size, void **mapping) {
+static void *guarded_copy(const void *source_bytes, size_t size,
+                          void **mapping) {
   const size_t page = (size_t)sysconf(_SC_PAGESIZE);
   CHECK(page > size);
   *mapping = mmap(NULL, page * 2, PROT_READ | PROT_WRITE,
@@ -51,18 +56,20 @@ int main(void) {
   TlsfGr1LiftResult lift_result = {0};
   TlsfGr1LiftError lift_error = {0};
   CHECK(tlsf_gr1_lift((const uint8_t *)source, strlen(source), NULL, 0,
-                      old_lift, &lift_result, &lift_error) == TLSF_GR1_LIFT_DECLINED);
+                      old_lift, &lift_result,
+                      &lift_error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(strcmp(lift_error.stage, "parameters") == 0);
   CHECK(lift_result.game_aag == NULL);
-  TlsfGr1LiftStatus lift_status = tlsf_gr1_lift(
-      (const uint8_t *)param_source, strlen(param_source), NULL, 0,
-      old_lift, &lift_result, &lift_error);
+  TlsfGr1LiftStatus lift_status =
+      tlsf_gr1_lift((const uint8_t *)param_source, strlen(param_source), NULL,
+                    0, old_lift, &lift_result, &lift_error);
   if (lift_status != TLSF_GR1_LIFT_OK)
-    fprintf(stderr, "old lift status=%d stage=%s message=%s\n",
-            lift_status, lift_error.stage, lift_error.message);
+    fprintf(stderr, "old lift status=%d stage=%s message=%s\n", lift_status,
+            lift_error.stage, lift_error.message);
   CHECK(lift_status == TLSF_GR1_LIFT_OK);
   CHECK(lift_result.verdict == TLSF_GR1_CHECK_VERIFIED);
-  CHECK(lift_result.game_aag && lift_result.certificate_aag && lift_result.policy_aag);
+  CHECK(lift_result.game_aag && lift_result.certificate_aag &&
+        lift_result.policy_aag);
   tlsf_gr1_lift_result_clear(&lift_result);
   unguard(mapping);
 
@@ -88,7 +95,8 @@ int main(void) {
   unguard(mapping);
 
   char *cert = NULL, *cert_json = NULL, *policy = NULL, *policy_json = NULL;
-  size_t cert_size = 0, cert_json_size = 0, policy_size = 0, policy_json_size = 0;
+  size_t cert_size = 0, cert_json_size = 0, policy_size = 0,
+         policy_json_size = 0;
   Gr1CertificateOptions certificate = {0};
   certificate.semantics = GR1_CERTIFICATE_SEMANTICS_EXACT;
   certificate.aag_bytes = &cert;
@@ -108,8 +116,8 @@ int main(void) {
   int unreal = 0;
   Aig *game = reduction.game;
   reduction.game = NULL;
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
-      game, &unreal, &solver, old_certificate);
+  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(game, &unreal, &solver,
+                                                      old_certificate);
   CHECK(strategy != NULL && !unreal && !old_certificate->failed);
   CHECK(cert && cert_json && policy && policy_json);
   CHECK(cert_size && cert_json_size && policy_size && policy_json_size);
@@ -117,14 +125,15 @@ int main(void) {
   unguard(mapping);
 
   TlsfGr1CheckInput check_input = {0};
-  check_input.game_aag = (TlsfGr1Bytes){(const uint8_t *)reduction.aag,
-                                        reduction.aag_size};
-  check_input.certificate_aag = (TlsfGr1Bytes){(const uint8_t *)cert, cert_size};
-  check_input.certificate_json = (TlsfGr1Bytes){(const uint8_t *)cert_json,
-                                                cert_json_size};
+  check_input.game_aag =
+      (TlsfGr1Bytes){(const uint8_t *)reduction.aag, reduction.aag_size};
+  check_input.certificate_aag =
+      (TlsfGr1Bytes){(const uint8_t *)cert, cert_size};
+  check_input.certificate_json =
+      (TlsfGr1Bytes){(const uint8_t *)cert_json, cert_json_size};
   check_input.policy_aag = (TlsfGr1Bytes){(const uint8_t *)policy, policy_size};
-  check_input.policy_json = (TlsfGr1Bytes){(const uint8_t *)policy_json,
-                                           policy_json_size};
+  check_input.policy_json =
+      (TlsfGr1Bytes){(const uint8_t *)policy_json, policy_json_size};
   TlsfGr1CheckOptions check_options = {0};
   check_options.method = TLSF_GR1_CHECK_CERTIFICATE;
   check_options.node_cap = check_options.cache_cap = 1u << 16;
@@ -138,7 +147,10 @@ int main(void) {
   unguard(mapping);
   tlsf_gr1_reduction_clear(&reduction);
   tlsf_pipeline_free(pipeline);
-  free(cert); free(cert_json); free(policy); free(policy_json);
+  free(cert);
+  free(cert_json);
+  free(policy);
+  free(policy_json);
   run_new_controls(source, strlen(source), param_source, strlen(param_source));
   return 0;
 }

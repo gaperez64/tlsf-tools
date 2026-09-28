@@ -77,7 +77,8 @@ struct StatsScope {
   }
   ~StatsScope() noexcept { finish(); }
   void finish() noexcept {
-    if (!stats || !wall) return;
+    if (!stats || !wall)
+      return;
     auto &row = stats->stages[stage];
     row.wall_ns += stats_clock(CLOCK_MONOTONIC) - wall;
     row.cpu_ns += stats_clock(CLOCK_PROCESS_CPUTIME_ID) - cpu;
@@ -85,7 +86,8 @@ struct StatsScope {
     if (FILE *file = fopen("/proc/self/status", "r")) {
       char line[256];
       while (fgets(line, sizeof line, file))
-        if (sscanf(line, "VmRSS: %ld kB", &row.rss_kb) == 1) break;
+        if (sscanf(line, "VmRSS: %ld kB", &row.rss_kb) == 1)
+          break;
       fclose(file);
     }
     rusage usage{};
@@ -97,7 +99,8 @@ struct StatsScope {
     row.uordblks = heap.uordblks;
     row.fordblks = heap.fordblks;
     wall = 0;
-    if (callback) callback(context, stage, &row);
+    if (callback)
+      callback(context, stage, &row);
   }
 };
 
@@ -1254,15 +1257,15 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
   *result = {};
 }
 
-extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
-                const TlsfGr1ReductionOptions *options,
-                TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
-                TlsfGr1ReductionStats *stats,
-                void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
-                                       const TlsfGr1ReductionStageStats *),
-                void *stats_context) {
-  if (stats) *stats = {};
+extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_stats(
+    const TlsfPipeline *pipeline, const TlsfGr1ReductionOptions *options,
+    TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+    TlsfGr1ReductionStats *stats,
+    void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
+                           const TlsfGr1ReductionStageStats *),
+    void *stats_context) {
+  if (stats)
+    *stats = {};
   if (result && (result->game || result->aag || result->aag_size ||
                  result->metadata_json || result->metadata_size ||
                  result->provenance_json || result->provenance_size ||
@@ -1328,7 +1331,8 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
       conjuncts(formula, guarantees);
     }
     source_stats.finish();
-    StatsScope monitor_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_MONITORS);
+    StatsScope monitor_stats(stats, stats_callback, stats_context,
+                             TLSF_GR1_REDUCE_STATS_MONITORS);
     std::vector<Monitor> monitors;
     uint64_t total_states = 0;
     auto append = [&](Formula item, bool assumption) {
@@ -1352,11 +1356,13 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
       stats->monitor_states = total_states;
     }
     monitor_stats.finish();
-    StatsScope encode_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_ENCODE);
+    StatsScope encode_stats(stats, stats_callback, stats_context,
+                            TLSF_GR1_REDUCE_STATS_ENCODE);
     bool strict = options->semantics == TLSF_GR1_STRICT;
     Encoded encoded = encode(monitors, inputs, outputs, strict, limits);
     encode_stats.finish();
-    StatsScope publish_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_PUBLISH);
+    StatsScope publish_stats(stats, stats_callback, stats_context,
+                             TLSF_GR1_REDUCE_STATS_PUBLISH);
     std::string provenance_json = json::serialize(provenance(
         pipeline, monitors, inputs, outputs, symbols, strict, encoded, limits));
     provenance_json += '\n';
@@ -1428,6 +1434,6 @@ extern "C" TlsfGr1ReductionStatus
 tlsf_gr1_reduce(const TlsfPipeline *pipeline,
                 const TlsfGr1ReductionOptions *options,
                 TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
-  return tlsf_gr1_reduce_with_stats(pipeline, options, result, error,
-                                     nullptr, nullptr, nullptr);
+  return tlsf_gr1_reduce_with_stats(pipeline, options, result, error, nullptr,
+                                    nullptr, nullptr);
 }
