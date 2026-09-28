@@ -1,0 +1,1 @@
+tlsfcompose: ltlxba cannot express atom "req'": ltl2ba and ltl3ba silently truncate formulas at "'"; use the ltl format instead

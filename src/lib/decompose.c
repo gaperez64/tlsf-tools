@@ -231,6 +231,9 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   bool finite = semantics_is_finite(spec->info.semantics);
   if (lower && !spec_validate_lowercase_signals(spec, "tlsf-decompose"))
     return nullptr;
+  if (fmt == LTL_FMT_LTLXBA &&
+      !spec_validate_ltlxba_atoms(spec, "tlsf-decompose"))
+    return nullptr;
 
   TlsfDecomposeResult *r = calloc(1, sizeof *r);
   if (!r)

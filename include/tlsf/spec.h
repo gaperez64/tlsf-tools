@@ -289,6 +289,13 @@ void spec_free(TlsfSpec *s);
 [[nodiscard]] bool spec_validate_lowercase_signals(const TlsfSpec *s,
                                                    const char *prog);
 
+/// Validate an ltlxba export of an expanded specification.  TLSF identifiers
+/// may contain ' and @, but ltl2ba and ltl3ba silently truncate a formula at
+/// either character, so reject specs whose signals or formula atoms contain
+/// one.  Prints a diagnostic prefixed with `prog` on the first such atom.
+[[nodiscard]] bool spec_validate_ltlxba_atoms(const TlsfSpec *s,
+                                              const char *prog);
+
 /// Adapt an expanded specification when its SEMANTICS and TARGET timing
 /// frames differ.  Moore-to-Mealy delays inputs; Mealy-to-Moore delays
 /// outputs.  Returns false on allocation failure.

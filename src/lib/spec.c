@@ -524,6 +524,61 @@ bool spec_validate_lowercase_signals(const TlsfSpec *s, const char *prog) {
   return true;
 }
 
+// ltl2ba and ltl3ba (whose parsers derive from Spin's hand-written one) stop
+// reading a formula at the first ' or @ without reporting an error, so an
+// ltlxba formula mentioning such an atom is silently truncated.
+static bool ltlxba_atom_ok(const char *name, const char *prog) {
+  const char *bad = strpbrk(name, "'@");
+  if (!bad)
+    return true;
+  fprintf(tlsf_diagnostic_stream(),
+          "%s: ltlxba cannot express atom \"%s\": ltl2ba and ltl3ba silently "
+          "truncate formulas at \"%c\"; use the ltl format instead\n",
+          prog, name, *bad);
+  return false;
+}
+
+static bool ltlxba_formula_ok(const Node *n, const char *prog) {
+  switch (n->kind) {
+  case NODE_AP:
+    return ltlxba_atom_ok(n->name, prog);
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return ltlxba_formula_ok(n->arg, prog);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return ltlxba_formula_ok(n->lhs, prog) && ltlxba_formula_ok(n->rhs, prog);
+  default:
+    return true; // true / false
+  }
+}
+
+bool spec_validate_ltlxba_atoms(const TlsfSpec *s, const char *prog) {
+  for (uint32_t i = 0; i < s->input_count; i++)
+    if (!ltlxba_atom_ok(s->inputs[i].name, prog))
+      return false;
+  for (uint32_t i = 0; i < s->output_count; i++)
+    if (!ltlxba_atom_ok(s->outputs[i].name, prog))
+      return false;
+  // Formulas may also mention atoms that are not declared signals.
+  const FormulaList *lists[] = {&s->initially, &s->require, &s->assume,
+                                &s->preset,    &s->assert_, &s->guarantee};
+  for (size_t l = 0; l < sizeof lists / sizeof lists[0]; l++)
+    for (uint32_t i = 0; i < lists[l]->count; i++)
+      if (!ltlxba_formula_ok(lists[l]->formulas[i], prog))
+        return false;
+  return true;
+}
+
 bool spec_add_tag(TlsfSpec *s, const char *tag) {
   if (s->info.tag_count == s->tag_cap) {
     uint16_t new_cap =

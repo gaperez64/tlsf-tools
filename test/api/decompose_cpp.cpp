@@ -91,6 +91,28 @@ MAIN {
   }
   assert(rejected_collision);
 
+  // ltl2ba and ltl3ba silently truncate a formula at ' or @.
+  const std::string primed = R"TLSF(
+INFO { TITLE: "primed" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  INPUTS { req'; }
+  OUTPUTS { grant@1; }
+  GUARANTEE { G (req' -> grant@1); }
+}
+)TLSF";
+  options.lowercase = false;
+  options.format = tlsf::Format::Ltlxba;
+  bool rejected_ltlxba = false;
+  try {
+    (void)tlsf::decompose(primed, options);
+  } catch (const std::runtime_error &) {
+    rejected_ltlxba = true;
+  }
+  assert(rejected_ltlxba);
+  options.format = tlsf::Format::Ltl;
+  result = tlsf::decompose(primed, options);
+  assert(result.preprocessed_ltl == "G (req' -> grant@1)");
+
   const std::string indexed = R"TLSF(
 INFO { TITLE: "indexed" SEMANTICS: Mealy TARGET: Mealy }
 GLOBAL { PARAMETERS { n = 3; } }

@@ -152,6 +152,11 @@ int main(int argc, char *argv[]) {
     tlsf_pipeline_free(p);
     return 1;
   }
+  if (fmt == LTL_FMT_LTLXBA &&
+      !spec_validate_ltlxba_atoms(spec, "tlsfresidual")) {
+    tlsf_pipeline_free(p);
+    return 1;
+  }
 
   FILE *out = cli_open_output(output_file, "tlsfresidual");
   if (!out) {
