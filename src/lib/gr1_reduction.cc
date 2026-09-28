@@ -21,6 +21,7 @@ extern "C" {
 #include <spot/twaalgos/contains.hh>
 #include <spot/twaalgos/determinize.hh>
 #include <spot/twaalgos/isdet.hh>
+#include <spot/twaalgos/powerset.hh>
 #include <spot/twaalgos/remfin.hh>
 #include <spot/twaalgos/sbacc.hh>
 #include <spot/twaalgos/translate.hh>
@@ -37,8 +38,10 @@ extern "C" {
 #include <map>
 #include <malloc.h>
 #include <memory>
+#include <new>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -110,6 +113,8 @@ struct Failure : std::runtime_error {
 
 struct Limits {
   const TlsfGr1ReductionOptions &options;
+  const TlsfGr1ConstructionBudget *budget = nullptr;
+  TlsfGr1ConstructionWork *work = nullptr;
   void check(const char *stage) const {
     if (options.cancelled && options.cancelled(options.cancel_ctx))
       throw Failure(TLSF_GR1_REDUCE_CANCELLED, stage, "cancelled");
@@ -121,6 +126,17 @@ struct Limits {
       if (ns >= options.deadline_mono_ns)
         throw Failure(TLSF_GR1_REDUCE_DEADLINE, stage, "deadline exceeded");
     }
+    if (budget && budget->max_rss_bytes) {
+      rusage usage{};
+      if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
+        const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
+        if (work) work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
+        if (peak > budget->max_rss_bytes)
+          throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-memory",
+                        "construction RSS peak exceeded arm memory share");
+      }
+    }
   }
   void bytes(size_t n, const char *stage) const {
     check(stage);
@@ -128,6 +144,63 @@ struct Limits {
       throw Failure(TLSF_GR1_REDUCE_LIMIT, stage, "artifact byte cap exceeded");
   }
 };
+
+uint64_t checked_add(uint64_t a, uint64_t b, const char *stage) {
+  if (b > UINT64_MAX - a)
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, stage, "construction size overflow");
+  return a + b;
+}
+struct Shape { uint64_t nodes = 0, temporal_depth = 0; };
+Shape shape(Formula formula, uint64_t depth = 0) {
+  switch (formula.kind()) {
+  case spot::op::X: case spot::op::F: case spot::op::G:
+  case spot::op::U: case spot::op::R: case spot::op::W: case spot::op::M:
+    depth = checked_add(depth, 1, "budget-structure");
+    break;
+  default: break;
+  }
+  Shape result{1, depth};
+  for (Formula child : formula) {
+    Shape part = shape(child, depth);
+    result.nodes = checked_add(result.nodes, part.nodes, "budget-structure");
+    result.temporal_depth = std::max(result.temporal_depth, part.temporal_depth);
+  }
+  return result;
+}
+void precheck(const std::vector<Formula> &assumptions,
+              const std::vector<Formula> &guarantees, uint64_t ap_count,
+              const Limits &limits) {
+  if (!limits.budget) return;
+  auto &b = *limits.budget;
+  auto &w = *limits.work;
+  w.ap_count = ap_count;
+  w.conjuncts = checked_add(assumptions.size(), guarantees.size(), "budget-structure");
+  for (const auto *items : {&assumptions, &guarantees})
+    for (Formula item : *items) {
+      const Shape s = shape(item);
+      w.formula_nodes = checked_add(w.formula_nodes, s.nodes, "budget-structure");
+      w.max_conjunct_nodes = std::max(w.max_conjunct_nodes, s.nodes);
+      w.max_temporal_depth = std::max(w.max_temporal_depth, s.temporal_depth);
+      // A cheap structural estimate, not a Spot guarantee. Saturate instead
+      // of wrapping when a deeply nested formula is encountered.
+      const uint64_t factor = uint64_t{1} << std::min<uint64_t>(s.temporal_depth, 20);
+      const uint64_t estimate = s.nodes > UINT64_MAX / factor
+          ? UINT64_MAX : s.nodes * factor;
+      w.predicted_monitor_states =
+          estimate > UINT64_MAX - w.predicted_monitor_states
+              ? UINT64_MAX : w.predicted_monitor_states + estimate;
+    }
+  if ((b.max_formula_nodes && w.formula_nodes > b.max_formula_nodes) ||
+      (b.max_ap_count && w.ap_count > b.max_ap_count) ||
+      (b.max_conjuncts && w.conjuncts > b.max_conjuncts) ||
+      (b.max_conjunct_nodes && w.max_conjunct_nodes > b.max_conjunct_nodes) ||
+      (b.max_temporal_depth && w.max_temporal_depth > b.max_temporal_depth) ||
+      (b.max_predicted_monitor_states &&
+       w.predicted_monitor_states > b.max_predicted_monitor_states))
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-structure",
+                  "structural construction limit exceeded");
+  limits.check("budget-structure");
+}
 
 template <typename F>
 auto spot_call(const Limits &limits, const char *stage, F &&call) {
@@ -397,17 +470,54 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
     throw Failure(TLSF_GR1_REDUCE_LIMIT, "translate",
                   "Spot translation reached its state limit");
   bool fallback_used = false;
-  if (!spot_call(limits, "determinism",
-                 [&] { return spot::is_deterministic(automaton); })) {
+  const bool initially_deterministic = spot_call(limits, "determinism",
+      [&] { return spot::is_deterministic(automaton); });
+  // The raw nondeterministic graph may be larger than its final monitor.
+  // The aborter bounds that fallback output; completed monitors are checked below.
+  if (initially_deterministic && limits.budget &&
+      ((limits.budget->max_total_states &&
+        automaton->num_states() > limits.budget->max_total_states) ||
+       (limits.budget->max_total_edges &&
+        automaton->num_edges() > limits.budget->max_total_edges)))
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-translate",
+                  "Spot translation exceeded state or edge limit");
+  if (!initially_deterministic) {
     fallback_used = true;
-    spot::output_aborter aborter(limits.options.max_monitor_states);
+    const unsigned remaining_states = limits.budget && limits.budget->max_total_states
+        ? limits.budget->max_total_states - unsigned(limits.work->states)
+        : ~0u;
+    const unsigned remaining_edges = limits.budget && limits.budget->max_total_edges
+        ? limits.budget->max_total_edges - unsigned(limits.work->edges)
+        : ~0u;
+    const unsigned states = std::min(limits.options.max_monitor_states,
+                                     remaining_states);
+    const unsigned edges = remaining_edges;
+    spot::output_aborter aborter(states, edges);
     auto parity = spot_call(limits, "determinize", [&] {
       return spot::tgba_determinize(automaton, false, true, true, true,
                                     &aborter);
     });
-    if (!parity)
+    if (!parity) {
+      // Spot does not expose the discarded graph.  Its aborter reports the
+      // crossed dimension; record the first excluded count as a lower bound.
+      std::ostringstream reason;
+      aborter.print_reason(reason);
+      const bool state_limit = reason.str().find("states required") != std::string::npos;
+      const bool edge_limit = reason.str().find("edges required") != std::string::npos;
+      if (limits.budget && limits.work &&
+          ((state_limit && remaining_states <= limits.options.max_monitor_states) ||
+           (edge_limit && limits.budget->max_total_edges))) {
+        if (state_limit)
+          limits.work->states += uint64_t(states) + 1;
+        if (edge_limit)
+          limits.work->edges += uint64_t(edges) + 1;
+        throw Failure(TLSF_GR1_REDUCE_LIMIT,
+                      state_limit ? "budget-monitor-states" : "budget-monitor-edges",
+                      "Spot determinization exceeded construction budget; " + reason.str());
+      }
       throw Failure(TLSF_GR1_REDUCE_LIMIT, "determinize",
-                    "Spot determinization failed");
+                    "Spot determinization failed; " + reason.str());
+    }
     auto deterministic = spot_call(limits, "parity-to-buchi", [&] {
       return spot::rabin_to_buchi_if_realizable(parity);
     });
@@ -424,6 +534,13 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
       spot_call(limits, "sbacc", [&] { return spot::sbacc(automaton); });
   automaton =
       spot_call(limits, "complete", [&] { return spot::complete(automaton); });
+  if (limits.budget &&
+      ((limits.budget->max_total_states &&
+        automaton->num_states() > limits.budget->max_total_states) ||
+       (limits.budget->max_total_edges &&
+        automaton->num_edges() > limits.budget->max_total_edges)))
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
+                  "completed monitor exceeded state or edge limit");
   if (!spot_call(limits, "determinism",
                  [&] { return spot::is_deterministic(automaton); }) ||
       !spot_call(limits, "completeness",
@@ -475,13 +592,18 @@ struct AagBuilder {
   std::vector<Latch> latches;
   std::vector<And> ands;
   std::map<std::pair<uint32_t, uint32_t>, uint32_t> cache;
+  uint32_t variable() {
+    if (next_var >= UINT32_MAX / 2u)
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, "aag-size", "AAG literal overflow");
+    return 2u * ++next_var;
+  }
   explicit AagBuilder(std::vector<std::string> inputs)
       : names(std::move(inputs)) {
     for (const auto &name : names)
-      literals.emplace(name, 2 * ++next_var);
+      literals.emplace(name, variable());
   }
   uint32_t latch(uint32_t reset, std::string name) {
-    uint32_t current = 2 * ++next_var;
+    uint32_t current = variable();
     latches.push_back({current, 0, reset, std::move(name)});
     return current;
   }
@@ -505,7 +627,7 @@ struct AagBuilder {
     auto key = std::make_pair(a, b);
     if (auto found = cache.find(key); found != cache.end())
       return found->second;
-    uint32_t result = 2 * ++next_var;
+    uint32_t result = variable();
     ands.push_back({result, a, b});
     cache.emplace(key, result);
     return result;
@@ -1223,6 +1345,8 @@ json::value provenance(const TlsfPipeline *pipeline,
 }
 
 char *copy_text(const std::string &text) {
+  if (text.size() == SIZE_MAX)
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, "publish-size", "text size overflow");
   char *result = static_cast<char *>(malloc(text.size() + 1));
   if (!result)
     throw std::bad_alloc();
@@ -1255,14 +1379,16 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
 }
 
 extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
+tlsf_gr1_reduce_with_budget(const TlsfPipeline *pipeline,
                 const TlsfGr1ReductionOptions *options,
                 TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
                 TlsfGr1ReductionStats *stats,
                 void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
                                        const TlsfGr1ReductionStageStats *),
-                void *stats_context) {
+                void *stats_context, const TlsfGr1ConstructionBudget *budget,
+                TlsfGr1ConstructionWork *work) {
   if (stats) *stats = {};
+  if (work) *work = {};
   if (result && (result->game || result->aag || result->aag_size ||
                  result->metadata_json || result->metadata_size ||
                  result->provenance_json || result->provenance_size ||
@@ -1273,6 +1399,7 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
   if (!pipeline || !pipeline->spec || !pipeline->source_bytes ||
       !pipeline->source_size || !options || !result ||
       !options->max_artifact_bytes || !options->max_monitor_states ||
+      (budget && (budget->size != sizeof *budget || !work)) ||
       (options->semantics != TLSF_GR1_EXACT &&
        options->semantics != TLSF_GR1_STRICT)) {
     report(error, TLSF_GR1_REDUCE_INVALID, "reduce", "invalid argument");
@@ -1281,7 +1408,7 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
   try {
     StatsScope source_stats(stats, stats_callback, stats_context,
                             TLSF_GR1_REDUCE_STATS_SOURCE);
-    Limits limits{*options};
+    Limits limits{*options, budget, work};
     limits.check("reduce");
     char snapshot_sha256[65];
     sha256_hex(pipeline->source_bytes, pipeline->source_size, snapshot_sha256);
@@ -1327,13 +1454,26 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
     } else {
       conjuncts(formula, guarantees);
     }
+    precheck(assumptions, guarantees, ap_names(formula).size(), limits);
     source_stats.finish();
     StatsScope monitor_stats(stats, stats_callback, stats_context, TLSF_GR1_REDUCE_STATS_MONITORS);
     std::vector<Monitor> monitors;
     uint64_t total_states = 0;
     auto append = [&](Formula item, bool assumption) {
       Monitor monitor = make_monitor(item, assumption, limits);
-      total_states += monitor.automaton->num_states();
+      total_states = checked_add(total_states, monitor.automaton->num_states(),
+                                 "budget-monitor");
+      if (work) {
+        work->states = checked_add(work->states, monitor.automaton->num_states(),
+                                   "budget-monitor");
+        work->edges = checked_add(work->edges, monitor.automaton->num_edges(),
+                                  "budget-monitor");
+        work->monitors_completed++;
+        if ((budget->max_total_states && work->states > budget->max_total_states) ||
+            (budget->max_total_edges && work->edges > budget->max_total_edges))
+          throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
+                        "total monitor state or edge limit exceeded");
+      }
       if (stats)
         stats->monitor_states = total_states;
       if (total_states > options->max_monitor_states)
@@ -1383,7 +1523,8 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
                           {"justice_count", encoded.justice},
                           {"fairness_count", encoded.fairness}};
     std::string metadata_json = json::serialize(metadata) + '\n';
-    limits.bytes(metadata_json.size() + symbol_map.size(), "metadata");
+    limits.bytes(checked_add(metadata_json.size(), symbol_map.size(),
+                             "metadata-size"), "metadata");
     File source(fmemopen(encoded.aag.data(), encoded.aag.size(), "r"));
     if (!source)
       throw Failure(TLSF_GR1_REDUCE_LIMIT, "aag", "cannot open memory stream");
@@ -1411,7 +1552,7 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
     return failure.status;
   } catch (const std::bad_alloc &) {
     tlsf_gr1_reduction_clear(result);
-    report(error, TLSF_GR1_REDUCE_LIMIT, "reduce", "out of memory");
+    report(error, TLSF_GR1_REDUCE_LIMIT, "allocation", "host allocation failed");
     return TLSF_GR1_REDUCE_LIMIT;
   } catch (const std::exception &failure) {
     tlsf_gr1_reduction_clear(result);
@@ -1422,6 +1563,19 @@ tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
     report(error, TLSF_GR1_REDUCE_ERROR, "reduce", "unknown exception");
     return TLSF_GR1_REDUCE_ERROR;
   }
+}
+
+extern "C" TlsfGr1ReductionStatus
+tlsf_gr1_reduce_with_stats(const TlsfPipeline *pipeline,
+                const TlsfGr1ReductionOptions *options,
+                TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                TlsfGr1ReductionStats *stats,
+                void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
+                                       const TlsfGr1ReductionStageStats *),
+                void *stats_context) {
+  return tlsf_gr1_reduce_with_budget(pipeline, options, result, error,
+                                      stats, stats_callback, stats_context,
+                                      nullptr, nullptr);
 }
 
 extern "C" TlsfGr1ReductionStatus

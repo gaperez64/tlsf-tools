@@ -51,6 +51,8 @@ uint64_t now_ns() {
 }
 struct Config {
   TlsfGr1LiftOptions o{};
+  const TlsfGr1ConstructionBudget *budget = nullptr;
+  TlsfGr1ConstructionWork *work = nullptr;
   TlsfGr1LiftStats *stats = nullptr;
   void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
                          const TlsfGr1LiftStageStats *) = nullptr;
@@ -60,6 +62,17 @@ struct Config {
       throw Failure(TLSF_GR1_LIFT_CANCELLED, stage, "cancelled");
     if (o.deadline_mono_ns && now_ns() >= o.deadline_mono_ns)
       throw Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+    if (budget && budget->max_rss_bytes) {
+      rusage usage{};
+      if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
+        const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
+        if (work) work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
+        if (peak > budget->max_rss_bytes)
+          throw Failure(TLSF_GR1_LIFT_LIMIT, "budget-memory",
+                        std::string("construction RSS peak exceeded arm memory share at ") + stage);
+      }
+    }
   }
   void bytes(size_t n, const char *stage) const {
     check(stage);
@@ -230,10 +243,34 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   TlsfGr1ReductionStats reduction_stats{};
   if (cfg.stats) reduction_stats = {};
   TlsfGr1ReductionError err{};
-  auto status = cfg.stats
-      ? tlsf_gr1_reduce_with_stats(pipeline.get(), &ro, &instance->r, &err,
-                                   &reduction_stats, nullptr, nullptr)
-      : tlsf_gr1_reduce(pipeline.get(), &ro, &instance->r, &err);
+  TlsfGr1ConstructionWork reduction_work{};
+  auto status = cfg.budget
+      ? tlsf_gr1_reduce_with_budget(pipeline.get(), &ro, &instance->r, &err,
+                                    cfg.stats ? &reduction_stats : nullptr,
+                                    nullptr, nullptr, cfg.budget, &reduction_work)
+      : cfg.stats
+          ? tlsf_gr1_reduce_with_stats(pipeline.get(), &ro, &instance->r, &err,
+                                       &reduction_stats, nullptr, nullptr)
+          : tlsf_gr1_reduce(pipeline.get(), &ro, &instance->r, &err);
+  if (cfg.work) {
+    auto add = [](uint64_t &dst, uint64_t value) {
+      dst = value > UINT64_MAX - dst ? UINT64_MAX : dst + value;
+    };
+    add(cfg.work->formula_nodes, reduction_work.formula_nodes);
+    cfg.work->ap_count = std::max(cfg.work->ap_count, reduction_work.ap_count);
+    add(cfg.work->conjuncts, reduction_work.conjuncts);
+    cfg.work->max_conjunct_nodes =
+        std::max(cfg.work->max_conjunct_nodes, reduction_work.max_conjunct_nodes);
+    cfg.work->max_temporal_depth =
+        std::max(cfg.work->max_temporal_depth, reduction_work.max_temporal_depth);
+    add(cfg.work->predicted_monitor_states,
+        reduction_work.predicted_monitor_states);
+    add(cfg.work->monitors_completed, reduction_work.monitors_completed);
+    add(cfg.work->states, reduction_work.states);
+    add(cfg.work->edges, reduction_work.edges);
+    cfg.work->peak_rss_bytes =
+        std::max(cfg.work->peak_rss_bytes, reduction_work.peak_rss_bytes);
+  }
   if (cfg.stats) {
     cfg.stats->monitor_count_total += reduction_stats.monitor_count;
     cfg.stats->monitor_states_total += reduction_stats.monitor_states;
@@ -1892,6 +1929,8 @@ Candidate prove(Schema &bdd, const GameView &target,
   decline("target_check", "region not verified");
 }
 char *copy_bytes(const std::string &value) {
+  if (value.size() == SIZE_MAX)
+    throw Failure(TLSF_GR1_LIFT_LIMIT, "publish-size", "artifact size overflow");
   char *p = (char *)malloc(value.size() + 1);
   if (!p)
     throw Failure(TLSF_GR1_LIFT_LIMIT, "publish", "cannot allocate result");
@@ -2116,19 +2155,22 @@ extern "C" void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result) {
   memset(result, 0, sizeof *result);
 }
 extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift_with_stats(const uint8_t *source, size_t source_size,
+tlsf_gr1_lift_with_budget(const uint8_t *source, size_t source_size,
               const ParamOverride *target_overrides,
               size_t target_override_count, const TlsfGr1LiftOptions *options,
               TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
               TlsfGr1LiftStats *stats,
               void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
                                      const TlsfGr1LiftStageStats *),
-              void *stats_context) {
+              void *stats_context, const TlsfGr1ConstructionBudget *budget,
+              TlsfGr1ConstructionWork *work) {
   if (stats) memset(stats, 0, sizeof *stats);
+  if (work) memset(work, 0, sizeof *work);
   if (error)
     memset(error, 0, sizeof *error);
   if (!result || !source || !source_size ||
-      (target_override_count && !target_overrides)) {
+      (target_override_count && !target_overrides) ||
+      (budget && (budget->size != sizeof *budget || !work))) {
     if (error) {
       error->status = TLSF_GR1_LIFT_INVALID;
       snprintf(error->stage, sizeof error->stage, "arguments");
@@ -2148,7 +2190,7 @@ tlsf_gr1_lift_with_stats(const uint8_t *source, size_t source_size,
   }
   memset(result, 0, sizeof *result);
   try {
-    Config cfg{defaults(options), stats, stats_callback, stats_context};
+    Config cfg{defaults(options), budget, work, stats, stats_callback, stats_context};
     if (!std::isfinite(cfg.o.policy_proof_fraction) ||
         cfg.o.policy_proof_fraction <= 0 || cfg.o.policy_proof_fraction > 1 ||
         !std::isfinite(cfg.o.discovery_share) || cfg.o.discovery_share <= 0 ||
@@ -2211,6 +2253,21 @@ tlsf_gr1_lift_with_stats(const uint8_t *source, size_t source_size,
     }
     return TLSF_GR1_LIFT_ERROR;
   }
+}
+
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift_with_stats(const uint8_t *source, size_t source_size,
+              const ParamOverride *target_overrides,
+              size_t target_override_count, const TlsfGr1LiftOptions *options,
+              TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+              TlsfGr1LiftStats *stats,
+              void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
+                                     const TlsfGr1LiftStageStats *),
+              void *stats_context) {
+  return tlsf_gr1_lift_with_budget(source, source_size, target_overrides,
+                                   target_override_count, options, result,
+                                   error, stats, stats_callback, stats_context,
+                                   nullptr, nullptr);
 }
 
 extern "C" TlsfGr1LiftStatus

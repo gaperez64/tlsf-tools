@@ -124,6 +124,15 @@ TlsfGr1LiftStatus tlsf_gr1_lift_with_stats(
     void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
                            const TlsfGr1LiftStageStats *),
     void *stats_context);
+TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
+    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
+    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
+                           const TlsfGr1LiftStageStats *),
+    void *stats_context, const TlsfGr1ConstructionBudget *budget,
+    TlsfGr1ConstructionWork *work);
 void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result);
 
 #ifdef __cplusplus

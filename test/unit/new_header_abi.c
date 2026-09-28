@@ -27,6 +27,12 @@ static void *guarded_copy(const void *bytes, size_t size, void **mapping) {
 static void unguard(void *mapping) {
   CHECK(munmap(mapping, (size_t)sysconf(_SC_PAGESIZE) * 2) == 0);
 }
+static void lower_rss_after_reduction(void *context, TlsfGr1LiftStatsStage stage,
+                                      const TlsfGr1LiftStageStats *event) {
+  (void)event;
+  if (stage == TLSF_GR1_LIFT_STATS_SEED_WINDOW)
+    ((TlsfGr1ConstructionBudget *)context)->max_rss_bytes = 1;
+}
 void run_new_controls(const char *source, size_t size,
                       const char *param_source, size_t param_size);
 void run_new_controls(const char *source, size_t size,
@@ -51,6 +57,26 @@ void run_new_controls(const char *source, size_t size,
   CHECK(lift_status == TLSF_GR1_LIFT_OK);
   CHECK(lift_result.verdict == TLSF_GR1_CHECK_VERIFIED && lift_stats.seed_solves);
   tlsf_gr1_lift_result_clear(&lift_result);
+  TlsfGr1ConstructionBudget budget = {0};
+  budget.size = sizeof budget;
+  budget.max_formula_nodes = 1;
+  TlsfGr1ConstructionWork work = {0};
+  CHECK(tlsf_gr1_lift_with_budget((const uint8_t *)param_source, param_size,
+       NULL, 0, lift, &lift_result, &lift_error, &lift_stats, NULL, NULL,
+       &budget, &work) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(strcmp(lift_error.stage, "budget-structure") == 0);
+  CHECK(work.formula_nodes > budget.max_formula_nodes);
+  budget.max_formula_nodes = 0;
+  work = (TlsfGr1ConstructionWork){0};
+  CHECK(tlsf_gr1_lift_with_budget((const uint8_t *)param_source, param_size,
+       NULL, 0, lift, &lift_result, &lift_error, &lift_stats,
+       lower_rss_after_reduction, &budget, &budget, &work) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(strcmp(lift_error.stage, "budget-memory") == 0);
+  CHECK(strstr(lift_error.message, "seed") != NULL);
+  CHECK(work.peak_rss_bytes > budget.max_rss_bytes);
+  CHECK(lift_result.game_aag == NULL && lift_result.certificate_aag == NULL);
+  budget.max_rss_bytes = 0;
+  budget.max_formula_nodes = 1;
   unguard(mapping);
 
   TlsfPipelineOptions load_options = {0};
@@ -90,5 +116,12 @@ void run_new_controls(const char *source, size_t size,
   aig_free(strategy);
   unguard(mapping);
   tlsf_gr1_reduction_clear(&result);
+  reduce = guarded_copy(&reduction_options, sizeof reduction_options, &mapping);
+  work = (TlsfGr1ConstructionWork){0};
+  CHECK(tlsf_gr1_reduce_with_budget(pipeline, reduce, &result, &error,
+       &reduction_stats, NULL, NULL, &budget, &work) == TLSF_GR1_REDUCE_LIMIT);
+  CHECK(strcmp(error.stage, "budget-structure") == 0);
+  CHECK(work.formula_nodes > budget.max_formula_nodes);
+  unguard(mapping);
   tlsf_pipeline_free(pipeline);
 }
