@@ -84,6 +84,28 @@ void run_new_controls(const char *source, size_t size, const char *param_source,
   CHECK(lift_result.game_aag == NULL && lift_result.certificate_aag == NULL);
   budget.max_rss_bytes = 0;
   budget.max_formula_nodes = 1;
+  TlsfGr1LiftPhaseBudgetV2 phase_budget = {0};
+  phase_budget.size = sizeof phase_budget;
+  phase_budget.max_discovery_bdd_ops = 1;
+  void *phase_mapping = NULL;
+  const TlsfGr1LiftPhaseBudgetV2 *guarded_phase =
+      guarded_copy(&phase_budget, sizeof phase_budget, &phase_mapping);
+  CHECK(guarded_phase->size == sizeof phase_budget);
+  CHECK(tlsf_gr1_lift_with_phase_budget_v2(
+            (const uint8_t *)param_source, param_size, NULL, 0, lift,
+            &lift_result, &lift_error, &lift_stats, NULL, NULL, NULL, NULL,
+            guarded_phase) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(lift_result.game_aag == NULL && lift_result.certificate_aag == NULL);
+  unguard(phase_mapping);
+  phase_budget.size = sizeof phase_budget - 1;
+  guarded_phase =
+      guarded_copy(&phase_budget, sizeof phase_budget, &phase_mapping);
+  CHECK(tlsf_gr1_lift_with_phase_budget_v2(
+            (const uint8_t *)param_source, param_size, NULL, 0, lift,
+            &lift_result, &lift_error, &lift_stats, NULL, NULL, NULL, NULL,
+            guarded_phase) == TLSF_GR1_LIFT_INVALID);
+  CHECK(strcmp(lift_error.stage, "arguments") == 0);
+  unguard(phase_mapping);
   unguard(mapping);
 
   TlsfPipelineOptions load_options = {0};

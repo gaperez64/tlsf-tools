@@ -93,6 +93,11 @@ int main() {
   auto o = options();
   CHECK(lift(nonparam, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
+  o.policy_proof_fraction = -1;
+  o.discovery_share = -1;
+  CHECK(lift(nonparam, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
+  o = options();
   CHECK(lift(nonparam_moore, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
   CHECK(lift(encoded_width, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
@@ -238,8 +243,13 @@ int main() {
         tlsf_json::serialize(baseline_seeds));
   tlsf_gr1_lift_result_clear(&result);
   o = options();
-  o.policy_proof_fraction = 1e-12;
-  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  TlsfGr1LiftPhaseBudgetV2 phase_budget{};
+  phase_budget.size = sizeof phase_budget;
+  phase_budget.policy_proof_ns = 1;
+  CHECK(tlsf_gr1_lift_with_phase_budget_v2(
+            (const uint8_t *)source, strlen(source), nullptr, 0, &o, &result,
+            &error, nullptr, nullptr, nullptr, nullptr, nullptr,
+            &phase_budget) == TLSF_GR1_LIFT_OK);
   CHECK(result.method == TLSF_GR1_CHECK_REGION);
   CHECK(result.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
   CHECK(!result.policy_aag && result.check_json);
