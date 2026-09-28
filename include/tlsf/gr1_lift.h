@@ -72,7 +72,8 @@ typedef struct {
   uint64_t target_latches, target_ands, seed_latches, seed_ands;
   uint64_t monitor_count_total, monitor_states_total;
   uint64_t schema_nodes_after_learning, schema_nodes_after_candidate;
-  uint64_t candidate_bytes, policy_bytes, internal_checks, internal_check_peak_nodes;
+  uint64_t candidate_bytes, policy_bytes, internal_checks,
+      internal_check_peak_nodes;
   char final_stage[48];
 } TlsfGr1LiftStats;
 

@@ -2525,7 +2525,8 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
   }
   if (stats) {
     stats->export_wall_ns = gr1_stats_clock(CLOCK_MONOTONIC) - export_wall;
-    stats->export_cpu_ns = gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - export_cpu;
+    stats->export_cpu_ns =
+        gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - export_cpu;
     stats->nodes_before_teardown = oxidd_bdd_manager_approx_num_inner_nodes(m);
   }
   uint64_t teardown_wall = stats ? gr1_stats_clock(CLOCK_MONOTONIC) : 0;
@@ -2632,7 +2633,8 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
   free(uinput);
   if (stats) {
     stats->teardown_wall_ns = gr1_stats_clock(CLOCK_MONOTONIC) - teardown_wall;
-    stats->teardown_cpu_ns = gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - teardown_cpu;
+    stats->teardown_cpu_ns =
+        gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - teardown_cpu;
   }
   aig_free(game);
   return strat;
@@ -2745,13 +2747,15 @@ static void clear_export_outputs(Gr1CertificateOptions *certificate) {
 Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
     Aig *game, int *unreal, const OxiddSolveOptions *options,
     Gr1CertificateOptions *certificate, Gr1CertificateStats *stats) {
-  if (stats) memset(stats, 0, sizeof *stats);
+  if (stats)
+    memset(stats, 0, sizeof *stats);
   OxiddSolveOptions resolved =
       options ? *options : oxidd_solve_options_default();
   OxiddFailure failure = {0};
   resolved.failure = &failure;
   if (!certificate) {
-    Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr, stats);
+    Aig *strategy =
+        solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr, stats);
     if (options && options->failure)
       *options->failure = failure;
     return strategy;
@@ -2863,8 +2867,8 @@ Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
 Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
                                          const OxiddSolveOptions *options,
                                          Gr1CertificateOptions *certificate) {
-  return solve_gr1_oxidd_ex_with_certificate_and_stats(
-      game, unreal, options, certificate, nullptr);
+  return solve_gr1_oxidd_ex_with_certificate_and_stats(game, unreal, options,
+                                                       certificate, nullptr);
 }
 
 Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {

@@ -120,8 +120,9 @@ int main(void) {
   TlsfGr1ConstructionWork work = {0};
   budget.size = sizeof budget;
   budget.max_total_states = 3;
-  assert(tlsf_gr1_reduce_with_budget(pipeline, &options, &result, &error,
-         NULL, NULL, NULL, &budget, &work) == TLSF_GR1_REDUCE_LIMIT);
+  assert(tlsf_gr1_reduce_with_budget(pipeline, &options, &result, &error, NULL,
+                                     NULL, NULL, &budget,
+                                     &work) == TLSF_GR1_REDUCE_LIMIT);
   assert(strcmp(error.stage, "budget-monitor-states") == 0);
   assert(work.states > budget.max_total_states && work.monitors_completed == 0);
   assert(!result.game && !result.aag);
@@ -131,10 +132,12 @@ int main(void) {
     budget.max_total_edges = edge_cap;
     work = (TlsfGr1ConstructionWork){0};
     assert(tlsf_gr1_reduce_with_budget(pipeline, &options, &result, &error,
-           NULL, NULL, NULL, &budget, &work) == TLSF_GR1_REDUCE_LIMIT);
+                                       NULL, NULL, NULL, &budget,
+                                       &work) == TLSF_GR1_REDUCE_LIMIT);
     assert(!result.game && !result.aag);
     if (strcmp(error.stage, "budget-monitor-edges") == 0) {
-      assert(work.edges > budget.max_total_edges && work.monitors_completed == 0);
+      assert(work.edges > budget.max_total_edges &&
+             work.monitors_completed == 0);
       edge_abort_seen = 1;
     }
   }

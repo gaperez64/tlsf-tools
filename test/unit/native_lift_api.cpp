@@ -7,12 +7,14 @@
 #include <cstring>
 #include <memory>
 #include <string>
-#define CHECK(condition) do { \
-  if (!(condition)) { \
-    std::fprintf(stderr, "check failed at line %d: %s\n", __LINE__, #condition); \
-    std::abort(); \
-  } \
-} while (false)
+#define CHECK(condition)                                                       \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      std::fprintf(stderr, "check failed at line %d: %s\n", __LINE__,          \
+                   #condition);                                                \
+      std::abort();                                                            \
+    }                                                                          \
+  } while (false)
 extern "C" void tlsf_gr1_lift_test_set_fault(int);
 
 static const char *source =
@@ -99,7 +101,7 @@ int main() {
   CHECK(!strcmp(error.stage, "bus_schema") && !result.game_aag);
   CHECK(lift(rank_chain, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "schema") &&
-         strstr(error.message, "rank depth changed from") && !result.game_aag);
+        strstr(error.message, "rank depth changed from") && !result.game_aag);
   o = options();
   o.cancelled = cancelled;
   CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
@@ -119,7 +121,7 @@ int main() {
   tlsf_gr1_lift_test_set_fault(1);
   CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "seed_window") &&
-         strstr(error.message, "selected seed choice") && !result.game_aag);
+        strstr(error.message, "selected seed choice") && !result.game_aag);
   tlsf_gr1_lift_test_set_fault(0);
   o = options();
   auto status = lift(source, o, &result, &error);
@@ -131,12 +133,12 @@ int main() {
   CHECK(result.method == TLSF_GR1_CHECK_CERTIFICATE);
   CHECK(result.game_aag && result.certificate_aag && result.policy_aag);
   CHECK(result.evidence_json &&
-         strstr(result.evidence_json, "target_transition"));
+        strstr(result.evidence_json, "target_transition"));
   auto baseline = tlsf_json::parse(result.evidence_json).as_object();
   CHECK(baseline.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
   char policy_hash[65]{};
   CHECK(tlsf_pipeline_source_sha256(result.policy_aag, result.policy_size,
-                                     policy_hash));
+                                    policy_hash));
   CHECK(baseline.at("policy_sha256") == policy_hash);
   auto baseline_roles = baseline.at("roles");
   auto baseline_seeds = baseline.at("seed_values");
@@ -226,9 +228,9 @@ int main() {
   CHECK(lift(renamed.c_str(), o, &result, &error) == TLSF_GR1_LIFT_OK);
   auto renamed_evidence = tlsf_json::parse(result.evidence_json).as_object();
   CHECK(tlsf_json::serialize(renamed_evidence.at("roles")) ==
-         tlsf_json::serialize(baseline_roles));
+        tlsf_json::serialize(baseline_roles));
   CHECK(tlsf_json::serialize(renamed_evidence.at("seed_values")) ==
-         tlsf_json::serialize(baseline_seeds));
+        tlsf_json::serialize(baseline_seeds));
   tlsf_gr1_lift_result_clear(&result);
   o = options();
   o.policy_proof_fraction = 1e-12;
@@ -255,14 +257,14 @@ int main() {
   ParamOverride override{"extent", 5};
   o = options();
   CHECK(tlsf_gr1_lift((const uint8_t *)smaller_source.data(),
-                       smaller_source.size(), &override, 1, &o, &result,
-                       &error) == TLSF_GR1_LIFT_OK);
+                      smaller_source.size(), &override, 1, &o, &result,
+                      &error) == TLSF_GR1_LIFT_OK);
   CHECK(result.evidence_json &&
-         strstr(result.evidence_json, "\"axis\":\"extent\""));
+        strstr(result.evidence_json, "\"axis\":\"extent\""));
   tlsf_gr1_lift_result_clear(&result);
   ParamOverride duplicates[2] = {{"extent", 5}, {"extent", 6}};
   CHECK(tlsf_gr1_lift((const uint8_t *)source, strlen(source), duplicates, 2,
-                       &o, &result, &error) == TLSF_GR1_LIFT_INVALID);
+                      &o, &result, &error) == TLSF_GR1_LIFT_INVALID);
   CHECK(!result.game_aag);
   tlsf_gr1_lift_result_clear(nullptr);
   return 0;
