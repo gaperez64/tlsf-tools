@@ -48,6 +48,10 @@ UNCONTROLLABLE_PREFIX = "uncontrollable_"
 _LTL_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_@][A-Za-z0-9_\'@]*')
 
 
+class InvalidLtlSyntax(ValueError):
+    """The TLSF lowerer emitted text that Spot cannot parse."""
+
+
 def canonical_signals(inputs: list[str], outputs: list[str]) -> dict[str, str]:
     """Assign names from the expanded interface order, independent of spelling."""
     names = [*inputs, *outputs]
@@ -106,7 +110,10 @@ def canonical_formula_text(formula, spot_module) -> str:
 
 
 def parse_canonical_ltl(text: str, symbols: dict[str, str], spot_module):
-    formula = spot_module.formula(canonicalize_ltl(text, symbols))
+    try:
+        formula = spot_module.formula(canonicalize_ltl(text, symbols))
+    except spot_module.parse_error as exc:
+        raise InvalidLtlSyntax(f"invalid lowered formula: {exc}") from exc
     aps = {ap.ap_name() for ap in spot_module.atomic_prop_collect(formula)}
     unknown = aps - set(symbols.values())
     if unknown:
@@ -972,6 +979,9 @@ def _build_snapshot(args, spot, snapshot: pathlib.Path,
     try:
         symbols = canonical_signals(inputs, outputs)
         formula = parse_canonical_ltl(lowered, symbols, spot)
+    except InvalidLtlSyntax as exc:
+        sys.stderr.write(f"gr1-monitor-game: {exc}\n")
+        return 2
     except ValueError as exc:
         sys.stderr.write(f"gr1-monitor-game: {exc}\n")
         return EXIT_UNSUPPORTED
