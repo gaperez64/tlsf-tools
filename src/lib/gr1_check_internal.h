@@ -43,6 +43,8 @@ typedef struct {
   size_t effective_node_cap, effective_cache_cap;
   bool cache_cap_explicit;
   bool stats;
+  bool legacy_order;
+  double retry_elapsed;
   bool test_unspecialized_policy;
   bool test_rebuild_successor;
   const uint8_t *game_bytes, *policy_bytes, *certificate_bytes;
