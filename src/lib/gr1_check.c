@@ -87,6 +87,51 @@ typedef struct {
   Counterexample counterexample;
 } MethodReport;
 
+typedef enum {
+  PROFILE_AIG_IMPORT,
+  PROFILE_AIG_VALIDATION,
+  PROFILE_SIDECARS,
+  PROFILE_MANAGER,
+  PROFILE_GAME_BDD,
+  PROFILE_CERTIFICATE_BDD,
+  PROFILE_POLICY_SUPPORT,
+  PROFILE_POLICY_BDD,
+  PROFILE_OTHER_SETUP,
+  PROFILE_PREDICATES,
+  PROFILE_GOAL_BINDING,
+  PROFILE_INITIALITY,
+  PROFILE_RANK_COVERAGE,
+  PROFILE_POLICY_MODE,
+  PROFILE_INDUCTIVENESS,
+  PROFILE_POLICY_CONFORMANCE,
+  PROFILE_FAIRNESS_PROGRESS,
+  PROFILE_OTHER_PROOF,
+  PROFILE_RESULT,
+  PROFILE_TEARDOWN,
+  PROFILE_COUNT
+} ProfilePhase;
+
+static const char *const profile_names[PROFILE_COUNT] = {"aig_import",
+                                                         "aig_validation",
+                                                         "sidecars",
+                                                         "manager",
+                                                         "game_bdd",
+                                                         "certificate_bdd",
+                                                         "policy_support",
+                                                         "policy_bdd",
+                                                         "other_setup",
+                                                         "predicates",
+                                                         "goal_binding",
+                                                         "initiality",
+                                                         "rank_coverage",
+                                                         "policy_mode",
+                                                         "inductiveness",
+                                                         "policy_conformance",
+                                                         "fairness_progress",
+                                                         "other_proof",
+                                                         "result",
+                                                         "teardown"};
+
 typedef struct {
   Options options;
   Aig *game;
@@ -129,6 +174,7 @@ typedef struct {
   size_t region_game_roots, region_certificate_roots;
   size_t region_modes, region_layers;
   double region_mode_seconds, region_layer_seconds;
+  double profile[PROFILE_COUNT];
   size_t peak_nodes;
 } Checker;
 
@@ -148,6 +194,15 @@ static double now_seconds(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+static double profile_start(const Checker *ck) {
+  return ck->options.stats ? now_seconds() : 0.0;
+}
+
+static void profile_add(Checker *ck, ProfilePhase phase, double started) {
+  if (ck->options.stats)
+    ck->profile[phase] += now_seconds() - started;
 }
 
 static bool timed_out(const Checker *ck) {
@@ -1126,7 +1181,10 @@ static bool compile_aig_roots_seeded(Checker *ck, const Aig *aig,
   }
   oxidd_phase(&ck->run, phase);
   ck->requested_roots += count;
+  double build_started = profile_start(ck);
   bool ok = oxidd_build_roots(&ck->run, aig, map, maxvar, lits, roots, count);
+  if (!strncmp(phase, "checker_policy", sizeof "checker_policy" - 1))
+    profile_add(ck, PROFILE_POLICY_BDD, build_started);
   for (uint32_t i = 0; i <= maxvar; i++)
     oxidd_bdd_unref(map[i]);
   free(map);
@@ -1323,6 +1381,7 @@ static void release_policy_independent(Checker *ck) {
 static bool prepare_policy_independent(Checker *ck) {
   if (ck->policy_independent_ready)
     return true;
+  double support_started = profile_start(ck);
   uint32_t maxvar = oxidd_max_aig_var(ck->policy);
   bool *counter_dependent =
       calloc((size_t)maxvar + 1, sizeof *counter_dependent);
@@ -1417,6 +1476,7 @@ static bool prepare_policy_independent(Checker *ck) {
       lits[root++] = 2 * v;
     }
   size_t gates_before = ck->run.built_gates;
+  profile_add(ck, PROFILE_POLICY_SUPPORT, support_started);
   if (ok && count)
     ok = compile_aig_roots(ck, ck->policy, inputs, nullptr, lits, roots, count,
                            "checker_policy_independent");
@@ -1665,8 +1725,18 @@ static bool checked_satisfiable(Checker *ck, Bdd value) {
   return oxidd_bdd_satisfiable(value);
 }
 
+static bool use_input_first(const Checker *ck) {
+  // The profiled wins are in this policy-circuit range.  Tiny circuits avoid
+  // a speculative retry on rejection; larger ones retain resource verdicts.
+  return ck->options.method == METHOD_CERTIFICATE &&
+         !ck->options.legacy_order && ck->policy &&
+         aig_num_ands(ck->policy) >= (1u << 12) &&
+         aig_num_ands(ck->policy) <= (1u << 18);
+}
+
 static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
                        size_t cap) {
+  double section_started = profile_start(ck);
   ck->nq = ck->nstate + ck->ncounter;
   ck->nvars = 2 * ck->nq + ck->nu + ck->nc;
   ck->manager =
@@ -1700,20 +1770,25 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     snprintf(message, cap, "out of memory");
     return false;
   }
+  // Input-first makes policy composition much smaller for fixed certificate
+  // proofs.  Other methods keep the original order and diagnostic sequence.
+  const bool input_first = use_input_first(ck);
   for (uint32_t i = 0; i < ck->nq; i++) {
-    ck->qvar[i] = 2 * i;
-    ck->qpvar[i] = 2 * i + 1;
+    ck->qvar[i] = (input_first ? ck->nu + ck->nc : 0) + 2 * i;
+    ck->qpvar[i] = ck->qvar[i] + 1;
     ck->q[i] = oxidd_bdd_var(ck->manager, ck->qvar[i]);
     ck->qp[i] = oxidd_bdd_var(ck->manager, ck->qpvar[i]);
   }
   for (uint32_t i = 0; i < ck->nu; i++) {
-    ck->uvar[i] = 2 * ck->nq + i;
+    ck->uvar[i] = (input_first ? 0 : 2 * ck->nq) + i;
     ck->u[i] = oxidd_bdd_var(ck->manager, ck->uvar[i]);
   }
   for (uint32_t i = 0; i < ck->nc; i++) {
-    ck->cvar[i] = 2 * ck->nq + ck->nu + i;
+    ck->cvar[i] = (input_first ? 0 : 2 * ck->nq) + ck->nu + i;
     ck->c[i] = oxidd_bdd_var(ck->manager, ck->cvar[i]);
   }
+  profile_add(ck, PROFILE_MANAGER, section_started);
+  section_started = profile_start(ck);
 
   // Compile the sampled game over current state and independent u/c letters.
   Bdd *game_inputs = ck->nin ? calloc(ck->nin, sizeof *game_inputs) : nullptr;
@@ -1825,6 +1900,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     game_roots[root++] = (Bdd){0};
   }
   free(game_roots);
+  profile_add(ck, PROFILE_GAME_BDD, section_started);
+  section_started = profile_start(ck);
 
   ck->npolicy_choices = ck->environment ? ck->nu : ck->nc;
   bool need_full_policy =
@@ -1987,6 +2064,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     }
     compiled_free(&cert_compiled);
   }
+  profile_add(ck, PROFILE_CERTIFICATE_BDD, section_started);
+  section_started = profile_start(ck);
 
   uint32_t *input_vars =
       (ck->nu + ck->nc) ? calloc(ck->nu + ck->nc, sizeof *input_vars) : nullptr;
@@ -2002,6 +2081,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
   // certificate checker installs the policy after specializing the counter;
   // the closed-loop path installs the unspecialized policy once below.
   update_peak(ck);
+  profile_add(ck, PROFILE_OTHER_SETUP, section_started);
   return true;
 }
 
@@ -2145,7 +2225,8 @@ static void capture_counterexample(Checker *ck, const char *reason,
 
 static void print_counterexample(Checker *ck, const char *reason, Bdd witness,
                                  const Bdd *control) {
-  if (!ck->options.quiet)
+  const bool emit = !ck->options.quiet && !use_input_first(ck);
+  if (emit)
     printf("COUNTEREXAMPLE reason=%s\n", reason);
   oxidd_assignment_t assignment = oxidd_bdd_pick_cube(witness);
   if (!assignment.data)
@@ -2159,7 +2240,7 @@ static void print_counterexample(Checker *ck, const char *reason, Bdd witness,
         args[nargs++].val = assignment.data[v] != 0;
       }
   capture_counterexample(ck, reason, assignment, control, args, nargs);
-  if (ck->options.quiet) {
+  if (!emit) {
     free(args);
     oxidd_assignment_free(assignment);
     return;
@@ -2658,9 +2739,12 @@ static CheckResult check_environment_certificate_mode(Checker *ck) {
 static CheckResult check_certificate_mode(Checker *ck) {
   if (ck->environment)
     return check_environment_certificate_mode(ck);
+  double section_started = profile_start(ck);
   CheckResult shape = validate_certificate_predicates(ck);
+  profile_add(ck, PROFILE_PREDICATES, section_started);
   if (shape != CHECK_VERIFIED)
     return shape;
+  section_started = profile_start(ck);
   for (uint32_t j = 0; j < ck->ngoals; j++) {
     Bdd mismatch = oxidd_bdd_xor(ck->cert_goal[j], ck->goal[j]);
     if (checked_satisfiable(ck, mismatch)) {
@@ -2679,6 +2763,8 @@ static CheckResult check_certificate_mode(Checker *ck) {
     if (ck->bdd_failed)
       return CHECK_UNKNOWN;
   }
+  profile_add(ck, PROFILE_GOAL_BINDING, section_started);
+  section_started = profile_start(ck);
   if (!reset_in_predicate(ck, ck->cert_inv)) {
     if (ck->bdd_failed)
       return CHECK_UNKNOWN;
@@ -2697,7 +2783,9 @@ static CheckResult check_certificate_mode(Checker *ck) {
     oxidd_bdd_unref(reset);
     return CHECK_CERT_FAILED;
   }
+  profile_add(ck, PROFILE_INITIALITY, section_started);
 
+  section_started = profile_start(ck);
   for (uint32_t j = 0; j < ck->ngoals; j++) {
     Bdd covered = oxidd_bdd_false(ck->manager);
     for (uint32_t k = 0; k < ck->rank[j].levels; k++)
@@ -2724,11 +2812,13 @@ static CheckResult check_certificate_mode(Checker *ck) {
     if (ck->bdd_failed)
       return CHECK_UNKNOWN;
   }
+  profile_add(ck, PROFILE_RANK_COVERAGE, section_started);
 
   // Check every one-hot counter mode and the all-zero reset convention.  The
   // all-zero mode is semantically goal 0 but may select different policy gates,
   // so it is checked independently rather than assumed equivalent to curr_0.
   for (int mode = -1; mode < (int)ck->ngoals; mode++) {
+    section_started = profile_start(ck);
     uint32_t goal = mode < 0 ? 0u : (uint32_t)mode;
     Bdd counter_cube = assignment_cube(ck, mode);
     Bdd *control = ck->nc ? calloc(ck->nc, sizeof *control) : nullptr;
@@ -2790,6 +2880,8 @@ static CheckResult check_certificate_mode(Checker *ck) {
       if (!successors.lower)
         goto mode_unknown;
     }
+    profile_add(ck, PROFILE_POLICY_MODE, section_started);
+    section_started = profile_start(ck);
     next_inv = successor(ck, ck->cert_inv, next_state, successors.substitution);
     if (!ck->options.test_rebuild_successor) {
       successors.goal_and_inv =
@@ -2802,6 +2894,8 @@ static CheckResult check_certificate_mode(Checker *ck) {
     bdd_or_into(ck, &violation, leaves);
     oxidd_bdd_unref(not_next_inv);
     oxidd_bdd_unref(leaves);
+    profile_add(ck, PROFILE_INDUCTIVENESS, section_started);
+    section_started = profile_start(ck);
 
     // The policy format fixes the counter update, not just its one-hotness.
     for (uint32_t q = 0; q < ck->ngoals; q++) {
@@ -2822,6 +2916,8 @@ static CheckResult check_certificate_mode(Checker *ck) {
       oxidd_bdd_unref(differs);
       oxidd_bdd_unref(relevant);
     }
+    profile_add(ck, PROFILE_POLICY_CONFORMANCE, section_started);
+    section_started = profile_start(ck);
 
     Bdd at_goal = oxidd_bdd_and(ck->cert_inv, ck->goal[goal]);
     Bdd ranked = oxidd_bdd_ref(at_goal);
@@ -2890,6 +2986,8 @@ static CheckResult check_certificate_mode(Checker *ck) {
     }
     oxidd_bdd_unref(ranked);
     oxidd_bdd_unref(at_goal);
+    profile_add(ck, PROFILE_FAIRNESS_PROGRESS, section_started);
+    section_started = profile_start(ck);
     if (ck->bdd_failed || bdd_invalid(violation)) {
       oxidd_bdd_unref(violation);
       goto mode_unknown;
@@ -2934,6 +3032,7 @@ static CheckResult check_certificate_mode(Checker *ck) {
     free(counter_next);
     free(next_state);
     update_peak(ck);
+    profile_add(ck, PROFILE_OTHER_PROOF, section_started);
     if (timed_out(ck))
       return CHECK_UNKNOWN;
     continue;
@@ -4301,13 +4400,15 @@ static Aig *native_parse_aag(const uint8_t *bytes, size_t size) {
 int gr1_check_run(Options options, char *owned_policy_json,
                   char *owned_cert_json, size_t *peak_out,
                   OxiddFailure *failure_out) {
-  Checker ck = {.options = options, .started = now_seconds()};
+  Checker ck = {.options = options,
+                .started = now_seconds() - options.retry_elapsed};
   MethodReport certificate = {.result = CHECK_SKIPPED};
   MethodReport closed_loop = {.result = CHECK_SKIPPED};
   MethodReport region = {.result = CHECK_SKIPPED};
   int exit_code = EXIT_ERROR;
   uint32_t *levels = nullptr;
   char message[512] = {0};
+  double phase_started = profile_start(&ck);
   ck.game = options.game_bytes
                 ? native_parse_aag(options.game_bytes, options.game_size)
                 : read_aag(options.game_path, true, message, sizeof message);
@@ -4322,6 +4423,7 @@ int gr1_check_run(Options options, char *owned_policy_json,
                                             options.certificate_size)
                          : read_aag(options.certificate_path, false, message,
                                     sizeof message);
+  profile_add(&ck, PROFILE_AIG_IMPORT, phase_started);
   if (!ck.game || (options.policy_path && !ck.policy) ||
       (options.certificate_path && !ck.certificate)) {
     if (!options.quiet)
@@ -4331,6 +4433,7 @@ int gr1_check_run(Options options, char *owned_policy_json,
     exit_code = EXIT_INVALID;
     goto finish;
   }
+  phase_started = profile_start(&ck);
   bool structure_ok =
       validate_aig_structure(ck.game, "game", message, sizeof message) &&
       (!ck.policy ||
@@ -4377,7 +4480,9 @@ int gr1_check_run(Options options, char *owned_policy_json,
     else
       ck.uinput[ck.nu++] = p;
   }
+  profile_add(&ck, PROFILE_AIG_VALIDATION, phase_started);
 
+  phase_started = profile_start(&ck);
   bool interface_ok = validate_game_names(&ck, message, sizeof message);
   if (interface_ok && options.method == METHOD_REGION)
     interface_ok = validate_region_sidecar(&ck, message, sizeof message);
@@ -4387,6 +4492,7 @@ int gr1_check_run(Options options, char *owned_policy_json,
   if (interface_ok && ck.certificate)
     interface_ok =
         validate_certificate_interface(&ck, &levels, message, sizeof message);
+  profile_add(&ck, PROFILE_SIDECARS, phase_started);
   if (!interface_ok) {
     if (!options.quiet)
       printf("INVALID\n");
@@ -4399,6 +4505,16 @@ int gr1_check_run(Options options, char *owned_policy_json,
   double setup_started = now_seconds();
   if (!setup_bdds(&ck, levels, message, sizeof message)) {
     ck.setup_seconds = now_seconds() - setup_started;
+    if (use_input_first(&ck) && !timed_out(&ck)) {
+      if (ck.run_initialized)
+        oxidd_run_finish(&ck.run);
+      free(levels);
+      cleanup(&ck);
+      options.legacy_order = true;
+      options.retry_elapsed = now_seconds() - ck.started;
+      return gr1_check_run(options, owned_policy_json, owned_cert_json,
+                           peak_out, failure_out);
+    }
     if (!options.quiet)
       printf("UNKNOWN\n");
     if (!options.quiet)
@@ -4457,6 +4573,28 @@ int gr1_check_run(Options options, char *owned_policy_json,
     closed_loop.peak_nodes = ck.peak_nodes;
   }
   ck.current_counterexample = nullptr;
+
+  // Failed speculative proofs use the original order for the final decision
+  // and witness.  BDD order changes which satisfying assignment pick_cube
+  // returns, so no speculative witness is printed before this decision.
+  // The original deadline includes the first pass and manager teardown.
+  const bool certificate_failed = certificate.result != CHECK_SKIPPED &&
+                                  certificate.result != CHECK_VERIFIED;
+  const bool closed_loop_failed = closed_loop.result != CHECK_SKIPPED &&
+                                  closed_loop.result != CHECK_VERIFIED;
+  if (use_input_first(&ck) && !timed_out(&ck) &&
+      (certificate_failed || closed_loop_failed)) {
+    if (ck.run_initialized)
+      oxidd_run_finish(&ck.run);
+    counterexample_clear(&certificate.counterexample);
+    counterexample_clear(&closed_loop.counterexample);
+    counterexample_clear(&region.counterexample);
+    cleanup(&ck);
+    options.legacy_order = true;
+    options.retry_elapsed = now_seconds() - ck.started;
+    return gr1_check_run(options, owned_policy_json, owned_cert_json, peak_out,
+                         failure_out);
+  }
 
   if (certificate.result != CHECK_SKIPPED)
     if (!options.quiet)
@@ -4543,6 +4681,7 @@ int gr1_check_run(Options options, char *owned_policy_json,
 
 finish:
   free(levels);
+  phase_started = profile_start(&ck);
   bool json_ok = options.method == METHOD_REGION
                      ? write_region_result_json(&ck, &region, exit_code,
                                                 now_seconds() - ck.started)
@@ -4554,6 +4693,8 @@ finish:
               options.json_out_path);
     exit_code = EXIT_ERROR;
   }
+  profile_add(&ck, PROFILE_RESULT, phase_started);
+  phase_started = profile_start(&ck);
   if (ck.run_initialized)
     oxidd_run_finish(&ck.run);
   if (options.stats) {
@@ -4562,6 +4703,7 @@ finish:
               "TLSFCERTCHECK_STATS node_cap=%zu cache_cap=%zu "
               "aig_gates_visited=%zu requested_roots=%zu "
               "setup_seconds=%.9f proof_seconds=%.9f "
+              "retry_seconds=%.9f legacy_order=%d "
               "peak_live_nodes_sample=%zu policy_mode_builds=%zu "
               "policy_counter_constants=%zu policy_specialized_gates=%zu "
               "policy_unspecialized_gates=%zu policy_independent_gates=%zu "
@@ -4572,10 +4714,11 @@ finish:
               "successor_substitutions=%zu successor_applications=%zu",
               ck.options.effective_node_cap, ck.options.effective_cache_cap,
               ck.run.built_gates, ck.requested_roots, ck.setup_seconds,
-              ck.proof_seconds, ck.peak_nodes, ck.policy_mode_builds,
-              ck.policy_counter_constants, ck.policy_specialized_gates,
-              ck.policy_unspecialized_gates, ck.policy_independent_gates,
-              ck.policy_independent_roots, ck.policy_cross_mode_root_reuses,
+              ck.proof_seconds, options.retry_elapsed, options.legacy_order,
+              ck.peak_nodes, ck.policy_mode_builds, ck.policy_counter_constants,
+              ck.policy_specialized_gates, ck.policy_unspecialized_gates,
+              ck.policy_independent_gates, ck.policy_independent_roots,
+              ck.policy_cross_mode_root_reuses,
               ck.policy_dependent_gates_per_mode, ck.policy_full_cache_modes,
               ck.successor_substitutions, ck.successor_applications);
     if (options.method == METHOD_REGION)
@@ -4601,6 +4744,13 @@ finish:
   if (failure_out)
     *failure_out = ck.failure;
   cleanup(&ck);
+  profile_add(&ck, PROFILE_TEARDOWN, phase_started);
+  if (options.stats && !options.quiet) {
+    fprintf(stderr, "TLSFCERTCHECK_PHASES");
+    for (size_t i = 0; i < PROFILE_COUNT; i++)
+      fprintf(stderr, " %s=%.9f", profile_names[i], ck.profile[i]);
+    fputc('\n', stderr);
+  }
   free(owned_policy_json);
   free(owned_cert_json);
   return exit_code;

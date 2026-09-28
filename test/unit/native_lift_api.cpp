@@ -211,6 +211,11 @@ int main() {
   tlsf_gr1_check(&input, &check_options, &check);
   CHECK(check.verdict != TLSF_GR1_CHECK_VERIFIED);
   tlsf_gr1_check_result_clear(&check);
+  // A failed speculative certificate check retries with a fresh manager.
+  // The next call on this same thread must still create and release one.
+  input.certificate_aag = {(const uint8_t *)result.certificate_aag,
+                           result.certificate_size};
+  check_policy(original_policy, TLSF_GR1_CHECK_VERIFIED);
   free(bytes);
   tlsf_gr1_lift_result_clear(&result);
   CHECK(!result.game_aag);
