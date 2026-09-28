@@ -46,37 +46,6 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_MAX_ARTIFACT_BYTES (16u << 20)
 #define TLSF_GR1_LIFT_DEFAULT_MAX_MONITOR_STATES 10000u
 
-/* Optional additive profiling API. The caller zeroes this structure and keeps
- * it alive for the call. Timings use process CPU and CLOCK_MONOTONIC time.
- * A failed call retains the partial work and its final decline stage. */
-typedef enum {
-  TLSF_GR1_LIFT_STATS_SOURCE,
-  TLSF_GR1_LIFT_STATS_TARGET_REDUCE,
-  TLSF_GR1_LIFT_STATS_SEED_WINDOW,
-  TLSF_GR1_LIFT_STATS_SEED_SOLVE,
-  TLSF_GR1_LIFT_STATS_SCHEMA_LEARNING,
-  TLSF_GR1_LIFT_STATS_CANDIDATE_INSTANTIATION,
-  TLSF_GR1_LIFT_STATS_POLICY_EXPORT,
-  TLSF_GR1_LIFT_STATS_INTERNAL_CHECK,
-  TLSF_GR1_LIFT_STATS_PUBLISH,
-  TLSF_GR1_LIFT_STATS_COUNT
-} TlsfGr1LiftStatsStage;
-typedef struct {
-  uint64_t wall_ns, cpu_ns, calls;
-  int64_t rss_kb, peak_rss_kb;
-  uint64_t arena, hblkhd, uordblks, fordblks;
-} TlsfGr1LiftStageStats;
-typedef struct {
-  TlsfGr1LiftStageStats stages[TLSF_GR1_LIFT_STATS_COUNT];
-  uint64_t seed_probes, seeds_selected, seed_solves;
-  uint64_t target_latches, target_ands, seed_latches, seed_ands;
-  uint64_t monitor_count_total, monitor_states_total;
-  uint64_t schema_nodes_after_learning, schema_nodes_after_candidate;
-  uint64_t candidate_bytes, policy_bytes, internal_checks,
-      internal_check_peak_nodes;
-  char final_stage[48];
-} TlsfGr1LiftStats;
-
 typedef struct {
   uint64_t deadline_mono_ns;
   int (*cancelled)(void *);
@@ -116,24 +85,6 @@ TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const TlsfGr1LiftOptions *options,
                                 TlsfGr1LiftResult *result,
                                 TlsfGr1LiftError *error);
-/* The existing entry point retains the original options ABI. */
-TlsfGr1LiftStatus tlsf_gr1_lift_with_stats(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context);
-TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work);
 void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result);
 
 #ifdef __cplusplus

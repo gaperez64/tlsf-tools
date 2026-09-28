@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef __GLIBC__
@@ -1623,9 +1624,19 @@ static bool extract_environment_counterstrategy(
 // Solver
 // ---------------------------------------------------------------------------
 
+static uint64_t gr1_stats_clock(clockid_t clock) {
+  struct timespec ts = {0};
+  if (clock_gettime(clock, &ts))
+    return 0;
+  return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
 static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
                                  const OxiddSolveOptions *user_opts,
-                                 Gr1CertificateOptions *certificate) {
+                                 Gr1CertificateOptions *certificate,
+                                 Gr1CertificateStats *stats) {
+  uint64_t solve_wall = stats ? gr1_stats_clock(CLOCK_MONOTONIC) : 0;
+  uint64_t solve_cpu = stats ? gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) : 0;
   OxiddSolveOptions defaults = oxidd_solve_options_default();
   const OxiddSolveOptions *opts = user_opts ? user_opts : &defaults;
   if (opts->failure)
@@ -2443,6 +2454,13 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
 
   if (ok && oxidd_run_stopped(run))
     ok = false;
+  if (stats) {
+    stats->solve_wall_ns = gr1_stats_clock(CLOCK_MONOTONIC) - solve_wall;
+    stats->solve_cpu_ns = gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - solve_cpu;
+    stats->nodes_at_export = oxidd_bdd_manager_approx_num_inner_nodes(m);
+  }
+  uint64_t export_wall = stats ? gr1_stats_clock(CLOCK_MONOTONIC) : 0;
+  uint64_t export_cpu = stats ? gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) : 0;
   if (ok && want_policy && !*unreal) {
     oxidd_phase(run, "policy");
     if (!export_policy(run, game, certificate, original_nlat, m_goals, nin,
@@ -2505,6 +2523,14 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
     aig_free(strat);
     strat = nullptr;
   }
+  if (stats) {
+    stats->export_wall_ns = gr1_stats_clock(CLOCK_MONOTONIC) - export_wall;
+    stats->export_cpu_ns =
+        gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - export_cpu;
+    stats->nodes_before_teardown = oxidd_bdd_manager_approx_num_inner_nodes(m);
+  }
+  uint64_t teardown_wall = stats ? gr1_stats_clock(CLOCK_MONOTONIC) : 0;
+  uint64_t teardown_cpu = stats ? gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) : 0;
 
   // -----------------------------------------------------------------------
   // Cleanup.
@@ -2605,6 +2631,11 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
   free(uvars);
   free(cinput);
   free(uinput);
+  if (stats) {
+    stats->teardown_wall_ns = gr1_stats_clock(CLOCK_MONOTONIC) - teardown_wall;
+    stats->teardown_cpu_ns =
+        gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) - teardown_cpu;
+  }
   aig_free(game);
   return strat;
 }
@@ -2713,15 +2744,18 @@ static void clear_export_outputs(Gr1CertificateOptions *certificate) {
     *certificate->policy_json_size = 0;
 }
 
-Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                         const OxiddSolveOptions *options,
-                                         Gr1CertificateOptions *certificate) {
+Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
+    Aig *game, int *unreal, const OxiddSolveOptions *options,
+    Gr1CertificateOptions *certificate, Gr1CertificateStats *stats) {
+  if (stats)
+    memset(stats, 0, sizeof *stats);
   OxiddSolveOptions resolved =
       options ? *options : oxidd_solve_options_default();
   OxiddFailure failure = {0};
   resolved.failure = &failure;
   if (!certificate) {
-    Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr);
+    Aig *strategy =
+        solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr, stats);
     if (options && options->failure)
       *options->failure = failure;
     return strategy;
@@ -2765,7 +2799,7 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   staged.json_size = requested[1] ? &sizes[1] : nullptr;
   staged.policy_aag_size = requested[2] ? &sizes[2] : nullptr;
   staged.policy_json_size = requested[3] ? &sizes[3] : nullptr;
-  Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, &staged);
+  Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, &staged, stats);
   certificate->failed = staged.failed;
   memcpy(certificate->error, staged.error, sizeof certificate->error);
   bool ok = !staged.failed && failure.kind == OXIDD_FAILURE_NONE &&
@@ -2828,6 +2862,13 @@ Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
   if (options && options->failure)
     *options->failure = failure;
   return strategy;
+}
+
+Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
+                                         const OxiddSolveOptions *options,
+                                         Gr1CertificateOptions *certificate) {
+  return solve_gr1_oxidd_ex_with_certificate_and_stats(game, unreal, options,
+                                                       certificate, nullptr);
 }
 
 Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
