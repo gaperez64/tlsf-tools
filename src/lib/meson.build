@@ -18,7 +18,6 @@ bison_out = custom_target(
 
 build_info_conf = configuration_data()
 build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
-build_info_conf.set_quoted('TLSF_BUILD_OXIDD_PATCH', oxidd_patch_record)
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
 configure_file(output: 'build_config.h', configuration: build_info_conf)
 
