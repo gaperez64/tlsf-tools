@@ -50,6 +50,7 @@ uint64_t now_ns() {
 }
 struct Config {
   TlsfGr1LiftOptions o{};
+  // The caller's budget, read live so a stats callback may tighten it.
   const TlsfGr1ConstructionBudget *budget = nullptr;
   TlsfGr1ConstructionWork *work = nullptr;
   TlsfGr1LiftStats *stats = nullptr;
@@ -265,21 +266,12 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   ro.cancel_ctx = cfg.o.cancel_ctx;
   ro.max_artifact_bytes = cfg.o.max_artifact_bytes;
   ro.max_monitor_states = cfg.o.max_monitor_states;
+  ro.budget = *cfg.budget;
   TlsfGr1ReductionStats reduction_stats{};
-  if (cfg.stats)
-    reduction_stats = {};
+  ro.stats = cfg.stats ? &reduction_stats : nullptr;
   TlsfGr1ReductionError err{};
-  TlsfGr1ConstructionWork reduction_work{};
-  auto status =
-      cfg.budget
-          ? tlsf_gr1_reduce_with_budget(pipeline.get(), &ro, &instance->r, &err,
-                                        cfg.stats ? &reduction_stats : nullptr,
-                                        nullptr, nullptr, cfg.budget,
-                                        &reduction_work)
-      : cfg.stats
-          ? tlsf_gr1_reduce_with_stats(pipeline.get(), &ro, &instance->r, &err,
-                                       &reduction_stats, nullptr, nullptr)
-          : tlsf_gr1_reduce(pipeline.get(), &ro, &instance->r, &err);
+  auto status = tlsf_gr1_reduce(pipeline.get(), &ro, &instance->r, &err);
+  const TlsfGr1ConstructionWork &reduction_work = reduction_stats.work;
   if (cfg.work) {
     auto add = [](uint64_t &dst, uint64_t value) {
       dst = value > UINT64_MAX - dst ? UINT64_MAX : dst + value;
@@ -737,14 +729,6 @@ void solve_seed(Instance &i, const Config &cfg) {
     decline("seed_solve", reason);
   auto copy = parse_aig(i.r.aag, i.r.aag_size);
   OxiddFailure failure{};
-  OxiddSolveOptions options = oxidd_solve_options_default();
-  options.node_cap = cfg.o.solver_nodes;
-  options.cache_cap = cfg.o.solver_cache;
-  options.deadline_mono_ns = cfg.o.deadline_mono_ns;
-  options.cancelled = cfg.o.cancelled;
-  options.cancel_ctx = cfg.o.cancel_ctx;
-  options.max_artifact_bytes = cfg.o.max_artifact_bytes;
-  options.failure = &failure;
   char *cert = nullptr, *meta = nullptr;
   size_t cert_size = 0, meta_size = 0;
   Gr1CertificateOptions export_options{};
@@ -754,9 +738,18 @@ void solve_seed(Instance &i, const Config &cfg) {
   export_options.json_bytes = &meta;
   export_options.json_size = &meta_size;
   export_options.max_artifact_bytes = cfg.o.max_artifact_bytes;
+  Gr1SolveOptions options{};
+  options.oxidd = oxidd_solve_options_default();
+  options.oxidd.node_cap = cfg.o.solver_nodes;
+  options.oxidd.cache_cap = cfg.o.solver_cache;
+  options.oxidd.deadline_mono_ns = cfg.o.deadline_mono_ns;
+  options.oxidd.cancelled = cfg.o.cancelled;
+  options.oxidd.cancel_ctx = cfg.o.cancel_ctx;
+  options.oxidd.max_artifact_bytes = cfg.o.max_artifact_bytes;
+  options.oxidd.failure = &failure;
+  options.certificate = &export_options;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
-      copy.release(), &unreal, &options, &export_options);
+  Aig *strategy = solve_gr1_oxidd(copy.release(), &unreal, &options);
   aig_free(strategy);
   std::unique_ptr<char, decltype(&free)> cert_guard(cert, &free),
       meta_guard(meta, &free);
@@ -2194,26 +2187,18 @@ extern "C" void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result) {
   free(result->evidence_json);
   memset(result, 0, sizeof *result);
 }
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_phase_budget_v2(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work,
-    const TlsfGr1LiftPhaseBudgetV2 *phase_budget) {
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift(const uint8_t *source, size_t source_size,
+              const ParamOverride *target_overrides,
+              size_t target_override_count, const TlsfGr1LiftOptions *options,
+              TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
+  TlsfGr1LiftStats *stats = options ? options->stats : nullptr;
   if (stats)
     memset(stats, 0, sizeof *stats);
-  if (work)
-    memset(work, 0, sizeof *work);
   if (error)
     memset(error, 0, sizeof *error);
   if (!result || !source || !source_size ||
-      (target_override_count && !target_overrides) ||
-      (budget && (budget->size != sizeof *budget || !work)) ||
-      (phase_budget && phase_budget->size != sizeof *phase_budget)) {
+      (target_override_count && !target_overrides)) {
     if (error) {
       error->status = TLSF_GR1_LIFT_INVALID;
       snprintf(error->stage, sizeof error->stage, "arguments");
@@ -2233,18 +2218,21 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_phase_budget_v2(
   }
   memset(result, 0, sizeof *result);
   try {
-    Config cfg{defaults(options), budget,       work, stats,
-               stats_callback,    stats_context};
-    if (phase_budget) {
-      if (phase_budget->max_seed_probes)
-        cfg.max_seed_probes = phase_budget->max_seed_probes;
-      if (phase_budget->max_discovery_bdd_ops)
-        cfg.max_bdd_ops = phase_budget->max_discovery_bdd_ops;
-      if (phase_budget->max_policy_bdd_ops)
-        cfg.max_policy_bdd_ops = phase_budget->max_policy_bdd_ops;
-      if (phase_budget->policy_proof_ns)
-        cfg.policy_proof_ns = phase_budget->policy_proof_ns;
-    }
+    Config cfg{defaults(options)};
+    cfg.budget = options ? &options->budget : &cfg.o.budget;
+    cfg.stats = stats;
+    cfg.work = stats ? &stats->work : nullptr;
+    cfg.stats_callback = cfg.o.stats_callback;
+    cfg.stats_context = cfg.o.stats_context;
+    const TlsfGr1LiftPhaseBudget &phase = cfg.o.phase_budget;
+    if (phase.max_seed_probes)
+      cfg.max_seed_probes = phase.max_seed_probes;
+    if (phase.max_discovery_bdd_ops)
+      cfg.max_bdd_ops = phase.max_discovery_bdd_ops;
+    if (phase.max_policy_bdd_ops)
+      cfg.max_policy_bdd_ops = phase.max_policy_bdd_ops;
+    if (phase.policy_proof_ns)
+      cfg.policy_proof_ns = phase.policy_proof_ns;
     std::map<std::string, int64_t> overrides;
     for (size_t p = 0; p < target_override_count; p++) {
       const ParamOverride &row = target_overrides[p];
@@ -2302,42 +2290,4 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_phase_budget_v2(
     }
     return TLSF_GR1_LIFT_ERROR;
   }
-}
-
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work) {
-  return tlsf_gr1_lift_with_phase_budget_v2(
-      source, source_size, target_overrides, target_override_count, options,
-      result, error, stats, stats_callback, stats_context, budget, work,
-      nullptr);
-}
-
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_with_stats(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context) {
-  return tlsf_gr1_lift_with_budget(
-      source, source_size, target_overrides, target_override_count, options,
-      result, error, stats, stats_callback, stats_context, nullptr, nullptr);
-}
-
-extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift(const uint8_t *source, size_t source_size,
-              const ParamOverride *target_overrides,
-              size_t target_override_count, const TlsfGr1LiftOptions *options,
-              TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
-  return tlsf_gr1_lift_with_stats(source, source_size, target_overrides,
-                                  target_override_count, options, result, error,
-                                  nullptr, nullptr, nullptr);
 }

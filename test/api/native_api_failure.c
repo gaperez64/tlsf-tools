@@ -70,10 +70,6 @@ static void deeper_failures(void) {
     char *bytes[4] = {0};
     size_t sizes[4] = {0};
     OxiddFailure failure = {0};
-    OxiddSolveOptions options = oxidd_solve_options_default();
-    options.node_cap = options.cache_cap = 1u << 16;
-    options.failure = &failure;
-    options.max_artifact_bytes = 1u << 20;
     Gr1CertificateOptions export = {
 
         .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
@@ -87,12 +83,16 @@ static void deeper_failures(void) {
         .policy_json_size = &sizes[3],
         .max_artifact_bytes = 1u << 20,
     };
+    Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default(),
+                               .certificate = &export};
+    options.oxidd.node_cap = options.oxidd.cache_cap = 1u << 16;
+    options.oxidd.failure = &failure;
+    options.oxidd.max_artifact_bytes = 1u << 20;
     Aig *game = game_new();
     export_calls = 0;
     fail_export_at = injection;
     int unreal = 0;
-    Aig *strategy =
-        solve_gr1_oxidd_ex_with_certificate(game, &unreal, &options, &export);
+    Aig *strategy = solve_gr1_oxidd(game, &unreal, &options);
     fail_export_at = 0;
     if (injection) {
       assert(!strategy && !unreal && export.failed);
@@ -112,13 +112,13 @@ static void deeper_failures(void) {
       free(bytes[i]);
   }
   OxiddFailure solver_failure = {0};
-  OxiddSolveOptions solver_options = oxidd_solve_options_default();
-  solver_options.node_cap = solver_options.cache_cap = 1u << 16;
-  solver_options.failure = &solver_failure;
+  Gr1SolveOptions solver_options = {.oxidd = oxidd_solve_options_default()};
+  solver_options.oxidd.node_cap = solver_options.oxidd.cache_cap = 1u << 16;
+  solver_options.oxidd.failure = &solver_failure;
   realloc_calls = 0;
   fail_realloc_at = 1;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex(game_new(), &unreal, &solver_options);
+  Aig *strategy = solve_gr1_oxidd(game_new(), &unreal, &solver_options);
   fail_realloc_at = 0;
   assert(realloc_calls > 0);
   assert(!strategy && !unreal && solver_failure.kind != OXIDD_FAILURE_NONE);

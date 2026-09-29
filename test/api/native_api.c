@@ -56,11 +56,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
   Aig *game = parse_game(game_text);
   char reason[128];
   assert(tlsf_gr1_validate_game(game, reason, sizeof reason));
-  OxiddSolveOptions options = oxidd_solve_options_default();
   OxiddFailure failure = {0};
-  options.failure = &failure;
-  options.node_cap = options.cache_cap = 1u << 16;
-  options.max_artifact_bytes = 1u << 20;
   char *cert = NULL, *cert_json = NULL, *policy = NULL, *policy_json = NULL;
   size_t cert_size = 0, cert_json_size = 0, policy_size = 0;
   size_t policy_json_size = 0;
@@ -77,9 +73,16 @@ static void roundtrip(const char *game_text, int expect_unreal) {
       .policy_json_size = &policy_json_size,
       .max_artifact_bytes = 1u << 20,
   };
+  Gr1CertificateStats stats = {0};
+  Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default(),
+                             .certificate = &export,
+                             .stats = &stats};
+  options.oxidd.failure = &failure;
+  options.oxidd.node_cap = options.oxidd.cache_cap = 1u << 16;
+  options.oxidd.max_artifact_bytes = 1u << 20;
   int unreal = 0;
-  Aig *strategy =
-      solve_gr1_oxidd_ex_with_certificate(game, &unreal, &options, &export);
+  Aig *strategy = solve_gr1_oxidd(game, &unreal, &options);
+  assert(stats.solve_wall_ns);
   assert(unreal == expect_unreal);
   assert(failure.kind == OXIDD_FAILURE_NONE && !export.failed);
   assert((strategy != NULL) == !unreal);
@@ -238,11 +241,11 @@ static void mid_compile_cancellation(void) {
       .policy_json_size = &sizes[3],
       .max_artifact_bytes = 1u << 20,
   };
-  OxiddSolveOptions options = oxidd_solve_options_default();
-  options.node_cap = options.cache_cap = 1u << 16;
+  Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default(),
+                             .certificate = &export};
+  options.oxidd.node_cap = options.oxidd.cache_cap = 1u << 16;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
-      parse_game(game_text), &unreal, &options, &export);
+  Aig *strategy = solve_gr1_oxidd(parse_game(game_text), &unreal, &options);
   assert(strategy && !unreal && !export.failed);
   aig_free(strategy);
   TlsfGr1CheckInput input = {
@@ -278,21 +281,21 @@ static void mid_compile_cancellation(void) {
 }
 
 static void solver_limits(void) {
-  OxiddSolveOptions options = oxidd_solve_options_default();
+  Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default()};
   OxiddFailure failure = {0};
-  options.failure = &failure;
-  options.node_cap = options.cache_cap = 1u << 16;
-  options.cancelled = cancelled;
+  options.oxidd.failure = &failure;
+  options.oxidd.node_cap = options.oxidd.cache_cap = 1u << 16;
+  options.oxidd.cancelled = cancelled;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex(parse_game(real_game), &unreal, &options);
+  Aig *strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal);
   assert(failure.kind == OXIDD_FAILURE_CANCELLED);
-  options.cancelled = NULL;
-  options.deadline_mono_ns = 1;
-  strategy = solve_gr1_oxidd_ex(parse_game(real_game), &unreal, &options);
+  options.oxidd.cancelled = NULL;
+  options.oxidd.deadline_mono_ns = 1;
+  strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal);
   assert(failure.kind == OXIDD_FAILURE_DEADLINE);
-  options.deadline_mono_ns = 0;
+  options.oxidd.deadline_mono_ns = 0;
   char *certificate = NULL;
   size_t certificate_size = 0;
   Gr1CertificateOptions export = {
@@ -302,8 +305,8 @@ static void solver_limits(void) {
       .aag_size = &certificate_size,
       .max_artifact_bytes = 1,
   };
-  strategy = solve_gr1_oxidd_ex_with_certificate(parse_game(real_game), &unreal,
-                                                 &options, &export);
+  options.certificate = &export;
+  strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal && export.failed);
   assert(!certificate && !certificate_size);
   free(certificate);
@@ -323,8 +326,8 @@ static void solver_limits(void) {
       .max_artifact_bytes = 500,
   };
   failure = (OxiddFailure){0};
-  strategy = solve_gr1_oxidd_ex_with_certificate(parse_game(real_game), &unreal,
-                                                 &options, &partial);
+  options.certificate = &partial;
+  strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal && partial.failed);
   assert(failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT);
   assert(!aag && !json && !policy && !policy_json);
@@ -332,11 +335,12 @@ static void solver_limits(void) {
   Gr1CertificateOptions invalid_export = {
 
       .aag_bytes = &certificate};
-  strategy = solve_gr1_oxidd_ex_with_certificate(parse_game(real_game), &unreal,
-                                                 &options, &invalid_export);
+  options.certificate = &invalid_export;
+  strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal && invalid_export.failed);
   assert(failure.kind == OXIDD_FAILURE_INVALID);
-  strategy = solve_gr1_oxidd_ex(parse_game(real_game), NULL, &options);
+  options.certificate = NULL;
+  strategy = solve_gr1_oxidd(parse_game(real_game), NULL, &options);
   assert(!strategy && failure.kind == OXIDD_FAILURE_INVALID);
 }
 
@@ -417,11 +421,11 @@ static void export_game_file(const char *game_path,
       .policy_json_size = &policy_json_size,
       .max_artifact_bytes = 1u << 20,
   };
-  OxiddSolveOptions options = oxidd_solve_options_default();
-  options.max_artifact_bytes = 1u << 20;
+  Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default(),
+                             .certificate = &export};
+  options.oxidd.max_artifact_bytes = 1u << 20;
   int unreal = 0;
-  Aig *strategy =
-      solve_gr1_oxidd_ex_with_certificate(game, &unreal, &options, &export);
+  Aig *strategy = solve_gr1_oxidd(game, &unreal, &options);
   assert(!export.failed && (strategy || unreal));
   aig_free(strategy);
   assert(cert && cert_json && policy && policy_json);

@@ -68,6 +68,12 @@ static int mutate_after_snapshot(void *raw) {
     ctx->bytes[0] = 'X';
   return 0;
 }
+static void tighten_rss_after_window(void *context,
+                                     TlsfGr1LiftStatsStage stage,
+                                     const TlsfGr1LiftStageStats *) {
+  if (stage == TLSF_GR1_LIFT_STATS_SEED_WINDOW)
+    static_cast<TlsfGr1LiftOptions *>(context)->budget.max_rss_bytes = 1;
+}
 static TlsfGr1LiftOptions options() {
   TlsfGr1LiftOptions o{};
 
@@ -93,11 +99,6 @@ int main() {
   auto o = options();
   CHECK(lift(nonparam, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
-  o.policy_proof_fraction = -1;
-  o.discovery_share = -1;
-  CHECK(lift(nonparam, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
-  CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
-  o = options();
   CHECK(lift(nonparam_moore, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
   CHECK(lift(encoded_width, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
@@ -243,13 +244,8 @@ int main() {
         tlsf_json::serialize(baseline_seeds));
   tlsf_gr1_lift_result_clear(&result);
   o = options();
-  TlsfGr1LiftPhaseBudgetV2 phase_budget{};
-  phase_budget.size = sizeof phase_budget;
-  phase_budget.policy_proof_ns = 1;
-  CHECK(tlsf_gr1_lift_with_phase_budget_v2(
-            (const uint8_t *)source, strlen(source), nullptr, 0, &o, &result,
-            &error, nullptr, nullptr, nullptr, nullptr, nullptr,
-            &phase_budget) == TLSF_GR1_LIFT_OK);
+  o.phase_budget.policy_proof_ns = 1;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
   CHECK(result.method == TLSF_GR1_CHECK_REGION);
   CHECK(result.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
   CHECK(!result.policy_aag && result.check_json);
@@ -257,6 +253,30 @@ int main() {
   CHECK(region_evidence.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
   CHECK(!region_evidence.if_contains("policy_sha256"));
   tlsf_gr1_lift_result_clear(&result);
+  o = options();
+  o.phase_budget.max_discovery_bdd_ops = 1;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!result.game_aag && !result.certificate_aag);
+  o = options();
+  TlsfGr1LiftStats stats{};
+  o.stats = &stats;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(stats.seed_solves && stats.work.monitors_completed);
+  tlsf_gr1_lift_result_clear(&result);
+  o.budget.max_formula_nodes = 1;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!strcmp(error.stage, "budget-structure") &&
+        !strcmp(stats.final_stage, "budget-structure"));
+  CHECK(stats.work.formula_nodes > o.budget.max_formula_nodes);
+  o.budget.max_formula_nodes = 0;
+  // The budget is read live, so tightening it after the seed window makes
+  // lifting's own seed-stage check decline.
+  o.stats_callback = tighten_rss_after_window;
+  o.stats_context = &o;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!strcmp(error.stage, "budget-memory") && strstr(error.message, "seed"));
+  CHECK(stats.work.peak_rss_bytes > o.budget.max_rss_bytes);
+  CHECK(!result.game_aag && !result.certificate_aag);
   std::string mutable_source(source);
   Mutate mutation{mutable_source.data(), 0};
   o = options();

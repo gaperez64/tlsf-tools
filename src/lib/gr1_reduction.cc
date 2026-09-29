@@ -67,12 +67,10 @@ struct StatsScope {
                    const TlsfGr1ReductionStageStats *);
   void *context;
   uint64_t wall = 0, cpu = 0;
-  StatsScope(TlsfGr1ReductionStats *stats_arg,
-             void (*callback_arg)(void *, TlsfGr1ReductionStatsStage,
-                                  const TlsfGr1ReductionStageStats *),
-             void *context_arg, TlsfGr1ReductionStatsStage which) noexcept
-      : stats(stats_arg), stage(which), callback(callback_arg),
-        context(context_arg) {
+  StatsScope(const TlsfGr1ReductionOptions &options,
+             TlsfGr1ReductionStatsStage which) noexcept
+      : stats(options.stats), stage(which), callback(options.stats_callback),
+        context(options.stats_context) {
     if (stats) {
       wall = stats_clock(CLOCK_MONOTONIC);
       cpu = stats_clock(CLOCK_PROCESS_CPUTIME_ID);
@@ -115,10 +113,11 @@ struct Failure : std::runtime_error {
 };
 
 struct Limits {
+  // The caller's options; the budget is read live at each check.
   const TlsfGr1ReductionOptions &options;
-  const TlsfGr1ConstructionBudget *budget = nullptr;
-  TlsfGr1ConstructionWork *work = nullptr;
+  TlsfGr1ConstructionWork &work;
   void check(const char *stage) const {
+    const TlsfGr1ConstructionBudget &budget = options.budget;
     if (options.cancelled && options.cancelled(options.cancel_ctx))
       throw Failure(TLSF_GR1_REDUCE_CANCELLED, stage, "cancelled");
     if (options.deadline_mono_ns) {
@@ -129,14 +128,13 @@ struct Limits {
       if (ns >= options.deadline_mono_ns)
         throw Failure(TLSF_GR1_REDUCE_DEADLINE, stage, "deadline exceeded");
     }
-    if (budget && budget->max_rss_bytes) {
+    if (budget.max_rss_bytes) {
       rusage usage{};
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
         const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
         const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
-        if (work)
-          work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
-        if (peak > budget->max_rss_bytes)
+        work.peak_rss_bytes = std::max(work.peak_rss_bytes, peak);
+        if (peak > budget.max_rss_bytes)
           throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-memory",
                         "construction RSS peak exceeded arm memory share");
       }
@@ -183,10 +181,8 @@ Shape shape(Formula formula, uint64_t depth = 0) {
 void precheck(const std::vector<Formula> &assumptions,
               const std::vector<Formula> &guarantees, uint64_t ap_count,
               const Limits &limits) {
-  if (!limits.budget)
-    return;
-  auto &b = *limits.budget;
-  auto &w = *limits.work;
+  auto &b = limits.options.budget;
+  auto &w = limits.work;
   w.ap_count = ap_count;
   w.conjuncts =
       checked_add(assumptions.size(), guarantees.size(), "budget-structure");
@@ -493,22 +489,23 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
   // The raw nondeterministic graph may be larger than its final monitor.
   // The aborter bounds that fallback output; completed monitors are checked
   // below.
-  if (initially_deterministic && limits.budget &&
-      ((limits.budget->max_total_states &&
-        automaton->num_states() > limits.budget->max_total_states) ||
-       (limits.budget->max_total_edges &&
-        automaton->num_edges() > limits.budget->max_total_edges)))
+  const TlsfGr1ConstructionBudget &budget = limits.options.budget;
+  if (initially_deterministic &&
+      ((budget.max_total_states &&
+        automaton->num_states() > budget.max_total_states) ||
+       (budget.max_total_edges &&
+        automaton->num_edges() > budget.max_total_edges)))
     throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-translate",
                   "Spot translation exceeded state or edge limit");
   if (!initially_deterministic) {
     fallback_used = true;
     const unsigned remaining_states =
-        limits.budget && limits.budget->max_total_states
-            ? limits.budget->max_total_states - unsigned(limits.work->states)
+        budget.max_total_states
+            ? budget.max_total_states - unsigned(limits.work.states)
             : ~0u;
     const unsigned remaining_edges =
-        limits.budget && limits.budget->max_total_edges
-            ? limits.budget->max_total_edges - unsigned(limits.work->edges)
+        budget.max_total_edges
+            ? budget.max_total_edges - unsigned(limits.work.edges)
             : ~0u;
     const unsigned states =
         std::min(limits.options.max_monitor_states, remaining_states);
@@ -527,14 +524,13 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
           reason.str().find("states required") != std::string::npos;
       const bool edge_limit =
           reason.str().find("edges required") != std::string::npos;
-      if (limits.budget && limits.work &&
-          ((state_limit &&
-            remaining_states <= limits.options.max_monitor_states) ||
-           (edge_limit && limits.budget->max_total_edges))) {
+      if ((state_limit &&
+           remaining_states <= limits.options.max_monitor_states) ||
+          (edge_limit && budget.max_total_edges)) {
         if (state_limit)
-          limits.work->states += uint64_t(states) + 1;
+          limits.work.states += uint64_t(states) + 1;
         if (edge_limit)
-          limits.work->edges += uint64_t(edges) + 1;
+          limits.work.edges += uint64_t(edges) + 1;
         throw Failure(TLSF_GR1_REDUCE_LIMIT,
                       state_limit ? "budget-monitor-states"
                                   : "budget-monitor-edges",
@@ -560,11 +556,10 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
       spot_call(limits, "sbacc", [&] { return spot::sbacc(automaton); });
   automaton =
       spot_call(limits, "complete", [&] { return spot::complete(automaton); });
-  if (limits.budget &&
-      ((limits.budget->max_total_states &&
-        automaton->num_states() > limits.budget->max_total_states) ||
-       (limits.budget->max_total_edges &&
-        automaton->num_edges() > limits.budget->max_total_edges)))
+  if ((budget.max_total_states &&
+       automaton->num_states() > budget.max_total_states) ||
+      (budget.max_total_edges &&
+       automaton->num_edges() > budget.max_total_edges))
     throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
                   "completed monitor exceeded state or edge limit");
   if (!spot_call(limits, "determinism",
@@ -1404,18 +1399,13 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
   *result = {};
 }
 
-extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_budget(
-    const TlsfPipeline *pipeline, const TlsfGr1ReductionOptions *options,
-    TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
-    TlsfGr1ReductionStats *stats,
-    void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
-                           const TlsfGr1ReductionStageStats *),
-    void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work) {
+extern "C" TlsfGr1ReductionStatus
+tlsf_gr1_reduce(const TlsfPipeline *pipeline,
+                const TlsfGr1ReductionOptions *options,
+                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
+  TlsfGr1ReductionStats *stats = options ? options->stats : nullptr;
   if (stats)
     *stats = {};
-  if (work)
-    *work = {};
   if (result && (result->game || result->aag || result->aag_size ||
                  result->metadata_json || result->metadata_size ||
                  result->provenance_json || result->provenance_size ||
@@ -1426,16 +1416,17 @@ extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_budget(
   if (!pipeline || !pipeline->spec || !pipeline->source_bytes ||
       !pipeline->source_size || !options || !result ||
       !options->max_artifact_bytes || !options->max_monitor_states ||
-      (budget && (budget->size != sizeof *budget || !work)) ||
       (options->semantics != TLSF_GR1_EXACT &&
        options->semantics != TLSF_GR1_STRICT)) {
     report(error, TLSF_GR1_REDUCE_INVALID, "reduce", "invalid argument");
     return TLSF_GR1_REDUCE_INVALID;
   }
+  TlsfGr1ConstructionWork local_work{};
+  TlsfGr1ConstructionWork &work = stats ? stats->work : local_work;
+  const TlsfGr1ConstructionBudget &budget = options->budget;
   try {
-    StatsScope source_stats(stats, stats_callback, stats_context,
-                            TLSF_GR1_REDUCE_STATS_SOURCE);
-    Limits limits{*options, budget, work};
+    StatsScope source_stats(*options, TLSF_GR1_REDUCE_STATS_SOURCE);
+    Limits limits{*options, work};
     limits.check("reduce");
     char snapshot_sha256[65];
     sha256_hex(pipeline->source_bytes, pipeline->source_size, snapshot_sha256);
@@ -1483,29 +1474,22 @@ extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_budget(
     }
     precheck(assumptions, guarantees, ap_names(formula).size(), limits);
     source_stats.finish();
-    StatsScope monitor_stats(stats, stats_callback, stats_context,
-                             TLSF_GR1_REDUCE_STATS_MONITORS);
+    StatsScope monitor_stats(*options, TLSF_GR1_REDUCE_STATS_MONITORS);
     std::vector<Monitor> monitors;
-    uint64_t total_states = 0;
     auto append = [&](Formula item, bool assumption) {
       Monitor monitor = make_monitor(item, assumption, limits);
-      total_states = checked_add(total_states, monitor.automaton->num_states(),
-                                 "budget-monitor");
-      if (work) {
-        work->states = checked_add(
-            work->states, monitor.automaton->num_states(), "budget-monitor");
-        work->edges = checked_add(work->edges, monitor.automaton->num_edges(),
-                                  "budget-monitor");
-        work->monitors_completed++;
-        if ((budget->max_total_states &&
-             work->states > budget->max_total_states) ||
-            (budget->max_total_edges && work->edges > budget->max_total_edges))
-          throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
-                        "total monitor state or edge limit exceeded");
-      }
+      work.states = checked_add(work.states, monitor.automaton->num_states(),
+                                "budget-monitor");
+      work.edges = checked_add(work.edges, monitor.automaton->num_edges(),
+                               "budget-monitor");
+      work.monitors_completed++;
+      if ((budget.max_total_states && work.states > budget.max_total_states) ||
+          (budget.max_total_edges && work.edges > budget.max_total_edges))
+        throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
+                      "total monitor state or edge limit exceeded");
       if (stats)
-        stats->monitor_states = total_states;
-      if (total_states > options->max_monitor_states)
+        stats->monitor_states = work.states;
+      if (work.states > options->max_monitor_states)
         throw Failure(TLSF_GR1_REDUCE_LIMIT, "monitor",
                       "total monitor state cap exceeded");
       monitors.push_back(std::move(monitor));
@@ -1518,16 +1502,14 @@ extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_budget(
       append(item, false);
     if (stats) {
       stats->monitor_count = monitors.size();
-      stats->monitor_states = total_states;
+      stats->monitor_states = work.states;
     }
     monitor_stats.finish();
-    StatsScope encode_stats(stats, stats_callback, stats_context,
-                            TLSF_GR1_REDUCE_STATS_ENCODE);
+    StatsScope encode_stats(*options, TLSF_GR1_REDUCE_STATS_ENCODE);
     bool strict = options->semantics == TLSF_GR1_STRICT;
     Encoded encoded = encode(monitors, inputs, outputs, strict, limits);
     encode_stats.finish();
-    StatsScope publish_stats(stats, stats_callback, stats_context,
-                             TLSF_GR1_REDUCE_STATS_PUBLISH);
+    StatsScope publish_stats(*options, TLSF_GR1_REDUCE_STATS_PUBLISH);
     std::string provenance_json = json::serialize(provenance(
         pipeline, monitors, inputs, outputs, symbols, strict, encoded, limits));
     provenance_json += '\n';
@@ -1596,24 +1578,4 @@ extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_budget(
     report(error, TLSF_GR1_REDUCE_ERROR, "reduce", "unknown exception");
     return TLSF_GR1_REDUCE_ERROR;
   }
-}
-
-extern "C" TlsfGr1ReductionStatus tlsf_gr1_reduce_with_stats(
-    const TlsfPipeline *pipeline, const TlsfGr1ReductionOptions *options,
-    TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
-    TlsfGr1ReductionStats *stats,
-    void (*stats_callback)(void *, TlsfGr1ReductionStatsStage,
-                           const TlsfGr1ReductionStageStats *),
-    void *stats_context) {
-  return tlsf_gr1_reduce_with_budget(pipeline, options, result, error, stats,
-                                     stats_callback, stats_context, nullptr,
-                                     nullptr);
-}
-
-extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce(const TlsfPipeline *pipeline,
-                const TlsfGr1ReductionOptions *options,
-                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
-  return tlsf_gr1_reduce_with_stats(pipeline, options, result, error, nullptr,
-                                    nullptr, nullptr);
 }

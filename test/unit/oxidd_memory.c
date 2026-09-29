@@ -432,7 +432,8 @@ static void sessions(void) {
     CHECK(verdict.status == OXIDD_SOLVE_REALIZABLE && !verdict.strategy);
     opts.demand_transitions = false;
     opts.realizability_only = false;
-    strat = solve_gr1_oxidd_ex(read_game(gr1), &unreal, &opts);
+    strat = solve_gr1_oxidd(read_game(gr1), &unreal,
+                            &(Gr1SolveOptions){.oxidd = opts});
     CHECK(strat && !unreal);
     aig_free(strat);
   }
@@ -447,7 +448,8 @@ static void sessions(void) {
         OxiddFailure failure = {0};
         opts.failure = &failure;
         int unreal = -1;
-        Aig *strat = kind ? solve_gr1_oxidd_ex(game, &unreal, &opts)
+        Aig *strat = kind ? solve_gr1_oxidd(game, &unreal,
+                                            &(Gr1SolveOptions){.oxidd = opts})
                           : solve_safety_oxidd_ex(game, &unreal, &opts);
         CHECK(failures == 0 && !unreal);
         if (n == 1)
@@ -464,7 +466,9 @@ static void sessions(void) {
   opts.failure = &allocation_failure;
   fail_realloc = true;
   int failed_unreal = -1;
-  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && !failed_unreal);
+  CHECK(!solve_gr1_oxidd(game, &failed_unreal,
+                         &(Gr1SolveOptions){.oxidd = opts}) &&
+        !failed_unreal);
   CHECK(!fail_realloc);
   CHECK(allocation_failure.kind == OXIDD_FAILURE_HOST &&
         !strcmp(allocation_failure.operation, "realloc"));
@@ -479,7 +483,9 @@ static void sessions(void) {
   aig_add_justice(game, &impossible, 1, "impossible");
   aig_add_fairness(game, state, "even");
   aig_add_fairness(game, aig_not(state), "odd");
-  CHECK(!solve_gr1_oxidd_ex(game, &failed_unreal, &opts) && failed_unreal);
+  CHECK(!solve_gr1_oxidd(game, &failed_unreal,
+                         &(Gr1SolveOptions){.oxidd = opts}) &&
+        failed_unreal);
   opts.node_cap = 8192;
   OxiddFailure failure = {0};
   opts.failure = &failure;

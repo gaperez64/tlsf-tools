@@ -84,8 +84,8 @@ int main(void) {
   fclose(rewritten);
 
   int built_unreal = 0, read_unreal = 0;
-  Aig *built_strategy = solve_gr1_oxidd(built, &built_unreal);
-  Aig *read_strategy = solve_gr1_oxidd(read, &read_unreal);
+  Aig *built_strategy = solve_gr1_oxidd(built, &built_unreal, nullptr);
+  Aig *read_strategy = solve_gr1_oxidd(read, &read_unreal, nullptr);
   if (built_unreal != read_unreal || !built_strategy || !read_strategy) {
     fprintf(stderr, "round-trip changed the solver verdict\n");
     aig_free(built_strategy);

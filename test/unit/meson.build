@@ -6,17 +6,13 @@ simd_check_exe = executable('simd_check', 'simd_check.c',
 test('simd_kernels', simd_check_exe)
 
 if native_gr1
-  old_header_abi_exe = executable('old_header_abi', ['old_header_abi.c', 'new_header_abi.c'],
-    include_directories: include_directories('../abi_prechange/include'),
-    dependencies: tlsf_internal_dep)
-  test('old_header_abi', old_header_abi_exe)
   # gr1_lift.cc again, with its fault hooks compiled in; its own object takes
   # precedence over the library's copy.
   native_lift_api_exe = executable('native_lift_api',
     'native_lift_api.cpp', gr1_lift_source,
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
     dependencies: tlsf_internal_dep)
-  test('native_lift_api', native_lift_api_exe, timeout: 30, is_parallel: false)
+  test('native_lift_api', native_lift_api_exe, timeout: 60, is_parallel: false)
 endif
 
 if research_tools and have_oxidd

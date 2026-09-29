@@ -116,32 +116,45 @@ int main(void) {
   assert(strstr(result.metadata_json, "\"fallback_monitor_count\":1"));
   tlsf_gr1_reduction_clear(&result);
   options.max_monitor_states = 3;
-  TlsfGr1ConstructionBudget budget = {0};
-  TlsfGr1ConstructionWork work = {0};
-  budget.size = sizeof budget;
-  budget.max_total_states = 3;
-  assert(tlsf_gr1_reduce_with_budget(pipeline, &options, &result, &error, NULL,
-                                     NULL, NULL, &budget,
-                                     &work) == TLSF_GR1_REDUCE_LIMIT);
+  TlsfGr1ReductionStats stats = {0};
+  const TlsfGr1ConstructionWork *work = &stats.work;
+  options.stats = &stats;
+  options.budget.max_total_states = 3;
+  assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
+         TLSF_GR1_REDUCE_LIMIT);
   assert(strcmp(error.stage, "budget-monitor-states") == 0);
-  assert(work.states > budget.max_total_states && work.monitors_completed == 0);
+  assert(work->states > options.budget.max_total_states &&
+         work->monitors_completed == 0);
   assert(!result.game && !result.aag);
-  budget.max_total_states = 0;
+  options.budget.max_total_states = 0;
   int edge_abort_seen = 0;
   for (unsigned edge_cap = 1; edge_cap <= 32 && !edge_abort_seen; ++edge_cap) {
-    budget.max_total_edges = edge_cap;
-    work = (TlsfGr1ConstructionWork){0};
-    assert(tlsf_gr1_reduce_with_budget(pipeline, &options, &result, &error,
-                                       NULL, NULL, NULL, &budget,
-                                       &work) == TLSF_GR1_REDUCE_LIMIT);
+    options.budget.max_total_edges = edge_cap;
+    assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
+           TLSF_GR1_REDUCE_LIMIT);
     assert(!result.game && !result.aag);
     if (strcmp(error.stage, "budget-monitor-edges") == 0) {
-      assert(work.edges > budget.max_total_edges &&
-             work.monitors_completed == 0);
+      assert(work->edges > options.budget.max_total_edges &&
+             work->monitors_completed == 0);
       edge_abort_seen = 1;
     }
   }
   assert(edge_abort_seen);
+  options.budget = (TlsfGr1ConstructionBudget){.max_formula_nodes = 1};
+  assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
+         TLSF_GR1_REDUCE_LIMIT);
+  assert(strcmp(error.stage, "budget-structure") == 0);
+  assert(work->formula_nodes > options.budget.max_formula_nodes);
+  assert(!result.game && !result.aag);
+  // With no budget the work counters are still reported.
+  options.budget = (TlsfGr1ConstructionBudget){0};
+  options.max_monitor_states = 4;
+  assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
+         TLSF_GR1_REDUCE_OK);
+  assert(stats.stages[TLSF_GR1_REDUCE_STATS_SOURCE].wall_ns);
+  assert(stats.monitor_count && work->monitors_completed == stats.monitor_count);
+  assert(work->formula_nodes && work->states == stats.monitor_states);
+  tlsf_gr1_reduction_clear(&result);
   tlsf_pipeline_free(pipeline);
   return 0;
 }

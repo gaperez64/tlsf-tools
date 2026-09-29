@@ -645,10 +645,11 @@ int main(int argc, char **argv) {
       free(default_policy_json);
       return 2;
     }
-    strat = certificate_path || policy_path
-                ? solve_gr1_oxidd_ex_with_certificate(game, &unreal, &opts,
-                                                      &certificate)
-                : solve_gr1_oxidd_ex(game, &unreal, &opts);
+    Gr1SolveOptions gr1_opts = {
+        .oxidd = opts,
+        .certificate = certificate_path || policy_path ? &certificate : nullptr,
+    };
+    strat = solve_gr1_oxidd(game, &unreal, &gr1_opts);
   } else {
     OxiddSolveResult result = solve_safety_oxidd_result(game, &opts);
     strat = result.strategy;

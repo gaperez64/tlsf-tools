@@ -22,21 +22,9 @@ Aig *solve_safety_oxidd_ex(Aig *game, int *unreal,
   return solve_safety_oxidd(game, unreal);
 }
 
-Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
+Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
+  (void)opts;
   *unreal = 0;
   aig_free(game);
   return nullptr;
-}
-
-Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
-  (void)opts;
-  return solve_gr1_oxidd(game, unreal);
-}
-
-Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                         const OxiddSolveOptions *opts,
-                                         Gr1CertificateOptions *certificate) {
-  (void)opts;
-  (void)certificate;
-  return solve_gr1_oxidd(game, unreal);
 }

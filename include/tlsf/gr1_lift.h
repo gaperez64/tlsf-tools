@@ -35,12 +35,8 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SIZES_PER_AXIS 6u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_PREDICATE_ARITY 4u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SUBSETS_PER_PREDICATE 2000u
-/* Deprecated names retained for source compatibility; neither value is used. */
-#define TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_FRACTION 0.75
-#define TLSF_GR1_LIFT_DEFAULT_DISCOVERY_SHARE 0.20
-/* Fixed per-run lifting work and proof budgets. The legacy fraction fields
- * below are ignored. Only tlsf_gr1_lift_with_phase_budget_v2 can override
- * these values; the absolute deadline remains a hard stop in every phase. */
+/* Fixed per-run lifting work and proof budgets, independent of the caller's
+ * caps; the absolute deadline remains a hard stop in every phase. */
 #define TLSF_GR1_LIFT_DEFAULT_SEED_PROBES 24u
 #define TLSF_GR1_LIFT_DEFAULT_DISCOVERY_BDD_OPS 2000000ull
 #define TLSF_GR1_LIFT_DEFAULT_POLICY_BDD_OPS 2000000ull
@@ -54,9 +50,9 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_MAX_ARTIFACT_BYTES (16u << 20)
 #define TLSF_GR1_LIFT_DEFAULT_MAX_MONITOR_STATES 10000u
 
-/* Optional additive profiling API. The caller zeroes this structure and keeps
- * it alive for the call. Timings use process CPU and CLOCK_MONOTONIC time.
- * A failed call retains the partial work and its final decline stage. */
+/* Optional profiling output. The call zeroes it first and keeps the partial
+ * work of a failed call and its final decline stage. Timings use process CPU
+ * and CLOCK_MONOTONIC time. */
 typedef enum {
   TLSF_GR1_LIFT_STATS_SOURCE,
   TLSF_GR1_LIFT_STATS_TARGET_REDUCE,
@@ -85,7 +81,17 @@ typedef struct {
   uint64_t candidate_bytes, policy_bytes, internal_checks,
       internal_check_peak_nodes;
   char final_stage[48];
+  /* Summed over every seed and target reduction, plus lifting's own RSS
+   * samples. */
+  TlsfGr1ConstructionWork work;
 } TlsfGr1LiftStats;
+
+/* Lifting phase budgets. A zero member selects the matching
+ * TLSF_GR1_LIFT_DEFAULT_* value above. */
+typedef struct {
+  uint64_t max_seed_probes, max_discovery_bdd_ops, max_policy_bdd_ops,
+      policy_proof_ns;
+} TlsfGr1LiftPhaseBudget;
 
 typedef struct {
   uint64_t deadline_mono_ns;
@@ -95,25 +101,27 @@ typedef struct {
   size_t schema_nodes, schema_cache, max_artifact_bytes;
   uint32_t max_monitor_states, max_sizes_per_axis, max_predicate_arity,
       max_subsets_per_predicate;
-  /* Deprecated and ignored. Retained for source and binary compatibility. */
-  double policy_proof_fraction, discovery_share;
   /* The Python default is true. Set to 2 to disable confirmation. */
   uint32_t seed_confirmation;
+  TlsfGr1LiftPhaseBudget phase_budget;
+  /* Applied to every reduction and to lifting's own RSS checks. As for
+   * reduction, zero members disable checks and the budget is read live. */
+  TlsfGr1ConstructionBudget budget;
+  /* Optional; null skips profiling. The callback, if any, receives each
+   * finished stage row and runs only when stats is set. */
+  TlsfGr1LiftStats *stats;
+  void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
+                         const TlsfGr1LiftStageStats *);
+  void *stats_context;
 } TlsfGr1LiftOptions;
-
-/* Opt-in v2 budgets. A zero member selects the fixed global default. */
-typedef struct {
-  size_t size;
-  uint64_t max_seed_probes, max_discovery_bdd_ops, max_policy_bdd_ops,
-      policy_proof_ns;
-} TlsfGr1LiftPhaseBudgetV2;
 
 typedef struct {
   TlsfGr1LiftStatus status;
   char stage[48], message[256];
 } TlsfGr1LiftError;
 
-/* Target overrides name actual source PARAMETERS, as in the pipeline API.
+/* A null options pointer selects every default. Target overrides name actual
+ * source PARAMETERS, as in the pipeline API.
  * Duplicates and unknown declarations are rejected. A successful result owns
  * in-memory target artifacts. Only a result with
  * TLSF_GR1_CHECK_VERIFIED or TLSF_GR1_CHECK_REGION_VERIFIED counts as REAL.
@@ -134,34 +142,6 @@ TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const TlsfGr1LiftOptions *options,
                                 TlsfGr1LiftResult *result,
                                 TlsfGr1LiftError *error);
-/* The existing entry point retains the original options ABI. */
-TlsfGr1LiftStatus tlsf_gr1_lift_with_stats(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context);
-TlsfGr1LiftStatus tlsf_gr1_lift_with_budget(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work);
-TlsfGr1LiftStatus tlsf_gr1_lift_with_phase_budget_v2(
-    const uint8_t *source, size_t source_size,
-    const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftResult *result,
-    TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
-    void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                           const TlsfGr1LiftStageStats *),
-    void *stats_context, const TlsfGr1ConstructionBudget *budget,
-    TlsfGr1ConstructionWork *work,
-    const TlsfGr1LiftPhaseBudgetV2 *phase_budget);
 void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result);
 
 #ifdef __cplusplus

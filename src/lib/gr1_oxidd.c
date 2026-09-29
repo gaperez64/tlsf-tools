@@ -2744,9 +2744,10 @@ static void clear_export_outputs(Gr1CertificateOptions *certificate) {
     *certificate->policy_json_size = 0;
 }
 
-Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
-    Aig *game, int *unreal, const OxiddSolveOptions *options,
-    Gr1CertificateOptions *certificate, Gr1CertificateStats *stats) {
+Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
+  const OxiddSolveOptions *options = opts ? &opts->oxidd : nullptr;
+  Gr1CertificateOptions *certificate = opts ? opts->certificate : nullptr;
+  Gr1CertificateStats *stats = opts ? opts->stats : nullptr;
   if (stats)
     memset(stats, 0, sizeof *stats);
   OxiddSolveOptions resolved =
@@ -2862,28 +2863,4 @@ Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
   if (options && options->failure)
     *options->failure = failure;
   return strategy;
-}
-
-Aig *solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                         const OxiddSolveOptions *options,
-                                         Gr1CertificateOptions *certificate) {
-  return solve_gr1_oxidd_ex_with_certificate_and_stats(game, unreal, options,
-                                                       certificate, nullptr);
-}
-
-Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal, const OxiddSolveOptions *opts) {
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, opts, nullptr);
-}
-
-static Aig *
-solve_gr1_oxidd_with_certificate_internal(Aig *game, int *unreal,
-                                          Gr1CertificateOptions *certificate) {
-  OxiddSolveOptions opts = oxidd_solve_options_default();
-  opts.safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT;
-  opts.safety_output_index = 0;
-  return solve_gr1_oxidd_ex_with_certificate(game, unreal, &opts, certificate);
-}
-
-Aig *solve_gr1_oxidd(Aig *game, int *unreal) {
-  return solve_gr1_oxidd_with_certificate_internal(game, unreal, nullptr);
 }
