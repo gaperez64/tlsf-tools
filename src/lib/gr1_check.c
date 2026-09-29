@@ -505,9 +505,14 @@ static bool duplicate_inputs_or_outputs(const Aig *aig, const char **kind,
   }
   for (uint32_t i = 0; i < aig_num_outputs(aig); i++) {
     const char *a = aig_output_at(aig, i, nullptr);
+    if (!a) {
+      *kind = "unnamed output";
+      *name = "";
+      return true;
+    }
     for (uint32_t j = i + 1; j < aig_num_outputs(aig); j++) {
       const char *b = aig_output_at(aig, j, nullptr);
-      if (!strcmp(a, b)) {
+      if (b && !strcmp(a, b)) {
         *kind = "duplicate output";
         *name = a;
         return true;
@@ -732,6 +737,14 @@ static bool validate_policy_interface(Checker *ck, char *message, size_t cap) {
 }
 
 static bool validate_game_names(Checker *ck, char *message, size_t cap) {
+  // aig_read_aag leaves an input without a symbol unnamed. Every comparison
+  // below, and every later use of a game input name, needs a name.
+  for (uint32_t p = 0; p < ck->nin; p++) {
+    if (!aig_input_name(ck->game, p, nullptr)) {
+      snprintf(message, cap, "unnamed game input %u", p);
+      return false;
+    }
+  }
   for (uint32_t p = 0; p < ck->nin; p++) {
     const char *left = aig_input_name(ck->game, p, nullptr);
     for (uint32_t q = p + 1; q < ck->nin; q++)
