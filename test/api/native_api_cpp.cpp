@@ -42,8 +42,6 @@ int main() {
   assert(game);
   char reason[128];
   assert(tlsf_gr1_validate_game(game, reason, sizeof reason));
-  OxiddSolveOptions solve_options = oxidd_solve_options_default();
-  solve_options.node_cap = solve_options.cache_cap = 1u << 16;
   char *certificate = nullptr;
   size_t certificate_size = 0;
   Gr1CertificateOptions export_options{};
@@ -51,9 +49,12 @@ int main() {
   export_options.aag_bytes = &certificate;
   export_options.aag_size = &certificate_size;
   export_options.max_artifact_bytes = 1u << 20;
+  Gr1SolveOptions solve_options{};
+  solve_options.oxidd = oxidd_solve_options_default();
+  solve_options.oxidd.node_cap = solve_options.oxidd.cache_cap = 1u << 16;
+  solve_options.certificate = &export_options;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd_ex_with_certificate(
-      game, &unreal, &solve_options, &export_options);
+  Aig *strategy = solve_gr1_oxidd(game, &unreal, &solve_options);
   assert(strategy && !unreal && !export_options.failed);
   assert(certificate_size > 0);
   aig_free(strategy);

@@ -47,15 +47,15 @@ typedef struct {
   size_t max_artifact_bytes; /* 0 = unlimited export */
 } Gr1CertificateOptions;
 
-[[nodiscard]] Aig *solve_gr1_oxidd_ex(Aig *game, int *unreal,
-                                      const OxiddSolveOptions *opts);
-[[nodiscard]] Aig *
-solve_gr1_oxidd_ex_with_certificate(Aig *game, int *unreal,
-                                    const OxiddSolveOptions *opts,
-                                    Gr1CertificateOptions *certificate);
-[[nodiscard]] Aig *solve_gr1_oxidd_ex_with_certificate_and_stats(
-    Aig *game, int *unreal, const OxiddSolveOptions *opts,
-    Gr1CertificateOptions *certificate, Gr1CertificateStats *stats);
+typedef struct {
+  /// Start from oxidd_solve_options_default(); a zeroed profile is not the
+  /// default one.
+  OxiddSolveOptions oxidd;
+  /// Optional certificate and policy export; null solves without export.
+  Gr1CertificateOptions *certificate;
+  /// Optional timing output; the call zeroes it first.
+  Gr1CertificateStats *stats;
+} Gr1SolveOptions;
 
 /* Validate the GR(1) AIGER profile before solving. */
 bool tlsf_gr1_validate_game(const Aig *game, char *message, size_t capacity);
@@ -69,8 +69,10 @@ bool tlsf_gr1_validate_game(const Aig *game, char *message, size_t capacity);
 /// uncontrollable inputs, the game's latches plus m one-hot goal-counter
 /// latches, and each controllable driven by a `controllable_<sig>` output.
 /// On loss sets `*unreal = 1` and returns nullptr.  On internal error returns
-/// nullptr without setting `*unreal` (caller should fall back).
-[[nodiscard]] Aig *solve_gr1_oxidd(Aig *game, int *unreal);
+/// nullptr without setting `*unreal` (caller should fall back).  A null `opts`
+/// solves with the default OxiDD profile, no export, and no stats.
+[[nodiscard]] Aig *solve_gr1_oxidd(Aig *game, int *unreal,
+                                   const Gr1SolveOptions *opts);
 
 #ifdef __cplusplus
 }

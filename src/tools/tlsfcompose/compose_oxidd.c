@@ -39,7 +39,7 @@ static Aig *solve_gr1_game(ConstraintCover *cov, const bool *seen, Aig *game,
                            int *unreal) {
   if (!game)
     return nullptr;
-  Aig *strat = solve_gr1_oxidd(game, unreal);
+  Aig *strat = solve_gr1_oxidd(game, unreal, nullptr);
   if (strat && !strategy_has_outputs(strat, cov, seen)) {
     aig_free(strat);
     strat = nullptr;

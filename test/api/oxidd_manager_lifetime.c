@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "tlsf/gr1_check.h"
 #include <oxidd/capi.h>
 
@@ -12,12 +13,13 @@
 #include <dirent.h>
 #include <errno.h>
 #include <sched.h>
+#include <time.h>
 #include <unistd.h>
 #endif
 
 #ifdef __linux__
-/* Observe the GC task itself so asynchronous retirement is an immediate test
- * failure even when the allocation error is timing dependent. */
+/* Observe the GC task itself so a leaked GC thread fails the test even when it
+ * causes no allocation error. */
 static long gc_thread_tid(void) {
   DIR *tasks = opendir("/proc/self/task");
   assert(tasks);
@@ -55,6 +57,15 @@ static bool gc_thread_alive(long tid) {
   assert(errno == ENOENT);
   return false;
 }
+
+/* OxiDD retires the GC thread asynchronously after the last reference is
+ * dropped; it normally exits within milliseconds. Only a leaked thread
+ * outlives this five-second bound. */
+static void await_gc_exit(long tid) {
+  for (unsigned ms = 0; ms < 5000 && gc_thread_alive(tid); ++ms)
+    nanosleep(&(struct timespec){.tv_nsec = 1000000}, NULL);
+  assert(!gc_thread_alive(tid));
+}
 #endif
 
 /* Both loops deliberately stay on the calling thread. Each check constructs
@@ -83,11 +94,7 @@ static void manager_lifetimes(void) {
     oxidd_bdd_unref(x);
     oxidd_bdd_manager_unref(manager);
 #ifdef __linux__
-    /* /proc can retain a task entry briefly even after pthread_join. */
-    for (unsigned attempt = 0; attempt < 1000 && gc_thread_alive(gc_tid);
-         ++attempt)
-      sched_yield();
-    assert(!gc_thread_alive(gc_tid));
+    await_gc_exit(gc_tid);
 #endif
   }
 }

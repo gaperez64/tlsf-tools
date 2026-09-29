@@ -57,7 +57,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             external/oxidd/target
-          key: oxidd-gc-thread-retirement-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'patches/oxidd-gc-thread-retirement.patch') }}
+          key: oxidd-ffi-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh') }}
       - name: Install cbindgen
         run: |
           if ! command -v cbindgen >/dev/null || \
@@ -74,7 +74,6 @@ jobs:
           path: |
             external/oxidd/target/release/liboxidd_ffi_c.a
             external/oxidd/build/include
-            external/oxidd/build/oxidd-gc-thread-retirement-info.txt
           if-no-files-found: error
           retention-days: 1
 
@@ -199,8 +198,6 @@ jobs:
         with:
           name: oxidd-ffi
           path: external/oxidd
-      - name: Apply OxiDD source patch
-        run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
       - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
           CC: gcc-14
@@ -234,8 +231,6 @@ jobs:
         with:
           name: oxidd-ffi
           path: external/oxidd
-      - name: Apply OxiDD source patch
-        run: git -C external/oxidd apply ../../patches/oxidd-gc-thread-retirement.patch
       # Spot takes most of this job to build; reuse the installed prefix. It is
       # saved right after building, so a later test failure still keeps it.
       # Bump the key's suffix when the build step's flags or toolchain change.

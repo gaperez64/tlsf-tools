@@ -331,16 +331,15 @@ int main(int argc, char **argv) {
     }
 #endif
     if (!strcmp(arg, "--version")) {
-      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s "
-             "oxidd_patch=%s\n",
+      printf("tlsfsolve %s oxidd=%s research=%s simd=%s diagnostics=%s\n",
              TLSF_PROJECT_VERSION, tlsf_build_oxidd(), tlsf_build_research(),
              tlsf_build_simd(),
 #ifndef NDEBUG
-             "yes",
+             "yes"
 #else
-             "no",
+             "no"
 #endif
-             tlsf_build_oxidd_patch());
+      );
       return 0;
     }
     const char *val = option_value(&i, argc, argv, arg, "--certificate");
@@ -645,10 +644,11 @@ int main(int argc, char **argv) {
       free(default_policy_json);
       return 2;
     }
-    strat = certificate_path || policy_path
-                ? solve_gr1_oxidd_ex_with_certificate(game, &unreal, &opts,
-                                                      &certificate)
-                : solve_gr1_oxidd_ex(game, &unreal, &opts);
+    Gr1SolveOptions gr1_opts = {
+        .oxidd = opts,
+        .certificate = certificate_path || policy_path ? &certificate : nullptr,
+    };
+    strat = solve_gr1_oxidd(game, &unreal, &gr1_opts);
   } else {
     OxiddSolveResult result = solve_safety_oxidd_result(game, &opts);
     strat = result.strategy;
