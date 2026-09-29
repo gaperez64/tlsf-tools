@@ -7,12 +7,15 @@
 #   external/oxidd/target/release/liboxidd_ffi_c.a
 #   external/oxidd/build/include/oxidd/capi.h    (#include <oxidd/capi.h>)
 #   external/oxidd/build/include/oxidd/config.h  (empty: C-only, no C++ extras)
+#   external/oxidd/build/oxidd-build-stamp         (source commit + archive hash)
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 oxidd="$root/external/oxidd"
 crate="$oxidd/crates/oxidd-ffi-c"
 incdir="$oxidd/build/include/oxidd"
+archive="$oxidd/target/release/liboxidd_ffi_c.a"
+stamp="$oxidd/build/oxidd-build-stamp"
 
 if [ ! -f "$crate/Cargo.toml" ]; then
   echo "build_oxidd: $crate not found; run 'git submodule update --init" \
@@ -24,5 +27,6 @@ mkdir -p "$incdir"
 cargo build -j 1 --release --locked --manifest-path "$crate/Cargo.toml"
 cbindgen --output "$incdir/capi.h" "$crate"
 printf '/* C-only OxiDD config (no C++ extras) */\n' > "$incdir/config.h"
+python3 "$root/scripts/oxidd_stamp.py" write "$oxidd" "$archive" "$stamp"
 
 echo "build_oxidd: built $oxidd/target/release/liboxidd_ffi_c.a and $incdir/capi.h"

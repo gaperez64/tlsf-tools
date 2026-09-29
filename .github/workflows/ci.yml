@@ -57,7 +57,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             external/oxidd/target
-          key: oxidd-ffi-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh') }}
+          key: oxidd-ffi-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'scripts/oxidd_stamp.py') }}
       - name: Install cbindgen
         run: |
           if ! command -v cbindgen >/dev/null || \
@@ -74,6 +74,7 @@ jobs:
           path: |
             external/oxidd/target/release/liboxidd_ffi_c.a
             external/oxidd/build/include
+            external/oxidd/build/oxidd-build-stamp
           if-no-files-found: error
           retention-days: 1
 
