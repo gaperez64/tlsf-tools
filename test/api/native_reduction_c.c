@@ -152,7 +152,8 @@ int main(void) {
   assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
          TLSF_GR1_REDUCE_OK);
   assert(stats.stages[TLSF_GR1_REDUCE_STATS_SOURCE].wall_ns);
-  assert(stats.monitor_count && work->monitors_completed == stats.monitor_count);
+  assert(stats.monitor_count &&
+         work->monitors_completed == stats.monitor_count);
   assert(work->formula_nodes && work->states == stats.monitor_states);
   tlsf_gr1_reduction_clear(&result);
   tlsf_pipeline_free(pipeline);

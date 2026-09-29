@@ -68,8 +68,7 @@ static int mutate_after_snapshot(void *raw) {
     ctx->bytes[0] = 'X';
   return 0;
 }
-static void tighten_rss_after_window(void *context,
-                                     TlsfGr1LiftStatsStage stage,
+static void tighten_rss_after_window(void *context, TlsfGr1LiftStatsStage stage,
                                      const TlsfGr1LiftStageStats *) {
   if (stage == TLSF_GR1_LIFT_STATS_SEED_WINDOW)
     static_cast<TlsfGr1LiftOptions *>(context)->budget.max_rss_bytes = 1;
