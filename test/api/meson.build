@@ -23,9 +23,15 @@ if native_gr1
   native_reduction_c_exe = executable('native_reduction_c',
     'native_reduction_c.c', dependencies: tlsf_dep, link_language: 'c')
   test('native_reduction_c', native_reduction_c_exe)
+  # native_reduction with frontend provenance (see the source's header).
+  gr1_environment_reduce_exe = executable('gr1_environment_reduce',
+    'gr1_environment_reduce.cpp', dependencies: tlsf_dep)
   native_api_c_exe = executable('native_api_c', 'native_api.c',
                                 dependencies: tlsf_dep)
   test('native_api_c', native_api_c_exe)
+  gr1_environment_replay_exe = executable('gr1_environment_replay',
+    'gr1_environment_replay.c', dependencies: tlsf_dep)
+  test('gr1_environment_replay_c', gr1_environment_replay_exe)
   oxidd_manager_lifetime_exe = executable('oxidd_manager_lifetime',
     'oxidd_manager_lifetime.c', dependencies: tlsf_dep)
   test('oxidd_manager_lifetime_manager', oxidd_manager_lifetime_exe,

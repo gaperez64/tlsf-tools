@@ -91,6 +91,20 @@ if research_tools and have_oxidd
              '--games', '120'],
       timeout: 180,
     )
+    test('gr1_environment_replay', python3,
+      args: [files('test_gr1_environment_replay.py'),
+             '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck']],
+      timeout: 180,
+    )
+    # gr1_environment_reduce_exe is built only under native_gr1.
+    if native_gr1
+      test('gr1_environment_provenance', python3,
+        args: [files('test_gr1_environment_provenance.py'),
+               '--reduction', gr1_environment_reduce_exe,
+               '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck']],
+        timeout: 180,
+      )
+    endif
   endif
   if spot_python_found
     test('gr1_monitor_game', spot_python,
