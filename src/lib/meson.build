@@ -68,6 +68,14 @@ pkg_private_libs = []
 oxidd_link_whole = []
 
 if have_oxidd
+  oxidd_stamp_header = custom_target(
+    'oxidd_build_stamp',
+    output: 'oxidd_build_stamp.h',
+    command: [python3, oxidd_stamp_py, 'header', oxidd_dir,
+              oxidd_lib_path, oxidd_stamp_path, '@OUTPUT@'],
+    build_always_stale: true,
+  )
+  lib_sources += [oxidd_stamp_header]
   # The decompose API's boolean-fragment pre-check.
   lib_sources += files('precheck_unreal.c')
   lib_c_args += ['-DHAVE_OXIDD']
@@ -85,7 +93,7 @@ if have_oxidd
       'oxidd_host.c',
       'oxidd_order.c',
       'safety_oxidd.c',
-    ),
+    ) + [oxidd_stamp_header],
     include_directories: [public_inc, lib_inc],
     dependencies: lib_compile_deps,
     pic: true,

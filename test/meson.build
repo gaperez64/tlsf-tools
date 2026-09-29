@@ -12,3 +12,10 @@ subdir('unit')
 subdir('api')
 subdir('cli')
 subdir('oracle')
+
+if have_oxidd and python3.found()
+  test('oxidd_build_stamp', python3,
+    args: [files('api/test_oxidd_stamp.py'), oxidd_stamp_py, oxidd_dir,
+           meson.project_build_root()],
+    timeout: 90, is_parallel: false)
+endif

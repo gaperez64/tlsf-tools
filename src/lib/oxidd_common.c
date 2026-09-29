@@ -6,6 +6,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "oxidd_common.h"
+#include "oxidd_build_stamp.h"
 
 #include <stdarg.h>
 #include <stdlib.h>

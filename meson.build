@@ -160,6 +160,8 @@ oxidd_build_sh = join_paths(meson.project_source_root(), 'scripts', 'build_oxidd
 oxidd_lib_path = join_paths(oxidd_dir, 'target', 'release', 'liboxidd_ffi_c.a')
 oxidd_inc_path = join_paths(oxidd_dir, 'build', 'include')
 oxidd_capi_h = join_paths(oxidd_inc_path, 'oxidd', 'capi.h')
+oxidd_stamp_path = join_paths(oxidd_dir, 'build', 'oxidd-build-stamp')
+oxidd_stamp_py = join_paths(meson.project_source_root(), 'scripts', 'oxidd_stamp.py')
 oxidd_submodule_ready = fs.exists(join_paths(oxidd_dir, 'crates', 'oxidd-ffi-c', 'Cargo.toml'))
 
 if git.found()
@@ -186,6 +188,19 @@ if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
       '  meson setup build-research -Dresearch_tools=true ' +
       '-Doxidd=enabled --buildtype=release',
     )
+  endif
+  if not python3.found()
+    error('OxiDD stamp validation requires python3')
+  endif
+  oxidd_check = run_command(
+    python3, oxidd_stamp_py, 'check', oxidd_dir, oxidd_lib_path,
+    oxidd_stamp_path, check: false,
+  )
+  if oxidd_check.returncode() != 0
+    error(oxidd_check.stderr().strip())
+  endif
+  if oxidd_check.stdout().strip() != ''
+    warning(oxidd_check.stdout().strip())
   endif
   # Rust staticlib pulls in the system threading/dl/math runtime.
   oxidd_link_args = [oxidd_lib_path, '-lpthread', '-lm']
