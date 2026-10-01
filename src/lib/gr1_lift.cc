@@ -3147,7 +3147,7 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
           // The seed cache and U's BDD/policy state are out of scope here.
           // Return allocator-held pages before applying the direct budget.
           malloc_trim(0);
-          cfg.check("direct_solve");
+          cfg.check("direct_solve", true);
           Config direct_cfg = cfg;
           direct_cfg.o.max_artifact_bytes = 64u * 1024u * 1024u;
           direct_cfg.o.checker_nodes = 1u << 22;

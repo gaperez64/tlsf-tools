@@ -51,6 +51,10 @@ struct Config {
   uint64_t policy_proof_ns = TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_NS;
   uint64_t phase_deadline_ns = 0;
   bool env_candidate = false;
+  // BDD cooperation may call check thousands of times per second. Keep
+  // deadline/cancellation checks frequent, but bound the RSS syscalls.
+  mutable uint64_t last_rss_sample_ns = 0;
+  mutable uint64_t last_rss_limit = 0;
   uint64_t effective_deadline() const {
     if (!phase_deadline_ns)
       return o.deadline_mono_ns;
@@ -74,7 +78,7 @@ struct Config {
                      std::string("candidate allowance expired at ") + stage);
     return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
   }
-  void check(const char *stage) const {
+  void check(const char *stage, bool force_rss = false) const {
     if (o.cancelled && o.cancelled(o.cancel_ctx))
       throw Failure(TLSF_GR1_LIFT_CANCELLED, stage, "cancelled");
     if (effective_deadline() && now_ns() >= effective_deadline())
@@ -84,6 +88,12 @@ struct Config {
         (!rss_limit || env_budget->max_rss_bytes < rss_limit))
       rss_limit = env_budget->max_rss_bytes;
     if (rss_limit) {
+      const uint64_t current_ns = now_ns();
+      if (!force_rss && rss_limit == last_rss_limit && last_rss_sample_ns &&
+          current_ns - last_rss_sample_ns < 10000000ull)
+        return;
+      last_rss_sample_ns = current_ns;
+      last_rss_limit = rss_limit;
       rusage usage{};
       bool sample_current = true;
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
