@@ -2187,7 +2187,7 @@ void run(const TrustedTarget &trusted, const Config &cfg,
     uint32_t current, next;
     aig_latch_at(target->r.game, 0, &current, &next, nullptr);
     if (!aig_set_latch_next(target->r.game, current, aig_not(next)))
-      throw Failure(TLSF_GR1_LIFT_ERROR, "candidate", "test mutation failed");
+      throw Failure(TLSF_GR1_LIFT_ERROR, "candidate", "fault hook could not mutate the game");
   }
 #endif
   Candidate candidate = prove(bdd, target_view, learned, trusted, cfg);
