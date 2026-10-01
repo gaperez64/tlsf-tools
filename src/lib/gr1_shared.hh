@@ -4,6 +4,7 @@
 #include "oxidd_common.h"
 #include "yyjson_cpp.hh"
 #include <algorithm>
+#include <cstdio>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -84,17 +85,35 @@ struct Config {
       rss_limit = env_budget->max_rss_bytes;
     if (rss_limit) {
       rusage usage{};
+      bool sample_current = true;
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
         const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
         const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
         if (work)
           work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
-        if (peak > rss_limit)
-          throw Failure(
-              TLSF_GR1_LIFT_LIMIT, "budget-memory",
-              std::string(
-                  "construction RSS peak exceeded arm memory share at ") +
-                  stage);
+        // Current RSS cannot exceed the process peak. Avoid opening /proc
+        // during the many BDD cooperation checks below the soft limit.
+        sample_current = peak > rss_limit;
+      }
+      // The peak is diagnostic only: a released U candidate must not consume
+      // the direct solve's memory allowance.
+      if (sample_current) {
+        if (FILE *file = fopen("/proc/self/status", "r")) {
+          char line[256];
+          uint64_t current = 0;
+          while (fgets(line, sizeof line, file)) {
+            unsigned long long kb = 0;
+            if (sscanf(line, "VmRSS: %llu kB", &kb) == 1) {
+              current = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
+              break;
+            }
+          }
+          fclose(file);
+          if (current > rss_limit)
+            throw Failure(TLSF_GR1_LIFT_LIMIT, "budget-memory",
+                          std::string("construction RSS exceeded arm memory ") +
+                              "share at " + stage);
+        }
       }
     }
   }
@@ -155,6 +174,12 @@ struct TrustedTarget {
   std::unique_ptr<Instance> instance;
 };
 
+struct CachedSeedWindow {
+  std::string axis;
+  std::vector<int> target_members;
+  std::vector<std::unique_ptr<Instance>> seeds;
+};
+
 std::unique_ptr<Aig, decltype(&aig_free)> parse_aig(const char *bytes,
                                                     size_t size);
 std::string render_aig(const Aig *game, const Config &cfg);
@@ -168,7 +193,11 @@ axis_members(const Instance &target, const Instance &seed);
 char *copy_bytes(const std::string &value);
 void env_run(const TrustedTarget &trusted, const Config &cfg,
              TlsfGr1EnvRankResult &out,
-             TlsfGr1EnvLiftResult *candidate = nullptr);
+             TlsfGr1EnvLiftResult *candidate = nullptr,
+             CachedSeedWindow *shared_window = nullptr);
 void env_check(const TrustedTarget &trusted, const Config &cfg,
                TlsfGr1EnvLiftResult &candidate);
+void env_typed_axis(const Instance &i, const std::string &axis);
+std::pair<std::set<std::string>, std::set<std::string>>
+env_typed_classes(const Instance &i);
 } // namespace gr1_lift_internal

@@ -165,6 +165,13 @@ TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
     const ParamOverride *target_overrides, size_t target_override_count,
     const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
     TlsfGr1LiftError *error);
+/* Exact-only preparation for the combined G arm. A source without parameters
+ * still prepares a trusted game so that the arm can take the direct route. */
+TlsfGr1LiftStatus
+tlsf_gr1_lift_target_prepare_exact(const uint8_t *source, size_t source_size,
+                                   const TlsfGr1LiftOptions *options,
+                                   TlsfGr1LiftTarget **target,
+                                   TlsfGr1LiftError *error);
 void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target);
 TlsfGr1LiftStatus tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
                                             const TlsfGr1LiftOptions *options,
@@ -217,6 +224,36 @@ TlsfGr1LiftStatus tlsf_gr1_env_lift_from_target(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
     TlsfGr1EnvLiftResult *result, TlsfGr1LiftError *error);
 void tlsf_gr1_env_lift_result_clear(TlsfGr1EnvLiftResult *result);
+
+typedef enum {
+  TLSF_GR1_BOTH_DIRECT,
+  TLSF_GR1_BOTH_REAL_LIFT,
+  TLSF_GR1_BOTH_ENV_LIFT
+} TlsfGr1BothRoute;
+typedef enum {
+  TLSF_GR1_SEEDS_NONE,
+  TLSF_GR1_SEEDS_REAL,
+  TLSF_GR1_SEEDS_UNREAL,
+  TLSF_GR1_SEEDS_MIXED,
+  TLSF_GR1_SEEDS_UNKNOWN
+} TlsfGr1SeedPolarity;
+typedef struct {
+  TlsfGr1LiftResult proof;
+  TlsfGr1BothRoute route;
+  TlsfGr1SeedPolarity seed_polarity;
+  uint64_t target_checks, target_reductions, seed_probes, seed_reductions;
+  uint64_t seed_solves, seed_checks, seed_cache_hits;
+  char decline_stage[48];
+  char decline_stages[256];
+} TlsfGr1BothResult;
+/* The candidate routes perform no target solve. A decline falls back to one
+ * exact solve of the prepared game while the worker deadline permits. The
+ * returned proof is sealed by target_matches and owns its artifact buffers. */
+TlsfGr1LiftStatus tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
+                                            const TlsfGr1LiftOptions *options,
+                                            TlsfGr1BothResult *result,
+                                            TlsfGr1LiftError *error);
+void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const ParamOverride *target_overrides,

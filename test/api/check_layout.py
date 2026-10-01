@@ -32,8 +32,10 @@ for target in targets:
                 compiled[path.relative_to(root)].append(target["name"])
 for source, owners in sorted(compiled.items()):
     fault_owners = {
-        pathlib.Path("src/lib/gr1_lift.cc"): {"native_lift_api", "env_rank_fault_probe"},
-        pathlib.Path("src/lib/gr1_env_lift.cc"): {"env_rank_fault_probe"},
+        pathlib.Path("src/lib/gr1_lift.cc"): {"native_lift_api", "native_both_api",
+                                               "env_rank_fault_probe"},
+        pathlib.Path("src/lib/gr1_env_lift.cc"): {"native_both_api",
+                                                   "env_rank_fault_probe"},
         pathlib.Path("test/unit/env_rank_probe.cpp"): {"env_rank_fault_probe"},
     }
     extra = sorted(set(owners) - fault_owners.get(source, set()))

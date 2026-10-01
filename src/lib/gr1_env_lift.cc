@@ -20,11 +20,7 @@ extern "C" {
 #include <unordered_set>
 
 namespace gr1_lift_internal {
-struct EnvWindow {
-  std::string axis;
-  std::vector<int> target_members;
-  std::vector<std::unique_ptr<Instance>> seeds;
-};
+using EnvWindow = CachedSeedWindow;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local int env_rank_fault = 0;
 thread_local uint64_t env_rank_test_apply_cap = 12000000;
@@ -2403,7 +2399,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
 }
 
 void env_run(const TrustedTarget &trusted, const Config &cfg,
-             TlsfGr1EnvRankResult &out, TlsfGr1EnvLiftResult *candidate) {
+             TlsfGr1EnvRankResult &out, TlsfGr1EnvLiftResult *candidate,
+             CachedSeedWindow *shared_window) {
   uint64_t seed_started = now_ns();
   cfg.check("candidate");
   if (trusted.semantics != TLSF_GR1_EXACT)
@@ -2420,7 +2417,8 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
     decline("target_binding", "trusted game hash differs");
   env_reduction_binding(*trusted.instance, trusted.source_hash);
-  EnvWindow window = env_window(trusted, cfg, out);
+  EnvWindow window =
+      shared_window ? std::move(*shared_window) : env_window(trusted, cfg, out);
   for (const auto &seed : window.seeds)
     env_reduction_binding(*seed, trusted.source_hash);
   for (const auto &seed : window.seeds)
@@ -2429,8 +2427,9 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
   if (env_typed_classes(*trusted.instance) !=
       env_typed_classes(*window.seeds.front()))
     decline("typed_alignment", "target conjunct or role class missing");
-  for (auto &seed : window.seeds)
-    env_solve_seed(*seed, cfg, out);
+  if (!shared_window)
+    for (auto &seed : window.seeds)
+      env_solve_seed(*seed, cfg, out);
   if (candidate)
     candidate->seed_ns = now_ns() - seed_started;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
