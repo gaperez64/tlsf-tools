@@ -389,6 +389,9 @@ struct Monitor {
   std::vector<uint32_t> latches;
   std::string role;
   bool fallback_used = false;
+  // Captured from the conjunct passed to make_monitor, before publication
+  // matches it against frontend source conjuncts.
+  std::string construction_formula;
 };
 
 std::vector<bool> rejecting_states(const Monitor &monitor,
@@ -572,8 +575,8 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
       automaton->num_states() > limits.options.max_monitor_states)
     throw Failure(TLSF_GR1_REDUCE_LIMIT, "monitor",
                   "monitor state cap exceeded");
-  Monitor monitor{assumption, formula, klass, automaton,    {},
-                  {},         {},      {},    fallback_used};
+  Monitor monitor{assumption, formula, klass, automaton,     {},
+                  {},         {},      {},    fallback_used, {}};
   for (unsigned state = 0; state < automaton->num_states(); ++state) {
     limits.check("monitor");
     int mark = -1;
@@ -1198,6 +1201,7 @@ json::value provenance(const TlsfPipeline *pipeline,
         if (item.at("block") == "REQUIRE" || item.at("block") == "ASSERT")
           parsed = Formula::G(parsed);
         json::object row = item;
+        row["normalized_formula"] = canonical_formula_text(parsed);
         json::array refs;
         for (const auto &name : row.at("signals").as_array()) {
           const auto &signal = signal_by_name.at(name.as_string()).as_object();
@@ -1278,6 +1282,7 @@ json::value provenance(const TlsfPipeline *pipeline,
         {"side", monitor.assumption ? "assumption" : "guarantee"},
         {"mp_class", std::string(1, monitor.mp_class)},
         {"conjunct", text},
+        {"construction_formula", monitor.construction_formula},
         {"template", templ},
         {"template_source", frontend_valid ? "frontend" : "suffix-heuristic"},
         {"index_tuple", indices},
@@ -1318,6 +1323,10 @@ json::value provenance(const TlsfPipeline *pipeline,
             {"index_tuple", bound_indices},
             {"signal_refs", matched->at("signal_refs")},
             {"signals", matched->at("signals")}};
+        record["source_binding"] = json::object{
+            {"source_formula_id", matched->at("source_formula_id")},
+            {"generated_position", matched->at("generated_position")},
+            {"source_node_id", matched->at("source_node_id")}};
         record["index_tuple"] = bound_indices;
         record["provenance_source"] = "frontend";
       }
@@ -1478,6 +1487,10 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     std::vector<Monitor> monitors;
     auto append = [&](Formula item, bool assumption) {
       Monitor monitor = make_monitor(item, assumption, limits);
+      monitor.construction_formula =
+          spot_call(limits, "provenance-construction", [&] {
+            return canonical_formula_text(raw_formula(item, symbols));
+          });
       work.states = checked_add(work.states, monitor.automaton->num_states(),
                                 "budget-monitor");
       work.edges = checked_add(work.edges, monitor.automaton->num_edges(),

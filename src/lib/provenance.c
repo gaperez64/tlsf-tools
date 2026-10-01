@@ -109,8 +109,106 @@ static void mark_aps(const Node *node, const SignalDecl *inputs,
   }
 }
 
+// Resolve integer leaves through source definitions to parameter declarations.
+// Unknown leaves decline ownership inference; printed expressions are never
+// used as bindings.
+typedef struct WidthEnv {
+  const struct WidthEnv *parent;
+  const DefDecl *definition;
+  Node *const *actuals;
+} WidthEnv;
+
+typedef struct {
+  const ParamDecl *params;
+  uint16_t param_count;
+  const DefDecl *defs;
+  uint16_t def_count;
+} WidthSource;
+
+static bool width_dependencies(const Node *node, const WidthSource *spec,
+                               const WidthEnv *env, bool *used,
+                               unsigned depth) {
+  if (!node)
+    return true;
+  if (depth > 64)
+    return false;
+  switch (node->kind) {
+  case NODE_INT:
+  case NODE_TRUE:
+  case NODE_FALSE:
+    return true;
+  case NODE_INT_VAR:
+  case NODE_AP: {
+    // Definitions are top-level: their bodies see their own formals and
+    // global parameters, not formals from the definition that called them.
+    if (env)
+      for (uint16_t i = 0; i < env->definition->param_count; i++)
+        if (strcmp(node->name, env->definition->params[i]) == 0)
+          return width_dependencies(env->actuals[i], spec, env->parent, used,
+                                    depth + 1);
+    for (uint16_t i = 0; i < spec->param_count; i++)
+      if (strcmp(node->name, spec->params[i].name) == 0) {
+        used[i] = true;
+        return true;
+      }
+    for (uint16_t i = 0; i < spec->def_count; i++)
+      if (spec->defs[i].param_count == 0 &&
+          strcmp(node->name, spec->defs[i].name) == 0) {
+        const WidthEnv nested = {env, &spec->defs[i], nullptr};
+        for (const WidthEnv *parent = env; parent; parent = parent->parent)
+          if (parent->definition == nested.definition)
+            return false;
+        return width_dependencies(spec->defs[i].body, spec, &nested, used,
+                                  depth + 1);
+      }
+    return false;
+  }
+  case NODE_DEF_CALL: {
+    const DefDecl *definition = nullptr;
+    for (uint16_t i = 0; i < spec->def_count; i++)
+      if (spec->defs[i].param_count == node->call_argc &&
+          strcmp(node->callee, spec->defs[i].name) == 0) {
+        definition = &spec->defs[i];
+        break;
+      }
+    if (!definition)
+      return false;
+    for (const WidthEnv *parent = env; parent; parent = parent->parent)
+      if (parent->definition == definition)
+        return false;
+    const WidthEnv nested = {env, definition, node->call_args};
+    return width_dependencies(definition->body, spec, &nested, used, depth + 1);
+  }
+  case NODE_INT_NEG:
+  case NODE_NOT:
+    return width_dependencies(node->arg, spec, env, used, depth + 1);
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD:
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_AND:
+  case NODE_OR:
+    return width_dependencies(node->lhs, spec, env, used, depth + 1) &&
+           width_dependencies(node->rhs, spec, env, used, depth + 1);
+  case NODE_ITE:
+    return width_dependencies(node->if_cond, spec, env, used, depth + 1) &&
+           width_dependencies(node->if_then, spec, env, used, depth + 1) &&
+           width_dependencies(node->if_else, spec, env, used, depth + 1);
+  default:
+    return false;
+  }
+}
+
 static void emit_signal(JsonBuilder *builder, yyjson_mut_val *signals,
-                        const SignalDecl *signal, bool is_output) {
+                        const SignalDecl *signal, bool is_output,
+                        const WidthSource *source) {
   yyjson_mut_val *row = jb_obj(builder);
   jb_push(builder, signals, row);
   JB_STR(builder, row, "name", signal->name);
@@ -148,6 +246,22 @@ static void emit_signal(JsonBuilder *builder, yyjson_mut_val *signals,
   jb_put(builder, row, "width_expression",
          expression ? jb_str(builder, expression) : jb_null(builder));
   free(expression);
+  bool *used =
+      calloc(source->param_count ? source->param_count : 1, sizeof *used);
+  if (!used) {
+    builder->failed = true;
+    return;
+  }
+  bool complete =
+      width_dependencies(signal->bus_lo_expr, source, nullptr, used, 0) &&
+      width_dependencies(signal->origin_width_expr, source, nullptr, used, 0);
+  yyjson_mut_val *parameter_ids = jb_arr(builder);
+  for (uint16_t i = 0; i < source->param_count; i++)
+    if (used[i])
+      jb_push(builder, parameter_ids, jb_uint(builder, (unsigned)i + 1));
+  jb_put(builder, row, "width_parameter_ids", parameter_ids);
+  JB_BOOL(builder, row, "width_binding_complete", complete);
+  free(used);
   const char *index_role =
       !signal->origin_is_bus ? "scalar"
       : signal->origin_is_enum || signal->origin_is_encoded_bit
@@ -237,7 +351,9 @@ static void emit_conjunct(ConjunctWriter *writer, const Node *node,
 }
 
 int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
-                     uint16_t param_count, const char source_sha256[65]) {
+                     uint16_t param_count, const DefDecl *defs,
+                     uint16_t def_count, const char source_sha256[65]) {
+  const WidthSource width_source = {params, param_count, defs, def_count};
   bool duplicate_signals = false;
   for (uint32_t i = 0; i < spec->input_count + spec->output_count; i++) {
     const SignalDecl *left = i < spec->input_count
@@ -267,9 +383,9 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
   jb_put(&builder, root, "parameters", parameters);
   yyjson_mut_val *signals = jb_arr(&builder);
   for (uint32_t i = 0; i < spec->input_count; i++)
-    emit_signal(&builder, signals, &spec->inputs[i], false);
+    emit_signal(&builder, signals, &spec->inputs[i], false, &width_source);
   for (uint32_t i = 0; i < spec->output_count; i++)
-    emit_signal(&builder, signals, &spec->outputs[i], true);
+    emit_signal(&builder, signals, &spec->outputs[i], true, &width_source);
   jb_put(&builder, root, "signals", signals);
   yyjson_mut_val *conjuncts = jb_arr(&builder);
   ConjunctWriter writer = {

@@ -23,6 +23,19 @@ recursion, never function or signal names. Other computed widths are
 are symmetric clients. A consumer must prove any further encoding or symmetry
 role before lifting it.
 
+`width_parameter_ids` lists the one-based IDs in `parameters`, in declaration
+order, used by the original lower and upper bus-bound ASTs. Scalar signals
+have an empty list. A definition call follows only formals referenced by its
+body; unused actual arguments do not contribute dependencies. The field is a
+partial list when `width_binding_complete` is false. Recursive definition
+visits, unknown names, unsupported width nodes, and traversal beyond the
+depth limit set that flag to false. Consumers must decline an incomplete
+binding before inferring an `element` owner's parameter axis, and must reject
+unknown or duplicate IDs. A separately proved `representation-bit` role stays
+unowned even if recursive width dependence is incomplete. Width dependence
+alone does not establish client ownership; `undetermined` roles must be
+declined. `width_expression` is display text and must never supply an owner.
+
 Each `conjuncts` entry records the source block, its one-based formula ordinal,
 an AST `source_node_id`, a zero-based `generated_position` within that source
 formula, the concrete integer generator `bindings`, expanded
@@ -53,6 +66,24 @@ lifting must reject that fallback. The AIG output does not depend on any of
 these metadata decisions. The monitor builder reads the TLSF bytes once,
 passes that snapshot to both lowering tools and the provenance frontend, and
 checks that the frontend SHA-256 equals the snapshot hash.
+
+The native reducer records `construction_formula` as canonical text of the
+conjunct passed to monitor construction, before source matching. It
+independently parses each frontend conjunct into
+`source_conjuncts[].normalized_formula`, adding the required outer `G` for
+REQUIRE and ASSERT blocks. These two strings use the same source signal names.
+The reported `conjunct` can differ after Spot simplifies the monitor formula
+(for example, implication to disjunction). On a unique frontend match, the
+monitor also receives `source_binding`: the claimed `source_formula_id`,
+`generated_position`, and `source_node_id`. Otherwise `source_origin` is null
+and `source_binding` is absent. A consumer that needs exact linkage must
+require a unique source conjunct key, equality of `source_binding` with both
+`source_origin` and that conjunct, and equality of `construction_formula` with
+its `normalized_formula`. It must decline missing, inconsistent, or merely
+equivalent formulas. This comparison catches a joint swap of `source_origin`
+and `source_binding` between equal-support sibling monitors whose construction
+formulas differ. Siblings with indistinguishable construction formulas need
+independent structural linkage or must be declined.
 
 ## Monitor game symbol namespace
 

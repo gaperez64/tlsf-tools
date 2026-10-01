@@ -84,6 +84,8 @@ static int expand_spec_impl(TlsfSpec *spec, const ParamOverride *overrides,
   }
   const ParamDecl *source_params = spec->params;
   uint16_t source_param_count = spec->param_count;
+  const DefDecl *source_defs = spec->defs;
+  uint16_t source_def_count = spec->def_count;
   spec->capture_provenance = provenance_out || require_unambiguous_origin;
   if (expand(spec, overrides, count) != 0)
     return pipeline_error(error, -1, TLSF_PIPELINE_DECLINED, "expand",
@@ -93,7 +95,7 @@ static int expand_spec_impl(TlsfSpec *spec, const ParamOverride *overrides,
                           "ambiguous source origin");
   if (provenance_out &&
       provenance_write(provenance_out, spec, source_params, source_param_count,
-                       source_sha256) != 0)
+                       source_defs, source_def_count, source_sha256) != 0)
     return pipeline_error(error, -3, TLSF_PIPELINE_LIMIT, "provenance",
                           "provenance output failed");
   return pipeline_error(error, 0, TLSF_PIPELINE_OK, "expand", "");
