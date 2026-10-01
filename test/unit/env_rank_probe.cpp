@@ -7,6 +7,7 @@
 #include <cstdlib>
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 extern "C" void tlsf_gr1_env_rank_test_set_fault(int);
+extern "C" void tlsf_gr1_env_rank_test_set_apply_cap(uint64_t);
 extern "C" int tlsf_gr1_env_rank_test_alignment();
 extern "C" void tlsf_gr1_lift_test_corrupt_prepared_game(TlsfGr1LiftTarget *);
 extern "C" void tlsf_gr1_env_test_swap_rehashed_game(TlsfGr1LiftTarget *,
@@ -22,7 +23,8 @@ int main(int argc, char **argv) {
   bool lift = mode == "--lift" || mode == "--candidate" ||
               mode.starts_with("--lift-fault=") || mode == "--deadline" ||
               mode == "--allowance" || mode == "--corrupt-game" ||
-              mode == "--rss" || mode.starts_with("--swap-source=");
+              mode == "--rss" || mode.starts_with("--swap-source=") ||
+              mode.starts_with("--apply-cap=");
   bool checked = lift && mode != "--candidate";
   if (argc != 3 && !lift
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
@@ -34,6 +36,9 @@ int main(int argc, char **argv) {
   if (argc == 4 && (!lift || mode.starts_with("--lift-fault=")))
     tlsf_gr1_env_rank_test_set_fault(std::atoi(
         mode.starts_with("--lift-fault=") ? mode.c_str() + 13 : mode.c_str()));
+  if (mode.starts_with("--apply-cap="))
+    tlsf_gr1_env_rank_test_set_apply_cap(
+        std::strtoull(mode.c_str() + 12, nullptr, 10));
 #endif
   std::ifstream source(argv[1], std::ios::binary);
   if (!source)

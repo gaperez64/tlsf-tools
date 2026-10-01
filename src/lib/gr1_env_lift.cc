@@ -27,6 +27,7 @@ struct EnvWindow {
 };
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local int env_rank_fault = 0;
+thread_local uint64_t env_rank_test_apply_cap = 12000000;
 #endif
 
 std::pair<std::set<std::string>, std::set<std::string>>
@@ -924,10 +925,15 @@ class EnvBdd {
   std::vector<std::string> names;
   std::vector<EnvOrder> orders;
   uint64_t applies = 0;
+  uint64_t apply_cap = 12000000;
   std::string context;
 
 public:
-  explicit EnvBdd(const Config &config) : cfg(config) {}
+  explicit EnvBdd(const Config &config) : cfg(config) {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    apply_cap = env_rank_test_apply_cap;
+#endif
+  }
   size_t node_count() const { return nodes.size(); }
   uint64_t apply_count() const { return applies; }
   size_t cache_count() const { return cache.size(); }
@@ -975,7 +981,7 @@ public:
   int var(int variable) { return node(variable, 0, 1); }
   int apply(int op, int left, int right) {
     applies++;
-    if (applies > 12000000)
+    if (applies > apply_cap)
       throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
                     "cumulative rank apply cap exhausted at " + context);
     if ((applies & 1023u) == 0)
@@ -2637,5 +2643,8 @@ extern "C" int tlsf_gr1_env_rank_test_alignment() {
 }
 extern "C" void tlsf_gr1_env_rank_test_set_fault(int fault) {
   env_rank_fault = fault;
+}
+extern "C" void tlsf_gr1_env_rank_test_set_apply_cap(uint64_t cap) {
+  env_rank_test_apply_cap = cap;
 }
 #endif

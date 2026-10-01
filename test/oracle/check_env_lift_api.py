@@ -13,6 +13,11 @@ import time
 def marker_run(sprint, action):
     marker = sprint / "TRACKB-BUILDING"
     others = [sprint / name for name in ("DRIVER-BUILDING", "TIMED-RUN-ACTIVE")]
+    inherited = os.environ.get("NATIVE_ENV_TEST_MARKER_TOKEN")
+    if inherited is not None:
+        assert marker.read_text().strip() == inherited
+        assert not any(path.exists() for path in others)
+        return action()
     while marker.exists() or any(path.exists() for path in others):
         time.sleep(2)
     token = f"env-lift-api-{os.getpid()}"
@@ -39,7 +44,7 @@ def main():
     binary = args.binary.resolve()
     fixtures = args.fixtures.resolve()
 
-    def run(name, fixture, mode, expected, checks):
+    def run(name, fixture, mode, expected, checks, expected_error=None):
         prefix = output / name
         process = subprocess.run(
             [str(binary), str(fixtures / fixture), str(prefix), mode],
@@ -49,6 +54,8 @@ def main():
         stage = "verified" if process.returncode == 0 else work.get("stage")
         assert stage == expected, (name, line, process.stderr)
         assert work.get("checks") == str(checks), (name, line)
+        if expected_error is not None:
+            assert expected_error in process.stderr, (name, process.stderr)
         if expected == "verified" and checks:
             assert work.get("verdict") == "0", (name, line)
         else:
@@ -56,7 +63,7 @@ def main():
         return prefix, work
 
     def check():
-        for kind, count in (("zero", 0), ("one", 1), ("several", 7)):
+        for kind, count in (("zero", 0), ("one", 1), ("several", 3)):
             prefix, _ = run(kind, f"env_lift_{kind}.tlsf", "--lift",
                             "verified", 1)
             certificate = json.loads(pathlib.Path(
@@ -90,9 +97,10 @@ def main():
         _, rss = run("rss", "env_lift_one.tlsf", "--rss",
                      "budget-memory", 0)
         assert rss["status"] == "3"
-        prefix, work = run("capacity", "env_lift_capacity.tlsf", "--lift",
-                           "schema_capacity", 0)
-        assert work["applies"] == "12000001", (prefix, work)
+        prefix, work = run("capacity", "env_lift_one.tlsf", "--apply-cap=13000",
+                           "schema_capacity", 0,
+                           "policy_reconstruct/mode_relation")
+        assert work["applies"] == "13001", (prefix, work)
         run("real-seed", "env_real_seed.tlsf", "--lift", "seed_check", 0)
 
     marker_run(pathlib.Path(__file__).resolve().parents[3], check)

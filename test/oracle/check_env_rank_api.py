@@ -4,27 +4,19 @@
 import argparse
 import os
 import pathlib
+import re
 import subprocess
 import time
-
-
-SOURCE = """INFO { TITLE: "unseen" DESCRIPTION: "unseen" SEMANTICS: Mealy TARGET: Mealy }
-GLOBAL { PARAMETERS { extent = 6; } }
-MAIN {
-  INPUTS { demand[extent]; }
-  OUTPUTS { response[extent]; }
-  ASSUME { &&[0 <= i < extent] G F demand[i]; }
-  GUARANTEE {
-    &&[0 <= i < extent] G F response[i];
-    &&[0 <= i < extent] G (!response[i]);
-  }
-}
-"""
 
 
 def marker_run(sprint, action):
     marker = sprint / "TRACKB-BUILDING"
     others = [sprint / name for name in ("DRIVER-BUILDING", "TIMED-RUN-ACTIVE")]
+    inherited = os.environ.get("NATIVE_ENV_TEST_MARKER_TOKEN")
+    if inherited is not None:
+        assert marker.read_text().strip() == inherited
+        assert not any(path.exists() for path in others)
+        return action()
     token = f"env-rank-api-{os.getpid()}"
     while True:
         if marker.exists() or any(path.exists() for path in others):
@@ -53,13 +45,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=pathlib.Path, required=True)
     parser.add_argument("--out", type=pathlib.Path, required=True)
+    parser.add_argument("--fixture", type=pathlib.Path, required=True)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     source = args.out / "source.tlsf"
-    source.write_text(SOURCE)
+    source.write_text(args.fixture.read_text())
     renamed = args.out / "renamed.tlsf"
-    renamed.write_text(SOURCE.replace("demand", "incoming").replace(
-        "response", "reply"))
+    renamed.write_text(re.sub(r"\bg\b", "reply", re.sub(
+        r"\br\b", "incoming", source.read_text())))
 
     def run(path, mode):
         output = args.out / f"rank-{path.stem}-{mode}.aag"

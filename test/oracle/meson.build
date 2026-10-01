@@ -20,15 +20,16 @@ if native_gr1
     test('native_env_rank_api', python3,
       args: [files('check_env_rank_api.py'),
              '--binary', env_rank_fault_probe_exe,
+             '--fixture', files('env_rank_learner.tlsf'),
              '--out', meson.project_build_root() / 'env-rank-api'],
-      # Locally below 30 s; 90 s leaves room for a slower CI runner.
+      # Small learner fixture keeps the debug build comfortably below 30 s.
       timeout: 90, is_parallel: false)
     test('native_env_lift_api', python3,
       args: [files('check_env_lift_api.py'),
              '--binary', env_rank_fault_probe_exe,
              '--fixtures', meson.project_source_root() / 'test/oracle',
              '--out', meson.project_build_root() / 'env-lift-api'],
-      # The seven-fairness and capacity cases stay below 30 s locally.
+      # Three-fairness and test-only capped capacity keep debug work small.
       timeout: 90, is_parallel: false)
     test('typed_provenance', python3,
       args: [files('test_typed_provenance.py'),
