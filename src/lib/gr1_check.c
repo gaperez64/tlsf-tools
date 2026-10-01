@@ -825,10 +825,12 @@ static bool output_is_expected_certificate(Checker *ck, const char *name,
   return false;
 }
 
+const char tlsf_gr1_check_winning_output_name[] = "system_winning";
+
 static bool output_is_expected_environment_certificate(Checker *ck,
                                                        const char *name,
                                                        const uint32_t *levels) {
-  if (!strcmp(name, "inv") || !strcmp(name, "system_winning"))
+  if (!strcmp(name, "inv") || !strcmp(name, tlsf_gr1_check_winning_output_name))
     return true;
   char expected[128];
   for (uint32_t j = 0; j < ck->ngoals; j++) {
@@ -900,7 +902,7 @@ static bool validate_environment_certificate_interface(Checker *ck,
     }
   }
   if (!has_output(ck->certificate, "inv") ||
-      !has_output(ck->certificate, "system_winning")) {
+      !has_output(ck->certificate, tlsf_gr1_check_winning_output_name)) {
     snprintf(message, cap, "environment certificate is missing its region");
     return false;
   }
@@ -1261,7 +1263,7 @@ static bool certificate_output_is_selected(const Checker *ck,
   case METHOD_CERTIFICATE:
   case METHOD_BOTH:
   case METHOD_AUTO:
-    return !ck->environment || strcmp(name, "system_winning");
+    return !ck->environment || strcmp(name, tlsf_gr1_check_winning_output_name);
   case METHOD_CLOSED_LOOP:
     return false;
   }

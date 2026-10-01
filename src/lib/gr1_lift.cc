@@ -1,4 +1,5 @@
 #include "tlsf/gr1_lift.h"
+#include "gr1_shared.hh"
 #include "tlsf/gr1_oxidd.h"
 #include "tlsf/oxidd_options.h"
 #include "tlsf/templates.h"
@@ -22,7 +23,9 @@ extern "C" {
 #include <new>
 #include <numeric>
 #include <optional>
+#include <regex>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
@@ -30,80 +33,27 @@ extern "C" {
 #endif
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <sys/resource.h>
 
-namespace {
+using namespace gr1_lift_internal;
+
+namespace gr1_lift_internal {
+const char env_stage_seed_window[] = "seed_window";
+const char env_side_system[] = "system";
 namespace j = tlsf_json;
 using namespace oxidd::capi;
 using J = j::value;
 using O = j::object;
 using A = j::array;
-struct Failure : std::runtime_error {
-  TlsfGr1LiftStatus status;
-  std::string stage;
-  Failure(TlsfGr1LiftStatus s, std::string at, std::string why)
-      : std::runtime_error(why), status(s), stage(std::move(at)) {}
-};
-[[noreturn]] void decline(const char *stage, const char *why) {
-  throw Failure(TLSF_GR1_LIFT_DECLINED, stage, why);
-}
 uint64_t now_ns() {
   timespec ts{};
   if (clock_gettime(CLOCK_MONOTONIC, &ts))
     throw Failure(TLSF_GR1_LIFT_ERROR, "clock", "CLOCK_MONOTONIC failed");
   return uint64_t(ts.tv_sec) * 1000000000ull + uint64_t(ts.tv_nsec);
 }
-struct Config {
-  TlsfGr1LiftOptions o{};
-  // The caller's budget, read live so a stats callback may tighten it.
-  const TlsfGr1ConstructionBudget *budget = nullptr;
-  TlsfGr1ConstructionWork *work = nullptr;
-  TlsfGr1LiftStats *stats = nullptr;
-  void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
-                         const TlsfGr1LiftStageStats *) = nullptr;
-  void *stats_context = nullptr;
-  uint64_t max_seed_probes = TLSF_GR1_LIFT_DEFAULT_SEED_PROBES;
-  uint64_t max_bdd_ops = TLSF_GR1_LIFT_DEFAULT_DISCOVERY_BDD_OPS;
-  uint64_t max_policy_bdd_ops = TLSF_GR1_LIFT_DEFAULT_POLICY_BDD_OPS;
-  uint64_t policy_proof_ns = TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_NS;
-  uint64_t phase_deadline_ns = 0;
-  uint64_t effective_deadline() const {
-    if (!phase_deadline_ns)
-      return o.deadline_mono_ns;
-    return o.deadline_mono_ns ? std::min(phase_deadline_ns, o.deadline_mono_ns)
-                              : phase_deadline_ns;
-  }
-  void check(const char *stage) const {
-    if (o.cancelled && o.cancelled(o.cancel_ctx))
-      throw Failure(TLSF_GR1_LIFT_CANCELLED, stage, "cancelled");
-    if (o.deadline_mono_ns && now_ns() >= o.deadline_mono_ns)
-      throw Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
-    if (phase_deadline_ns && now_ns() >= phase_deadline_ns)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, stage, "fixed phase budget exhausted");
-    if (budget && budget->max_rss_bytes) {
-      rusage usage{};
-      if (getrusage(RUSAGE_SELF, &usage) == 0) {
-        const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
-        const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
-        if (work)
-          work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
-        if (peak > budget->max_rss_bytes)
-          throw Failure(
-              TLSF_GR1_LIFT_LIMIT, "budget-memory",
-              std::string(
-                  "construction RSS peak exceeded arm memory share at ") +
-                  stage);
-      }
-    }
-  }
-  void bytes(size_t n, const char *stage) const {
-    check(stage);
-    if (n > o.max_artifact_bytes)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, stage, "artifact byte cap exceeded");
-  }
-};
 uint64_t stats_clock(clockid_t clock) noexcept {
   timespec ts{};
   return clock_gettime(clock, &ts) == 0
@@ -190,34 +140,9 @@ std::string join(const std::vector<std::string> &v) {
   }
   return x;
 }
-template <typename T> std::string field(const T &v) {
-  return std::to_string(v);
-}
 std::string key(std::initializer_list<std::string> parts) {
   return join(std::vector<std::string>(parts));
 }
-
-struct Instance {
-  TlsfGr1Reduction r{};
-  O data;
-  std::map<std::string, int64_t> overrides;
-  std::vector<int> members;
-  std::string cert_aag, cert_json;
-  std::unique_ptr<Aig, decltype(&aig_free)> cert{nullptr, &aig_free};
-  O cert_meta;
-  ~Instance() { tlsf_gr1_reduction_clear(&r); }
-  Instance() = default;
-  Instance(const Instance &) = delete;
-};
-
-struct TrustedTarget {
-  std::string snapshot;
-  std::string source_hash;
-  std::string game_aag;
-  std::string game_hash;
-  TlsfGr1ReductionSemantics semantics = TLSF_GR1_EXACT;
-  std::unique_ptr<Instance> instance;
-};
 
 std::unique_ptr<Aig, decltype(&aig_free)> parse_aig(const char *bytes,
                                                     size_t size) {
@@ -1248,22 +1173,6 @@ uint64_t choose_bounded(size_t n, size_t k, uint32_t cap) {
   }
   return count;
 }
-template <typename Fn>
-void subsets(const std::vector<int> &members, int arity, Fn &&fn) {
-  std::vector<int> chosen;
-  std::function<void(size_t)> visit = [&](size_t start) {
-    if (int(chosen.size()) == arity) {
-      fn(chosen);
-      return;
-    }
-    for (size_t p = start; p < members.size(); p++) {
-      chosen.push_back(members[p]);
-      visit(p + 1);
-      chosen.pop_back();
-    }
-  };
-  visit(0);
-}
 using Template = std::map<std::string, B>;
 Template project(Schema &bdd, const GameView &view, const B &function,
                  int arity, const Goal *goal, const Config &cfg) {
@@ -2275,7 +2184,7 @@ void run(const TrustedTarget &trusted, const Config &cfg,
   result.method = candidate.method;
   result.verdict = candidate.verdict;
 }
-} // namespace
+} // namespace gr1_lift_internal
 
 struct TlsfGr1LiftTarget {
   TrustedTarget trusted;
@@ -2284,7 +2193,7 @@ struct TlsfGr1LiftTarget {
   mutable TlsfGr1CheckVerdict checked_verdict = TLSF_GR1_CHECK_UNKNOWN;
 };
 
-namespace {
+namespace gr1_lift_internal {
 Config lift_config(const TlsfGr1LiftOptions *options) {
   Config cfg{defaults(options)};
   static const TlsfGr1ConstructionBudget empty_budget{};
@@ -2373,7 +2282,8 @@ std::array<std::string, 7> result_hashes(const TlsfGr1LiftResult &result) {
   }
   return hashes;
 }
-} // namespace
+
+} // namespace gr1_lift_internal
 
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 /* Compiled only into native_lift_api, never into the installed library. */
@@ -2531,4 +2441,29 @@ extern "C" int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
          result->verdict == target->checked_verdict &&
          target->checked_verdict != TLSF_GR1_CHECK_UNKNOWN &&
          result_hashes(*result) == target->checked_hashes;
+}
+
+extern "C" void tlsf_gr1_env_rank_result_clear(TlsfGr1EnvRankResult *result) {
+  if (!result)
+    return;
+  free(result->rank_aag);
+  free(result->class_trace_json);
+  memset(result, 0, sizeof *result);
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_env_rank_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1EnvRankResult *result, TlsfGr1LiftError *error) {
+  if (!target || !result || result->rank_aag || result->class_trace_json) {
+    lift_error(error, nullptr, TLSF_GR1_LIFT_INVALID, "arguments",
+               "invalid or nonempty result");
+    return TLSF_GR1_LIFT_INVALID;
+  }
+  memset(result, 0, sizeof *result);
+  return invoke_lift(
+      [&] {
+        Config cfg = lift_config(options);
+        env_run(target->trusted, cfg, *result);
+      },
+      error, nullptr);
 }

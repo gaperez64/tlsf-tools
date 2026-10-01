@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check the source layout rules (issue #40) against a configured build.
 
-1. Each source file is compiled into exactly one target; the only exception
-   is the fault-injection build of gr1_lift.cc in native_lift_api.
+1. Each source file is compiled into exactly one target; the exceptions are
+   the test-only fault-injection builds and their shared probe main.
 2. The installed tlsf headers are exactly include/tlsf/ (the GR(1) headers
    only under native_gr1), plus the generated version.h.
 3. (Enforced by compilation: test/api sees include/ only.)
@@ -31,8 +31,12 @@ for target in targets:
             if root in path.parents and "subprojects" not in path.parts:
                 compiled[path.relative_to(root)].append(target["name"])
 for source, owners in sorted(compiled.items()):
-    extra = sorted(set(owners) - {"native_lift_api"}) \
-        if source == pathlib.Path("src/lib/gr1_lift.cc") else owners
+    fault_owners = {
+        pathlib.Path("src/lib/gr1_lift.cc"): {"native_lift_api"},
+        pathlib.Path("src/lib/gr1_env_lift.cc"): {"env_rank_fault_probe"},
+        pathlib.Path("test/unit/env_rank_probe.cpp"): {"env_rank_fault_probe"},
+    }
+    extra = sorted(set(owners) - fault_owners.get(source, set()))
     if len(extra) > 1:
         errors.append(f"rule 1: {source} compiled into {sorted(owners)}")
 

@@ -17,6 +17,11 @@ endif
 
 if native_gr1
   if python3.found()
+    test('native_env_rank_api', python3,
+      args: [files('check_env_rank_api.py'),
+             '--binary', env_rank_fault_probe_exe,
+             '--out', meson.project_build_root() / 'env-rank-api'],
+      timeout: 180, is_parallel: false)
     test('typed_provenance', python3,
       args: [files('test_typed_provenance.py'),
              '--frontend', exe['tlsf2tlsf'],

@@ -166,6 +166,27 @@ TlsfGr1LiftStatus tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
 int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
                                  const TlsfGr1LiftResult *result);
 
+/* First half of the environment lift. It produces candidate rank functions
+ * only; a caller must never interpret success as a target verdict. The rank
+ * circuit is combinational over the trusted game's latches and inputs.
+ * The result is owned by the caller and cleared with the function below. */
+typedef struct {
+  char *rank_aag;
+  size_t rank_size;
+  uint64_t seed_probes, seed_reductions, seed_solves, seed_checks;
+  uint64_t rank_nodes, rank_applies, rank_classes;
+  uint64_t rank_cache_entries, rank_accounted_bytes;
+  char *class_trace_json;
+  size_t class_trace_size;
+  uint64_t projection_classes, summary_classes, anchor_free_classes;
+  uint64_t previous_classes;
+} TlsfGr1EnvRankResult;
+
+TlsfGr1LiftStatus tlsf_gr1_env_rank_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1EnvRankResult *result, TlsfGr1LiftError *error);
+void tlsf_gr1_env_rank_result_clear(TlsfGr1EnvRankResult *result);
+
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const ParamOverride *target_overrides,
                                 size_t target_override_count,

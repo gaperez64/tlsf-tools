@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Exercise the native rank boundary and its preflight refusals."""
+
+import argparse
+import os
+import pathlib
+import subprocess
+import time
+
+
+SOURCE = """INFO { TITLE: "unseen" DESCRIPTION: "unseen" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { PARAMETERS { extent = 6; } }
+MAIN {
+  INPUTS { demand[extent]; }
+  OUTPUTS { response[extent]; }
+  ASSUME { &&[0 <= i < extent] G F demand[i]; }
+  GUARANTEE {
+    &&[0 <= i < extent] G F response[i];
+    &&[0 <= i < extent] G (!response[i]);
+  }
+}
+"""
+
+
+def marker_run(sprint, action):
+    marker = sprint / "TRACKB-BUILDING"
+    others = [sprint / name for name in ("DRIVER-BUILDING", "TIMED-RUN-ACTIVE")]
+    token = f"env-rank-api-{os.getpid()}"
+    while True:
+        if marker.exists() or any(path.exists() for path in others):
+            time.sleep(2)
+            continue
+        try:
+            fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            time.sleep(2)
+            continue
+        with os.fdopen(fd, "w") as stream:
+            stream.write(token + "\n")
+        if any(path.exists() for path in others):
+            marker.unlink()
+            time.sleep(2)
+            continue
+        break
+    try:
+        return action()
+    finally:
+        if marker.exists() and marker.read_text().strip() == token:
+            marker.unlink()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--binary", type=pathlib.Path, required=True)
+    parser.add_argument("--out", type=pathlib.Path, required=True)
+    args = parser.parse_args()
+    args.out.mkdir(parents=True, exist_ok=True)
+    source = args.out / "source.tlsf"
+    source.write_text(SOURCE)
+    renamed = args.out / "renamed.tlsf"
+    renamed.write_text(SOURCE.replace("demand", "incoming").replace(
+        "response", "reply"))
+
+    def run(path, mode):
+        output = args.out / f"rank-{path.stem}-{mode}.aag"
+        result = subprocess.run([str(args.binary), str(path), str(output),
+                                 str(mode)], capture_output=True, text=True,
+                                timeout=120, check=False)
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+    def check():
+        alignment = subprocess.run(
+            [str(args.binary), "--alignment-selftest"],
+            capture_output=True, text=True, timeout=10, check=False)
+        assert alignment.returncode == 0, (alignment.stdout, alignment.stderr)
+        code, output, error = run(source, 0)
+        assert code == 0, (output, error)
+        baseline = output
+        assert "solves=3 checks=3" in output, output
+        assert "classes=" in output and "applies=" in output, output
+        fields = dict(field.split("=", 1) for field in output.split()
+                      if "=" in field)
+        assert int(fields["anchor_free"]) > 0, output
+        assert int(fields["previous"]) > 0, output
+        for mode in (1, 2, 3, 4, 5):
+            code, output, error = run(source, mode)
+            assert code == 1 and ("stage=schema_abi" if mode == 5 else
+                                  "stage=typed_alignment") in output, (
+                mode, output, error)
+        code, output, error = run(source, 6)
+        assert code == 1 and "stage=schema" in output, (output, error)
+        code, output, error = run(source, 7)
+        assert code == 1 and "stage=typed_alignment" in output, (output, error)
+        assert "ambiguous sibling linkage" in error, error
+        code, renamed_output, error = run(renamed, 0)
+        assert code == 0, (renamed_output, error)
+        assert baseline.split("classes=")[-1].split()[0] == (
+            renamed_output.split("classes=")[-1].split()[0])
+
+    sprint = pathlib.Path(__file__).resolve().parents[3]
+    marker_run(sprint, check)
+
+
+if __name__ == "__main__":
+    main()
