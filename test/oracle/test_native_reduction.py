@@ -29,6 +29,9 @@ def legacy_provenance(native: dict) -> dict:
              if "declaration_id" in row}
     for index, row in enumerate(rows):
         assert row.pop("game_literal") == 2 * (index + 1)
+        if row["provenance_source"] == "frontend":
+            assert isinstance(row["width_parameter_ids"], list)
+            assert isinstance(row["width_binding_complete"], bool)
 
     def check_refs(record: dict) -> None:
         refs = record.pop("signal_refs")
@@ -37,9 +40,19 @@ def legacy_provenance(native: dict) -> dict:
                         for name in record["signals"]]
 
     for record in native["source_conjuncts"]:
+        assert isinstance(record.pop("normalized_formula"), str)
         check_refs(record)
     justice = 0
     for monitor in native["monitors"]:
+        assert isinstance(monitor.pop("construction_formula"), str)
+        binding = monitor.pop("source_binding", None)
+        if monitor["source_origin"] is not None:
+            assert binding == {
+                key: monitor["source_origin"][key]
+                for key in ("source_formula_id", "generated_position",
+                            "source_node_id")}
+        else:
+            assert binding is None
         if monitor["role"] == "justice":
             assert monitor.pop("justice_index") == justice
             justice += 1

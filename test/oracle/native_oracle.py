@@ -35,6 +35,14 @@ def equal(label, left, right):
         raise AssertionError(f"{label}: reference={left!r} current={right!r}")
 
 
+def legacy_provenance(data):
+    """Validate typed additions, then compare the older schema's fields."""
+    for row in data["signals"]:
+        equal("typed width IDs", row.pop("width_parameter_ids"), [1])
+        equal("complete width binding", row.pop("width_binding_complete"), True)
+    return data
+
+
 equal("pinned reference", command("git", "rev-parse", "8b158d7^{commit}").strip(),
       SHA.encode())
 submodule_revision = command("git", "ls-tree", SHA, "external/oxidd").split()[2]
@@ -56,9 +64,15 @@ if not submodule.is_symlink():
     if submodule.exists():
         submodule.rmdir()
     submodule.symlink_to(ROOT / "external" / "oxidd")
+yyjson = ROOT / "subprojects" / "yyjson-0.12.0"
+local_yyjson = SOURCE / "subprojects" / "yyjson-0.12.0"
+if yyjson.is_dir() and not local_yyjson.exists():
+    local_yyjson.parent.mkdir(parents=True, exist_ok=True)
+    local_yyjson.symlink_to(yyjson, target_is_directory=True)
 if not (REFERENCE / "tlsfsolve").exists():
     command("meson", "setup", str(REFERENCE), str(SOURCE),
             "-Doxidd=enabled", "-Dresearch_tools=true", "-Dcpp_std=c++20",
+            "--wrap-mode=nodownload",
             timeout=300)
     command("meson", "compile", "-C", str(REFERENCE), "-j1",
             "tlsf2tlsf", "tlsfsolve", "tlsfcertcheck", timeout=900)
@@ -80,9 +94,11 @@ for label, args in (
     for build in (REFERENCE, BUILD):
         provenance.unlink(missing_ok=True)
         result = invoke(build, "tlsf2tlsf", *args)
+        data = json.loads(provenance.read_text()) if provenance.exists() else None
+        if data is not None and build == BUILD:
+            data = legacy_provenance(data)
         outcomes.append((result.returncode, result.stdout, result.stderr,
-                         json.loads(provenance.read_text())
-                         if provenance.exists() else None))
+                         data))
     equal(label, *outcomes)
 
 reference = invoke(REFERENCE, "tlsf2tlsf", "--basic", "--param", "n=4",
@@ -94,7 +110,8 @@ direct = invoke(BUILD, NATIVE_API, "--expand", cases / "expand_demo.tlsf",
                 provenance)
 equal("direct expansion exit", direct.returncode, 0)
 equal("direct expansion bytes", direct.stdout, reference.stdout)
-equal("direct provenance fields", json.loads(provenance.read_text()), origin)
+equal("direct provenance fields",
+      legacy_provenance(json.loads(provenance.read_text())), origin)
 
 real = WORK / "real.aag"
 real.write_text("aag 3 2 1 1 0 0 0 1 0\n2\n4\n6 6 1\n0\n1\n6\n"

@@ -1589,6 +1589,7 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
       expanded->origin_is_bus = true;
       expanded->origin_is_enum = s->origin_is_enum;
       expanded->origin_width_expr = s->origin_width_expr;
+      expanded->bus_lo_expr = s->bus_lo_expr;
       expanded->origin_is_encoded_bit = s->origin_is_encoded_bit;
     }
   }

@@ -16,6 +16,15 @@ if python3.found()
 endif
 
 if native_gr1
+  if python3.found()
+    test('typed_provenance', python3,
+      args: [files('test_typed_provenance.py'),
+             '--frontend', exe['tlsf2tlsf'],
+             '--reducer', gr1_environment_reduce_exe,
+             '--enum-fixture', files(cases / 'enum_demo.tlsf'),
+             '--builddir', meson.project_build_root()],
+      timeout: 120)
+  endif
   if get_option('native_lift_oracle_root') != '' and spot_python_found
     lift_diff_args = [files('test_native_lift_differential.py'),
                       '--native', native_lift_exe,

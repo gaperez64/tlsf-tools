@@ -6,6 +6,7 @@
 
 // Write the expanded, source-anchored instance. The SHA is over input bytes.
 int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
-                     uint16_t param_count, const char source_sha256[65]);
+                     uint16_t param_count, const DefDecl *defs,
+                     uint16_t def_count, const char source_sha256[65]);
 
 #endif

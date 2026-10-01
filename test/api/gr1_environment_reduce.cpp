@@ -20,10 +20,10 @@ static bool write(const std::string &path, const char *data, size_t size) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 4 ||
+  if ((argc != 4 && argc != 5) ||
       (std::string(argv[2]) != "exact" && std::string(argv[2]) != "strict")) {
     std::cerr << "usage: gr1_environment_reduce INPUT.tlsf exact|strict "
-                 "OUTPUT-PREFIX\n";
+                 "OUTPUT-PREFIX [FRONTEND-JSON-OVERRIDE]\n";
     return 2;
   }
   std::ifstream in(argv[1], std::ios::binary);
@@ -53,6 +53,21 @@ int main(int argc, char **argv) {
               << pipeline_error.message << '\n';
     return 2;
   }
+  // Test seam: replace only the frontend inventory. The reducer still builds
+  // its monitors from the original TLSF snapshot.
+  std::string frontend_override;
+  char *original_frontend = pipeline->frontend_provenance_json;
+  if (argc == 5) {
+    std::ifstream override_file(argv[4], std::ios::binary);
+    if (!override_file) {
+      tlsf_pipeline_free(pipeline);
+      std::cerr << "cannot open frontend override\n";
+      return 2;
+    }
+    frontend_override.assign(std::istreambuf_iterator<char>(override_file),
+                             std::istreambuf_iterator<char>());
+    pipeline->frontend_provenance_json = frontend_override.data();
+  }
   TlsfGr1ReductionOptions options{};
   options.semantics =
       std::string(argv[2]) == "exact" ? TLSF_GR1_EXACT : TLSF_GR1_STRICT;
@@ -61,6 +76,7 @@ int main(int argc, char **argv) {
   TlsfGr1Reduction result{};
   TlsfGr1ReductionError error{};
   auto status = tlsf_gr1_reduce(pipeline, &options, &result, &error);
+  pipeline->frontend_provenance_json = original_frontend;
   tlsf_pipeline_free(pipeline);
   if (status != TLSF_GR1_REDUCE_OK) {
     std::cerr << "reduce status " << status << ": " << error.stage << ": "
