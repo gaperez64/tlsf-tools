@@ -93,6 +93,11 @@ typedef struct {
       policy_proof_ns;
 } TlsfGr1LiftPhaseBudget;
 
+typedef enum {
+  TLSF_GR1_LIFT_POLICY_FIRST,
+  TLSF_GR1_LIFT_REGION_FIRST
+} TlsfGr1LiftProofOrder;
+
 typedef struct {
   uint64_t deadline_mono_ns;
   int (*cancelled)(void *);
@@ -104,6 +109,10 @@ typedef struct {
   /* The Python default is true. Set to 2 to disable confirmation. */
   uint32_t seed_confirmation;
   TlsfGr1LiftPhaseBudget phase_budget;
+  /* Zero keeps policy-first for callers that need a policy artifact.
+   * Region-first retries policy only after region capacity or deadline;
+   * REGION_FAILED declines without claiming UNREAL or exporting a policy. */
+  TlsfGr1LiftProofOrder proof_order;
   /* Applied to every reduction and to lifting's own RSS checks. As for
    * reduction, zero members disable checks and the budget is read live. */
   TlsfGr1ConstructionBudget budget;
@@ -135,6 +144,26 @@ typedef struct {
   TlsfGr1CheckMethod method;
   TlsfGr1CheckVerdict verdict;
 } TlsfGr1LiftResult;
+
+/* The target owns one immutable source snapshot and a copy of its prepared
+ * game bytes, hashed at preparation and checked before verification.
+ * Prepare it once, then lift against that exact game. The lift performs one
+ * final independent check of a successful candidate. An inconclusive first
+ * method may cause a second check using the other method. Initialize *target
+ * to null before preparation; free a successful target with target_free. */
+typedef struct TlsfGr1LiftTarget TlsfGr1LiftTarget;
+TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error);
+void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target);
+TlsfGr1LiftStatus tlsf_gr1_lift_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1LiftResult *result, TlsfGr1LiftError *error);
+/* Use after any caller-side mutation hooks, before accepting the result. */
+int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
+                                const TlsfGr1LiftResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const ParamOverride *target_overrides,

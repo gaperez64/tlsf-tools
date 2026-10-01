@@ -4,9 +4,13 @@
 #include "tlsf/templates.h"
 #include "oxidd_common.h"
 #include "pipeline_source_internal.h"
+extern "C" {
+#include "sha256.h"
+}
 
 #include "yyjson_cpp.hh"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +25,9 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+#include <thread>
+#endif
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -201,6 +208,15 @@ struct Instance {
   ~Instance() { tlsf_gr1_reduction_clear(&r); }
   Instance() = default;
   Instance(const Instance &) = delete;
+};
+
+struct TrustedTarget {
+  std::string snapshot;
+  std::string source_hash;
+  std::string game_aag;
+  std::string game_hash;
+  TlsfGr1ReductionSemantics semantics = TLSF_GR1_EXACT;
+  std::unique_ptr<Instance> instance;
 };
 
 std::unique_ptr<Aig, decltype(&aig_free)> parse_aig(const char *bytes,
@@ -522,8 +538,9 @@ std::string structural_shape(const Instance &i, const Modes &m,
               s(i.data, "latch_encoding")});
 }
 using Roles = std::map<int, std::string>;
-Roles role_signatures(const Instance &i, const Modes &m, const Config &cfg) {
-  const auto &members = i.members;
+Roles role_signatures(const Instance &i, const Modes &m, const Config &cfg,
+                      const std::vector<int> *coordinates = nullptr) {
+  const auto &members = coordinates ? *coordinates : i.members;
   struct Count {
     int count = 0;
     int arity = 0;
@@ -615,11 +632,15 @@ Roles role_signatures(const Instance &i, const Modes &m, const Config &cfg) {
 struct Window {
   std::string axis;
   std::vector<int> sizes;
+  std::vector<int> target_members;
   std::vector<std::unique_ptr<Instance>> seeds;
   Modes modes;
 };
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local int lift_test_fault = 0;
+thread_local std::string lift_test_generated_certificate_json;
+thread_local std::string lift_test_checked_game_aag;
+thread_local bool lift_test_fallback_started_before_deadline = false;
 #endif
 void validate_window(const Window &window, const Instance &target) {
   if (window.sizes.size() != window.seeds.size() || window.sizes.size() < 2)
@@ -634,7 +655,7 @@ void validate_window(const Window &window, const Instance &target) {
       decline("seed_window", "selected seeds are not consecutive");
   }
 }
-Window discover(const uint8_t *source, size_t size, Instance &target,
+Window discover(const uint8_t *source, size_t size, const Instance &target,
                 TlsfGr1ReductionSemantics semantics, const Config &cfg) {
   auto axes = parameters(target);
   if (axes.empty())
@@ -679,9 +700,9 @@ Window discover(const uint8_t *source, size_t size, Instance &target,
             structural_shape(right, modes, cfg) != target_shape)
           continue;
         auto coords = axis_members(target, left);
-        target.members = std::move(coords.first);
+        auto target_members = std::move(coords.first);
         if (left.members.size() >= right.members.size() ||
-            right.members.size() >= target.members.size())
+            right.members.size() >= target_members.size())
           continue;
         std::vector<size_t> selected{p - 1, p};
         if (cfg.o.seed_confirmation != 2 && p + 1 < probes.size() &&
@@ -703,10 +724,11 @@ Window discover(const uint8_t *source, size_t size, Instance &target,
           stable &= classes(*probes[pos].inst) == expected;
         if (!stable)
           continue;
-        (void)role_signatures(target, modes, cfg);
+        (void)role_signatures(target, modes, cfg, &target_members);
         Window result;
         result.axis = axis;
         result.modes = modes;
+        result.target_members = std::move(target_members);
         for (size_t pos : selected) {
           result.sizes.push_back(probes[pos].size);
           result.seeds.push_back(std::move(probes[pos].inst));
@@ -787,16 +809,20 @@ struct Goal {
   std::string key;
 };
 struct GameView {
-  Instance *inst;
+  const Instance *inst;
   Modes modes;
   Roles roles;
+  std::vector<int> members;
   std::vector<Variable> variables;
   std::vector<Goal> goals;
   std::vector<bool> controls;
   std::map<std::string, int> output_by_name;
   uint32_t states, inputs, fairness;
-  GameView(Instance &i, const Modes &m, const Config &cfg)
-      : inst(&i), modes(m), roles(role_signatures(i, m, cfg)),
+  GameView(const Instance &i, const Modes &m, const Config &cfg,
+           const std::vector<int> *target_members = nullptr)
+      : inst(&i), modes(m),
+        roles(role_signatures(i, m, cfg, target_members)),
+        members(target_members ? *target_members : i.members),
         states(aig_num_latches(i.r.game)), inputs(aig_num_inputs(i.r.game)),
         fairness(aig_num_fairness(i.r.game)) {
     auto &data = i.data;
@@ -1242,14 +1268,14 @@ void subsets(const std::vector<int> &members, int arity, Fn &&fn) {
 using Template = std::map<std::string, B>;
 Template project(Schema &bdd, const GameView &view, const B &function,
                  int arity, const Goal *goal, const Config &cfg) {
-  if (choose_bounded(view.inst->members.size(), arity,
+  if (choose_bounded(view.members.size(), arity,
                      cfg.o.max_subsets_per_predicate) >
       cfg.o.max_subsets_per_predicate)
     throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity", "subset count limit");
   Template result;
   B rebuilt = bdd.t();
   auto support = bdd.support(function);
-  subsets(view.inst->members, arity, [&](const std::vector<int> &selected) {
+  subsets(view.members, arity, [&](const std::vector<int> &selected) {
     cfg.check("schema");
     auto subset = ordered(view, selected, goal);
     std::set<int> set(subset.begin(), subset.end());
@@ -1294,12 +1320,12 @@ Learned learn(Schema &bdd, const std::vector<GameView> &seeds,
               const std::vector<const Goal *> &goals, const Config &cfg) {
   int limit = int(cfg.o.max_predicate_arity);
   for (const auto &seed : seeds)
-    limit = std::min(limit, int(seed.inst->members.size()));
+    limit = std::min(limit, int(seed.members.size()));
   for (int arity = 0; arity <= limit; arity++) {
     cfg.check("schema");
     bool has_larger = false;
     for (const auto &seed : seeds)
-      has_larger |= seed.inst->members.size() > size_t(arity);
+      has_larger |= seed.members.size() > size_t(arity);
     if (!has_larger)
       continue;
     std::vector<Template> observed;
@@ -1336,13 +1362,13 @@ Learned learn(Schema &bdd, const std::vector<GameView> &seeds,
 }
 B instantiate(Schema &bdd, const GameView &target, const Learned &learned,
               const Goal *goal, const Config &cfg) {
-  if (choose_bounded(target.inst->members.size(), learned.arity,
+  if (choose_bounded(target.members.size(), learned.arity,
                      cfg.o.max_subsets_per_predicate) >
       cfg.o.max_subsets_per_predicate)
     throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
                   "target subset count limit");
   B result = bdd.t();
-  subsets(target.inst->members, learned.arity,
+  subsets(target.members, learned.arity,
           [&](const std::vector<int> &selected) {
             cfg.check("instantiate");
             auto subset = ordered(target, selected, goal);
@@ -1834,14 +1860,38 @@ std::unique_ptr<Aig, decltype(&aig_free)> emit_policy(Schema &bdd,
   }
   return policy;
 }
-TlsfGr1CheckResult check(const Candidate &candidate, const Config &cfg,
+TlsfGr1CheckResult check(const TrustedTarget &trusted, const Candidate &candidate,
+                         const Config &cfg,
                          TlsfGr1CheckMethod method, uint64_t deadline) {
+  char game_hash[65]{};
+  sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), game_hash);
+  if (trusted.game_hash != game_hash)
+    throw Failure(TLSF_GR1_LIFT_DECLINED, "target_check",
+                  "prepared game changed before verification");
   StatsScope check_stats(cfg, TLSF_GR1_LIFT_STATS_INTERNAL_CHECK);
   if (cfg.stats)
     cfg.stats->internal_checks++;
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (method == TLSF_GR1_CHECK_REGION &&
+      (lift_test_fault == 2 || lift_test_fault == 3 ||
+       lift_test_fault == 4)) {
+    TlsfGr1CheckResult injected{};
+    const bool capacity = lift_test_fault == 2 || lift_test_fault == 4;
+    injected.status = capacity ? TLSF_GR1_CHECK_LIMIT : TLSF_GR1_CHECK_OK;
+    injected.verdict = capacity ? TLSF_GR1_CHECK_UNKNOWN
+                                : TLSF_GR1_CHECK_CERT_FAILED;
+    return injected;
+  }
+#endif
   TlsfGr1CheckInput input{};
-  input.game_aag = {(const uint8_t *)candidate.game.data(),
-                    candidate.game.size()};
+  input.game_aag = {(const uint8_t *)trusted.game_aag.data(),
+                    trusted.game_aag.size()};
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (lift_test_fault == 5)
+    lift_test_checked_game_aag.assign(
+        reinterpret_cast<const char *>(input.game_aag.data),
+        input.game_aag.size);
+#endif
   input.certificate_aag = {(const uint8_t *)candidate.certificate.data(),
                            candidate.certificate.size()};
   input.certificate_json = {(const uint8_t *)candidate.certificate_json.data(),
@@ -1869,15 +1919,20 @@ TlsfGr1CheckResult check(const Candidate &candidate, const Config &cfg,
 }
 Candidate prove(Schema &bdd, const GameView &target,
                 const LearnedCertificate &learned,
-                TlsfGr1ReductionSemantics semantics, const Config &cfg) {
+                const TrustedTarget &trusted, const Config &cfg) {
   Candidate candidate;
-  candidate.game.assign(target.inst->r.aag, target.inst->r.aag_size);
+  candidate.game = trusted.game_aag;
+  const auto semantics = trusted.semantics;
   StatsScope candidate_stats(cfg, TLSF_GR1_LIFT_STATS_CANDIDATE_INSTANTIATION);
   candidate_stats.count_bdd_ops(bdd.operation_counter());
   auto cert = emit_certificate(bdd, target, learned, cfg);
   candidate.certificate = render_aig(cert.get(), cfg);
   candidate.certificate_json =
       dump(certificate_sidecar(target, learned, cert.get(), semantics));
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (lift_test_fault == 5)
+    lift_test_generated_certificate_json = candidate.certificate_json;
+#endif
   cfg.bytes(candidate.certificate_json.size(), "certificate_export");
   if (cfg.stats)
     cfg.stats->candidate_bytes =
@@ -1886,86 +1941,115 @@ Candidate prove(Schema &bdd, const GameView &target,
     cfg.stats->schema_nodes_after_candidate = bdd.node_count();
   // The candidate scope ends before policy generation and verification.
   candidate_stats.finish();
-  cfg.check("policy");
-  uint64_t now = now_ns();
-  Config policy_cfg = cfg;
-  policy_cfg.phase_deadline_ns = cfg.policy_proof_ns > UINT64_MAX - now
-                                     ? UINT64_MAX
-                                     : now + cfg.policy_proof_ns;
-  policy_cfg.max_bdd_ops = cfg.max_policy_bdd_ops;
-  uint64_t proof_deadline = policy_cfg.effective_deadline();
-  bool capacity_fallback = false;
-  try {
-    StatsScope policy_stats(cfg, TLSF_GR1_LIFT_STATS_POLICY_EXPORT);
-    bdd.begin_phase(policy_cfg);
-    policy_stats.count_bdd_ops(bdd.operation_counter());
-    auto policy = emit_policy(bdd, target, cert.get(), policy_cfg);
-    candidate.policy = render_aig(policy.get(), policy_cfg);
-    candidate.policy_json =
-        dump(policy_sidecar(target, policy.get(), semantics));
-    policy_cfg.bytes(candidate.policy_json.size(), "policy");
-    if (cfg.stats)
-      cfg.stats->policy_bytes =
-          candidate.policy.size() + candidate.policy_json.size();
-    policy_stats.finish();
-    auto result = check(candidate, policy_cfg, TLSF_GR1_CHECK_CERTIFICATE,
-                        proof_deadline);
-    if (result.status == TLSF_GR1_CHECK_CANCELLED) {
-      tlsf_gr1_check_result_clear(&result);
-      throw Failure(TLSF_GR1_LIFT_CANCELLED, "target_check",
-                    "checker cancelled");
-    }
-    if (result.status == TLSF_GR1_CHECK_OK &&
-        result.verdict == TLSF_GR1_CHECK_VERIFIED) {
-      candidate.method = TLSF_GR1_CHECK_CERTIFICATE;
-      candidate.verdict = result.verdict;
+  TlsfGr1CheckStatus region_capacity_status = TLSF_GR1_CHECK_OK;
+  TlsfGr1LiftStatus policy_capacity_status = TLSF_GR1_LIFT_LIMIT;
+  auto try_region = [&]() {
+    cfg.check("region_check");
+    auto result = check(trusted, candidate, cfg,
+                        TLSF_GR1_CHECK_REGION, cfg.o.deadline_mono_ns);
+    const auto status = result.status;
+    const auto verdict = result.verdict;
+    if (status == TLSF_GR1_CHECK_OK &&
+        verdict == TLSF_GR1_CHECK_REGION_VERIFIED) {
+      candidate.method = TLSF_GR1_CHECK_REGION;
+      candidate.verdict = verdict;
       if (result.json)
         candidate.check_json.assign(result.json, result.json_size);
-      tlsf_gr1_check_result_clear(&result);
-      bdd.set_config(cfg);
-      return candidate;
+      candidate.policy.clear();
+      candidate.policy_json.clear();
     }
-    capacity_fallback = result.status == TLSF_GR1_CHECK_LIMIT ||
-                        result.status == TLSF_GR1_CHECK_DEADLINE;
     tlsf_gr1_check_result_clear(&result);
-    if (!capacity_fallback)
-      decline("target_check", "certificate not verified");
-  } catch (const Failure &e) {
-    bdd.set_config(cfg);
-    if (e.status == TLSF_GR1_LIFT_LIMIT || e.status == TLSF_GR1_LIFT_DEADLINE)
-      capacity_fallback = true;
-    else
+    if (candidate.verdict == TLSF_GR1_CHECK_REGION_VERIFIED)
+      return true;
+    if (status == TLSF_GR1_CHECK_CANCELLED)
+      throw Failure(TLSF_GR1_LIFT_CANCELLED, "region_check",
+                    "checker cancelled");
+    if (status == TLSF_GR1_CHECK_LIMIT || status == TLSF_GR1_CHECK_DEADLINE) {
+      region_capacity_status = status;
+      return false;
+    }
+    // REGION_FAILED means the proposed certificate failed this proof method.
+    // Do not turn it into an UNREAL result or spend policy work on it.
+    decline("target_check", "region not verified");
+  };
+  auto try_policy = [&]() {
+    cfg.check("policy");
+    uint64_t now = now_ns();
+    Config policy_cfg = cfg;
+    policy_cfg.phase_deadline_ns = cfg.policy_proof_ns > UINT64_MAX - now
+                                       ? UINT64_MAX
+                                       : now + cfg.policy_proof_ns;
+    policy_cfg.max_bdd_ops = cfg.max_policy_bdd_ops;
+    try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+      if (lift_test_fault == 4 && cfg.o.deadline_mono_ns) {
+        lift_test_fallback_started_before_deadline =
+            now_ns() < cfg.o.deadline_mono_ns;
+        while (now_ns() < cfg.o.deadline_mono_ns)
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        policy_cfg.check("policy");
+      }
+#endif
+      StatsScope policy_stats(cfg, TLSF_GR1_LIFT_STATS_POLICY_EXPORT);
+      bdd.begin_phase(policy_cfg);
+      policy_stats.count_bdd_ops(bdd.operation_counter());
+      auto policy = emit_policy(bdd, target, cert.get(), policy_cfg);
+      candidate.policy = render_aig(policy.get(), policy_cfg);
+      candidate.policy_json =
+          dump(policy_sidecar(target, policy.get(), semantics));
+      policy_cfg.bytes(candidate.policy_json.size(), "policy");
+      if (cfg.stats)
+        cfg.stats->policy_bytes =
+            candidate.policy.size() + candidate.policy_json.size();
+      policy_stats.finish();
+      auto result = check(trusted, candidate, policy_cfg,
+                          TLSF_GR1_CHECK_CERTIFICATE,
+                          policy_cfg.effective_deadline());
+      const auto status = result.status;
+      const auto verdict = result.verdict;
+      if (status == TLSF_GR1_CHECK_OK && verdict == TLSF_GR1_CHECK_VERIFIED) {
+        candidate.method = TLSF_GR1_CHECK_CERTIFICATE;
+        candidate.verdict = verdict;
+        if (result.json)
+          candidate.check_json.assign(result.json, result.json_size);
+      }
+      tlsf_gr1_check_result_clear(&result);
+      if (candidate.verdict == TLSF_GR1_CHECK_VERIFIED) {
+        bdd.set_config(cfg);
+        return true;
+      }
+      if (status == TLSF_GR1_CHECK_CANCELLED)
+        throw Failure(TLSF_GR1_LIFT_CANCELLED, "target_check",
+                      "checker cancelled");
+      if (status != TLSF_GR1_CHECK_LIMIT && status != TLSF_GR1_CHECK_DEADLINE)
+        decline("target_check", "certificate not verified");
+      if (status == TLSF_GR1_CHECK_DEADLINE && cfg.o.deadline_mono_ns &&
+          now_ns() >= cfg.o.deadline_mono_ns)
+        policy_capacity_status = TLSF_GR1_LIFT_DEADLINE;
+    } catch (const Failure &e) {
+      bdd.set_config(cfg);
+      if (e.status == TLSF_GR1_LIFT_LIMIT || e.status == TLSF_GR1_LIFT_DEADLINE) {
+        policy_capacity_status = e.status;
+        return false;
+      }
       throw;
+    }
+    bdd.set_config(cfg);
+    return false;
+  };
+  if (cfg.o.proof_order == TLSF_GR1_LIFT_REGION_FIRST) {
+    if (try_region() || try_policy())
+      return candidate;
+    cfg.check("target_check");
+    throw Failure(policy_capacity_status, "target_check",
+                  "region and policy proof budgets exhausted");
   }
-  bdd.set_config(cfg);
-  if (!capacity_fallback)
-    decline("target_check", "policy check failed");
-  cfg.check("region_check");
-  auto region =
-      check(candidate, cfg, TLSF_GR1_CHECK_REGION, cfg.o.deadline_mono_ns);
-  if (region.status == TLSF_GR1_CHECK_CANCELLED ||
-      region.status == TLSF_GR1_CHECK_DEADLINE ||
-      region.status == TLSF_GR1_CHECK_LIMIT) {
-    auto status = region.status;
-    tlsf_gr1_check_result_clear(&region);
-    throw Failure(status == TLSF_GR1_CHECK_CANCELLED  ? TLSF_GR1_LIFT_CANCELLED
-                  : status == TLSF_GR1_CHECK_DEADLINE ? TLSF_GR1_LIFT_DEADLINE
-                                                      : TLSF_GR1_LIFT_LIMIT,
-                  "region_check", "checker capacity or deadline");
-  }
-  if (region.status == TLSF_GR1_CHECK_OK &&
-      region.verdict == TLSF_GR1_CHECK_REGION_VERIFIED) {
-    candidate.method = TLSF_GR1_CHECK_REGION;
-    candidate.verdict = region.verdict;
-    if (region.json)
-      candidate.check_json.assign(region.json, region.json_size);
-    candidate.policy.clear();
-    candidate.policy_json.clear();
-    tlsf_gr1_check_result_clear(&region);
+  if (try_policy() || try_region())
     return candidate;
-  }
-  tlsf_gr1_check_result_clear(&region);
-  decline("target_check", "region not verified");
+  throw Failure(region_capacity_status == TLSF_GR1_CHECK_DEADLINE
+                    ? TLSF_GR1_LIFT_DEADLINE : TLSF_GR1_LIFT_LIMIT,
+                "region_check",
+                "checker capacity or deadline");
 }
 char *copy_bytes(const std::string &value) {
   if (value.size() == SIZE_MAX)
@@ -2007,9 +2091,12 @@ TlsfGr1LiftOptions defaults(const TlsfGr1LiftOptions *provided) {
         TLSF_GR1_LIFT_DEFAULT_MAX_SUBSETS_PER_PREDICATE;
   return out;
 }
-void run(const uint8_t *source, size_t size,
-         const std::map<std::string, int64_t> &target_overrides,
-         const Config &cfg, TlsfGr1LiftResult &result) {
+TrustedTarget prepare(const uint8_t *source, size_t size,
+                      const std::map<std::string, int64_t> &overrides,
+                      const Config &cfg) {
+  TrustedTarget trusted;
+  trusted.snapshot.assign(reinterpret_cast<const char *>(source), size);
+  source = reinterpret_cast<const uint8_t *>(trusted.snapshot.data());
   StatsScope source_stats(cfg, TLSF_GR1_LIFT_STATS_SOURCE);
   cfg.check("source");
   char source_hash[65]{};
@@ -2021,24 +2108,38 @@ void run(const uint8_t *source, size_t size,
     decline("parse", "source parse failed");
   if (declared_parameters == 0)
     decline("parameters", "absent");
+  trusted.source_hash = source_hash;
   source_stats.finish();
-  TlsfGr1ReductionSemantics semantics = TLSF_GR1_EXACT;
-  std::unique_ptr<Instance> target;
   StatsScope target_stats(cfg, TLSF_GR1_LIFT_STATS_TARGET_REDUCE);
   try {
-    target = lower(source, size, target_overrides, semantics, cfg);
+    trusted.instance = lower(source, size, overrides, trusted.semantics, cfg);
   } catch (const Failure &e) {
     if (e.status != TLSF_GR1_LIFT_DECLINED &&
         e.status != TLSF_GR1_LIFT_UNSUPPORTED)
       throw;
-    semantics = TLSF_GR1_STRICT;
-    target = lower(source, size, target_overrides, semantics, cfg);
+    trusted.semantics = TLSF_GR1_STRICT;
+    trusted.instance = lower(source, size, overrides, trusted.semantics, cfg);
   }
   target_stats.finish();
   if (cfg.stats) {
-    cfg.stats->target_latches = aig_num_latches(target->r.game);
-    cfg.stats->target_ands = aig_num_ands(target->r.game);
+    cfg.stats->target_latches = aig_num_latches(trusted.instance->r.game);
+    cfg.stats->target_ands = aig_num_ands(trusted.instance->r.game);
   }
+  trusted.game_aag.assign(trusted.instance->r.aag,
+                          trusted.instance->r.aag_size);
+  char game_hash[65]{};
+  sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), game_hash);
+  trusted.game_hash = game_hash;
+  return trusted;
+}
+void run(const TrustedTarget &trusted, const Config &cfg,
+         TlsfGr1LiftResult &result) {
+  const auto *source =
+      reinterpret_cast<const uint8_t *>(trusted.snapshot.data());
+  const size_t size = trusted.snapshot.size();
+  const auto &source_hash = trusted.source_hash;
+  const auto semantics = trusted.semantics;
+  const auto &target = trusted.instance;
   auto axes = parameters(*target);
   if (axes.empty())
     decline("parameters", "absent");
@@ -2068,7 +2169,8 @@ void run(const uint8_t *source, size_t size,
   seeds.reserve(window.seeds.size());
   for (auto &seed : window.seeds)
     seeds.emplace_back(*seed, window.modes, discovery_cfg);
-  GameView target_view(*target, window.modes, discovery_cfg);
+  GameView target_view(*target, window.modes, discovery_cfg,
+                       &window.target_members);
   uint32_t width = uint32_t(target_view.variables.size());
   for (const auto &seed : seeds)
     width = std::max(width, uint32_t(seed.variables.size()));
@@ -2080,7 +2182,15 @@ void run(const uint8_t *source, size_t size,
     cfg.stats->schema_nodes_after_learning = bdd.node_count();
   schema_stats.finish();
   bdd.set_config(cfg);
-  Candidate candidate = prove(bdd, target_view, learned, semantics, cfg);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (lift_test_fault == 5 && aig_num_latches(target->r.game)) {
+    uint32_t current, next;
+    aig_latch_at(target->r.game, 0, &current, &next, nullptr);
+    if (!aig_set_latch_next(target->r.game, current, aig_not(next)))
+      throw Failure(TLSF_GR1_LIFT_ERROR, "candidate", "test mutation failed");
+  }
+#endif
+  Candidate candidate = prove(bdd, target_view, learned, trusted, cfg);
   if (candidate.verdict != TLSF_GR1_CHECK_VERIFIED &&
       candidate.verdict != TLSF_GR1_CHECK_REGION_VERIFIED)
     decline("target_check", "unverified candidate");
@@ -2168,10 +2278,132 @@ void run(const uint8_t *source, size_t size,
 }
 } // namespace
 
+struct TlsfGr1LiftTarget {
+  TrustedTarget trusted;
+  mutable std::array<std::string, 7> checked_hashes;
+  mutable TlsfGr1CheckMethod checked_method = TLSF_GR1_CHECK_CERTIFICATE;
+  mutable TlsfGr1CheckVerdict checked_verdict = TLSF_GR1_CHECK_UNKNOWN;
+};
+
+namespace {
+Config lift_config(const TlsfGr1LiftOptions *options) {
+  Config cfg{defaults(options)};
+  static const TlsfGr1ConstructionBudget empty_budget{};
+  cfg.budget = options ? &options->budget : &empty_budget;
+  cfg.stats = options ? options->stats : nullptr;
+  cfg.work = cfg.stats ? &cfg.stats->work : nullptr;
+  cfg.stats_callback = cfg.o.stats_callback;
+  cfg.stats_context = cfg.o.stats_context;
+  const auto &phase = cfg.o.phase_budget;
+  if (phase.max_seed_probes)
+    cfg.max_seed_probes = phase.max_seed_probes;
+  if (phase.max_discovery_bdd_ops)
+    cfg.max_bdd_ops = phase.max_discovery_bdd_ops;
+  if (phase.max_policy_bdd_ops)
+    cfg.max_policy_bdd_ops = phase.max_policy_bdd_ops;
+  if (phase.policy_proof_ns)
+    cfg.policy_proof_ns = phase.policy_proof_ns;
+  return cfg;
+}
+void lift_error(TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
+                TlsfGr1LiftStatus status, const char *stage,
+                const char *message) {
+  if (stats)
+    snprintf(stats->final_stage, sizeof stats->final_stage, "%s", stage);
+  if (error) {
+    error->status = status;
+    snprintf(error->stage, sizeof error->stage, "%s", stage);
+    snprintf(error->message, sizeof error->message, "%s", message);
+  }
+}
+template <typename Action>
+TlsfGr1LiftStatus invoke_lift(Action action, TlsfGr1LiftError *error,
+                              TlsfGr1LiftStats *stats) {
+  if (error)
+    memset(error, 0, sizeof *error);
+  try {
+    action();
+    if (error)
+      error->status = TLSF_GR1_LIFT_OK;
+    return TLSF_GR1_LIFT_OK;
+  } catch (const Failure &e) {
+    lift_error(error, stats, e.status, e.stage.c_str(), e.what());
+    return e.status;
+  } catch (const std::bad_alloc &) {
+    lift_error(error, stats, TLSF_GR1_LIFT_LIMIT, "allocation",
+               "host allocation failed");
+    return TLSF_GR1_LIFT_LIMIT;
+  } catch (const std::exception &e) {
+    lift_error(error, stats, TLSF_GR1_LIFT_ERROR, "internal", e.what());
+    return TLSF_GR1_LIFT_ERROR;
+  } catch (...) {
+    lift_error(error, stats, TLSF_GR1_LIFT_ERROR, "internal",
+               "unknown exception");
+    return TLSF_GR1_LIFT_ERROR;
+  }
+}
+std::map<std::string, int64_t> lift_overrides(
+    const ParamOverride *rows, size_t count) {
+  std::map<std::string, int64_t> overrides;
+  for (size_t p = 0; p < count; p++) {
+    const auto &row = rows[p];
+    if (!row.name || !*row.name ||
+        !overrides.emplace(row.name, row.value).second)
+      throw Failure(TLSF_GR1_LIFT_INVALID, "override",
+                    "empty or duplicate target override");
+  }
+  return overrides;
+}
+std::array<std::string, 7> result_hashes(const TlsfGr1LiftResult &result) {
+  const std::array<std::pair<const char *, size_t>, 7> artifacts{{
+      {result.game_aag, result.game_size},
+      {result.certificate_aag, result.certificate_size},
+      {result.certificate_json, result.certificate_json_size},
+      {result.policy_aag, result.policy_size},
+      {result.policy_json, result.policy_json_size},
+      {result.check_json, result.check_json_size},
+      {result.evidence_json, result.evidence_size}}};
+  std::array<std::string, 7> hashes;
+  for (size_t i = 0; i < artifacts.size(); i++) {
+    const auto &[bytes, size] = artifacts[i];
+    if (!bytes && size)
+      return {};
+    char digest[65]{};
+    sha256_hex(bytes ? bytes : "", size, digest);
+    hashes[i] = digest;
+  }
+  return hashes;
+}
+} // namespace
+
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 /* Compiled only into native_lift_api, never into the installed library. */
 extern "C" void tlsf_gr1_lift_test_set_fault(int fault) {
   lift_test_fault = fault;
+  lift_test_generated_certificate_json.clear();
+  lift_test_checked_game_aag.clear();
+  lift_test_fallback_started_before_deadline = false;
+}
+extern "C" const char *tlsf_gr1_lift_test_generated_certificate_json() {
+  return lift_test_generated_certificate_json.c_str();
+}
+extern "C" int tlsf_gr1_lift_test_fallback_started_before_deadline() {
+  return lift_test_fallback_started_before_deadline;
+}
+extern "C" int tlsf_gr1_lift_test_checked_game_equals(
+    const char *bytes, size_t size) {
+  return lift_test_checked_game_aag.size() == size &&
+         !memcmp(lift_test_checked_game_aag.data(), bytes, size);
+}
+extern "C" int tlsf_gr1_lift_test_prepared_game_equals(
+    const TlsfGr1LiftTarget *target, const char *bytes, size_t size) {
+  return target && target->trusted.game_aag.size() == size &&
+         !memcmp(target->trusted.game_aag.data(), bytes, size);
+}
+extern "C" void tlsf_gr1_lift_test_corrupt_prepared_game(
+    TlsfGr1LiftTarget *target) {
+  if (target && !target->trusted.game_aag.empty())
+    target->trusted.game_aag[0] = 'X';
 }
 #endif
 
@@ -2192,102 +2424,103 @@ tlsf_gr1_lift(const uint8_t *source, size_t source_size,
               const ParamOverride *target_overrides,
               size_t target_override_count, const TlsfGr1LiftOptions *options,
               TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
-  TlsfGr1LiftStats *stats = options ? options->stats : nullptr;
+  auto *stats = options ? options->stats : nullptr;
   if (stats)
     memset(stats, 0, sizeof *stats);
-  if (error)
-    memset(error, 0, sizeof *error);
-  if (!result || !source || !source_size ||
-      (target_override_count && !target_overrides)) {
-    if (error) {
-      error->status = TLSF_GR1_LIFT_INVALID;
-      snprintf(error->stage, sizeof error->stage, "arguments");
-      snprintf(error->message, sizeof error->message, "invalid arguments");
-    }
+  if (!result) {
+    lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
+               "invalid arguments");
     return TLSF_GR1_LIFT_INVALID;
   }
-  if (result->game_aag || result->certificate_aag || result->certificate_json ||
-      result->policy_aag || result->policy_json || result->check_json ||
-      result->evidence_json) {
-    if (error) {
-      error->status = TLSF_GR1_LIFT_INVALID;
-      snprintf(error->stage, sizeof error->stage, "arguments");
-      snprintf(error->message, sizeof error->message, "result must be empty");
-    }
+  if (result->game_aag || result->certificate_aag ||
+      result->certificate_json || result->policy_aag || result->policy_json ||
+      result->check_json || result->evidence_json) {
+    lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
+               "result must be empty");
+    return TLSF_GR1_LIFT_INVALID;
+  }
+  TlsfGr1LiftTarget *target = nullptr;
+  auto status = tlsf_gr1_lift_target_prepare(
+      source, source_size, target_overrides, target_override_count, options,
+      &target, error);
+  if (status != TLSF_GR1_LIFT_OK)
+    return status;
+  status = tlsf_gr1_lift_from_target(target, options, result, error);
+  tlsf_gr1_lift_target_free(target);
+  return status;
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error) {
+  auto *stats = options ? options->stats : nullptr;
+  if (stats)
+    memset(stats, 0, sizeof *stats);
+  if (!target || *target || !source || !source_size ||
+      (target_override_count && !target_overrides)) {
+    lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
+               "invalid arguments");
+    return TLSF_GR1_LIFT_INVALID;
+  }
+  return invoke_lift([&] {
+    auto cfg = lift_config(options);
+    if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
+        cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
+      throw Failure(TLSF_GR1_LIFT_INVALID, "arguments", "invalid proof order");
+    cfg.bytes(source_size, "source");
+    auto overrides = lift_overrides(target_overrides, target_override_count);
+    auto owned = std::make_unique<TlsfGr1LiftTarget>();
+    owned->trusted = prepare(source, source_size, overrides, cfg);
+    *target = owned.release();
+  }, error, stats);
+}
+
+extern "C" void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target) {
+  delete target;
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
+  auto *stats = options ? options->stats : nullptr;
+  if (!target || !result || result->game_aag || result->certificate_aag ||
+      result->certificate_json || result->policy_aag || result->policy_json ||
+      result->check_json || result->evidence_json) {
+    lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
+               "invalid or nonempty result");
     return TLSF_GR1_LIFT_INVALID;
   }
   memset(result, 0, sizeof *result);
-  try {
-    Config cfg{defaults(options)};
-    cfg.budget = options ? &options->budget : &cfg.o.budget;
-    cfg.stats = stats;
-    cfg.work = stats ? &stats->work : nullptr;
-    cfg.stats_callback = cfg.o.stats_callback;
-    cfg.stats_context = cfg.o.stats_context;
-    const TlsfGr1LiftPhaseBudget &phase = cfg.o.phase_budget;
-    if (phase.max_seed_probes)
-      cfg.max_seed_probes = phase.max_seed_probes;
-    if (phase.max_discovery_bdd_ops)
-      cfg.max_bdd_ops = phase.max_discovery_bdd_ops;
-    if (phase.max_policy_bdd_ops)
-      cfg.max_policy_bdd_ops = phase.max_policy_bdd_ops;
-    if (phase.policy_proof_ns)
-      cfg.policy_proof_ns = phase.policy_proof_ns;
-    std::map<std::string, int64_t> overrides;
-    for (size_t p = 0; p < target_override_count; p++) {
-      const ParamOverride &row = target_overrides[p];
-      if (!row.name || !*row.name ||
-          !overrides.emplace(row.name, row.value).second)
-        throw Failure(TLSF_GR1_LIFT_INVALID, "override",
-                      "empty or duplicate target override");
-    }
-    cfg.bytes(source_size, "source");
-    std::string snapshot(reinterpret_cast<const char *>(source), source_size);
-    run(reinterpret_cast<const uint8_t *>(snapshot.data()), snapshot.size(),
-        overrides, cfg, *result);
-    if (error)
-      error->status = TLSF_GR1_LIFT_OK;
-    return TLSF_GR1_LIFT_OK;
-  } catch (const Failure &e) {
-    if (stats)
-      snprintf(stats->final_stage, sizeof stats->final_stage, "%s",
-               e.stage.c_str());
+  auto status = invoke_lift([&] {
+    auto cfg = lift_config(options);
+    if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
+        cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
+      throw Failure(TLSF_GR1_LIFT_INVALID, "arguments", "invalid proof order");
+    run(target->trusted, cfg, *result);
+    target->checked_hashes = result_hashes(*result);
+    if (target->checked_hashes[0].empty())
+      throw Failure(TLSF_GR1_LIFT_ERROR, "publish", "artifact seal failed");
+    target->checked_method = result->method;
+    target->checked_verdict = result->verdict;
+  }, error, stats);
+  if (status != TLSF_GR1_LIFT_OK)
     tlsf_gr1_lift_result_clear(result);
-    if (error) {
-      error->status = e.status;
-      snprintf(error->stage, sizeof error->stage, "%s", e.stage.c_str());
-      snprintf(error->message, sizeof error->message, "%s", e.what());
-    }
-    return e.status;
-  } catch (const std::bad_alloc &) {
-    if (stats)
-      snprintf(stats->final_stage, sizeof stats->final_stage, "allocation");
-    tlsf_gr1_lift_result_clear(result);
-    if (error) {
-      error->status = TLSF_GR1_LIFT_LIMIT;
-      snprintf(error->stage, sizeof error->stage, "allocation");
-      snprintf(error->message, sizeof error->message, "host allocation failed");
-    }
-    return TLSF_GR1_LIFT_LIMIT;
-  } catch (const std::exception &e) {
-    if (stats)
-      snprintf(stats->final_stage, sizeof stats->final_stage, "internal");
-    tlsf_gr1_lift_result_clear(result);
-    if (error) {
-      error->status = TLSF_GR1_LIFT_ERROR;
-      snprintf(error->stage, sizeof error->stage, "internal");
-      snprintf(error->message, sizeof error->message, "%s", e.what());
-    }
-    return TLSF_GR1_LIFT_ERROR;
-  } catch (...) {
-    if (stats)
-      snprintf(stats->final_stage, sizeof stats->final_stage, "internal");
-    tlsf_gr1_lift_result_clear(result);
-    if (error) {
-      error->status = TLSF_GR1_LIFT_ERROR;
-      snprintf(error->stage, sizeof error->stage, "internal");
-      snprintf(error->message, sizeof error->message, "unknown exception");
-    }
-    return TLSF_GR1_LIFT_ERROR;
-  }
+  return status;
+}
+
+extern "C" int tlsf_gr1_lift_target_matches(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftResult *result) {
+  if (!target || !result || !result->game_aag)
+    return 0;
+  const auto &trusted = target->trusted;
+  return result->semantics == trusted.semantics &&
+         result->game_size == trusted.game_aag.size() &&
+         memcmp(result->game_aag, trusted.game_aag.data(),
+                result->game_size) == 0 &&
+         result->method == target->checked_method &&
+         result->verdict == target->checked_verdict &&
+         target->checked_verdict != TLSF_GR1_CHECK_UNKNOWN &&
+         result_hashes(*result) == target->checked_hashes;
 }

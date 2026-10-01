@@ -16,6 +16,12 @@
     }                                                                          \
   } while (false)
 extern "C" void tlsf_gr1_lift_test_set_fault(int);
+extern "C" const char *tlsf_gr1_lift_test_generated_certificate_json();
+extern "C" int tlsf_gr1_lift_test_fallback_started_before_deadline();
+extern "C" int tlsf_gr1_lift_test_checked_game_equals(const char *, size_t);
+extern "C" int tlsf_gr1_lift_test_prepared_game_equals(
+    const TlsfGr1LiftTarget *, const char *, size_t);
+extern "C" void tlsf_gr1_lift_test_corrupt_prepared_game(TlsfGr1LiftTarget *);
 
 static const char *source =
     "INFO { TITLE: \"unseen\" DESCRIPTION: \"unseen\" SEMANTICS: Mealy TARGET: "
@@ -252,6 +258,121 @@ int main() {
   CHECK(region_evidence.at("format") == TLSF_GR1_LIFT_EVIDENCE_FORMAT);
   CHECK(!region_evidence.if_contains("policy_sha256"));
   tlsf_gr1_lift_result_clear(&result);
+  std::string mutable_target(source);
+  o = options();
+  TlsfGr1LiftStats trusted_stats{};
+  o.stats = &trusted_stats;
+  o.proof_order = TLSF_GR1_LIFT_REGION_FIRST;
+  TlsfGr1LiftTarget *target = nullptr;
+  CHECK(tlsf_gr1_lift_target_prepare(
+            (const uint8_t *)mutable_target.data(), mutable_target.size(),
+            nullptr, 0, &o, &target, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(target);
+  mutable_target[0] = 'X';
+  CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
+        TLSF_GR1_LIFT_OK);
+  CHECK(result.method == TLSF_GR1_CHECK_REGION);
+  CHECK(trusted_stats.internal_checks == 1);
+  CHECK(trusted_stats.stages[TLSF_GR1_LIFT_STATS_POLICY_EXPORT].calls == 0);
+  CHECK(tlsf_gr1_lift_target_matches(target, &result));
+  std::string trusted_game(result.game_aag, result.game_size);
+  std::string trusted_certificate_json(result.certificate_json,
+                                       result.certificate_json_size);
+  result.certificate_aag[0] = 'X';
+  CHECK(!tlsf_gr1_lift_target_matches(target, &result));
+  result.certificate_aag[0] = 'a';
+  CHECK(tlsf_gr1_lift_target_matches(target, &result));
+  std::swap(result.game_aag, result.certificate_aag);
+  std::swap(result.game_size, result.certificate_size);
+  auto swapped = tlsf_json::parse(result.evidence_json).as_object();
+  char swapped_game_hash[65]{}, swapped_cert_hash[65]{};
+  CHECK(tlsf_pipeline_source_sha256(result.game_aag, result.game_size,
+                                    swapped_game_hash));
+  CHECK(tlsf_pipeline_source_sha256(result.certificate_aag,
+                                    result.certificate_size, swapped_cert_hash));
+  swapped["game_sha256"] = swapped_game_hash;
+  swapped["certificate_sha256"] = swapped_cert_hash;
+  std::string swapped_json = tlsf_json::serialize(swapped);
+  free(result.evidence_json);
+  result.evidence_size = swapped_json.size();
+  result.evidence_json = (char *)malloc(result.evidence_size + 1);
+  CHECK(result.evidence_json);
+  memcpy(result.evidence_json, swapped_json.c_str(), result.evidence_size + 1);
+  CHECK(!tlsf_gr1_lift_target_matches(target, &result));
+  tlsf_gr1_lift_result_clear(&result);
+  tlsf_gr1_lift_target_free(target);
+  target = nullptr;
+  o = options();
+  o.proof_order = TLSF_GR1_LIFT_REGION_FIRST;
+  CHECK(tlsf_gr1_lift_target_prepare(
+            (const uint8_t *)source, strlen(source), nullptr, 0, &o,
+            &target, &error) == TLSF_GR1_LIFT_OK);
+  TlsfGr1LiftStats generation_stats{};
+  o.stats = &generation_stats;
+  tlsf_gr1_lift_test_set_fault(5);
+  auto generation_status = tlsf_gr1_lift_from_target(target, &o, &result, &error);
+  if (generation_status != TLSF_GR1_LIFT_OK)
+    fprintf(stderr, "generation status=%d stage=%s message=%s checks=%llu\n",
+            generation_status, error.stage, error.message,
+            (unsigned long long)generation_stats.internal_checks);
+  CHECK(generation_status == TLSF_GR1_LIFT_OK);
+  CHECK(generation_stats.internal_checks == 1);
+  CHECK(result.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  CHECK(tlsf_gr1_lift_target_matches(target, &result));
+  CHECK(std::string(result.game_aag, result.game_size) == trusted_game);
+  std::string mutated_certificate_json(
+      tlsf_gr1_lift_test_generated_certificate_json());
+  CHECK(!mutated_certificate_json.empty());
+  auto trusted_sidecar = tlsf_json::parse(trusted_certificate_json).as_object();
+  auto mutated_sidecar = tlsf_json::parse(mutated_certificate_json).as_object();
+  CHECK(tlsf_json::serialize(
+            trusted_sidecar.at("variables").as_object().at("state")
+                .as_array().at(0).as_object().at("next_game_literal")) !=
+        tlsf_json::serialize(
+            mutated_sidecar.at("variables").as_object().at("state")
+                .as_array().at(0).as_object().at("next_game_literal")));
+  CHECK(tlsf_gr1_lift_test_prepared_game_equals(
+      target, trusted_game.data(), trusted_game.size()));
+  CHECK(tlsf_gr1_lift_test_checked_game_equals(trusted_game.data(),
+                                               trusted_game.size()));
+  tlsf_gr1_lift_result_clear(&result);
+  tlsf_gr1_lift_test_set_fault(0);
+  tlsf_gr1_lift_target_free(target);
+  target = nullptr;
+  TlsfGr1LiftStats corrupt_stats{};
+  o.stats = &corrupt_stats;
+  CHECK(tlsf_gr1_lift_target_prepare(
+            (const uint8_t *)source, strlen(source), nullptr, 0, &o,
+            &target, &error) == TLSF_GR1_LIFT_OK);
+  tlsf_gr1_lift_test_corrupt_prepared_game(target);
+  CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
+        TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "target_check"));
+  CHECK(corrupt_stats.internal_checks == 0);
+  CHECK(!result.game_aag);
+  tlsf_gr1_lift_target_free(target);
+  target = nullptr;
+  o.stats = &trusted_stats;
+  o.deadline_mono_ns = deadline(10);
+  tlsf_gr1_lift_test_set_fault(2);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(result.method == TLSF_GR1_CHECK_CERTIFICATE);
+  CHECK(trusted_stats.internal_checks == 2);
+  CHECK(result.policy_aag);
+  tlsf_gr1_lift_result_clear(&result);
+  tlsf_gr1_lift_test_set_fault(3);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(!strcmp(error.stage, "target_check"));
+  CHECK(trusted_stats.internal_checks == 1);
+  CHECK(trusted_stats.stages[TLSF_GR1_LIFT_STATS_POLICY_EXPORT].calls == 0);
+  o.deadline_mono_ns = deadline(2);
+  tlsf_gr1_lift_test_set_fault(4);
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DEADLINE);
+  CHECK(tlsf_gr1_lift_test_fallback_started_before_deadline());
+  CHECK(deadline(0) >= o.deadline_mono_ns);
+  CHECK(!strcmp(error.stage, "target_check"));
+  CHECK(!result.game_aag);
+  tlsf_gr1_lift_test_set_fault(0);
   o = options();
   o.phase_budget.max_discovery_bdd_ops = 1;
   CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
