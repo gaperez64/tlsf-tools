@@ -104,7 +104,7 @@ if have_oxidd
 endif
 
 if native_gr1
-  lib_sources += files('gr1_lift.cc', 'gr1_reduction.cc')
+  lib_sources += files('gr1_lift.cc', 'gr1_env_lift.cc', 'gr1_reduction.cc')
   cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
   lib_compile_deps += [spot_dep.partial_dependency(compile_args: true,
                                                    includes: true)]
@@ -153,6 +153,7 @@ endif
 # The fault-injection build of the lifting code; it must never reach the
 # installed library, so only test/unit compiles it (a second time).
 gr1_lift_source = files('gr1_lift.cc')
+gr1_env_lift_source = files('gr1_env_lift.cc')
 
 pkg.generate(
   libraries: ['-L${libdir}', '-ltlsf'],

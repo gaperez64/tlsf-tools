@@ -55,6 +55,9 @@ typedef struct {
   void *cancel_ctx;
 } TlsfGr1CheckOptions;
 
+/* Canonical output name in an environment certificate. */
+extern const char tlsf_gr1_check_winning_output_name[];
+
 typedef struct {
   TlsfGr1CheckVerdict verdict;
   char *json; /* malloc-owned, NUL terminated; clear once after use */

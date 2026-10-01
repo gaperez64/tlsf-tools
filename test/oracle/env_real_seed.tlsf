@@ -1,0 +1,13 @@
+INFO {
+  TITLE: "uniform realizable control"
+  DESCRIPTION: "every selected seed and target has the same obligations"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL { PARAMETERS { width = 7; } }
+MAIN {
+  INPUTS { req[0..width-1]; }
+  OUTPUTS { ack[0..width-1]; }
+  ASSUME { &&[0 <= i < width] G F req[i]; }
+  GUARANTEE { &&[0 <= i < width] G F ack[i]; }
+}

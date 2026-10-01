@@ -17,6 +17,20 @@ endif
 
 if native_gr1
   if python3.found()
+    test('native_env_rank_api', python3,
+      args: [files('check_env_rank_api.py'),
+             '--binary', env_rank_fault_probe_exe,
+             '--fixture', files('env_rank_learner.tlsf'),
+             '--out', meson.project_build_root() / 'env-rank-api'],
+      # Small learner fixture keeps the debug build comfortably below 30 s.
+      timeout: 90, is_parallel: false)
+    test('native_env_lift_api', python3,
+      args: [files('check_env_lift_api.py'),
+             '--binary', env_rank_fault_probe_exe,
+             '--fixtures', meson.project_source_root() / 'test/oracle',
+             '--out', meson.project_build_root() / 'env-lift-api'],
+      # Three-fairness and test-only capped capacity keep debug work small.
+      timeout: 90, is_parallel: false)
     test('typed_provenance', python3,
       args: [files('test_typed_provenance.py'),
              '--frontend', exe['tlsf2tlsf'],

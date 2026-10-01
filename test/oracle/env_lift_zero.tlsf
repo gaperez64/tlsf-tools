@@ -1,0 +1,15 @@
+INFO {
+  TITLE: "no explicit fairness"
+  DESCRIPTION: "a safety and justice contradiction in one output"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL { PARAMETERS { width = 6; } }
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant[0..width-1]; }
+  GUARANTEE {
+    G F grant[0];
+    &&[0 <= i < width] G (!grant[i]);
+  }
+}
