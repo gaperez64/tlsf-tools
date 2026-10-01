@@ -158,12 +158,13 @@ TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
     const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
     TlsfGr1LiftError *error);
 void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target);
-TlsfGr1LiftStatus tlsf_gr1_lift_from_target(
-    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
-    TlsfGr1LiftResult *result, TlsfGr1LiftError *error);
+TlsfGr1LiftStatus tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
+                                            const TlsfGr1LiftOptions *options,
+                                            TlsfGr1LiftResult *result,
+                                            TlsfGr1LiftError *error);
 /* Use after any caller-side mutation hooks, before accepting the result. */
 int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
-                                const TlsfGr1LiftResult *result);
+                                 const TlsfGr1LiftResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const ParamOverride *target_overrides,

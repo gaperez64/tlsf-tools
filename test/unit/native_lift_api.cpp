@@ -19,8 +19,9 @@ extern "C" void tlsf_gr1_lift_test_set_fault(int);
 extern "C" const char *tlsf_gr1_lift_test_generated_certificate_json();
 extern "C" int tlsf_gr1_lift_test_fallback_started_before_deadline();
 extern "C" int tlsf_gr1_lift_test_checked_game_equals(const char *, size_t);
-extern "C" int tlsf_gr1_lift_test_prepared_game_equals(
-    const TlsfGr1LiftTarget *, const char *, size_t);
+extern "C" int
+tlsf_gr1_lift_test_prepared_game_equals(const TlsfGr1LiftTarget *, const char *,
+                                        size_t);
 extern "C" void tlsf_gr1_lift_test_corrupt_prepared_game(TlsfGr1LiftTarget *);
 
 static const char *source =
@@ -264,9 +265,9 @@ int main() {
   o.stats = &trusted_stats;
   o.proof_order = TLSF_GR1_LIFT_REGION_FIRST;
   TlsfGr1LiftTarget *target = nullptr;
-  CHECK(tlsf_gr1_lift_target_prepare(
-            (const uint8_t *)mutable_target.data(), mutable_target.size(),
-            nullptr, 0, &o, &target, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)mutable_target.data(),
+                                     mutable_target.size(), nullptr, 0, &o,
+                                     &target, &error) == TLSF_GR1_LIFT_OK);
   CHECK(target);
   mutable_target[0] = 'X';
   CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
@@ -288,8 +289,8 @@ int main() {
   char swapped_game_hash[65]{}, swapped_cert_hash[65]{};
   CHECK(tlsf_pipeline_source_sha256(result.game_aag, result.game_size,
                                     swapped_game_hash));
-  CHECK(tlsf_pipeline_source_sha256(result.certificate_aag,
-                                    result.certificate_size, swapped_cert_hash));
+  CHECK(tlsf_pipeline_source_sha256(
+      result.certificate_aag, result.certificate_size, swapped_cert_hash));
   swapped["game_sha256"] = swapped_game_hash;
   swapped["certificate_sha256"] = swapped_cert_hash;
   std::string swapped_json = tlsf_json::serialize(swapped);
@@ -304,13 +305,14 @@ int main() {
   target = nullptr;
   o = options();
   o.proof_order = TLSF_GR1_LIFT_REGION_FIRST;
-  CHECK(tlsf_gr1_lift_target_prepare(
-            (const uint8_t *)source, strlen(source), nullptr, 0, &o,
-            &target, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)source, strlen(source),
+                                     nullptr, 0, &o, &target,
+                                     &error) == TLSF_GR1_LIFT_OK);
   TlsfGr1LiftStats generation_stats{};
   o.stats = &generation_stats;
   tlsf_gr1_lift_test_set_fault(5);
-  auto generation_status = tlsf_gr1_lift_from_target(target, &o, &result, &error);
+  auto generation_status =
+      tlsf_gr1_lift_from_target(target, &o, &result, &error);
   if (generation_status != TLSF_GR1_LIFT_OK)
     fprintf(stderr, "generation status=%d stage=%s message=%s checks=%llu\n",
             generation_status, error.stage, error.message,
@@ -325,14 +327,22 @@ int main() {
   CHECK(!mutated_certificate_json.empty());
   auto trusted_sidecar = tlsf_json::parse(trusted_certificate_json).as_object();
   auto mutated_sidecar = tlsf_json::parse(mutated_certificate_json).as_object();
-  CHECK(tlsf_json::serialize(
-            trusted_sidecar.at("variables").as_object().at("state")
-                .as_array().at(0).as_object().at("next_game_literal")) !=
-        tlsf_json::serialize(
-            mutated_sidecar.at("variables").as_object().at("state")
-                .as_array().at(0).as_object().at("next_game_literal")));
-  CHECK(tlsf_gr1_lift_test_prepared_game_equals(
-      target, trusted_game.data(), trusted_game.size()));
+  CHECK(tlsf_json::serialize(trusted_sidecar.at("variables")
+                                 .as_object()
+                                 .at("state")
+                                 .as_array()
+                                 .at(0)
+                                 .as_object()
+                                 .at("next_game_literal")) !=
+        tlsf_json::serialize(mutated_sidecar.at("variables")
+                                 .as_object()
+                                 .at("state")
+                                 .as_array()
+                                 .at(0)
+                                 .as_object()
+                                 .at("next_game_literal")));
+  CHECK(tlsf_gr1_lift_test_prepared_game_equals(target, trusted_game.data(),
+                                                trusted_game.size()));
   CHECK(tlsf_gr1_lift_test_checked_game_equals(trusted_game.data(),
                                                trusted_game.size()));
   tlsf_gr1_lift_result_clear(&result);
@@ -341,9 +351,9 @@ int main() {
   target = nullptr;
   TlsfGr1LiftStats corrupt_stats{};
   o.stats = &corrupt_stats;
-  CHECK(tlsf_gr1_lift_target_prepare(
-            (const uint8_t *)source, strlen(source), nullptr, 0, &o,
-            &target, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)source, strlen(source),
+                                     nullptr, 0, &o, &target,
+                                     &error) == TLSF_GR1_LIFT_OK);
   tlsf_gr1_lift_test_corrupt_prepared_game(target);
   CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
         TLSF_GR1_LIFT_DECLINED);
