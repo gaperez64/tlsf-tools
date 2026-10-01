@@ -16,7 +16,7 @@ if native_gr1
   env_rank_probe_exe = executable('env_rank_probe', 'env_rank_probe.cpp',
     dependencies: tlsf_internal_dep)
   env_rank_fault_probe_exe = executable('env_rank_fault_probe',
-    'env_rank_probe.cpp', gr1_env_lift_source,
+    'env_rank_probe.cpp', gr1_lift_source, gr1_env_lift_source,
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
     dependencies: tlsf_internal_dep)
 endif

@@ -49,6 +49,7 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_SCHEMA_CACHE 400000u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_ARTIFACT_BYTES (16u << 20)
 #define TLSF_GR1_LIFT_DEFAULT_MAX_MONITOR_STATES 10000u
+#define TLSF_GR1_ENV_DEFAULT_CANDIDATE_NS 180000000000ull
 
 /* Optional profiling output. The call zeroes it first and keeps the partial
  * work of a failed call and its final decline stage. Timings use process CPU
@@ -113,6 +114,13 @@ typedef struct {
    * Region-first retries policy only after region capacity or deadline;
    * REGION_FAILED declines without claiming UNREAL or exporting a policy. */
   TlsfGr1LiftProofOrder proof_order;
+  /* Fixed U candidate allowance, including its seeds. Zero selects 180 s.
+   * N3 may provide a shorter allowance after factoring out shared seeds. */
+  uint64_t env_candidate_ns;
+  /* U-only soft RSS share. Zero disables this additional check. It is read
+   * live during candidate work and combined with budget.max_rss_bytes by
+   * taking the smaller nonzero limit. Seed reductions receive the same cap. */
+  TlsfGr1ConstructionBudget env_budget;
   /* Applied to every reduction and to lifting's own RSS checks. As for
    * reduction, zero members disable checks and the budget is read live. */
   TlsfGr1ConstructionBudget budget;
@@ -186,6 +194,29 @@ TlsfGr1LiftStatus tlsf_gr1_env_rank_from_target(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
     TlsfGr1EnvRankResult *result, TlsfGr1LiftError *error);
 void tlsf_gr1_env_rank_result_clear(TlsfGr1EnvRankResult *result);
+
+/* A target environment candidate is never a verdict. The checked entry point
+ * calls the independent certificate checker exactly once on the prepared
+ * target game and returns OK only for a VERIFIED UNREAL certificate. */
+typedef struct {
+  TlsfGr1EnvRankResult rank;
+  char *certificate_aag, *certificate_json, *policy_aag, *policy_json;
+  char *check_json;
+  size_t certificate_size, certificate_json_size, policy_size, policy_json_size,
+      check_json_size;
+  uint64_t policy_nodes, policy_applies, policy_cache_entries;
+  uint64_t policy_accounted_bytes, target_checks;
+  uint64_t seed_ns, preflight_ns, rank_ns, policy_ns, check_ns;
+  TlsfGr1CheckVerdict verdict;
+} TlsfGr1EnvLiftResult;
+
+TlsfGr1LiftStatus tlsf_gr1_env_candidate_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1EnvLiftResult *result, TlsfGr1LiftError *error);
+TlsfGr1LiftStatus tlsf_gr1_env_lift_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1EnvLiftResult *result, TlsfGr1LiftError *error);
+void tlsf_gr1_env_lift_result_clear(TlsfGr1EnvLiftResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 const ParamOverride *target_overrides,

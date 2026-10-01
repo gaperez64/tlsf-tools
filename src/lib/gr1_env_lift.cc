@@ -182,7 +182,7 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   options.oxidd = oxidd_solve_options_default();
   options.oxidd.node_cap = cfg.o.solver_nodes;
   options.oxidd.cache_cap = cfg.o.solver_cache;
-  options.oxidd.deadline_mono_ns = cfg.o.deadline_mono_ns;
+  options.oxidd.deadline_mono_ns = cfg.effective_deadline();
   options.oxidd.cancelled = cfg.o.cancelled;
   options.oxidd.cancel_ctx = cfg.o.cancel_ctx;
   options.oxidd.max_artifact_bytes = cfg.o.max_artifact_bytes;
@@ -197,7 +197,8 @@ void env_solve_seed(Instance &seed, const Config &cfg,
       meta_owner(meta, &free), policy_owner(policy, &free),
       policy_meta_owner(policy_meta, &free);
   if (failure.kind == OXIDD_FAILURE_DEADLINE)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, "seed_solve", "deadline exceeded");
+    throw cfg.deadline_failure("seed_solve");
+  cfg.check("seed_solve");
   if (failure.kind == OXIDD_FAILURE_CANCELLED)
     throw Failure(TLSF_GR1_LIFT_CANCELLED, "seed_solve", "cancelled");
   if (failure.kind == OXIDD_FAILURE_BDD ||
@@ -222,16 +223,21 @@ void env_solve_seed(Instance &seed, const Config &cfg,
     check_options.node_cap = cfg.o.checker_nodes;
     check_options.cache_cap = cfg.o.checker_cache;
     check_options.max_artifact_bytes = cfg.o.max_artifact_bytes;
-    check_options.deadline_mono_ns = cfg.o.deadline_mono_ns;
+    check_options.deadline_mono_ns = cfg.effective_deadline();
     check_options.cancelled = cfg.o.cancelled;
     check_options.cancel_ctx = cfg.o.cancel_ctx;
     TlsfGr1CheckResult checked{};
     TlsfGr1CheckStatus check_status =
         tlsf_gr1_check(&input, &check_options, &checked);
     out.seed_checks++;
+    if (check_status == TLSF_GR1_CHECK_DEADLINE) {
+      tlsf_gr1_check_result_clear(&checked);
+      throw cfg.deadline_failure("seed_check");
+    }
     bool verified = check_status == TLSF_GR1_CHECK_OK &&
                     checked.verdict == TLSF_GR1_CHECK_REGION_VERIFIED;
     tlsf_gr1_check_result_clear(&checked);
+    cfg.check("seed_check");
     if (!verified)
       decline("seed_check", "REAL seed certificate did not check");
     decline("seed_check", "checked REAL seed is ineligible for U");
@@ -261,16 +267,21 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   check_options.node_cap = cfg.o.checker_nodes;
   check_options.cache_cap = cfg.o.checker_cache;
   check_options.max_artifact_bytes = cfg.o.max_artifact_bytes;
-  check_options.deadline_mono_ns = cfg.o.deadline_mono_ns;
+  check_options.deadline_mono_ns = cfg.effective_deadline();
   check_options.cancelled = cfg.o.cancelled;
   check_options.cancel_ctx = cfg.o.cancel_ctx;
   TlsfGr1CheckResult checked{};
   TlsfGr1CheckStatus check_status =
       tlsf_gr1_check(&input, &check_options, &checked);
   out.seed_checks++;
+  if (check_status == TLSF_GR1_CHECK_DEADLINE) {
+    tlsf_gr1_check_result_clear(&checked);
+    throw cfg.deadline_failure("seed_check");
+  }
   bool verified = check_status == TLSF_GR1_CHECK_OK &&
                   checked.verdict == TLSF_GR1_CHECK_VERIFIED;
   tlsf_gr1_check_result_clear(&checked);
+  cfg.check("seed_check");
   if (!verified)
     decline("seed_check", "independent environment seed check failed");
   seed.cert = parse_aig(seed.cert_aag.data(), seed.cert_aag.size());
@@ -900,8 +911,11 @@ struct EnvOrder {
 };
 
 class EnvBdd {
-  static constexpr uint64_t rank_memory_cap = 512ull << 20;
-  static constexpr size_t rank_cache_cap = 3000000;
+  // The policy reaches the prototype's cumulative apply cap only if its
+  // memo table can retain all intermediate applications. These are resource
+  // guards, not substitutes for the fixed 3M-node and 12M-apply budgets.
+  static constexpr uint64_t rank_memory_cap = 2ull << 30;
+  static constexpr size_t rank_cache_cap = 12000000;
   const Config &cfg;
   std::vector<EnvNode> nodes{{-1, 0, 0}, {-1, 1, 1}};
   std::unordered_map<EnvNode, int, EnvNodeHash> unique;
@@ -1898,7 +1912,8 @@ std::map<std::string, EnvLearned> env_learn_ranks(
 void env_emit_target_ranks(EnvBdd &bdd, const EnvView &target,
                            const EnvView &first_seed,
                            const std::map<std::string, EnvLearned> &learned,
-                           const Config &cfg, TlsfGr1EnvRankResult &out) {
+                           const Config &cfg, TlsfGr1EnvRankResult &out,
+                           std::map<std::string, int> *rank_roots) {
   std::unique_ptr<Aig, decltype(&aig_free)> aig(aig_new(), &aig_free);
   if (!aig)
     throw Failure(TLSF_GR1_LIFT_LIMIT, "instantiate", "AIG allocation failed");
@@ -1977,10 +1992,414 @@ void env_emit_target_ranks(EnvBdd &bdd, const EnvView &target,
   out.rank_applies = bdd.apply_count();
   out.rank_cache_entries = bdd.cache_count();
   out.rank_accounted_bytes = bdd.accounted_bytes();
+  if (rank_roots)
+    *rank_roots = std::move(ranks);
+}
+
+struct EnvLayer {
+  int phase, layer, target;
+};
+
+int env_and(EnvBdd &bdd, std::initializer_list<int> terms) {
+  int result = 1;
+  for (int term : terms)
+    result = bdd.apply(0, result, term);
+  return result;
+}
+
+void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
+                   std::map<std::string, int> ranks, const Config &cfg,
+                   TlsfGr1EnvLiftResult &out) {
+  const Aig *game = view.instance->r.game;
+  const int outer = int(seed.outer);
+  const int goals_count = int(aig_num_justice(game));
+  const int explicit_fairs = int(aig_num_fairness(game));
+  const int fair_count = std::max(1, explicit_fairs);
+  std::map<uint32_t, int> labels;
+  std::vector<int> state_labels, environment, system;
+  std::map<int, int> next_state;
+  bdd.set_context("policy_reconstruct/target_game_roots");
+  for (uint32_t p = 0; p < aig_num_latches(game); p++) {
+    uint32_t current, next;
+    aig_latch_at(game, p, &current, &next, nullptr);
+    const char *name = aig_latch_name(game, p);
+    int label =
+        env_variable_label(bdd, view.variables.at(view.game_names.at(name)));
+    labels.emplace(current / 2, label);
+    state_labels.push_back(label);
+  }
+  for (uint32_t p = 0; p < aig_num_inputs(game); p++) {
+    uint32_t literal;
+    const char *name = aig_input_name(game, p, &literal);
+    int label =
+        env_variable_label(bdd, view.variables.at(view.game_names.at(name)));
+    labels.emplace(literal / 2, label);
+    if (!strncmp(name, "controllable_", 13))
+      system.push_back(label);
+    else
+      environment.push_back(label);
+  }
+  if (labels.size() != aig_num_latches(game) + aig_num_inputs(game))
+    decline("typed_alignment", "target game variable inventory differs");
+  int bad = 0;
+  for (uint32_t p = 0; p < aig_num_bad(game); p++) {
+    uint32_t literal;
+    aig_bad_at(game, p, &literal);
+    bad = bdd.apply(1, bad, bdd.from_aig(game, literal, labels));
+  }
+  if (!aig_num_bad(game)) {
+    if (aig_num_outputs(game) != 1)
+      decline("policy_reconstruct", "target has no unique bad predicate");
+    bad = bdd.from_aig(
+        game, aig_output_lit(game, aig_output_at(game, 0, nullptr)), labels);
+  }
+  for (uint32_t p = 0; p < aig_num_latches(game); p++) {
+    uint32_t current, next;
+    aig_latch_at(game, p, &current, &next, nullptr);
+    next_state.emplace(labels.at(current / 2),
+                       bdd.from_aig(game, next, labels));
+  }
+  std::vector<int> goals, fairs;
+  for (int j = 0; j < goals_count; j++) {
+    const uint32_t *literals;
+    uint32_t count;
+    aig_justice_at(game, j, &literals, &count);
+    if (count != 1)
+      decline("policy_reconstruct", "justice is not a single predicate");
+    goals.push_back(bdd.from_aig(game, literals[0], labels));
+  }
+  for (int i = 0; i < explicit_fairs; i++)
+    fairs.push_back(bdd.from_aig(game, aig_fairness_at(game, i), labels));
+  if (fairs.empty())
+    fairs.push_back(1);
+  bdd.set_context("policy_reconstruct/rank_closure");
+  for (int k = 0; k < outer; k++) {
+    int z = 0;
+    for (int j = 0; j < goals_count; j++) {
+      int y = 1;
+      for (int i = 0; i < fair_count; i++) {
+        int depth = 0;
+        while (ranks.count("x_" + field(k) + "_" + field(j) + "_" + field(i) +
+                           "_" + field(depth)))
+          depth++;
+        if (!depth)
+          decline("instantiate", "target inner rank is missing");
+        y = bdd.apply(0, y,
+                      ranks.at("x_" + field(k) + "_" + field(j) + "_" +
+                               field(i) + "_" + field(depth - 1)));
+      }
+      ranks["y_" + field(k) + "_" + field(j)] = y;
+      z = bdd.apply(1, z, y);
+    }
+    ranks["z_" + field(k)] = z;
+  }
+  ranks["inv"] = ranks.at("z_" + field(outer - 1));
+  ranks[tlsf_gr1_check_winning_output_name] = bdd.neg(ranks.at("inv"));
+  for (int j = 0; j < goals_count; j++)
+    ranks["goal_" + field(j)] = goals[j];
+  for (int i = 0; i < fair_count; i++)
+    ranks["fair_" + field(i)] = fairs[i];
+
+  bdd.set_context("policy_reconstruct/rank_layers");
+  std::vector<EnvLayer> layers;
+  int previous_z = 0;
+  for (int k = 0; k < outer; k++) {
+    int z = ranks.at("z_" + field(k));
+    int outer_layer = bdd.apply(0, z, bdd.neg(previous_z));
+    int previous_y = 0;
+    for (int j = 0; j < goals_count; j++) {
+      int y = ranks.at("y_" + field(k) + "_" + field(j));
+      int selected = env_and(bdd, {outer_layer, y, bdd.neg(previous_y)});
+      int base = env_and(bdd, {bdd.apply(1, previous_z, bdd.neg(goals[j])), y});
+      for (int i = 0; i < fair_count; i++) {
+        int previous_x = 0;
+        for (int level = 0;; level++) {
+          std::string name = "x_" + field(k) + "_" + field(j) + "_" + field(i) +
+                             "_" + field(level);
+          auto at = ranks.find(name);
+          if (at == ranks.end())
+            break;
+          int layer = env_and(bdd, {selected, at->second, bdd.neg(previous_x)});
+          int progress = bdd.apply(1, previous_x, fairs[i]);
+          layers.push_back({i, layer, bdd.apply(0, base, progress)});
+          previous_x = at->second;
+        }
+      }
+      previous_y = bdd.apply(1, previous_y, y);
+    }
+    previous_z = z;
+  }
+
+  std::map<int, int> successor_cache;
+  std::vector<int> relations;
+  std::vector<std::map<int, int>> choices;
+  std::set<int> system_set(system.begin(), system.end());
+  std::set<int> environment_set(environment.begin(), environment.end());
+  std::vector<int> skolem_order = environment;
+  std::sort(skolem_order.begin(), skolem_order.end(), [&](int left, int right) {
+    return bdd.name(left) < bdd.name(right);
+  });
+  for (int current = 0; current < fair_count; current++) {
+    bdd.set_context("policy_reconstruct/mode_relation mode " + field(current));
+    int advanced = (current + 1) % fair_count;
+    int relation = 1;
+    for (const auto &row : layers) {
+      if (row.phase != current && row.phase != advanced)
+        continue;
+      int guarded = row.layer;
+      if (current != advanced) {
+        int guard =
+            row.phase == advanced ? fairs[current] : bdd.neg(fairs[current]);
+        guarded = bdd.apply(0, row.layer, guard);
+      }
+      if (!successor_cache.count(row.target))
+        successor_cache.emplace(row.target,
+                                bdd.compose(row.target, next_state));
+      int obligation = bdd.apply(1, bad, successor_cache.at(row.target));
+      relation =
+          bdd.apply(0, relation, bdd.apply(1, bdd.neg(guarded), obligation));
+    }
+    int allowed = bdd.quant(relation, system_set, false);
+    for (int variable : bdd.support(allowed))
+      if (system_set.count(variable))
+        decline("policy_reconstruct",
+                "response letter survived quantification");
+    int total = bdd.quant(allowed, environment_set, true);
+    if (bdd.apply(0, ranks.at("inv"), bdd.neg(total)) != 0)
+      decline("policy_totality", "no common environment move");
+    std::map<int, int> selected;
+    int remaining = allowed;
+    bdd.set_context("policy_reconstruct/skolemize mode " + field(current));
+    for (int variable : skolem_order) {
+      std::set<int> rest = environment_set;
+      for (const auto &[chosen, _] : selected)
+        rest.erase(chosen);
+      int zero = bdd.apply(0, remaining, bdd.neg(bdd.var(variable)));
+      int can_zero = bdd.quant(zero, rest, true);
+      int choice = bdd.neg(can_zero);
+      for (int support : bdd.support(choice))
+        if (system_set.count(support) || environment_set.count(support))
+          decline("policy_reconstruct", "Skolem output reads current letter");
+      selected.emplace(variable, choice);
+      remaining = bdd.compose(remaining, {{variable, choice}});
+    }
+    relations.push_back(relation);
+    choices.push_back(std::move(selected));
+    ranks["move_" + field(current)] = relation;
+  }
+
+  std::vector<int> counters;
+  for (int i = 0; i < fair_count; i++) {
+    const auto &anchor = view.fairness.at(i);
+    std::vector<std::string> owners;
+    for (int owner : anchor.owners)
+      owners.push_back(field(owner));
+    EnvVariable variable{key({"counter", anchor.kind, join(owners)}),
+                         key({"counter", anchor.kind}),
+                         anchor.owners,
+                         {anchor.owners.begin(), anchor.owners.end()},
+                         env_json_order(A{"counter", anchor.kind})};
+    counters.push_back(env_variable_label(bdd, variable));
+  }
+  auto select = [&](const std::vector<int> &roots) {
+    int root = roots[0];
+    for (int i = 1; i < fair_count; i++)
+      root = bdd.ite(bdd.var(counters[i]), roots[i], root);
+    return root;
+  };
+  bdd.set_context("policy_reconstruct/policy_outputs");
+  std::map<std::string, int> policy;
+  for (uint32_t p = 0; p < aig_num_inputs(game); p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    if (!strncmp(name, "controllable_", 13))
+      continue;
+    int variable =
+        env_variable_label(bdd, view.variables.at(view.game_names.at(name)));
+    std::vector<int> roots;
+    for (const auto &mode : choices)
+      roots.push_back(mode.at(variable));
+    policy.emplace(name, select(roots));
+  }
+  for (int q = 0; q < fair_count; q++) {
+    std::vector<int> updates;
+    for (int current = 0; current < fair_count; current++) {
+      int advanced = (current + 1) % fair_count;
+      int update = 0;
+      if (current == advanced)
+        update = q == current ? 1 : 0;
+      else if (q == current)
+        update = bdd.neg(fairs[current]);
+      else if (q == advanced)
+        update = fairs[current];
+      updates.push_back(update);
+    }
+    policy.emplace("curr_next_" + field(q), select(updates));
+  }
+  std::set<int> permitted(state_labels.begin(), state_labels.end());
+  permitted.insert(counters.begin(), counters.end());
+  for (const auto &[name, root] : policy)
+    for (int variable : bdd.support(root))
+      if (!permitted.count(variable))
+        decline("policy_reconstruct", "policy reads current letter");
+
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (env_rank_fault == 8)
+    ranks["z_0"] = bdd.neg(ranks.at("z_0"));
+#endif
+  auto cert = std::unique_ptr<Aig, decltype(&aig_free)>(aig_new(), &aig_free);
+  auto machine =
+      std::unique_ptr<Aig, decltype(&aig_free)>(aig_new(), &aig_free);
+  if (!cert || !machine)
+    throw Failure(TLSF_GR1_LIFT_LIMIT, "emit", "AIG allocation failed");
+  std::map<int, uint32_t> cert_literals, policy_literals;
+  A state_rows, counter_rows, uncontrollable_rows, counter_next_rows;
+  for (uint32_t p = 0; p < aig_num_latches(game); p++) {
+    const char *name = aig_latch_name(game, p);
+    int variable = state_labels[p];
+    cert_literals[variable] = aig_input(cert.get(), name);
+    policy_literals[variable] = aig_input(machine.get(), name);
+    state_rows.emplace_back(
+        O{{"policy_input", p}, {"game_latch", p}, {"name", name}});
+  }
+  for (uint32_t p = 0; p < aig_num_inputs(game); p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    cert_literals[labels.at([&] {
+      uint32_t literal;
+      aig_input_name(game, p, &literal);
+      return literal / 2;
+    }())] = aig_input(cert.get(), name);
+  }
+  for (int i = 0; i < fair_count; i++) {
+    std::string name = "curr_" + field(i);
+    policy_literals[counters[i]] = aig_input(machine.get(), name.c_str());
+    counter_rows.emplace_back(O{{"policy_input", int(state_labels.size()) + i},
+                                {"fairness", i},
+                                {"name", name},
+                                {"reset", 0},
+                                {"effective_initial", i == 0}});
+  }
+  auto cert_output = [&](const std::string &name) {
+    auto at = ranks.find(name);
+    if (at == ranks.end())
+      decline("instantiate", "target output lacks construction");
+    aig_set_output(cert.get(), name.c_str(),
+                   bdd.to_aig(cert.get(), at->second, cert_literals));
+  };
+  bdd.set_context("emit/certificate");
+  cert_output("inv");
+  cert_output(tlsf_gr1_check_winning_output_name);
+  for (int j = 0; j < goals_count; j++)
+    cert_output("goal_" + field(j));
+  for (int i = 0; i < explicit_fairs; i++)
+    cert_output("fair_" + field(i));
+  for (int k = 0; k < outer; k++) {
+    cert_output("z_" + field(k));
+    for (int j = 0; j < goals_count; j++) {
+      cert_output("y_" + field(k) + "_" + field(j));
+      for (int i = 0; i < fair_count; i++)
+        for (int level = 0;; level++) {
+          std::string name = "x_" + field(k) + "_" + field(j) + "_" + field(i) +
+                             "_" + field(level);
+          if (!ranks.count(name))
+            break;
+          cert_output(name);
+        }
+    }
+  }
+  for (int i = 0; i < fair_count; i++)
+    cert_output("move_" + field(i));
+  bdd.set_context("emit/policy");
+  int policy_output = 0;
+  int environment_count = 0;
+  for (uint32_t p = 0; p < aig_num_inputs(game); p++) {
+    const char *name = aig_input_name(game, p, nullptr);
+    if (!strncmp(name, "controllable_", 13))
+      continue;
+    aig_set_output(machine.get(), name,
+                   bdd.to_aig(machine.get(), policy.at(name), policy_literals));
+    uncontrollable_rows.emplace_back(O{
+        {"policy_output", policy_output++}, {"game_input", p}, {"name", name}});
+    environment_count++;
+  }
+  for (int i = 0; i < fair_count; i++) {
+    std::string name = "curr_next_" + field(i);
+    aig_set_output(machine.get(), name.c_str(),
+                   bdd.to_aig(machine.get(), policy.at(name), policy_literals));
+    counter_next_rows.emplace_back(
+        O{{"policy_output", policy_output++}, {"fairness", i}, {"name", name}});
+  }
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (env_rank_fault == 9)
+    aig_set_output(machine.get(), "curr_next_0", AIG_FALSE);
+  if (env_rank_fault == 10 && environment_count && !system.empty()) {
+    std::string system_name;
+    for (uint32_t p = 0; p < aig_num_inputs(game); p++) {
+      const char *name = aig_input_name(game, p, nullptr);
+      if (!strncmp(name, "controllable_", 13)) {
+        system_name = name;
+        break;
+      }
+    }
+    uint32_t letter = aig_input(machine.get(), system_name.c_str());
+    aig_set_output(machine.get(),
+                   s(uncontrollable_rows[0].as_object(), "name").c_str(),
+                   letter);
+  }
+#endif
+  O certificate_meta = seed.instance->cert_meta;
+  O policy_meta = j::parse(seed.instance->env_policy_json).as_object();
+  certificate_meta["circuit"].as_object()["path"] = "memory";
+  O &cc = certificate_meta["counts"].as_object();
+  cc["goals"] = goals_count;
+  std::string fairness_count_key = "fairness_assump";
+  fairness_count_key += "tions";
+  cc[fairness_count_key] = explicit_fairs;
+  cc["fairness_counters"] = fair_count;
+  cc["state_variables"] = int(state_labels.size());
+  cc["original_game_latches"] = int(state_labels.size());
+  cc["sampling_latches"] = 0;
+  cc["uncontrollable_inputs"] = environment_count;
+  cc["controllable_inputs"] = int(system.size());
+  cc["predicates"] = aig_num_outputs(cert.get());
+  cc["aig_inputs"] = aig_num_inputs(cert.get());
+  cc["aig_latches"] = 0;
+  cc["aig_ands"] = aig_num_ands(cert.get());
+  policy_meta["circuit"].as_object()["path"] = "memory";
+  O &pc = policy_meta["counts"].as_object();
+  pc["game_state_variables"] = int(state_labels.size());
+  pc["original_game_latches"] = int(state_labels.size());
+  pc["sampling_latches"] = 0;
+  pc["goals"] = goals_count;
+  pc["fairness_counters"] = fair_count;
+  pc["controllable_inputs"] = int(system.size());
+  pc["uncontrollable_outputs"] = environment_count;
+  pc["aig_inputs"] = aig_num_inputs(machine.get());
+  pc["aig_outputs"] = aig_num_outputs(machine.get());
+  pc["aig_ands"] = aig_num_ands(machine.get());
+  policy_meta["inputs"] = O{
+      {"state", state_rows}, {"counter", counter_rows}, {"controllable", A{}}};
+  policy_meta["outputs"] = O{{"uncontrollable", uncontrollable_rows},
+                             {"counter_next", counter_next_rows}};
+  std::string certificate = render_aig(cert.get(), cfg);
+  std::string machine_bytes = render_aig(machine.get(), cfg);
+  std::string certificate_json = dump(certificate_meta);
+  std::string policy_json = dump(policy_meta);
+  cfg.bytes(certificate_json.size(), "emit");
+  cfg.bytes(policy_json.size(), "emit");
+  out.certificate_aag = copy_bytes(certificate);
+  out.certificate_size = certificate.size();
+  out.certificate_json = copy_bytes(certificate_json);
+  out.certificate_json_size = certificate_json.size();
+  out.policy_aag = copy_bytes(machine_bytes);
+  out.policy_size = machine_bytes.size();
+  out.policy_json = copy_bytes(policy_json);
+  out.policy_json_size = policy_json.size();
 }
 
 void env_run(const TrustedTarget &trusted, const Config &cfg,
-             TlsfGr1EnvRankResult &out) {
+             TlsfGr1EnvRankResult &out, TlsfGr1EnvLiftResult *candidate) {
+  uint64_t seed_started = now_ns();
+  cfg.check("candidate");
   if (trusted.semantics != TLSF_GR1_EXACT)
     decline("target_reduction", "exact target reduction is required");
   char source_hash[65]{}, game_hash[65]{};
@@ -2006,6 +2425,8 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
     decline("typed_alignment", "target conjunct or role class missing");
   for (auto &seed : window.seeds)
     env_solve_seed(*seed, cfg, out);
+  if (candidate)
+    candidate->seed_ns = now_ns() - seed_started;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   if (env_rank_fault) {
     Instance &seed = *window.seeds.front();
@@ -2057,6 +2478,7 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
     }
   }
 #endif
+  uint64_t preflight_started = now_ns();
   auto views = env_preflight(window, trusted);
   std::set<std::string> expected_roles;
   for (const auto &[_, role] : views.front().roles)
@@ -2068,7 +2490,12 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
     if (roles != expected_roles)
       decline("typed_alignment", "distinct owner role inventory differs");
   }
+  if (candidate)
+    candidate->preflight_ns = now_ns() - preflight_started;
+  cfg.check("schema");
   EnvBdd bdd(cfg);
+  uint64_t rank_started = now_ns();
+  uint64_t policy_started = 0;
   try {
     std::vector<std::string> order;
     auto classes = env_rank_observations(bdd, views, order);
@@ -2078,14 +2505,103 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
     cfg.bytes(trace.size(), "schema");
     out.class_trace_json = copy_bytes(trace);
     out.class_trace_size = trace.size();
-    env_emit_target_ranks(bdd, views.back(), views.front(), learned, cfg, out);
+    std::map<std::string, int> roots;
+    env_emit_target_ranks(bdd, views.back(), views.front(), learned, cfg, out,
+                          candidate ? &roots : nullptr);
+    cfg.check("instantiate");
+    if (candidate) {
+      candidate->rank_ns = now_ns() - rank_started;
+      policy_started = now_ns();
+      candidate->policy_nodes = bdd.node_count();
+      candidate->policy_applies = bdd.apply_count();
+      env_candidate(bdd, views.back(), views.front(), std::move(roots), cfg,
+                    *candidate);
+      cfg.check("policy_reconstruct");
+      candidate->policy_nodes = bdd.node_count();
+      candidate->policy_applies = bdd.apply_count();
+      candidate->policy_cache_entries = bdd.cache_count();
+      candidate->policy_accounted_bytes = bdd.accounted_bytes();
+      candidate->policy_ns = now_ns() - policy_started;
+    }
   } catch (...) {
     out.rank_nodes = bdd.node_count();
     out.rank_applies = bdd.apply_count();
     out.rank_cache_entries = bdd.cache_count();
     out.rank_accounted_bytes = bdd.accounted_bytes();
+    if (candidate) {
+      if (policy_started)
+        candidate->policy_ns = now_ns() - policy_started;
+      else
+        candidate->rank_ns = now_ns() - rank_started;
+      candidate->policy_nodes = bdd.node_count();
+      candidate->policy_applies = bdd.apply_count();
+      candidate->policy_cache_entries = bdd.cache_count();
+      candidate->policy_accounted_bytes = bdd.accounted_bytes();
+    }
     throw;
   }
+}
+
+void env_check(const TrustedTarget &trusted, const Config &cfg,
+               TlsfGr1EnvLiftResult &candidate) {
+  uint64_t check_started = now_ns();
+  cfg.check("target_check");
+  char hash[65]{};
+  sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), hash);
+  if (trusted.game_hash != hash ||
+      trusted.game_aag !=
+          std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
+    decline("target_binding", "prepared game changed before verification");
+  TlsfGr1CheckInput input{};
+  input.game_aag = {(const uint8_t *)trusted.game_aag.data(),
+                    trusted.game_aag.size()};
+  input.certificate_aag = {(const uint8_t *)candidate.certificate_aag,
+                           candidate.certificate_size};
+  input.certificate_json = {(const uint8_t *)candidate.certificate_json,
+                            candidate.certificate_json_size};
+  input.policy_aag = {(const uint8_t *)candidate.policy_aag,
+                      candidate.policy_size};
+  input.policy_json = {(const uint8_t *)candidate.policy_json,
+                       candidate.policy_json_size};
+  TlsfGr1CheckOptions options{};
+  options.method = TLSF_GR1_CHECK_CERTIFICATE;
+  options.node_cap = cfg.o.checker_nodes;
+  options.cache_cap = cfg.o.checker_cache;
+  options.max_artifact_bytes = cfg.o.max_artifact_bytes;
+  options.deadline_mono_ns = cfg.o.deadline_mono_ns;
+  options.cancelled = cfg.o.cancelled;
+  options.cancel_ctx = cfg.o.cancel_ctx;
+  TlsfGr1CheckResult checked{};
+  TlsfGr1CheckStatus status = tlsf_gr1_check(&input, &options, &checked);
+  candidate.check_ns = now_ns() - check_started;
+  candidate.target_checks++;
+  if (cfg.stats) {
+    cfg.stats->internal_checks++;
+    cfg.stats->internal_check_peak_nodes = std::max<uint64_t>(
+        cfg.stats->internal_check_peak_nodes, checked.peak_nodes);
+  }
+  bool verified =
+      status == TLSF_GR1_CHECK_OK && checked.verdict == TLSF_GR1_CHECK_VERIFIED;
+  candidate.verdict = TLSF_GR1_CHECK_UNKNOWN;
+  if (verified) {
+    std::string report(checked.json, checked.json_size);
+    cfg.bytes(report.size(), "target_check");
+    candidate.check_json = copy_bytes(report);
+    candidate.check_json_size = report.size();
+    candidate.verdict = TLSF_GR1_CHECK_VERIFIED;
+  }
+  std::string detail = checked.message;
+  tlsf_gr1_check_result_clear(&checked);
+  if (status == TLSF_GR1_CHECK_DEADLINE)
+    throw Failure(TLSF_GR1_LIFT_DEADLINE, "target_check", "checker deadline");
+  if (status == TLSF_GR1_CHECK_CANCELLED)
+    throw Failure(TLSF_GR1_LIFT_CANCELLED, "target_check", "checker cancelled");
+  if (status == TLSF_GR1_CHECK_LIMIT)
+    throw Failure(TLSF_GR1_LIFT_LIMIT, "target_check", "checker capacity");
+  if (!verified)
+    decline("checker_rejected",
+            detail.empty() ? "independent target certificate check failed"
+                           : detail.c_str());
 }
 } // namespace gr1_lift_internal
 

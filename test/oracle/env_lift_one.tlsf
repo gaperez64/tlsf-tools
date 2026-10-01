@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "anchored recurrence"
+  DESCRIPTION: "one fixed justice, replicated independent safety clauses"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL { PARAMETERS { width = 7; } }
+MAIN {
+  INPUTS { req; }
+  OUTPUTS { grant[0..width-1]; }
+  ASSUME { G F req; }
+  GUARANTEE {
+    G F grant[0];
+    &&[0 <= i < width] G (!grant[i]);
+  }
+}

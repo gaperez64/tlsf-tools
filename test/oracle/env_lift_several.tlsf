@@ -1,0 +1,16 @@
+INFO {
+  TITLE: "several independent fairness assumptions"
+  DESCRIPTION: "seven fairness obligations and a simple losing system goal"
+  SEMANTICS: Mealy
+  TARGET: Mealy
+}
+GLOBAL { PARAMETERS { width = 7; } }
+MAIN {
+  INPUTS { req[0..width-1]; }
+  OUTPUTS { grant[0..width-1]; }
+  ASSUME { &&[0 <= i < width] G F req[i]; }
+  GUARANTEE {
+    G F grant[0];
+    &&[0 <= i < width] G (!grant[i]);
+  }
+}

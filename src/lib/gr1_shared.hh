@@ -38,6 +38,7 @@ struct Config {
   TlsfGr1LiftOptions o{};
   // The caller's budget, read live so a stats callback may tighten it.
   const TlsfGr1ConstructionBudget *budget = nullptr;
+  const TlsfGr1ConstructionBudget *env_budget = nullptr;
   TlsfGr1ConstructionWork *work = nullptr;
   TlsfGr1LiftStats *stats = nullptr;
   void (*stats_callback)(void *, TlsfGr1LiftStatsStage,
@@ -48,27 +49,47 @@ struct Config {
   uint64_t max_policy_bdd_ops = TLSF_GR1_LIFT_DEFAULT_POLICY_BDD_OPS;
   uint64_t policy_proof_ns = TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_NS;
   uint64_t phase_deadline_ns = 0;
+  bool env_candidate = false;
   uint64_t effective_deadline() const {
     if (!phase_deadline_ns)
       return o.deadline_mono_ns;
     return o.deadline_mono_ns ? std::min(phase_deadline_ns, o.deadline_mono_ns)
                               : phase_deadline_ns;
   }
+  Failure deadline_failure(const char *stage) const {
+    if (!env_candidate) {
+      if (o.deadline_mono_ns && now_ns() >= o.deadline_mono_ns)
+        return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+      if (phase_deadline_ns)
+        return Failure(TLSF_GR1_LIFT_LIMIT, stage,
+                       "fixed phase budget exhausted");
+      return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+    }
+    if (o.deadline_mono_ns &&
+        (!phase_deadline_ns || o.deadline_mono_ns <= phase_deadline_ns))
+      return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+    if (phase_deadline_ns)
+      return Failure(TLSF_GR1_LIFT_LIMIT, "candidate_allowance",
+                     std::string("candidate allowance expired at ") + stage);
+    return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+  }
   void check(const char *stage) const {
     if (o.cancelled && o.cancelled(o.cancel_ctx))
       throw Failure(TLSF_GR1_LIFT_CANCELLED, stage, "cancelled");
-    if (o.deadline_mono_ns && now_ns() >= o.deadline_mono_ns)
-      throw Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
-    if (phase_deadline_ns && now_ns() >= phase_deadline_ns)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, stage, "fixed phase budget exhausted");
-    if (budget && budget->max_rss_bytes) {
+    if (effective_deadline() && now_ns() >= effective_deadline())
+      throw deadline_failure(stage);
+    uint64_t rss_limit = budget ? budget->max_rss_bytes : 0;
+    if (env_budget && env_budget->max_rss_bytes &&
+        (!rss_limit || env_budget->max_rss_bytes < rss_limit))
+      rss_limit = env_budget->max_rss_bytes;
+    if (rss_limit) {
       rusage usage{};
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
         const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
         const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
         if (work)
           work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
-        if (peak > budget->max_rss_bytes)
+        if (peak > rss_limit)
           throw Failure(
               TLSF_GR1_LIFT_LIMIT, "budget-memory",
               std::string(
@@ -146,5 +167,8 @@ std::pair<std::vector<int>, std::vector<int>>
 axis_members(const Instance &target, const Instance &seed);
 char *copy_bytes(const std::string &value);
 void env_run(const TrustedTarget &trusted, const Config &cfg,
-             TlsfGr1EnvRankResult &out);
+             TlsfGr1EnvRankResult &out,
+             TlsfGr1EnvLiftResult *candidate = nullptr);
+void env_check(const TrustedTarget &trusted, const Config &cfg,
+               TlsfGr1EnvLiftResult &candidate);
 } // namespace gr1_lift_internal

@@ -202,12 +202,16 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   cfg.check("reduce");
   TlsfGr1ReductionOptions ro{};
   ro.semantics = semantics;
-  ro.deadline_mono_ns = cfg.o.deadline_mono_ns;
+  ro.deadline_mono_ns = cfg.effective_deadline();
   ro.cancelled = cfg.o.cancelled;
   ro.cancel_ctx = cfg.o.cancel_ctx;
   ro.max_artifact_bytes = cfg.o.max_artifact_bytes;
   ro.max_monitor_states = cfg.o.max_monitor_states;
   ro.budget = *cfg.budget;
+  if (cfg.env_budget && cfg.env_budget->max_rss_bytes &&
+      (!ro.budget.max_rss_bytes ||
+       cfg.env_budget->max_rss_bytes < ro.budget.max_rss_bytes))
+    ro.budget.max_rss_bytes = cfg.env_budget->max_rss_bytes;
   TlsfGr1ReductionStats reduction_stats{};
   ro.stats = cfg.stats ? &reduction_stats : nullptr;
   TlsfGr1ReductionError err{};
@@ -241,7 +245,7 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
     if (status == TLSF_GR1_REDUCE_LIMIT)
       mapped = TLSF_GR1_LIFT_LIMIT;
     if (status == TLSF_GR1_REDUCE_DEADLINE)
-      mapped = TLSF_GR1_LIFT_DEADLINE;
+      throw cfg.deadline_failure(err.stage[0] ? err.stage : "reduce");
     if (status == TLSF_GR1_REDUCE_CANCELLED)
       mapped = TLSF_GR1_LIFT_CANCELLED;
     throw Failure(mapped, err.stage[0] ? err.stage : "reduce",
@@ -2315,6 +2319,30 @@ tlsf_gr1_lift_test_corrupt_prepared_game(TlsfGr1LiftTarget *target) {
   if (target && !target->trusted.game_aag.empty())
     target->trusted.game_aag[0] = 'X';
 }
+extern "C" void tlsf_gr1_env_test_swap_rehashed_game(TlsfGr1LiftTarget *target,
+                                                     TlsfGr1LiftTarget *other) {
+  if (!target || !other)
+    return;
+  auto &trusted = target->trusted;
+  auto &left = trusted.instance->r;
+  auto &right = other->trusted.instance->r;
+  std::swap(left.game, right.game);
+  std::swap(left.aag, right.aag);
+  std::swap(left.aag_size, right.aag_size);
+  trusted.game_aag.assign(trusted.instance->r.aag,
+                          trusted.instance->r.aag_size);
+  char hash[65]{};
+  sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), hash);
+  trusted.game_hash = hash;
+  O metadata = j::parse(std::string_view(trusted.instance->r.metadata_json,
+                                         trusted.instance->r.metadata_size))
+                   .as_object();
+  metadata["game_sha256"] = trusted.game_hash;
+  std::string updated = dump(metadata);
+  free(trusted.instance->r.metadata_json);
+  trusted.instance->r.metadata_json = copy_bytes(updated);
+  trusted.instance->r.metadata_size = updated.size();
+}
 #endif
 
 extern "C" void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result) {
@@ -2451,6 +2479,19 @@ extern "C" void tlsf_gr1_env_rank_result_clear(TlsfGr1EnvRankResult *result) {
   memset(result, 0, sizeof *result);
 }
 
+static Config env_candidate_config(const TlsfGr1LiftOptions *options) {
+  Config cfg = lift_config(options);
+  cfg.env_candidate = true;
+  cfg.env_budget = options ? &options->env_budget : nullptr;
+  uint64_t allowance = options && options->env_candidate_ns
+                           ? options->env_candidate_ns
+                           : TLSF_GR1_ENV_DEFAULT_CANDIDATE_NS;
+  uint64_t started = now_ns();
+  cfg.phase_deadline_ns =
+      allowance > UINT64_MAX - started ? UINT64_MAX : started + allowance;
+  return cfg;
+}
+
 extern "C" TlsfGr1LiftStatus tlsf_gr1_env_rank_from_target(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
     TlsfGr1EnvRankResult *result, TlsfGr1LiftError *error) {
@@ -2462,8 +2503,57 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_env_rank_from_target(
   memset(result, 0, sizeof *result);
   return invoke_lift(
       [&] {
-        Config cfg = lift_config(options);
+        Config cfg = env_candidate_config(options);
         env_run(target->trusted, cfg, *result);
       },
       error, nullptr);
+}
+
+extern "C" void tlsf_gr1_env_lift_result_clear(TlsfGr1EnvLiftResult *result) {
+  if (!result)
+    return;
+  tlsf_gr1_env_rank_result_clear(&result->rank);
+  free(result->certificate_aag);
+  free(result->certificate_json);
+  free(result->policy_aag);
+  free(result->policy_json);
+  free(result->check_json);
+  memset(result, 0, sizeof *result);
+}
+
+static TlsfGr1LiftStatus env_lift_entry(const TlsfGr1LiftTarget *target,
+                                        const TlsfGr1LiftOptions *options,
+                                        TlsfGr1EnvLiftResult *result,
+                                        TlsfGr1LiftError *error, bool check) {
+  if (!target || !result || result->rank.rank_aag ||
+      result->rank.class_trace_json || result->certificate_aag ||
+      result->certificate_json || result->policy_aag || result->policy_json ||
+      result->check_json) {
+    lift_error(error, nullptr, TLSF_GR1_LIFT_INVALID, "arguments",
+               "invalid or nonempty result");
+    return TLSF_GR1_LIFT_INVALID;
+  }
+  memset(result, 0, sizeof *result);
+  result->verdict = TLSF_GR1_CHECK_UNKNOWN;
+  return invoke_lift(
+      [&] {
+        Config cfg = lift_config(options);
+        Config candidate_cfg = env_candidate_config(options);
+        env_run(target->trusted, candidate_cfg, result->rank, result);
+        if (check)
+          env_check(target->trusted, cfg, *result);
+      },
+      error, nullptr);
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_env_candidate_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1EnvLiftResult *result, TlsfGr1LiftError *error) {
+  return env_lift_entry(target, options, result, error, false);
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_env_lift_from_target(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1EnvLiftResult *result, TlsfGr1LiftError *error) {
+  return env_lift_entry(target, options, result, error, true);
 }
