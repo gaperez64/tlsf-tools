@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Format the staged C/C++ sources with the clang-format version CI pins, so the
+# CI format job never fails. Enable once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Only the staged content is formatted. The working-tree file is rewritten too
+# when it holds exactly that staged content, so unstaged edits are never touched.
+set -euo pipefail
+
+want=22.1.8
+fmt=${CLANG_FORMAT:-clang-format}
+if ! command -v "$fmt" >/dev/null 2>&1; then
+  echo "pre-commit: $fmt not found; install it with pip install 'clang-format==$want'" >&2
+  exit 1
+fi
+have=$("$fmt" --version | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p')
+if [ "$have" != "$want" ]; then
+  echo "pre-commit: found clang-format $have, but CI pins $want;" \
+       "install it with pip install 'clang-format==$want'" >&2
+  exit 1
+fi
+
+# The same file selection as the format job in .github/workflows/ci.yml.
+git diff --cached --name-only -z --diff-filter=ACMR -- \
+  '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' \
+  ':!:external/**' ':!:build*/**' |
+while IFS= read -r -d '' file; do
+  read -r mode staged _ < <(git ls-files -s -- "$file")
+  formatted=$(git cat-file blob "$staged" |
+              "$fmt" --assume-filename="$file" |
+              git hash-object -w --stdin)
+  [ "$formatted" = "$staged" ] && continue
+  git update-index --cacheinfo "$mode,$formatted,$file"
+  if [ "$(git hash-object -- "$file")" = "$staged" ]; then
+    git cat-file blob "$formatted" > "$file"
+  fi
+  echo "pre-commit: formatted $file"
+done

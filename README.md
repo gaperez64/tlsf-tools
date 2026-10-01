@@ -466,6 +466,11 @@ clang-tidy -p build src/lib/*.c src/tools/*/*.c      # lint
 bench/bench.sh [--baseline|--check]                  # wall/RSS perf-regression guard
 ```
 
+To format automatically, enable the versioned pre-commit hook once per clone
+with `git config core.hooksPath .githooks`. It formats staged C/C++ sources with
+the clang-format version CI pins (22.1.8, `pip install 'clang-format==22.1.8'`),
+using the same file selection as CI, and never touches unstaged edits.
+
 CI (`.github/workflows/ci.yml`) checks formatting, builds with gcc and clang,
 runs the suite + a valgrind no-leak check, gates line coverage at 75 %, and runs
 the `bench.sh --check` regression guard.
