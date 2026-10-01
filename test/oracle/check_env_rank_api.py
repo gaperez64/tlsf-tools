@@ -2,43 +2,11 @@
 """Exercise the native rank boundary and its preflight refusals."""
 
 import argparse
-import os
 import pathlib
 import re
 import subprocess
-import time
 
 
-def marker_run(sprint, action):
-    marker = sprint / "TRACKB-BUILDING"
-    others = [sprint / name for name in ("DRIVER-BUILDING", "TIMED-RUN-ACTIVE")]
-    inherited = os.environ.get("NATIVE_ENV_TEST_MARKER_TOKEN")
-    if inherited is not None:
-        assert marker.read_text().strip() == inherited
-        assert not any(path.exists() for path in others)
-        return action()
-    token = f"env-rank-api-{os.getpid()}"
-    while True:
-        if marker.exists() or any(path.exists() for path in others):
-            time.sleep(2)
-            continue
-        try:
-            fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        except FileExistsError:
-            time.sleep(2)
-            continue
-        with os.fdopen(fd, "w") as stream:
-            stream.write(token + "\n")
-        if any(path.exists() for path in others):
-            marker.unlink()
-            time.sleep(2)
-            continue
-        break
-    try:
-        return action()
-    finally:
-        if marker.exists() and marker.read_text().strip() == token:
-            marker.unlink()
 
 
 def main():
@@ -90,8 +58,7 @@ def main():
         assert baseline.split("classes=")[-1].split()[0] == (
             renamed_output.split("classes=")[-1].split()[0])
 
-    sprint = pathlib.Path(__file__).resolve().parents[3]
-    marker_run(sprint, check)
+    check()
 
 
 if __name__ == "__main__":

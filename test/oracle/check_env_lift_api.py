@@ -3,34 +3,12 @@
 
 import argparse
 import json
-import os
 import pathlib
 import re
 import subprocess
 import time
 
 
-def marker_run(sprint, action):
-    marker = sprint / "TRACKB-BUILDING"
-    others = [sprint / name for name in ("DRIVER-BUILDING", "TIMED-RUN-ACTIVE")]
-    inherited = os.environ.get("NATIVE_ENV_TEST_MARKER_TOKEN")
-    if inherited is not None:
-        assert marker.read_text().strip() == inherited
-        assert not any(path.exists() for path in others)
-        return action()
-    while marker.exists() or any(path.exists() for path in others):
-        time.sleep(2)
-    token = f"env-lift-api-{os.getpid()}"
-    fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    with os.fdopen(fd, "w") as stream:
-        stream.write(token + "\n")
-    try:
-        if any(path.exists() for path in others):
-            raise RuntimeError("another managed run started")
-        action()
-    finally:
-        if marker.exists() and marker.read_text().strip() == token:
-            marker.unlink()
 
 
 def main():
@@ -103,7 +81,7 @@ def main():
         assert work["applies"] == "13001", (prefix, work)
         run("real-seed", "env_real_seed.tlsf", "--lift", "seed_check", 0)
 
-    marker_run(pathlib.Path(__file__).resolve().parents[3], check)
+    check()
 
 
 if __name__ == "__main__":

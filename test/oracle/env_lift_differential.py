@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import os
 import pathlib
 import subprocess
 import time
@@ -56,22 +55,6 @@ def compare_work(result, expected):
             apply_gap <= max(128, original["bdd_ops"] // 1000))
 
 
-def marker_run(sprint, action):
-    marker = sprint / "TRACKB-BUILDING"
-    others = [sprint / name for name in ("DRIVER-BUILDING", "TIMED-RUN-ACTIVE")]
-    token = f"env-lift-differential-{os.getpid()}"
-    while marker.exists() or any(path.exists() for path in others):
-        time.sleep(2)
-    fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    with os.fdopen(fd, "w") as stream:
-        stream.write(token + "\n")
-    try:
-        if any(path.exists() for path in others):
-            raise RuntimeError("another managed run started")
-        return action()
-    finally:
-        if marker.exists() and marker.read_text().strip() == token:
-            marker.unlink()
 
 
 def main():
@@ -181,7 +164,7 @@ def main():
         if failures:
             raise SystemExit("\n".join(failures))
 
-    marker_run(pathlib.Path(__file__).resolve().parents[3], verify)
+    verify()
 
 
 if __name__ == "__main__":
