@@ -117,6 +117,9 @@ typedef struct {
   /* Fixed U candidate allowance, including its seeds. Zero selects 180 s.
    * N3 may provide a shorter allowance after factoring out shared seeds. */
   uint64_t env_candidate_ns;
+  /* Zero preserves the combined R/U route. Nonzero discovers and solves only
+   * R seeds; UNREAL seeds and R declines go straight to the direct route. */
+  uint32_t disable_env_lift;
   /* U-only soft RSS share. Zero disables this additional check. It is read
    * live during candidate work and combined with budget.max_rss_bytes by
    * taking the smaller nonzero limit. Seed reductions receive the same cap. */
