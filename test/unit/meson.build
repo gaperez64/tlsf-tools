@@ -21,6 +21,13 @@ if native_gr1
     args: files('../oracle/env_lift_one.tlsf'),
     timeout: get_option('buildtype') == 'debug' ? 180 : 90,
     is_parallel: false)
+  native_real_both_api_exe = executable('native_real_both_api',
+    'native_real_both_api.cpp', gr1_lift_source, gr1_env_lift_source,
+    cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
+    dependencies: tlsf_internal_dep)
+  test('native_real_both_api', native_real_both_api_exe,
+    args: files('../oracle/env_lift_one.tlsf'),
+    timeout: 30, is_parallel: false)
   env_rank_probe_exe = executable('env_rank_probe', 'env_rank_probe.cpp',
     dependencies: tlsf_internal_dep)
   env_rank_fault_probe_exe = executable('env_rank_fault_probe',

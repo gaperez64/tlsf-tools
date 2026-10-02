@@ -796,8 +796,8 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
           e.status == TLSF_GR1_LIFT_LIMIT)
         throw;
     }
-    if (value > 5 && found.entries.count(3) && found.entries.count(4) &&
-        found.entries.count(5)) {
+    if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
+        found.entries.count(4) && found.entries.count(5)) {
       try {
         env_typed_axis(target, axis);
         const auto classes = env_typed_classes(*found.entries.at(3).instance);
@@ -3056,7 +3056,8 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
               winner = std::move(candidate);
               result->route = TLSF_GR1_BOTH_REAL_LIFT;
               have_winner = true;
-            } else if (common == TLSF_GR1_SEEDS_UNREAL &&
+            } else if (!cfg.o.disable_env_lift &&
+                       common == TLSF_GR1_SEEDS_UNREAL &&
                        !cache.env_sizes.empty()) {
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
               if (both_test_seed_fault == 3)
