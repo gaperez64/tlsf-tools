@@ -58,6 +58,7 @@ lib_sources = files(
   'templates_certify.c',
 ) + [
   flex_out[0],
+  flex_out[1], # tlsf_lex.h: spec_parse.c includes it.
   bison_out[0],
   bison_out[1], # tlsf_parse.h: compile the lexer only after it exists.
 ]
