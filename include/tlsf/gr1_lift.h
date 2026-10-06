@@ -312,6 +312,21 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
     const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
     TlsfGr1LiftError *error);
 
+/* Versioned runtime routing options. Null preserves v1 defaults. Disabling R
+ * skips its window fitting/candidates; with disable_env_lift it bypasses all
+ * seed discovery/solving. The same prepared target, direct solver, budgets and
+ * checker limits are used. Existing public structs and entry points retain
+ * their layouts and behavior. Options and observer are borrowed for the call.
+ */
+typedef struct {
+  const TlsfGr1LiftOptions *lift;
+  const TlsfGr1BothObserverV1 *observer;
+  uint32_t disable_real_lift;
+} TlsfGr1BothOptionsV2;
+TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1BothOptionsV2 *options,
+    TlsfGr1BothResult *result, TlsfGr1LiftError *error);
+
 void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,

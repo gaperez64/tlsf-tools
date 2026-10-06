@@ -223,7 +223,8 @@ static void check_late_binding_decline(const std::string &source, int fault) {
 static TlsfGr1BothResult run(const std::string &source,
                              TlsfGr1LiftOptions options, int check_fault = 0,
                              Observation *observation = nullptr,
-                             TlsfGr1LiftStatus expected = TLSF_GR1_LIFT_OK) {
+                             TlsfGr1LiftStatus expected = TLSF_GR1_LIFT_OK,
+                             int disable_real_lift = -1) {
   tlsf_gr1_lift_test_set_fault(check_fault);
   TlsfGr1LiftTarget *target = nullptr;
   TlsfGr1LiftError error{};
@@ -236,10 +237,17 @@ static TlsfGr1BothResult run(const std::string &source,
   CHECK(status == TLSF_GR1_LIFT_OK);
   TlsfGr1BothResult result{};
   const TlsfGr1BothObserverV1 observer{observe, observation};
-  status = observation
-               ? tlsf_gr1_both_from_target_v1(target, &options, &observer,
-                                              &result, &error)
-               : tlsf_gr1_both_from_target(target, &options, &result, &error);
+  if (disable_real_lift >= 0) {
+    const TlsfGr1BothOptionsV2 routing{&options,
+                                       observation ? &observer : nullptr,
+                                       uint32_t(disable_real_lift)};
+    status = tlsf_gr1_both_from_target_v2(target, &routing, &result, &error);
+  } else {
+    status = observation
+                 ? tlsf_gr1_both_from_target_v1(target, &options, &observer,
+                                                &result, &error)
+                 : tlsf_gr1_both_from_target(target, &options, &result, &error);
+  }
   if (status != TLSF_GR1_LIFT_OK)
     std::fprintf(stderr, "both status=%d stage=%s message=%s\n", status,
                  error.stage, error.message);
@@ -333,6 +341,56 @@ static void fault_census(const std::string &unreal_source) {
     check_late_binding_decline(fault == 1 ? real_source : plain_source, fault);
 }
 
+static void routing_ablation(const std::string &unreal_source) {
+  TlsfGr1LiftOptions options{};
+  options.disable_env_lift = 1;
+  auto legacy = run(real_source, options);
+  auto enabled = run(real_source, options, 0, nullptr, TLSF_GR1_LIFT_OK, 0);
+  CHECK(enabled.route == legacy.route &&
+        enabled.seed_solves == legacy.seed_solves);
+  CHECK(enabled.target_checks == legacy.target_checks);
+  CHECK(!strcmp(enabled.proof.certificate_aag, legacy.proof.certificate_aag));
+  CHECK(!strcmp(enabled.proof.game_aag, legacy.proof.game_aag));
+  tlsf_gr1_both_result_clear(&legacy);
+  tlsf_gr1_both_result_clear(&enabled);
+
+  // Force an R capacity fallback with tiny caller solver/checker limits.
+  // Direct still applies its incumbent caps, in both v1 and R-off v2.
+  options.schema_nodes = 1;
+  options.solver_nodes = options.solver_cache = 1;
+  options.checker_nodes = options.checker_cache = 1;
+  Observation on, off;
+  auto fallback = run(real_source, options, 0, &on);
+  auto bypass = run(real_source, options, 0, &off, TLSF_GR1_LIFT_OK, 1);
+  CHECK(fallback.route == TLSF_GR1_BOTH_DIRECT);
+  CHECK(bypass.route == TLSF_GR1_BOTH_DIRECT);
+  CHECK(bypass.seed_probes == 0 && bypass.seed_reductions == 0);
+  CHECK(bypass.seed_solves == 0 && bypass.seed_checks == 0);
+  CHECK(bypass.target_checks == 1 && bypass.target_reductions == 1);
+  CHECK(bypass.decline_stage[0] == 0);
+  CHECK(!strcmp(fallback.proof.game_aag, bypass.proof.game_aag));
+  CHECK(!strcmp(fallback.proof.certificate_aag, bypass.proof.certificate_aag));
+  CHECK(
+      !strcmp(fallback.proof.certificate_json, bypass.proof.certificate_json));
+  CHECK(fallback.proof.verdict == bypass.proof.verdict);
+  CHECK(off.events.size() == 4);
+  for (const auto &event : off.events)
+    CHECK(event.route == TLSF_GR1_BOTH_EVENT_DIRECT);
+  tlsf_gr1_both_result_clear(&fallback);
+  tlsf_gr1_both_result_clear(&bypass);
+
+  // The independent switches leave U available to non-ablation callers.
+  options = {};
+  Observation u;
+  auto unreal = run(unreal_source, options, 0, &u, TLSF_GR1_LIFT_OK, 1);
+  CHECK(unreal.route == TLSF_GR1_BOTH_ENV_LIFT);
+  CHECK(unreal.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
+  CHECK(std::none_of(u.events.begin(), u.events.end(), [](const Event &event) {
+    return event.route == TLSF_GR1_BOTH_EVENT_R;
+  }));
+  tlsf_gr1_both_result_clear(&unreal);
+}
+
 int main(int argc, char **argv) {
   CHECK(argc == 2 || argc == 3);
   std::ifstream file(argv[1], std::ios::binary);
@@ -343,6 +401,7 @@ int main(int argc, char **argv) {
     fault_census(unreal_source);
     return 0;
   }
+  routing_ablation(unreal_source);
   TlsfGr1LiftOptions options{};
   auto real = run(real_source, options);
   CHECK(real.seed_polarity == TLSF_GR1_SEEDS_REAL);
