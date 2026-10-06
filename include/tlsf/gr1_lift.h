@@ -175,11 +175,32 @@ tlsf_gr1_lift_target_prepare_exact(const uint8_t *source, size_t source_size,
                                    const TlsfGr1LiftOptions *options,
                                    TlsfGr1LiftTarget **target,
                                    TlsfGr1LiftError *error);
+/* Versioned preparation diagnostics; failure_status is initialized to OK,
+ * then receives the underlying cause independently of the legacy return.
+ * A successful strict retry reports OK. If all alternatives fail, an earlier
+ * integrity/operational/resource cause survives a later applicability failure.
+ */
+TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v1(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status);
+TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v1(
+    const uint8_t *source, size_t source_size,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status);
 void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target);
 TlsfGr1LiftStatus tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
                                             const TlsfGr1LiftOptions *options,
                                             TlsfGr1LiftResult *result,
                                             TlsfGr1LiftError *error);
+/* Diagnostic cause is separate from the incumbent return/fallback status.
+ * No existing public struct layout or entry point changes. */
+TlsfGr1LiftStatus
+tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
+                             const TlsfGr1LiftOptions *options,
+                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+                             TlsfGr1LiftStatus *failure_status);
 /* Use after any caller-side mutation hooks, before accepting the result. */
 int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
                                  const TlsfGr1LiftResult *result);
@@ -256,6 +277,41 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
                                             const TlsfGr1LiftOptions *options,
                                             TlsfGr1BothResult *result,
                                             TlsfGr1LiftError *error);
+/* Versioned, optional live attribution. Callbacks run synchronously at the
+ * boundary, before the selected work/check begins. They must not block, throw,
+ * mutate the target/options, or treat candidates/seed polarity as verdicts.
+ * The original entry point and all existing public struct layouts are
+ * unchanged. proof_unreal is -1 until the target proof side is known, otherwise
+ * 0/1. Strings are borrowed for the duration of the callback only. STOPPED
+ * denotes limits/deadline/cancellation/errors, never an algorithmic decline.
+ * failure_status is OK for nonterminal events, DECLINED/UNSUPPORTED for a
+ * genuine decline, otherwise the typed underlying failure (which may differ
+ * from the legacy return status after a checker failure). */
+typedef enum {
+  TLSF_GR1_BOTH_EVENT_SELECTED,
+  TLSF_GR1_BOTH_EVENT_START,
+  TLSF_GR1_BOTH_EVENT_CHECK_START,
+  TLSF_GR1_BOTH_EVENT_VERIFIED,
+  TLSF_GR1_BOTH_EVENT_DECLINE,
+  TLSF_GR1_BOTH_EVENT_STOPPED
+} TlsfGr1BothEventKind;
+typedef enum {
+  TLSF_GR1_BOTH_EVENT_SEEDS,
+  TLSF_GR1_BOTH_EVENT_R,
+  TLSF_GR1_BOTH_EVENT_U,
+  TLSF_GR1_BOTH_EVENT_DIRECT
+} TlsfGr1BothEventRoute;
+typedef struct {
+  void (*event)(void *, TlsfGr1BothEventKind, TlsfGr1BothEventRoute,
+                int proof_unreal, const char *stage, const char *reason,
+                TlsfGr1LiftStatus failure_status);
+  void *context;
+} TlsfGr1BothObserverV1;
+TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error);
+
 void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,

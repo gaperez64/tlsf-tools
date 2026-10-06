@@ -119,6 +119,14 @@ TlsfGr1ReductionStatus tlsf_gr1_reduce(const TlsfPipeline *pipeline,
                                        const TlsfGr1ReductionOptions *options,
                                        TlsfGr1Reduction *result,
                                        TlsfGr1ReductionError *error);
+/* Optional diagnostic status, independent of the legacy return. Contract
+ * failures retain UNSUPPORTED but report ERROR here. Initialized to OK on
+ * success; no existing public structure changes. */
+TlsfGr1ReductionStatus
+tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
+                   const TlsfGr1ReductionOptions *options,
+                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                   TlsfGr1ReductionStatus *failure_status);
 void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result);
 
 #ifdef __cplusplus

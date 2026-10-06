@@ -6,6 +6,14 @@ simd_check_exe = executable('simd_check', 'simd_check.c',
 test('simd_kernels', simd_check_exe)
 
 if native_gr1
+  native_contract_api_exe = executable('native_contract_api',
+    'native_contract_api.cpp', reduction_contract_hooks, gr1_reduction_source,
+    cpp_args: ['-DTLSF_GR1_REDUCTION_TEST_FAULT'],
+    dependencies: tlsf_internal_dep)
+  test('native_contract_validators', native_contract_api_exe)
+  native_env_contract_api_exe = executable('native_env_contract_api',
+    'native_env_contract_api.cpp', dependencies: tlsf_internal_dep)
+  test('native_env_contract_validators', native_env_contract_api_exe)
   # gr1_lift.cc again, with its fault hooks compiled in; its own object takes
   # precedence over the library's copy.
   native_lift_api_exe = executable('native_lift_api',
@@ -19,6 +27,10 @@ if native_gr1
     dependencies: tlsf_internal_dep)
   test('native_both_api', native_both_api_exe,
     args: files('../oracle/env_lift_one.tlsf'),
+    timeout: get_option('buildtype') == 'debug' ? 180 : 90,
+    is_parallel: false)
+  test('native_failure_census', native_both_api_exe,
+    args: [files('../oracle/env_lift_one.tlsf'), '--fault-census'],
     timeout: get_option('buildtype') == 'debug' ? 180 : 90,
     is_parallel: false)
   native_real_both_api_exe = executable('native_real_both_api',

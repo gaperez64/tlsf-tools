@@ -58,7 +58,8 @@ using A = j::array;
 uint64_t now_ns() {
   timespec ts{};
   if (clock_gettime(CLOCK_MONOTONIC, &ts))
-    throw Failure(TLSF_GR1_LIFT_ERROR, "clock", "CLOCK_MONOTONIC failed");
+    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "clock",
+                  "CLOCK_MONOTONIC failed");
   return uint64_t(ts.tv_sec) * 1000000000ull + uint64_t(ts.tv_nsec);
 }
 uint64_t stats_clock(clockid_t clock) noexcept {
@@ -155,11 +156,12 @@ std::unique_ptr<Aig, decltype(&aig_free)> parse_aig(const char *bytes,
                                                     size_t size) {
   FILE *fp = fmemopen(const_cast<char *>(bytes), size, "r");
   if (!fp)
-    throw Failure(TLSF_GR1_LIFT_ERROR, "aag", "cannot open memory stream");
+    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "aag",
+                  "cannot open memory stream");
   Aig *raw = aig_read_aag(fp);
   fclose(fp);
   if (!raw)
-    decline("aag", "invalid AAG artifact");
+    decline(FailureCause::error, "aag", "invalid AAG artifact");
   return {raw, &aig_free};
 }
 std::string render_aig(const Aig *game, const Config &cfg) {
@@ -167,11 +169,13 @@ std::string render_aig(const Aig *game, const Config &cfg) {
   size_t size = 0;
   FILE *fp = open_memstream(&bytes, &size);
   if (!fp)
-    throw Failure(TLSF_GR1_LIFT_ERROR, "aag", "cannot allocate memory stream");
+    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "aag",
+                  "cannot allocate memory stream");
   aig_write_aag(fp, game);
   if (fclose(fp)) {
     free(bytes);
-    throw Failure(TLSF_GR1_LIFT_ERROR, "aag", "write failed");
+    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "aag",
+                  "write failed");
   }
   std::string out(bytes, size);
   free(bytes);
@@ -202,8 +206,11 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
       tlsf_pipeline_load_bytes(source, size, &popts), &tlsf_pipeline_free);
   if (!pipeline) {
     if (perr.status == TLSF_PIPELINE_LIMIT)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "expand", perr.message);
-    decline("expand",
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "expand",
+                    perr.message);
+    decline(perr.status == TLSF_PIPELINE_DECLINED ? FailureCause::applicability
+                                                  : FailureCause::error,
+            perr.status == TLSF_PIPELINE_DECLINED ? "expand" : "expand_error",
             perr.message[0] ? perr.message : "source expansion failed");
   }
   cfg.check("reduce");
@@ -225,7 +232,9 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   lift_test_reduction_calls++;
 #endif
-  auto status = tlsf_gr1_reduce(pipeline.get(), &ro, &instance->r, &err);
+  TlsfGr1ReductionStatus reduction_cause = TLSF_GR1_REDUCE_OK;
+  auto status = tlsf_gr1_reduce_v1(pipeline.get(), &ro, &instance->r, &err,
+                                   &reduction_cause);
   const TlsfGr1ConstructionWork &reduction_work = reduction_stats.work;
   if (cfg.work) {
     auto add = [](uint64_t &dst, uint64_t value) {
@@ -258,7 +267,16 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
       throw cfg.deadline_failure(err.stage[0] ? err.stage : "reduce");
     if (status == TLSF_GR1_REDUCE_CANCELLED)
       mapped = TLSF_GR1_LIFT_CANCELLED;
-    throw Failure(mapped, err.stage[0] ? err.stage : "reduce",
+    const bool internal =
+        status == TLSF_GR1_REDUCE_ERROR || status == TLSF_GR1_REDUCE_INVALID;
+    const auto cause = reduction_cause == TLSF_GR1_REDUCE_ERROR ||
+                               reduction_cause == TLSF_GR1_REDUCE_INVALID
+                           ? FailureCause::error
+                           : failure_cause(mapped);
+    throw Failure(mapped, cause,
+                  internal       ? "reduce_error"
+                  : err.stage[0] ? err.stage
+                                 : "reduce",
                   err.message[0] ? err.message : "reduction failed");
   }
   cfg.check("provenance");
@@ -269,16 +287,20 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   const O &origin = d.at("source_origin_metadata").as_object();
   if (s(d, "provenance_source") != "frontend" ||
       !origin.at("available").as_bool() ||
-      s(origin, "provenance_source") != "frontend" ||
-      s(origin, "source_sha256") != pipeline->source_sha256)
-    decline("provenance", "ambiguous or source-unbound frontend provenance");
+      s(origin, "provenance_source") != "frontend")
+    decline(FailureCause::applicability, "provenance",
+            "ambiguous or source-unbound frontend provenance");
+  if (s(origin, "source_sha256") != pipeline->source_sha256)
+    decline(FailureCause::error, "target_binding",
+            "frontend provenance source hash differs");
   std::set<std::string> signals;
   for (const char *kind : {"inputs", "outputs"})
     for (const auto &v : d.at(kind).as_array()) {
       const O &row = v.as_object();
       if (s(row, "provenance_source") != "frontend" ||
           !signals.insert(s(row, "name")).second)
-        decline("provenance", "duplicate or non-frontend signal");
+        decline(FailureCause::error, "provenance",
+                "duplicate or non-frontend signal");
     }
   std::set<std::string> origins;
   for (const auto &v : d.at("source_conjuncts").as_array()) {
@@ -287,13 +309,15 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
              .insert(key({s(row, "source_formula_id"),
                           field(n(row, "generated_position"))}))
              .second)
-      decline("provenance", "duplicate source conjunct origin");
+      decline(FailureCause::error, "provenance",
+              "duplicate source conjunct origin");
   }
   for (const auto &v : d.at("monitors").as_array()) {
     const O &row = v.as_object();
     if (s(row, "provenance_source") != "frontend" ||
         !row.contains("source_origin") || row.at("source_origin").is_null())
-      decline("provenance", "missing monitor source origin");
+      decline(FailureCause::applicability, "provenance",
+              "missing monitor source origin");
   }
   return instance;
 }
@@ -302,7 +326,7 @@ std::map<std::string, int64_t> parameters(const Instance &i) {
   for (const auto &v : i.data.at("source_parameters").as_array()) {
     const O &r = v.as_object();
     if (!out.emplace(s(r, "name"), n(r, "value")).second)
-      decline("parameters", "duplicate source parameter");
+      decline(FailureCause::error, "parameters", "duplicate source parameter");
   }
   return out;
 }
@@ -319,13 +343,13 @@ std::pair<std::vector<int>, std::vector<int>>
 axis_members(const Instance &target, const Instance &probe) {
   auto tg = declarations(target), pg = declarations(probe);
   if (tg.size() != pg.size())
-    decline("axis", "declaration ABI changed");
+    decline(FailureCause::applicability, "axis", "declaration ABI changed");
   std::vector<int> target_members, probe_members;
   bool changed = false;
   for (const auto &[id, trows] : tg) {
     auto iter = pg.find(id);
     if (iter == pg.end())
-      decline("axis", "declaration ABI changed");
+      decline(FailureCause::applicability, "axis", "declaration ABI changed");
     const auto &prows = iter->second;
     if (trows.size() == prows.size())
       continue;
@@ -333,25 +357,26 @@ axis_members(const Instance &target, const Instance &probe) {
     std::vector<int> ti, pi;
     for (const auto *r : trows) {
       if (s(*r, "index_role") != "element" || n(*r, "dimensions") != 1)
-        decline("axis", "unproved encoding width");
+        decline(FailureCause::applicability, "axis", "unproved encoding width");
       ti.push_back(ints(r->at("index_tuple").as_array()).at(0));
     }
     for (const auto *r : prows) {
       if (s(*r, "index_role") != "element" || n(*r, "dimensions") != 1)
-        decline("axis", "unproved encoding width");
+        decline(FailureCause::applicability, "axis", "unproved encoding width");
       pi.push_back(ints(r->at("index_tuple").as_array()).at(0));
     }
     std::sort(ti.begin(), ti.end());
     std::sort(pi.begin(), pi.end());
     if (!target_members.empty() && target_members != ti)
-      decline("axis", "inconsistent coordinates");
+      decline(FailureCause::applicability, "axis", "inconsistent coordinates");
     if (!probe_members.empty() && probe_members != pi)
-      decline("axis", "inconsistent coordinates");
+      decline(FailureCause::applicability, "axis", "inconsistent coordinates");
     target_members = std::move(ti);
     probe_members = std::move(pi);
   }
   if (!changed)
-    decline("axis", "parameter does not index elements");
+    decline(FailureCause::applicability, "axis",
+            "parameter does not index elements");
   return {target_members, probe_members};
 }
 std::vector<int> monitor_indices(const O &record) {
@@ -438,7 +463,8 @@ std::string monitor_key(const O &r, const Instance &i, const Modes &m,
   }
   if (kind == "bounded_support") {
     if (monitor_indices(r).size() > cfg.o.max_predicate_arity)
-      decline("bus_schema", "unproved large template");
+      decline(FailureCause::applicability, "bus_schema",
+              "unproved large template");
     semantic = s(r, "template");
   }
   return key({s(o, "source_formula_id"), field(n(o, "source_node_id")),
@@ -583,22 +609,24 @@ thread_local bool lift_test_fallback_started_before_deadline = false;
 #endif
 void validate_window(const Window &window, const Instance &target) {
   if (window.sizes.size() != window.seeds.size() || window.sizes.size() < 2)
-    decline("seed_window", "invalid selected seed count");
+    decline(FailureCause::error, "seed_window", "invalid selected seed count");
   for (size_t p = 0; p < window.seeds.size(); p++) {
     const Instance &seed = *window.seeds[p];
     auto choice = seed.overrides.find(window.axis);
     if (choice == seed.overrides.end() || choice->second != window.sizes[p] ||
         seed.members != axis_members(target, seed).second)
-      decline("seed_window", "selected seed choice disagrees with artifact");
+      decline(FailureCause::error, "seed_window",
+              "selected seed choice disagrees with artifact");
     if (p && window.sizes[p] != window.sizes[p - 1] + 1)
-      decline("seed_window", "selected seeds are not consecutive");
+      decline(FailureCause::error, "seed_window",
+              "selected seeds are not consecutive");
   }
 }
 Window discover(const uint8_t *source, size_t size, const Instance &target,
                 TlsfGr1ReductionSemantics semantics, const Config &cfg) {
   auto axes = parameters(target);
   if (axes.empty())
-    decline("parameters", "absent");
+    decline(FailureCause::applicability, "parameters", "absent");
   uint64_t probes_tried = 0;
   for (const auto &[axis, value] : axes) {
     struct Probe {
@@ -609,8 +637,8 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
     for (int k = 1; k < value && k <= int(cfg.o.max_sizes_per_axis); k++) {
       cfg.check("seed_window");
       if (probes_tried >= cfg.max_seed_probes)
-        throw Failure(TLSF_GR1_LIFT_LIMIT, "seed_window",
-                      "fixed seed probe budget exhausted");
+        throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                      "seed_window", "fixed seed probe budget exhausted");
       ++probes_tried;
       if (cfg.stats)
         cfg.stats->seed_probes++;
@@ -622,6 +650,7 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
         probe->members = std::move(coords.second);
         probes.push_back({k, std::move(probe)});
       } catch (const Failure &e) {
+        cfg.note_failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
@@ -674,6 +703,7 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
         }
         return result;
       } catch (const Failure &e) {
+        cfg.note_failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
@@ -681,7 +711,7 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
       }
     }
   }
-  decline("seed_window", "no stable index axis");
+  cfg.decline_search("seed_window", "no stable index axis");
 }
 
 struct SharedSeeds {
@@ -711,8 +741,8 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     for (int k = 1; k <= last; k++) {
       cfg.check("seed_window");
       if (out.seed_probes >= cfg.max_seed_probes)
-        throw Failure(TLSF_GR1_LIFT_LIMIT, "seed_window",
-                      "fixed seed probe budget exhausted");
+        throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                      "seed_window", "fixed seed probe budget exhausted");
       out.seed_probes++;
       auto values = axes;
       values[axis] = k;
@@ -729,7 +759,8 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
         if (s(metadata, "semantics") != "exact" ||
             s(metadata, "source_sha256") != trusted.source_hash ||
             s(metadata, "game_sha256") != hash)
-          decline("seed_binding", "seed reduction hash differs");
+          decline(FailureCause::error, "seed_binding",
+                  "seed reduction hash differs");
         auto members = axis_members(target, *probe);
         probe->members = std::move(members.second);
         std::vector<std::string> parts{trusted.source_hash, axis, field(k),
@@ -742,6 +773,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
         found.entries.emplace(
             k, SharedSeeds::Entry{std::move(probe), join(parts)});
       } catch (const Failure &e) {
+        cfg.note_failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
@@ -791,6 +823,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
         break;
       }
     } catch (const Failure &e) {
+      cfg.note_failure(e);
       if (e.status == TLSF_GR1_LIFT_DEADLINE ||
           e.status == TLSF_GR1_LIFT_CANCELLED ||
           e.status == TLSF_GR1_LIFT_LIMIT)
@@ -824,6 +857,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
             found.target_members = std::move(target_members);
         }
       } catch (const Failure &e) {
+        cfg.note_failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
@@ -833,13 +867,15 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     if (!found.real_sizes.empty() || !found.env_sizes.empty())
       return found;
   }
+  if (cfg.search_cause)
+    cfg.decline_search("seed_window", "no stable index axis");
   return {};
 }
 void solve_seed(Instance &i, const Config &cfg) {
   cfg.check("seed_solve");
   char reason[256]{};
   if (!tlsf_gr1_validate_game(i.r.game, reason, sizeof reason))
-    decline("seed_solve", reason);
+    decline(FailureCause::error, "seed_solve", reason);
   auto copy = parse_aig(i.r.aag, i.r.aag_size);
   OxiddFailure failure{};
   char *cert = nullptr, *meta = nullptr;
@@ -868,15 +904,18 @@ void solve_seed(Instance &i, const Config &cfg) {
       meta_guard(meta, &free);
   if (!strategy || unreal || export_options.failed || !cert || !meta) {
     if (failure.kind == OXIDD_FAILURE_DEADLINE)
-      throw Failure(TLSF_GR1_LIFT_DEADLINE, "seed_solve", "deadline exceeded");
+      throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
+                    "seed_solve", "deadline exceeded");
     if (failure.kind == OXIDD_FAILURE_CANCELLED)
-      throw Failure(TLSF_GR1_LIFT_CANCELLED, "seed_solve", "cancelled");
+      throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                    "seed_solve", "cancelled");
     if (failure.kind == OXIDD_FAILURE_BDD ||
         failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT ||
         failure.kind == OXIDD_FAILURE_HOST)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "seed_solve",
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_solve",
                     "solver capacity exhausted");
-    decline("seed_solve", "no system certificate");
+    decline(unreal ? FailureCause::applicability : FailureCause::error,
+            unreal ? "seed_solve" : "seed_error", "no system certificate");
   }
   cfg.bytes(cert_size, "seed_solve");
   cfg.bytes(meta_size, "seed_solve");
@@ -886,16 +925,51 @@ void solve_seed(Instance &i, const Config &cfg) {
   if (s(i.cert_meta, "status") != "realizable" ||
       s(i.cert_meta, "side") != "system" ||
       s(i.cert_meta, "reduction_semantics") != "exact")
-    decline("seed_solve", "certificate metadata mismatch");
+    decline(FailureCause::error, "seed_metadata",
+            "certificate metadata mismatch");
   i.cert = parse_aig(i.cert_aag.data(), i.cert_aag.size());
 }
 
+FailureCause solver_failure_cause(OxiddFailureKind kind) {
+  switch (kind) {
+  case OXIDD_FAILURE_BDD:
+  case OXIDD_FAILURE_HOST:
+  case OXIDD_FAILURE_ARTIFACT_LIMIT:
+    return FailureCause::resource;
+  case OXIDD_FAILURE_DEADLINE:
+    return FailureCause::deadline;
+  case OXIDD_FAILURE_CANCELLED:
+    return FailureCause::cancelled;
+  case OXIDD_FAILURE_NONE:
+    return FailureCause::error;
+  default:
+    return FailureCause::error;
+  }
+}
+FailureCause check_failure_cause(TlsfGr1CheckStatus status,
+                                 TlsfGr1CheckVerdict verdict) {
+  switch (status) {
+  case TLSF_GR1_CHECK_LIMIT:
+    return FailureCause::resource;
+  case TLSF_GR1_CHECK_DEADLINE:
+    return FailureCause::deadline;
+  case TLSF_GR1_CHECK_CANCELLED:
+    return FailureCause::cancelled;
+  case TLSF_GR1_CHECK_OK:
+    return verdict == TLSF_GR1_CHECK_CERT_FAILED ||
+                   verdict == TLSF_GR1_CHECK_REFUTED
+               ? FailureCause::applicability
+               : FailureCause::error;
+  default:
+    return FailureCause::error;
+  }
+}
 TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
                                       TlsfGr1BothResult &out) {
   cfg.check("seed_solve");
   char reason[256]{};
   if (!tlsf_gr1_validate_game(seed.r.game, reason, sizeof reason))
-    decline("seed_solve", reason);
+    decline(FailureCause::error, "seed_solve", reason);
   auto game = parse_aig(seed.r.aag, seed.r.aag_size);
   OxiddFailure failure{};
   char *cert = nullptr, *meta = nullptr, *policy = nullptr,
@@ -931,12 +1005,14 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
       meta_owner(meta, &free), policy_owner(policy, &free),
       policy_meta_owner(policy_meta, &free);
   if (failure.kind == OXIDD_FAILURE_DEADLINE)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, "seed_solve", "deadline exceeded");
+    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, "seed_solve",
+                  "deadline exceeded");
   cfg.check("seed_solve");
   if (failure.kind != OXIDD_FAILURE_NONE || export_options.failed ||
       (!real && !unreal) || !cert || !meta ||
       (unreal && (!policy || !policy_meta)))
-    decline("seed_solve", "exact seed certificate unavailable");
+    throw Failure(TLSF_GR1_LIFT_DECLINED, solver_failure_cause(failure.kind),
+                  "seed_solve", "exact seed certificate unavailable");
   for (size_t count : {cert_size, meta_size, policy_size, policy_meta_size})
     cfg.bytes(count, "seed_solve");
   seed.cert_aag.assign(cert, cert_size);
@@ -949,7 +1025,8 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   if (s(seed.cert_meta, "reduction_semantics") != "exact" ||
       s(seed.cert_meta, "side") != (real ? "system" : "environment") ||
       s(seed.cert_meta, "status") != (real ? "realizable" : "unrealizable"))
-    decline("seed_solve", "seed certificate metadata mismatch");
+    decline(FailureCause::error, "seed_metadata",
+            "seed certificate metadata mismatch");
   TlsfGr1CheckInput input{};
   input.game_aag = {(const uint8_t *)seed.r.aag, seed.r.aag_size};
   input.certificate_aag = {(const uint8_t *)cert, cert_size};
@@ -970,15 +1047,18 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   TlsfGr1CheckResult checked{};
   auto status = tlsf_gr1_check(&input, &check_options, &checked);
   out.seed_checks++;
+  const auto verdict = checked.verdict;
   bool verified = status == TLSF_GR1_CHECK_OK &&
                   checked.verdict == (real ? TLSF_GR1_CHECK_REGION_VERIFIED
                                            : TLSF_GR1_CHECK_VERIFIED);
   tlsf_gr1_check_result_clear(&checked);
   if (status == TLSF_GR1_CHECK_DEADLINE)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, "seed_check", "deadline exceeded");
+    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, "seed_check",
+                  "deadline exceeded");
   cfg.check("seed_check");
   if (!verified)
-    decline("seed_check", "independent seed proof rejected");
+    throw Failure(TLSF_GR1_LIFT_DECLINED, check_failure_cause(status, verdict),
+                  "seed_check", "independent seed proof rejected");
   seed.cert = parse_aig(seed.cert_aag.data(), seed.cert_aag.size());
   return real ? TLSF_GR1_SEEDS_REAL : TLSF_GR1_SEEDS_UNREAL;
 }
@@ -1014,12 +1094,13 @@ struct GameView {
       const O &r = v.as_object();
       const A &lits = r.at("latch_literals").as_array();
       if (!lits.empty() && lits.size() != size_t(n(r, "state_count")))
-        decline("schema_abi", "monitor inventory");
+        decline(FailureCause::error, "schema_abi", "monitor inventory");
       for (size_t state = 0; state < lits.size(); state++)
         if (!latch_records
                  .emplace(uint32_t(num(lits[state])), std::make_pair(&r, state))
                  .second)
-          decline("schema_abi", "duplicate monitor latch literal");
+          decline(FailureCause::error, "schema_abi",
+                  "duplicate monitor latch literal");
     }
     uint32_t violated = UINT32_MAX;
     if (s(data, "semantics") == "strict" &&
@@ -1034,7 +1115,7 @@ struct GameView {
       }
       auto found = latch_records.find(lit);
       if (found == latch_records.end())
-        decline("schema_abi", "unmatched latch literal");
+        decline(FailureCause::error, "schema_abi", "unmatched latch literal");
       const O &r = *found->second.first;
       auto indices = monitor_indices(r);
       if (monitor_is_symmetric(r, i, m))
@@ -1049,25 +1130,25 @@ struct GameView {
            indices, std::move(owners)});
     }
     if (latch_records.size() + (violated != UINT32_MAX) != states)
-      decline("schema_abi", "latch inventory");
+      decline(FailureCause::error, "schema_abi", "latch inventory");
     std::map<uint32_t, const O *> signals;
     for (const char *kind : {"inputs", "outputs"})
       for (const J &v : data.at(kind).as_array()) {
         const O &r = v.as_object();
         if (!signals.emplace(uint32_t(n(r, "game_literal")), &r).second)
-          decline("schema_abi", "duplicate game literal");
+          decline(FailureCause::error, "schema_abi", "duplicate game literal");
       }
     if (signals.size() != inputs)
-      decline("schema_abi", "signal inventory");
+      decline(FailureCause::error, "schema_abi", "signal inventory");
     for (uint32_t p = 0; p < inputs; p++) {
       uint32_t lit = 0;
       aig_input_name(i.r.game, p, &lit);
       auto it = signals.find(lit);
       if (it == signals.end())
-        decline("schema_abi", "game signal unmatched");
+        decline(FailureCause::error, "schema_abi", "game signal unmatched");
       const O &r = *it->second;
       if (s(r, "direction") != "input" && s(r, "direction") != "output")
-        decline("schema_abi", "invalid signal direction");
+        decline(FailureCause::error, "schema_abi", "invalid signal direction");
       controls.push_back(s(r, "direction") == "output");
       auto indices = ints(r.at("index_tuple").as_array());
       std::set<int> owners;
@@ -1084,14 +1165,16 @@ struct GameView {
           n(i.cert_meta.at("counts").as_object(), "sampling_latches") != 0 ||
           n(i.cert_meta.at("counts").as_object(), "original_game_latches") !=
               states)
-        decline("schema_abi", "certificate input mismatch");
+        decline(FailureCause::error, "schema_abi",
+                "certificate input mismatch");
       for (uint32_t p = 0; p < variables.size(); p++) {
         const char *actual = aig_input_name(i.cert.get(), p, nullptr);
         const char *expected =
             p < states ? aig_latch_name(i.r.game, p)
                        : aig_input_name(i.r.game, p - states, nullptr);
         if (!actual || !expected || strcmp(actual, expected))
-          decline("schema_abi", "certificate input mismatch");
+          decline(FailureCause::error, "schema_abi",
+                  "certificate input mismatch");
       }
       for (uint32_t p = 0; p < aig_num_outputs(i.cert.get()); p++) {
         const char *name = aig_output_at(i.cert.get(), p, nullptr);
@@ -1105,23 +1188,24 @@ struct GameView {
         const O &r = v.as_object();
         if (!r.contains("justice_index") ||
             !justice.emplace(int(n(r, "justice_index")), &r).second)
-          decline("schema_abi", "duplicate justice ID");
+          decline(FailureCause::error, "schema_abi", "duplicate justice ID");
       }
     if (s(data, "semantics") == "strict" && justice.empty() &&
         aig_num_justice(i.r.game) == 1) {
       goals.push_back({0, -1, "implicit_true_justice"});
     } else {
       if (justice.size() != aig_num_justice(i.r.game))
-        decline("schema_abi", "justice inventory");
+        decline(FailureCause::error, "schema_abi", "justice inventory");
       for (size_t p = 0; p < justice.size(); p++) {
         auto found = justice.find(int(p));
         if (found == justice.end())
-          decline("schema_abi", "missing justice ID");
+          decline(FailureCause::error, "schema_abi", "missing justice ID");
         const O &r = *found->second;
         auto indices = ints(
             r.at("source_origin").as_object().at("index_tuple").as_array());
         if (indices.size() > 1)
-          decline("schema_abi", "multi-index goal");
+          decline(FailureCause::applicability, "schema_abi",
+                  "multi-index goal");
         int owner =
             indices.size() == 1 && roles.count(indices[0]) ? indices[0] : -1;
         std::string role = owner < 0 ? "null" : roles.at(owner);
@@ -1133,7 +1217,8 @@ struct GameView {
       uint32_t count = 0;
       aig_justice_at(i.r.game, goal, nullptr, &count);
       if (count != 1)
-        decline("schema_abi", "multi-member justice");
+        decline(FailureCause::applicability, "schema_abi",
+                "multi-member justice");
     }
   }
   int levels(const Goal &goal) const {
@@ -1145,10 +1230,10 @@ struct GameView {
   }
   uint32_t output(const std::string &name) const {
     if (!inst->cert || !output_by_name.count(name))
-      decline("schema_abi", "missing seed predicate");
+      decline(FailureCause::error, "schema_abi", "missing seed predicate");
     uint32_t lit = aig_output_lit(inst->cert.get(), name.c_str());
     if (lit == UINT32_MAX)
-      decline("schema_abi", "missing seed predicate");
+      decline(FailureCause::error, "schema_abi", "missing seed predicate");
     return lit;
   }
 };
@@ -1157,8 +1242,8 @@ struct B {
   B() = default;
   explicit B(oxidd_bdd_t f) : v(f) {
     if (!v._p)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
-                    "OxiDD allocation failed");
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity", "OxiDD allocation failed");
   }
   B(const B &other) : v(oxidd_bdd_ref(other.v)) {}
   B(B &&other) noexcept : v(other.v) { other.v = {}; }
@@ -1194,8 +1279,8 @@ public:
     manager =
         oxidd_bdd_manager_new(cfg->o.schema_nodes, cfg->o.schema_cache, 1);
     if (!manager._p)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
-                    "cannot create OxiDD manager");
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity", "cannot create OxiDD manager");
     grow(initial);
   }
   ~Schema() { oxidd_bdd_manager_unref(manager); }
@@ -1203,14 +1288,14 @@ public:
   void set_config(const Config &config) { cfg = &config; }
   void tick(const char *stage = "schema") {
     if (cfg->max_bdd_ops && calls >= cfg->max_bdd_ops)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, stage,
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, stage,
                     "fixed BDD operation budget exhausted");
     if ((++calls & 127u) == 0) {
       cfg->check(stage);
       if (oxidd_bdd_manager_approx_num_inner_nodes(manager) >
           cfg->o.schema_nodes)
-        throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
-                      "node cap exceeded");
+        throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                      "schema_capacity", "node cap exceeded");
     }
   }
   void begin_phase(const Config &config) {
@@ -1227,8 +1312,8 @@ public:
       return;
     auto range = oxidd_bdd_manager_add_vars(manager, count - width());
     if (int(range.end) != count)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
-                    "BDD variable limit");
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity", "BDD variable limit");
   }
   B t() {
     tick();
@@ -1304,7 +1389,7 @@ public:
     auto supp = support(root);
     for (int v : supp)
       if (!mapping.count(v))
-        decline("schema_abi", "unmapped BDD support");
+        decline(FailureCause::error, "schema_abi", "unmapped BDD support");
     std::map<Handle, B> memo;
     std::function<B(const B &)> visit = [&](const B &node) -> B {
       tick();
@@ -1358,7 +1443,8 @@ public:
         return it->second;
       auto gate = gates.find(variable);
       if (gate == gates.end())
-        decline("schema_abi", "AIG root references missing gate");
+        decline(FailureCause::error, "schema_abi",
+                "AIG root references missing gate");
       B result = land(value(gate->second.first), value(gate->second.second));
       memo.emplace(variable, result);
       return result;
@@ -1379,7 +1465,7 @@ public:
       int variable = int(oxidd_bdd_node_var(node.v));
       auto found = lits.find(variable);
       if (found == lits.end())
-        decline("candidate", "unmapped BDD variable");
+        decline(FailureCause::error, "candidate", "unmapped BDD variable");
       B hi(oxidd_bdd_cofactor_true(node.v));
       B lo(oxidd_bdd_cofactor_false(node.v));
       uint32_t x = found->second;
@@ -1438,7 +1524,8 @@ Template project(Schema &bdd, const GameView &view, const B &function,
   if (choose_bounded(view.members.size(), arity,
                      cfg.o.max_subsets_per_predicate) >
       cfg.o.max_subsets_per_predicate)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity", "subset count limit");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                  "schema_capacity", "subset count limit");
   Template result;
   B rebuilt = bdd.t();
   auto support = bdd.support(function);
@@ -1458,7 +1545,8 @@ Template project(Schema &bdd, const GameView &view, const B &function,
         int normalized = bdd.normal_var(normal_key(v, slots));
         mapping[v.index] = normalized;
         if (!back.emplace(normalized, v.index).second)
-          decline("schema_abi", "duplicate normalized variable");
+          decline(FailureCause::applicability, "schema_abi",
+                  "duplicate normalized variable");
       }
     }
     for (int v : support)
@@ -1470,12 +1558,14 @@ Template project(Schema &bdd, const GameView &view, const B &function,
     auto group = group_key(view, subset, goal);
     auto found = result.find(group);
     if (found != result.end() && !same(found->second, normalized))
-      decline("schema", "within-role projection disagreement");
+      decline(FailureCause::applicability, "schema",
+              "within-role projection disagreement");
     result.insert_or_assign(group, normalized);
     rebuilt = bdd.land(rebuilt, bdd.relabel(normalized, back));
   });
   if (!same(rebuilt, function))
-    decline("schema", "predicate not exactly reconstructed");
+    decline(FailureCause::applicability, "schema",
+            "predicate not exactly reconstructed");
   return result;
 }
 struct Learned {
@@ -1485,6 +1575,7 @@ struct Learned {
 Learned learn(Schema &bdd, const std::vector<GameView> &seeds,
               const std::vector<std::string> &names,
               const std::vector<const Goal *> &goals, const Config &cfg) {
+  FailureCause cause = FailureCause::applicability;
   int limit = int(cfg.o.max_predicate_arity);
   for (const auto &seed : seeds)
     limit = std::min(limit, int(seed.members.size()));
@@ -1506,6 +1597,8 @@ Learned learn(Schema &bdd, const std::vector<GameView> &seeds,
     } catch (const Failure &e) {
       if (e.status != TLSF_GR1_LIFT_DECLINED)
         throw;
+      if (!is_applicability(e.cause))
+        cause = e.cause;
       continue;
     }
     bool equal = true;
@@ -1525,22 +1618,23 @@ Learned learn(Schema &bdd, const std::vector<GameView> &seeds,
     if (equal)
       return {std::move(observed[0]), arity};
   }
-  decline("schema", "no bounded exact template");
+  decline(cause, "schema", "no bounded exact template");
 }
 B instantiate(Schema &bdd, const GameView &target, const Learned &learned,
               const Goal *goal, const Config &cfg) {
   if (choose_bounded(target.members.size(), learned.arity,
                      cfg.o.max_subsets_per_predicate) >
       cfg.o.max_subsets_per_predicate)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
-                  "target subset count limit");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                  "schema_capacity", "target subset count limit");
   B result = bdd.t();
   subsets(target.members, learned.arity, [&](const std::vector<int> &selected) {
     cfg.check("instantiate");
     auto subset = ordered(target, selected, goal);
     auto it = learned.templ.find(group_key(target, subset, goal));
     if (it == learned.templ.end())
-      decline("instantiate", "missing role template");
+      decline(FailureCause::applicability, "instantiate",
+              "missing role template");
     std::set<int> set(subset.begin(), subset.end());
     std::map<int, int> slots;
     for (size_t p = 0; p < subset.size(); p++)
@@ -1554,7 +1648,8 @@ B instantiate(Schema &bdd, const GameView &target, const Learned &learned,
     for (int variable : bdd.support(it->second)) {
       auto found = concrete.find(bdd.normal_key(variable));
       if (found == concrete.end())
-        decline("instantiate", "missing target variable");
+        decline(FailureCause::applicability, "instantiate",
+                "missing target variable");
       mapping[variable] = found->second;
     }
     result = bdd.land(result, bdd.relabel(it->second, mapping));
@@ -1571,17 +1666,18 @@ LearnedCertificate learn_certificate(Schema &bdd,
                                      const GameView &target,
                                      const Config &cfg) {
   if (seeds.empty())
-    decline("schema", "no seeds");
+    decline(FailureCause::error, "schema", "no seeds");
   for (const auto &seed : seeds) {
     if (seed.fairness != target.fairness)
-      decline("schema_abi", "fairness changed");
+      decline(FailureCause::applicability, "schema_abi", "fairness changed");
     std::set<std::string> left, right;
     for (const auto &[coord, role] : seed.roles)
       left.insert(role);
     for (const auto &[coord, role] : target.roles)
       right.insert(role);
     if (left != right)
-      decline("schema_abi", "role classes changed");
+      decline(FailureCause::applicability, "schema_abi",
+              "role classes changed");
   }
   LearnedCertificate out;
   // Rank depth is a property of the selected solved seeds. Check it before
@@ -1596,12 +1692,13 @@ LearnedCertificate learn_certificate(Schema &bdd,
           break;
         }
       if (!found)
-        decline("schema_abi", "goal class absent");
+        decline(FailureCause::applicability, "schema_abi", "goal class absent");
       int current = seed.levels(*found);
       if (current < 1)
-        decline("schema", "empty rank depth");
+        decline(FailureCause::error, "schema", "empty rank depth");
       if (depth >= 0 && current != depth)
-        throw Failure(TLSF_GR1_LIFT_DECLINED, "schema",
+        throw Failure(TLSF_GR1_LIFT_DECLINED, FailureCause::applicability,
+                      "schema",
                       "rank depth changed from " + field(depth) + " to " +
                           field(current));
       depth = current;
@@ -1623,7 +1720,7 @@ LearnedCertificate learn_certificate(Schema &bdd,
           break;
         }
       if (!found)
-        decline("schema_abi", "goal class absent");
+        decline(FailureCause::applicability, "schema_abi", "goal class absent");
       aligned.push_back(found);
     }
     int depth = out.depths[goal_pos];
@@ -1631,7 +1728,8 @@ LearnedCertificate learn_certificate(Schema &bdd,
     uint32_t count = 0;
     aig_justice_at(target.inst->r.game, goal.number, &members, &count);
     if (count != 1)
-      decline("schema_abi", "multi-member justice");
+      decline(FailureCause::applicability, "schema_abi",
+              "multi-member justice");
     out.predicates.emplace("goal_" + field(goal.number),
                            bdd.from_aig(target.inst->r.game, members[0], true));
     for (int level = 0; level < depth; level++) {
@@ -1774,8 +1872,8 @@ emit_certificate(Schema &bdd, const GameView &target,
   const Aig *game = target.inst->r.game;
   auto out = std::unique_ptr<Aig, decltype(&aig_free)>(aig_new(), &aig_free);
   if (!out)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "certificate_export",
-                  "cannot allocate AIG");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                  "certificate_export", "cannot allocate AIG");
   std::map<int, uint32_t> current, following;
   for (uint32_t p = 0; p < target.states; p++)
     current[int(p)] = aig_input(out.get(), aig_latch_name(game, p));
@@ -1810,7 +1908,7 @@ emit_certificate(Schema &bdd, const GameView &target,
       return it->second;
     auto gate = gates.find(lit / 2);
     if (gate == gates.end())
-      decline("candidate", "unmapped target game gate");
+      decline(FailureCause::error, "candidate", "unmapped target game gate");
     uint32_t value = aig_and(out.get(), translate(gate->second.first),
                              translate(gate->second.second));
     translated.emplace(lit / 2, value);
@@ -2001,7 +2099,8 @@ std::unique_ptr<Aig, decltype(&aig_free)> emit_policy(Schema &bdd,
   }
   auto policy = std::unique_ptr<Aig, decltype(&aig_free)>(aig_new(), &aig_free);
   if (!policy)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "policy", "cannot allocate AIG");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "policy",
+                  "cannot allocate AIG");
   std::map<int, uint32_t> mapping;
   for (uint32_t p = 0; p < nstate; p++)
     mapping[public_to_policy.at(int(p))] =
@@ -2034,7 +2133,7 @@ TlsfGr1CheckResult check(const TrustedTarget &trusted,
   if (trusted.game_hash != game_hash ||
       trusted.game_aag !=
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
-    throw Failure(TLSF_GR1_LIFT_DECLINED, "target_check",
+    throw Failure(TLSF_GR1_LIFT_DECLINED, FailureCause::error, "target_check",
                   "prepared game changed before verification");
   StatsScope check_stats(cfg, TLSF_GR1_LIFT_STATS_INTERNAL_CHECK);
   if (cfg.stats)
@@ -2133,15 +2232,17 @@ Candidate prove(Schema &bdd, const GameView &target,
     if (candidate.verdict == TLSF_GR1_CHECK_REGION_VERIFIED)
       return true;
     if (status == TLSF_GR1_CHECK_CANCELLED)
-      throw Failure(TLSF_GR1_LIFT_CANCELLED, "region_check",
-                    "checker cancelled");
+      throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                    "region_check", "checker cancelled");
     if (status == TLSF_GR1_CHECK_LIMIT || status == TLSF_GR1_CHECK_DEADLINE) {
       region_capacity_status = status;
       return false;
     }
     // REGION_FAILED means the proposed certificate failed this proof method.
     // Do not turn it into an UNREAL result or spend policy work on it.
-    decline("target_check", "region not verified");
+    decline(check_failure_cause(status, verdict),
+            status == TLSF_GR1_CHECK_OK ? "target_check" : "checker_error",
+            "region not verified");
   };
   auto try_policy = [&]() {
     cfg.check("policy");
@@ -2190,10 +2291,12 @@ Candidate prove(Schema &bdd, const GameView &target,
         return true;
       }
       if (status == TLSF_GR1_CHECK_CANCELLED)
-        throw Failure(TLSF_GR1_LIFT_CANCELLED, "target_check",
-                      "checker cancelled");
+        throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                      "target_check", "checker cancelled");
       if (status != TLSF_GR1_CHECK_LIMIT && status != TLSF_GR1_CHECK_DEADLINE)
-        decline("target_check", "certificate not verified");
+        decline(check_failure_cause(status, verdict),
+                status == TLSF_GR1_CHECK_OK ? "target_check" : "checker_error",
+                "certificate not verified");
       if (status == TLSF_GR1_CHECK_DEADLINE && cfg.o.deadline_mono_ns &&
           now_ns() >= cfg.o.deadline_mono_ns)
         policy_capacity_status = TLSF_GR1_LIFT_DEADLINE;
@@ -2213,23 +2316,27 @@ Candidate prove(Schema &bdd, const GameView &target,
     if (try_region() || try_policy())
       return candidate;
     cfg.check("target_check");
-    throw Failure(policy_capacity_status, "target_check",
-                  "region and policy proof budgets exhausted");
+    throw Failure(policy_capacity_status, failure_cause(policy_capacity_status),
+                  "target_check", "region and policy proof budgets exhausted");
   }
   if (try_policy() || try_region())
     return candidate;
   throw Failure(region_capacity_status == TLSF_GR1_CHECK_DEADLINE
                     ? TLSF_GR1_LIFT_DEADLINE
                     : TLSF_GR1_LIFT_LIMIT,
+                failure_cause(region_capacity_status == TLSF_GR1_CHECK_DEADLINE
+                                  ? TLSF_GR1_LIFT_DEADLINE
+                                  : TLSF_GR1_LIFT_LIMIT),
                 "region_check", "checker capacity or deadline");
 }
 char *copy_bytes(const std::string &value) {
   if (value.size() == SIZE_MAX)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "publish-size",
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "publish-size",
                   "artifact size overflow");
   char *p = (char *)malloc(value.size() + 1);
   if (!p)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "publish", "cannot allocate result");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "publish",
+                  "cannot allocate result");
   memcpy(p, value.data(), value.size());
   p[value.size()] = '\0';
   return p;
@@ -2274,13 +2381,13 @@ TrustedTarget prepare(const uint8_t *source, size_t size,
   cfg.check("source");
   char source_hash[65]{};
   if (!tlsf_pipeline_source_sha256(source, size, source_hash))
-    throw Failure(TLSF_GR1_LIFT_INVALID, "source",
+    throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid, "source",
                   "invalid byte snapshot or embedded NUL");
   int declared_parameters = tlsf_source_parameter_count(source, size);
   if (declared_parameters < 0)
-    decline("parse", "source parse failed");
+    decline(FailureCause::error, "parse", "source parse failed");
   if (declared_parameters == 0 && !allow_no_parameters)
-    decline("parameters", "absent");
+    decline(FailureCause::applicability, "parameters", "absent");
   trusted.source_hash = source_hash;
   source_stats.finish();
   StatsScope target_stats(cfg, TLSF_GR1_LIFT_STATS_TARGET_REDUCE);
@@ -2291,7 +2398,13 @@ TrustedTarget prepare(const uint8_t *source, size_t size,
                        e.status != TLSF_GR1_LIFT_UNSUPPORTED))
       throw;
     trusted.semantics = TLSF_GR1_STRICT;
-    trusted.instance = lower(source, size, overrides, trusted.semantics, cfg);
+    try {
+      trusted.instance = lower(source, size, overrides, trusted.semantics, cfg);
+    } catch (const Failure &retry) {
+      if (!is_applicability(e.cause) && is_applicability(retry.cause))
+        throw Failure(retry.status, e.cause, retry.stage, retry.what());
+      throw;
+    }
   }
   target_stats.finish();
   if (cfg.stats) {
@@ -2316,7 +2429,7 @@ void run(const TrustedTarget &trusted, const Config &cfg,
   const auto &target = trusted.instance;
   auto axes = parameters(*target);
   if (axes.empty())
-    decline("parameters", "absent");
+    decline(FailureCause::applicability, "parameters", "absent");
   Config discovery_cfg = cfg;
   StatsScope window_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_WINDOW);
   auto window = shared_window
@@ -2364,7 +2477,7 @@ void run(const TrustedTarget &trusted, const Config &cfg,
     uint32_t current, next;
     aig_latch_at(target->r.game, 0, &current, &next, nullptr);
     if (!aig_set_latch_next(target->r.game, current, aig_not(next)))
-      throw Failure(TLSF_GR1_LIFT_ERROR, "candidate",
+      throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "candidate",
                     "fault hook could not mutate the game");
   }
 #endif
@@ -2372,7 +2485,8 @@ void run(const TrustedTarget &trusted, const Config &cfg,
       prove(bdd, target_view, learned, trusted, cfg, candidate_only);
   if (!candidate_only && candidate.verdict != TLSF_GR1_CHECK_VERIFIED &&
       candidate.verdict != TLSF_GR1_CHECK_REGION_VERIFIED)
-    decline("target_check", "unverified candidate");
+    decline(FailureCause::applicability, "target_check",
+            "unverified candidate");
   StatsScope publish_stats(cfg, TLSF_GR1_LIFT_STATS_PUBLISH);
   cfg.check("publish");
   cfg.bytes(candidate.game.size(), "publish");
@@ -2386,12 +2500,13 @@ void run(const TrustedTarget &trusted, const Config &cfg,
                                    game_hash) ||
       !tlsf_pipeline_source_sha256(candidate.certificate.data(),
                                    candidate.certificate.size(), cert_hash))
-    throw Failure(TLSF_GR1_LIFT_ERROR, "publish", "artifact hash failed");
+    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
+                  "artifact hash failed");
   if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE &&
       (candidate.policy.empty() ||
        !tlsf_pipeline_source_sha256(candidate.policy.data(),
                                     candidate.policy.size(), policy_hash)))
-    throw Failure(TLSF_GR1_LIFT_ERROR, "publish",
+    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
                   "policy artifact hash failed");
   A values, roles;
   for (int v : window.sizes)
@@ -2500,7 +2615,8 @@ void lift_error(TlsfGr1LiftError *error, TlsfGr1LiftStats *stats,
 }
 template <typename Action>
 TlsfGr1LiftStatus invoke_lift(Action action, TlsfGr1LiftError *error,
-                              TlsfGr1LiftStats *stats) {
+                              TlsfGr1LiftStats *stats,
+                              TlsfGr1LiftStatus *failure_status = nullptr) {
   if (error)
     memset(error, 0, sizeof *error);
   try {
@@ -2510,15 +2626,23 @@ TlsfGr1LiftStatus invoke_lift(Action action, TlsfGr1LiftError *error,
     return TLSF_GR1_LIFT_OK;
   } catch (const Failure &e) {
     lift_error(error, stats, e.status, e.stage.c_str(), e.what());
+    if (failure_status)
+      *failure_status = e.failure_status;
     return e.status;
   } catch (const std::bad_alloc &) {
+    if (failure_status)
+      *failure_status = diagnostic_status(FailureCause::resource);
     lift_error(error, stats, TLSF_GR1_LIFT_LIMIT, "allocation",
                "host allocation failed");
     return TLSF_GR1_LIFT_LIMIT;
   } catch (const std::exception &e) {
+    if (failure_status)
+      *failure_status = diagnostic_status(FailureCause::error);
     lift_error(error, stats, TLSF_GR1_LIFT_ERROR, "internal", e.what());
     return TLSF_GR1_LIFT_ERROR;
   } catch (...) {
+    if (failure_status)
+      *failure_status = diagnostic_status(FailureCause::error);
     lift_error(error, stats, TLSF_GR1_LIFT_ERROR, "internal",
                "unknown exception");
     return TLSF_GR1_LIFT_ERROR;
@@ -2531,7 +2655,7 @@ std::map<std::string, int64_t> lift_overrides(const ParamOverride *rows,
     const auto &row = rows[p];
     if (!row.name || !*row.name ||
         !overrides.emplace(row.name, row.value).second)
-      throw Failure(TLSF_GR1_LIFT_INVALID, "override",
+      throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid, "override",
                     "empty or duplicate target override");
   }
   return overrides;
@@ -2602,11 +2726,13 @@ Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
       meta_owner(meta, &free), policy_owner(policy, &free),
       policy_meta_owner(policy_meta, &free);
   if (failure.kind == OXIDD_FAILURE_DEADLINE)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, "direct_solve", "deadline exceeded");
+    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
+                  "direct_solve", "deadline exceeded");
   cfg.check("direct_solve");
   if (failure.kind != OXIDD_FAILURE_NONE || export_options.failed ||
       (!real && !unreal) || !cert || !meta || !policy || !policy_meta)
-    decline("direct_solve", "direct exact proof unavailable");
+    throw Failure(TLSF_GR1_LIFT_DECLINED, solver_failure_cause(failure.kind),
+                  "direct_solve", "direct exact proof unavailable");
   Candidate candidate;
   candidate.game = trusted.game_aag;
   candidate.certificate.assign(cert, cert_size);
@@ -2633,11 +2759,13 @@ void both_check(const TrustedTarget &trusted, const Config &cfg,
   if (trusted.game_hash != hash ||
       trusted.game_aag !=
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
-    decline("target_binding", "prepared game changed before verification");
+    decline(FailureCause::error, "target_binding",
+            "prepared game changed before verification");
   auto checked =
       check(trusted, candidate, cfg, candidate.method, cfg.o.deadline_mono_ns);
   out.target_checks++;
   const auto status = checked.status;
+  const auto verdict = checked.verdict;
   const auto expected = candidate.method == TLSF_GR1_CHECK_REGION
                             ? TLSF_GR1_CHECK_REGION_VERIFIED
                             : TLSF_GR1_CHECK_VERIFIED;
@@ -2651,12 +2779,17 @@ void both_check(const TrustedTarget &trusted, const Config &cfg,
   tlsf_gr1_check_result_clear(&checked);
   if (status == TLSF_GR1_CHECK_DEADLINE && cfg.o.deadline_mono_ns &&
       now_ns() >= cfg.o.deadline_mono_ns)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, "target_check", "deadline exceeded");
-  if (!verified)
-    decline("target_check", "candidate proof did not verify");
+    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
+                  "target_check", "deadline exceeded");
+  if (!verified) {
+    const auto cause = check_failure_cause(status, verdict);
+    throw Failure(TLSF_GR1_LIFT_DECLINED, cause, "target_check",
+                  "candidate proof did not verify");
+  }
   const O metadata = j::parse(candidate.certificate_json).as_object();
   if (s(metadata, "side") != (unreal ? "environment" : "system"))
-    decline("target_check", "certificate side differs from route");
+    decline(FailureCause::error, "target_check",
+            "certificate side differs from route");
 }
 
 void publish_both(const TrustedTarget &trusted, const Candidate &candidate,
@@ -2840,11 +2973,13 @@ tlsf_gr1_lift(const uint8_t *source, size_t source_size,
   return status;
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v1(
     const uint8_t *source, size_t source_size,
     const ParamOverride *target_overrides, size_t target_override_count,
     const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
-    TlsfGr1LiftError *error) {
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
+  if (failure_status)
+    *failure_status = TLSF_GR1_LIFT_OK;
   auto *stats = options ? options->stats : nullptr;
   if (stats)
     memset(stats, 0, sizeof *stats);
@@ -2852,6 +2987,8 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
       (target_override_count && !target_overrides)) {
     lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
                "invalid arguments");
+    if (failure_status)
+      *failure_status = TLSF_GR1_LIFT_INVALID;
     return TLSF_GR1_LIFT_INVALID;
   }
   return invoke_lift(
@@ -2859,8 +2996,8 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
         auto cfg = lift_config(options);
         if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
             cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
-          throw Failure(TLSF_GR1_LIFT_INVALID, "arguments",
-                        "invalid proof order");
+          throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
+                        "arguments", "invalid proof order");
         cfg.bytes(source_size, "source");
         auto overrides =
             lift_overrides(target_overrides, target_override_count);
@@ -2869,20 +3006,23 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
         owned->prepared_seal = owned->trusted.game_hash;
         *target = owned.release();
       },
-      error, stats);
+      error, stats, failure_status);
 }
 
-extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift_target_prepare_exact(const uint8_t *source, size_t source_size,
-                                   const TlsfGr1LiftOptions *options,
-                                   TlsfGr1LiftTarget **target,
-                                   TlsfGr1LiftError *error) {
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v1(
+    const uint8_t *source, size_t source_size,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
+  if (failure_status)
+    *failure_status = TLSF_GR1_LIFT_OK;
   auto *stats = options ? options->stats : nullptr;
   if (stats)
     memset(stats, 0, sizeof *stats);
   if (!target || *target || !source || !source_size) {
     lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
                "invalid arguments");
+    if (failure_status)
+      *failure_status = TLSF_GR1_LIFT_INVALID;
     return TLSF_GR1_LIFT_INVALID;
   }
   return invoke_lift(
@@ -2894,7 +3034,25 @@ tlsf_gr1_lift_target_prepare_exact(const uint8_t *source, size_t source_size,
         owned->prepared_seal = owned->trusted.game_hash;
         *target = owned.release();
       },
-      error, stats);
+      error, stats, failure_status);
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error) {
+  return tlsf_gr1_lift_target_prepare_v1(source, source_size, target_overrides,
+                                         target_override_count, options, target,
+                                         error, nullptr);
+}
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift_target_prepare_exact(const uint8_t *source, size_t source_size,
+                                   const TlsfGr1LiftOptions *options,
+                                   TlsfGr1LiftTarget **target,
+                                   TlsfGr1LiftError *error) {
+  return tlsf_gr1_lift_target_prepare_exact_v1(source, source_size, options,
+                                               target, error, nullptr);
 }
 
 extern "C" void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target) {
@@ -2902,15 +3060,20 @@ extern "C" void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target) {
 }
 
 extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
-                          const TlsfGr1LiftOptions *options,
-                          TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
+tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
+                             const TlsfGr1LiftOptions *options,
+                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+                             TlsfGr1LiftStatus *failure_status) {
   auto *stats = options ? options->stats : nullptr;
+  if (failure_status)
+    *failure_status = TLSF_GR1_LIFT_OK;
   if (!target || !result || result->game_aag || result->certificate_aag ||
       result->certificate_json || result->policy_aag || result->policy_json ||
       result->check_json || result->evidence_json) {
     lift_error(error, stats, TLSF_GR1_LIFT_INVALID, "arguments",
                "invalid or nonempty result");
+    if (failure_status)
+      *failure_status = TLSF_GR1_LIFT_INVALID;
     return TLSF_GR1_LIFT_INVALID;
   }
   memset(result, 0, sizeof *result);
@@ -2919,19 +3082,30 @@ tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
         auto cfg = lift_config(options);
         if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
             cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
-          throw Failure(TLSF_GR1_LIFT_INVALID, "arguments",
-                        "invalid proof order");
+          throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
+                        "arguments", "invalid proof order");
         run(target->trusted, cfg, *result);
         target->checked_hashes = result_hashes(*result);
         if (target->checked_hashes[0].empty())
-          throw Failure(TLSF_GR1_LIFT_ERROR, "publish", "artifact seal failed");
+          throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
+                        "artifact seal failed");
         target->checked_method = result->method;
         target->checked_verdict = result->verdict;
       },
-      error, stats);
-  if (status != TLSF_GR1_LIFT_OK)
+      error, stats, failure_status);
+  if (status != TLSF_GR1_LIFT_OK) {
+    if (failure_status && *failure_status == TLSF_GR1_LIFT_OK)
+      *failure_status = status;
     tlsf_gr1_lift_result_clear(result);
+  }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
+                          const TlsfGr1LiftOptions *options,
+                          TlsfGr1LiftResult *result, TlsfGr1LiftError *error) {
+  return tlsf_gr1_lift_from_target_v1(target, options, result, error, nullptr);
 }
 
 extern "C" int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
@@ -2957,14 +3131,40 @@ extern "C" void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result) {
   memset(result, 0, sizeof *result);
 }
 
-extern "C" TlsfGr1LiftStatus
-tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
-                          const TlsfGr1LiftOptions *options,
-                          TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error) {
+  TlsfGr1BothEventRoute live_route = TLSF_GR1_BOTH_EVENT_SEEDS;
+  int proof_unreal = -1;
+  TlsfGr1LiftStatus failure_status = TLSF_GR1_LIFT_OK;
+  const auto failure_kind = [](FailureCause cause) {
+    return is_applicability(cause) ? TLSF_GR1_BOTH_EVENT_DECLINE
+                                   : TLSF_GR1_BOTH_EVENT_STOPPED;
+  };
+  const auto emit = [&](TlsfGr1BothEventKind kind, const char *stage,
+                        const char *reason = "none",
+                        TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_OK) {
+    if (observer && observer->event)
+      observer->event(observer->context, kind, live_route, proof_unreal, stage,
+                      reason, cause);
+  };
+  const auto select = [&](TlsfGr1BothEventRoute route, int side,
+                          const char *stage) {
+    live_route = route;
+    proof_unreal = side;
+    emit(TLSF_GR1_BOTH_EVENT_SELECTED, stage);
+    emit(TLSF_GR1_BOTH_EVENT_START, stage);
+  };
+  TlsfGr1LiftError observed_error{};
+  if (observer && !error)
+    error = &observed_error;
   if (!target || !result || result->proof.game_aag ||
       result->proof.certificate_aag || result->proof.evidence_json) {
     lift_error(error, nullptr, TLSF_GR1_LIFT_INVALID, "arguments",
                "invalid or nonempty result");
+    emit(TLSF_GR1_BOTH_EVENT_STOPPED, "arguments", "invalid or nonempty result",
+         TLSF_GR1_LIFT_INVALID);
     return TLSF_GR1_LIFT_INVALID;
   }
   memset(result, 0, sizeof *result);
@@ -2983,14 +3183,18 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
             target->prepared_seal != game_hash ||
             trusted.game_aag != std::string(trusted.instance->r.aag,
                                             trusted.instance->r.aag_size))
-          decline("target_binding", "trusted source or game changed");
+          decline(FailureCause::error, "target_binding",
+                  "trusted source or game changed");
 
         Candidate winner;
         bool have_winner = false;
         try {
+          select(TLSF_GR1_BOTH_EVENT_SEEDS, -1, "seed_discovery");
           SharedSeeds cache = discover_shared(trusted, cfg, *result);
           if (cache.axis.empty()) {
             both_decline(*result, "seed_window");
+            emit(TLSF_GR1_BOTH_EVENT_DECLINE, "seed_window", "seed_window",
+                 TLSF_GR1_LIFT_DECLINED);
           } else {
             std::set<int> selected(cache.real_sizes.begin(),
                                    cache.real_sizes.end());
@@ -3004,7 +3208,8 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
               sha256_hex(entry.instance->r.aag, entry.instance->r.aag_size,
                          hash);
               if (entry.key.find(hash) == std::string::npos)
-                decline("seed_binding", "seed cache key differs from game");
+                decline(FailureCause::error, "seed_binding",
+                        "seed cache key differs from game");
               auto side = solve_shared_seed(*entry.instance, cfg, *result);
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
               if (both_test_seed_fault == 4 && size == *selected.begin() &&
@@ -3017,7 +3222,8 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
                 side = side == TLSF_GR1_SEEDS_REAL ? TLSF_GR1_SEEDS_UNREAL
                                                    : TLSF_GR1_SEEDS_REAL;
               if (both_test_seed_fault == 2 && size == *selected.rbegin())
-                decline("seed_check", "injected unknown seed");
+                decline(FailureCause::error, "seed_error",
+                        "injected unknown seed");
 #endif
               if (common == TLSF_GR1_SEEDS_NONE)
                 common = side;
@@ -3026,6 +3232,7 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
             }
             result->seed_polarity = common;
             if (common == TLSF_GR1_SEEDS_REAL && !cache.real_sizes.empty()) {
+              select(TLSF_GR1_BOTH_EVENT_R, 0, "R");
               Window window;
               window.axis = cache.axis;
               window.sizes = cache.real_sizes;
@@ -3042,7 +3249,8 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
               const bool candidate_only = true;
               run(trusted, cfg, candidate_proof, &window, candidate_only);
               if (cfg.stats && cfg.stats->internal_checks)
-                decline("candidate", "R candidate checked target");
+                decline(FailureCause::error, "candidate_integrity",
+                        "R candidate checked target");
               Candidate candidate;
               candidate.game.assign(candidate_proof.game_aag,
                                     candidate_proof.game_size);
@@ -3052,16 +3260,20 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
                   candidate_proof.certificate_json,
                   candidate_proof.certificate_json_size);
               candidate.method = TLSF_GR1_CHECK_REGION;
+              emit(TLSF_GR1_BOTH_EVENT_CHECK_START, "target_check");
               both_check(trusted, cfg, candidate, false, *result);
+              emit(TLSF_GR1_BOTH_EVENT_VERIFIED, "target_check");
               winner = std::move(candidate);
               result->route = TLSF_GR1_BOTH_REAL_LIFT;
               have_winner = true;
             } else if (!cfg.o.disable_env_lift &&
                        common == TLSF_GR1_SEEDS_UNREAL &&
                        !cache.env_sizes.empty()) {
+              select(TLSF_GR1_BOTH_EVENT_U, 1, "U");
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
               if (both_test_seed_fault == 3)
-                throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
+                throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                              "schema_capacity",
                               "injected candidate capacity stop");
 #endif
               CachedSeedWindow window;
@@ -3098,8 +3310,10 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
                                               : started + allowance;
               env_run(trusted, env_cfg, candidate.rank, &candidate, &window);
               if (candidate.target_checks)
-                decline("candidate", "environment candidate checked target");
+                decline(FailureCause::error, "candidate_integrity",
+                        "environment candidate checked target");
               try {
+                emit(TLSF_GR1_BOTH_EVENT_CHECK_START, "target_check");
                 env_check(trusted, cfg, candidate);
               } catch (...) {
                 result->target_checks += candidate.target_checks;
@@ -3107,7 +3321,9 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
               }
               result->target_checks += candidate.target_checks;
               if (candidate.verdict != TLSF_GR1_CHECK_VERIFIED)
-                decline("target_check", "environment proof did not verify");
+                decline(FailureCause::applicability, "target_check",
+                        "environment proof did not verify");
+              emit(TLSF_GR1_BOTH_EVENT_VERIFIED, "target_check");
               winner.game = trusted.game_aag;
               winner.certificate.assign(candidate.certificate_aag,
                                         candidate.certificate_size);
@@ -3127,6 +3343,10 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
               both_decline(*result, common == TLSF_GR1_SEEDS_MIXED
                                         ? "seed_mixed"
                                         : "seed_polarity");
+              emit(TLSF_GR1_BOTH_EVENT_DECLINE, result->decline_stage,
+                   common == TLSF_GR1_SEEDS_MIXED ? "mixed seed polarity"
+                                                  : "seed route unavailable",
+                   TLSF_GR1_LIFT_DECLINED);
             }
           }
         } catch (const Failure &e) {
@@ -3135,9 +3355,11 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
               e.stage == "target_binding")
             throw;
           if (cfg.o.deadline_mono_ns && now_ns() >= cfg.o.deadline_mono_ns)
-            throw Failure(TLSF_GR1_LIFT_DEADLINE, e.stage,
-                          "worker deadline exceeded");
+            throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
+                          e.stage, "worker deadline exceeded");
           both_decline(*result, e.stage);
+          emit(failure_kind(e.cause), e.stage.c_str(), e.what(),
+               e.failure_status);
           result->seed_polarity =
               result->seed_solves &&
                       result->seed_polarity == TLSF_GR1_SEEDS_NONE
@@ -3145,6 +3367,7 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
                   : result->seed_polarity;
         }
         if (!have_winner) {
+          select(TLSF_GR1_BOTH_EVENT_DIRECT, -1, "direct");
           // The seed cache and U's BDD/policy state are out of scope here.
           // Return allocator-held pages before applying the direct budget.
           malloc_trim(0);
@@ -3158,7 +3381,10 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
                                   .as_object()
                                   .at("side")
                                   .as_string() == "environment";
+          proof_unreal = unreal ? 1 : 0;
+          emit(TLSF_GR1_BOTH_EVENT_CHECK_START, "target_check");
           both_check(trusted, direct_cfg, winner, unreal, *result);
+          emit(TLSF_GR1_BOTH_EVENT_VERIFIED, "target_check");
           result->route = TLSF_GR1_BOTH_DIRECT;
         }
         publish_both(trusted, winner, *result);
@@ -3166,10 +3392,22 @@ tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
         target->checked_method = result->proof.method;
         target->checked_verdict = result->proof.verdict;
       },
-      error, options ? options->stats : nullptr);
-  if (status != TLSF_GR1_LIFT_OK)
+      error, options ? options->stats : nullptr, &failure_status);
+  if (status != TLSF_GR1_LIFT_OK) {
+    const auto cause =
+        failure_status == TLSF_GR1_LIFT_OK ? status : failure_status;
+    emit(failure_kind(failure_cause(cause)), error ? error->stage : "unknown",
+         error ? error->message : "unknown", cause);
     tlsf_gr1_lift_result_clear(&result->proof);
+  }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
+                          const TlsfGr1LiftOptions *options,
+                          TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
+  return tlsf_gr1_both_from_target_v1(target, options, nullptr, result, error);
 }
 
 extern "C" void tlsf_gr1_env_rank_result_clear(TlsfGr1EnvRankResult *result) {

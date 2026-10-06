@@ -9,6 +9,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -24,19 +25,91 @@ using namespace oxidd::capi;
 using J = j::value;
 using O = j::object;
 using A = j::array;
-struct Failure : std::runtime_error {
-  TlsfGr1LiftStatus status;
-  std::string stage;
-  Failure(TlsfGr1LiftStatus s, std::string at, std::string why)
-      : std::runtime_error(why), status(s), stage(std::move(at)) {}
+enum class FailureCause {
+  applicability,
+  unsupported,
+  resource,
+  deadline,
+  cancelled,
+  invalid,
+  error
 };
-[[noreturn]] inline void decline(const char *stage, const char *why) {
-  throw Failure(TLSF_GR1_LIFT_DECLINED, stage, why);
+inline TlsfGr1LiftStatus diagnostic_status(FailureCause cause) {
+  switch (cause) {
+  case FailureCause::applicability:
+    return TLSF_GR1_LIFT_DECLINED;
+  case FailureCause::unsupported:
+    return TLSF_GR1_LIFT_UNSUPPORTED;
+  case FailureCause::resource:
+    return TLSF_GR1_LIFT_LIMIT;
+  case FailureCause::deadline:
+    return TLSF_GR1_LIFT_DEADLINE;
+  case FailureCause::cancelled:
+    return TLSF_GR1_LIFT_CANCELLED;
+  case FailureCause::invalid:
+    return TLSF_GR1_LIFT_INVALID;
+  case FailureCause::error:
+    return TLSF_GR1_LIFT_ERROR;
+  }
+  return TLSF_GR1_LIFT_ERROR;
+}
+inline FailureCause failure_cause(TlsfGr1LiftStatus status) {
+  switch (status) {
+  case TLSF_GR1_LIFT_DECLINED:
+    return FailureCause::applicability;
+  case TLSF_GR1_LIFT_UNSUPPORTED:
+    return FailureCause::unsupported;
+  case TLSF_GR1_LIFT_LIMIT:
+    return FailureCause::resource;
+  case TLSF_GR1_LIFT_DEADLINE:
+    return FailureCause::deadline;
+  case TLSF_GR1_LIFT_CANCELLED:
+    return FailureCause::cancelled;
+  case TLSF_GR1_LIFT_INVALID:
+    return FailureCause::invalid;
+  default:
+    return FailureCause::error;
+  }
+}
+inline bool is_applicability(FailureCause cause) {
+  return cause == FailureCause::applicability ||
+         cause == FailureCause::unsupported;
+}
+struct Failure : std::runtime_error {
+  const TlsfGr1LiftStatus status, failure_status;
+  const FailureCause cause;
+  std::string stage;
+  // Return/fallback policy is independent of the required diagnostic cause.
+  Failure(TlsfGr1LiftStatus s, FailureCause why_kind, std::string at,
+          std::string why)
+      : std::runtime_error(why), status(s),
+        failure_status(diagnostic_status(why_kind)), cause(why_kind),
+        stage(std::move(at)) {}
+};
+[[noreturn]] inline void decline(FailureCause cause, const char *stage,
+                                 const char *why) {
+  throw Failure(TLSF_GR1_LIFT_DECLINED, cause, stage, why);
 }
 uint64_t now_ns();
-[[noreturn]] void decline(const char *stage, const char *why);
+FailureCause check_failure_cause(TlsfGr1CheckStatus status,
+                                 TlsfGr1CheckVerdict verdict);
 struct Config {
   TlsfGr1LiftOptions o{};
+  mutable std::optional<FailureCause> search_cause;
+  mutable std::string search_stage, search_message;
+  void note_failure(const Failure &e) const {
+    if (!is_applicability(e.cause)) {
+      search_cause = e.cause;
+      search_stage = e.stage;
+      search_message = e.what();
+    }
+  }
+  [[noreturn]] void decline_search(const char *stage, const char *why) const {
+    if (search_cause)
+      throw Failure(TLSF_GR1_LIFT_DECLINED, *search_cause, "search_error",
+                    search_stage + ": " + search_message);
+    decline(FailureCause::applicability, stage, why);
+  }
   // The caller's budget, read live so a stats callback may tighten it.
   const TlsfGr1ConstructionBudget *budget = nullptr;
   const TlsfGr1ConstructionBudget *env_budget = nullptr;
@@ -64,23 +137,29 @@ struct Config {
   Failure deadline_failure(const char *stage) const {
     if (!env_candidate) {
       if (o.deadline_mono_ns && now_ns() >= o.deadline_mono_ns)
-        return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+        return Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, stage,
+                       "deadline exceeded");
       if (phase_deadline_ns)
-        return Failure(TLSF_GR1_LIFT_LIMIT, stage,
+        return Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, stage,
                        "fixed phase budget exhausted");
-      return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+      return Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, stage,
+                     "deadline exceeded");
     }
     if (o.deadline_mono_ns &&
         (!phase_deadline_ns || o.deadline_mono_ns <= phase_deadline_ns))
-      return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+      return Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, stage,
+                     "deadline exceeded");
     if (phase_deadline_ns)
-      return Failure(TLSF_GR1_LIFT_LIMIT, "candidate_allowance",
+      return Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                     "candidate_allowance",
                      std::string("candidate allowance expired at ") + stage);
-    return Failure(TLSF_GR1_LIFT_DEADLINE, stage, "deadline exceeded");
+    return Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, stage,
+                   "deadline exceeded");
   }
   void check(const char *stage, bool force_rss = false) const {
     if (o.cancelled && o.cancelled(o.cancel_ctx))
-      throw Failure(TLSF_GR1_LIFT_CANCELLED, stage, "cancelled");
+      throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled, stage,
+                    "cancelled");
     if (effective_deadline() && now_ns() >= effective_deadline())
       throw deadline_failure(stage);
     uint64_t rss_limit = budget ? budget->max_rss_bytes : 0;
@@ -120,7 +199,8 @@ struct Config {
           }
           fclose(file);
           if (current > rss_limit)
-            throw Failure(TLSF_GR1_LIFT_LIMIT, "budget-memory",
+            throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                          "budget-memory",
                           std::string("construction RSS exceeded arm memory ") +
                               "share at " + stage);
         }
@@ -130,7 +210,8 @@ struct Config {
   void bytes(size_t n, const char *stage) const {
     check(stage);
     if (n > o.max_artifact_bytes)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, stage, "artifact byte cap exceeded");
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, stage,
+                    "artifact byte cap exceeded");
   }
 };
 std::string str(const J &v);
