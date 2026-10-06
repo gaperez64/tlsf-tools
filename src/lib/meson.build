@@ -155,6 +155,8 @@ endif
 # installed library, so only test/unit compiles it (a second time).
 gr1_lift_source = files('gr1_lift.cc')
 gr1_env_lift_source = files('gr1_env_lift.cc')
+gr1_reduction_source = files('gr1_reduction.cc')
+reduction_contract_hooks = files('../../test/unit/reduction_contract_hooks.cc')
 
 pkg.generate(
   libraries: ['-L${libdir}', '-ltlsf'],

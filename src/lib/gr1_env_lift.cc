@@ -23,6 +23,7 @@ namespace gr1_lift_internal {
 using EnvWindow = CachedSeedWindow;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local int env_rank_fault = 0;
+thread_local size_t env_test_check_bytes = 0;
 thread_local uint64_t env_rank_test_apply_cap = 12000000;
 #endif
 
@@ -42,7 +43,8 @@ env_typed_classes(const Instance &i) {
 
 void env_reduction_binding(const Instance &i, const std::string &source_hash) {
   if (!i.r.metadata_json || !i.r.aag)
-    decline("target_binding", "missing reduction metadata or game");
+    decline(FailureCause::error, "target_binding",
+            "missing reduction metadata or game");
   const O metadata =
       j::parse(std::string_view(i.r.metadata_json, i.r.metadata_size))
           .as_object();
@@ -54,7 +56,8 @@ void env_reduction_binding(const Instance &i, const std::string &source_hash) {
       s(metadata, "source_sha256") != source_hash ||
       s(metadata, "game_sha256") != game_hash ||
       s(origin, "source_sha256") != source_hash)
-    decline("target_binding", "source or reduction hash differs");
+    decline(FailureCause::error, "target_binding",
+            "source or reduction hash differs");
 }
 
 void env_typed_axis(const Instance &i, const std::string &axis) {
@@ -64,12 +67,14 @@ void env_typed_axis(const Instance &i, const std::string &axis) {
     const O &row = value.as_object();
     auto id = field(n(row, "id"));
     if (!parameter_ids.insert(id).second)
-      decline("typed_alignment", "duplicate parameter identity");
+      decline(FailureCause::error, "typed_alignment",
+              "duplicate parameter identity");
     if (s(row, "name") == axis)
       axis_id = id;
   }
   if (axis_id.empty())
-    decline("typed_alignment", "selected parameter identity is absent");
+    decline(FailureCause::error, "typed_alignment",
+            "selected parameter identity is absent");
   std::map<std::string, std::pair<std::string, std::set<std::string>>> declared;
   bool indexed = false;
   for (const char *group : {"inputs", "outputs"})
@@ -77,26 +82,31 @@ void env_typed_axis(const Instance &i, const std::string &axis) {
       const O &row = value.as_object();
       std::string role = s(row, "index_role");
       if (role != "scalar" && role != "element" && role != "representation-bit")
-        decline("typed_alignment", "undetermined signal index role");
+        decline(FailureCause::applicability, "typed_alignment",
+                "undetermined signal index role");
       std::set<std::string> ids;
       if (role == "element") {
         if (!row.at("width_binding_complete").as_bool() ||
             !row.at("width_parameter_ids").is_array())
-          decline("typed_alignment", "incomplete element width identity");
+          decline(FailureCause::applicability, "typed_alignment",
+                  "incomplete element width identity");
         for (const J &part : row.at("width_parameter_ids").as_array()) {
           std::string id = field(num(part));
           if (!parameter_ids.count(id) || !ids.insert(id).second)
-            decline("typed_alignment", "invalid width parameter identity");
+            decline(FailureCause::error, "typed_alignment",
+                    "invalid width parameter identity");
         }
         indexed |= ids.count(axis_id) != 0;
       }
       auto pair = std::pair{role, ids};
       auto [at, fresh] = declared.emplace(s(row, "declaration_id"), pair);
       if (!fresh && at->second != pair)
-        decline("typed_alignment", "inconsistent declaration binding");
+        decline(FailureCause::error, "typed_alignment",
+                "inconsistent declaration binding");
     }
   if (!indexed)
-    decline("typed_alignment", "axis has no typed element declaration");
+    decline(FailureCause::applicability, "typed_alignment",
+            "axis has no typed element declaration");
 }
 
 EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
@@ -116,8 +126,8 @@ EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
       for (int size : {3, 4, 5}) {
         cfg.check(env_stage_seed_window);
         if (out.seed_probes >= cfg.max_seed_probes)
-          throw Failure(TLSF_GR1_LIFT_LIMIT, env_stage_seed_window,
-                        "seed probe budget exhausted");
+          throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                        env_stage_seed_window, "seed probe budget exhausted");
         out.seed_probes++;
         auto overrides = axes;
         overrides[axis] = size;
@@ -133,16 +143,19 @@ EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
         if (members.second.size() != size_t(size) ||
             members.first.size() <= members.second.size() ||
             seed_classes != *expected_classes)
-          decline(env_stage_seed_window, "unstable exact seed structure");
+          decline(FailureCause::applicability, env_stage_seed_window,
+                  "unstable exact seed structure");
         if (window.target_members.empty())
           window.target_members = std::move(members.first);
         else if (window.target_members != members.first)
-          decline(env_stage_seed_window, "target coordinate inventory changed");
+          decline(FailureCause::applicability, env_stage_seed_window,
+                  "target coordinate inventory changed");
         seed->members = std::move(members.second);
         window.seeds.push_back(std::move(seed));
       }
       return window;
     } catch (const Failure &e) {
+      cfg.note_failure(e);
       if (e.status == TLSF_GR1_LIFT_LIMIT ||
           e.status == TLSF_GR1_LIFT_DEADLINE ||
           e.status == TLSF_GR1_LIFT_CANCELLED)
@@ -150,7 +163,7 @@ EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
       last_reason = axis + ": " + e.stage + ": " + e.what();
     }
   }
-  throw Failure(TLSF_GR1_LIFT_DECLINED, env_stage_seed_window, last_reason);
+  cfg.decline_search(env_stage_seed_window, last_reason.c_str());
 }
 
 void env_solve_seed(Instance &seed, const Config &cfg,
@@ -158,7 +171,7 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   cfg.check("seed_solve");
   char why[256]{};
   if (!tlsf_gr1_validate_game(seed.r.game, why, sizeof why))
-    decline("seed_solve", why);
+    decline(FailureCause::error, "seed_solve", why);
   auto game_copy = parse_aig(seed.r.aag, seed.r.aag_size);
   OxiddFailure failure{};
   char *cert = nullptr, *meta = nullptr, *policy = nullptr,
@@ -197,12 +210,15 @@ void env_solve_seed(Instance &seed, const Config &cfg,
     throw cfg.deadline_failure("seed_solve");
   cfg.check("seed_solve");
   if (failure.kind == OXIDD_FAILURE_CANCELLED)
-    throw Failure(TLSF_GR1_LIFT_CANCELLED, "seed_solve", "cancelled");
+    throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                  "seed_solve", "cancelled");
   if (failure.kind == OXIDD_FAILURE_BDD ||
       failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT ||
       failure.kind == OXIDD_FAILURE_HOST)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "seed_solve",
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_solve",
                   "solver capacity exhausted");
+  if (failure.kind != OXIDD_FAILURE_NONE)
+    decline(FailureCause::error, "seed_error", "seed solver failed");
   if (real && !export_options.failed && cert && meta) {
     cfg.bytes(cert_size, "seed_solve");
     cfg.bytes(meta_size, "seed_solve");
@@ -210,7 +226,8 @@ void env_solve_seed(Instance &seed, const Config &cfg,
     if (s(real_meta, "status") != "realizable" ||
         s(real_meta, "side") != env_side_system ||
         s(real_meta, "reduction_semantics") != "exact")
-      decline("seed_check", "REAL seed certificate metadata mismatch");
+      decline(FailureCause::error, "seed_metadata",
+              "REAL seed certificate metadata mismatch");
     TlsfGr1CheckInput input{};
     input.game_aag = {(const uint8_t *)seed.r.aag, seed.r.aag_size};
     input.certificate_aag = {(const uint8_t *)cert, cert_size};
@@ -231,17 +248,24 @@ void env_solve_seed(Instance &seed, const Config &cfg,
       tlsf_gr1_check_result_clear(&checked);
       throw cfg.deadline_failure("seed_check");
     }
+    const auto verdict = checked.verdict;
     bool verified = check_status == TLSF_GR1_CHECK_OK &&
                     checked.verdict == TLSF_GR1_CHECK_REGION_VERIFIED;
     tlsf_gr1_check_result_clear(&checked);
     cfg.check("seed_check");
     if (!verified)
-      decline("seed_check", "REAL seed certificate did not check");
-    decline("seed_check", "checked REAL seed is ineligible for U");
+      decline(check_failure_cause(check_status, verdict),
+              check_status == TLSF_GR1_CHECK_OK ? "seed_check"
+                                                : "checker_error",
+              "REAL seed certificate did not check");
+    decline(FailureCause::applicability, "seed_check",
+            "checked REAL seed is ineligible for U");
   }
   if (real || !unreal || export_options.failed || !cert || !meta || !policy ||
       !policy_meta)
-    decline("seed_solve", "checked environment seed is unavailable");
+    decline(real ? FailureCause::applicability : FailureCause::error,
+            real ? "seed_solve" : "seed_error",
+            "checked environment seed is unavailable");
   for (size_t count : {cert_size, meta_size, policy_size, policy_meta_size})
     cfg.bytes(count, "seed_solve");
   seed.cert_aag.assign(cert, cert_size);
@@ -252,7 +276,8 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   if (s(seed.cert_meta, "status") != "unrealizable" ||
       s(seed.cert_meta, "side") != "environment" ||
       s(seed.cert_meta, "reduction_semantics") != "exact")
-    decline("seed_solve", "environment seed metadata mismatch");
+    decline(FailureCause::error, "seed_metadata",
+            "environment seed metadata mismatch");
   TlsfGr1CheckInput input{};
   input.game_aag = {(const uint8_t *)seed.r.aag, seed.r.aag_size};
   input.certificate_aag = {(const uint8_t *)cert, cert_size};
@@ -275,12 +300,15 @@ void env_solve_seed(Instance &seed, const Config &cfg,
     tlsf_gr1_check_result_clear(&checked);
     throw cfg.deadline_failure("seed_check");
   }
+  const auto verdict = checked.verdict;
   bool verified = check_status == TLSF_GR1_CHECK_OK &&
                   checked.verdict == TLSF_GR1_CHECK_VERIFIED;
   tlsf_gr1_check_result_clear(&checked);
   cfg.check("seed_check");
   if (!verified)
-    decline("seed_check", "independent environment seed check failed");
+    decline(check_failure_cause(check_status, verdict),
+            check_status == TLSF_GR1_CHECK_OK ? "seed_check" : "checker_error",
+            "independent environment seed check failed");
   seed.cert = parse_aig(seed.cert_aag.data(), seed.cert_aag.size());
 }
 
@@ -372,7 +400,8 @@ std::vector<int> env_owners(const O &origin,
     return {};
   for (int owner : bound)
     if (std::find(members.begin(), members.end(), owner) == members.end())
-      decline("typed_alignment", "monitor owner is outside the axis");
+      decline(FailureCause::applicability, "typed_alignment",
+              "monitor owner is outside the axis");
   std::vector<int> referenced;
   for (const J &value : origin.at("signal_refs").as_array()) {
     const O &ref = value.as_object();
@@ -393,7 +422,8 @@ std::vector<int> env_owners(const O &origin,
     for (int owner : bound)
       if (std::find(referenced.begin(), referenced.end(), owner) ==
           referenced.end())
-        decline("typed_alignment", "pair owner lacks typed reference");
+        decline(FailureCause::applicability, "typed_alignment",
+                "pair owner lacks typed reference");
   return bound;
 }
 
@@ -470,16 +500,19 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
       const O &row = value.as_object();
       uint32_t lit = uint32_t(n(row, "game_literal"));
       if (!signals.emplace(lit / 2, &row).second)
-        decline("typed_alignment", "duplicate game signal literal");
+        decline(FailureCause::error, "typed_alignment",
+                "duplicate game signal literal");
     }
   if (signals.size() != aig_num_inputs(i.r.game))
-    decline("typed_alignment", "game signal inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "game signal inventory differs");
   std::set<uint32_t> game_inputs;
   for (uint32_t p = 0; p < aig_num_inputs(i.r.game); p++) {
     uint32_t lit;
     const char *name = aig_input_name(i.r.game, p, &lit);
     if (!signals.count(lit / 2) || !game_inputs.insert(lit / 2).second)
-      decline("typed_alignment", "game signal lacks unique provenance");
+      decline(FailureCause::error, "typed_alignment",
+              "game signal lacks unique provenance");
     const O &row = *signals.at(lit / 2);
     auto indices = ints(row.at("index_tuple").as_array());
     std::set<int> owners;
@@ -497,9 +530,11 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
              .emplace(identity, EnvVariable{identity, prefix, indices, owners,
                                             env_letter_order_field(row)})
              .second)
-      decline("typed_alignment", "duplicate letter identity");
+      decline(FailureCause::error, "typed_alignment",
+              "duplicate letter identity");
     if (!name || !view.game_names.emplace(name, identity).second)
-      decline("typed_alignment", "game signal name inventory differs");
+      decline(FailureCause::error, "typed_alignment",
+              "game signal name inventory differs");
   }
   if (game_inputs != [&] {
         std::set<uint32_t> keys;
@@ -507,7 +542,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
           keys.insert(literal);
         return keys;
       }())
-    decline("typed_alignment", "game signal inventory is incomplete");
+    decline(FailureCause::error, "typed_alignment",
+            "game signal inventory is incomplete");
   std::map<std::string, const O *> conjuncts;
   for (const J &value : i.data.at("source_conjuncts").as_array()) {
     const O &row = value.as_object();
@@ -516,7 +552,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
                            field(n(row, "generated_position"))}),
                       &row)
              .second)
-      decline("typed_alignment", "duplicate source conjunct identity");
+      decline(FailureCause::error, "typed_alignment",
+              "duplicate source conjunct identity");
   }
   std::map<std::string, std::vector<const O *>> siblings;
   std::map<const O *, std::vector<int>> owners_by_monitor;
@@ -527,7 +564,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
     const O &row = value.as_object();
     if (s(row, "provenance_source") != "frontend" ||
         s(row, "template_source") != "frontend")
-      decline("typed_alignment", "monitor lacks frontend origin");
+      decline(FailureCause::applicability, "typed_alignment",
+              "monitor lacks frontend origin");
     const O &origin = row.at("source_origin").as_object();
     auto owners = env_owners(origin, indexed, members);
     owners_by_monitor.emplace(&row, owners);
@@ -541,7 +579,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
                                   field(n(origin, "generated_position"))});
     auto found = conjuncts.find(origin_key);
     if (found == conjuncts.end())
-      decline("typed_alignment", "monitor source conjunct is missing");
+      decline(FailureCause::error, "typed_alignment",
+              "monitor source conjunct is missing");
     std::set<std::string> claimed_refs, actual_refs;
     for (const J &part : origin.at("signal_refs").as_array()) {
       const O &ref = part.as_object();
@@ -552,7 +591,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
     for (const J &part : row.at("latch_literals").as_array()) {
       uint32_t lit = uint32_t(num(part));
       if (!latch_next.count(lit / 2) || !typed_latches.insert(lit / 2).second)
-        decline("typed_alignment", "monitor latch inventory differs");
+        decline(FailureCause::error, "typed_alignment",
+                "monitor latch inventory differs");
       own_latches.insert(lit / 2);
       auto support = env_support(i.r.game, latch_next.at(lit / 2));
       for (uint32_t signal : support)
@@ -563,7 +603,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
         }
     }
     if (claimed_refs != actual_refs)
-      decline("schema_abi", "monitor transition references differ");
+      decline(FailureCause::error, "schema_abi",
+              "monitor transition references differ");
     const O &conjunct = *found->second;
     const O &binding = row.at("source_binding").as_object();
     if (s(row, "construction_formula") != s(conjunct, "normalized_formula") ||
@@ -574,7 +615,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
         s(conjunct, "block") != s(origin, "block") ||
         dump(conjunct.at("signal_refs")) != dump(origin.at("signal_refs")) ||
         dump(conjunct.at("bindings")) != dump(origin.at("bindings")))
-      decline("typed_alignment", "monitor/source construction differs");
+      decline(FailureCause::error, "typed_alignment",
+              "monitor/source construction differs");
     std::string link =
         key({s(row, "role"), join(owner_fields), origin_key, s(row, "template"),
              dump(origin.at("signal_refs"))});
@@ -583,12 +625,14 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
       link = *linkage.begin();
 #endif
     if (!linkage.insert(link).second)
-      decline("typed_alignment", "ambiguous sibling linkage");
+      decline(FailureCause::error, "typed_alignment",
+              "ambiguous sibling linkage");
     if (s(row, "role") == "justice") {
       int index = int(n(row, "justice_index"));
       if (index < 0 || index >= int(aig_num_justice(i.r.game)) ||
           !view.goals.emplace(index, EnvAnchor{base, owners}).second)
-        decline("typed_alignment", "justice ordinal inventory differs");
+        decline(FailureCause::error, "typed_alignment",
+                "justice ordinal inventory differs");
       const uint32_t *lits;
       uint32_t count;
       aig_justice_at(i.r.game, index, &lits, &count);
@@ -596,22 +640,26 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
         auto support = env_support(i.r.game, lits[p]);
         for (uint32_t var : support)
           if (!own_latches.count(var))
-            decline("typed_alignment", "justice points outside its monitor");
+            decline(FailureCause::error, "typed_alignment",
+                    "justice points outside its monitor");
       }
     } else if (s(row, "role") == "fairness") {
       if (fair_index >= int(aig_num_fairness(i.r.game)))
-        decline("typed_alignment", "fairness ordinal exceeds game");
+        decline(FailureCause::error, "typed_alignment",
+                "fairness ordinal exceeds game");
       for (uint32_t var :
            env_support(i.r.game, aig_fairness_at(i.r.game, fair_index)))
         if (!own_latches.count(var))
-          decline("typed_alignment", "fairness points outside its monitor");
+          decline(FailureCause::error, "typed_alignment",
+                  "fairness points outside its monitor");
       view.fairness.emplace(fair_index++, EnvAnchor{base, owners});
     }
   }
   if (typed_latches.size() != latch_next.size() ||
       view.goals.size() != aig_num_justice(i.r.game) ||
       fair_index != int(aig_num_fairness(i.r.game)))
-    decline("typed_alignment", "monitor game inventory is incomplete");
+    decline(FailureCause::error, "typed_alignment",
+            "monitor game inventory is incomplete");
   if (view.fairness.empty())
     view.fairness.emplace(0, EnvAnchor{"synthetic", {}});
   for (const auto &[group, rows] : siblings) {
@@ -621,7 +669,8 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
           key({s(*row, "template"),
                dump(row->at("source_origin").as_object().at("signal_refs"))});
       if (!variants.insert(variant).second)
-        decline("typed_alignment", "ambiguous sibling monitor roles");
+        decline(FailureCause::applicability, "typed_alignment",
+                "ambiguous sibling monitor roles");
       const O &origin = row->at("source_origin").as_object();
       std::string role =
           key({s(origin, "source_formula_id"), s(*row, "role"), s(*row, "side"),
@@ -642,9 +691,11 @@ EnvView env_game_view(const Instance &i, const std::string &axis,
                               identity, prefix, indices, owner_set,
                               env_state_order_field(*row, origin, rows, state)})
                  .second)
-          decline("typed_alignment", "duplicate state identity");
+          decline(FailureCause::error, "typed_alignment",
+                  "duplicate state identity");
         if (!view.game_names.emplace(latch_names.at(lit / 2), identity).second)
-          decline("typed_alignment", "game latch name inventory differs");
+          decline(FailureCause::error, "typed_alignment",
+                  "game latch name inventory differs");
       }
       if (s(*row, "role") == "justice")
         view.goals.at(int(n(*row, "justice_index"))).kind = role;
@@ -682,18 +733,22 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
   if (n(counts, "predicates") != aig_num_outputs(cert) ||
       n(counts, "aig_inputs") != aig_num_inputs(cert) ||
       n(counts, "aig_latches") != 0 || n(counts, "sampling_latches") != 0)
-    decline("typed_alignment", "certificate count inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "certificate count inventory differs");
   view.outer = uint32_t(n(counts, "outer_levels"));
   if (!view.outer || view.outer > 256)
-    decline("typed_alignment", "rank depth is unbounded");
+    decline(view.outer ? FailureCause::resource : FailureCause::error,
+            "typed_alignment", "rank depth is unbounded");
   std::set<std::string> inputs;
   for (uint32_t p = 0; p < aig_num_inputs(cert); p++) {
     const char *name = aig_input_name(cert, p, nullptr);
     if (!name || !view.game_names.count(name) || !inputs.insert(name).second)
-      decline("typed_alignment", "certificate input identity differs");
+      decline(FailureCause::error, "typed_alignment",
+              "certificate input identity differs");
   }
   if (inputs.size() != view.game_names.size())
-    decline("typed_alignment", "certificate input inventory is incomplete");
+    decline(FailureCause::error, "typed_alignment",
+            "certificate input inventory is incomplete");
   std::set<std::string> names, identities;
   std::map<std::tuple<int, int, int>, std::set<int>> depths;
   std::vector<EnvOutput> outputs;
@@ -707,14 +762,16 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
     try {
       return std::stoi(part.str());
     } catch (const std::exception &) {
-      decline("typed_alignment", "rank number is out of range");
+      decline(FailureCause::resource, "typed_alignment",
+              "rank number is out of range");
     }
   };
   for (uint32_t p = 0; p < aig_num_outputs(cert); p++) {
     uint32_t literal;
     const char *raw = aig_output_at(cert, p, &literal);
     if (!raw || !names.insert(raw).second)
-      decline("typed_alignment", "duplicate certificate output name");
+      decline(FailureCause::error, "typed_alignment",
+              "duplicate certificate output name");
     std::string name(raw), kind;
     EnvAnchor first, second;
     int outer = -1, depth = -1;
@@ -729,7 +786,8 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
       outer = decimal(match[1]);
       int goal = decimal(match[2]);
       if (!view.goals.count(goal))
-        decline("typed_alignment", "goal ordinal is absent");
+        decline(FailureCause::error, "typed_alignment",
+                "goal ordinal is absent");
       first = view.goals.at(goal);
     } else if (std::regex_match(name, match, x_re)) {
       kind = "x";
@@ -737,8 +795,12 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
       int goal = decimal(match[2]);
       int fair = decimal(match[3]);
       depth = decimal(match[4]);
-      if (!view.goals.count(goal) || !view.fairness.count(fair) || depth >= 256)
-        decline("typed_alignment", "rank index is out of bounds");
+      if (!view.goals.count(goal) || !view.fairness.count(fair))
+        decline(FailureCause::error, "typed_alignment",
+                "rank index is out of bounds");
+      if (depth >= 256)
+        decline(FailureCause::resource, "typed_alignment",
+                "rank index is out of bounds");
       first = view.goals.at(goal);
       second = view.fairness.at(fair);
       depths[{outer, goal, fair}].insert(depth);
@@ -746,24 +808,29 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
       kind = "goal";
       int goal = decimal(match[1]);
       if (!view.goals.count(goal))
-        decline("typed_alignment", "goal ordinal is absent");
+        decline(FailureCause::error, "typed_alignment",
+                "goal ordinal is absent");
       first = view.goals.at(goal);
     } else if (std::regex_match(name, match, fair_re) ||
                std::regex_match(name, match, move_re)) {
       kind = name.substr(0, name.find('_'));
       int fair = decimal(match[1]);
       if (!view.fairness.count(fair))
-        decline("typed_alignment", "fairness ordinal is absent");
+        decline(FailureCause::error, "typed_alignment",
+                "fairness ordinal is absent");
       first = view.fairness.at(fair);
     } else
-      decline("typed_alignment", "unexpected certificate output");
+      decline(FailureCause::error, "typed_alignment",
+              "unexpected certificate output");
     if (outer >= int(view.outer))
-      decline("typed_alignment", "outer rank is out of bounds");
+      decline(FailureCause::error, "typed_alignment",
+              "outer rank is out of bounds");
     std::string class_key = env_output_class(kind, outer, depth, first, second);
     std::string identity = key(
         {class_key, env_anchor_identity(first), env_anchor_identity(second)});
     if (!identities.insert(identity).second)
-      decline("typed_alignment", "duplicate predicate identity");
+      decline(FailureCause::error, "typed_alignment",
+              "duplicate predicate identity");
     view.classes.insert(class_key);
     outputs.push_back(
         {name, class_key, identity, first, second, outer, depth, literal});
@@ -782,10 +849,12 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
       for (const auto &[fair, _] : view.fairness) {
         auto at = depths.find({int(outer), goal, fair});
         if (at == depths.end() || at->second.empty() || at->second.size() > 256)
-          decline("typed_alignment", "rank level inventory is incomplete");
+          decline(FailureCause::error, "typed_alignment",
+                  "rank level inventory is incomplete");
         for (size_t depth = 0; depth < at->second.size(); depth++) {
           if (!at->second.count(int(depth)))
-            decline("typed_alignment", "rank levels are not consecutive");
+            decline(FailureCause::error, "typed_alignment",
+                    "rank levels are not consecutive");
           expected.insert("x_" + field(outer) + "_" + field(goal) + "_" +
                           field(fair) + "_" + field(depth));
         }
@@ -793,7 +862,8 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
     }
   }
   if (names != expected)
-    decline("typed_alignment", "certificate output inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "certificate output inventory differs");
   return outputs;
 }
 
@@ -805,12 +875,14 @@ void env_policy_inventory(EnvView &view) {
       s(meta, "reduction_semantics") != "exact" ||
       n(meta.at("counts").as_object(), "aig_outputs") !=
           aig_num_outputs(policy.get()))
-    decline("typed_alignment", "policy sidecar inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "policy sidecar inventory differs");
   std::set<std::string> expected_inputs, actual_inputs;
   for (uint32_t p = 0; p < aig_num_latches(i.r.game); p++) {
     const char *name = aig_latch_name(i.r.game, p);
     if (!name)
-      decline("typed_alignment", "game latch lacks a name");
+      decline(FailureCause::error, "typed_alignment",
+              "game latch lacks a name");
     expected_inputs.insert(name);
   }
   for (const auto &[fair, _] : view.fairness)
@@ -818,10 +890,11 @@ void env_policy_inventory(EnvView &view) {
   for (uint32_t p = 0; p < aig_num_inputs(policy.get()); p++) {
     const char *name = aig_input_name(policy.get(), p, nullptr);
     if (!name || !actual_inputs.insert(name).second)
-      decline("typed_alignment", "duplicate policy input");
+      decline(FailureCause::error, "typed_alignment", "duplicate policy input");
   }
   if (actual_inputs != expected_inputs)
-    decline("typed_alignment", "policy input inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "policy input inventory differs");
   std::set<std::string> expected_outputs, actual_outputs;
   for (uint32_t p = 0; p < aig_num_inputs(i.r.game); p++) {
     const char *name = aig_input_name(i.r.game, p, nullptr);
@@ -833,23 +906,28 @@ void env_policy_inventory(EnvView &view) {
   for (uint32_t p = 0; p < aig_num_outputs(policy.get()); p++) {
     const char *name = aig_output_at(policy.get(), p, nullptr);
     if (!name || !actual_outputs.insert(name).second)
-      decline("typed_alignment", "duplicate policy output");
+      decline(FailureCause::error, "typed_alignment",
+              "duplicate policy output");
   }
   if (actual_outputs != expected_outputs)
-    decline("typed_alignment", "policy output inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "policy output inventory differs");
   std::map<int, std::string> sidecar;
   const O &listed = meta.at("outputs").as_object();
   for (const char *group : {"uncontrollable", "counter_next"})
     for (const J &value : listed.at(group).as_array()) {
       const O &row = value.as_object();
       if (!sidecar.emplace(int(n(row, "policy_output")), s(row, "name")).second)
-        decline("typed_alignment", "duplicate policy sidecar output");
+        decline(FailureCause::error, "typed_alignment",
+                "duplicate policy sidecar output");
     }
   if (sidecar.size() != actual_outputs.size())
-    decline("typed_alignment", "policy sidecar output count differs");
+    decline(FailureCause::error, "typed_alignment",
+            "policy sidecar output count differs");
   for (uint32_t p = 0; p < aig_num_outputs(policy.get()); p++)
     if (sidecar.at(int(p)) != aig_output_at(policy.get(), p, nullptr))
-      decline("typed_alignment", "policy sidecar output differs");
+      decline(FailureCause::error, "typed_alignment",
+              "policy sidecar output differs");
 }
 
 std::vector<EnvView> env_preflight(const EnvWindow &window,
@@ -860,16 +938,19 @@ std::vector<EnvView> env_preflight(const EnvWindow &window,
     view.outputs = env_certificate_inventory(view);
     env_policy_inventory(view);
     if (!views.empty() && view.classes != views.front().classes)
-      decline("typed_alignment", "rank class inventory differs across seeds");
+      decline(FailureCause::applicability, "typed_alignment",
+              "rank class inventory differs across seeds");
     views.push_back(std::move(view));
   }
   EnvView target =
       env_game_view(*trusted.instance, window.axis, window.target_members);
   if (env_typed_classes(*trusted.instance) !=
       env_typed_classes(*window.seeds.front()))
-    decline("typed_alignment", "target conjunct or role class missing");
+    decline(FailureCause::applicability, "typed_alignment",
+            "target conjunct or role class missing");
   if (target.roles.empty())
-    decline("typed_alignment", "target has no typed owner roles");
+    decline(FailureCause::applicability, "typed_alignment",
+            "target has no typed owner roles");
   views.push_back(std::move(target));
   return views;
 }
@@ -953,7 +1034,8 @@ public:
   int label_id(const std::string &name) const {
     auto at = labels.find(name);
     if (at == labels.end())
-      decline("schema_abi", "typed BDD variable is absent");
+      decline(FailureCause::error, "schema_abi",
+              "typed BDD variable is absent");
     return at->second;
   }
   const std::string &name(int label_id) const { return names.at(label_id); }
@@ -964,10 +1046,12 @@ public:
     if (auto at = unique.find(key); at != unique.end())
       return at->second;
     if (nodes.size() >= 3000000)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity",
                     "cumulative rank node cap exhausted at " + context);
     if (accounted_bytes() + sizeof(EnvNode) + 64 > rank_memory_cap)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity",
                     "accounted rank memory cap exhausted at " + context);
     int id = int(nodes.size());
     nodes.push_back(key);
@@ -978,7 +1062,8 @@ public:
   int apply(int op, int left, int right) {
     applies++;
     if (applies > apply_cap)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity",
                     "cumulative rank apply cap exhausted at " + context);
     if ((applies & 1023u) == 0)
       cfg.check("schema_capacity");
@@ -1014,7 +1099,8 @@ public:
     if (cache.size() >= rank_cache_cap ||
         accounted_bytes() + sizeof(EnvApplyKey) + sizeof(int) + 64 >
             rank_memory_cap)
-      throw Failure(TLSF_GR1_LIFT_LIMIT, "schema_capacity",
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "schema_capacity",
                     "accounted rank apply cache cap exhausted at " + context);
     cache.emplace(key, result);
     return result;
@@ -1100,7 +1186,7 @@ public:
     auto used = support(root);
     for (int key : used)
       if (!mapping.count(key))
-        decline("schema_abi", "unmapped BDD variable");
+        decline(FailureCause::error, "schema_abi", "unmapped BDD variable");
     std::map<int, int> replacements;
     for (const auto &[from, to] : mapping)
       replacements.emplace(from, var(to));
@@ -1129,7 +1215,8 @@ public:
         int right = visit(gate->second.second);
         result = apply(0, left, right);
       } else
-        decline("schema_abi", "AIG leaf lacks typed provenance");
+        decline(FailureCause::error, "schema_abi",
+                "AIG leaf lacks typed provenance");
       memo.emplace(variable, result);
       return lit & 1 ? neg(result) : result;
     };
@@ -1144,7 +1231,8 @@ public:
       auto row = nodes[current];
       auto at = literals.find(row.label);
       if (at == literals.end())
-        decline("instantiate", "rank uses an unmapped target variable");
+        decline(FailureCause::applicability, "instantiate",
+                "rank uses an unmapped target variable");
       uint32_t variable = at->second;
       uint32_t result = aig_or(aig, aig_and(aig, variable, visit(row.high)),
                                aig_and(aig, aig_not(variable), visit(row.low)));
@@ -1280,7 +1368,7 @@ EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
                         int arity, int mode, bool erase_anchors) {
   const EnvView &view = *observation.view;
   if (arity > int(view.members.size()))
-    decline("schema", "arity exceeds seed width");
+    decline(FailureCause::applicability, "schema", "arity exceeds seed width");
   EnvAnchor first = erase_anchors ? EnvAnchor{} : observation.first;
   EnvAnchor second = erase_anchors ? EnvAnchor{} : observation.second;
   auto required = env_anchor_members(first, second);
@@ -1318,19 +1406,22 @@ EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
     std::string group = env_group(view, ordered, first, second);
     if (auto at = result.find(group);
         at != result.end() && at->second != normalized)
-      decline("schema", "within-role projection disagreement");
+      decline(FailureCause::applicability, "schema",
+              "within-role projection disagreement");
     result[group] = normalized;
     std::map<int, int> backward;
     for (const auto &[from, to] : forward)
       if (!backward.emplace(to, from).second)
-        decline("schema_abi", "normalized variable is ambiguous");
+        decline(FailureCause::applicability, "schema_abi",
+                "normalized variable is ambiguous");
     std::map<int, int> back_support;
     for (int label : bdd.support(normalized))
       back_support.emplace(label, backward.at(label));
     rebuilt = bdd.apply(mode, rebuilt, bdd.rename(normalized, back_support));
   });
   if (result.empty() || rebuilt != observation.root)
-    decline("schema", "predicate is not exactly reconstructed");
+    decline(FailureCause::applicability, "schema",
+            "predicate is not exactly reconstructed");
   return result;
 }
 
@@ -1351,7 +1442,8 @@ int env_instantiate_projection(EnvBdd &bdd, const EnvView &view,
     std::string group = env_group(view, ordered, first, second);
     auto at = learned.parts.find(group);
     if (at == learned.parts.end())
-      decline("instantiate", "target role template is absent");
+      decline(FailureCause::applicability, "instantiate",
+              "target role template is absent");
     std::map<int, int> back;
     for (const auto &[_, variable] : view.variables)
       if (std::includes(subset_set.begin(), subset_set.end(),
@@ -1359,12 +1451,14 @@ int env_instantiate_projection(EnvBdd &bdd, const EnvView &view,
         int normalized = env_variable_label(bdd, variable, slots);
         int concrete = env_variable_label(bdd, variable);
         if (!back.emplace(normalized, concrete).second)
-          decline("instantiate", "target typed variable is ambiguous");
+          decline(FailureCause::applicability, "instantiate",
+                  "target typed variable is ambiguous");
       }
     std::map<int, int> mapping;
     for (int label : bdd.support(at->second)) {
       if (!back.count(label))
-        decline("instantiate", "target typed variable is absent");
+        decline(FailureCause::applicability, "instantiate",
+                "target typed variable is absent");
       mapping.emplace(label, back.at(label));
     }
     result = bdd.apply(learned.mode, result, bdd.rename(at->second, mapping));
@@ -1377,6 +1471,7 @@ EnvLearned env_learn_projection(EnvBdd &bdd,
   std::map<const EnvView *, std::vector<const EnvObservation *>> by_view;
   for (const auto &row : rows)
     by_view[row.view].push_back(&row);
+  FailureCause cause = FailureCause::applicability;
   bool anchor_free = true;
   for (const auto &[_, observations] : by_view) {
     std::set<int> functions;
@@ -1399,11 +1494,13 @@ EnvLearned env_learn_projection(EnvBdd &bdd,
           for (const auto &row : rows) {
             auto templ = env_project(bdd, row, arity, mode, erase);
             if (common && *common != templ)
-              decline("schema", "seed rank templates disagree");
+              decline(FailureCause::applicability, "schema",
+                      "seed rank templates disagree");
             common = std::move(templ);
           }
           if (!common)
-            decline("schema", "rank class has no seed observation");
+            decline(FailureCause::applicability, "schema",
+                    "rank class has no seed observation");
           EnvLearned learned;
           learned.kind = EnvLearned::Projection;
           learned.arity = arity;
@@ -1414,10 +1511,12 @@ EnvLearned env_learn_projection(EnvBdd &bdd,
         } catch (const Failure &e) {
           if (e.stage != "schema" && e.stage != "schema_abi")
             throw;
+          if (!is_applicability(e.cause))
+            cause = e.cause;
         }
       }
   }
-  decline("schema", "no exact bounded projection");
+  decline(cause, "schema", "no exact bounded projection");
 }
 
 EnvLearned env_learn_previous(EnvBdd &bdd,
@@ -1427,17 +1526,20 @@ EnvLearned env_learn_previous(EnvBdd &bdd,
   std::map<const EnvView *, int> predecessor;
   for (const auto &row : previous)
     if (!predecessor.emplace(row.view, row.root).second)
-      decline("schema", "previous rank has ambiguous seed identity");
+      decline(FailureCause::applicability, "schema",
+              "previous rank has ambiguous seed identity");
   EnvLearned learned;
   learned.kind = EnvLearned::Previous;
   learned.predecessor = previous_name;
   for (const auto &row : rows) {
     auto at = predecessor.find(row.view);
     if (at == predecessor.end())
-      decline("typed_alignment", "previous rank is absent in seed");
+      decline(FailureCause::applicability, "typed_alignment",
+              "previous rank is absent in seed");
     auto selected = env_anchor_members(row.first, row.second);
     if (selected.empty() || selected.size() > 2)
-      decline("schema", "selected owner term exceeds bounded arity");
+      decline(FailureCause::applicability, "schema",
+              "selected owner term exceeds bounded arity");
     selected = env_selected(*row.view, selected, row.first, row.second);
     std::set<int> selected_set(selected.begin(), selected.end());
     std::map<int, int> slots;
@@ -1453,7 +1555,8 @@ EnvLearned env_learn_previous(EnvBdd &bdd,
         drop.insert(label);
     int local = bdd.quant(row.root, drop, false);
     if (bdd.apply(1, at->second, local) != row.root)
-      decline("schema", "previous rank and owner term do not reconstruct");
+      decline(FailureCause::applicability, "schema",
+              "previous rank and owner term do not reconstruct");
     std::map<int, int> forward;
     for (int label : bdd.support(local)) {
       const auto &var = row.view->variables.at(bdd.name(label));
@@ -1463,7 +1566,8 @@ EnvLearned env_learn_previous(EnvBdd &bdd,
     std::string group = env_group(*row.view, selected, row.first, row.second);
     if (auto found = learned.parts.find(group);
         found != learned.parts.end() && found->second != normalized)
-      decline("schema", "selected owner terms disagree across seeds");
+      decline(FailureCause::applicability, "schema",
+              "selected owner terms disagree across seeds");
     learned.parts[group] = normalized;
   }
   return learned;
@@ -1474,14 +1578,16 @@ int env_instantiate_previous(EnvBdd &bdd, const EnvView &view,
                              const EnvLearned &learned, int previous_root) {
   auto selected = env_anchor_members(first, second);
   if (selected.empty() || selected.size() > 2)
-    decline("instantiate", "selected owner term exceeds bounded arity");
+    decline(FailureCause::applicability, "instantiate",
+            "selected owner term exceeds bounded arity");
   selected = env_selected(view, selected, first, second);
   std::map<int, int> slots;
   for (size_t p = 0; p < selected.size(); p++)
     slots.emplace(selected[p], int(p));
   auto at = learned.parts.find(env_group(view, selected, first, second));
   if (at == learned.parts.end())
-    decline("instantiate", "selected owner template is absent");
+    decline(FailureCause::applicability, "instantiate",
+            "selected owner template is absent");
   std::set<int> selected_set(selected.begin(), selected.end());
   std::map<int, int> back;
   for (const auto &[_, var] : view.variables)
@@ -1492,7 +1598,8 @@ int env_instantiate_previous(EnvBdd &bdd, const EnvView &view,
   std::map<int, int> mapping;
   for (int label : bdd.support(at->second)) {
     if (!back.count(label))
-      decline("instantiate", "selected owner variable is absent");
+      decline(FailureCause::applicability, "instantiate",
+              "selected owner variable is absent");
     mapping.emplace(label, back.at(label));
   }
   return bdd.apply(1, previous_root, bdd.rename(at->second, mapping));
@@ -1537,7 +1644,8 @@ struct EnvCanonical {
                           : concrete;
       if (!variables.emplace(canonical, EnvCanonicalVariable{&variable, owners})
                .second)
-        decline("typed_alignment", "anchor canonicalization collision");
+        decline(FailureCause::applicability, "typed_alignment",
+                "anchor canonicalization collision");
       forward.emplace(concrete, canonical);
       backward.emplace(canonical, concrete);
     }
@@ -1676,7 +1784,8 @@ int env_concrete_feature(EnvBdd &bdd, const EnvCanonical &view, int member,
   for (int label : bdd.support(normalized)) {
     auto at = back.find(label);
     if (at == back.end())
-      decline("typed_alignment", "summary feature lacks a lane binding");
+      decline(FailureCause::applicability, "typed_alignment",
+              "summary feature lacks a lane binding");
     mapping.emplace(label, at->second);
   }
   return bdd.rename(normalized, mapping);
@@ -1782,7 +1891,8 @@ EnvLearned env_learn_summary(EnvBdd &bdd,
         break;
     }
     if (!found)
-      decline("schema", "no exact cross-lane summary");
+      decline(FailureCause::applicability, "schema",
+              "no exact cross-lane summary");
   }
   return learned;
 }
@@ -1793,7 +1903,8 @@ int env_instantiate_summary(EnvBdd &bdd, const EnvView &view,
   EnvCanonical canonical(bdd, view, first, second);
   auto at = learned.summaries.find(canonical.pattern);
   if (at == learned.summaries.end())
-    decline("instantiate", "anchor pattern is absent in seed summaries");
+    decline(FailureCause::applicability, "instantiate",
+            "anchor pattern is absent in seed summaries");
   int function =
       bdd.compose(at->second.template_root,
                   env_summary_mapping(bdd, canonical, at->second.features));
@@ -1835,7 +1946,8 @@ env_rank_observations(EnvBdd &bdd, const std::vector<EnvView> &views,
     for (const auto &row : rows)
       present.insert(row.view);
     if (present.size() != views.size() - 1)
-      decline("typed_alignment", "rank class is absent in a seed");
+      decline(FailureCause::applicability, "typed_alignment",
+              "rank class is absent in a seed");
   }
   return classes;
 }
@@ -1880,9 +1992,20 @@ std::map<std::string, EnvLearned> env_learn_ranks(
             env_output_class("z", outer - 1, -1, EnvAnchor{}, EnvAnchor{});
         if (outer <= 0 || (kind != "z" && kind != "y" && kind != "x") ||
             !classes.count(prior_class))
-          decline("schema", "rank has no exact bounded grammar");
-        current = env_learn_previous(bdd, rows, classes.at(prior_class),
-                                     "z_" + field(outer - 1));
+          decline(!is_applicability(projection.cause) ? projection.cause
+                                                      : summary.cause,
+                  "schema", "rank has no exact bounded grammar");
+        try {
+          current = env_learn_previous(bdd, rows, classes.at(prior_class),
+                                       "z_" + field(outer - 1));
+        } catch (const Failure &previous) {
+          const auto cause =
+              !is_applicability(projection.cause) ? projection.cause
+              : !is_applicability(summary.cause)  ? summary.cause
+                                                  : previous.cause;
+          throw Failure(previous.status, cause, previous.stage,
+                        previous.what());
+        }
       }
     }
     // Each fitting path proves equality with every seed rank: projection
@@ -1918,13 +2041,14 @@ void env_emit_target_ranks(EnvBdd &bdd, const EnvView &target,
                            std::map<std::string, int> *rank_roots) {
   std::unique_ptr<Aig, decltype(&aig_free)> aig(aig_new(), &aig_free);
   if (!aig)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "instantiate", "AIG allocation failed");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "instantiate",
+                  "AIG allocation failed");
   std::map<int, uint32_t> literals;
   const Aig *game = target.instance->r.game;
   for (uint32_t p = 0; p < aig_num_latches(game); p++) {
     const char *name = aig_latch_name(game, p);
     if (!name)
-      decline("instantiate", "target latch is unnamed");
+      decline(FailureCause::error, "instantiate", "target latch is unnamed");
     const auto &var = target.variables.at(target.game_names.at(name));
     literals.emplace(env_variable_label(bdd, var), aig_input(aig.get(), name));
   }
@@ -1940,12 +2064,14 @@ void env_emit_target_ranks(EnvBdd &bdd, const EnvView &target,
     std::string class_key = env_output_class(kind, outer, depth, first, second);
     auto at = learned.find(class_key);
     if (at == learned.end())
-      decline("instantiate", "target rank class is absent from seeds");
+      decline(FailureCause::applicability, "instantiate",
+              "target rank class is absent from seeds");
     int previous = 0;
     if (at->second.kind == EnvLearned::Previous) {
       auto prior = ranks.find(at->second.predecessor);
       if (prior == ranks.end())
-        decline("instantiate", "previous target rank is absent");
+        decline(FailureCause::applicability, "instantiate",
+                "previous target rank is absent");
       previous = prior->second;
     }
     int root =
@@ -1967,7 +2093,8 @@ void env_emit_target_ranks(EnvBdd &bdd, const EnvView &target,
               output.second.kind == fair_anchor.kind)
             depths.insert(output.depth);
         if (depths.empty())
-          decline("instantiate", "target rank level is absent in seeds");
+          decline(FailureCause::applicability, "instantiate",
+                  "target rank level is absent in seeds");
         for (int depth : depths)
           emit("x_" + field(outer) + "_" + field(goal) + "_" + field(fair) +
                    "_" + field(depth),
@@ -2009,6 +2136,15 @@ int env_and(EnvBdd &bdd, std::initializer_list<int> terms) {
   return result;
 }
 
+void env_check_skolem_support(const std::set<int> &support,
+                              const std::set<int> &system,
+                              const std::set<int> &environment) {
+  for (int variable : support)
+    if (system.count(variable) || environment.count(variable))
+      decline(FailureCause::error, "policy_reconstruct",
+              "Skolem output reads current letter");
+}
+
 void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
                    std::map<std::string, int> ranks, const Config &cfg,
                    TlsfGr1EnvLiftResult &out) {
@@ -2042,7 +2178,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
       environment.push_back(label);
   }
   if (labels.size() != aig_num_latches(game) + aig_num_inputs(game))
-    decline("typed_alignment", "target game variable inventory differs");
+    decline(FailureCause::error, "typed_alignment",
+            "target game variable inventory differs");
   int bad = 0;
   for (uint32_t p = 0; p < aig_num_bad(game); p++) {
     uint32_t literal;
@@ -2051,7 +2188,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
   }
   if (!aig_num_bad(game)) {
     if (aig_num_outputs(game) != 1)
-      decline("policy_reconstruct", "target has no unique bad predicate");
+      decline(FailureCause::error, "policy_reconstruct",
+              "target has no unique bad predicate");
     bad = bdd.from_aig(
         game, aig_output_lit(game, aig_output_at(game, 0, nullptr)), labels);
   }
@@ -2067,7 +2205,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
     uint32_t count;
     aig_justice_at(game, j, &literals, &count);
     if (count != 1)
-      decline("policy_reconstruct", "justice is not a single predicate");
+      decline(FailureCause::error, "policy_reconstruct",
+              "justice is not a single predicate");
     goals.push_back(bdd.from_aig(game, literals[0], labels));
   }
   for (int i = 0; i < explicit_fairs; i++)
@@ -2085,7 +2224,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
                            "_" + field(depth)))
           depth++;
         if (!depth)
-          decline("instantiate", "target inner rank is missing");
+          decline(FailureCause::error, "instantiate",
+                  "target inner rank is missing");
         y = bdd.apply(0, y,
                       ranks.at("x_" + field(k) + "_" + field(j) + "_" +
                                field(i) + "_" + field(depth - 1)));
@@ -2164,11 +2304,12 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
     int allowed = bdd.quant(relation, system_set, false);
     for (int variable : bdd.support(allowed))
       if (system_set.count(variable))
-        decline("policy_reconstruct",
+        decline(FailureCause::error, "policy_reconstruct",
                 "response letter survived quantification");
     int total = bdd.quant(allowed, environment_set, true);
     if (bdd.apply(0, ranks.at("inv"), bdd.neg(total)) != 0)
-      decline("policy_totality", "no common environment move");
+      decline(FailureCause::applicability, "policy_totality",
+              "no common environment move");
     std::map<int, int> selected;
     int remaining = allowed;
     bdd.set_context("policy_reconstruct/skolemize mode " + field(current));
@@ -2179,9 +2320,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
       int zero = bdd.apply(0, remaining, bdd.neg(bdd.var(variable)));
       int can_zero = bdd.quant(zero, rest, true);
       int choice = bdd.neg(can_zero);
-      for (int support : bdd.support(choice))
-        if (system_set.count(support) || environment_set.count(support))
-          decline("policy_reconstruct", "Skolem output reads current letter");
+      env_check_skolem_support(bdd.support(choice), system_set,
+                               environment_set);
       selected.emplace(variable, choice);
       remaining = bdd.compose(remaining, {{variable, choice}});
     }
@@ -2242,7 +2382,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
   for (const auto &[name, root] : policy)
     for (int variable : bdd.support(root))
       if (!permitted.count(variable))
-        decline("policy_reconstruct", "policy reads current letter");
+        decline(FailureCause::error, "policy_reconstruct",
+                "policy reads current letter");
 
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   if (env_rank_fault == 8)
@@ -2252,7 +2393,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
   auto machine =
       std::unique_ptr<Aig, decltype(&aig_free)>(aig_new(), &aig_free);
   if (!cert || !machine)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "emit", "AIG allocation failed");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "emit",
+                  "AIG allocation failed");
   std::map<int, uint32_t> cert_literals, policy_literals;
   A state_rows, counter_rows, uncontrollable_rows, counter_next_rows;
   for (uint32_t p = 0; p < aig_num_latches(game); p++) {
@@ -2283,7 +2425,8 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
   auto cert_output = [&](const std::string &name) {
     auto at = ranks.find(name);
     if (at == ranks.end())
-      decline("instantiate", "target output lacks construction");
+      decline(FailureCause::error, "instantiate",
+              "target output lacks construction");
     aig_set_output(cert.get(), name.c_str(),
                    bdd.to_aig(cert.get(), at->second, cert_literals));
   };
@@ -2404,18 +2547,20 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
   uint64_t seed_started = now_ns();
   cfg.check("candidate");
   if (trusted.semantics != TLSF_GR1_EXACT)
-    decline("target_reduction", "exact target reduction is required");
+    decline(FailureCause::applicability, "target_reduction",
+            "exact target reduction is required");
   char source_hash[65]{}, game_hash[65]{};
   if (!tlsf_pipeline_source_sha256(
           reinterpret_cast<const uint8_t *>(trusted.snapshot.data()),
           trusted.snapshot.size(), source_hash) ||
       trusted.source_hash != source_hash)
-    decline("target_binding", "source snapshot hash differs");
+    decline(FailureCause::error, "target_binding",
+            "source snapshot hash differs");
   sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), game_hash);
   if (trusted.game_hash != game_hash ||
       trusted.game_aag !=
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
-    decline("target_binding", "trusted game hash differs");
+    decline(FailureCause::error, "target_binding", "trusted game hash differs");
   env_reduction_binding(*trusted.instance, trusted.source_hash);
   EnvWindow window =
       shared_window ? std::move(*shared_window) : env_window(trusted, cfg, out);
@@ -2426,7 +2571,8 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
   (void)env_game_view(*trusted.instance, window.axis, window.target_members);
   if (env_typed_classes(*trusted.instance) !=
       env_typed_classes(*window.seeds.front()))
-    decline("typed_alignment", "target conjunct or role class missing");
+    decline(FailureCause::applicability, "typed_alignment",
+            "target conjunct or role class missing");
   if (!shared_window)
     for (auto &seed : window.seeds)
       env_solve_seed(*seed, cfg, out);
@@ -2445,6 +2591,8 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
     } else if (env_rank_fault == 2) {
       seed.cert_meta["counts"].as_object()["predicates"] =
           aig_num_outputs(seed.cert.get()) + 1;
+    } else if (env_rank_fault == 13) {
+      seed.cert_meta["counts"].as_object()["outer_levels"] = 257;
     } else if (env_rank_fault == 5) {
       A &monitors = trusted.instance->data.at("monitors").as_array();
       J &left = monitors.at(0)
@@ -2467,7 +2615,8 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
       if (lines.empty() ||
           sscanf(lines[0].c_str(), "aag %u %u %u %u %u", &max_var, &inputs,
                  &latches, &outputs, &ands) != 5)
-        decline("schema_abi", "invalid seed certificate encoding");
+        decline(FailureCause::error, "schema_abi",
+                "invalid seed certificate encoding");
       for (unsigned position = 0; position < outputs; position++) {
         const char *name = aig_output_at(seed.cert.get(), position, nullptr);
         if (name && !strcmp(name, "z_0")) {
@@ -2493,7 +2642,8 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
     for (const auto &[_, role] : view.roles)
       roles.insert(role);
     if (roles != expected_roles)
-      decline("typed_alignment", "distinct owner role inventory differs");
+      decline(FailureCause::applicability, "typed_alignment",
+              "distinct owner role inventory differs");
   }
   if (candidate)
     candidate->preflight_ns = now_ns() - preflight_started;
@@ -2551,12 +2701,17 @@ void env_check(const TrustedTarget &trusted, const Config &cfg,
                TlsfGr1EnvLiftResult &candidate) {
   uint64_t check_started = now_ns();
   cfg.check("target_check");
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (env_rank_fault == 12)
+    const_cast<TrustedTarget &>(trusted).game_aag[0] = 'X';
+#endif
   char hash[65]{};
   sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), hash);
   if (trusted.game_hash != hash ||
       trusted.game_aag !=
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
-    decline("target_binding", "prepared game changed before verification");
+    decline(FailureCause::error, "target_binding",
+            "prepared game changed before verification");
   TlsfGr1CheckInput input{};
   input.game_aag = {(const uint8_t *)trusted.game_aag.data(),
                     trusted.game_aag.size()};
@@ -2573,6 +2728,10 @@ void env_check(const TrustedTarget &trusted, const Config &cfg,
   options.node_cap = cfg.o.checker_nodes;
   options.cache_cap = cfg.o.checker_cache;
   options.max_artifact_bytes = cfg.o.max_artifact_bytes;
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (env_test_check_bytes)
+    options.max_artifact_bytes = env_test_check_bytes;
+#endif
   options.deadline_mono_ns = cfg.o.deadline_mono_ns;
   options.cancelled = cfg.o.cancelled;
   options.cancel_ctx = cfg.o.cancel_ctx;
@@ -2585,6 +2744,7 @@ void env_check(const TrustedTarget &trusted, const Config &cfg,
     cfg.stats->internal_check_peak_nodes = std::max<uint64_t>(
         cfg.stats->internal_check_peak_nodes, checked.peak_nodes);
   }
+  const auto verdict = checked.verdict;
   bool verified =
       status == TLSF_GR1_CHECK_OK && checked.verdict == TLSF_GR1_CHECK_VERIFIED;
   candidate.verdict = TLSF_GR1_CHECK_UNKNOWN;
@@ -2598,15 +2758,19 @@ void env_check(const TrustedTarget &trusted, const Config &cfg,
   std::string detail = checked.message;
   tlsf_gr1_check_result_clear(&checked);
   if (status == TLSF_GR1_CHECK_DEADLINE)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, "target_check", "checker deadline");
+    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
+                  "target_check", "checker deadline");
   if (status == TLSF_GR1_CHECK_CANCELLED)
-    throw Failure(TLSF_GR1_LIFT_CANCELLED, "target_check", "checker cancelled");
+    throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                  "target_check", "checker cancelled");
   if (status == TLSF_GR1_CHECK_LIMIT)
-    throw Failure(TLSF_GR1_LIFT_LIMIT, "target_check", "checker capacity");
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "target_check",
+                  "checker capacity");
   if (!verified)
-    decline("checker_rejected",
-            detail.empty() ? "independent target certificate check failed"
-                           : detail.c_str());
+    throw Failure(TLSF_GR1_LIFT_DECLINED, check_failure_cause(status, verdict),
+                  "checker_rejected",
+                  detail.empty() ? "independent target certificate check failed"
+                                 : detail);
 }
 } // namespace gr1_lift_internal
 
@@ -2639,6 +2803,9 @@ extern "C" int tlsf_gr1_env_rank_test_alignment() {
          pair == std::vector<int>({0, 1}) &&
          equal == std::vector<int>({0, 0}) &&
          linked == std::vector<int>({1, 0}) && different != same;
+}
+extern "C" void tlsf_gr1_env_test_set_check_bytes(size_t bytes) {
+  env_test_check_bytes = bytes;
 }
 extern "C" void tlsf_gr1_env_rank_test_set_fault(int fault) {
   env_rank_fault = fault;

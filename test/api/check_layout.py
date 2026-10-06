@@ -32,6 +32,7 @@ for target in targets:
                 compiled[path.relative_to(root)].append(target["name"])
 for source, owners in sorted(compiled.items()):
     fault_owners = {
+        pathlib.Path("src/lib/gr1_reduction.cc"): {"native_contract_api"},
         pathlib.Path("src/lib/gr1_lift.cc"): {"native_lift_api", "native_both_api",
                                                "native_real_both_api", "env_rank_fault_probe"},
         pathlib.Path("src/lib/gr1_env_lift.cc"): {"native_both_api",

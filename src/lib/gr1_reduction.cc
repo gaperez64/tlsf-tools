@@ -50,6 +50,15 @@ extern "C" {
 #include <vector>
 #include <sys/resource.h>
 
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+void reduction_test_monitor(const char *, spot::twa_graph_ptr &);
+void reduction_test_formula(const char *, spot::formula &);
+void reduction_test_source(const TlsfSpec *);
+void reduction_test_provenance(TlsfGr1Reduction *, TlsfGr1ReductionSemantics);
+char reduction_test_class(char, TlsfGr1ReductionSemantics);
+void reduction_test_rejecting(std::vector<bool> &);
+#endif
+
 namespace {
 namespace json = tlsf_json;
 using Formula = spot::formula;
@@ -106,10 +115,11 @@ struct StatsScope {
 };
 
 struct Failure : std::runtime_error {
-  TlsfGr1ReductionStatus status;
+  const TlsfGr1ReductionStatus status, failure_status;
   const char *stage;
-  Failure(TlsfGr1ReductionStatus s, const char *at, const std::string &why)
-      : std::runtime_error(why), status(s), stage(at) {}
+  Failure(TlsfGr1ReductionStatus s, TlsfGr1ReductionStatus cause,
+          const char *at, const std::string &why)
+      : std::runtime_error(why), status(s), failure_status(cause), stage(at) {}
 };
 
 struct Limits {
@@ -119,14 +129,17 @@ struct Limits {
   void check(const char *stage) const {
     const TlsfGr1ConstructionBudget &budget = options.budget;
     if (options.cancelled && options.cancelled(options.cancel_ctx))
-      throw Failure(TLSF_GR1_REDUCE_CANCELLED, stage, "cancelled");
+      throw Failure(TLSF_GR1_REDUCE_CANCELLED, TLSF_GR1_REDUCE_CANCELLED, stage,
+                    "cancelled");
     if (options.deadline_mono_ns) {
       struct timespec now;
       if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
-        throw Failure(TLSF_GR1_REDUCE_ERROR, stage, "monotonic clock failed");
+        throw Failure(TLSF_GR1_REDUCE_ERROR, TLSF_GR1_REDUCE_ERROR, stage,
+                      "monotonic clock failed");
       uint64_t ns = uint64_t(now.tv_sec) * 1000000000ull + now.tv_nsec;
       if (ns >= options.deadline_mono_ns)
-        throw Failure(TLSF_GR1_REDUCE_DEADLINE, stage, "deadline exceeded");
+        throw Failure(TLSF_GR1_REDUCE_DEADLINE, TLSF_GR1_REDUCE_DEADLINE, stage,
+                      "deadline exceeded");
     }
     if (budget.max_rss_bytes) {
       rusage usage{};
@@ -135,7 +148,8 @@ struct Limits {
         const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
         work.peak_rss_bytes = std::max(work.peak_rss_bytes, peak);
         if (peak > budget.max_rss_bytes)
-          throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-memory",
+          throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                        "budget-memory",
                         "construction RSS peak exceeded arm memory share");
       }
     }
@@ -143,13 +157,15 @@ struct Limits {
   void bytes(size_t n, const char *stage) const {
     check(stage);
     if (options.max_artifact_bytes && n > options.max_artifact_bytes)
-      throw Failure(TLSF_GR1_REDUCE_LIMIT, stage, "artifact byte cap exceeded");
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, stage,
+                    "artifact byte cap exceeded");
   }
 };
 
 uint64_t checked_add(uint64_t a, uint64_t b, const char *stage) {
   if (b > UINT64_MAX - a)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, stage, "construction size overflow");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, stage,
+                  "construction size overflow");
   return a + b;
 }
 struct Shape {
@@ -211,8 +227,8 @@ void precheck(const std::vector<Formula> &assumptions,
       (b.max_temporal_depth && w.max_temporal_depth > b.max_temporal_depth) ||
       (b.max_predicted_monitor_states &&
        w.predicted_monitor_states > b.max_predicted_monitor_states))
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-structure",
-                  "structural construction limit exceeded");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                  "budget-structure", "structural construction limit exceeded");
   limits.check("budget-structure");
 }
 
@@ -305,20 +321,24 @@ using File = std::unique_ptr<FILE, FileCloser>;
 std::string printed_ltl(TlsfSpec *spec) {
   ClassifiedSpec *classes = classify_spec(spec);
   if (!classes)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "lower", "classification failed");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
+                  "classification failed");
   Node *root = build_spec_formula(spec, classes, PRINT_ALL);
   if (!root)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "lower", "formula build failed");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
+                  "formula build failed");
   char *buffer = nullptr;
   size_t length = 0;
   File stream(open_memstream(&buffer, &length));
   if (!stream)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "lower", "out of memory");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
+                  "out of memory");
   print_ltl(stream.get(), root, LTL_FMT_LTL, false, false, false);
   if (fflush(stream.get()) != 0) {
     stream.reset();
     free(buffer);
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "lower", "formula output failed");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
+                  "formula output failed");
   }
   stream.reset();
   std::unique_ptr<char, void (*)(void *)> owned(buffer, free);
@@ -466,9 +486,12 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
   limits.check("monitor");
   char klass =
       spot_call(limits, "mp-class", [&] { return spot::mp_class(formula); });
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+  klass = reduction_test_class(klass, limits.options.semantics);
+#endif
   if (std::string("BGSOR").find(klass) == std::string::npos)
-    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "mp-class",
-                  "not DBA reducible: " + spot::str_psl(formula));
+    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
+                  "mp-class", "not DBA reducible: " + spot::str_psl(formula));
   spot::option_map spot_options;
   spot_options.set("det-max-states",
                    int(std::min<uint32_t>(limits.options.max_monitor_states,
@@ -484,7 +507,7 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
   auto automaton =
       spot_call(limits, "translate", [&] { return translator.run(&formula); });
   if (!automaton)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "translate",
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "translate",
                   "Spot translation reached its state limit");
   bool fallback_used = false;
   const bool initially_deterministic = spot_call(
@@ -498,7 +521,8 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
         automaton->num_states() > budget.max_total_states) ||
        (budget.max_total_edges &&
         automaton->num_edges() > budget.max_total_edges)))
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-translate",
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                  "budget-translate",
                   "Spot translation exceeded state or edge limit");
   if (!initially_deterministic) {
     fallback_used = true;
@@ -534,13 +558,13 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
           limits.work.states += uint64_t(states) + 1;
         if (edge_limit)
           limits.work.edges += uint64_t(edges) + 1;
-        throw Failure(TLSF_GR1_REDUCE_LIMIT,
+        throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
                       state_limit ? "budget-monitor-states"
                                   : "budget-monitor-edges",
                       "Spot determinization exceeded construction budget; " +
                           reason.str());
       }
-      throw Failure(TLSF_GR1_REDUCE_LIMIT, "determinize",
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "determinize",
                     "Spot determinization failed; " + reason.str());
     }
     auto deterministic = spot_call(limits, "parity-to-buchi", [&] {
@@ -551,7 +575,8 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
         return spot::rabin_to_buchi_maybe(parity);
       });
     if (!deterministic)
-      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "determinize",
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
+                    "determinize",
                     "Spot could not construct recurrence DBA monitor");
     automaton = deterministic;
   }
@@ -559,22 +584,29 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
       spot_call(limits, "sbacc", [&] { return spot::sbacc(automaton); });
   automaton =
       spot_call(limits, "complete", [&] { return spot::complete(automaton); });
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+  reduction_test_monitor("complete", automaton);
+#endif
   if ((budget.max_total_states &&
        automaton->num_states() > budget.max_total_states) ||
       (budget.max_total_edges &&
        automaton->num_edges() > budget.max_total_edges))
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                  "budget-monitor",
                   "completed monitor exceeded state or edge limit");
   if (!spot_call(limits, "determinism",
                  [&] { return spot::is_deterministic(automaton); }) ||
       !spot_call(limits, "completeness",
                  [&] { return spot::is_complete(automaton); }))
-    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "monitor",
+    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR, "monitor",
                   "Spot produced nondeterministic or incomplete monitor");
   if (limits.options.max_monitor_states &&
       automaton->num_states() > limits.options.max_monitor_states)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "monitor",
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "monitor",
                   "monitor state cap exceeded");
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+  reduction_test_monitor("state-acceptance", automaton);
+#endif
   Monitor monitor{assumption, formula, klass, automaton,     {},
                   {},         {},      {},    fallback_used, {}};
   for (unsigned state = 0; state < automaton->num_states(); ++state) {
@@ -583,22 +615,26 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
     for (const auto &edge : automaton->out(state)) {
       int current = bool(edge.acc);
       if (mark >= 0 && mark != current)
-        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "monitor",
-                      "Spot did not produce state-based acceptance");
+        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                      "monitor", "Spot did not produce state-based acceptance");
       mark = current;
     }
     if (mark < 0)
-      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "monitor", "empty state");
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                    "monitor", "empty state");
     monitor.accepting.push_back(bool(mark));
   }
   monitor.rejecting = rejecting_states(monitor, limits);
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+  reduction_test_rejecting(monitor.rejecting);
+#endif
   if (klass == 'B' || klass == 'S')
     for (unsigned state = 0; state < automaton->num_states(); ++state)
       if (monitor.rejecting[state])
         for (const auto &edge : automaton->out(state))
           if (!monitor.rejecting[edge.dst])
-            throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "monitor",
-                          "non-sticky safety rejecting region");
+            throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                          "monitor", "non-sticky safety rejecting region");
   return monitor;
 }
 
@@ -618,7 +654,8 @@ struct AagBuilder {
   std::map<std::pair<uint32_t, uint32_t>, uint32_t> cache;
   uint32_t variable() {
     if (next_var >= UINT32_MAX / 2u)
-      throw Failure(TLSF_GR1_REDUCE_LIMIT, "aag-size", "AAG literal overflow");
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "aag-size",
+                    "AAG literal overflow");
     return 2u * ++next_var;
   }
   explicit AagBuilder(std::vector<std::string> inputs)
@@ -637,7 +674,8 @@ struct AagBuilder {
         item.next = next;
         return;
       }
-    throw Failure(TLSF_GR1_REDUCE_ERROR, "aag", "unknown latch");
+    throw Failure(TLSF_GR1_REDUCE_ERROR, TLSF_GR1_REDUCE_ERROR, "aag",
+                  "unknown latch");
   }
   uint32_t land(uint32_t a, uint32_t b) {
     if (!a || !b || a == (b ^ 1u))
@@ -658,6 +696,9 @@ struct AagBuilder {
   }
   uint32_t lor(uint32_t a, uint32_t b) { return land(a ^ 1u, b ^ 1u) ^ 1u; }
   uint32_t compile(Formula f) {
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+    reduction_test_formula("transition", f);
+#endif
     if (f.is_tt())
       return 1;
     if (f.is_ff())
@@ -666,8 +707,8 @@ struct AagBuilder {
     case spot::op::ap: {
       auto found = literals.find(f.ap_name());
       if (found == literals.end())
-        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "transition",
-                      "monitor refers to undeclared AP");
+        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                      "transition", "monitor refers to undeclared AP");
       return found->second;
     }
     case spot::op::Not:
@@ -695,8 +736,8 @@ struct AagBuilder {
       return lor(land(a, b), land(a ^ 1u, b ^ 1u));
     }
     default:
-      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "transition",
-                    "non-Boolean monitor transition label");
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                    "transition", "non-Boolean monitor transition label");
     }
   }
   std::string render(uint32_t bad, const std::vector<uint32_t> &justice,
@@ -1012,6 +1053,9 @@ json::object monitor_support(Formula formula, const Buses &buses,
 
 bool boolean_eval(Formula formula,
                   const std::map<std::string, bool> &valuation) {
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+  reduction_test_formula("symmetric-body", formula);
+#endif
   if (formula.is_tt())
     return true;
   if (formula.is_ff())
@@ -1041,8 +1085,8 @@ bool boolean_eval(Formula formula,
     return boolean_eval(formula[0], valuation) ==
            boolean_eval(formula[1], valuation);
   default:
-    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "provenance",
-                  "non-Boolean symmetric monitor body");
+    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                  "provenance", "non-Boolean symmetric monitor body");
   }
 }
 
@@ -1102,7 +1146,7 @@ json::value symmetric_signature(Formula formula, const Buses &buses,
   for (const auto &[base, members] : ordered) {
     (void)base;
     if (valuations > 1000000 / (members.size() + 1))
-      throw Failure(TLSF_GR1_REDUCE_LIMIT, "symmetry",
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "symmetry",
                     "symmetric signature valuation cap exceeded");
     valuations *= members.size() + 1;
   }
@@ -1376,7 +1420,8 @@ json::value provenance(const TlsfPipeline *pipeline,
 
 char *copy_text(const std::string &text) {
   if (text.size() == SIZE_MAX)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, "publish-size", "text size overflow");
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "publish-size",
+                  "text size overflow");
   char *result = static_cast<char *>(malloc(text.size() + 1));
   if (!result)
     throw std::bad_alloc();
@@ -1409,9 +1454,12 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
 }
 
 extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce(const TlsfPipeline *pipeline,
-                const TlsfGr1ReductionOptions *options,
-                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
+tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
+                   const TlsfGr1ReductionOptions *options,
+                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                   TlsfGr1ReductionStatus *failure_status) {
+  if (failure_status)
+    *failure_status = TLSF_GR1_REDUCE_OK;
   TlsfGr1ReductionStats *stats = options ? options->stats : nullptr;
   if (stats)
     *stats = {};
@@ -1420,6 +1468,8 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
                  result->provenance_json || result->provenance_size ||
                  result->symbol_map || result->symbol_map_size)) {
     report(error, TLSF_GR1_REDUCE_INVALID, "reduce", "result must be empty");
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_INVALID;
     return TLSF_GR1_REDUCE_INVALID;
   }
   if (!pipeline || !pipeline->spec || !pipeline->source_bytes ||
@@ -1428,6 +1478,8 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
       (options->semantics != TLSF_GR1_EXACT &&
        options->semantics != TLSF_GR1_STRICT)) {
     report(error, TLSF_GR1_REDUCE_INVALID, "reduce", "invalid argument");
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_INVALID;
     return TLSF_GR1_REDUCE_INVALID;
   }
   TlsfGr1ConstructionWork local_work{};
@@ -1441,39 +1493,45 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     sha256_hex(pipeline->source_bytes, pipeline->source_size, snapshot_sha256);
     if (memcmp(snapshot_sha256, pipeline->source_sha256,
                sizeof snapshot_sha256) != 0)
-      throw Failure(TLSF_GR1_REDUCE_INVALID, "source",
+      throw Failure(TLSF_GR1_REDUCE_INVALID, TLSF_GR1_REDUCE_INVALID, "source",
                     "source snapshot SHA-256 mismatch");
     const TlsfSpec *spec = pipeline->spec;
     if (spec->info.semantics != SEM_MEALY || spec->info.target != TARGET_MEALY)
-      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "semantics",
-                    "unsupported non-Mealy SEMANTICS/TARGET");
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
+                    "semantics", "unsupported non-Mealy SEMANTICS/TARGET");
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+    reduction_test_source(spec);
+#endif
     std::vector<std::string> inputs, outputs;
     std::map<std::string, std::string> symbols;
     for (uint32_t i = 0; i < spec->input_count; ++i) {
       std::string name(spec->inputs[i].name);
       if (!symbols.emplace(name, "uncontrollable_i" + std::to_string(i)).second)
-        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "signals",
-                      "expanded TLSF signal names are not unique");
+        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                      "signals", "expanded TLSF signal names are not unique");
       inputs.push_back(name);
     }
     for (uint32_t i = 0; i < spec->output_count; ++i) {
       std::string name(spec->outputs[i].name);
       if (!symbols.emplace(name, "controllable_o" + std::to_string(i)).second)
-        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "signals",
-                      "expanded TLSF signal names are not unique");
+        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                      "signals", "expanded TLSF signal names are not unique");
       outputs.push_back(name);
     }
     Formula formula = spot_call(limits, "parse-formula", [&] {
       return spot::parse_formula(
           canonicalize(printed_ltl(const_cast<TlsfSpec *>(spec)), symbols));
     });
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+    reduction_test_formula("source", formula);
+#endif
     std::set<std::string> encoded_names;
     for (const auto &[raw, encoded] : symbols)
       encoded_names.insert(encoded);
     for (const auto &name : ap_names(formula))
       if (!encoded_names.count(name))
-        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, "formula",
-                      "lowered formula has undeclared APs");
+        throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                      "formula", "lowered formula has undeclared APs");
     std::vector<Formula> assumptions, guarantees;
     if (formula.kind() == spot::op::Implies) {
       conjuncts(formula[0], assumptions);
@@ -1498,12 +1556,13 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
       work.monitors_completed++;
       if ((budget.max_total_states && work.states > budget.max_total_states) ||
           (budget.max_total_edges && work.edges > budget.max_total_edges))
-        throw Failure(TLSF_GR1_REDUCE_LIMIT, "budget-monitor",
+        throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                      "budget-monitor",
                       "total monitor state or edge limit exceeded");
       if (stats)
         stats->monitor_states = work.states;
       if (work.states > options->max_monitor_states)
-        throw Failure(TLSF_GR1_REDUCE_LIMIT, "monitor",
+        throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "monitor",
                       "total monitor state cap exceeded");
       monitors.push_back(std::move(monitor));
       if (stats)
@@ -1554,10 +1613,12 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
         "metadata");
     File source(fmemopen(encoded.aag.data(), encoded.aag.size(), "r"));
     if (!source)
-      throw Failure(TLSF_GR1_REDUCE_LIMIT, "aag", "cannot open memory stream");
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "aag",
+                    "cannot open memory stream");
     Aig *game = aig_read_aag(source.get());
     if (!game)
-      throw Failure(TLSF_GR1_REDUCE_ERROR, "aag", "generated AAG is invalid");
+      throw Failure(TLSF_GR1_REDUCE_ERROR, TLSF_GR1_REDUCE_ERROR, "aag",
+                    "generated AAG is invalid");
     if (stats) {
       stats->game_latches = aig_num_latches(game);
       stats->game_ands = aig_num_ands(game);
@@ -1571,24 +1632,42 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
     result->provenance_size = provenance_json.size();
     result->symbol_map = copy_text(symbol_map);
     result->symbol_map_size = symbol_map.size();
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+    reduction_test_provenance(result, options->semantics);
+#endif
     report(error, TLSF_GR1_REDUCE_OK, "reduce", "");
     return TLSF_GR1_REDUCE_OK;
   } catch (const Failure &failure) {
     tlsf_gr1_reduction_clear(result);
     report(error, failure.status, failure.stage, failure.what());
+    if (failure_status)
+      *failure_status = failure.failure_status;
     return failure.status;
   } catch (const std::bad_alloc &) {
     tlsf_gr1_reduction_clear(result);
     report(error, TLSF_GR1_REDUCE_LIMIT, "allocation",
            "host allocation failed");
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_LIMIT;
     return TLSF_GR1_REDUCE_LIMIT;
   } catch (const std::exception &failure) {
     tlsf_gr1_reduction_clear(result);
     report(error, TLSF_GR1_REDUCE_ERROR, "reduce", failure.what());
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_ERROR;
     return TLSF_GR1_REDUCE_ERROR;
   } catch (...) {
     tlsf_gr1_reduction_clear(result);
     report(error, TLSF_GR1_REDUCE_ERROR, "reduce", "unknown exception");
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_ERROR;
     return TLSF_GR1_REDUCE_ERROR;
   }
+}
+
+extern "C" TlsfGr1ReductionStatus
+tlsf_gr1_reduce(const TlsfPipeline *pipeline,
+                const TlsfGr1ReductionOptions *options,
+                TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
+  return tlsf_gr1_reduce_v1(pipeline, options, result, error, nullptr);
 }
