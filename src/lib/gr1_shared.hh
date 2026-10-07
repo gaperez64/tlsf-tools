@@ -95,6 +95,7 @@ FailureCause check_failure_cause(TlsfGr1CheckStatus status,
                                  TlsfGr1CheckVerdict verdict);
 struct Config {
   TlsfGr1LiftOptions o{};
+  TlsfGr1StructureGuardOptionsV1 structure_guard{1};
   mutable std::optional<FailureCause> search_cause;
   mutable std::string search_stage, search_message;
   void note_failure(const Failure &e) const {

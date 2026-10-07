@@ -189,6 +189,22 @@ TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v1(
     const uint8_t *source, size_t source_size,
     const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
     TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status);
+/* V2 accepts the same immutable research scale for target and seed reductions.
+ * Pass the same setting to preparation and solving. NULL is incumbent 1.
+ * Base budgets are still read live; scaling never mutates caller options. */
+TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v2(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    TlsfGr1LiftTarget **target, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status);
+TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v2(
+    const uint8_t *source, size_t source_size,
+    const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    TlsfGr1LiftTarget **target, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status);
 void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target);
 TlsfGr1LiftStatus tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
                                             const TlsfGr1LiftOptions *options,
@@ -201,6 +217,11 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
                              const TlsfGr1LiftOptions *options,
                              TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
                              TlsfGr1LiftStatus *failure_status);
+TlsfGr1LiftStatus tlsf_gr1_lift_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status);
 /* Use after any caller-side mutation hooks, before accepting the result. */
 int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
                                  const TlsfGr1LiftResult *result);
@@ -312,6 +333,11 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
     const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
     TlsfGr1LiftError *error);
 
+TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error);
 void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,

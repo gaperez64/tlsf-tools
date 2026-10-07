@@ -28,6 +28,7 @@ extern "C" {
 
 #include <algorithm>
 #include <chrono>
+#include <bit>
 #include <cctype>
 #include <ctime>
 #include <cstdio>
@@ -126,6 +127,7 @@ struct Limits {
   // The caller's options; the budget is read live at each check.
   const TlsfGr1ReductionOptions &options;
   TlsfGr1ConstructionWork &work;
+  double structure_guard_scale = 1;
   void check(const char *stage) const {
     const TlsfGr1ConstructionBudget &budget = options.budget;
     if (options.cancelled && options.cancelled(options.cancel_ctx))
@@ -220,13 +222,25 @@ void precheck(const std::vector<Formula> &assumptions,
               ? UINT64_MAX
               : w.predicted_monitor_states + estimate;
     }
-  if ((b.max_formula_nodes && w.formula_nodes > b.max_formula_nodes) ||
-      (b.max_ap_count && w.ap_count > b.max_ap_count) ||
-      (b.max_conjuncts && w.conjuncts > b.max_conjuncts) ||
-      (b.max_conjunct_nodes && w.max_conjunct_nodes > b.max_conjunct_nodes) ||
-      (b.max_temporal_depth && w.max_temporal_depth > b.max_temporal_depth) ||
-      (b.max_predicted_monitor_states &&
-       w.predicted_monitor_states > b.max_predicted_monitor_states))
+  const auto exceeds = [&](uint64_t value, uint64_t limit) {
+    if (!limit || limits.structure_guard_scale == 0)
+      return false;
+    if (limits.structure_guard_scale == 1)
+      return value > limit;
+    const long double scaled =
+        static_cast<long double>(limit) * limits.structure_guard_scale;
+    const uint64_t threshold =
+        scaled >= static_cast<long double>(UINT64_MAX)
+            ? UINT64_MAX
+            : std::max(uint64_t{1}, static_cast<uint64_t>(scaled));
+    return value > threshold;
+  };
+  if (exceeds(w.formula_nodes, b.max_formula_nodes) ||
+      exceeds(w.ap_count, b.max_ap_count) ||
+      exceeds(w.conjuncts, b.max_conjuncts) ||
+      exceeds(w.max_conjunct_nodes, b.max_conjunct_nodes) ||
+      exceeds(w.max_temporal_depth, b.max_temporal_depth) ||
+      exceeds(w.predicted_monitor_states, b.max_predicted_monitor_states))
     throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
                   "budget-structure", "structural construction limit exceeded");
   limits.check("budget-structure");
@@ -1454,8 +1468,9 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
 }
 
 extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
+tlsf_gr1_reduce_v2(const TlsfPipeline *pipeline,
                    const TlsfGr1ReductionOptions *options,
+                   const TlsfGr1StructureGuardOptionsV1 *structure_guard,
                    TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
                    TlsfGr1ReductionStatus *failure_status) {
   if (failure_status)
@@ -1468,6 +1483,16 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
                  result->provenance_json || result->provenance_size ||
                  result->symbol_map || result->symbol_map_size)) {
     report(error, TLSF_GR1_REDUCE_INVALID, "reduce", "result must be empty");
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_INVALID;
+    return TLSF_GR1_REDUCE_INVALID;
+  }
+  const double scale = structure_guard ? structure_guard->scale : 1;
+  if ((std::bit_cast<uint64_t>(scale) & 0x7ff0000000000000ull) ==
+          0x7ff0000000000000ull ||
+      scale < 0) {
+    report(error, TLSF_GR1_REDUCE_INVALID, "arguments",
+           "invalid structure guard scale");
     if (failure_status)
       *failure_status = TLSF_GR1_REDUCE_INVALID;
     return TLSF_GR1_REDUCE_INVALID;
@@ -1487,7 +1512,7 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
   const TlsfGr1ConstructionBudget &budget = options->budget;
   try {
     StatsScope source_stats(*options, TLSF_GR1_REDUCE_STATS_SOURCE);
-    Limits limits{*options, work};
+    Limits limits{*options, work, scale};
     limits.check("reduce");
     char snapshot_sha256[65];
     sha256_hex(pipeline->source_bytes, pipeline->source_size, snapshot_sha256);
@@ -1663,6 +1688,15 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
       *failure_status = TLSF_GR1_REDUCE_ERROR;
     return TLSF_GR1_REDUCE_ERROR;
   }
+}
+
+extern "C" TlsfGr1ReductionStatus
+tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
+                   const TlsfGr1ReductionOptions *options,
+                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                   TlsfGr1ReductionStatus *failure_status) {
+  return tlsf_gr1_reduce_v2(pipeline, options, nullptr, result, error,
+                            failure_status);
 }
 
 extern "C" TlsfGr1ReductionStatus

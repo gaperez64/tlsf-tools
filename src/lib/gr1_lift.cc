@@ -13,6 +13,7 @@ extern "C" {
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -233,8 +234,8 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   lift_test_reduction_calls++;
 #endif
   TlsfGr1ReductionStatus reduction_cause = TLSF_GR1_REDUCE_OK;
-  auto status = tlsf_gr1_reduce_v1(pipeline.get(), &ro, &instance->r, &err,
-                                   &reduction_cause);
+  auto status = tlsf_gr1_reduce_v2(pipeline.get(), &ro, &cfg.structure_guard,
+                                   &instance->r, &err, &reduction_cause);
   const TlsfGr1ConstructionWork &reduction_work = reduction_stats.work;
   if (cfg.work) {
     auto add = [](uint64_t &dst, uint64_t value) {
@@ -2583,8 +2584,18 @@ struct TlsfGr1LiftTarget {
 };
 
 namespace gr1_lift_internal {
-Config lift_config(const TlsfGr1LiftOptions *options) {
+Config
+lift_config(const TlsfGr1LiftOptions *options,
+            const TlsfGr1StructureGuardOptionsV1 *structure_guard = nullptr) {
   Config cfg{defaults(options)};
+  if (structure_guard) {
+    if ((std::bit_cast<uint64_t>(structure_guard->scale) &
+         0x7ff0000000000000ull) == 0x7ff0000000000000ull ||
+        structure_guard->scale < 0)
+      throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid, "arguments",
+                    "invalid structure guard scale");
+    cfg.structure_guard = *structure_guard;
+  }
   static const TlsfGr1ConstructionBudget empty_budget{};
   cfg.budget = options ? &options->budget : &empty_budget;
   cfg.stats = options ? options->stats : nullptr;
@@ -2973,11 +2984,13 @@ tlsf_gr1_lift(const uint8_t *source, size_t source_size,
   return status;
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v1(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v2(
     const uint8_t *source, size_t source_size,
     const ParamOverride *target_overrides, size_t target_override_count,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
-    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
+    const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    TlsfGr1LiftTarget **target, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status) {
   if (failure_status)
     *failure_status = TLSF_GR1_LIFT_OK;
   auto *stats = options ? options->stats : nullptr;
@@ -2993,7 +3006,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v1(
   }
   return invoke_lift(
       [&] {
-        auto cfg = lift_config(options);
+        auto cfg = lift_config(options, structure_guard);
         if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
             cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
           throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
@@ -3009,10 +3022,12 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v1(
       error, stats, failure_status);
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v1(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v2(
     const uint8_t *source, size_t source_size,
-    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
-    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
+    const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    TlsfGr1LiftTarget **target, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status) {
   if (failure_status)
     *failure_status = TLSF_GR1_LIFT_OK;
   auto *stats = options ? options->stats : nullptr;
@@ -3027,7 +3042,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v1(
   }
   return invoke_lift(
       [&] {
-        auto cfg = lift_config(options);
+        auto cfg = lift_config(options, structure_guard);
         cfg.bytes(source_size, "source");
         auto owned = std::make_unique<TlsfGr1LiftTarget>();
         owned->trusted = prepare(source, source_size, {}, cfg, true, true);
@@ -3059,11 +3074,11 @@ extern "C" void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target) {
   delete target;
 }
 
-extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
-                             const TlsfGr1LiftOptions *options,
-                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
-                             TlsfGr1LiftStatus *failure_status) {
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
+    TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status) {
   auto *stats = options ? options->stats : nullptr;
   if (failure_status)
     *failure_status = TLSF_GR1_LIFT_OK;
@@ -3079,7 +3094,7 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
   memset(result, 0, sizeof *result);
   auto status = invoke_lift(
       [&] {
-        auto cfg = lift_config(options);
+        auto cfg = lift_config(options, structure_guard);
         if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
             cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
           throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
@@ -3131,8 +3146,9 @@ extern "C" void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result) {
   memset(result, 0, sizeof *result);
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1StructureGuardOptionsV1 *structure_guard,
     const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
     TlsfGr1LiftError *error) {
   TlsfGr1BothEventRoute live_route = TLSF_GR1_BOTH_EVENT_SEEDS;
@@ -3171,7 +3187,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
   result->target_reductions = 1;
   auto status = invoke_lift(
       [&] {
-        Config cfg = lift_config(options);
+        Config cfg = lift_config(options, structure_guard);
         const TrustedTarget &trusted = target->trusted;
         char source_hash[65]{}, game_hash[65]{};
         sha256_hex(trusted.snapshot.data(), trusted.snapshot.size(),
@@ -3495,4 +3511,36 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_env_lift_from_target(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
     TlsfGr1EnvLiftResult *result, TlsfGr1LiftError *error) {
   return env_lift_entry(target, options, result, error, true);
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_v1(
+    const uint8_t *source, size_t source_size,
+    const ParamOverride *target_overrides, size_t target_override_count,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
+  return tlsf_gr1_lift_target_prepare_v2(
+      source, source_size, target_overrides, target_override_count, options,
+      nullptr, target, error, failure_status);
+}
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_target_prepare_exact_v1(
+    const uint8_t *source, size_t source_size,
+    const TlsfGr1LiftOptions *options, TlsfGr1LiftTarget **target,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
+  return tlsf_gr1_lift_target_prepare_exact_v2(
+      source, source_size, options, nullptr, target, error, failure_status);
+}
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
+                             const TlsfGr1LiftOptions *options,
+                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+                             TlsfGr1LiftStatus *failure_status) {
+  return tlsf_gr1_lift_from_target_v2(target, options, nullptr, result, error,
+                                      failure_status);
+}
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error) {
+  return tlsf_gr1_both_from_target_v2(target, options, nullptr, observer,
+                                      result, error);
 }

@@ -35,6 +35,19 @@ typedef struct {
   uint32_t max_temporal_depth, max_total_states, max_total_edges;
   uint64_t max_rss_bytes;
 } TlsfGr1ConstructionBudget;
+/* Research-only structural precheck scaling. NULL selects 1 (incumbent).
+ * A finite positive scale multiplies only the six structural limits: formula
+ * nodes, APs, conjuncts, largest conjunct, temporal depth, predicted states.
+ * Effective integer limits are floor(limit * scale), at least 1, saturated at
+ * UINT64_MAX; an existing zero limit stays disabled. Scale 0 disables these
+ * six guards. Monitor states/edges, RSS, artifacts, deadlines and
+ * solver/checker nodes/caches are unchanged. Size-overflow checks remain
+ * enabled even at 0. Separate versioned options preserve all existing public
+ * struct layouts. */
+typedef struct {
+  double scale;
+} TlsfGr1StructureGuardOptionsV1;
+
 typedef struct {
   uint64_t formula_nodes, ap_count, conjuncts, max_conjunct_nodes;
   uint64_t max_temporal_depth, predicted_monitor_states;
@@ -125,6 +138,12 @@ TlsfGr1ReductionStatus tlsf_gr1_reduce(const TlsfPipeline *pipeline,
 TlsfGr1ReductionStatus
 tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
                    const TlsfGr1ReductionOptions *options,
+                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                   TlsfGr1ReductionStatus *failure_status);
+TlsfGr1ReductionStatus
+tlsf_gr1_reduce_v2(const TlsfPipeline *pipeline,
+                   const TlsfGr1ReductionOptions *options,
+                   const TlsfGr1StructureGuardOptionsV1 *structure_guard,
                    TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
                    TlsfGr1ReductionStatus *failure_status);
 void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result);

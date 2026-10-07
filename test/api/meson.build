@@ -13,6 +13,9 @@ if spot_dep.found()
 endif
 
 if native_gr1
+  structure_guard_exe = executable('structure_guard', 'structure_guard.cpp',
+                                    dependencies: tlsf_dep)
+  test('structure_guard', structure_guard_exe, timeout: 60, is_parallel: false)
   native_lift_exe = executable('native_lift', 'native_lift.cpp',
                                dependencies: tlsf_dep)
   native_lift_c_exe = executable('native_lift_c', 'native_lift_c.c',
