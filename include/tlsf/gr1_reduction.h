@@ -129,6 +129,30 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
                    TlsfGr1ReductionStatus *failure_status);
 void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result);
 
+/* Reduction-only research API. Never solves or checks a strategy. Ordinary
+ * infinite Mealy and Moore games are supported, strict semantics/reductions
+ * are declined. The pipeline has already adapted SEMANTICS to TARGET once.
+ * The complete lowered objective is complemented, ownership and move order
+ * are reversed, and a Moore dual is compiled by pushing its inputs once.
+ * Zero-initialize before use. construction_json survives a reduction decline
+ * (but not a construction failure); reduction is empty on any failure. */
+typedef struct {
+  TlsfGr1Reduction reduction;
+  char *construction_json;
+  size_t construction_size;
+} TlsfGr1DualRecognitionV1;
+/* Called after construction is bound/published and before monitor reduction.
+ * The borrowed JSON is valid until the result is cleared. */
+typedef struct {
+  void (*constructed)(void *, const char *, size_t);
+  void *context;
+} TlsfGr1DualObserverV1;
+TlsfGr1ReductionStatus tlsf_gr1_recognize_dual_v1(
+    const TlsfPipeline *pipeline, const TlsfGr1ReductionOptions *options,
+    const TlsfGr1DualObserverV1 *observer, TlsfGr1DualRecognitionV1 *result,
+    TlsfGr1ReductionError *error, TlsfGr1ReductionStatus *failure_status);
+void tlsf_gr1_dual_recognition_clear_v1(TlsfGr1DualRecognitionV1 *result);
+
 #ifdef __cplusplus
 }
 #endif

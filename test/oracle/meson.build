@@ -146,3 +146,9 @@ if research_tools and have_oxidd
     )
   endif
 endif
+
+if native_gr1 and spot_python_found
+  test('dual_recognition_exact', spot_python,
+    args: [files('test_dual_recognition.py'), dual_recognition_exe,
+           meson.project_build_root()], env: spot_python_env, timeout: 180)
+endif

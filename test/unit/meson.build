@@ -61,3 +61,9 @@ if research_tools and have_oxidd
     'aiger_game_roundtrip.c', dependencies: tlsf_oxidd_dep)
   test('aiger_game_roundtrip', aiger_game_roundtrip_exe)
 endif
+
+if native_gr1
+  dual_objective_exe = executable('dual_objective', 'dual_objective.cpp',
+    dependencies: tlsf_internal_dep)
+  test('dual_objective_roundtrip', dual_objective_exe)
+endif

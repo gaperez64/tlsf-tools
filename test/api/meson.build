@@ -61,3 +61,8 @@ if python3.found()
     args: [files('check_layout.py'), meson.project_source_root(),
            meson.project_build_root()])
 endif
+
+if native_gr1
+  dual_recognition_exe = executable('dual_recognition', 'dual_recognition.cpp',
+    dependencies: tlsf_dep)
+endif

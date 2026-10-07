@@ -9,6 +9,7 @@ extern "C" {
 }
 
 #include "yyjson_cpp.hh"
+#include "gr1_dual.hh"
 #include <spot/misc/optionmap.hh>
 #include <spot/tl/apcollect.hh>
 #include <spot/tl/hierarchy.hh>
@@ -1453,11 +1454,13 @@ extern "C" void tlsf_gr1_reduction_clear(TlsfGr1Reduction *result) {
   *result = {};
 }
 
-extern "C" TlsfGr1ReductionStatus
-tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
-                   const TlsfGr1ReductionOptions *options,
-                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
-                   TlsfGr1ReductionStatus *failure_status) {
+static TlsfGr1ReductionStatus
+reduce_impl(const TlsfPipeline *pipeline,
+            const TlsfGr1ReductionOptions *options, TlsfGr1Reduction *result,
+            TlsfGr1ReductionError *error,
+            TlsfGr1ReductionStatus *failure_status,
+            TlsfGr1DualRecognitionV1 *dual_result = nullptr,
+            const TlsfGr1DualObserverV1 *observer = nullptr) {
   if (failure_status)
     *failure_status = TLSF_GR1_REDUCE_OK;
   TlsfGr1ReductionStats *stats = options ? options->stats : nullptr;
@@ -1496,7 +1499,15 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
       throw Failure(TLSF_GR1_REDUCE_INVALID, TLSF_GR1_REDUCE_INVALID, "source",
                     "source snapshot SHA-256 mismatch");
     const TlsfSpec *spec = pipeline->spec;
-    if (spec->info.semantics != SEM_MEALY || spec->info.target != TARGET_MEALY)
+    if (dual_result && (options->semantics != TLSF_GR1_EXACT ||
+                        semantics_is_strict(spec->info.semantics)))
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
+                    "dual-strict", "strict-only dual reduction is forbidden");
+    if (dual_result && semantics_is_finite(spec->info.semantics))
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
+                    "dual-semantics", "finite dual objectives are unsupported");
+    if (!dual_result && (spec->info.semantics != SEM_MEALY ||
+                         spec->info.target != TARGET_MEALY))
       throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
                     "semantics", "unsupported non-Mealy SEMANTICS/TARGET");
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
@@ -1532,6 +1543,72 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
       if (!encoded_names.count(name))
         throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
                       "formula", "lowered formula has undeclared APs");
+    json::value construction;
+    if (dual_result) {
+      // spec_adapt_target ran in pipeline_load. Work on the full resulting
+      // objective; do not swap ASSUME/GUARANTEE or re-adapt that source AST.
+      tlsf::gr1::Objective original{raw_formula(formula, symbols), inputs,
+                                    outputs, spec->info.target == TARGET_MOORE};
+      auto dual = tlsf::gr1::dual(original);
+      inputs = dual.inputs;
+      outputs = dual.outputs;
+      symbols.clear();
+      for (size_t i = 0; i < inputs.size(); ++i)
+        symbols.emplace(inputs[i], "uncontrollable_i" + std::to_string(i));
+      for (size_t i = 0; i < outputs.size(); ++i)
+        symbols.emplace(outputs[i], "controllable_o" + std::to_string(i));
+      auto compiled = spot_call(limits, "dual-construct", [&] {
+        return tlsf::gr1::input_first_formula(dual);
+      });
+      spot::relabeling_map dual_symbols;
+      for (const auto &[raw, encoded] : symbols)
+        dual_symbols.emplace(Formula::ap(raw), Formula::ap(encoded));
+      formula = spot::relabel_apply(compiled, &dual_symbols);
+      json::array ownership;
+      for (const auto &name : inputs)
+        ownership.push_back(json::object{{"name", name},
+                                         {"original", "controller"},
+                                         {"dual", "environment"}});
+      for (const auto &name : outputs)
+        ownership.push_back(json::object{{"name", name},
+                                         {"original", "environment"},
+                                         {"dual", "controller"}});
+      construction = json::object{
+          {"schema", "tlsf-tools.dual-gr1-construction.v1"},
+          {"source_sha256", pipeline->source_sha256},
+          {"source_semantics",
+           semantics_is_moore(spec->info.semantics) ? "Moore" : "Mealy"},
+          {"source_target", original.moore ? "Moore" : "Mealy"},
+          {"target_adaptation_count",
+           semantics_is_moore(spec->info.semantics) != original.moore ? 1 : 0},
+          {"original_objective", canonical_formula_text(original.formula)},
+          {"dual_objective", canonical_formula_text(dual.formula)},
+          {"compiled_objective", canonical_formula_text(compiled)},
+          {"dual_timing", dual.moore ? "Moore" : "Mealy"},
+          {"compiled_timing", "Mealy"},
+          {"dual_input_push_count", dual.moore ? 1 : 0},
+          {"original_initial_quantifiers", original.moore
+                                               ? "exists output forall input"
+                                               : "forall input exists output"},
+          {"dual_initial_quantifiers",
+           dual.moore ? "exists original input forall original output"
+                      : "forall original output exists original input"},
+          {"dummy_initial_input", dual.moore},
+          {"ownership", ownership},
+          {"derivation", "negate lowered objective; exchange "
+                         "ownership; reverse timing; compile inputs"},
+          {"frontend_provenance",
+           pipeline->frontend_provenance_json
+               ? json::parse(pipeline->frontend_provenance_json)
+               : json::value(nullptr)}};
+      std::string bytes = json::serialize(construction) + '\n';
+      limits.bytes(bytes.size(), "dual-construct");
+      dual_result->construction_json = copy_text(bytes);
+      dual_result->construction_size = bytes.size();
+      if (observer && observer->constructed)
+        observer->constructed(observer->context, dual_result->construction_json,
+                              dual_result->construction_size);
+    }
     std::vector<Formula> assumptions, guarantees;
     if (formula.kind() == spot::op::Implies) {
       conjuncts(formula[0], assumptions);
@@ -1582,8 +1659,40 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
     Encoded encoded = encode(monitors, inputs, outputs, strict, limits);
     encode_stats.finish();
     StatsScope publish_stats(*options, TLSF_GR1_REDUCE_STATS_PUBLISH);
-    std::string provenance_json = json::serialize(provenance(
-        pipeline, monitors, inputs, outputs, symbols, strict, encoded, limits));
+    json::value origin;
+    if (dual_result) {
+      // Derived monitors are deterministic state, not fresh player choices.
+      // All belong to the complemented objective. Bind each to the entire
+      // source derivation, including initial, safety and assumption blocks.
+      json::array records;
+      for (size_t i = 0; i < monitors.size(); ++i) {
+        const auto &monitor = monitors[i];
+        json::array latches;
+        for (auto lit : monitor.latches)
+          latches.push_back(lit);
+        records.push_back(json::object{
+            {"monitor", i},
+            {"side", monitor.assumption ? "assumption" : "guarantee"},
+            {"role", monitor.role},
+            {"owner", "deterministic"},
+            {"conjunct", monitor.construction_formula},
+            {"mp_class", std::string(1, monitor.mp_class)},
+            {"latch_literals", latches},
+            {"state_count", monitor.automaton->num_states()},
+            {"source_origin", "negated-objective"}});
+      }
+      origin = json::object{
+          {"schema", "tlsf-tools.dual-gr1-provenance.v1"},
+          {"semantics", "exact"},
+          {"construction", construction},
+          {"monitors", records},
+          {"latch_encoding", "one-hot"},
+          {"proof_binding", "recognition-only; no proof or original verdict"}};
+    } else {
+      origin = provenance(pipeline, monitors, inputs, outputs, symbols, strict,
+                          encoded, limits);
+    }
+    std::string provenance_json = json::serialize(origin);
     provenance_json += '\n';
     limits.bytes(provenance_json.size(), "provenance");
     char aag_sha256[65];
@@ -1607,6 +1716,14 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
                                          })},
                           {"justice_count", encoded.justice},
                           {"fairness_count", encoded.fairness}};
+    if (dual_result) {
+      char construction_hash[65];
+      sha256_hex(dual_result->construction_json, dual_result->construction_size,
+                 construction_hash);
+      metadata["orientation"] = "dual";
+      metadata["construction_sha256"] = construction_hash;
+      metadata["recognition_only"] = true;
+    }
     std::string metadata_json = json::serialize(metadata) + '\n';
     limits.bytes(
         checked_add(metadata_json.size(), symbol_map.size(), "metadata-size"),
@@ -1670,4 +1787,36 @@ tlsf_gr1_reduce(const TlsfPipeline *pipeline,
                 const TlsfGr1ReductionOptions *options,
                 TlsfGr1Reduction *result, TlsfGr1ReductionError *error) {
   return tlsf_gr1_reduce_v1(pipeline, options, result, error, nullptr);
+}
+
+extern "C" TlsfGr1ReductionStatus
+tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
+                   const TlsfGr1ReductionOptions *options,
+                   TlsfGr1Reduction *result, TlsfGr1ReductionError *error,
+                   TlsfGr1ReductionStatus *failure_status) {
+  return reduce_impl(pipeline, options, result, error, failure_status);
+}
+
+extern "C" void
+tlsf_gr1_dual_recognition_clear_v1(TlsfGr1DualRecognitionV1 *result) {
+  if (!result)
+    return;
+  tlsf_gr1_reduction_clear(&result->reduction);
+  free(result->construction_json);
+  *result = {};
+}
+
+extern "C" TlsfGr1ReductionStatus tlsf_gr1_recognize_dual_v1(
+    const TlsfPipeline *pipeline, const TlsfGr1ReductionOptions *options,
+    const TlsfGr1DualObserverV1 *observer, TlsfGr1DualRecognitionV1 *result,
+    TlsfGr1ReductionError *error, TlsfGr1ReductionStatus *failure_status) {
+  if (!result || result->construction_json || result->construction_size) {
+    report(error, TLSF_GR1_REDUCE_INVALID, "dual-arguments",
+           "result must be empty");
+    if (failure_status)
+      *failure_status = TLSF_GR1_REDUCE_INVALID;
+    return TLSF_GR1_REDUCE_INVALID;
+  }
+  return reduce_impl(pipeline, options, &result->reduction, error,
+                     failure_status, result, observer);
 }
