@@ -43,6 +43,21 @@ def main():
         build_archive(root, 1)
         run(*cmd, "write", str(oxidd), str(archive), str(stamp))
         run(*cmd, "check", str(oxidd), str(archive), str(stamp))
+        # The real export may lack Git metadata. Exercise known-revision
+        # mismatch checks through the real stamp code with a controlled source
+        # identity; archive hashing and the Meson relink remain unmodified.
+        probe = root / "stamp_probe.py"
+        probe.write_text(
+            "import importlib.util, sys\n"
+            f"spec = importlib.util.spec_from_file_location('stamp', {str(script)!r})\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(module)\n"
+            "module.revision = lambda source: ('f' * 40, '0')\n"
+            "sys.exit(module.main())\n"
+        )
+        script = probe
+        cmd = (sys.executable, str(script))
+        run(*cmd, "write", str(oxidd), str(archive), str(stamp))
         original = stamp.read_text()
         current = next(line[7:] for line in original.splitlines()
                        if line.startswith("commit="))
@@ -86,14 +101,14 @@ def main():
         )
         build = root / "build"
         run("meson", "setup", "--wrap-mode=nodownload", str(build), str(fixture))
-        run("ninja", "-C", str(build), "app")
+        run("ninja", "-C", str(build), "-j", "3", "app")
         assert run(str(build / "app")).stdout.strip() == "1"
         first_digest = hashlib.sha256((build / "app").read_bytes()).hexdigest()
         first_header = (build / "oxidd_build_stamp.h").read_text()
 
         good_stamp = stamp.read_text()
         stamp.write_text(good_stamp.replace(f"commit={current}", f"commit={other}"))
-        build_mismatch = run("ninja", "-C", str(build), "app", expect=1)
+        build_mismatch = run("ninja", "-C", str(build), "-j", "3", "app", expect=1)
         failure = build_mismatch.stdout + build_mismatch.stderr
         assert other in failure and current in failure, failure
         assert "Rerun scripts/build_oxidd.sh" in failure, failure
@@ -101,7 +116,7 @@ def main():
 
         build_archive(root, 2)
         run(*cmd, "write", str(oxidd), str(archive), str(stamp))
-        run("ninja", "-C", str(build), "app")
+        run("ninja", "-C", str(build), "-j", "3", "app")
         assert run(str(build / "app")).stdout.strip() == "2"
         assert (build / "oxidd_build_stamp.h").read_text() != first_header
         assert hashlib.sha256((build / "app").read_bytes()).hexdigest() != first_digest

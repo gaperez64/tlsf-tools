@@ -19,7 +19,10 @@ import re
 import sys
 
 root = pathlib.Path(sys.argv[1]).resolve()
-info = pathlib.Path(sys.argv[2]).resolve() / "meson-info"
+build = pathlib.Path(sys.argv[2]).resolve()
+while not (build / "meson-info/intro-targets.json").is_file() and build.parent != build:
+    build = build.parent
+info = build / "meson-info"
 errors = []
 
 targets = json.loads((info / "intro-targets.json").read_text())
@@ -28,13 +31,18 @@ for target in targets:
     for group in target["target_sources"]:
         for source in group.get("sources", []):
             path = pathlib.Path(source).resolve()
-            if root in path.parents and "subprojects" not in path.parts:
-                compiled[path.relative_to(root)].append(target["name"])
+            if root in path.parents:
+                relative = path.relative_to(root)
+                if "subprojects" not in relative.parts:
+                    compiled[relative].append(target["name"])
 for source, owners in sorted(compiled.items()):
     fault_owners = {
-        pathlib.Path("src/lib/gr1_reduction.cc"): {"native_contract_api"},
+        pathlib.Path("src/lib/gr1_reduction.cc"): {"native_contract_api", "acacia-bonsai-native-test"},
+        pathlib.Path("test/unit/reduction_contract_hooks.cc"): {"acacia-bonsai-native-test"},
         pathlib.Path("src/lib/gr1_lift.cc"): {"native_lift_api", "native_both_api",
                                                "native_real_both_api", "env_rank_fault_probe"},
+        pathlib.Path("src/lib/gr1_typed.cc"): {"native_lift_api", "native_both_api",
+                                                "native_real_both_api", "env_rank_fault_probe"},
         pathlib.Path("src/lib/gr1_env_lift.cc"): {"native_both_api",
                                                    "native_real_both_api", "env_rank_fault_probe"},
         pathlib.Path("test/unit/env_rank_probe.cpp"): {"env_rank_fault_probe"},
@@ -49,7 +57,8 @@ gr1 = {"gr1_check.h", "gr1_lift.h", "gr1_oxidd.h", "gr1_reduction.h",
        "oxidd_options.h", "safety_oxidd.h"}
 public = {path.name for path in (root / "include/tlsf").iterdir()
           if path.suffix in (".h", ".hpp")}
-expected = (public if options["native_gr1"] == "enabled" else public - gr1)
+native_gr1 = options.get("native_gr1", options.get("tlsf-tools:native_gr1"))
+expected = (public if native_gr1 == "enabled" else public - gr1)
 expected |= {"version.h"}
 plan = json.loads((info / "intro-install_plan.json").read_text())
 installed = {pathlib.PurePath(entry["destination"]).name

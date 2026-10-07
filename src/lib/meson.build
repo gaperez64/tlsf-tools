@@ -105,7 +105,7 @@ if have_oxidd
 endif
 
 if native_gr1
-  lib_sources += files('gr1_lift.cc', 'gr1_env_lift.cc', 'gr1_reduction.cc')
+  lib_sources += files('gr1_lift.cc', 'gr1_env_lift.cc', 'gr1_typed.cc', 'gr1_reduction.cc')
   cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
   lib_compile_deps += [spot_dep.partial_dependency(compile_args: true,
                                                    includes: true)]
@@ -155,6 +155,7 @@ endif
 # installed library, so only test/unit compiles it (a second time).
 gr1_lift_source = files('gr1_lift.cc')
 gr1_env_lift_source = files('gr1_env_lift.cc')
+gr1_typed_source = files('gr1_typed.cc')
 gr1_reduction_source = files('gr1_reduction.cc')
 reduction_contract_hooks = files('../../test/unit/reduction_contract_hooks.cc')
 

@@ -622,6 +622,45 @@ void validate_window(const Window &window, const Instance &target) {
               "selected seeds are not consecutive");
   }
 }
+std::pair<std::vector<int>, std::vector<int>>
+select_typed_window(const Instance &target, const std::string &axis,
+                    const std::map<int, Instance *> &probes,
+                    const Config &cfg) {
+  std::string reason = "no consecutive typed alignment";
+  for (const auto &[size, left] : probes) {
+    if (!probes.count(size + 1))
+      continue;
+    try {
+      auto coords = axis_members(target, *left);
+      auto shape = typed_shape(target, axis, coords.first);
+      std::vector<int> sizes{size, size + 1};
+      if (cfg.o.seed_confirmation != 2 && probes.count(size + 2))
+        sizes.push_back(size + 2);
+      bool stable = true;
+      size_t previous = 0;
+      for (int value : sizes) {
+        const Instance &seed = *probes.at(value);
+        cfg.check("typed_alignment");
+        auto current = axis_members(target, seed);
+        stable &= current.first == coords.first &&
+                  seed.members == current.second &&
+                  seed.members.size() > previous &&
+                  seed.members.size() < coords.first.size() &&
+                  typed_shape(seed, axis, seed.members) == shape;
+        previous = seed.members.size();
+      }
+      if (stable)
+        return {sizes, coords.first};
+      reason = "typed variable, owner or anchor inventory changed across seeds";
+    } catch (const Failure &e) {
+      cfg.note_failure(e);
+      if (e.status != TLSF_GR1_LIFT_DECLINED)
+        throw;
+      reason = e.what();
+    }
+  }
+  cfg.decline_search("typed_alignment", reason.c_str());
+}
 Window discover(const uint8_t *source, size_t size, const Instance &target,
                 TlsfGr1ReductionSemantics semantics, const Config &cfg) {
   auto axes = parameters(target);
@@ -658,6 +697,29 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
       }
     }
     Modes modes = target_modes(target);
+    if (cfg.r_typed_roles) {
+      std::map<int, Instance *> entries;
+      for (auto &probe : probes)
+        entries.emplace(probe.size, probe.inst.get());
+      try {
+        auto selected = select_typed_window(target, axis, entries, cfg);
+        Window result;
+        result.axis = axis;
+        result.modes = modes;
+        result.sizes = selected.first;
+        result.target_members = std::move(selected.second);
+        for (int value : result.sizes)
+          for (auto &probe : probes)
+            if (probe.size == value)
+              result.seeds.push_back(std::move(probe.inst));
+        return result;
+      } catch (const Failure &e) {
+        cfg.note_failure(e);
+        if (e.status != TLSF_GR1_LIFT_DECLINED)
+          throw;
+      }
+      continue;
+    }
     std::string target_shape = structural_shape(target, modes, cfg);
     for (size_t p = 1; p < probes.size(); p++) {
       if (probes[p].size != probes[p - 1].size + 1)
@@ -711,7 +773,11 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
       }
     }
   }
-  cfg.decline_search("seed_window", "no stable index axis");
+  cfg.decline_search(
+      cfg.r_typed_roles ? "typed_alignment" : "seed_window",
+      cfg.r_typed_roles
+          ? "no stable typed index axis or unsupported encoding width"
+          : "no stable index axis");
 }
 
 struct SharedSeeds {
@@ -781,46 +847,55 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
       }
     }
     try {
-      const auto shape = structural_shape(target, found.modes, cfg);
-      for (int k = 1; k + 1 <= last; k++) {
-        auto left = found.entries.find(k), right = found.entries.find(k + 1);
-        if (left == found.entries.end() || right == found.entries.end())
-          continue;
-        auto &a = *left->second.instance, &b = *right->second.instance;
-        if (structural_shape(a, found.modes, cfg) != shape ||
-            structural_shape(b, found.modes, cfg) != shape ||
-            a.members.size() >= b.members.size())
-          continue;
-        auto coords = axis_members(target, a);
-        if (b.members.size() >= coords.first.size())
-          continue;
-        std::vector<int> sizes{k, k + 1};
-        if (cfg.o.seed_confirmation != 2 && k + 2 <= last &&
-            found.entries.count(k + 2)) {
-          if (structural_shape(*found.entries.at(k + 2).instance, found.modes,
-                               cfg) != shape)
+      if (cfg.r_typed_roles) {
+        std::map<int, Instance *> entries;
+        for (auto &[size, entry] : found.entries)
+          entries.emplace(size, entry.instance.get());
+        auto selected = select_typed_window(target, axis, entries, cfg);
+        found.real_sizes = std::move(selected.first);
+        found.target_members = std::move(selected.second);
+      } else {
+        const auto shape = structural_shape(target, found.modes, cfg);
+        for (int k = 1; k + 1 <= last; k++) {
+          auto left = found.entries.find(k), right = found.entries.find(k + 1);
+          if (left == found.entries.end() || right == found.entries.end())
             continue;
-          sizes.push_back(k + 2);
+          auto &a = *left->second.instance, &b = *right->second.instance;
+          if (structural_shape(a, found.modes, cfg) != shape ||
+              structural_shape(b, found.modes, cfg) != shape ||
+              a.members.size() >= b.members.size())
+            continue;
+          auto coords = axis_members(target, a);
+          if (b.members.size() >= coords.first.size())
+            continue;
+          std::vector<int> sizes{k, k + 1};
+          if (cfg.o.seed_confirmation != 2 && k + 2 <= last &&
+              found.entries.count(k + 2)) {
+            if (structural_shape(*found.entries.at(k + 2).instance, found.modes,
+                                 cfg) != shape)
+              continue;
+            sizes.push_back(k + 2);
+          }
+          std::set<std::string> expected;
+          bool stable = true;
+          for (int size : sizes) {
+            auto roles = role_signatures(*found.entries.at(size).instance,
+                                         found.modes, cfg);
+            std::set<std::string> signatures;
+            for (const auto &[_, signature] : roles)
+              signatures.insert(signature);
+            if (expected.empty())
+              expected = signatures;
+            else if (expected != signatures)
+              stable = false;
+          }
+          if (!stable)
+            continue;
+          (void)role_signatures(target, found.modes, cfg, &coords.first);
+          found.real_sizes = std::move(sizes);
+          found.target_members = std::move(coords.first);
+          break;
         }
-        std::set<std::string> expected;
-        bool stable = true;
-        for (int size : sizes) {
-          auto roles = role_signatures(*found.entries.at(size).instance,
-                                       found.modes, cfg);
-          std::set<std::string> signatures;
-          for (const auto &[_, signature] : roles)
-            signatures.insert(signature);
-          if (expected.empty())
-            expected = signatures;
-          else if (expected != signatures)
-            stable = false;
-        }
-        if (!stable)
-          continue;
-        (void)role_signatures(target, found.modes, cfg, &coords.first);
-        found.real_sizes = std::move(sizes);
-        found.target_members = std::move(coords.first);
-        break;
       }
     } catch (const Failure &e) {
       cfg.note_failure(e);
@@ -832,24 +907,24 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
         found.entries.count(4) && found.entries.count(5)) {
       try {
-        env_typed_axis(target, axis);
-        const auto classes = env_typed_classes(*found.entries.at(3).instance);
+        typed_axis(target, axis);
+        const auto classes = typed_classes(*found.entries.at(3).instance);
         std::vector<int> target_members;
         bool stable = true;
         for (int size : {3, 4, 5}) {
           auto &seed = *found.entries.at(size).instance;
-          env_typed_axis(seed, axis);
+          typed_axis(seed, axis);
           auto coords = axis_members(target, seed);
           if (seed.members.size() != size_t(size) ||
               coords.first.size() <= seed.members.size() ||
-              env_typed_classes(seed) != classes)
+              typed_classes(seed) != classes)
             stable = false;
           if (target_members.empty())
             target_members = coords.first;
           else if (target_members != coords.first)
             stable = false;
         }
-        if (env_typed_classes(target) != classes)
+        if (typed_classes(target) != classes)
           stable = false;
         if (stable) {
           found.env_sizes = {3, 4, 5};
@@ -867,8 +942,12 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     if (!found.real_sizes.empty() || !found.env_sizes.empty())
       return found;
   }
-  if (cfg.search_cause)
-    cfg.decline_search("seed_window", "no stable index axis");
+  if (cfg.search_cause || cfg.r_typed_roles)
+    cfg.decline_search(
+        cfg.r_typed_roles ? "typed_alignment" : "seed_window",
+        cfg.r_typed_roles
+            ? "no stable typed index axis or unsupported encoding width"
+            : "no stable index axis");
   return {};
 }
 void solve_seed(Instance &i, const Config &cfg) {
@@ -1071,6 +1150,7 @@ struct Variable {
 struct Goal {
   int number, owner;
   std::string key;
+  TypedAnchor anchor, fair_anchor;
 };
 struct GameView {
   const Instance *inst;
@@ -1082,83 +1162,129 @@ struct GameView {
   std::vector<bool> controls;
   std::map<std::string, int> output_by_name;
   uint32_t states, inputs, fairness;
+  bool typed = false;
+  std::map<int, TypedAnchor> fair_anchors;
   GameView(const Instance &i, const Modes &m, const Config &cfg,
-           const std::vector<int> *target_members = nullptr)
-      : inst(&i), modes(m), roles(role_signatures(i, m, cfg, target_members)),
+           const std::vector<int> *target_members = nullptr,
+           const std::string &axis = "")
+      : inst(&i), modes(m),
+        roles(cfg.r_typed_roles ? Roles{}
+                                : role_signatures(i, m, cfg, target_members)),
         members(target_members ? *target_members : i.members),
         states(aig_num_latches(i.r.game)), inputs(aig_num_inputs(i.r.game)),
         fairness(aig_num_fairness(i.r.game)) {
     auto &data = i.data;
-    std::map<uint32_t, std::pair<const O *, size_t>> latch_records;
-    for (const J &v : data.at("monitors").as_array()) {
-      const O &r = v.as_object();
-      const A &lits = r.at("latch_literals").as_array();
-      if (!lits.empty() && lits.size() != size_t(n(r, "state_count")))
-        decline(FailureCause::error, "schema_abi", "monitor inventory");
-      for (size_t state = 0; state < lits.size(); state++)
-        if (!latch_records
-                 .emplace(uint32_t(num(lits[state])), std::make_pair(&r, state))
-                 .second)
-          decline(FailureCause::error, "schema_abi",
-                  "duplicate monitor latch literal");
-    }
-    uint32_t violated = UINT32_MAX;
-    if (s(data, "semantics") == "strict" &&
-        !data.at("violated_latch_literal").is_null())
-      violated = uint32_t(num(data.at("violated_latch_literal")));
-    for (uint32_t p = 0; p < states; p++) {
-      uint32_t lit = 0;
-      aig_latch_at(i.r.game, p, &lit, nullptr, nullptr);
-      if (lit == violated) {
-        variables.push_back({int(p), "state", "strict_release", {}, {}});
-        continue;
+    typed = cfg.r_typed_roles;
+    if (typed) {
+      auto view = typed_game_view(i, axis, members);
+      roles = view.roles;
+      fair_anchors = view.fairness;
+      std::set<uint32_t> controlled;
+      for (const J &value : i.data.at("outputs").as_array())
+        controlled.insert(uint32_t(n(value.as_object(), "game_literal")));
+      for (uint32_t p = 0; p < states + inputs; p++) {
+        const char *name = p < states
+                               ? aig_latch_name(i.r.game, p)
+                               : aig_input_name(i.r.game, p - states, nullptr);
+        if (!name || !view.game_names.count(name))
+          decline(FailureCause::error, "typed_alignment",
+                  "missing typed game variable");
+        const auto &v = view.variables.at(view.game_names.at(name));
+        variables.push_back({int(p), p < states ? "state" : "letter", v.prefix,
+                             v.indices, v.owners});
+        if (p >= states) {
+          // Direction is bound by the reduction, independently of the AP
+          // spelling.
+          uint32_t literal;
+          aig_input_name(i.r.game, p - states, &literal);
+          controls.push_back(controlled.count(literal) != 0);
+        }
       }
-      auto found = latch_records.find(lit);
-      if (found == latch_records.end())
-        decline(FailureCause::error, "schema_abi", "unmatched latch literal");
-      const O &r = *found->second.first;
-      auto indices = monitor_indices(r);
-      if (monitor_is_symmetric(r, i, m))
-        indices.clear();
-      std::set<int> owners;
-      for (int x : indices)
-        if (roles.count(x))
-          owners.insert(x);
-      variables.push_back(
-          {int(p), "state",
-           key({monitor_key(r, i, m, cfg), field(found->second.second)}),
-           indices, std::move(owners)});
-    }
-    if (latch_records.size() + (violated != UINT32_MAX) != states)
-      decline(FailureCause::error, "schema_abi", "latch inventory");
-    std::map<uint32_t, const O *> signals;
-    for (const char *kind : {"inputs", "outputs"})
-      for (const J &v : data.at(kind).as_array()) {
+      for (const auto &[number, anchor] : view.goals) {
+        std::vector<std::string> owner_roles;
+        std::map<int, int> slots;
+        for (int owner : anchor.owners) {
+          auto [at, fresh] = slots.emplace(owner, int(slots.size()));
+          owner_roles.push_back(key({roles.at(owner), field(at->second)}));
+        }
+        goals.push_back(
+            {number, -1, key({anchor.kind, join(owner_roles)}), anchor});
+      }
+    } else {
+      std::map<uint32_t, std::pair<const O *, size_t>> latch_records;
+      for (const J &v : data.at("monitors").as_array()) {
         const O &r = v.as_object();
-        if (!signals.emplace(uint32_t(n(r, "game_literal")), &r).second)
-          decline(FailureCause::error, "schema_abi", "duplicate game literal");
+        const A &lits = r.at("latch_literals").as_array();
+        if (!lits.empty() && lits.size() != size_t(n(r, "state_count")))
+          decline(FailureCause::error, "schema_abi", "monitor inventory");
+        for (size_t state = 0; state < lits.size(); state++)
+          if (!latch_records
+                   .emplace(uint32_t(num(lits[state])),
+                            std::make_pair(&r, state))
+                   .second)
+            decline(FailureCause::error, "schema_abi",
+                    "duplicate monitor latch literal");
       }
-    if (signals.size() != inputs)
-      decline(FailureCause::error, "schema_abi", "signal inventory");
-    for (uint32_t p = 0; p < inputs; p++) {
-      uint32_t lit = 0;
-      aig_input_name(i.r.game, p, &lit);
-      auto it = signals.find(lit);
-      if (it == signals.end())
-        decline(FailureCause::error, "schema_abi", "game signal unmatched");
-      const O &r = *it->second;
-      if (s(r, "direction") != "input" && s(r, "direction") != "output")
-        decline(FailureCause::error, "schema_abi", "invalid signal direction");
-      controls.push_back(s(r, "direction") == "output");
-      auto indices = ints(r.at("index_tuple").as_array());
-      std::set<int> owners;
-      if (s(r, "index_role") == "element")
+      uint32_t violated = UINT32_MAX;
+      if (s(data, "semantics") == "strict" &&
+          !data.at("violated_latch_literal").is_null())
+        violated = uint32_t(num(data.at("violated_latch_literal")));
+      for (uint32_t p = 0; p < states; p++) {
+        uint32_t lit = 0;
+        aig_latch_at(i.r.game, p, &lit, nullptr, nullptr);
+        if (lit == violated) {
+          variables.push_back({int(p), "state", "strict_release", {}, {}});
+          continue;
+        }
+        auto found = latch_records.find(lit);
+        if (found == latch_records.end())
+          decline(FailureCause::error, "schema_abi", "unmatched latch literal");
+        const O &r = *found->second.first;
+        auto indices = monitor_indices(r);
+        if (monitor_is_symmetric(r, i, m))
+          indices.clear();
+        std::set<int> owners;
         for (int x : indices)
           if (roles.count(x))
             owners.insert(x);
-      variables.push_back({int(states + p), "letter",
-                           key({s(r, "direction"), s(r, "declaration_id")}),
-                           indices, std::move(owners)});
+        variables.push_back(
+            {int(p), "state",
+             key({monitor_key(r, i, m, cfg), field(found->second.second)}),
+             indices, std::move(owners)});
+      }
+      if (latch_records.size() + (violated != UINT32_MAX) != states)
+        decline(FailureCause::error, "schema_abi", "latch inventory");
+      std::map<uint32_t, const O *> signals;
+      for (const char *kind : {"inputs", "outputs"})
+        for (const J &v : data.at(kind).as_array()) {
+          const O &r = v.as_object();
+          if (!signals.emplace(uint32_t(n(r, "game_literal")), &r).second)
+            decline(FailureCause::error, "schema_abi",
+                    "duplicate game literal");
+        }
+      if (signals.size() != inputs)
+        decline(FailureCause::error, "schema_abi", "signal inventory");
+      for (uint32_t p = 0; p < inputs; p++) {
+        uint32_t lit = 0;
+        aig_input_name(i.r.game, p, &lit);
+        auto it = signals.find(lit);
+        if (it == signals.end())
+          decline(FailureCause::error, "schema_abi", "game signal unmatched");
+        const O &r = *it->second;
+        if (s(r, "direction") != "input" && s(r, "direction") != "output")
+          decline(FailureCause::error, "schema_abi",
+                  "invalid signal direction");
+        controls.push_back(s(r, "direction") == "output");
+        auto indices = ints(r.at("index_tuple").as_array());
+        std::set<int> owners;
+        if (s(r, "index_role") == "element")
+          for (int x : indices)
+            if (roles.count(x))
+              owners.insert(x);
+        variables.push_back({int(states + p), "letter",
+                             key({s(r, "direction"), s(r, "declaration_id")}),
+                             indices, std::move(owners)});
+      }
     }
     if (i.cert) {
       if (aig_num_inputs(i.cert.get()) != variables.size() ||
@@ -1182,35 +1308,37 @@ struct GameView {
           output_by_name[name] = int(p);
       }
     }
-    std::map<int, const O *> justice;
-    for (const J &v : data.at("monitors").as_array())
-      if (s(v.as_object(), "role") == "justice") {
-        const O &r = v.as_object();
-        if (!r.contains("justice_index") ||
-            !justice.emplace(int(n(r, "justice_index")), &r).second)
-          decline(FailureCause::error, "schema_abi", "duplicate justice ID");
-      }
-    if (s(data, "semantics") == "strict" && justice.empty() &&
-        aig_num_justice(i.r.game) == 1) {
-      goals.push_back({0, -1, "implicit_true_justice"});
-    } else {
-      if (justice.size() != aig_num_justice(i.r.game))
-        decline(FailureCause::error, "schema_abi", "justice inventory");
-      for (size_t p = 0; p < justice.size(); p++) {
-        auto found = justice.find(int(p));
-        if (found == justice.end())
-          decline(FailureCause::error, "schema_abi", "missing justice ID");
-        const O &r = *found->second;
-        auto indices = ints(
-            r.at("source_origin").as_object().at("index_tuple").as_array());
-        if (indices.size() > 1)
-          decline(FailureCause::applicability, "schema_abi",
-                  "multi-index goal");
-        int owner =
-            indices.size() == 1 && roles.count(indices[0]) ? indices[0] : -1;
-        std::string role = owner < 0 ? "null" : roles.at(owner);
-        goals.push_back(
-            {int(p), owner, key({monitor_key(r, i, m, cfg), role})});
+    if (!typed) {
+      std::map<int, const O *> justice;
+      for (const J &v : data.at("monitors").as_array())
+        if (s(v.as_object(), "role") == "justice") {
+          const O &r = v.as_object();
+          if (!r.contains("justice_index") ||
+              !justice.emplace(int(n(r, "justice_index")), &r).second)
+            decline(FailureCause::error, "schema_abi", "duplicate justice ID");
+        }
+      if (s(data, "semantics") == "strict" && justice.empty() &&
+          aig_num_justice(i.r.game) == 1) {
+        goals.push_back({0, -1, "implicit_true_justice"});
+      } else {
+        if (justice.size() != aig_num_justice(i.r.game))
+          decline(FailureCause::error, "schema_abi", "justice inventory");
+        for (size_t p = 0; p < justice.size(); p++) {
+          auto found = justice.find(int(p));
+          if (found == justice.end())
+            decline(FailureCause::error, "schema_abi", "missing justice ID");
+          const O &r = *found->second;
+          auto indices = ints(
+              r.at("source_origin").as_object().at("index_tuple").as_array());
+          if (indices.size() > 1)
+            decline(FailureCause::applicability, "schema_abi",
+                    "multi-index goal");
+          int owner =
+              indices.size() == 1 && roles.count(indices[0]) ? indices[0] : -1;
+          std::string role = owner < 0 ? "null" : roles.at(owner);
+          goals.push_back(
+              {int(p), owner, key({monitor_key(r, i, m, cfg), role})});
+        }
       }
     }
     for (uint32_t goal = 0; goal < aig_num_justice(i.r.game); goal++) {
@@ -1477,7 +1605,10 @@ public:
     return visit(root);
   }
 };
-std::string normal_key(const Variable &v, const std::map<int, int> &slots) {
+std::string normal_key(const Variable &v, const std::map<int, int> &slots,
+                       bool typed = false) {
+  if (typed)
+    return typed_variable_key(v.prefix, v.indices, v.owners, slots);
   std::vector<std::string> coords;
   for (int x : v.indices) {
     auto it = slots.find(x);
@@ -1488,6 +1619,10 @@ std::string normal_key(const Variable &v, const std::map<int, int> &slots) {
 }
 std::vector<int> ordered(const GameView &view, const std::vector<int> &subset,
                          const Goal *goal) {
+  if (view.typed)
+    return typed_selected(view.roles, subset,
+                          goal ? goal->anchor : TypedAnchor{},
+                          goal ? goal->fair_anchor : TypedAnchor{});
   std::vector<int> out = subset;
   std::sort(out.begin(), out.end(), [&](int a, int b) {
     if (goal && a == goal->owner)
@@ -1500,6 +1635,9 @@ std::vector<int> ordered(const GameView &view, const std::vector<int> &subset,
 }
 std::string group_key(const GameView &view, const std::vector<int> &subset,
                       const Goal *goal) {
+  if (view.typed)
+    return typed_group(view.roles, subset, goal ? goal->anchor : TypedAnchor{},
+                       goal ? goal->fair_anchor : TypedAnchor{});
   std::vector<std::string> roles, relation;
   for (int x : subset) {
     roles.push_back(view.roles.at(x));
@@ -1531,6 +1669,14 @@ Template project(Schema &bdd, const GameView &view, const B &function,
   auto support = bdd.support(function);
   subsets(view.members, arity, [&](const std::vector<int> &selected) {
     cfg.check("schema");
+    auto required = goal ? typed_anchor_members(goal->anchor, goal->fair_anchor)
+                         : std::vector<int>{};
+    if (view.typed && goal &&
+        !std::all_of(required.begin(), required.end(), [&](int owner) {
+          return std::find(selected.begin(), selected.end(), owner) !=
+                 selected.end();
+        }))
+      return;
     auto subset = ordered(view, selected, goal);
     std::set<int> set(subset.begin(), subset.end());
     std::map<int, int> slots;
@@ -1542,7 +1688,7 @@ Template project(Schema &bdd, const GameView &view, const B &function,
       if (std::includes(set.begin(), set.end(), v.owners.begin(),
                         v.owners.end())) {
         keep.insert(v.index);
-        int normalized = bdd.normal_var(normal_key(v, slots));
+        int normalized = bdd.normal_var(normal_key(v, slots, view.typed));
         mapping[v.index] = normalized;
         if (!back.emplace(normalized, v.index).second)
           decline(FailureCause::applicability, "schema_abi",
@@ -1563,7 +1709,7 @@ Template project(Schema &bdd, const GameView &view, const B &function,
     result.insert_or_assign(group, normalized);
     rebuilt = bdd.land(rebuilt, bdd.relabel(normalized, back));
   });
-  if (!same(rebuilt, function))
+  if ((view.typed && result.empty()) || !same(rebuilt, function))
     decline(FailureCause::applicability, "schema",
             "predicate not exactly reconstructed");
   return result;
@@ -1572,24 +1718,27 @@ struct Learned {
   Template templ;
   int arity;
 };
-Learned learn(Schema &bdd, const std::vector<GameView> &seeds,
+const GameView &view_ref(const GameView &view) { return view; }
+const GameView &view_ref(const GameView *view) { return *view; }
+template <typename View>
+Learned learn(Schema &bdd, const std::vector<View> &seeds,
               const std::vector<std::string> &names,
               const std::vector<const Goal *> &goals, const Config &cfg) {
   FailureCause cause = FailureCause::applicability;
   int limit = int(cfg.o.max_predicate_arity);
   for (const auto &seed : seeds)
-    limit = std::min(limit, int(seed.members.size()));
+    limit = std::min(limit, int(view_ref(seed).members.size()));
   for (int arity = 0; arity <= limit; arity++) {
     cfg.check("schema");
     bool has_larger = false;
     for (const auto &seed : seeds)
-      has_larger |= seed.members.size() > size_t(arity);
+      has_larger |= view_ref(seed).members.size() > size_t(arity);
     if (!has_larger)
       continue;
     std::vector<Template> observed;
     try {
       for (size_t p = 0; p < seeds.size(); p++) {
-        const auto &seed = seeds[p];
+        const auto &seed = view_ref(seeds[p]);
         B predicate =
             bdd.from_aig(seed.inst->cert.get(), seed.output(names[p]));
         observed.push_back(project(bdd, seed, predicate, arity, goals[p], cfg));
@@ -1630,6 +1779,14 @@ B instantiate(Schema &bdd, const GameView &target, const Learned &learned,
   B result = bdd.t();
   subsets(target.members, learned.arity, [&](const std::vector<int> &selected) {
     cfg.check("instantiate");
+    auto required = goal ? typed_anchor_members(goal->anchor, goal->fair_anchor)
+                         : std::vector<int>{};
+    if (target.typed && goal &&
+        !std::all_of(required.begin(), required.end(), [&](int owner) {
+          return std::find(selected.begin(), selected.end(), owner) !=
+                 selected.end();
+        }))
+      return;
     auto subset = ordered(target, selected, goal);
     auto it = learned.templ.find(group_key(target, subset, goal));
     if (it == learned.templ.end())
@@ -1643,7 +1800,10 @@ B instantiate(Schema &bdd, const GameView &target, const Learned &learned,
     for (const auto &v : target.variables)
       if (std::includes(set.begin(), set.end(), v.owners.begin(),
                         v.owners.end()))
-        concrete[normal_key(v, slots)] = v.index;
+        if (!concrete.emplace(normal_key(v, slots, target.typed), v.index)
+                 .second)
+          decline(FailureCause::applicability, "instantiate",
+                  "ambiguous target variable");
     std::map<int, int> mapping;
     for (int variable : bdd.support(it->second)) {
       auto found = concrete.find(bdd.normal_key(variable));
@@ -1668,7 +1828,7 @@ LearnedCertificate learn_certificate(Schema &bdd,
   if (seeds.empty())
     decline(FailureCause::error, "schema", "no seeds");
   for (const auto &seed : seeds) {
-    if (seed.fairness != target.fairness)
+    if (!target.typed && seed.fairness != target.fairness)
       decline(FailureCause::applicability, "schema_abi", "fairness changed");
     std::set<std::string> left, right;
     for (const auto &[coord, role] : seed.roles)
@@ -1685,23 +1845,24 @@ LearnedCertificate learn_certificate(Schema &bdd,
   for (const Goal &goal : target.goals) {
     int depth = -1;
     for (const auto &seed : seeds) {
-      const Goal *found = nullptr;
-      for (const Goal &g : seed.goals)
-        if (g.key == goal.key) {
-          found = &g;
-          break;
-        }
+      bool found = false;
+      for (const Goal &g : seed.goals) {
+        if (g.key != goal.key)
+          continue;
+        found = true;
+        int current = seed.levels(g);
+        if (current < 1)
+          decline(FailureCause::error, "schema", "empty rank depth");
+        if (depth >= 0 && current != depth)
+          throw Failure(TLSF_GR1_LIFT_DECLINED, FailureCause::applicability,
+                        "schema",
+                        "rank depth changed from " + field(depth) + " to " +
+                            field(current));
+        depth = current;
+        break;
+      }
       if (!found)
         decline(FailureCause::applicability, "schema_abi", "goal class absent");
-      int current = seed.levels(*found);
-      if (current < 1)
-        decline(FailureCause::error, "schema", "empty rank depth");
-      if (depth >= 0 && current != depth)
-        throw Failure(TLSF_GR1_LIFT_DECLINED, FailureCause::applicability,
-                      "schema",
-                      "rank depth changed from " + field(depth) + " to " +
-                          field(current));
-      depth = current;
     }
     out.depths.push_back(depth);
   }
@@ -1713,15 +1874,15 @@ LearnedCertificate learn_certificate(Schema &bdd,
     const Goal &goal = target.goals[goal_pos];
     std::vector<const Goal *> aligned;
     for (const auto &seed : seeds) {
-      const Goal *found = nullptr;
+      bool found = false;
       for (const Goal &g : seed.goals)
         if (g.key == goal.key) {
-          found = &g;
+          found = true;
+          aligned.push_back(&g);
           break;
         }
       if (!found)
         decline(FailureCause::applicability, "schema_abi", "goal class absent");
-      aligned.push_back(found);
     }
     int depth = out.depths[goal_pos];
     const uint32_t *members = nullptr;
@@ -1736,13 +1897,52 @@ LearnedCertificate learn_certificate(Schema &bdd,
       B y = bdd.f();
       for (int fair = 0; fair < int(std::max(1u, target.fairness)); fair++) {
         std::vector<std::string> names;
-        for (const Goal *g : aligned)
-          names.push_back("x_" + field(g->number) + "_" + field(level) + "_" +
-                          field(fair));
-        auto learned = learn(bdd, seeds, names, aligned, cfg);
+        Goal target_rank = goal;
+        Learned learned;
+        if (target.typed) {
+          target_rank.fair_anchor = target.fair_anchors.at(fair);
+          auto wanted = typed_anchor_class(target.roles, target_rank.anchor,
+                                           target_rank.fair_anchor);
+          std::vector<const GameView *> observations;
+          std::vector<Goal> anchors;
+          for (const auto &seed : seeds) {
+            bool found = false;
+            for (const auto &g : seed.goals) {
+              if (found)
+                break;
+              for (const auto &[ordinal, assumption] : seed.fair_anchors)
+                if (typed_anchor_class(seed.roles, g.anchor, assumption) ==
+                    wanted) {
+                  if (seed.levels(g) != depth)
+                    decline(FailureCause::applicability, "typed_alignment",
+                            "ordered goal/fairness rank depth changed");
+                  found = true;
+                  observations.push_back(&seed);
+                  Goal rank = g;
+                  rank.fair_anchor = assumption;
+                  anchors.push_back(std::move(rank));
+                  names.push_back("x_" + field(g.number) + "_" + field(level) +
+                                  "_" + field(ordinal));
+                  break;
+                }
+            }
+            if (!found)
+              decline(FailureCause::applicability, "typed_alignment",
+                      "ordered goal/fairness role tuple absent");
+          }
+          std::vector<const Goal *> ranks;
+          for (const auto &anchor : anchors)
+            ranks.push_back(&anchor);
+          learned = learn(bdd, observations, names, ranks, cfg);
+        } else {
+          for (const Goal *g : aligned)
+            names.push_back("x_" + field(g->number) + "_" + field(level) + "_" +
+                            field(fair));
+          learned = learn(bdd, seeds, names, aligned, cfg);
+        }
         std::string name =
             "x_" + field(goal.number) + "_" + field(level) + "_" + field(fair);
-        B x = instantiate(bdd, target, learned, &goal, cfg);
+        B x = instantiate(bdd, target, learned, &target_rank, cfg);
         y = bdd.lor(y, x);
         out.predicates.emplace(name, std::move(x));
         out.arities[name] = learned.arity;
@@ -2458,9 +2658,10 @@ void run(const TrustedTarget &trusted, const Config &cfg,
   std::vector<GameView> seeds;
   seeds.reserve(window.seeds.size());
   for (auto &seed : window.seeds)
-    seeds.emplace_back(*seed, window.modes, discovery_cfg);
+    seeds.emplace_back(*seed, window.modes, discovery_cfg, nullptr,
+                       window.axis);
   GameView target_view(*target, window.modes, discovery_cfg,
-                       &window.target_members);
+                       &window.target_members, window.axis);
   uint32_t width = uint32_t(target_view.variables.size());
   for (const auto &seed : seeds)
     width = std::max(width, uint32_t(seed.variables.size()));
@@ -2548,6 +2749,8 @@ void run(const TrustedTarget &trusted, const Config &cfg,
          {"checker_cache", cfg.o.checker_cache},
          {"schema_nodes", cfg.o.schema_nodes},
          {"schema_cache", cfg.o.schema_cache}}}};
+  if (cfg.r_typed_roles)
+    evidence.as_object()["global_knobs"].as_object()["r_typed_roles"] = true;
   if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE)
     evidence.as_object()["policy_sha256"] = policy_hash;
   candidate.evidence = dump(evidence);
@@ -2793,7 +2996,7 @@ void both_check(const TrustedTarget &trusted, const Config &cfg,
 }
 
 void publish_both(const TrustedTarget &trusted, const Candidate &candidate,
-                  TlsfGr1BothResult &out) {
+                  TlsfGr1BothResult &out, const Config &cfg) {
   char cert_hash[65]{}, policy_hash[65]{};
   sha256_hex(candidate.certificate.data(), candidate.certificate.size(),
              cert_hash);
@@ -2830,6 +3033,8 @@ void publish_both(const TrustedTarget &trusted, const Candidate &candidate,
         {"seed_solves", out.seed_solves},
         {"seed_checks", out.seed_checks},
         {"seed_cache_hits", out.seed_cache_hits}};
+  if (cfg.r_typed_roles)
+    evidence.as_object()["r_typed_roles"] = true;
   if (!candidate.policy.empty())
     evidence.as_object()["policy_sha256"] = policy_hash;
   auto &proof = out.proof;
@@ -3059,11 +3264,10 @@ extern "C" void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target) {
   delete target;
 }
 
-extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
-                             const TlsfGr1LiftOptions *options,
-                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
-                             TlsfGr1LiftStatus *failure_status) {
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status, const TlsfGr1TypedRolesV1 *roles) {
   auto *stats = options ? options->stats : nullptr;
   if (failure_status)
     *failure_status = TLSF_GR1_LIFT_OK;
@@ -3080,6 +3284,11 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
   auto status = invoke_lift(
       [&] {
         auto cfg = lift_config(options);
+        if (roles && roles->r_typed_roles > 1)
+          throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
+                        "arguments", "invalid typed roles option");
+        cfg.r_typed_roles = roles && roles->r_typed_roles;
+
         if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
             cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
           throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
@@ -3099,6 +3308,15 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
     tlsf_gr1_lift_result_clear(result);
   }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
+                             const TlsfGr1LiftOptions *options,
+                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+                             TlsfGr1LiftStatus *failure_status) {
+  return tlsf_gr1_lift_from_target_v2(target, options, result, error,
+                                      failure_status, nullptr);
 }
 
 extern "C" TlsfGr1LiftStatus
@@ -3131,10 +3349,10 @@ extern "C" void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result) {
   memset(result, 0, sizeof *result);
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
     const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
-    TlsfGr1LiftError *error) {
+    TlsfGr1LiftError *error, const TlsfGr1TypedRolesV1 *roles) {
   TlsfGr1BothEventRoute live_route = TLSF_GR1_BOTH_EVENT_SEEDS;
   int proof_unreal = -1;
   TlsfGr1LiftStatus failure_status = TLSF_GR1_LIFT_OK;
@@ -3172,6 +3390,10 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
   auto status = invoke_lift(
       [&] {
         Config cfg = lift_config(options);
+        if (roles && roles->r_typed_roles > 1)
+          throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
+                        "arguments", "invalid typed roles option");
+        cfg.r_typed_roles = roles && roles->r_typed_roles;
         const TrustedTarget &trusted = target->trusted;
         char source_hash[65]{}, game_hash[65]{};
         sha256_hex(trusted.snapshot.data(), trusted.snapshot.size(),
@@ -3387,7 +3609,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
           emit(TLSF_GR1_BOTH_EVENT_VERIFIED, "target_check");
           result->route = TLSF_GR1_BOTH_DIRECT;
         }
-        publish_both(trusted, winner, *result);
+        publish_both(trusted, winner, *result, cfg);
         target->checked_hashes = result_hashes(result->proof);
         target->checked_method = result->proof.method;
         target->checked_verdict = result->proof.verdict;
@@ -3401,6 +3623,14 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
     tlsf_gr1_lift_result_clear(&result->proof);
   }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error) {
+  return tlsf_gr1_both_from_target_v2(target, options, observer, result, error,
+                                      nullptr);
 }
 
 extern "C" TlsfGr1LiftStatus

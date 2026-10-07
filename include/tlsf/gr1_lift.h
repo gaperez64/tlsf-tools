@@ -135,6 +135,12 @@ typedef struct {
   void *stats_context;
 } TlsfGr1LiftOptions;
 
+/* Opt-in typed R alignment. Separate versioned options preserve the ABI of
+ * existing callers; zero (or null) selects the incumbent R path. */
+typedef struct {
+  uint32_t r_typed_roles;
+} TlsfGr1TypedRolesV1;
+
 typedef struct {
   TlsfGr1LiftStatus status;
   char stage[48], message[256];
@@ -201,6 +207,10 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
                              const TlsfGr1LiftOptions *options,
                              TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
                              TlsfGr1LiftStatus *failure_status);
+TlsfGr1LiftStatus tlsf_gr1_lift_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+    TlsfGr1LiftStatus *failure_status, const TlsfGr1TypedRolesV1 *roles);
 /* Use after any caller-side mutation hooks, before accepting the result. */
 int tlsf_gr1_lift_target_matches(const TlsfGr1LiftTarget *target,
                                  const TlsfGr1LiftResult *result);
@@ -311,6 +321,11 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
     const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
     TlsfGr1LiftError *error);
+
+TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error, const TlsfGr1TypedRolesV1 *roles);
 
 void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result);
 

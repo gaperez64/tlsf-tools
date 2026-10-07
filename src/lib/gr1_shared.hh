@@ -97,7 +97,13 @@ struct Config {
   TlsfGr1LiftOptions o{};
   mutable std::optional<FailureCause> search_cause;
   mutable std::string search_stage, search_message;
+  mutable std::optional<FailureCause> typed_cause;
+  mutable std::string typed_message;
   void note_failure(const Failure &e) const {
+    if (r_typed_roles && is_applicability(e.cause)) {
+      typed_cause = e.cause;
+      typed_message = e.what();
+    }
     if (!is_applicability(e.cause)) {
       search_cause = e.cause;
       search_stage = e.stage;
@@ -108,6 +114,8 @@ struct Config {
     if (search_cause)
       throw Failure(TLSF_GR1_LIFT_DECLINED, *search_cause, "search_error",
                     search_stage + ": " + search_message);
+    if (r_typed_roles && typed_cause && std::string(stage) == "typed_alignment")
+      decline(*typed_cause, stage, typed_message.c_str());
     decline(FailureCause::applicability, stage, why);
   }
   // The caller's budget, read live so a stats callback may tighten it.
@@ -124,6 +132,7 @@ struct Config {
   uint64_t policy_proof_ns = TLSF_GR1_LIFT_DEFAULT_POLICY_PROOF_NS;
   uint64_t phase_deadline_ns = 0;
   bool env_candidate = false;
+  bool r_typed_roles = false;
   // BDD cooperation may call check thousands of times per second. Keep
   // deadline/cancellation checks frequent, but bound the RSS syscalls.
   mutable uint64_t last_rss_sample_ns = 0;
@@ -288,7 +297,61 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
              CachedSeedWindow *shared_window = nullptr);
 void env_check(const TrustedTarget &trusted, const Config &cfg,
                TlsfGr1EnvLiftResult &candidate);
-void env_typed_axis(const Instance &i, const std::string &axis);
+void typed_axis(const Instance &i, const std::string &axis);
 std::pair<std::set<std::string>, std::set<std::string>>
-env_typed_classes(const Instance &i);
+typed_classes(const Instance &i);
+struct TypedAnchor {
+  std::string kind;
+  std::vector<int> owners;
+};
+struct TypedVariable {
+  std::string identity, prefix;
+  std::vector<int> indices;
+  std::set<int> owners;
+  std::string order_field;
+};
+struct TypedOutput {
+  std::string name, class_key, identity;
+  TypedAnchor first, second;
+  int outer = -1, depth = -1;
+  uint32_t literal = 0;
+};
+struct TypedView {
+  const Instance *instance;
+  std::vector<int> members;
+  std::map<std::string, TypedVariable> variables;
+  std::map<std::string, std::string> game_names;
+  std::map<int, TypedAnchor> goals, fairness;
+  std::map<int, std::string> roles;
+  std::vector<TypedOutput> outputs;
+  std::set<std::string> classes;
+  uint32_t outer = 0;
+};
+
+std::set<uint32_t> typed_support(const Aig *, uint32_t);
+std::vector<int> typed_owners(const O &, const std::set<std::string> &,
+                              const std::vector<int> &);
+std::string typed_anchor_identity(const TypedAnchor &);
+std::string typed_json_order(const J &);
+TypedView typed_game_view(const Instance &, const std::string &axis,
+                          const std::vector<int> &members);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+extern thread_local bool typed_test_ambiguous_linkage;
+#endif
+std::vector<int> typed_anchor_members(const TypedAnchor &, const TypedAnchor &);
+std::vector<int> typed_selected(const std::map<int, std::string> &roles,
+                                const std::vector<int> &, const TypedAnchor &,
+                                const TypedAnchor &);
+std::string typed_anchor_class(const std::map<int, std::string> &roles,
+                               const TypedAnchor &, const TypedAnchor &);
+std::string typed_group(const std::map<int, std::string> &roles,
+                        const std::vector<int> &, const TypedAnchor &,
+                        const TypedAnchor &);
+std::string typed_variable_key(const std::string &prefix,
+                               const std::vector<int> &indices,
+                               const std::set<int> &owners,
+                               const std::map<int, int> &slots,
+                               const std::map<int, int> &anchors = {});
+std::string typed_shape(const Instance &, const std::string &axis,
+                        const std::vector<int> &members);
 } // namespace gr1_lift_internal

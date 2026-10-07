@@ -27,20 +27,6 @@ thread_local size_t env_test_check_bytes = 0;
 thread_local uint64_t env_rank_test_apply_cap = 12000000;
 #endif
 
-std::pair<std::set<std::string>, std::set<std::string>>
-env_typed_classes(const Instance &i) {
-  std::set<std::string> monitors, conjuncts;
-  for (const J &value : i.data.at("monitors").as_array()) {
-    const O &row = value.as_object();
-    const O &origin = row.at("source_origin").as_object();
-    monitors.insert(key({s(origin, "source_formula_id"), s(row, "role"),
-                         s(row, "side"), s(row, "mp_class")}));
-  }
-  for (const J &value : i.data.at("source_conjuncts").as_array())
-    conjuncts.insert(s(value.as_object(), "source_formula_id"));
-  return {monitors, conjuncts};
-}
-
 void env_reduction_binding(const Instance &i, const std::string &source_hash) {
   if (!i.r.metadata_json || !i.r.aag)
     decline(FailureCause::error, "target_binding",
@@ -60,55 +46,6 @@ void env_reduction_binding(const Instance &i, const std::string &source_hash) {
             "source or reduction hash differs");
 }
 
-void env_typed_axis(const Instance &i, const std::string &axis) {
-  std::string axis_id;
-  std::set<std::string> parameter_ids;
-  for (const J &value : i.data.at("source_parameters").as_array()) {
-    const O &row = value.as_object();
-    auto id = field(n(row, "id"));
-    if (!parameter_ids.insert(id).second)
-      decline(FailureCause::error, "typed_alignment",
-              "duplicate parameter identity");
-    if (s(row, "name") == axis)
-      axis_id = id;
-  }
-  if (axis_id.empty())
-    decline(FailureCause::error, "typed_alignment",
-            "selected parameter identity is absent");
-  std::map<std::string, std::pair<std::string, std::set<std::string>>> declared;
-  bool indexed = false;
-  for (const char *group : {"inputs", "outputs"})
-    for (const J &value : i.data.at(group).as_array()) {
-      const O &row = value.as_object();
-      std::string role = s(row, "index_role");
-      if (role != "scalar" && role != "element" && role != "representation-bit")
-        decline(FailureCause::applicability, "typed_alignment",
-                "undetermined signal index role");
-      std::set<std::string> ids;
-      if (role == "element") {
-        if (!row.at("width_binding_complete").as_bool() ||
-            !row.at("width_parameter_ids").is_array())
-          decline(FailureCause::applicability, "typed_alignment",
-                  "incomplete element width identity");
-        for (const J &part : row.at("width_parameter_ids").as_array()) {
-          std::string id = field(num(part));
-          if (!parameter_ids.count(id) || !ids.insert(id).second)
-            decline(FailureCause::error, "typed_alignment",
-                    "invalid width parameter identity");
-        }
-        indexed |= ids.count(axis_id) != 0;
-      }
-      auto pair = std::pair{role, ids};
-      auto [at, fresh] = declared.emplace(s(row, "declaration_id"), pair);
-      if (!fresh && at->second != pair)
-        decline(FailureCause::error, "typed_alignment",
-                "inconsistent declaration binding");
-    }
-  if (!indexed)
-    decline(FailureCause::applicability, "typed_alignment",
-            "axis has no typed element declaration");
-}
-
 EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
                      TlsfGr1EnvRankResult &out) {
   const Instance &target = *trusted.instance;
@@ -118,7 +55,7 @@ EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
     if (value <= 5)
       continue;
     try {
-      env_typed_axis(target, axis);
+      typed_axis(target, axis);
       EnvWindow window;
       window.axis = axis;
       std::optional<std::pair<std::set<std::string>, std::set<std::string>>>
@@ -135,9 +72,9 @@ EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
             lower(reinterpret_cast<const uint8_t *>(trusted.snapshot.data()),
                   trusted.snapshot.size(), overrides, TLSF_GR1_EXACT, cfg);
         out.seed_reductions++;
-        env_typed_axis(*seed, axis);
+        typed_axis(*seed, axis);
         auto members = axis_members(target, *seed);
-        auto seed_classes = env_typed_classes(*seed);
+        auto seed_classes = typed_classes(*seed);
         if (!expected_classes)
           expected_classes = seed_classes;
         if (members.second.size() != size_t(size) ||
@@ -312,413 +249,20 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   seed.cert = parse_aig(seed.cert_aag.data(), seed.cert_aag.size());
 }
 
-std::set<uint32_t> env_support(const Aig *aig, uint32_t root) {
-  std::map<uint32_t, std::pair<uint32_t, uint32_t>> gates;
-  for (uint32_t p = 0; p < aig_num_ands(aig); p++) {
-    uint32_t lhs, left, right;
-    aig_and_at(aig, p, &lhs, &left, &right);
-    gates.emplace(lhs / 2, std::pair{left, right});
-  }
-  std::set<uint32_t> leaves, seen;
-  std::function<void(uint32_t)> visit = [&](uint32_t lit) {
-    uint32_t var = lit / 2;
-    if (!var || !seen.insert(var).second)
-      return;
-    auto found = gates.find(var);
-    if (found == gates.end()) {
-      leaves.insert(var);
-      return;
-    }
-    visit(found->second.first);
-    visit(found->second.second);
-  };
-  visit(root);
-  return leaves;
-}
-
-struct EnvAnchor {
-  std::string kind;
-  std::vector<int> owners;
-};
-struct EnvVariable {
-  std::string identity, prefix;
-  std::vector<int> indices;
-  std::set<int> owners;
-  std::string order_field;
-};
-struct EnvOutput {
-  std::string name, class_key, identity;
-  EnvAnchor first, second;
-  int outer = -1, depth = -1;
-  uint32_t literal = 0;
-};
-struct EnvView {
-  const Instance *instance;
-  std::vector<int> members;
-  std::map<std::string, EnvVariable> variables;
-  std::map<std::string, std::string> game_names;
-  std::map<int, EnvAnchor> goals, fairness;
-  std::map<int, std::string> roles;
-  std::vector<EnvOutput> outputs;
-  std::set<std::string> classes;
-  uint32_t outer = 0;
-};
-
-std::string env_anchor_identity(const EnvAnchor &anchor) {
-  std::vector<std::string> owners;
-  for (int owner : anchor.owners)
-    owners.push_back(field(owner));
-  return key({anchor.kind, join(owners)});
-}
-
-std::set<std::string> env_axis_declarations(const Instance &i,
-                                            const std::string &axis) {
-  std::string axis_id;
-  for (const J &value : i.data.at("source_parameters").as_array()) {
-    const O &row = value.as_object();
-    if (s(row, "name") == axis)
-      axis_id = field(n(row, "id"));
-  }
-  std::set<std::string> result;
-  for (const char *kind : {"inputs", "outputs"})
-    for (const J &value : i.data.at(kind).as_array()) {
-      const O &row = value.as_object();
-      if (s(row, "index_role") != "element")
-        continue;
-      for (const J &id : row.at("width_parameter_ids").as_array())
-        if (field(num(id)) == axis_id)
-          result.insert(s(row, "declaration_id"));
-    }
-  return result;
-}
-
-std::vector<int> env_owners(const O &origin,
-                            const std::set<std::string> &axis_declarations,
-                            const std::vector<int> &members) {
-  auto bound = ints(origin.at("index_tuple").as_array());
-  if (bound.empty())
-    return {};
-  for (int owner : bound)
-    if (std::find(members.begin(), members.end(), owner) == members.end())
-      decline(FailureCause::applicability, "typed_alignment",
-              "monitor owner is outside the axis");
-  std::vector<int> referenced;
-  for (const J &value : origin.at("signal_refs").as_array()) {
-    const O &ref = value.as_object();
-    if (!axis_declarations.count(s(ref, "declaration_id")))
-      continue;
-    for (int owner : ints(ref.at("index_tuple").as_array()))
-      if (std::find(referenced.begin(), referenced.end(), owner) ==
-          referenced.end())
-        referenced.push_back(owner);
-  }
-  if (referenced.empty())
-    return {};
-  if (bound.size() == 1 && referenced.size() == 2 &&
-      std::find(referenced.begin(), referenced.end(), bound[0]) !=
-          referenced.end())
-    return referenced;
-  if (bound.size() > 1)
-    for (int owner : bound)
-      if (std::find(referenced.begin(), referenced.end(), owner) ==
-          referenced.end())
-        decline(FailureCause::applicability, "typed_alignment",
-                "pair owner lacks typed reference");
-  return bound;
-}
-
-// Python json.dumps uses a space after each separator in an order key.
-std::string env_json_order(const J &value) {
-  std::string compact = dump(value), result;
-  bool quoted = false, escaped = false;
-  for (char c : compact) {
-    result.push_back(c);
-    if (escaped) {
-      escaped = false;
-    } else if (c == '\\' && quoted) {
-      escaped = true;
-    } else if (c == char(34)) {
-      quoted = !quoted;
-    } else if (!quoted && (c == ',' || c == ':')) {
-      result.push_back(' ');
-    }
-  }
-  return result;
-}
-
-std::string env_letter_order_field(const O &row) {
-  return env_json_order(
-      A{"letter", s(row, "direction"), s(row, "declaration_id")});
-}
-
-std::string env_state_order_field(const O &row, const O &origin,
-                                  const std::vector<const O *> &siblings,
-                                  size_t state) {
-  A role{s(origin, "source_formula_id"), s(row, "role"), s(row, "side"),
-         s(row, "mp_class")};
-  if (siblings.size() > 1) {
-    std::set<std::string> templates;
-    for (const O *sibling : siblings)
-      templates.insert(s(*sibling, "template"));
-    if (templates.size() == siblings.size()) {
-      role.emplace_back(s(row, "template"));
-    } else {
-      A refs;
-      for (const J &value : origin.at("signal_refs").as_array()) {
-        const O &ref = value.as_object();
-        refs.emplace_back(A{s(ref, "declaration_id"), s(ref, "index_role"),
-                            ref.at("index_tuple")});
-      }
-      role.emplace_back(A{s(row, "template"), refs});
-    }
-  }
-  A fields{"state"};
-  for (const J &part : role)
-    fields.emplace_back(part);
-  fields.emplace_back(int64_t(state));
-  return env_json_order(fields);
-}
-
+using EnvAnchor = TypedAnchor;
+using EnvVariable = TypedVariable;
+using EnvOutput = TypedOutput;
+using EnvView = TypedView;
 EnvView env_game_view(const Instance &i, const std::string &axis,
                       const std::vector<int> &members) {
-  EnvView view;
-  view.instance = &i;
-  view.members = members;
-  auto indexed = env_axis_declarations(i, axis);
-  std::map<uint32_t, const O *> signals;
-  std::map<uint32_t, uint32_t> latch_next;
-  std::map<uint32_t, std::string> latch_names;
-  for (uint32_t p = 0; p < aig_num_latches(i.r.game); p++) {
-    uint32_t lit, next;
-    aig_latch_at(i.r.game, p, &lit, &next, nullptr);
-    const char *name = aig_latch_name(i.r.game, p);
-    latch_next.emplace(lit / 2, next);
-    latch_names.emplace(lit / 2, name ? name : "");
-  }
-  for (const char *group : {"inputs", "outputs"})
-    for (const J &value : i.data.at(group).as_array()) {
-      const O &row = value.as_object();
-      uint32_t lit = uint32_t(n(row, "game_literal"));
-      if (!signals.emplace(lit / 2, &row).second)
-        decline(FailureCause::error, "typed_alignment",
-                "duplicate game signal literal");
-    }
-  if (signals.size() != aig_num_inputs(i.r.game))
-    decline(FailureCause::error, "typed_alignment",
-            "game signal inventory differs");
-  std::set<uint32_t> game_inputs;
-  for (uint32_t p = 0; p < aig_num_inputs(i.r.game); p++) {
-    uint32_t lit;
-    const char *name = aig_input_name(i.r.game, p, &lit);
-    if (!signals.count(lit / 2) || !game_inputs.insert(lit / 2).second)
-      decline(FailureCause::error, "typed_alignment",
-              "game signal lacks unique provenance");
-    const O &row = *signals.at(lit / 2);
-    auto indices = ints(row.at("index_tuple").as_array());
-    std::set<int> owners;
-    if (indexed.count(s(row, "declaration_id")))
-      for (int owner : indices)
-        if (std::find(members.begin(), members.end(), owner) != members.end())
-          owners.insert(owner);
-    std::string prefix =
-        key({"letter", s(row, "direction"), s(row, "declaration_id")});
-    std::vector<std::string> coords;
-    for (int owner : indices)
-      coords.push_back(field(owner));
-    std::string identity = key({prefix, join(coords)});
-    if (!view.variables
-             .emplace(identity, EnvVariable{identity, prefix, indices, owners,
-                                            env_letter_order_field(row)})
-             .second)
-      decline(FailureCause::error, "typed_alignment",
-              "duplicate letter identity");
-    if (!name || !view.game_names.emplace(name, identity).second)
-      decline(FailureCause::error, "typed_alignment",
-              "game signal name inventory differs");
-  }
-  if (game_inputs != [&] {
-        std::set<uint32_t> keys;
-        for (const auto &[literal, _] : signals)
-          keys.insert(literal);
-        return keys;
-      }())
-    decline(FailureCause::error, "typed_alignment",
-            "game signal inventory is incomplete");
-  std::map<std::string, const O *> conjuncts;
-  for (const J &value : i.data.at("source_conjuncts").as_array()) {
-    const O &row = value.as_object();
-    if (!conjuncts
-             .emplace(key({s(row, "source_formula_id"),
-                           field(n(row, "generated_position"))}),
-                      &row)
-             .second)
-      decline(FailureCause::error, "typed_alignment",
-              "duplicate source conjunct identity");
-  }
-  std::map<std::string, std::vector<const O *>> siblings;
-  std::map<const O *, std::vector<int>> owners_by_monitor;
-  std::set<uint32_t> typed_latches;
-  std::set<std::string> linkage;
-  int fair_index = 0;
-  for (const J &value : i.data.at("monitors").as_array()) {
-    const O &row = value.as_object();
-    if (s(row, "provenance_source") != "frontend" ||
-        s(row, "template_source") != "frontend")
-      decline(FailureCause::applicability, "typed_alignment",
-              "monitor lacks frontend origin");
-    const O &origin = row.at("source_origin").as_object();
-    auto owners = env_owners(origin, indexed, members);
-    owners_by_monitor.emplace(&row, owners);
-    std::vector<std::string> owner_fields;
-    for (int owner : owners)
-      owner_fields.push_back(field(owner));
-    std::string base = key({s(origin, "source_formula_id"), s(row, "role"),
-                            s(row, "side"), s(row, "mp_class")});
-    siblings[key({base, join(owner_fields)})].push_back(&row);
-    std::string origin_key = key({s(origin, "source_formula_id"),
-                                  field(n(origin, "generated_position"))});
-    auto found = conjuncts.find(origin_key);
-    if (found == conjuncts.end())
-      decline(FailureCause::error, "typed_alignment",
-              "monitor source conjunct is missing");
-    std::set<std::string> claimed_refs, actual_refs;
-    for (const J &part : origin.at("signal_refs").as_array()) {
-      const O &ref = part.as_object();
-      claimed_refs.insert(
-          key({s(ref, "declaration_id"), dump(ref.at("index_tuple"))}));
-    }
-    std::set<uint32_t> own_latches;
-    for (const J &part : row.at("latch_literals").as_array()) {
-      uint32_t lit = uint32_t(num(part));
-      if (!latch_next.count(lit / 2) || !typed_latches.insert(lit / 2).second)
-        decline(FailureCause::error, "typed_alignment",
-                "monitor latch inventory differs");
-      own_latches.insert(lit / 2);
-      auto support = env_support(i.r.game, latch_next.at(lit / 2));
-      for (uint32_t signal : support)
-        if (signals.count(signal)) {
-          const O &ref = *signals.at(signal);
-          actual_refs.insert(
-              key({s(ref, "declaration_id"), dump(ref.at("index_tuple"))}));
-        }
-    }
-    if (claimed_refs != actual_refs)
-      decline(FailureCause::error, "schema_abi",
-              "monitor transition references differ");
-    const O &conjunct = *found->second;
-    const O &binding = row.at("source_binding").as_object();
-    if (s(row, "construction_formula") != s(conjunct, "normalized_formula") ||
-        s(binding, "source_formula_id") != s(origin, "source_formula_id") ||
-        n(binding, "generated_position") != n(origin, "generated_position") ||
-        n(binding, "source_node_id") != n(origin, "source_node_id") ||
-        n(conjunct, "source_node_id") != n(origin, "source_node_id") ||
-        s(conjunct, "block") != s(origin, "block") ||
-        dump(conjunct.at("signal_refs")) != dump(origin.at("signal_refs")) ||
-        dump(conjunct.at("bindings")) != dump(origin.at("bindings")))
-      decline(FailureCause::error, "typed_alignment",
-              "monitor/source construction differs");
-    std::string link =
-        key({s(row, "role"), join(owner_fields), origin_key, s(row, "template"),
-             dump(origin.at("signal_refs"))});
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-    if (env_rank_fault == 7 && !linkage.empty())
-      link = *linkage.begin();
+  struct Restore {
+    bool saved;
+    ~Restore() { typed_test_ambiguous_linkage = saved; }
+  } restore{typed_test_ambiguous_linkage};
+  typed_test_ambiguous_linkage = env_rank_fault == 7;
 #endif
-    if (!linkage.insert(link).second)
-      decline(FailureCause::error, "typed_alignment",
-              "ambiguous sibling linkage");
-    if (s(row, "role") == "justice") {
-      int index = int(n(row, "justice_index"));
-      if (index < 0 || index >= int(aig_num_justice(i.r.game)) ||
-          !view.goals.emplace(index, EnvAnchor{base, owners}).second)
-        decline(FailureCause::error, "typed_alignment",
-                "justice ordinal inventory differs");
-      const uint32_t *lits;
-      uint32_t count;
-      aig_justice_at(i.r.game, index, &lits, &count);
-      for (uint32_t p = 0; p < count; p++) {
-        auto support = env_support(i.r.game, lits[p]);
-        for (uint32_t var : support)
-          if (!own_latches.count(var))
-            decline(FailureCause::error, "typed_alignment",
-                    "justice points outside its monitor");
-      }
-    } else if (s(row, "role") == "fairness") {
-      if (fair_index >= int(aig_num_fairness(i.r.game)))
-        decline(FailureCause::error, "typed_alignment",
-                "fairness ordinal exceeds game");
-      for (uint32_t var :
-           env_support(i.r.game, aig_fairness_at(i.r.game, fair_index)))
-        if (!own_latches.count(var))
-          decline(FailureCause::error, "typed_alignment",
-                  "fairness points outside its monitor");
-      view.fairness.emplace(fair_index++, EnvAnchor{base, owners});
-    }
-  }
-  if (typed_latches.size() != latch_next.size() ||
-      view.goals.size() != aig_num_justice(i.r.game) ||
-      fair_index != int(aig_num_fairness(i.r.game)))
-    decline(FailureCause::error, "typed_alignment",
-            "monitor game inventory is incomplete");
-  if (view.fairness.empty())
-    view.fairness.emplace(0, EnvAnchor{"synthetic", {}});
-  for (const auto &[group, rows] : siblings) {
-    std::set<std::string> variants;
-    for (const O *row : rows) {
-      std::string variant =
-          key({s(*row, "template"),
-               dump(row->at("source_origin").as_object().at("signal_refs"))});
-      if (!variants.insert(variant).second)
-        decline(FailureCause::applicability, "typed_alignment",
-                "ambiguous sibling monitor roles");
-      const O &origin = row->at("source_origin").as_object();
-      std::string role =
-          key({s(origin, "source_formula_id"), s(*row, "role"), s(*row, "side"),
-               s(*row, "mp_class"), rows.size() > 1 ? variant : ""});
-      auto indices = owners_by_monitor.at(row);
-      std::set<int> owner_set(indices.begin(), indices.end());
-      const A &lits = row->at("latch_literals").as_array();
-      for (size_t state = 0; state < lits.size(); state++) {
-        uint32_t lit = uint32_t(num(lits[state]));
-        std::string prefix = key({"state", role, field(state)});
-        std::vector<std::string> fields;
-        for (int owner : indices)
-          fields.push_back(field(owner));
-        std::string identity = key({prefix, join(fields)});
-        if (!view.variables
-                 .emplace(identity,
-                          EnvVariable{
-                              identity, prefix, indices, owner_set,
-                              env_state_order_field(*row, origin, rows, state)})
-                 .second)
-          decline(FailureCause::error, "typed_alignment",
-                  "duplicate state identity");
-        if (!view.game_names.emplace(latch_names.at(lit / 2), identity).second)
-          decline(FailureCause::error, "typed_alignment",
-                  "game latch name inventory differs");
-      }
-      if (s(*row, "role") == "justice")
-        view.goals.at(int(n(*row, "justice_index"))).kind = role;
-      else if (s(*row, "role") == "fairness") {
-        for (auto &[_, anchor] : view.fairness)
-          if (anchor.kind == key({s(origin, "source_formula_id"), "fairness",
-                                  s(*row, "side"), s(*row, "mp_class")}) &&
-              anchor.owners == indices) {
-            anchor.kind = role;
-            break;
-          }
-      }
-    }
-  }
-  for (int member : members) {
-    std::set<std::string> distinct;
-    for (const auto &[_, variable] : view.variables)
-      if (variable.owners.count(member))
-        distinct.insert(variable.prefix);
-    view.roles.emplace(member, join(std::vector<std::string>(distinct.begin(),
-                                                             distinct.end())));
-  }
-  return view;
+  return typed_game_view(i, axis, members);
 }
 
 std::string env_output_class(const std::string &kind, int outer, int depth,
@@ -826,8 +370,8 @@ std::vector<EnvOutput> env_certificate_inventory(EnvView &view) {
       decline(FailureCause::error, "typed_alignment",
               "outer rank is out of bounds");
     std::string class_key = env_output_class(kind, outer, depth, first, second);
-    std::string identity = key(
-        {class_key, env_anchor_identity(first), env_anchor_identity(second)});
+    std::string identity = key({class_key, typed_anchor_identity(first),
+                                typed_anchor_identity(second)});
     if (!identities.insert(identity).second)
       decline(FailureCause::error, "typed_alignment",
               "duplicate predicate identity");
@@ -944,8 +488,7 @@ std::vector<EnvView> env_preflight(const EnvWindow &window,
   }
   EnvView target =
       env_game_view(*trusted.instance, window.axis, window.target_members);
-  if (env_typed_classes(*trusted.instance) !=
-      env_typed_classes(*window.seeds.front()))
+  if (typed_classes(*trusted.instance) != typed_classes(*window.seeds.front()))
     decline(FailureCause::applicability, "typed_alignment",
             "target conjunct or role class missing");
   if (target.roles.empty())
@@ -1254,13 +797,13 @@ EnvOrder env_bdd_order(const EnvVariable &var, const std::map<int, int> &slots,
       result.owners.push_back(field(index));
       coordinates.emplace_back(index);
     } else if (var.owners.count(index) && anchors.count(index)) {
-      result.owners.push_back(env_json_order(A{"anchor", anchors.at(index)}));
+      result.owners.push_back(typed_json_order(A{"anchor", anchors.at(index)}));
       coordinates.emplace_back(A{"anchor", anchors.at(index)});
     } else if (var.owners.count(index) && slots.count(index)) {
-      result.owners.push_back(env_json_order(A{"slot", slots.at(index)}));
+      result.owners.push_back(typed_json_order(A{"slot", slots.at(index)}));
       coordinates.emplace_back(A{"slot", slots.at(index)});
     } else {
-      result.owners.push_back(env_json_order(A{"fixed", index}));
+      result.owners.push_back(typed_json_order(A{"fixed", index}));
       coordinates.emplace_back(A{"fixed", index});
     }
   }
@@ -1274,7 +817,7 @@ EnvOrder env_bdd_order(const EnvVariable &var, const std::map<int, int> &slots,
   }
   if (!state || normalized)
     label.emplace_back(coordinates);
-  result.label = env_json_order(label);
+  result.label = typed_json_order(label);
   return result;
 }
 
@@ -1285,17 +828,9 @@ int env_variable_label(EnvBdd &bdd, const EnvVariable &var) {
 int env_variable_label(EnvBdd &bdd, const EnvVariable &var,
                        const std::map<int, int> &slots,
                        const std::map<int, int> &anchors = {}) {
-  std::vector<std::string> indices;
-  for (int index : var.indices) {
-    if (var.owners.count(index) && anchors.count(index))
-      indices.push_back(key({"anchor", field(anchors.at(index))}));
-    else if (var.owners.count(index) && slots.count(index))
-      indices.push_back(key({"slot", field(slots.at(index))}));
-    else
-      indices.push_back(key({"fixed", field(index)}));
-  }
-  return bdd.label(key({var.prefix, join(indices)}),
-                   env_bdd_order(var, slots, anchors, true));
+  return bdd.label(
+      typed_variable_key(var.prefix, var.indices, var.owners, slots, anchors),
+      env_bdd_order(var, slots, anchors, true));
 }
 
 using EnvTemplate = std::map<std::string, int>;
@@ -1318,52 +853,6 @@ struct EnvLearned {
   std::string predecessor;
 };
 
-std::vector<int> env_anchor_members(const EnvAnchor &first,
-                                    const EnvAnchor &second) {
-  std::vector<int> order;
-  for (const auto *anchor : {&first, &second})
-    for (int owner : anchor->owners)
-      if (std::find(order.begin(), order.end(), owner) == order.end())
-        order.push_back(owner);
-  return order;
-}
-
-std::vector<int> env_selected(const EnvView &view,
-                              const std::vector<int> &subset,
-                              const EnvAnchor &first, const EnvAnchor &second) {
-  auto priority = env_anchor_members(first, second);
-  std::vector<int> selected = subset;
-  std::sort(selected.begin(), selected.end(), [&](int a, int b) {
-    auto left = std::find(priority.begin(), priority.end(), a);
-    auto right = std::find(priority.begin(), priority.end(), b);
-    int ia = left == priority.end() ? int(priority.size())
-                                    : int(left - priority.begin());
-    int ib = right == priority.end() ? int(priority.size())
-                                     : int(right - priority.begin());
-    return std::tie(ia, view.roles.at(a), a) <
-           std::tie(ib, view.roles.at(b), b);
-  });
-  return selected;
-}
-
-std::string env_group(const EnvView &view, const std::vector<int> &selected,
-                      const EnvAnchor &first, const EnvAnchor &second) {
-  std::map<int, int> slots;
-  std::vector<std::string> role_items;
-  for (size_t p = 0; p < selected.size(); p++) {
-    slots.emplace(selected[p], int(p));
-    role_items.push_back(view.roles.at(selected[p]));
-  }
-  std::vector<std::string> anchors;
-  for (const auto *anchor : {&first, &second}) {
-    std::vector<std::string> positions;
-    for (int owner : anchor->owners)
-      positions.push_back(field(slots.at(owner)));
-    anchors.push_back(join(positions));
-  }
-  return key({join(role_items), join(anchors)});
-}
-
 EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
                         int arity, int mode, bool erase_anchors) {
   const EnvView &view = *observation.view;
@@ -1371,7 +860,7 @@ EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
     decline(FailureCause::applicability, "schema", "arity exceeds seed width");
   EnvAnchor first = erase_anchors ? EnvAnchor{} : observation.first;
   EnvAnchor second = erase_anchors ? EnvAnchor{} : observation.second;
-  auto required = env_anchor_members(first, second);
+  auto required = typed_anchor_members(first, second);
   std::set<int> support = bdd.support(observation.root);
   EnvTemplate result;
   int rebuilt = mode == 0 ? 1 : 0;
@@ -1380,7 +869,7 @@ EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
           return std::find(subset.begin(), subset.end(), owner) != subset.end();
         }))
       return;
-    auto ordered = env_selected(view, subset, first, second);
+    auto ordered = typed_selected(view.roles, subset, first, second);
     std::map<int, int> slots;
     for (size_t p = 0; p < ordered.size(); p++)
       slots.emplace(ordered[p], int(p));
@@ -1403,7 +892,7 @@ EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
     for (int label : bdd.support(projected))
       mapping.emplace(label, forward.at(label));
     int normalized = bdd.rename(projected, mapping);
-    std::string group = env_group(view, ordered, first, second);
+    std::string group = typed_group(view.roles, ordered, first, second);
     if (auto at = result.find(group);
         at != result.end() && at->second != normalized)
       decline(FailureCause::applicability, "schema",
@@ -1428,18 +917,18 @@ EnvTemplate env_project(EnvBdd &bdd, const EnvObservation &observation,
 int env_instantiate_projection(EnvBdd &bdd, const EnvView &view,
                                const EnvAnchor &first, const EnvAnchor &second,
                                const EnvLearned &learned) {
-  auto required = env_anchor_members(first, second);
+  auto required = typed_anchor_members(first, second);
   int result = learned.mode == 0 ? 1 : 0;
   subsets(view.members, learned.arity, [&](const std::vector<int> &subset) {
     std::set<int> subset_set(subset.begin(), subset.end());
     if (!std::all_of(required.begin(), required.end(),
                      [&](int owner) { return subset_set.count(owner) != 0; }))
       return;
-    auto ordered = env_selected(view, subset, first, second);
+    auto ordered = typed_selected(view.roles, subset, first, second);
     std::map<int, int> slots;
     for (size_t p = 0; p < ordered.size(); p++)
       slots.emplace(ordered[p], int(p));
-    std::string group = env_group(view, ordered, first, second);
+    std::string group = typed_group(view.roles, ordered, first, second);
     auto at = learned.parts.find(group);
     if (at == learned.parts.end())
       decline(FailureCause::applicability, "instantiate",
@@ -1478,8 +967,8 @@ EnvLearned env_learn_projection(EnvBdd &bdd,
     std::set<std::string> relations;
     for (const auto *row : observations) {
       functions.insert(row->root);
-      relations.insert(key(
-          {env_anchor_identity(row->first), env_anchor_identity(row->second)}));
+      relations.insert(key({typed_anchor_identity(row->first),
+                            typed_anchor_identity(row->second)}));
     }
     anchor_free &= observations.size() >= 2 && functions.size() == 1 &&
                    relations.size() >= 2;
@@ -1536,11 +1025,11 @@ EnvLearned env_learn_previous(EnvBdd &bdd,
     if (at == predecessor.end())
       decline(FailureCause::applicability, "typed_alignment",
               "previous rank is absent in seed");
-    auto selected = env_anchor_members(row.first, row.second);
+    auto selected = typed_anchor_members(row.first, row.second);
     if (selected.empty() || selected.size() > 2)
       decline(FailureCause::applicability, "schema",
               "selected owner term exceeds bounded arity");
-    selected = env_selected(*row.view, selected, row.first, row.second);
+    selected = typed_selected(row.view->roles, selected, row.first, row.second);
     std::set<int> selected_set(selected.begin(), selected.end());
     std::map<int, int> slots;
     for (size_t p = 0; p < selected.size(); p++)
@@ -1563,7 +1052,8 @@ EnvLearned env_learn_previous(EnvBdd &bdd,
       forward.emplace(label, env_variable_label(bdd, var, slots));
     }
     int normalized = bdd.rename(local, forward);
-    std::string group = env_group(*row.view, selected, row.first, row.second);
+    std::string group =
+        typed_group(row.view->roles, selected, row.first, row.second);
     if (auto found = learned.parts.find(group);
         found != learned.parts.end() && found->second != normalized)
       decline(FailureCause::applicability, "schema",
@@ -1576,15 +1066,16 @@ EnvLearned env_learn_previous(EnvBdd &bdd,
 int env_instantiate_previous(EnvBdd &bdd, const EnvView &view,
                              const EnvAnchor &first, const EnvAnchor &second,
                              const EnvLearned &learned, int previous_root) {
-  auto selected = env_anchor_members(first, second);
+  auto selected = typed_anchor_members(first, second);
   if (selected.empty() || selected.size() > 2)
     decline(FailureCause::applicability, "instantiate",
             "selected owner term exceeds bounded arity");
-  selected = env_selected(view, selected, first, second);
+  selected = typed_selected(view.roles, selected, first, second);
   std::map<int, int> slots;
   for (size_t p = 0; p < selected.size(); p++)
     slots.emplace(selected[p], int(p));
-  auto at = learned.parts.find(env_group(view, selected, first, second));
+  auto at =
+      learned.parts.find(typed_group(view.roles, selected, first, second));
   if (at == learned.parts.end())
     decline(FailureCause::applicability, "instantiate",
             "selected owner template is absent");
@@ -1619,7 +1110,7 @@ struct EnvCanonical {
   EnvCanonical(EnvBdd &bdd, const EnvView &source, const EnvAnchor &first,
                const EnvAnchor &second)
       : view(&source) {
-    auto order = env_anchor_members(first, second);
+    auto order = typed_anchor_members(first, second);
     for (size_t p = 0; p < order.size(); p++)
       anchor_slots.emplace(order[p], int(p));
     std::vector<std::string> patterns;
@@ -1816,7 +1307,7 @@ std::map<int, int> env_summary_mapping(EnvBdd &bdd, const EnvCanonical &view,
     auto bits = env_summary_bits(bdd, view, features[position]);
     for (int kind = 0; kind < 4; kind++) {
       std::string name = env_summary_name(int(position), kind);
-      std::string order = env_json_order(A{"summary", int(position), kind});
+      std::string order = typed_json_order(A{"summary", int(position), kind});
       int variable = bdd.label(name, EnvOrder{0, {}, order, order});
       mapping.emplace(variable, bits[kind]);
     }
@@ -2340,7 +1831,7 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
                          key({"counter", anchor.kind}),
                          anchor.owners,
                          {anchor.owners.begin(), anchor.owners.end()},
-                         env_json_order(A{"counter", anchor.kind})};
+                         typed_json_order(A{"counter", anchor.kind})};
     counters.push_back(env_variable_label(bdd, variable));
   }
   auto select = [&](const std::vector<int> &roots) {
@@ -2569,8 +2060,7 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
   for (const auto &seed : window.seeds)
     (void)env_game_view(*seed, window.axis, seed->members);
   (void)env_game_view(*trusted.instance, window.axis, window.target_members);
-  if (env_typed_classes(*trusted.instance) !=
-      env_typed_classes(*window.seeds.front()))
+  if (typed_classes(*trusted.instance) != typed_classes(*window.seeds.front()))
     decline(FailureCause::applicability, "typed_alignment",
             "target conjunct or role class missing");
   if (!shared_window)
@@ -2780,7 +2270,7 @@ using namespace gr1_lift_internal;
 extern "C" int tlsf_gr1_env_rank_test_alignment() {
   auto owners = [](std::string_view json) {
     O origin = j::parse(json).as_object();
-    return env_owners(origin, {"d"}, {0, 1, 2});
+    return typed_owners(origin, {"d"}, {0, 1, 2});
   };
   const auto shared = owners(
       R"({"index_tuple":[],"signal_refs":[{"declaration_id":"d","index_tuple":[0]}]})");
@@ -2795,10 +2285,10 @@ extern "C" int tlsf_gr1_env_rank_test_alignment() {
   EnvView view;
   view.roles.emplace(0, "role");
   view.roles.emplace(1, "role");
-  const std::string different = env_group(
-      view, {0, 1}, EnvAnchor{"goal", {0, 1}}, EnvAnchor{"fair", {0, 1}});
-  const std::string same = env_group(view, {0, 1}, EnvAnchor{"goal", {0, 0}},
-                                     EnvAnchor{"fair", {0, 1}});
+  const std::string different = typed_group(
+      view.roles, {0, 1}, EnvAnchor{"goal", {0, 1}}, EnvAnchor{"fair", {0, 1}});
+  const std::string same = typed_group(
+      view.roles, {0, 1}, EnvAnchor{"goal", {0, 0}}, EnvAnchor{"fair", {0, 1}});
   return shared.empty() && one == std::vector<int>{1} &&
          pair == std::vector<int>({0, 1}) &&
          equal == std::vector<int>({0, 0}) &&

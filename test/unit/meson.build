@@ -16,13 +16,16 @@ if native_gr1
   test('native_env_contract_validators', native_env_contract_api_exe)
   # gr1_lift.cc again, with its fault hooks compiled in; its own object takes
   # precedence over the library's copy.
+  native_typed_roles_exe = executable('native_typed_roles', 'native_typed_roles.cpp',
+    dependencies: tlsf_internal_dep)
+  test('native_typed_roles', native_typed_roles_exe, timeout: 90, is_parallel: false)
   native_lift_api_exe = executable('native_lift_api',
-    'native_lift_api.cpp', gr1_lift_source,
+    'native_lift_api.cpp', gr1_lift_source, gr1_typed_source,
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
     dependencies: tlsf_internal_dep)
   test('native_lift_api', native_lift_api_exe, timeout: 60, is_parallel: false)
   native_both_api_exe = executable('native_both_api',
-    'native_both_api.cpp', gr1_lift_source, gr1_env_lift_source,
+    'native_both_api.cpp', gr1_lift_source, gr1_env_lift_source, gr1_typed_source,
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
     dependencies: tlsf_internal_dep)
   test('native_both_api', native_both_api_exe,
@@ -34,7 +37,7 @@ if native_gr1
     timeout: get_option('buildtype') == 'debug' ? 180 : 90,
     is_parallel: false)
   native_real_both_api_exe = executable('native_real_both_api',
-    'native_real_both_api.cpp', gr1_lift_source, gr1_env_lift_source,
+    'native_real_both_api.cpp', gr1_lift_source, gr1_env_lift_source, gr1_typed_source,
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
     dependencies: tlsf_internal_dep)
   test('native_real_both_api', native_real_both_api_exe,
@@ -43,7 +46,7 @@ if native_gr1
   env_rank_probe_exe = executable('env_rank_probe', 'env_rank_probe.cpp',
     dependencies: tlsf_internal_dep)
   env_rank_fault_probe_exe = executable('env_rank_fault_probe',
-    'env_rank_probe.cpp', gr1_lift_source, gr1_env_lift_source,
+    'env_rank_probe.cpp', gr1_lift_source, gr1_env_lift_source, gr1_typed_source,
     cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
     dependencies: tlsf_internal_dep)
 endif

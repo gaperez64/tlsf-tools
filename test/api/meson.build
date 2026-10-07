@@ -13,6 +13,16 @@ if spot_dep.found()
 endif
 
 if native_gr1
+  native_lift_artifacts_exe = executable('native_lift_artifacts',
+    'native_lift_artifacts.cpp', cpp_args: ['-DTLSF_TYPED_ROLES_API'],
+    dependencies: tlsf_dep)
+  if python3.found()
+    test('native_lift_artifacts', python3,
+      args: [files('check_native_lift_artifacts.py'),
+             '--probe', native_lift_artifacts_exe,
+             '--fixture', files('../oracle/env_lift_one.tlsf')],
+      timeout: 180, is_parallel: false)
+  endif
   native_lift_exe = executable('native_lift', 'native_lift.cpp',
                                dependencies: tlsf_dep)
   native_lift_c_exe = executable('native_lift_c', 'native_lift_c.c',
