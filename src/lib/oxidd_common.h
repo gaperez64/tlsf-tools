@@ -37,6 +37,7 @@ extern "C" {
 typedef oxidd_bdd_t Bdd;
 
 #include "tlsf/oxidd_options.h"
+#include "tlsf/structural_order.h"
 
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
 // Highest AIG variable index of `aig`, to size a literal -> BDD map.
@@ -61,6 +62,12 @@ typedef struct {
 bool oxidd_resolve_var_order(const Aig *game, const OxiddSolveOptions *options,
                              uint32_t auxiliary_vars,
                              OxiddResolvedOrder *resolved);
+bool oxidd_resolve_structural_order(const Aig *game,
+                                    const OxiddSolveOptions *options,
+                                    TlsfStructuralOrder order,
+                                    const char *provenance,
+                                    uint32_t auxiliary_vars,
+                                    OxiddResolvedOrder *resolved);
 bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
                            const OxiddSolveOptions *options,
                            const OxiddResolvedOrder *resolved);

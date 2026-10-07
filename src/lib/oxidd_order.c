@@ -307,6 +307,32 @@ bool oxidd_resolve_var_order(const Aig *game, const OxiddSolveOptions *options,
   return true;
 }
 
+bool oxidd_resolve_structural_order(const Aig *game,
+                                    const OxiddSolveOptions *options,
+                                    TlsfStructuralOrder order,
+                                    const char *provenance,
+                                    uint32_t auxiliary_vars,
+                                    OxiddResolvedOrder *resolved) {
+  if (order == TLSF_ORDER_INCUMBENT)
+    return oxidd_resolve_var_order(game, options, auxiliary_vars, resolved);
+  *resolved = (OxiddResolvedOrder){0};
+  if (!oxidd_var_order_is_default(options))
+    return fail(options, OXIDD_FAILURE_CONFIGURATION,
+                "conflicting_order_options");
+  uint32_t *variables = nullptr;
+  size_t count = 0;
+  if (!tlsf_structural_game_order_v1(game, provenance, order, auxiliary_vars,
+                                     &variables, &count))
+    return fail(options, OXIDD_FAILURE_CONFIGURATION,
+                "invalid_structural_order");
+  resolved->local = variables;
+  resolved->count = count;
+  resolved->name = order == TLSF_ORDER_TYPED_INTERLEAVED ? "typed-interleaved"
+                                                         : "role-grouped";
+  resolved->hash = hash_order(variables, count);
+  return true;
+}
+
 bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
                            const OxiddSolveOptions *options,
                            const OxiddResolvedOrder *resolved) {
@@ -322,7 +348,8 @@ bool oxidd_apply_var_order(oxidd_bdd_manager_t manager, uint32_t var_base,
     }
     absolute[i] = var_base + resolved->local[i];
   }
-  if (ok && !oxidd_var_order_is_default(options))
+  if (ok && (!oxidd_var_order_is_default(options) ||
+             strcmp(resolved->name, "input-first")))
     oxidd_bdd_manager_set_var_order(manager, absolute, resolved->count);
   for (size_t i = 0; i < resolved->count && ok; i++)
     ok =

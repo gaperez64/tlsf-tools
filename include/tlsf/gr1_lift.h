@@ -4,6 +4,7 @@
 #include "tlsf/gr1_check.h"
 #include "tlsf/gr1_reduction.h"
 #include "tlsf/expand.h"
+#include "tlsf/structural_order.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -321,6 +322,18 @@ TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                                 TlsfGr1LiftResult *result,
                                 TlsfGr1LiftError *error);
 void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result);
+
+/* Opt-in order for seed/direct candidate managers. Existing entry points are
+ * byte-compatible incumbent calls; preparation and independent checking retain
+ * their own order. Schema managers keep their established typed layouts. */
+TlsfGr1LiftStatus tlsf_gr1_both_from_target_ordered_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfStructuralOrder order, const TlsfGr1BothObserverV1 *observer,
+    TlsfGr1BothResult *result, TlsfGr1LiftError *error);
+TlsfGr1LiftStatus tlsf_gr1_lift_from_target_ordered_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfStructuralOrder order, TlsfGr1LiftResult *result,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status);
 
 #ifdef __cplusplus
 }

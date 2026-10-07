@@ -3,6 +3,7 @@
 
 #include "tlsf/aiger.h"
 #include "tlsf/oxidd_options.h"
+#include "tlsf/structural_order.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -73,6 +74,17 @@ bool tlsf_gr1_validate_game(const Aig *game, char *message, size_t capacity);
 /// solves with the default OxiDD profile, no export, and no stats.
 [[nodiscard]] Aig *solve_gr1_oxidd(Aig *game, int *unreal,
                                    const Gr1SolveOptions *opts);
+
+/* Versioned ordering descriptor; the incumbent entry point and public option
+ * structs retain their ABI. Provenance must describe this game, not a seed or
+ * another invocation. The independent checker receives its own options. */
+typedef struct {
+  TlsfStructuralOrder order;
+  const char *provenance_json;
+} TlsfGr1OrderV1;
+[[nodiscard]] Aig *solve_gr1_oxidd_ordered_v1(Aig *game, int *unreal,
+                                              const Gr1SolveOptions *opts,
+                                              const TlsfGr1OrderV1 *order);
 
 #ifdef __cplusplus
 }

@@ -1634,7 +1634,8 @@ static uint64_t gr1_stats_clock(clockid_t clock) {
 static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
                                  const OxiddSolveOptions *user_opts,
                                  Gr1CertificateOptions *certificate,
-                                 Gr1CertificateStats *stats) {
+                                 Gr1CertificateStats *stats,
+                                 const TlsfGr1OrderV1 *structural_order) {
   uint64_t solve_wall = stats ? gr1_stats_clock(CLOCK_MONOTONIC) : 0;
   uint64_t solve_cpu = stats ? gr1_stats_clock(CLOCK_PROCESS_CPUTIME_ID) : 0;
   OxiddSolveOptions defaults = oxidd_solve_options_default();
@@ -1728,7 +1729,11 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
   size_t node_cap = 0, cache_cap = 0;
   OxiddResolvedOrder order = {0};
   if (own_mgr) {
-    if (!oxidd_resolve_var_order(game, opts, auxiliary_vars, &order)) {
+    if (!(structural_order
+              ? oxidd_resolve_structural_order(
+                    game, opts, structural_order->order,
+                    structural_order->provenance_json, auxiliary_vars, &order)
+              : oxidd_resolve_var_order(game, opts, auxiliary_vars, &order))) {
       aig_free(game);
       return nullptr;
     }
@@ -1754,7 +1759,8 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
     }
     oxidd_resolved_order_free(&order);
   } else {
-    if (!oxidd_var_order_is_default(opts)) {
+    if (!oxidd_var_order_is_default(opts) ||
+        (structural_order && structural_order->order != TLSF_ORDER_INCUMBENT)) {
       oxidd_record_failure(opts, OXIDD_FAILURE_CONFIGURATION, "manager_create",
                            "session_nondefault_order", 0, 0);
       aig_free(game);
@@ -2744,7 +2750,9 @@ static void clear_export_outputs(Gr1CertificateOptions *certificate) {
     *certificate->policy_json_size = 0;
 }
 
-Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
+Aig *solve_gr1_oxidd_ordered_v1(Aig *game, int *unreal,
+                                const Gr1SolveOptions *opts,
+                                const TlsfGr1OrderV1 *structural_order) {
   const OxiddSolveOptions *options = opts ? &opts->oxidd : nullptr;
   Gr1CertificateOptions *certificate = opts ? opts->certificate : nullptr;
   Gr1CertificateStats *stats = opts ? opts->stats : nullptr;
@@ -2755,8 +2763,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
   OxiddFailure failure = {0};
   resolved.failure = &failure;
   if (!certificate) {
-    Aig *strategy =
-        solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr, stats);
+    Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, nullptr,
+                                         stats, structural_order);
     if (options && options->failure)
       *options->failure = failure;
     return strategy;
@@ -2800,7 +2808,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
   staged.json_size = requested[1] ? &sizes[1] : nullptr;
   staged.policy_aag_size = requested[2] ? &sizes[2] : nullptr;
   staged.policy_json_size = requested[3] ? &sizes[3] : nullptr;
-  Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, &staged, stats);
+  Aig *strategy = solve_gr1_oxidd_impl(game, unreal, &resolved, &staged, stats,
+                                       structural_order);
   certificate->failed = staged.failed;
   memcpy(certificate->error, staged.error, sizeof certificate->error);
   bool ok = !staged.failed && failure.kind == OXIDD_FAILURE_NONE &&
@@ -2863,4 +2872,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
   if (options && options->failure)
     *options->failure = failure;
   return strategy;
+}
+
+Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
+  return solve_gr1_oxidd_ordered_v1(game, unreal, opts, nullptr);
 }

@@ -27,6 +27,7 @@ public_headers = files(
   'pipeline.h',
   'print_tlsf.h',
   'spec.h',
+  'structural_order.h',
   'templates.h',
 )
 gr1_headers = files(

@@ -54,6 +54,7 @@ lib_sources = files(
   'sha256.c',
   'spec.c',
   'spec_parse.c',
+  'structural_order.cc',
   'templates.c',
   'templates_certify.c',
 ) + [
@@ -104,14 +105,15 @@ if have_oxidd
   endif
 endif
 
+cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
+lib_deps += [meson.get_compiler('cpp').find_library(cpp_runtime)]
+pkg_private_libs += ['-l' + cpp_runtime]
+
 if native_gr1
   lib_sources += files('gr1_lift.cc', 'gr1_env_lift.cc', 'gr1_reduction.cc')
-  cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
   lib_compile_deps += [spot_dep.partial_dependency(compile_args: true,
                                                    includes: true)]
-  lib_deps += [spot_dep,
-               meson.get_compiler('cpp').find_library(cpp_runtime)]
-  pkg_private_libs += ['-l' + cpp_runtime]
+  lib_deps += [spot_dep]
 endif
 if have_oxidd and host_machine.system() != 'darwin'
   pkg_private_libs += ['-ldl']

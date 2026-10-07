@@ -199,7 +199,9 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   options.oxidd.failure = &failure;
   options.certificate = &export_options;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd(game_copy.release(), &unreal, &options);
+  const TlsfGr1OrderV1 order{cfg.var_order, seed.r.provenance_json};
+  Aig *strategy = solve_gr1_oxidd_ordered_v1(game_copy.release(), &unreal,
+                                             &options, &order);
   bool real = strategy && !unreal;
   aig_free(strategy);
   out.seed_solves++;

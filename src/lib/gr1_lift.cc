@@ -898,7 +898,9 @@ void solve_seed(Instance &i, const Config &cfg) {
   options.oxidd.failure = &failure;
   options.certificate = &export_options;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd(copy.release(), &unreal, &options);
+  const TlsfGr1OrderV1 order{cfg.var_order, i.r.provenance_json};
+  Aig *strategy =
+      solve_gr1_oxidd_ordered_v1(copy.release(), &unreal, &options, &order);
   aig_free(strategy);
   std::unique_ptr<char, decltype(&free)> cert_guard(cert, &free),
       meta_guard(meta, &free);
@@ -997,7 +999,9 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   options.oxidd.failure = &failure;
   options.certificate = &export_options;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd(game.release(), &unreal, &options);
+  const TlsfGr1OrderV1 order{cfg.var_order, seed.r.provenance_json};
+  Aig *strategy =
+      solve_gr1_oxidd_ordered_v1(game.release(), &unreal, &options, &order);
   const bool real = strategy && !unreal;
   aig_free(strategy);
   out.seed_solves++;
@@ -2719,7 +2723,10 @@ Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
   options.oxidd.failure = &failure;
   options.certificate = &export_options;
   int unreal = 0;
-  Aig *strategy = solve_gr1_oxidd(game.release(), &unreal, &options);
+  const TlsfGr1OrderV1 order{cfg.var_order,
+                             trusted.instance->r.provenance_json};
+  Aig *strategy =
+      solve_gr1_oxidd_ordered_v1(game.release(), &unreal, &options, &order);
   const bool real = strategy && !unreal;
   aig_free(strategy);
   std::unique_ptr<char, decltype(&free)> cert_owner(cert, &free),
@@ -3059,11 +3066,10 @@ extern "C" void tlsf_gr1_lift_target_free(TlsfGr1LiftTarget *target) {
   delete target;
 }
 
-extern "C" TlsfGr1LiftStatus
-tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
-                             const TlsfGr1LiftOptions *options,
-                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
-                             TlsfGr1LiftStatus *failure_status) {
+extern "C" TlsfGr1LiftStatus tlsf_gr1_lift_from_target_ordered_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    TlsfStructuralOrder order, TlsfGr1LiftResult *result,
+    TlsfGr1LiftError *error, TlsfGr1LiftStatus *failure_status) {
   auto *stats = options ? options->stats : nullptr;
   if (failure_status)
     *failure_status = TLSF_GR1_LIFT_OK;
@@ -3080,6 +3086,10 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
   auto status = invoke_lift(
       [&] {
         auto cfg = lift_config(options);
+        cfg.var_order = order;
+        if (order < TLSF_ORDER_INCUMBENT || order > TLSF_ORDER_ROLE_GROUPED)
+          throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
+                        "arguments", "invalid structural order");
         if (cfg.o.proof_order != TLSF_GR1_LIFT_POLICY_FIRST &&
             cfg.o.proof_order != TLSF_GR1_LIFT_REGION_FIRST)
           throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
@@ -3099,6 +3109,15 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
     tlsf_gr1_lift_result_clear(result);
   }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus
+tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
+                             const TlsfGr1LiftOptions *options,
+                             TlsfGr1LiftResult *result, TlsfGr1LiftError *error,
+                             TlsfGr1LiftStatus *failure_status) {
+  return tlsf_gr1_lift_from_target_ordered_v1(
+      target, options, TLSF_ORDER_INCUMBENT, result, error, failure_status);
 }
 
 extern "C" TlsfGr1LiftStatus
@@ -3131,10 +3150,10 @@ extern "C" void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result) {
   memset(result, 0, sizeof *result);
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_ordered_v1(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
-    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
-    TlsfGr1LiftError *error) {
+    TlsfStructuralOrder order, const TlsfGr1BothObserverV1 *observer,
+    TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
   TlsfGr1BothEventRoute live_route = TLSF_GR1_BOTH_EVENT_SEEDS;
   int proof_unreal = -1;
   TlsfGr1LiftStatus failure_status = TLSF_GR1_LIFT_OK;
@@ -3172,6 +3191,10 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
   auto status = invoke_lift(
       [&] {
         Config cfg = lift_config(options);
+        cfg.var_order = order;
+        if (order < TLSF_ORDER_INCUMBENT || order > TLSF_ORDER_ROLE_GROUPED)
+          throw Failure(TLSF_GR1_LIFT_INVALID, FailureCause::invalid,
+                        "arguments", "invalid structural order");
         const TrustedTarget &trusted = target->trusted;
         char source_hash[65]{}, game_hash[65]{};
         sha256_hex(trusted.snapshot.data(), trusted.snapshot.size(),
@@ -3401,6 +3424,14 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
     tlsf_gr1_lift_result_clear(&result->proof);
   }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
+    const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
+    const TlsfGr1BothObserverV1 *observer, TlsfGr1BothResult *result,
+    TlsfGr1LiftError *error) {
+  return tlsf_gr1_both_from_target_ordered_v1(
+      target, options, TLSF_ORDER_INCUMBENT, observer, result, error);
 }
 
 extern "C" TlsfGr1LiftStatus

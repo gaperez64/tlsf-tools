@@ -6,6 +6,9 @@ simd_check_exe = executable('simd_check', 'simd_check.c',
 test('simd_kernels', simd_check_exe)
 
 if native_gr1
+  structural_order_exe = executable('structural_order', 'structural_order.cpp',
+    dependencies: tlsf_internal_dep)
+  test('structural_order', structural_order_exe, suite: 'unit', timeout: 60)
   native_contract_api_exe = executable('native_contract_api',
     'native_contract_api.cpp', reduction_contract_hooks, gr1_reduction_source,
     cpp_args: ['-DTLSF_GR1_REDUCTION_TEST_FAULT'],
