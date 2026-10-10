@@ -39,6 +39,7 @@ typedef oxidd_bdd_t Bdd;
 #include "tlsf/oxidd_options.h"
 
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp);
+size_t oxidd_structural_cache_capacity(uint64_t variables, size_t ceiling);
 // Highest AIG variable index of `aig`, to size a literal -> BDD map.
 uint32_t oxidd_max_aig_var(const Aig *aig);
 // Unreference and clear var_bdd[0..maxvar]; a null map is a no-op.

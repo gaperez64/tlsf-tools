@@ -6,6 +6,12 @@ simd_check_exe = executable('simd_check', 'simd_check.c',
 test('simd_kernels', simd_check_exe)
 
 if native_gr1
+  if host_machine.system() == 'linux'
+    native_cache_api_exe = executable('native_cache_api', 'native_cache_api.cpp',
+      link_args: ['-Wl,--wrap=oxidd_bdd_manager_new'],
+      dependencies: tlsf_internal_dep)
+    test('native_cache_api', native_cache_api_exe, timeout: 60, is_parallel: false)
+  endif
   native_contract_api_exe = executable('native_contract_api',
     'native_contract_api.cpp', reduction_contract_hooks, gr1_reduction_source,
     cpp_args: ['-DTLSF_GR1_REDUCTION_TEST_FAULT'],

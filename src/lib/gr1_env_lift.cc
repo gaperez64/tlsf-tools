@@ -191,7 +191,7 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   Gr1SolveOptions options{};
   options.oxidd = oxidd_solve_options_default();
   options.oxidd.node_cap = cfg.o.solver_nodes;
-  options.oxidd.cache_cap = cfg.o.solver_cache;
+  options.oxidd.cache_cap = cfg.cache_capacity(seed.r.game, false);
   options.oxidd.deadline_mono_ns = cfg.effective_deadline();
   options.oxidd.cancelled = cfg.o.cancelled;
   options.oxidd.cancel_ctx = cfg.o.cancel_ctx;
@@ -235,7 +235,7 @@ void env_solve_seed(Instance &seed, const Config &cfg,
     TlsfGr1CheckOptions check_options{};
     check_options.method = TLSF_GR1_CHECK_REGION;
     check_options.node_cap = cfg.o.checker_nodes;
-    check_options.cache_cap = cfg.o.checker_cache;
+    check_options.cache_cap = cfg.cache_capacity(seed.r.game, true);
     check_options.max_artifact_bytes = cfg.o.max_artifact_bytes;
     check_options.deadline_mono_ns = cfg.effective_deadline();
     check_options.cancelled = cfg.o.cancelled;
@@ -287,7 +287,7 @@ void env_solve_seed(Instance &seed, const Config &cfg,
   TlsfGr1CheckOptions check_options{};
   check_options.method = TLSF_GR1_CHECK_CERTIFICATE;
   check_options.node_cap = cfg.o.checker_nodes;
-  check_options.cache_cap = cfg.o.checker_cache;
+  check_options.cache_cap = cfg.cache_capacity(seed.r.game, true);
   check_options.max_artifact_bytes = cfg.o.max_artifact_bytes;
   check_options.deadline_mono_ns = cfg.effective_deadline();
   check_options.cancelled = cfg.o.cancelled;
@@ -2726,7 +2726,7 @@ void env_check(const TrustedTarget &trusted, const Config &cfg,
   TlsfGr1CheckOptions options{};
   options.method = TLSF_GR1_CHECK_CERTIFICATE;
   options.node_cap = cfg.o.checker_nodes;
-  options.cache_cap = cfg.o.checker_cache;
+  options.cache_cap = cfg.cache_capacity(trusted.instance->r.game, true);
   options.max_artifact_bytes = cfg.o.max_artifact_bytes;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   if (env_test_check_bytes)

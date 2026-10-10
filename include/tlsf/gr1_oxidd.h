@@ -10,6 +10,16 @@
 extern "C" {
 #endif
 
+/// Cache request derived from the game, bounded by a positive ceiling.
+/// Let s = inputs + latches + AND gates + justice roots + fairness roots + 1.
+/// Request min(ceiling, 2^clamp(ceil(log2(s)) + 6, 10, 23)): 64 entries per
+/// graph element, rounded up to a power of two, with a 1024-entry floor and
+/// the previous 2^23 ceiling. The six extra bits retain the solver's existing
+/// headroom factor. Solving and checking use the same graph size: checker
+/// next-state copies are not counted, nor is the full monitor valuation space.
+/// The cache evicts entries; this does not limit BDD nodes.
+size_t tlsf_gr1_cache_capacity(const Aig *game, size_t ceiling);
+
 /// Optional file export requested by tlsfsolve.  The AAG is a combinational
 /// circuit over solver state and game inputs; the JSON file is an optional
 /// sidecar describing its predicates and variable mapping.  On an export

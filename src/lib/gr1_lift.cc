@@ -892,7 +892,7 @@ void solve_seed(Instance &i, const Config &cfg) {
   Gr1SolveOptions options{};
   options.oxidd = oxidd_solve_options_default();
   options.oxidd.node_cap = cfg.o.solver_nodes;
-  options.oxidd.cache_cap = cfg.o.solver_cache;
+  options.oxidd.cache_cap = cfg.cache_capacity(i.r.game, false);
   options.oxidd.deadline_mono_ns = cfg.o.deadline_mono_ns;
   options.oxidd.cancelled = cfg.o.cancelled;
   options.oxidd.cancel_ctx = cfg.o.cancel_ctx;
@@ -991,7 +991,7 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   Gr1SolveOptions options{};
   options.oxidd = oxidd_solve_options_default();
   options.oxidd.node_cap = cfg.o.solver_nodes;
-  options.oxidd.cache_cap = cfg.o.solver_cache;
+  options.oxidd.cache_cap = cfg.cache_capacity(seed.r.game, false);
   options.oxidd.deadline_mono_ns = cfg.o.deadline_mono_ns;
   options.oxidd.cancelled = cfg.o.cancelled;
   options.oxidd.cancel_ctx = cfg.o.cancel_ctx;
@@ -1041,7 +1041,7 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   check_options.method =
       real ? TLSF_GR1_CHECK_REGION : TLSF_GR1_CHECK_CERTIFICATE;
   check_options.node_cap = cfg.o.checker_nodes;
-  check_options.cache_cap = cfg.o.checker_cache;
+  check_options.cache_cap = cfg.cache_capacity(seed.r.game, true);
   check_options.max_artifact_bytes = cfg.o.max_artifact_bytes;
   check_options.deadline_mono_ns = cfg.o.deadline_mono_ns;
   check_options.cancelled = cfg.o.cancelled;
@@ -1278,8 +1278,11 @@ class Schema {
 
 public:
   Schema(const Config &config, uint32_t initial) : cfg(&config) {
-    manager =
-        oxidd_bdd_manager_new(cfg->o.schema_nodes, cfg->o.schema_cache, 1);
+    const size_t cache =
+        cfg->automatic_schema_cache
+            ? oxidd_structural_cache_capacity(initial, cfg->o.schema_cache)
+            : cfg->o.schema_cache;
+    manager = oxidd_bdd_manager_new(cfg->o.schema_nodes, cache, 1);
     if (!manager._p)
       throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
                     "schema_capacity", "cannot create OxiDD manager");
@@ -2173,7 +2176,7 @@ TlsfGr1CheckResult check(const TrustedTarget &trusted,
   TlsfGr1CheckOptions options{};
   options.method = method;
   options.node_cap = cfg.o.checker_nodes;
-  options.cache_cap = cfg.o.checker_cache;
+  options.cache_cap = cfg.cache_capacity(trusted.instance->r.game, true);
   options.max_artifact_bytes = cfg.o.max_artifact_bytes;
   options.deadline_mono_ns = deadline;
   options.cancelled = cfg.o.cancelled;
@@ -2587,6 +2590,9 @@ struct TlsfGr1LiftTarget {
 namespace gr1_lift_internal {
 Config lift_config(const TlsfGr1LiftOptions *options) {
   Config cfg{defaults(options)};
+  cfg.automatic_solver_cache = !options || !options->solver_cache;
+  cfg.automatic_checker_cache = !options || !options->checker_cache;
+  cfg.automatic_schema_cache = !options || !options->schema_cache;
   static const TlsfGr1ConstructionBudget empty_budget{};
   cfg.budget = options ? &options->budget : &empty_budget;
   cfg.stats = options ? options->stats : nullptr;
@@ -2713,7 +2719,7 @@ Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
   Gr1SolveOptions options{};
   options.oxidd = oxidd_solve_options_default();
   options.oxidd.node_cap = 1u << 22;
-  options.oxidd.cache_cap = 1u << 20;
+  options.oxidd.cache_cap = tlsf_gr1_cache_capacity(game.get(), 1u << 20);
   options.oxidd.deadline_mono_ns = cfg.o.deadline_mono_ns;
   options.oxidd.cancelled = cfg.o.cancelled;
   options.oxidd.cancel_ctx = cfg.o.cancel_ctx;

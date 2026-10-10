@@ -2,6 +2,7 @@
 
 #include <tlsf/gr1_lift.h>
 #include "oxidd_common.h"
+#include "tlsf/gr1_oxidd.h"
 #include "yyjson_cpp.hh"
 #include <algorithm>
 #include <cstdio>
@@ -95,6 +96,14 @@ FailureCause check_failure_cause(TlsfGr1CheckStatus status,
                                  TlsfGr1CheckVerdict verdict);
 struct Config {
   TlsfGr1LiftOptions o{};
+  bool automatic_solver_cache = false, automatic_checker_cache = false,
+       automatic_schema_cache = false;
+  size_t cache_capacity(const Aig *game, bool checker) const {
+    const size_t ceiling = checker ? o.checker_cache : o.solver_cache;
+    const bool automatic =
+        checker ? automatic_checker_cache : automatic_solver_cache;
+    return automatic ? tlsf_gr1_cache_capacity(game, ceiling) : ceiling;
+  }
   mutable std::optional<FailureCause> search_cause;
   mutable std::string search_stage, search_message;
   void note_failure(const Failure &e) const {

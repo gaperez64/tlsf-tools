@@ -6,6 +6,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "oxidd_common.h"
+#include "tlsf/gr1_oxidd.h"
 #include "oxidd_build_stamp.h"
 
 #include <stdarg.h>
@@ -55,6 +56,31 @@ size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {
   size_t cap = (size_t)1 << exp;
   size_t min = (size_t)1 << 10;
   return cap < min ? min : cap;
+}
+
+size_t oxidd_structural_cache_capacity(uint64_t variables, size_t ceiling) {
+  // Use the solver's existing six extra bits and 2^10 floor. Saturate before
+  // adding to avoid overflow; the lifting cache ceiling remains 2^23.
+  uint32_t exp = variables >= 17 ? 23 : (uint32_t)variables + 6;
+  if (exp < 10)
+    exp = 10;
+  size_t capacity = (size_t)1 << exp;
+  return capacity < ceiling ? capacity : ceiling;
+}
+
+size_t tlsf_gr1_cache_capacity(const Aig *game, size_t ceiling) {
+  // Size from the retained AIG graph. Monitor/counter encodings can add many
+  // variables to an otherwise small game; their full valuation space would
+  // saturate the cache ceiling before any BDD operation on such a game.
+  uint64_t elements = (uint64_t)aig_num_inputs(game) + aig_num_latches(game) +
+                      aig_num_ands(game) + aig_num_justice(game) +
+                      aig_num_fairness(game) + 1;
+  uint32_t exp = 0;
+  while (elements > 1) {
+    elements = (elements + 1) / 2;
+    ++exp;
+  }
+  return oxidd_structural_cache_capacity(exp, ceiling);
 }
 
 void oxidd_trace(const OxiddSolveOptions *opts, const char *phase,

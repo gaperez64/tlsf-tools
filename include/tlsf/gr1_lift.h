@@ -29,7 +29,13 @@ typedef enum {
 /* Zero-valued knobs use these global defaults. They match the applicable
  * settings.py Stage C values. The caller supplies one immutable TLSF snapshot;
  * every seed is expanded from these bytes by changing declared PARAMETERS.
- * Zero-valued caps select their defaults; effective caps are positive.
+ * Zero-valued node caps select their defaults. Zero-valued caches select
+ * the structural rule in tlsf_gr1_cache_capacity(), with the DEFAULT_*_CACHE
+ * constants as ceilings. Schema caches request min(default ceiling,
+ * 2^clamp(initial variable count + 6, 10, 23)). Nonzero cache requests are
+ * preserved, and OxiDD
+ * rounds them up to powers of two. Caches do not grow after manager creation;
+ * eviction recomputes results without changing the node or proof budgets.
  * Spot calls cannot be interrupted in process, so a hard deadline also needs
  * a killable caller process. */
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SIZES_PER_AXIS 6u
