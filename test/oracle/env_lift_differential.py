@@ -38,6 +38,20 @@ def stage(result):
     return "verified" if result["exit"] == 0 else result["work"].get("stage")
 
 
+def real_stop(result, expected_stage):
+    # The CI unit also asserts the internal FailureCause behind the legacy status.
+    expected_error = {
+        "typed_alignment": "target conjunct or role class missing",
+        "seed_check": "checked REAL seed is ineligible for U",
+    }[expected_stage]
+    result.update(expected_cause="applicability", expected_status=2,
+                  expected_stage=expected_stage, expected_error=expected_error)
+    return (result["exit"] == 1 and result["work"].get("status") == "2" and
+            stage(result) == expected_stage and result["error"] == expected_error and
+            result["work"].get("verdict") == "4" and
+            result["work"].get("checks") == "0")
+
+
 def compare_work(result, expected):
     if expected["stage"] not in ("verified", "schema_capacity"):
         return True
@@ -134,6 +148,8 @@ def main():
                     good &= result["work"].get("checks") == "1"
                 else:
                     good &= result["work"].get("checks") == "0"
+                if name == "target-real":
+                    good &= real_stop(result, "typed_alignment")
                 if name == "renamed-case-13":
                     good &= result["work"].get("verdict") == "0"
                     original = reference(directory / name / "results.json")
@@ -152,8 +168,7 @@ def main():
                          args.out / f"{size}-real-seed", "--lift")
             result.update(size=size, row="real-seed", expected_stage="seed_check",
                           native_stage=stage(result))
-            if (result["native_stage"] != "seed_check" or
-                    result["work"].get("verdict") != "4"):
+            if not real_stop(result, "seed_check"):
                 failures.append(f"{size}/real-seed: control mismatch")
             rows.append(result)
             print(json.dumps(result), flush=True)
