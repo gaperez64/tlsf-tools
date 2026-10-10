@@ -45,6 +45,10 @@ if native_gr1
   test('native_real_both_api', native_real_both_api_exe,
     args: files('../oracle/env_lift_one.tlsf'),
     timeout: 30, is_parallel: false)
+  native_env_real_api_exe = executable('native_env_real_api',
+    'native_env_real_api.cpp', dependencies: tlsf_internal_dep)
+  test('native_env_real_negative_control', native_env_real_api_exe,
+    timeout: 90, is_parallel: false)
   env_rank_probe_exe = executable('env_rank_probe', 'env_rank_probe.cpp',
     dependencies: tlsf_internal_dep)
   env_rank_fault_probe_exe = executable('env_rank_fault_probe',
