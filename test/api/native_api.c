@@ -51,6 +51,24 @@ static Aig *parse_game(const char *text) {
   return game;
 }
 
+static TlsfGr1CheckStatus check_orders(const TlsfGr1CheckInput *input,
+                                       const TlsfGr1CheckOptions *options,
+                                       TlsfGr1CheckResult *result) {
+  assert(options->var_order == TLSF_GR1_CHECK_VAR_ORDER_AUTO);
+  TlsfGr1CheckStatus status = tlsf_gr1_check(input, options, result);
+  for (TlsfGr1CheckVarOrder order = TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST;
+       order <= TLSF_GR1_CHECK_VAR_ORDER_STATE_FIRST; order++) {
+    TlsfGr1CheckOptions forced = *options;
+    forced.var_order = order;
+    TlsfGr1CheckResult checked;
+    assert(tlsf_gr1_check(input, &forced, &checked) == status);
+    assert(checked.verdict == result->verdict);
+    assert((checked.json != NULL) == (result->json != NULL));
+    tlsf_gr1_check_result_clear(&checked);
+  }
+  return status;
+}
+
 static void roundtrip(const char *game_text, int expect_unreal) {
   size_t game_size = strlen(game_text);
   Aig *game = parse_game(game_text);
@@ -104,7 +122,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
       .max_artifact_bytes = 1u << 20,
   };
   TlsfGr1CheckResult checked;
-  assert(tlsf_gr1_check(&check_input, &check_options, &checked) ==
+  assert(check_orders(&check_input, &check_options, &checked) ==
          TLSF_GR1_CHECK_OK);
   if (checked.verdict != TLSF_GR1_CHECK_VERIFIED)
     fwrite(checked.json, 1, checked.json_size, stderr);
@@ -132,7 +150,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
     assert(dup2(pipe_fds[1], STDOUT_FILENO) >= 0);
     close(pipe_fds[1]);
     TlsfGr1CheckStatus status =
-        tlsf_gr1_check(&mutated, &check_options, &checked);
+        check_orders(&mutated, &check_options, &checked);
     fflush(stdout);
     assert(dup2(saved, STDOUT_FILENO) >= 0);
     close(saved);
@@ -150,7 +168,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
     if (method == TLSF_GR1_CHECK_REGION || method == TLSF_GR1_CHECK_CERTIFICATE)
       continue;
     check_options.method = method;
-    assert(tlsf_gr1_check(&check_input, &check_options, &checked) ==
+    assert(check_orders(&check_input, &check_options, &checked) ==
            TLSF_GR1_CHECK_OK);
     assert(checked.verdict == TLSF_GR1_CHECK_VERIFIED);
     tlsf_gr1_check_result_clear(&checked);
@@ -161,7 +179,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
     region_input.policy_aag = (TlsfGr1Bytes){0};
     region_input.policy_json = (TlsfGr1Bytes){0};
     check_options.method = TLSF_GR1_CHECK_REGION;
-    assert(tlsf_gr1_check(&region_input, &check_options, &checked) ==
+    assert(check_orders(&region_input, &check_options, &checked) ==
            TLSF_GR1_CHECK_OK);
     assert(checked.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
     tlsf_gr1_check_result_clear(&checked);
@@ -171,7 +189,7 @@ static void roundtrip(const char *game_text, int expect_unreal) {
   assert(tampered);
   tampered[0] = 'X';
   check_input.certificate_json = span(tampered, cert_json_size);
-  assert(tlsf_gr1_check(&check_input, &check_options, &checked) ==
+  assert(check_orders(&check_input, &check_options, &checked) ==
          TLSF_GR1_CHECK_OK);
   if (checked.verdict != TLSF_GR1_CHECK_INVALID)
     fprintf(stderr, "tampered sidecar verdict=%d evidence=%s\n",
@@ -181,11 +199,21 @@ static void roundtrip(const char *game_text, int expect_unreal) {
   free(tampered);
   check_input.certificate_json = span(cert_json, cert_json_size);
   check_input.game_aag = span("not an AAG", 10);
-  assert(tlsf_gr1_check(&check_input, &check_options, &checked) ==
+  assert(check_orders(&check_input, &check_options, &checked) ==
          TLSF_GR1_CHECK_OK);
   assert(checked.verdict == TLSF_GR1_CHECK_INVALID);
   tlsf_gr1_check_result_clear(&checked);
   check_input.game_aag = span(game_text, game_size);
+  const int invalid_orders[] = {-1, 3, 12345};
+  for (size_t i = 0; i < sizeof invalid_orders / sizeof invalid_orders[0];
+       i++) {
+    check_options.var_order = (TlsfGr1CheckVarOrder)invalid_orders[i];
+    assert(tlsf_gr1_check(&check_input, &check_options, &checked) ==
+           TLSF_GR1_CHECK_BAD_ARGUMENT);
+    assert(checked.verdict == TLSF_GR1_CHECK_UNKNOWN && checked.json == NULL);
+    tlsf_gr1_check_result_clear(&checked);
+  }
+  check_options.var_order = TLSF_GR1_CHECK_VAR_ORDER_AUTO;
   check_options.node_cap = 1;
   assert(tlsf_gr1_check(&check_input, &check_options, &checked) ==
          TLSF_GR1_CHECK_BAD_ARGUMENT);

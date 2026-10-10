@@ -1741,12 +1741,20 @@ static bool checked_satisfiable(Checker *ck, Bdd value) {
 }
 
 static bool use_input_first(const Checker *ck) {
+  if (ck->options.var_order != TLSF_GR1_CHECK_VAR_ORDER_AUTO)
+    return ck->options.var_order == TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST;
+  // Automatic keeps the existing global 4096..262144 policy-gate window.
   // The profiled wins are in this policy-circuit range.  Tiny circuits avoid
   // a speculative retry on rejection; larger ones retain resource verdicts.
   return ck->options.method == METHOD_CERTIFICATE &&
          !ck->options.legacy_order && ck->policy &&
          aig_num_ands(ck->policy) >= (1u << 12) &&
          aig_num_ands(ck->policy) <= (1u << 18);
+}
+
+static bool speculative_input_first(const Checker *ck) {
+  return ck->options.var_order == TLSF_GR1_CHECK_VAR_ORDER_AUTO &&
+         use_input_first(ck);
 }
 
 static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
@@ -1785,8 +1793,8 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
     snprintf(message, cap, "out of memory");
     return false;
   }
-  // Input-first makes policy composition much smaller for fixed certificate
-  // proofs.  Other methods keep the original order and diagnostic sequence.
+  // Input-first places both input groups before interleaved current/next
+  // state pairs. Automatic preserves the original order for other methods.
   const bool input_first = use_input_first(ck);
   for (uint32_t i = 0; i < ck->nq; i++) {
     ck->qvar[i] = (input_first ? ck->nu + ck->nc : 0) + 2 * i;
@@ -2240,7 +2248,7 @@ static void capture_counterexample(Checker *ck, const char *reason,
 
 static void print_counterexample(Checker *ck, const char *reason, Bdd witness,
                                  const Bdd *control) {
-  const bool emit = !ck->options.quiet && !use_input_first(ck);
+  const bool emit = !ck->options.quiet && !speculative_input_first(ck);
   if (emit)
     printf("COUNTEREXAMPLE reason=%s\n", reason);
   oxidd_assignment_t assignment = oxidd_bdd_pick_cube(witness);
@@ -4520,7 +4528,7 @@ int gr1_check_run(Options options, char *owned_policy_json,
   double setup_started = now_seconds();
   if (!setup_bdds(&ck, levels, message, sizeof message)) {
     ck.setup_seconds = now_seconds() - setup_started;
-    if (use_input_first(&ck) && !timed_out(&ck)) {
+    if (speculative_input_first(&ck) && !timed_out(&ck)) {
       if (ck.run_initialized)
         oxidd_run_finish(&ck.run);
       free(levels);
@@ -4597,7 +4605,7 @@ int gr1_check_run(Options options, char *owned_policy_json,
                                   certificate.result != CHECK_VERIFIED;
   const bool closed_loop_failed = closed_loop.result != CHECK_SKIPPED &&
                                   closed_loop.result != CHECK_VERIFIED;
-  if (use_input_first(&ck) && !timed_out(&ck) &&
+  if (speculative_input_first(&ck) && !timed_out(&ck) &&
       (certificate_failed || closed_loop_failed)) {
     if (ck.run_initialized)
       oxidd_run_finish(&ck.run);
@@ -4812,6 +4820,9 @@ TlsfGr1CheckStatus tlsf_gr1_check(const TlsfGr1CheckInput *input,
       input && input->certificate_aag.data && input->certificate_aag.size &&
       input->certificate_json.data && input->certificate_json.size;
   if (!input || !options || options->method > TLSF_GR1_CHECK_BOTH ||
+      (options->var_order != TLSF_GR1_CHECK_VAR_ORDER_AUTO &&
+       options->var_order != TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST &&
+       options->var_order != TLSF_GR1_CHECK_VAR_ORDER_STATE_FIRST) ||
       !valid_span(input->game_aag) || (needs_certificate && !has_certificate) ||
       (has_certificate && (!valid_span(input->certificate_aag) ||
                            !valid_span(input->certificate_json))) ||
@@ -4874,6 +4885,7 @@ TlsfGr1CheckStatus tlsf_gr1_check(const TlsfGr1CheckInput *input,
       .certificate_path = has_certificate ? "memory" : nullptr,
       .certificate_json_path = has_certificate ? "memory" : nullptr,
       .method = method,
+      .var_order = options->var_order,
       .node_cap = options->node_cap,
       .cache_cap = options->cache_cap,
       .cache_cap_explicit = true,

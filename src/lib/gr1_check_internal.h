@@ -5,6 +5,7 @@
 /// library entry point and the tlsfcertcheck command line.
 
 #include "tlsf/oxidd_options.h"
+#include "tlsf/gr1_check.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,6 +39,7 @@ typedef struct {
   const char *json_out_path;
   const char *emit_path;
   Method method;
+  TlsfGr1CheckVarOrder var_order;
   double timeout;
   size_t node_cap, cache_cap;
   size_t effective_node_cap, effective_cache_cap;

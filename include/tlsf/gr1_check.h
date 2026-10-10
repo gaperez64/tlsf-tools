@@ -21,6 +21,17 @@ typedef enum {
   TLSF_GR1_CHECK_BOTH = 4,
 } TlsfGr1CheckMethod;
 
+/* Automatic uses input-first only for the certificate method with a policy
+ * containing 4096 to 262144 AND gates (inclusive), otherwise state-first.
+ * Failed automatic input-first passes retry in state-first order within the
+ * original deadline. Forced orders never retry with a different order.
+ * Current/next state variables remain interleaved. */
+typedef enum {
+  TLSF_GR1_CHECK_VAR_ORDER_AUTO = 0,
+  TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST = 1,
+  TLSF_GR1_CHECK_VAR_ORDER_STATE_FIRST = 2,
+} TlsfGr1CheckVarOrder;
+
 typedef enum {
   TLSF_GR1_CHECK_VERIFIED,
   TLSF_GR1_CHECK_REGION_VERIFIED,
@@ -49,6 +60,7 @@ typedef struct {
 
 typedef struct {
   TlsfGr1CheckMethod method;
+  TlsfGr1CheckVarOrder var_order; /* zero-initialized default: automatic */
   size_t node_cap, cache_cap, max_artifact_bytes;
   uint64_t deadline_mono_ns;
   int (*cancelled)(void *);
