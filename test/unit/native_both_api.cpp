@@ -34,7 +34,7 @@ struct Event {
   TlsfGr1BothEventKind kind;
   TlsfGr1BothEventRoute route;
   TlsfGr1LiftStatus failure;
-  std::string stage;
+  std::string stage, reason;
 };
 struct Observation {
   std::vector<Event> events;
@@ -43,9 +43,9 @@ struct Observation {
 };
 static void observe(void *context, TlsfGr1BothEventKind kind,
                     TlsfGr1BothEventRoute route, int, const char *stage,
-                    const char *, TlsfGr1LiftStatus failure) {
+                    const char *reason, TlsfGr1LiftStatus failure) {
   auto &state = *static_cast<Observation *>(context);
-  state.events.push_back({kind, route, failure, stage});
+  state.events.push_back({kind, route, failure, stage, reason});
   if (state.corrupt_env_binding && kind == TLSF_GR1_BOTH_EVENT_CHECK_START &&
       route == TLSF_GR1_BOTH_EVENT_U)
     tlsf_gr1_env_rank_test_set_fault(12);
@@ -126,6 +126,9 @@ static const FaultCase lift_fault_cases[] = {
     {3, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "target_check"},
     {4, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "target_check"},
     {5, TLSF_GR1_BOTH_EVENT_VERIFIED, TLSF_GR1_LIFT_OK, "target_check"},
+    {6, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "schema_abi"},
+    {7, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "target_check"},
+    {8, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "target_check"},
 };
 static const FaultCase seed_fault_cases[] = {
     {1, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "seed_mixed"},
@@ -261,6 +264,52 @@ static TlsfGr1BothResult run(const std::string &source,
   return result;
 }
 
+static void corruption_fallbacks(const std::string &unreal_source) {
+  for (int fault : {6, 8}) {
+    const std::string source = fault == 6 ? real_source : unreal_source;
+    const auto route =
+        fault == 6 ? TLSF_GR1_BOTH_EVENT_R : TLSF_GR1_BOTH_EVENT_U;
+    const char *stage = fault == 6 ? "schema_abi" : "target_check";
+    TlsfGr1LiftOptions options{};
+    options.disable_env_lift = 1;
+    auto direct = run(source, options, 0, nullptr, TLSF_GR1_LIFT_OK, 1);
+    options.disable_env_lift = 0;
+    Observation state;
+    auto recovered = run(source, options, fault, &state);
+    stopped_fallback(state, route, stage, TLSF_GR1_LIFT_ERROR);
+    for (const auto &event : state.events)
+      if (event.route == route) {
+        CHECK(event.kind != TLSF_GR1_BOTH_EVENT_VERIFIED);
+        if (event.kind == TLSF_GR1_BOTH_EVENT_STOPPED)
+          CHECK(event.reason == (fault == 6
+                                     ? "multi-member justice"
+                                     : "environment proof did not verify"));
+      }
+    CHECK(recovered.seed_polarity ==
+          (fault == 6 ? TLSF_GR1_SEEDS_REAL : TLSF_GR1_SEEDS_UNREAL));
+    CHECK(recovered.route == TLSF_GR1_BOTH_DIRECT);
+    CHECK(recovered.target_checks == (fault == 6 ? 1u : 2u));
+    CHECK(!strcmp(recovered.decline_stage, stage));
+    CHECK(recovered.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
+    CHECK(recovered.proof.method == TLSF_GR1_CHECK_CERTIFICATE);
+    CHECK(!strcmp(recovered.proof.game_aag, direct.proof.game_aag));
+    CHECK(
+        !strcmp(recovered.proof.certificate_aag, direct.proof.certificate_aag));
+    CHECK(!strcmp(recovered.proof.certificate_json,
+                  direct.proof.certificate_json));
+    CHECK(!strcmp(recovered.proof.policy_aag, direct.proof.policy_aag));
+    CHECK(!strcmp(recovered.proof.policy_json, direct.proof.policy_json));
+    auto legacy = run(source, options, fault);
+    CHECK(legacy.route == recovered.route &&
+          legacy.target_checks == recovered.target_checks);
+    CHECK(legacy.proof.verdict == recovered.proof.verdict);
+    CHECK(
+        !strcmp(legacy.proof.certificate_aag, recovered.proof.certificate_aag));
+    tlsf_gr1_both_result_clear(&legacy);
+    tlsf_gr1_both_result_clear(&recovered);
+    tlsf_gr1_both_result_clear(&direct);
+  }
+}
 static void fault_census(const std::string &unreal_source) {
   TlsfGr1LiftOptions options{};
   for (const auto &fault : env_fault_cases) {
@@ -280,8 +329,36 @@ static void fault_census(const std::string &unreal_source) {
     tlsf_gr1_env_rank_test_set_fault(0);
   }
   for (const auto &fault : lift_fault_cases) {
+    if (fault.fault == 7) {
+      auto solo_options = options;
+      solo_options.deadline_mono_ns = deadline();
+      solo_options.proof_order = TLSF_GR1_LIFT_REGION_FIRST;
+      TlsfGr1LiftStats stats{};
+      solo_options.stats = &stats;
+      TlsfGr1LiftTarget *target = nullptr;
+      TlsfGr1LiftError error{};
+      CHECK(tlsf_gr1_lift_target_prepare_exact(
+                (const uint8_t *)real_source, strlen(real_source),
+                &solo_options, &target, &error) == TLSF_GR1_LIFT_OK);
+      tlsf_gr1_lift_test_set_fault(fault.fault);
+      TlsfGr1LiftResult proof{};
+      TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_OK;
+      CHECK(tlsf_gr1_lift_from_target_v1(target, &solo_options, &proof, &error,
+                                         &cause) == TLSF_GR1_LIFT_DECLINED);
+      CHECK(fault.kind == TLSF_GR1_BOTH_EVENT_STOPPED && cause == fault.cause);
+      CHECK(error.status == TLSF_GR1_LIFT_DECLINED &&
+            !strcmp(error.stage, fault.stage));
+      CHECK(!strcmp(error.message, "unverified candidate"));
+      CHECK(stats.internal_checks == 1 && !proof.game_aag &&
+            !proof.certificate_aag && !proof.evidence_json);
+      tlsf_gr1_lift_result_clear(&proof);
+      tlsf_gr1_lift_test_set_fault(0);
+      tlsf_gr1_lift_target_free(target);
+      continue;
+    }
     Observation state;
-    auto recovered = run(real_source, options, fault.fault, &state);
+    auto recovered = run(fault.fault == 8 ? unreal_source : real_source,
+                         options, fault.fault, &state);
     if (fault.fault == 5) {
       CHECK(recovered.route == TLSF_GR1_BOTH_REAL_LIFT &&
             recovered.target_checks == 1);
@@ -291,7 +368,8 @@ static void fault_census(const std::string &unreal_source) {
       tlsf_gr1_both_result_clear(&recovered);
       continue;
     }
-    const auto route = TLSF_GR1_BOTH_EVENT_R;
+    const auto route =
+        fault.fault == 8 ? TLSF_GR1_BOTH_EVENT_U : TLSF_GR1_BOTH_EVENT_R;
     failed_fallback(state, route, fault.stage, fault.cause, fault.kind,
                     fault.fault);
     CHECK(recovered.route == TLSF_GR1_BOTH_DIRECT &&
@@ -397,8 +475,12 @@ int main(int argc, char **argv) {
   CHECK(file);
   std::string unreal_source(std::istreambuf_iterator<char>{file}, {});
   if (argc == 3) {
-    CHECK(!strcmp(argv[2], "--fault-census"));
-    fault_census(unreal_source);
+    if (!strcmp(argv[2], "--fault-census"))
+      fault_census(unreal_source);
+    else {
+      CHECK(!strcmp(argv[2], "--corruption-guards"));
+      corruption_fallbacks(unreal_source);
+    }
     return 0;
   }
   routing_ablation(unreal_source);

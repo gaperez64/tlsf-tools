@@ -99,7 +99,55 @@ static TlsfGr1LiftStatus lift(const char *bytes, const TlsfGr1LiftOptions &o,
   return tlsf_gr1_lift(reinterpret_cast<const uint8_t *>(bytes), strlen(bytes),
                        nullptr, 0, &o, r, e);
 }
+static void corruption_guards() {
+  for (auto order : {TLSF_GR1_LIFT_POLICY_FIRST, TLSF_GR1_LIFT_REGION_FIRST}) {
+    for (int fault : {6, 7}) {
+      auto o = options();
+      o.proof_order = order;
+      TlsfGr1LiftStats stats{};
+      o.stats = &stats;
+      TlsfGr1LiftTarget *target = nullptr;
+      TlsfGr1LiftError error{};
+      CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)source,
+                                         strlen(source), nullptr, 0, &o,
+                                         &target, &error) == TLSF_GR1_LIFT_OK);
+      tlsf_gr1_lift_test_set_fault(fault);
+      TlsfGr1LiftResult result{};
+      CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
+            TLSF_GR1_LIFT_DECLINED);
+      CHECK(stats.internal_checks == (fault == 6 ? 0u : 1u));
+      CHECK(!result.game_aag && !result.certificate_aag &&
+            !result.evidence_json);
+      stats = {};
+      TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_OK;
+      CHECK(tlsf_gr1_lift_from_target_v1(target, &o, &result, &error, &cause) ==
+            TLSF_GR1_LIFT_DECLINED);
+      CHECK(cause == TLSF_GR1_LIFT_ERROR);
+      CHECK(error.status == TLSF_GR1_LIFT_DECLINED);
+      CHECK(!strcmp(error.stage, fault == 6 ? "schema_abi" : "target_check"));
+      CHECK(!strcmp(error.message, fault == 6 ? "multi-member justice"
+                                              : "unverified candidate"));
+      CHECK(stats.internal_checks == (fault == 6 ? 0u : 1u));
+      CHECK(stats.stages[TLSF_GR1_LIFT_STATS_PUBLISH].calls == 0);
+      CHECK(!result.game_aag && !result.certificate_aag && !result.policy_aag &&
+            !result.evidence_json && !result.check_json);
+      tlsf_gr1_lift_result_clear(&result);
+      tlsf_gr1_lift_test_set_fault(0);
+      stats = {};
+      CHECK(tlsf_gr1_lift_from_target_v1(target, &o, &result, &error, &cause) ==
+            TLSF_GR1_LIFT_OK);
+      CHECK(cause == TLSF_GR1_LIFT_OK && stats.internal_checks == 1);
+      CHECK(result.verdict == (order == TLSF_GR1_LIFT_POLICY_FIRST
+                                   ? TLSF_GR1_CHECK_VERIFIED
+                                   : TLSF_GR1_CHECK_REGION_VERIFIED));
+      CHECK(tlsf_gr1_lift_target_matches(target, &result));
+      tlsf_gr1_lift_result_clear(&result);
+      tlsf_gr1_lift_target_free(target);
+    }
+  }
+}
 int main() {
+  corruption_guards();
   TlsfGr1LiftResult result{};
   TlsfGr1LiftError error{};
   auto o = options();
