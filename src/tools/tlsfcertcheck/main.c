@@ -18,6 +18,13 @@ static void usage(const char *prog) {
       "  --certificate-json FILE  M2 sidecar (default CERTIFICATE.json)\n"
       "  --method NAME            auto|certificate|closed-loop|both|region\n"
       "                           region is policy-free gr1-region-v1\n"
+      "  --var-order NAME         auto|input-first|state-first (default auto)\n"
+      "                           auto uses input-first in certificate method\n"
+      "                           with a policy of 4096..262144 AND gates, "
+      "state-first "
+      "otherwise;\n"
+      "                           failed input-first checks retry state-first\n"
+      "                           forced orders do not retry another order\n"
       "  --json-out FILE          write versioned method-result JSON\n"
       "  --emit-controller FILE   emit the checked standalone controller\n"
       "  --timeout SECONDS        return UNKNOWN after the soft deadline\n"
@@ -68,8 +75,10 @@ static char *sidecar_default(const char *path) {
 
 static int parse_options(int argc, char **argv, Options *options,
                          char **owned_policy_json, char **owned_cert_json) {
-  *options =
-      (Options){.method = METHOD_AUTO, .timeout = 0, .node_cap = 1u << 24};
+  *options = (Options){.method = METHOD_AUTO,
+                       .var_order = TLSF_GR1_CHECK_VAR_ORDER_AUTO,
+                       .timeout = 0,
+                       .node_cap = 1u << 24};
   const char *positional[2] = {nullptr, nullptr};
   uint32_t npos = 0;
   for (int i = 1; i < argc; i++) {
@@ -131,6 +140,23 @@ static int parse_options(int argc, char **argv, Options *options,
         options->method = METHOD_REGION;
       else {
         fprintf(stderr, "%s: unknown method '%s'\n", argv[0], argv[i]);
+        return -1;
+      }
+      continue;
+    }
+    if (!strcmp(argv[i], "--var-order")) {
+      if (++i == argc) {
+        fprintf(stderr, "%s: --var-order requires a value\n", argv[0]);
+        return -1;
+      }
+      if (!strcmp(argv[i], "auto"))
+        options->var_order = TLSF_GR1_CHECK_VAR_ORDER_AUTO;
+      else if (!strcmp(argv[i], "input-first"))
+        options->var_order = TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST;
+      else if (!strcmp(argv[i], "state-first"))
+        options->var_order = TLSF_GR1_CHECK_VAR_ORDER_STATE_FIRST;
+      else {
+        fprintf(stderr, "%s: unknown variable order '%s'\n", argv[0], argv[i]);
         return -1;
       }
       continue;

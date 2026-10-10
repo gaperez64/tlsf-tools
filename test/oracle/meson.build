@@ -102,6 +102,11 @@ if research_tools and have_oxidd
              '--games', '80'],
       timeout: 180,
     )
+    test('gr1_check_order', python3,
+      args: [files('test_gr1_check_order.py'),
+             '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck']],
+      timeout: 120,
+    )
     test('gr1_region', python3,
       args: [files('test_gr1_region.py'),
              '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck'],
