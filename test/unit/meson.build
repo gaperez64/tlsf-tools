@@ -29,8 +29,13 @@ if native_gr1
     args: files('../oracle/env_lift_one.tlsf'),
     timeout: get_option('buildtype') == 'debug' ? 180 : 90,
     is_parallel: false)
+  # Three added corruption cases each retain the worker's 30-second deadline.
   test('native_failure_census', native_both_api_exe,
     args: [files('../oracle/env_lift_one.tlsf'), '--fault-census'],
+    timeout: get_option('buildtype') == 'debug' ? 270 : 180,
+    is_parallel: false)
+  test('native_corruption_guards', native_both_api_exe,
+    args: [files('../oracle/env_lift_one.tlsf'), '--corruption-guards'],
     timeout: get_option('buildtype') == 'debug' ? 180 : 90,
     is_parallel: false)
   native_real_both_api_exe = executable('native_real_both_api',

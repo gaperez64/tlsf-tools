@@ -1729,9 +1729,12 @@ LearnedCertificate learn_certificate(Schema &bdd,
     const uint32_t *members = nullptr;
     uint32_t count = 0;
     aig_justice_at(target.inst->r.game, goal.number, &members, &count);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (lift_test_fault == 6)
+      count = 2;
+#endif
     if (count != 1)
-      decline(FailureCause::applicability, "schema_abi",
-              "multi-member justice");
+      decline(FailureCause::error, "schema_abi", "multi-member justice");
     out.predicates.emplace("goal_" + field(goal.number),
                            bdd.from_aig(target.inst->r.game, members[0], true));
     for (int level = 0; level < depth; level++) {
@@ -2485,10 +2488,13 @@ void run(const TrustedTarget &trusted, const Config &cfg,
 #endif
   Candidate candidate =
       prove(bdd, target_view, learned, trusted, cfg, candidate_only);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (lift_test_fault == 7 && !candidate_only)
+    candidate.verdict = TLSF_GR1_CHECK_UNKNOWN;
+#endif
   if (!candidate_only && candidate.verdict != TLSF_GR1_CHECK_VERIFIED &&
       candidate.verdict != TLSF_GR1_CHECK_REGION_VERIFIED)
-    decline(FailureCause::applicability, "target_check",
-            "unverified candidate");
+    decline(FailureCause::error, "target_check", "unverified candidate");
   StatsScope publish_stats(cfg, TLSF_GR1_LIFT_STATS_PUBLISH);
   cfg.check("publish");
   cfg.bytes(candidate.game.size(), "publish");
@@ -3326,8 +3332,12 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                   throw;
                 }
                 result->target_checks += candidate.target_checks;
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+                if (lift_test_fault == 8)
+                  candidate.verdict = TLSF_GR1_CHECK_UNKNOWN;
+#endif
                 if (candidate.verdict != TLSF_GR1_CHECK_VERIFIED)
-                  decline(FailureCause::applicability, "target_check",
+                  decline(FailureCause::error, "target_check",
                           "environment proof did not verify");
                 emit(TLSF_GR1_BOTH_EVENT_VERIFIED, "target_check");
                 winner.game = trusted.game_aag;
