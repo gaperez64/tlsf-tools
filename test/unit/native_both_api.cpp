@@ -29,6 +29,8 @@ extern "C" void tlsf_gr1_env_test_swap_rehashed_game(TlsfGr1LiftTarget *,
 
 extern "C" void tlsf_gr1_env_test_set_check_bytes(size_t);
 extern "C" void tlsf_gr1_env_rank_test_set_fault(int);
+extern "C" void tlsf_gr1_env_test_set_policy_work_cap(uint64_t);
+extern "C" int tlsf_gr1_env_test_partition();
 
 struct Event {
   TlsfGr1BothEventKind kind;
@@ -227,7 +229,8 @@ static TlsfGr1BothResult run(const std::string &source,
                              TlsfGr1LiftOptions options, int check_fault = 0,
                              Observation *observation = nullptr,
                              TlsfGr1LiftStatus expected = TLSF_GR1_LIFT_OK,
-                             int disable_real_lift = -1) {
+                             int disable_real_lift = -1,
+                             uint64_t direct_first_ns = 0) {
   tlsf_gr1_lift_test_set_fault(check_fault);
   TlsfGr1LiftTarget *target = nullptr;
   TlsfGr1LiftError error{};
@@ -240,11 +243,12 @@ static TlsfGr1BothResult run(const std::string &source,
   CHECK(status == TLSF_GR1_LIFT_OK);
   TlsfGr1BothResult result{};
   const TlsfGr1BothObserverV1 observer{observe, observation};
-  if (disable_real_lift >= 0) {
-    const TlsfGr1BothOptionsV2 routing{&options,
-                                       observation ? &observer : nullptr,
-                                       uint32_t(disable_real_lift)};
-    status = tlsf_gr1_both_from_target_v2(target, &routing, &result, &error);
+  if (disable_real_lift >= 0 || direct_first_ns) {
+    const TlsfGr1BothOptionsV2 routing{
+        &options, observation ? &observer : nullptr,
+        uint32_t(std::max(0, disable_real_lift))};
+    const TlsfGr1BothOptionsV3 ordered{&routing, direct_first_ns};
+    status = tlsf_gr1_both_from_target_v3(target, &ordered, &result, &error);
   } else {
     status = observation
                  ? tlsf_gr1_both_from_target_v1(target, &options, &observer,
@@ -483,6 +487,61 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
+  CHECK(tlsf_gr1_env_test_partition());
+  for (const auto &source : {std::string(real_source), unreal_source}) {
+    Observation first;
+    auto direct = run(source, {}, 0, &first, TLSF_GR1_LIFT_OK, 0, 1000000000);
+    CHECK(direct.route == TLSF_GR1_BOTH_DIRECT && direct.target_checks == 1);
+    CHECK(direct.seed_probes == 0 && direct.seed_solves == 0);
+    CHECK(first.events.size() == 4);
+    for (const auto &event : first.events)
+      CHECK(event.route == TLSF_GR1_BOTH_EVENT_DIRECT);
+    tlsf_gr1_both_result_clear(&direct);
+    Observation exhausted;
+    auto lifted = run(source, {}, 0, &exhausted, TLSF_GR1_LIFT_OK, 0, 1);
+    CHECK(lifted.route == (source == real_source ? TLSF_GR1_BOTH_REAL_LIFT
+                                                 : TLSF_GR1_BOTH_ENV_LIFT));
+    CHECK(lifted.target_checks == 1);
+    CHECK(exhausted.events[2].kind == TLSF_GR1_BOTH_EVENT_STOPPED);
+    CHECK(exhausted.events[2].stage == "direct_probe");
+    CHECK(exhausted.events[2].failure == TLSF_GR1_LIFT_LIMIT);
+    tlsf_gr1_both_result_clear(&lifted);
+  }
+  for (bool cancel : {false, true}) {
+    TlsfGr1LiftOptions stop_options{};
+    TlsfGr1LiftTarget *stop_target = nullptr;
+    TlsfGr1LiftError stop_error{};
+    CHECK(tlsf_gr1_lift_target_prepare_exact(
+              (const uint8_t *)unreal_source.data(), unreal_source.size(),
+              &stop_options, &stop_target, &stop_error) == TLSF_GR1_LIFT_OK);
+    stop_options.deadline_mono_ns = cancel ? deadline() : 1;
+    if (cancel)
+      stop_options.cancelled = [](void *) { return 1; };
+    const TlsfGr1BothOptionsV2 combined{&stop_options, nullptr, 0};
+    const TlsfGr1BothOptionsV3 ordered{&combined, 1000000000};
+    TlsfGr1BothResult stopped{};
+    CHECK(tlsf_gr1_both_from_target_v3(stop_target, &ordered, &stopped,
+                                       &stop_error) ==
+          (cancel ? TLSF_GR1_LIFT_CANCELLED : TLSF_GR1_LIFT_DEADLINE));
+    CHECK(stopped.seed_probes == 0 && stopped.target_checks == 0);
+    CHECK(!stopped.proof.game_aag && !stopped.proof.certificate_aag);
+    tlsf_gr1_both_result_clear(&stopped);
+    tlsf_gr1_lift_target_free(stop_target);
+  }
+  TlsfGr1LiftOptions small_window{};
+  small_window.max_sizes_per_axis = 4;
+  auto skipped =
+      run(unreal_source, small_window, 0, nullptr, TLSF_GR1_LIFT_OK, 1);
+  CHECK(skipped.route == TLSF_GR1_BOTH_DIRECT && skipped.seed_probes == 0);
+  CHECK(skipped.target_checks == 1);
+  tlsf_gr1_both_result_clear(&skipped);
+  tlsf_gr1_env_test_set_policy_work_cap(1);
+  Observation structural;
+  auto bounded = run(unreal_source, {}, 0, &structural);
+  stopped_fallback(structural, TLSF_GR1_BOTH_EVENT_U, "policy_capacity");
+  CHECK(bounded.route == TLSF_GR1_BOTH_DIRECT && bounded.target_checks == 1);
+  tlsf_gr1_both_result_clear(&bounded);
+  tlsf_gr1_env_test_set_policy_work_cap(0);
   routing_ablation(unreal_source);
   TlsfGr1LiftOptions options{};
   auto real = run(real_source, options);

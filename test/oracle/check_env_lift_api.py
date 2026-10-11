@@ -75,10 +75,11 @@ def main():
         _, rss = run("rss", "env_lift_one.tlsf", "--rss",
                      "budget-memory", 0)
         assert rss["status"] == "3"
-        prefix, work = run("capacity", "env_lift_one.tlsf", "--apply-cap=13000",
-                           "schema_capacity", 0,
-                           "policy_reconstruct/mode_relation")
-        assert work["applies"] == "13001", (prefix, work)
+        prefix, work = run("capacity", "env_lift_one.tlsf", "--apply-cap=1",
+                           "schema_capacity", 0)
+        assert work["applies"] == "2", (prefix, work)
+        run("policy-capacity", "env_lift_one.tlsf", "--policy-work-cap=1",
+            "policy_capacity", 0, "policy_reconstruct/mode_relation")
         run("real-seed", "env_real_seed.tlsf", "--lift", "seed_check", 0)
 
     check()

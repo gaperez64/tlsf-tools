@@ -734,11 +734,27 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
   for (const auto &[axis, value] : axes) {
     if (value <= 1)
       continue;
+    bool env_eligible =
+        !cfg.o.disable_env_lift && value > 5 && cfg.o.max_sizes_per_axis >= 5;
+    if (env_eligible) {
+      try {
+        env_typed_axis(target, axis);
+        env_schema_capacity(target);
+      } catch (const Failure &e) {
+        cfg.note_failure(e);
+        env_eligible = false;
+      }
+    }
+    if (disable_real_lift && !env_eligible)
+      continue;
     SharedSeeds found;
     found.axis = axis;
     found.modes = target_modes(target);
     const int last = std::min<int>(value - 1, cfg.o.max_sizes_per_axis);
-    for (int k = 1; k <= last; k++) {
+    // U's grammar uses only the exact 3/4/5 window. R may search other sizes.
+    const int first_probe = disable_real_lift ? 3 : 1;
+    const int last_probe = disable_real_lift ? std::min(last, 5) : last;
+    for (int k = first_probe; k <= last_probe; k++) {
       cfg.check("seed_window");
       if (out.seed_probes >= cfg.max_seed_probes)
         throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
@@ -831,8 +847,8 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
           throw;
       }
     }
-    if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
-        found.entries.count(4) && found.entries.count(5)) {
+    if (env_eligible && found.entries.count(3) && found.entries.count(4) &&
+        found.entries.count(5)) {
       try {
         env_typed_axis(target, axis);
         const auto classes = env_typed_classes(*found.entries.at(3).instance);
@@ -2720,7 +2736,7 @@ Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
   options.oxidd = oxidd_solve_options_default();
   options.oxidd.node_cap = 1u << 22;
   options.oxidd.cache_cap = 1u << 20;
-  options.oxidd.deadline_mono_ns = cfg.o.deadline_mono_ns;
+  options.oxidd.deadline_mono_ns = cfg.effective_deadline();
   options.oxidd.cancelled = cfg.o.cancelled;
   options.oxidd.cancel_ctx = cfg.o.cancel_ctx;
   options.oxidd.max_artifact_bytes = cfg.o.max_artifact_bytes;
@@ -2734,8 +2750,10 @@ Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
       meta_owner(meta, &free), policy_owner(policy, &free),
       policy_meta_owner(policy_meta, &free);
   if (failure.kind == OXIDD_FAILURE_DEADLINE)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
-                  "direct_solve", "deadline exceeded");
+    throw cfg.deadline_failure("direct_solve");
+  if (failure.kind == OXIDD_FAILURE_CANCELLED)
+    throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                  "direct_solve", "solver cancelled");
   cfg.check("direct_solve");
   if (failure.kind != OXIDD_FAILURE_NONE || export_options.failed ||
       (!real && !unreal) || !cert || !meta || !policy || !policy_meta)
@@ -2769,8 +2787,8 @@ void both_check(const TrustedTarget &trusted, const Config &cfg,
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
     decline(FailureCause::error, "target_binding",
             "prepared game changed before verification");
-  auto checked =
-      check(trusted, candidate, cfg, candidate.method, cfg.o.deadline_mono_ns);
+  auto checked = check(trusted, candidate, cfg, candidate.method,
+                       cfg.effective_deadline());
   out.target_checks++;
   const auto status = checked.status;
   const auto verdict = checked.verdict;
@@ -2785,10 +2803,8 @@ void both_check(const TrustedTarget &trusted, const Config &cfg,
       candidate.check_json.assign(checked.json, checked.json_size);
   }
   tlsf_gr1_check_result_clear(&checked);
-  if (status == TLSF_GR1_CHECK_DEADLINE && cfg.o.deadline_mono_ns &&
-      now_ns() >= cfg.o.deadline_mono_ns)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
-                  "target_check", "deadline exceeded");
+  if (status == TLSF_GR1_CHECK_DEADLINE)
+    throw cfg.deadline_failure("target_check");
   if (!verified) {
     const auto cause = check_failure_cause(status, verdict);
     throw Failure(TLSF_GR1_LIFT_DECLINED, cause, "target_check",
@@ -3139,9 +3155,11 @@ extern "C" void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result) {
   memset(result, 0, sizeof *result);
 }
 
-extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
-    const TlsfGr1LiftTarget *target, const TlsfGr1BothOptionsV2 *routing,
-    TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
+static TlsfGr1LiftStatus both_from_target(const TlsfGr1LiftTarget *target,
+                                          const TlsfGr1BothOptionsV2 *routing,
+                                          uint64_t direct_first_ns,
+                                          TlsfGr1BothResult *result,
+                                          TlsfGr1LiftError *error) {
   const auto *options = routing ? routing->lift : nullptr;
   const auto *observer = routing ? routing->observer : nullptr;
   const bool disable_real_lift = routing && routing->disable_real_lift;
@@ -3198,7 +3216,45 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
 
         Candidate winner;
         bool have_winner = false;
-        if (!disable_real_lift || !cfg.o.disable_env_lift) {
+        if (direct_first_ns && !cfg.o.disable_env_lift) {
+          select(TLSF_GR1_BOTH_EVENT_DIRECT, -1, "direct_probe");
+          Config direct_cfg = cfg;
+          const uint64_t started = now_ns();
+          direct_cfg.phase_deadline_ns = direct_first_ns > UINT64_MAX - started
+                                             ? UINT64_MAX
+                                             : started + direct_first_ns;
+          direct_cfg.o.max_artifact_bytes = 64u * 1024u * 1024u;
+          direct_cfg.o.checker_nodes = 1u << 22;
+          direct_cfg.o.checker_cache = 1u << 20;
+          try {
+            auto candidate = direct_candidate(trusted, direct_cfg);
+            const bool unreal = j::parse(candidate.certificate_json)
+                                    .as_object()
+                                    .at("side")
+                                    .as_string() == "environment";
+            proof_unreal = unreal ? 1 : 0;
+            emit(TLSF_GR1_BOTH_EVENT_CHECK_START, "target_check");
+            both_check(trusted, direct_cfg, candidate, unreal, *result);
+            emit(TLSF_GR1_BOTH_EVENT_VERIFIED, "target_check");
+            winner = std::move(candidate);
+            result->route = TLSF_GR1_BOTH_DIRECT;
+            have_winner = true;
+          } catch (const Failure &e) {
+            if (e.failure_status == TLSF_GR1_LIFT_CANCELLED)
+              throw Failure(TLSF_GR1_LIFT_CANCELLED, e.cause, e.stage,
+                            e.what());
+            if (e.status == TLSF_GR1_LIFT_DEADLINE ||
+                e.status == TLSF_GR1_LIFT_CANCELLED ||
+                e.stage == "target_binding")
+              throw;
+            cfg.check("direct_probe", true);
+            both_decline(*result, "direct_probe");
+            emit(failure_kind(e.cause), "direct_probe", e.what(),
+                 e.failure_status);
+          }
+          malloc_trim(0);
+        }
+        if (!have_winner && (!disable_real_lift || !cfg.o.disable_env_lift)) {
           try {
             select(TLSF_GR1_BOTH_EVENT_SEEDS, -1, "seed_discovery");
             SharedSeeds cache =
@@ -3259,8 +3315,10 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                   ~ProofGuard() { tlsf_gr1_lift_result_clear(&value); }
                 } proof_guard{candidate_proof};
                 const bool candidate_only = true;
+                const auto checks_before =
+                    cfg.stats ? cfg.stats->internal_checks : 0;
                 run(trusted, cfg, candidate_proof, &window, candidate_only);
-                if (cfg.stats && cfg.stats->internal_checks)
+                if (cfg.stats && cfg.stats->internal_checks != checks_before)
                   decline(FailureCause::error, "candidate_integrity",
                           "R candidate checked target");
                 Candidate candidate;
@@ -3419,6 +3477,20 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     tlsf_gr1_lift_result_clear(&result->proof);
   }
   return status;
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v3(
+    const TlsfGr1LiftTarget *target, const TlsfGr1BothOptionsV3 *routing,
+    TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
+  return both_from_target(target, routing ? routing->combined : nullptr,
+                          routing ? routing->direct_first_ns : 0, result,
+                          error);
+}
+
+extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
+    const TlsfGr1LiftTarget *target, const TlsfGr1BothOptionsV2 *routing,
+    TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
+  return both_from_target(target, routing, 0, result, error);
 }
 
 extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(

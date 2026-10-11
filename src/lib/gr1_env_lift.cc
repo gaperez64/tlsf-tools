@@ -25,6 +25,7 @@ using EnvWindow = CachedSeedWindow;
 thread_local int env_rank_fault = 0;
 thread_local size_t env_test_check_bytes = 0;
 thread_local uint64_t env_rank_test_apply_cap = 12000000;
+thread_local uint64_t env_policy_test_work_cap = 0;
 #endif
 
 std::pair<std::set<std::string>, std::set<std::string>>
@@ -109,10 +110,22 @@ void env_typed_axis(const Instance &i, const std::string &axis) {
             "axis has no typed element declaration");
 }
 
+void env_schema_capacity(const Instance &i) {
+  // Bound the variable inventory on the same 3M scale as the node cap,
+  // before seed solves. Unused variables can need fewer nodes; this is a
+  // conservative search limit, not a realizability criterion.
+  if (uint64_t(aig_num_inputs(i.r.game)) + aig_num_latches(i.r.game) + 2 >=
+      3000000)
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                  "schema_capacity",
+                  "target variable inventory exceeds node cap");
+}
+
 EnvWindow env_window(const TrustedTarget &trusted, const Config &cfg,
                      TlsfGr1EnvRankResult &out) {
   const Instance &target = *trusted.instance;
   auto axes = parameters(target);
+  env_schema_capacity(target);
   std::string last_reason = "no eligible axis";
   for (const auto &[axis, value] : axes) {
     if (value <= 5)
@@ -1003,6 +1016,8 @@ class EnvBdd {
   std::vector<EnvOrder> orders;
   uint64_t applies = 0;
   uint64_t apply_cap = 12000000;
+  uint64_t policy_apply_end = UINT64_MAX;
+  uint64_t policy_node_end = UINT64_MAX;
   std::string context;
 
 public:
@@ -1020,6 +1035,15 @@ public:
            cache.size() * (sizeof(EnvApplyKey) + sizeof(int) + 64);
   }
   void set_context(std::string value) { context = std::move(value); }
+  void begin_policy_budget(uint64_t work) {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (env_policy_test_work_cap)
+      work = env_policy_test_work_cap;
+#endif
+    policy_apply_end = applies + work;
+    policy_node_end = nodes.size() + work;
+  }
+  void end_policy_budget() { policy_apply_end = policy_node_end = UINT64_MAX; }
   int label(const std::string &name, EnvOrder order) {
     if (auto at = labels.find(name); at != labels.end())
       return at->second;
@@ -1045,6 +1069,10 @@ public:
     EnvNode key{variable, low, high};
     if (auto at = unique.find(key); at != unique.end())
       return at->second;
+    if (nodes.size() >= policy_node_end)
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "policy_capacity",
+                    "structural policy node budget exhausted at " + context);
     if (nodes.size() >= 3000000)
       throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
                     "schema_capacity",
@@ -1061,6 +1089,10 @@ public:
   int var(int variable) { return node(variable, 0, 1); }
   int apply(int op, int left, int right) {
     applies++;
+    if (applies > policy_apply_end)
+      throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                    "policy_capacity",
+                    "structural policy apply budget exhausted at " + context);
     if (applies > apply_cap)
       throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
                     "schema_capacity",
@@ -2273,8 +2305,16 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
   }
 
   std::map<int, int> successor_cache;
-  std::vector<int> relations;
   std::vector<std::map<int, int>> choices;
+  // Global structural allowance: 64 operations per game-node/layer pair,
+  // clamped to 64K..1M operations and new nodes across all modes. This bounds
+  // relation construction and choice extraction without fitting input names.
+  const uint64_t width = uint64_t(aig_num_inputs(game)) +
+                         aig_num_latches(game) + aig_num_ands(game) + 1;
+  const uint64_t work =
+      64 * std::min<uint64_t>(width, 1000000) *
+      std::min<uint64_t>(layers.size() + fair_count + 1, 1000000);
+  bdd.begin_policy_budget(std::clamp<uint64_t>(work, 65536, 1000000));
   std::set<int> system_set(system.begin(), system.end());
   std::set<int> environment_set(environment.begin(), environment.end());
   std::vector<int> skolem_order = environment;
@@ -2284,7 +2324,7 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
   for (int current = 0; current < fair_count; current++) {
     bdd.set_context("policy_reconstruct/mode_relation mode " + field(current));
     int advanced = (current + 1) % fair_count;
-    int relation = 1;
+    int allowed = 1;
     for (const auto &row : layers) {
       if (row.phase != current && row.phase != advanced)
         continue;
@@ -2298,10 +2338,11 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
         successor_cache.emplace(row.target,
                                 bdd.compose(row.target, next_state));
       int obligation = bdd.apply(1, bad, successor_cache.at(row.target));
-      relation =
-          bdd.apply(0, relation, bdd.apply(1, bdd.neg(guarded), obligation));
+      // Forall distributes over conjunction. Eliminate the response from
+      // each obligation before conjoining; keep exists-environment outside.
+      int clause = bdd.apply(1, bdd.neg(guarded), obligation);
+      allowed = bdd.apply(0, allowed, bdd.quant(clause, system_set, false));
     }
-    int allowed = bdd.quant(relation, system_set, false);
     for (int variable : bdd.support(allowed))
       if (system_set.count(variable))
         decline(FailureCause::error, "policy_reconstruct",
@@ -2325,10 +2366,12 @@ void env_candidate(EnvBdd &bdd, const EnvView &view, const EnvView &seed,
       selected.emplace(variable, choice);
       remaining = bdd.compose(remaining, {{variable, choice}});
     }
-    relations.push_back(relation);
     choices.push_back(std::move(selected));
-    ranks["move_" + field(current)] = relation;
+    // move_* is interface evidence, never a premise of the independent
+    // fixed-policy checker. It now records the exact allowed input relation.
+    ranks["move_" + field(current)] = allowed;
   }
+  bdd.end_policy_budget();
 
   std::vector<int> counters;
   for (int i = 0; i < fair_count; i++) {
@@ -2809,6 +2852,54 @@ extern "C" void tlsf_gr1_env_test_set_check_bytes(size_t bytes) {
 }
 extern "C" void tlsf_gr1_env_rank_test_set_fault(int fault) {
   env_rank_fault = fault;
+}
+extern "C" int tlsf_gr1_env_test_partition() {
+  Config cfg;
+  EnvBdd bdd(cfg);
+  std::vector<int> variables;
+  for (int p = 0; p < 3; p++)
+    variables.push_back(bdd.label(field(p), EnvOrder{}));
+  auto truth = [&](unsigned mask) {
+    std::function<int(int, unsigned)> build = [&](int p, unsigned assignment) {
+      if (p == 3)
+        return int((mask >> assignment) & 1);
+      return bdd.ite(bdd.var(variables[p]),
+                     build(p + 1, assignment | (1u << p)),
+                     build(p + 1, assignment));
+    };
+    return build(0, 0);
+  };
+  for (unsigned mask = 0; mask < 256; mask++) {
+    const unsigned second = (mask * 73 + 19) & 255;
+    int left = truth(mask), right = truth(second);
+    int monolithic =
+        bdd.quant(bdd.apply(0, left, right), {variables[1]}, false);
+    int partitioned = bdd.apply(0, bdd.quant(left, {variables[1]}, false),
+                                bdd.quant(right, {variables[1]}, false));
+    if (partitioned != monolithic)
+      return 0;
+    unsigned expected = 0;
+    for (unsigned state = 0; state < 2; state++) {
+      bool exists = false;
+      for (unsigned environment = 0; environment < 2; environment++) {
+        bool all = true;
+        for (unsigned response = 0; response < 2; response++) {
+          unsigned bit = environment | (response << 1) | (state << 2);
+          all &= ((mask & second) >> bit) & 1;
+        }
+        exists |= all;
+      }
+      if (exists)
+        for (unsigned letters = 0; letters < 4; letters++)
+          expected |= 1u << (letters | (state << 2));
+    }
+    if (bdd.quant(partitioned, {variables[0]}, true) != truth(expected))
+      return 0;
+  }
+  return 1;
+}
+extern "C" void tlsf_gr1_env_test_set_policy_work_cap(uint64_t cap) {
+  env_policy_test_work_cap = cap;
 }
 extern "C" void tlsf_gr1_env_rank_test_set_apply_cap(uint64_t cap) {
   env_rank_test_apply_cap = cap;

@@ -327,6 +327,19 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     const TlsfGr1LiftTarget *target, const TlsfGr1BothOptionsV2 *options,
     TlsfGr1BothResult *result, TlsfGr1LiftError *error);
 
+/* A bounded direct attempt precedes discovery when U is enabled. Zero keeps
+ * v2 ordering. The attempt includes independent checking; a local allowance
+ * stop may fall through, but cancellation and the worker deadline never do.
+ * All attempts share the prepared exact target and the absolute arm deadline.
+ */
+typedef struct {
+  const TlsfGr1BothOptionsV2 *combined;
+  uint64_t direct_first_ns;
+} TlsfGr1BothOptionsV3;
+TlsfGr1LiftStatus tlsf_gr1_both_from_target_v3(
+    const TlsfGr1LiftTarget *target, const TlsfGr1BothOptionsV3 *options,
+    TlsfGr1BothResult *result, TlsfGr1LiftError *error);
+
 void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result);
 
 TlsfGr1LiftStatus tlsf_gr1_lift(const uint8_t *source, size_t source_size,

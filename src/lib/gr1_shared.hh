@@ -289,6 +289,7 @@ void env_run(const TrustedTarget &trusted, const Config &cfg,
 void env_check(const TrustedTarget &trusted, const Config &cfg,
                TlsfGr1EnvLiftResult &candidate);
 void env_typed_axis(const Instance &i, const std::string &axis);
+void env_schema_capacity(const Instance &i);
 std::pair<std::set<std::string>, std::set<std::string>>
 env_typed_classes(const Instance &i);
 } // namespace gr1_lift_internal
