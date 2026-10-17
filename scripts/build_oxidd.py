@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build the locked OxiDD staticlib, C headers and verified stamp for Meson."""
+import os
 import pathlib
 import shutil
 import subprocess
@@ -11,7 +12,7 @@ source, output = map(pathlib.Path, sys.argv[1:3])
 cargo, cbindgen = sys.argv[3:5]
 crate = source / "crates/oxidd-ffi-c"
 output.mkdir(parents=True, exist_ok=True)
-subprocess.run([cargo, "build", "-j", "4", "--release", "--locked",
+subprocess.run([cargo, "build", "-j", os.environ.get("CARGO_BUILD_JOBS", "4"), "--release", "--locked",
                 "--target-dir", str(output / "target"),
                 "--manifest-path", str(crate / "Cargo.toml")], check=True)
 archive = output / "liboxidd_ffi_c.a"

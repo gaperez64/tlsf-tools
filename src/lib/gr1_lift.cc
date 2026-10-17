@@ -58,6 +58,34 @@ using namespace oxidd::capi;
 using J = j::value;
 using O = j::object;
 using A = j::array;
+// The observer is scoped to a combined call, including exceptional returns.
+thread_local const TlsfGr1BothObserverV1 *phase_observer = nullptr;
+struct BothPhase {
+  const TlsfGr1BothObserverV1 *observer;
+  const char *name;
+  bool active;
+  BothPhase(const char *value, const char *artifact = nullptr)
+      : observer(phase_observer), name(value),
+        active(observer && observer->phase) {
+    if (active) {
+      try {
+        observer->phase(observer->context, name, 1, artifact);
+      } catch (...) {
+        active = false;
+      }
+    }
+  }
+  void finish() {
+    if (active) {
+      try {
+        observer->phase(observer->context, name, 0, nullptr);
+      } catch (...) {
+      }
+    }
+    active = false;
+  }
+  ~BothPhase() { finish(); }
+};
 uint64_t now_ns() {
   timespec ts{};
   if (clock_gettime(CLOCK_MONOTONIC, &ts))
@@ -196,6 +224,7 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
                                 const std::map<std::string, int64_t> &overrides,
                                 TlsfGr1ReductionSemantics semantics,
                                 const Config &cfg) {
+  BothPhase phase("native_candidate_reduction");
   cfg.check("expand");
   auto instance = std::make_unique<Instance>();
   instance->overrides = overrides;
@@ -736,6 +765,7 @@ struct SharedSeeds {
 
 SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
                             TlsfGr1BothResult &out, bool disable_real_lift) {
+  BothPhase phase("native_r_discovery");
   const Instance &target = *trusted.instance;
   auto axes = parameters(target);
   if (axes.empty())
@@ -977,6 +1007,10 @@ FailureCause check_failure_cause(TlsfGr1CheckStatus status,
 }
 TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
                                       TlsfGr1BothResult &out) {
+  char artifact[65]{};
+  if (phase_observer && phase_observer->phase)
+    sha256_hex(seed.r.aag, seed.r.aag_size, artifact);
+  BothPhase phase("native_seed_solve", artifact);
   cfg.check("seed_solve");
   char reason[256]{};
   if (!tlsf_gr1_validate_game(seed.r.game, reason, sizeof reason))
@@ -1038,6 +1072,8 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
       s(seed.cert_meta, "status") != (real ? "realizable" : "unrealizable"))
     decline(FailureCause::error, "seed_metadata",
             "seed certificate metadata mismatch");
+  phase.finish();
+  BothPhase check_phase("native_seed_check", artifact);
   TlsfGr1CheckInput input{};
   input.game_aag = {(const uint8_t *)seed.r.aag, seed.r.aag_size};
   input.certificate_aag = {(const uint8_t *)cert, cert_size};
@@ -2434,6 +2470,7 @@ TrustedTarget prepare(const uint8_t *source, size_t size,
 void run(const TrustedTarget &trusted, const Config &cfg,
          TlsfGr1LiftResult &result, Window *shared_window = nullptr,
          bool candidate_only = false) {
+  BothPhase phase("native_r_candidate", trusted.game_hash.c_str());
   const auto *source =
       reinterpret_cast<const uint8_t *>(trusted.snapshot.data());
   const size_t size = trusted.snapshot.size();
@@ -2707,6 +2744,7 @@ void both_decline(TlsfGr1BothResult &out, const std::string &stage) {
 }
 
 Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
+  BothPhase phase("native_direct_solve", trusted.game_hash.c_str());
   cfg.check("direct_solve");
   auto game = parse_aig(trusted.game_aag.data(), trusted.game_aag.size());
   OxiddFailure failure{};
@@ -2762,6 +2800,7 @@ Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
 
 void both_check(const TrustedTarget &trusted, const Config &cfg,
                 Candidate &candidate, bool unreal, TlsfGr1BothResult &out) {
+  BothPhase phase("native_target_check", trusted.game_hash.c_str());
   cfg.check("target_check");
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   if ((both_test_check_fault == 1 &&
@@ -3152,6 +3191,14 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     TlsfGr1BothResult *result, TlsfGr1LiftError *error) {
   const auto *options = routing ? routing->lift : nullptr;
   const auto *observer = routing ? routing->observer : nullptr;
+  struct ObserverScope {
+    const TlsfGr1BothObserverV1 *previous = phase_observer;
+    explicit ObserverScope(const TlsfGr1BothObserverV1 *value) {
+      phase_observer = value;
+    }
+    ~ObserverScope() { phase_observer = previous; }
+  } phase_scope(observer);
+
   const bool disable_real_lift = routing && routing->disable_real_lift;
   TlsfGr1BothEventRoute live_route = TLSF_GR1_BOTH_EVENT_SEEDS;
   int proof_unreal = -1;

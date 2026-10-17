@@ -306,6 +306,13 @@ typedef struct {
                 int proof_unreal, const char *stage, const char *reason,
                 TlsfGr1LiftStatus failure_status);
   void *context;
+  /* Optional synchronous boundaries; NULL performs no clock/resource reads.
+   * Entries nest; observers must subtract children for exclusive accounting.
+   * artifact_sha256 identifies the exact reduced game, when available.
+   * These observations do not select solver work; phase exceptions are ignored.
+   */
+  void (*phase)(void *, const char *name, int entering,
+                const char *artifact_sha256);
 } TlsfGr1BothObserverV1;
 TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
     const TlsfGr1LiftTarget *target, const TlsfGr1LiftOptions *options,
