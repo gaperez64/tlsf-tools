@@ -32,20 +32,18 @@ if research_tools
     'tlsfresidual': {'sources': files('tlsfresidual/main.c'),
                      'dependencies': tool_dep},
   }
-  if have_oxidd
-    tools += {
-      'tlsfcompose': {
-        'sources': files('tlsfcompose/main.c',
-                         'tlsfcompose/compose_analysis.c',
-                         'tlsfcompose/compose_games.c',
-                         'tlsfcompose/compose_oxidd.c',
-                         'tlsfcompose/compose_route.c'),
-        'dependencies': [tool_dep, tlsf_oxidd_dep],
-      },
-      'tlsfsolve': {'sources': files('tlsfsolve/main.c'),
-                    'dependencies': tlsf_oxidd_dep},
-      'tlsfcertcheck': {'sources': files('tlsfcertcheck/main.c'),
-                        'dependencies': tlsf_oxidd_dep},
-    }
-  endif
+  tools += {
+    'tlsfcompose': {
+      'sources': files('tlsfcompose/main.c',
+                       'tlsfcompose/compose_analysis.c',
+                       'tlsfcompose/compose_games.c',
+                       'tlsfcompose/compose_oxidd.c',
+                       'tlsfcompose/compose_route.c'),
+      'dependencies': [tool_dep, tlsf_oxidd_dep],
+    },
+    'tlsfsolve': {'sources': files('tlsfsolve/main.c'),
+                  'dependencies': tlsf_oxidd_dep},
+    'tlsfcertcheck': {'sources': files('tlsfcertcheck/main.c'),
+                      'dependencies': tlsf_oxidd_dep},
+  }
 endif

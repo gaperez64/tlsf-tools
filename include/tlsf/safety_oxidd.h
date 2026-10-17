@@ -9,7 +9,7 @@
 /// predecessor (`cpre`) safety fixpoint in process, and extracts a Skolem
 /// strategy as an `Aig`.  See CLAUDE.md (OxiDD section).
 ///
-/// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
+/// Built into libtlsf.
 
 #include "tlsf/aiger.h"
 #include "tlsf/oxidd_options.h"

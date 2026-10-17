@@ -5,13 +5,7 @@
 #include "tlsf/version.h"
 #include "simd.h"
 
-static inline const char *tlsf_build_oxidd(void) {
-#if TLSF_BUILD_OXIDD
-  return "yes";
-#else
-  return "no";
-#endif
-}
+static inline const char *tlsf_build_oxidd(void) { return "yes"; }
 
 static inline const char *tlsf_build_research(void) {
 #if TLSF_BUILD_RESEARCH

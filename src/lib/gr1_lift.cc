@@ -1,3 +1,4 @@
+#include "oxidd_runtime.h"
 #include "tlsf/gr1_lift.h"
 #include "gr1_shared.hh"
 #include "tlsf/gr1_oxidd.h"
@@ -17,7 +18,9 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#ifdef __GLIBC__
 #include <malloc.h>
+#endif
 #include <map>
 #include <memory>
 #include <new>
@@ -109,11 +112,17 @@ struct StatsScope {
     rusage usage{};
     getrusage(RUSAGE_SELF, &usage);
     event.peak_rss_kb = usage.ru_maxrss;
+#ifdef __APPLE__
+    event.peak_rss_kb /= 1024;
+#endif
+#if defined(__GLIBC__) &&                                                      \
+    (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
     const auto heap = mallinfo2();
     event.arena = heap.arena;
     event.hblkhd = heap.hblkhd;
     event.uordblks = heap.uordblks;
     event.fordblks = heap.fordblks;
+#endif
     row.wall_ns += event.wall_ns;
     row.cpu_ns += event.cpu_ns;
     row.calls += event.calls;
@@ -1278,8 +1287,7 @@ class Schema {
 
 public:
   Schema(const Config &config, uint32_t initial) : cfg(&config) {
-    manager =
-        oxidd_bdd_manager_new(cfg->o.schema_nodes, cfg->o.schema_cache, 1);
+    manager = tlsf_oxidd_manager_new(cfg->o.schema_nodes, cfg->o.schema_cache);
     if (!manager._p)
       throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
                     "schema_capacity", "cannot create OxiDD manager");
@@ -3386,9 +3394,11 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
         }
         if (!have_winner) {
           select(TLSF_GR1_BOTH_EVENT_DIRECT, -1, "direct");
-          // The seed cache and U's BDD/policy state are out of scope here.
-          // Return allocator-held pages before applying the direct budget.
+      // The seed cache and U's BDD/policy state are out of scope here.
+      // Return allocator-held pages before applying the direct budget.
+#ifdef __GLIBC__
           malloc_trim(0);
+#endif
           cfg.check("direct_solve", true);
           Config direct_cfg = cfg;
           direct_cfg.o.max_artifact_bytes = 64u * 1024u * 1024u;

@@ -26,7 +26,6 @@ pkg = import('pkgconfig')
 
 cc = meson.get_compiler('c')
 research_tools = get_option('research_tools')
-native_gr1 = get_option('native_gr1').enabled()
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
@@ -107,13 +106,13 @@ flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
 # Optional: used by wrapper/benchmark tests that shell out to ltlsynt.
 ltlsynt = find_program('ltlsynt', required: false)
-spot_dep = dependency('libspot', required: false)
+spot_dep = dependency('libspot')
 yyjson_dep = dependency('yyjson', version: '>=0.12.0',
                         fallback: ['yyjson', 'yyjson_dep'])
 git = find_program('git', required: false)
 git_version = find_program('scripts/git-version.py')
 bash = find_program('bash', required: false)
-python3 = find_program('python3', required: false)
+python3 = find_program('python3')
 spot_python = python3
 spot_python_env = environment()
 spot_python_found = false
@@ -148,88 +147,13 @@ if not spot_python_found
   endif
 endif
 
-# ---------------------------------------------------------------------------
-# Optional in-process safety + GR(1) solver backend: OxiDD (Rust + C FFI),
-# vendored as a submodule and built before explicit OxiDD-enabled research
-# configuration. The default production build is dependency-free.
-# ---------------------------------------------------------------------------
-
-oxidd_feature = get_option('oxidd')
-oxidd_dir = join_paths(meson.project_source_root(), 'external', 'oxidd')
-oxidd_build_sh = join_paths(meson.project_source_root(), 'scripts', 'build_oxidd.sh')
-oxidd_lib_path = join_paths(oxidd_dir, 'target', 'release', 'liboxidd_ffi_c.a')
-oxidd_inc_path = join_paths(oxidd_dir, 'build', 'include')
-oxidd_capi_h = join_paths(oxidd_inc_path, 'oxidd', 'capi.h')
-oxidd_stamp_path = join_paths(oxidd_dir, 'build', 'oxidd-build-stamp')
-oxidd_stamp_py = join_paths(meson.project_source_root(), 'scripts', 'oxidd_stamp.py')
-oxidd_submodule_ready = fs.exists(join_paths(oxidd_dir, 'crates', 'oxidd-ffi-c', 'Cargo.toml'))
-
-if git.found()
-  run_target(
-    'oxidd-submodule',
-    command: [
-      git, 'submodule', 'update', '--init', '--recursive', 'external/oxidd',
-    ],
-  )
-endif
-if bash.found()
-  run_target('oxidd-build', command: [bash, oxidd_build_sh])
-endif
-
-oxidd_ready = fs.exists(oxidd_lib_path) and fs.exists(oxidd_capi_h)
-oxidd_dep = dependency('', required: false)  # null dependency by default
-have_oxidd = false
-if oxidd_feature.enabled() or (oxidd_feature.auto() and oxidd_ready)
-  if not oxidd_ready
-    error(
-      'OxiDD artifacts are missing. Run:\n' +
-      '  git submodule update --init --recursive\n' +
-      '  scripts/build_oxidd.sh\n' +
-      '  meson setup build-research -Dresearch_tools=true ' +
-      '-Doxidd=enabled --buildtype=release',
-    )
-  endif
-  if not python3.found()
-    error('OxiDD stamp validation requires python3')
-  endif
-  oxidd_check = run_command(
-    python3, oxidd_stamp_py, 'check', oxidd_dir, oxidd_lib_path,
-    oxidd_stamp_path, check: false,
-  )
-  if oxidd_check.returncode() != 0
-    error(oxidd_check.stderr().strip())
-  endif
-  if oxidd_check.stdout().strip() != ''
-    warning(oxidd_check.stdout().strip())
-  endif
-  # Rust staticlib pulls in the system threading/dl/math runtime.
-  oxidd_link_args = [oxidd_lib_path, '-lpthread', '-lm']
-  if host_machine.system() != 'darwin'
-    oxidd_link_args += ['-ldl']
-  endif
-  oxidd_dep = declare_dependency(
-    include_directories: include_directories('external/oxidd/build/include'),
-    link_args: oxidd_link_args,
-  )
-  have_oxidd = true
-  message('OxiDD safety solver enabled (' + oxidd_lib_path + ')')
-elif oxidd_feature.auto()
-  message('OxiDD safety solver disabled (artifacts absent; build with ' +
-          '`meson compile -C build oxidd-build`)')
-endif
-
-if native_gr1 and not have_oxidd
-  error('native_gr1 requires -Doxidd=enabled and the built OxiDD archive and headers')
-endif
-if native_gr1 and not spot_dep.found()
-  error('native_gr1 requires libspot (set PKG_CONFIG_PATH if needed)')
-endif
-if have_oxidd
-  # Static consumers of libtlsf also need OxiDD's archive and C API.
-  install_subdir('external/oxidd/build/include/oxidd',
-                 install_dir: get_option('includedir'))
-  install_data(oxidd_lib_path, install_dir: get_option('libdir'))
-endif
+# OxiDD is a required part of libtlsf. All generated artifacts live in the
+# build tree and are dependencies of every consumer, including source exports.
+oxidd_dir = meson.current_source_dir() / 'external/oxidd'
+oxidd_stamp_py = files('scripts/oxidd_stamp.py')
+oxidd_inc = include_directories('.')
+subdir('oxidd')
+meson.add_dist_script(python3, files('scripts/dist_oxidd.py'))
 
 # ---------------------------------------------------------------------------
 # Sources

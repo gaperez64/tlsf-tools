@@ -3,6 +3,7 @@
 /// precheck_unreal.h for the verdict-trust contract and the
 /// one-step environment-win argument this implements.
 
+#include "oxidd_runtime.h"
 #include "precheck_unreal.h"
 
 #include "tlsf/apset.h"
@@ -163,7 +164,7 @@ bool precheck_trivially_unreal(const ConstraintCover *cov) {
   // pre-check runs before the synthesis session manager is created.
   uint32_t exp = nap + 6 < 22 ? nap + 6 : 22;
   uint32_t inner_cap = (1u << exp) < (1u << 10) ? (1u << 10) : (1u << exp);
-  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(inner_cap, inner_cap, 1);
+  oxidd_bdd_manager_t m = tlsf_oxidd_manager_new(inner_cap, inner_cap);
   if (m._p == nullptr)
     return false;
   oxidd_bdd_manager_add_vars(m, nap);
@@ -272,7 +273,7 @@ bool precheck_trivially_real(const ConstraintCover *cov) {
 
   uint32_t exp = nap + 6 < 22 ? nap + 6 : 22;
   uint32_t inner_cap = (1u << exp) < (1u << 10) ? (1u << 10) : (1u << exp);
-  oxidd_bdd_manager_t m = oxidd_bdd_manager_new(inner_cap, inner_cap, 1);
+  oxidd_bdd_manager_t m = tlsf_oxidd_manager_new(inner_cap, inner_cap);
   if (m._p == nullptr)
     return false;
   oxidd_bdd_manager_add_vars(m, nap);

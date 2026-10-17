@@ -1,6 +1,9 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
 if python3.found()
+  test('bench_matrix_setup_failure', python3,
+    args: [files('check_bench_matrix.py'),
+           meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
   test('frontend_provenance', python3,
     args: [files('test_frontend_provenance.py'),
            '--tlsf2tlsf', exe['tlsf2tlsf'],
@@ -339,107 +342,105 @@ test('residual_param', check,
   args: [files(cases / 'residual_param_demo.residual'), exe['tlsfresidual'],
          '--param', 'n=5', '--param', 'k=2',
          files(cases / 'param_demo.tlsf')])
-if have_oxidd
-  foreach name : ['compose_demo', 'cluster_split', 'cluster_prune', 'input_gua_skip']
-    test('compose_' + name, check,
-      args: [files(cases / name + '.compose'), exe['tlsfcompose'],
-             files(cases / name + '.tlsf')])
-  endforeach
-  test('compose_lowercase', check,
-    args: [files(cases / 'upper_atoms.lower.compose'), exe['tlsfcompose'],
-           '--split', '--lowercase', files(cases / 'upper_atoms.tlsf')])
-  test('compose_ltlxba_rejects_primes', check_fail_stderr,
-    args: [files(cases / 'primes.compose.stderr'), exe['tlsfcompose'],
-           files(cases / 'primes.tlsf')])
-  test('compose_primes_ltl', check,
-    args: [files(cases / 'primes.compose'), exe['tlsfcompose'],
-           '--format', 'ltl', files(cases / 'primes.tlsf')])
-  # The verdict-only mode prints no formula, so it keeps accepting them.
-  test('compose_primes_realizability', check_status,
-    args: ['0', files(cases / 'empty'),
-           files(cases / 'primes.realizability.stderr'), exe['tlsfcompose'],
-           '--realizability', files(cases / 'primes.tlsf')])
-  test('compose_merge_mode', check,
-    args: [files(cases / 'compose_demo.merged.aag'), exe['tlsfcompose'],
-           '--merge', files(cases / 'compose_demo.merged.aag')])
-  test('solve_wrapper_oxidd_presolve', check_solve_wrapper,
-    args: [files(cases / 'solve_wrapper_fake.aag'),
-           files(scripts / 'solve.sh'), exe['tlsfcompose'],
-           fake_ltlsynt,
-           files(cases / 'compose_demo.tlsf')])
-  test('solve_wrapper_fake_ltlsynt', check_solve_wrapper,
-    args: [files(cases / 'solve_wrapper_fake_liveness.aag'),
-           files(scripts / 'solve.sh'), exe['tlsfcompose'],
-           fake_ltlsynt,
-           files(cases / 'liveness_nested.tlsf')])
-  test('compose_output_dir_under_real_wr', check_output_dir,
-    args: [files(cases / 'wr_under_real.output_dir'),
-           exe['tlsfcompose'], '--split', files(cases / 'wr_under_real.tlsf')])
-  test('compose_output_dir_over_unreal_wr', check_output_dir_fail,
-    args: ['trusted one-sided OxiDD verdict', exe['tlsfcompose'], '--split',
-           files(cases / 'wr_gated_collapse.tlsf')])
-  test('compose_aiger_unclassified_atom', check,
-    args: [files(cases / 'aiger_unclassified_atom.compose'), exe['tlsfcompose'],
-           files(cases / 'aiger_unclassified_atom.tlsf')])
-  test('compose_route_stats_gr1', check,
-    args: [files(cases / 'gr1_spec.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', files(cases / 'gr1_spec.tlsf')])
-  test('compose_route_stats_bounded', check,
-    args: [files(cases / 'compose_demo.route_stats'), exe['tlsfcompose'],
-           '--split', '--route-stats', '--experimental-bounded', '4',
-           files(cases / 'compose_demo.tlsf')])
-  test('compose_route_stats_response_monitor', check,
-    args: [files(cases / 'compose_demo.response_monitor.route_stats'),
-           exe['tlsfcompose'], '--split', '--route-stats',
-           files(cases / 'compose_demo.tlsf')])
-  test('compose_route_stats_policy_off', check,
-    args: [files(cases / 'gr1_spec.policy_off.route_stats'),
-           exe['tlsfcompose'], '--split', '--route-stats',
-           '--preprocess-policy', 'off', files(cases / 'gr1_spec.tlsf')])
-  test('compose_route_stats_policy_profitable_skip', check,
-    args: [files(cases / 'policy_profitable_skip.route_stats'),
-           exe['tlsfcompose'], '--split', '--route-stats',
-           '--preprocess-policy', 'profitable',
-           files(cases / 'policy_profitable_skip.tlsf')])
-  foreach name : ['initial_x_assume', 'delayed_global', 'gr1_recurrence',
-                  'strict_safety', 'wr_response', 'reaction_ok',
-                  'response_same_cycle', 'eventual_output',
-                  'until_input_target', 'liveness_eventual', 'liveness_until',
-                  'liveness_mixed', 'liveness_nested']
-    test('compose_route_stats_' + name, check,
-      args: [files(cases / name + '.route_stats'), exe['tlsfcompose'],
-             '--split', '--route-stats',
-             files(cases / name + '.tlsf')])
-  endforeach
-  # TRUST_OVER boolean-fragment UNREAL pre-check: an input-only G guarantee is
-  # caught before plan emission.
-  test('precheck_input_only_unreal', check_contains,
-    args: ['UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
-           files(cases / 'precheck_input_only.tlsf')])
-  test('precheck_route_stats', check_contains,
-    args: ['unreal_precheck=1', exe['tlsfcompose'], '--split', '--route-stats',
-           files(cases / 'precheck_input_only.tlsf')])
-  # Control: the boolean-G guarantee mentions an output that can satisfy it, so
-  # the pre-check stays silent and normal plan emission succeeds.
-  test('precheck_outputs_rescue_real', exe['tlsfcompose'],
-    args: [files(cases / 'precheck_outputs_rescue.tlsf')])
-  # Dual TRUST_UNDER early-REAL via the --realizability oracle (self-contained,
-  # no solver): outputs satisfy the boolean guarantees -> REALIZABLE; an
-  # input-only contradiction -> UNREALIZABLE (always-on UNREAL check); a
-  # temporal guarantee -> UNKNOWN (oracle inconclusive).
-  test('precheck_real_oracle_real', check_contains,
-    args: ['REALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
-           '--split', '--realizability',
-           files(cases / 'precheck_outputs_rescue.tlsf')])
-  test('precheck_real_oracle_unreal', check_contains,
-    args: ['UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
-           '--split', '--realizability',
-           files(cases / 'precheck_input_only.tlsf')])
-  test('precheck_real_oracle_unknown', check_contains,
-    args: ['realizability UNKNOWN', exe['tlsfcompose'],
-           '--split', '--realizability',
-           files(cases / 'precheck_real_unknown.tlsf')])
-endif
+foreach name : ['compose_demo', 'cluster_split', 'cluster_prune', 'input_gua_skip']
+  test('compose_' + name, check,
+    args: [files(cases / name + '.compose'), exe['tlsfcompose'],
+           files(cases / name + '.tlsf')])
+endforeach
+test('compose_lowercase', check,
+  args: [files(cases / 'upper_atoms.lower.compose'), exe['tlsfcompose'],
+         '--split', '--lowercase', files(cases / 'upper_atoms.tlsf')])
+test('compose_ltlxba_rejects_primes', check_fail_stderr,
+  args: [files(cases / 'primes.compose.stderr'), exe['tlsfcompose'],
+         files(cases / 'primes.tlsf')])
+test('compose_primes_ltl', check,
+  args: [files(cases / 'primes.compose'), exe['tlsfcompose'],
+         '--format', 'ltl', files(cases / 'primes.tlsf')])
+# The verdict-only mode prints no formula, so it keeps accepting them.
+test('compose_primes_realizability', check_status,
+  args: ['0', files(cases / 'empty'),
+         files(cases / 'primes.realizability.stderr'), exe['tlsfcompose'],
+         '--realizability', files(cases / 'primes.tlsf')])
+test('compose_merge_mode', check,
+  args: [files(cases / 'compose_demo.merged.aag'), exe['tlsfcompose'],
+         '--merge', files(cases / 'compose_demo.merged.aag')])
+test('solve_wrapper_oxidd_presolve', check_solve_wrapper,
+  args: [files(cases / 'solve_wrapper_fake.aag'),
+         files(scripts / 'solve.sh'), exe['tlsfcompose'],
+         fake_ltlsynt,
+         files(cases / 'compose_demo.tlsf')])
+test('solve_wrapper_fake_ltlsynt', check_solve_wrapper,
+  args: [files(cases / 'solve_wrapper_fake_liveness.aag'),
+         files(scripts / 'solve.sh'), exe['tlsfcompose'],
+         fake_ltlsynt,
+         files(cases / 'liveness_nested.tlsf')])
+test('compose_output_dir_under_real_wr', check_output_dir,
+  args: [files(cases / 'wr_under_real.output_dir'),
+         exe['tlsfcompose'], '--split', files(cases / 'wr_under_real.tlsf')])
+test('compose_output_dir_over_unreal_wr', check_output_dir_fail,
+  args: ['trusted one-sided OxiDD verdict', exe['tlsfcompose'], '--split',
+         files(cases / 'wr_gated_collapse.tlsf')])
+test('compose_aiger_unclassified_atom', check,
+  args: [files(cases / 'aiger_unclassified_atom.compose'), exe['tlsfcompose'],
+         files(cases / 'aiger_unclassified_atom.tlsf')])
+test('compose_route_stats_gr1', check,
+  args: [files(cases / 'gr1_spec.route_stats'), exe['tlsfcompose'],
+         '--split', '--route-stats', files(cases / 'gr1_spec.tlsf')])
+test('compose_route_stats_bounded', check,
+  args: [files(cases / 'compose_demo.route_stats'), exe['tlsfcompose'],
+         '--split', '--route-stats', '--experimental-bounded', '4',
+         files(cases / 'compose_demo.tlsf')])
+test('compose_route_stats_response_monitor', check,
+  args: [files(cases / 'compose_demo.response_monitor.route_stats'),
+         exe['tlsfcompose'], '--split', '--route-stats',
+         files(cases / 'compose_demo.tlsf')])
+test('compose_route_stats_policy_off', check,
+  args: [files(cases / 'gr1_spec.policy_off.route_stats'),
+         exe['tlsfcompose'], '--split', '--route-stats',
+         '--preprocess-policy', 'off', files(cases / 'gr1_spec.tlsf')])
+test('compose_route_stats_policy_profitable_skip', check,
+  args: [files(cases / 'policy_profitable_skip.route_stats'),
+         exe['tlsfcompose'], '--split', '--route-stats',
+         '--preprocess-policy', 'profitable',
+         files(cases / 'policy_profitable_skip.tlsf')])
+foreach name : ['initial_x_assume', 'delayed_global', 'gr1_recurrence',
+                'strict_safety', 'wr_response', 'reaction_ok',
+                'response_same_cycle', 'eventual_output',
+                'until_input_target', 'liveness_eventual', 'liveness_until',
+                'liveness_mixed', 'liveness_nested']
+  test('compose_route_stats_' + name, check,
+    args: [files(cases / name + '.route_stats'), exe['tlsfcompose'],
+           '--split', '--route-stats',
+           files(cases / name + '.tlsf')])
+endforeach
+# TRUST_OVER boolean-fragment UNREAL pre-check: an input-only G guarantee is
+# caught before plan emission.
+test('precheck_input_only_unreal', check_contains,
+  args: ['UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
+         files(cases / 'precheck_input_only.tlsf')])
+test('precheck_route_stats', check_contains,
+  args: ['unreal_precheck=1', exe['tlsfcompose'], '--split', '--route-stats',
+         files(cases / 'precheck_input_only.tlsf')])
+# Control: the boolean-G guarantee mentions an output that can satisfy it, so
+# the pre-check stays silent and normal plan emission succeeds.
+test('precheck_outputs_rescue_real', exe['tlsfcompose'],
+  args: [files(cases / 'precheck_outputs_rescue.tlsf')])
+# Dual TRUST_UNDER early-REAL via the --realizability oracle (self-contained,
+# no solver): outputs satisfy the boolean guarantees -> REALIZABLE; an
+# input-only contradiction -> UNREALIZABLE (always-on UNREAL check); a
+# temporal guarantee -> UNKNOWN (oracle inconclusive).
+test('precheck_real_oracle_real', check_contains,
+  args: ['REALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
+         '--split', '--realizability',
+         files(cases / 'precheck_outputs_rescue.tlsf')])
+test('precheck_real_oracle_unreal', check_contains,
+  args: ['UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
+         '--split', '--realizability',
+         files(cases / 'precheck_input_only.tlsf')])
+test('precheck_real_oracle_unknown', check_contains,
+  args: ['realizability UNKNOWN', exe['tlsfcompose'],
+         '--split', '--realizability',
+         files(cases / 'precheck_real_unknown.tlsf')])
 endif
 if research_tools
 # tlsfbenchgraph: per-spec corpus metrics TSV (file column is a basename, so the
@@ -468,7 +469,7 @@ if python3.found()
            '--schedules', 'off', 'match-safe:1'])
 endif
 endif
-if research_tools and have_oxidd
+if research_tools
   test('gr1_fairness_alternating_unreal', check_status,
     args: ['1', files(cases / 'empty'),
            files(cases / 'solve_unreal.stderr'), exe['tlsfsolve'],
@@ -862,7 +863,7 @@ test('semantics_mealy_to_moore', check,
          exe['tlsf2ltl'], files(cases / 'conv_mealy_moore.tlsf')])
 
 # The installed checker must not pull in a GR(1) solve.
-if research_tools and have_oxidd and native_gr1 and python3.found()
+if research_tools and python3.found()
   test('checker_link_independence', python3,
     args: [files('checker_link_independence.py'), meson.project_build_root(),
            exe['tlsfcertcheck']],

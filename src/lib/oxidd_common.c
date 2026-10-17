@@ -5,8 +5,9 @@
 // must be `oxidd_bdd_unref`'d (a no-op on the invalid/NULL handle).
 
 #define _POSIX_C_SOURCE 200809L
+#include "oxidd_runtime.h"
 #include "oxidd_common.h"
-#include "oxidd_build_stamp.h"
+#include "oxidd/oxidd_build_stamp.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -948,7 +949,7 @@ static size_t g_session_nodes, g_session_cache;
 
 void oxidd_session_init(uint32_t inner_cap, uint32_t cache_cap) {
   oxidd_session_free();
-  g_session_mgr = oxidd_bdd_manager_new(inner_cap, cache_cap, 1);
+  g_session_mgr = tlsf_oxidd_manager_new(inner_cap, cache_cap);
   g_session_var_base = 0;
   g_session_nodes = inner_cap;
   g_session_cache = cache_cap;

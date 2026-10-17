@@ -30,6 +30,7 @@ enum class Trust {
 };
 
 struct Options {
+  bool precheck = false;
   bool split = false;
   bool lowercase = false;
   Format format = Format::Ltlxba;
@@ -84,6 +85,7 @@ inline std::vector<std::string> copy_strings(char **items, uint32_t count) {
 
 inline Result decompose(const std::string &spec, const Options &options = {}) {
   TlsfDecomposeOptions c_options = {};
+  c_options.precheck = options.precheck;
   c_options.split = options.split;
   c_options.lowercase = options.lowercase;
   c_options.format = static_cast<TlsfDecomposeFormat>(options.format);

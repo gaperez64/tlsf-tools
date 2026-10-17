@@ -159,6 +159,7 @@ public:
   explicit Ast(const std::string &spec, const tlsf::Options &options = {},
                const AstOptions &ast_options = {}) {
     TlsfDecomposeOptions c_options = {};
+    c_options.precheck = options.precheck;
     c_options.split = options.split;
     c_options.lowercase = options.lowercase;
     c_options.format = static_cast<TlsfDecomposeFormat>(options.format);

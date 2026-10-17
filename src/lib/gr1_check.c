@@ -26,6 +26,7 @@
 /// have the same meaning as plain spellings. Duplicate keys are rejected after
 /// decoding, and extra fields are allowed.
 
+#include "oxidd_runtime.h"
 #include "tlsf/aiger.h"
 #include "gr1_check_internal.h"
 #include "oxidd_common.h"
@@ -1763,7 +1764,7 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
   ck->nq = ck->nstate + ck->ncounter;
   ck->nvars = 2 * ck->nq + ck->nu + ck->nc;
   ck->manager =
-      oxidd_bdd_manager_new(ck->options.node_cap, ck->options.cache_cap, 1);
+      tlsf_oxidd_manager_new(ck->options.node_cap, ck->options.cache_cap);
   if (!ck->manager._p) {
     snprintf(message, cap, "cannot create OxiDD manager");
     return false;

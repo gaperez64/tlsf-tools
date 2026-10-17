@@ -52,9 +52,9 @@ flowchart LR
 
 ## Building
 
-Requires a C23 compiler, [meson](https://mesonbuild.com/),
-[ninja](https://ninja-build.org/), `flex`, and `bison`. OxiDD-enabled research
-builds also require Rust/cargo and `cbindgen`.
+Requires C23 and C++20 compilers, [meson](https://mesonbuild.com/),
+[ninja](https://ninja-build.org/), `flex`, `bison`, Spot, Cargo (Rust 1.91+)
+and `cbindgen` (0.29.4). Meson builds OxiDD and native GR(1) in every build.
 
 Release-quality stable build:
 
@@ -68,8 +68,7 @@ Research/diagnostic tools, including `tlsfresidual`, `tlsfcompose`, and
 
 ```sh
 git submodule update --init --recursive
-scripts/build_oxidd.sh
-meson setup build-research -Doxidd=enabled -Dresearch_tools=true --buildtype=release
+meson setup build-research -Dresearch_tools=true --buildtype=release
 ninja -C build-research
 ```
 
@@ -84,9 +83,8 @@ and otherwise builds the pinned `subprojects/yyjson.wrap`. The fallback installs
 yyjson and its pkg-config file with `libtlsf`, so static consumers can resolve
 the private JSON dependency with `pkg-config --static --libs tlsf`.
 
-The default production build is OxiDD-free and packages only the stable TLSF
-preprocessing tools. OxiDD (<https://github.com/OxiDD/oxidd>) is an explicit
-research-build dependency for the in-process safety/GR(1) solver tools.
+OxiDD (<https://github.com/OxiDD/oxidd>) and native GR(1) are always part of
+libtlsf. `research_tools` controls only the optional executable targets.
 [ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and [acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are
 optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
@@ -442,9 +440,8 @@ safety/liveness output modes.
 
 ```
 include/tlsf/      public API; every header here is installed
-src/lib/           libtlsf and its private headers; the OxiDD solvers and GR(1)
-                   checker build a second archive, tlsf-oxidd, folded into
-                   libtlsf under -Dnative_gr1=enabled
+src/lib/           libtlsf and its private headers, including the OxiDD solvers
+                   and the GR(1) checker
 src/tools/<tool>/  one directory per executable (common/ holds shared helpers)
 test/unit/         programs testing internal units
 test/api/          programs using only the installed headers
@@ -460,7 +457,7 @@ level so they build to `build/<tool>`.
 
 ```sh
 meson test -C build                                  # fast golden-output suite
-meson setup build-cov -Dresearch_tools=true -Doxidd=disabled -Db_coverage=true && meson test -C build-cov
+meson setup build-cov -Dresearch_tools=true -Db_coverage=true && meson test -C build-cov
 git ls-files '*.[ch]' '*.cc' '*.cpp' '*.hh' '*.hpp' | xargs clang-format -i  # style
 clang-tidy -p build src/lib/*.c src/tools/*/*.c      # lint
 bench/bench.sh [--baseline|--check]                  # wall/RSS perf-regression guard
@@ -473,3 +470,10 @@ the `bench.sh --check` regression guard.
 ## License
 
 [MIT](LICENSE).
+
+OxiDD stack configuration: the CLIs call `tlsf_oxidd_configure_process_stack()`
+at process start, before any threads exist. With a finite `RLIMIT_AS` and no
+`OXIDD_STACK_SIZE`, this sets `min(1 GiB, max(8 MiB, RLIMIT_AS / 16))` bytes.
+An explicit `OXIDD_STACK_SIZE` always wins. Embedders may call the function from
+`<tlsf/process.h>` before starting threads; library operations never call it
+implicitly or change the environment during manager construction.

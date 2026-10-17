@@ -22,6 +22,7 @@
 // fallback.  Shared BDD helpers (memo, lit/cube builders, bdd2aig) live in
 // oxidd_common.c.
 
+#include "oxidd_runtime.h"
 #include "tlsf/safety_oxidd.h"
 
 #include "oxidd_common.h"
@@ -154,7 +155,14 @@ static Aig *solve_safety_impl(Aig *game, int *unreal, bool *winning,
     oxidd_trace(opts, "manager_create", "begin",
                 ",\"node_cap\":%zu,\"cache_cap\":%zu,\"vars\":%u", node_cap,
                 cache_cap, nvars_local);
-    m = oxidd_bdd_manager_new(node_cap, cache_cap, 1);
+    m = tlsf_oxidd_manager_new(node_cap, cache_cap);
+    if (!m._p) {
+      oxidd_record_failure(opts, OXIDD_FAILURE_HOST, "manager_create",
+                           "worker_stack_unavailable", 0, 0);
+      oxidd_resolved_order_free(&order);
+      aig_free(game);
+      return nullptr;
+    }
     oxidd_bdd_manager_add_vars(m, nvars_local);
     var_base = 0;
     if (!oxidd_apply_var_order(m, var_base, opts, &order)) {

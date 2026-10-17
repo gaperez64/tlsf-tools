@@ -11,6 +11,7 @@
 ///             [--policy FILE [--policy-json FILE]] [GAME]
 ///   tlsfsolve --help
 
+#include "tlsf/process.h"
 #include "tlsf/aiger.h"
 #include "build_info.h"
 #include "tlsf/gr1_oxidd.h"
@@ -287,6 +288,10 @@ static void usage(const char *prog) {
 #undef OXIDD_TRACE_USAGE
 
 int main(int argc, char **argv) {
+  if (tlsf_oxidd_configure_process_stack() != 0) {
+    perror("configure OxiDD process stack");
+    return 2;
+  }
   const char *path = nullptr;
   const char *certificate_path = nullptr;
   const char *certificate_json_path = nullptr;

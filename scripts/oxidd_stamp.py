@@ -10,20 +10,33 @@ import sys
 
 
 def revision(oxidd):
+    exported = oxidd.parent.parent / "oxidd-source-revision"
+    if exported.is_file():
+        fields = exported.read_text().splitlines()
+        if (len(fields) == 2 and re.fullmatch(r"[0-9a-f]{40}", fields[0])
+                and fields[1] in {"0", "1"}):
+            return fields[0], fields[1]
+        raise ValueError("invalid exported OxiDD source identity")
+    # A copied checkout can retain a .git file whose core.worktree names the
+    # original source tree. Override it for these read-only queries, and never
+    # let a source export without its own .git inherit an enclosing checkout.
+    if not (oxidd / ".git").exists():
+        return "unknown", "unknown"
+    git = ["git", "-C", str(oxidd), f"--work-tree={oxidd.resolve()}"]
     try:
         top = subprocess.run(
-            ["git", "-C", str(oxidd), "rev-parse", "--show-toplevel"],
+            [*git, "rev-parse", "--show-toplevel"],
             check=True, capture_output=True, text=True,
         ).stdout.strip()
         # A source export inside another Git checkout must not inherit its HEAD.
         if pathlib.Path(top).resolve() != oxidd.resolve():
             return "unknown", "unknown"
         commit = subprocess.run(
-            ["git", "-C", str(oxidd), "rev-parse", "HEAD"],
+            [*git, "rev-parse", "HEAD"],
             check=True, capture_output=True, text=True,
         ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "-C", str(oxidd), "status", "--porcelain"],
+            [*git, "status", "--porcelain"],
             check=True, capture_output=True, text=True,
         ).stdout != ""
         return commit, "1" if dirty else "0"
@@ -62,20 +75,20 @@ def validate(oxidd, archive, stamp):
         fields = read_stamp(stamp)
     except ValueError as exc:
         raise ValueError(f"{exc}; stamp commit unknown, current commit {current}. "
-                         "Rerun scripts/build_oxidd.sh") from exc
+                         "Rebuild with meson compile") from exc
     built = fields["commit"]
     if built != "unknown" and current != "unknown" and built != current:
         raise ValueError(f"OxiDD build stamp commit {built} differs from current "
-                         f"commit {current}. Rerun scripts/build_oxidd.sh")
+                         f"commit {current}. Rebuild with meson compile")
     try:
         actual_hash = archive_hash(archive)
     except OSError as exc:
         raise ValueError(f"OxiDD archive missing ({exc}); stamp commit {built}, "
-                         f"current commit {current}. Rerun scripts/build_oxidd.sh") from exc
+                         f"current commit {current}. Rebuild with meson compile") from exc
     if fields["sha256"] != actual_hash:
         raise ValueError(f"OxiDD archive hash differs from build stamp; stamp commit "
                          f"{built}, current commit {current}. "
-                         "Rerun scripts/build_oxidd.sh")
+                         "Rebuild with meson compile")
     if built == "unknown" or current == "unknown":
         print(f"OxiDD commit is unknown (stamp {built}, current {current}); "
               "archive hash verified", file=sys.stdout)
@@ -108,6 +121,9 @@ def main():
             write_if_changed(args.stamp, content)
         else:
             fields = validate(args.oxidd, args.archive, args.stamp)
+            if args.action == "check" and args.output is not None:
+                write_if_changed(args.output, f"/* Verified OxiDD {fields['commit']} "
+                                 f"{fields['sha256']} */\n")
             if args.action == "header":
                 if args.output is None:
                     parser.error("header requires an output path")

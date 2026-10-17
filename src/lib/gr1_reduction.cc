@@ -36,7 +36,9 @@ extern "C" {
 #include <functional>
 #include <limits>
 #include <map>
+#ifdef __GLIBC__
 #include <malloc.h>
+#endif
 #include <memory>
 #include <new>
 #include <regex>
@@ -103,11 +105,17 @@ struct StatsScope {
     rusage usage{};
     getrusage(RUSAGE_SELF, &usage);
     row.peak_rss_kb = usage.ru_maxrss;
+#ifdef __APPLE__
+    row.peak_rss_kb /= 1024;
+#endif
+#if defined(__GLIBC__) &&                                                      \
+    (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
     const auto heap = mallinfo2();
     row.arena = heap.arena;
     row.hblkhd = heap.hblkhd;
     row.uordblks = heap.uordblks;
     row.fordblks = heap.fordblks;
+#endif
     wall = 0;
     if (callback)
       callback(context, stage, &row);
@@ -144,8 +152,13 @@ struct Limits {
     if (budget.max_rss_bytes) {
       rusage usage{};
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
+#ifdef __APPLE__
+        const uint64_t peak =
+            usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
+#else
         const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
         const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
+#endif
         work.peak_rss_bytes = std::max(work.peak_rss_bytes, peak);
         if (peak > budget.max_rss_bytes)
           throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,

@@ -3,8 +3,7 @@
 
 1. Each source file is compiled into exactly one target; the exceptions are
    the test-only fault-injection builds and their shared probe main.
-2. The installed tlsf headers are exactly include/tlsf/ (the GR(1) headers
-   only under native_gr1), plus the generated version.h.
+2. The installed tlsf headers are exactly include/tlsf/, plus the generated version.h.
 3. (Enforced by compilation: test/api sees include/ only.)
 4. Nothing in src/lib includes a tool header, and nothing in include/tlsf
    includes a header outside include/tlsf.
@@ -43,13 +42,9 @@ for source, owners in sorted(compiled.items()):
     if len(extra) > 1:
         errors.append(f"rule 1: {source} compiled into {sorted(owners)}")
 
-options = {option["name"]: option["value"] for option in
-           json.loads((info / "intro-buildoptions.json").read_text())}
-gr1 = {"gr1_check.h", "gr1_lift.h", "gr1_oxidd.h", "gr1_reduction.h",
-       "oxidd_options.h", "safety_oxidd.h"}
 public = {path.name for path in (root / "include/tlsf").iterdir()
           if path.suffix in (".h", ".hpp")}
-expected = (public if options["native_gr1"] == "enabled" else public - gr1)
+expected = public.copy()
 expected |= {"version.h"}
 plan = json.loads((info / "intro-install_plan.json").read_text())
 installed = {pathlib.PurePath(entry["destination"]).name

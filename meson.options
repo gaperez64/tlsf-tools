@@ -8,17 +8,6 @@ option(
   description: 'Enable sanitizers (for development builds)',
 )
 
-option(
-  'oxidd',
-  type: 'feature',
-  value: 'disabled',
-  description: 'Build OxiDD-backed research solver tools; use ' +
-               '-Doxidd=enabled with -Dresearch_tools=true after building ' +
-               'external/oxidd artifacts',
-)
-
-option('native_gr1', type: 'feature', value: 'disabled',
-       description: 'Build the native GR(1) C API into libtlsf')
 option('native_lift_oracle_root', type: 'string', value: '',
        description: 'Acacia source root for optional test-only Stage C differential')
 option('native_lift_corpus_root', type: 'string', value: '',

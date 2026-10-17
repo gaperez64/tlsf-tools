@@ -176,8 +176,13 @@ struct Config {
       rusage usage{};
       bool sample_current = true;
       if (getrusage(RUSAGE_SELF, &usage) == 0) {
+#ifdef __APPLE__
+        const uint64_t peak =
+            usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
+#else
         const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
         const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
+#endif
         if (work)
           work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
         // Current RSS cannot exceed the process peak. Avoid opening /proc

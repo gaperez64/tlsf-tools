@@ -7,7 +7,7 @@ import sys
 
 build = pathlib.Path(sys.argv[1])
 checker = pathlib.Path(sys.argv[2])
-object_file = build / "src/lib/libtlsf-oxidd.a.p/gr1_check.c.o"
+object_file = build / "src/lib/libtlsf.a.p/gr1_check.c.o"
 
 
 def symbols(*args: str) -> str:

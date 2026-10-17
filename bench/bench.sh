@@ -71,18 +71,14 @@ cpu_supported() {
 
 setup_matrix_build() {
   local dir="$1" cpu="$2"
-  if ! cpu_supported "$cpu"; then
-    echo "skip $cpu: CPU tier not supported by this host" >&2
-    return 1
-  fi
   if [ -d "$dir/meson-private" ]; then
-    meson setup "$dir" --reconfigure -Doxidd=enabled -Dcpu="$cpu" \
+    meson setup "$dir" --reconfigure -Dcpu="$cpu" -Dresearch_tools=true \
       --buildtype=release >/dev/null || return 1
   else
-    meson setup "$dir" -Doxidd=enabled -Dcpu="$cpu" --buildtype=release \
+    meson setup "$dir" -Dcpu="$cpu" -Dresearch_tools=true --buildtype=release \
       >/dev/null || return 1
   fi
-  ninja -C "$dir" >/dev/null
+  ninja -C "$dir" -j 4 >/dev/null
 }
 
 measure_once() {
@@ -175,7 +171,14 @@ run_matrix() {
   for entry in "${entries[@]}"; do
     dir="${entry%%:*}"
     cpu="${entry##*:}"
-    setup_matrix_build "$root/$dir" "$cpu" || continue
+    if ! cpu_supported "$cpu"; then
+      echo "skip $cpu: CPU tier not supported by this host" >&2
+      continue
+    fi
+    if ! setup_matrix_build "$root/$dir" "$cpu"; then
+      echo "failed to build matrix configuration $dir ($cpu)" >&2
+      return 1
+    fi
     route_file="$root/bench/route_stats_${cpu}.tsv"
     "$root/scripts/collect_route_stats.py" --compose "$root/$dir/tlsfcompose" \
       --out "$route_file" "$matrix_corpus" >/dev/null || true
@@ -187,7 +190,7 @@ run_matrix() {
 
 if [ -n "$matrix_corpus" ]; then
   run_matrix
-  exit 0
+  exit $?
 fi
 
 # median wall-clock in milliseconds of `runs` executions of "$@"

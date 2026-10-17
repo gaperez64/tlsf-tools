@@ -9,9 +9,7 @@
 #include "print_ltlxba.h"
 #include "residual.h"
 
-#ifdef HAVE_OXIDD
 #include "precheck_unreal.h"
-#endif
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -205,7 +203,6 @@ static bool fill_preprocessed(TlsfDecomposeResult *r, TlsfSpec *spec,
 static void fill_verdict(TlsfDecomposeResult *r, ConstraintCover *cov) {
   r->verdict = TLSF_DECOMPOSE_VERDICT_UNKNOWN;
   r->verdict_trust = TLSF_DECOMPOSE_TRUST_NONE;
-#ifdef HAVE_OXIDD
   if (precheck_trivially_unreal(cov)) {
     r->verdict = TLSF_DECOMPOSE_VERDICT_UNREALIZABLE;
     r->verdict_trust = TLSF_DECOMPOSE_TRUST_OVER;
@@ -213,7 +210,6 @@ static void fill_verdict(TlsfDecomposeResult *r, ConstraintCover *cov) {
     r->verdict = TLSF_DECOMPOSE_VERDICT_REALIZABLE;
     r->verdict_trust = TLSF_DECOMPOSE_TRUST_UNDER;
   }
-#endif
 }
 
 TlsfDecomposeResult *
@@ -244,7 +240,8 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   r->gr_level = gr_level(spec);
   if (!r->semantics || !r->target)
     goto fail;
-  fill_verdict(r, cov);
+  if (opts && opts->precheck)
+    fill_verdict(r, cov);
   if (!fill_preprocessed(r, spec, fmt, lower))
     goto fail;
   if (!collect_signals(cov, nullptr, AP_FLAG_INPUT, lower, &r->inputs,

@@ -28,6 +28,8 @@ typedef enum TlsfDecomposeTrust {
 } TlsfDecomposeTrust;
 
 typedef struct TlsfDecomposeOptions {
+  /// Opt in to boolean-fragment verdict prechecks; unavailable means UNKNOWN.
+  bool precheck;
   bool split;
   bool lowercase;
   TlsfDecomposeFormat format;

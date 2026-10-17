@@ -51,7 +51,7 @@ def main():
         mismatch = run(*cmd, "check", str(oxidd), str(archive), str(stamp),
                        expect=1).stderr
         assert other in mismatch and current in mismatch, mismatch
-        assert "Rerun scripts/build_oxidd.sh" in mismatch, mismatch
+        assert "Rebuild with meson compile" in mismatch, mismatch
 
         stamp.write_text(original)
         archive.write_bytes(archive.read_bytes() + b"tampered")
@@ -96,7 +96,7 @@ def main():
         build_mismatch = run("ninja", "-C", str(build), "app", expect=1)
         failure = build_mismatch.stdout + build_mismatch.stderr
         assert other in failure and current in failure, failure
-        assert "Rerun scripts/build_oxidd.sh" in failure, failure
+        assert "Rebuild with meson compile" in failure, failure
         stamp.write_text(good_stamp)
 
         build_archive(root, 2)
