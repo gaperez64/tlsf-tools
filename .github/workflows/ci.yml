@@ -31,59 +31,13 @@ jobs:
             if [ -f "$file" ]; then printf '%s\0' "$file"; fi
           done | xargs -0 -r clang-format --dry-run --Werror
 
-  # Build the vendored OxiDD C FFI (Rust staticlib + cbindgen header) exactly
-  # once and share it with the explicit OxiDD research job as an artifact, so
-  # cargo runs a single time per CI run. The stable jobs stay on the default
-  # no-Rust production path.
-  oxidd:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - name: Install Rust
-        run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          rustup default 1.98.1
-      - name: OxiDD submodule revision
-        id: rev
-        run: echo "sha=$(git -C external/oxidd rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo + OxiDD build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            external/oxidd/target
-          key: oxidd-ffi-${{ runner.os }}-rust-1.98.1-cbindgen-0.29.2-${{ steps.rev.outputs.sha }}-${{ hashFiles('scripts/build_oxidd.sh', 'scripts/oxidd_stamp.py') }}
-      - name: Install cbindgen
-        run: |
-          if ! command -v cbindgen >/dev/null || \
-             [ "$(cbindgen --version)" != 'cbindgen 0.29.2' ]; then
-            cargo install cbindgen --version 0.29.2 --locked --force
-          fi
-          test "$(cbindgen --version)" = 'cbindgen 0.29.2'
-      - name: Build OxiDD FFI
-        run: scripts/build_oxidd.sh
-      - name: Upload OxiDD FFI artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: oxidd-ffi
-          path: |
-            external/oxidd/target/release/liboxidd_ffi_c.a
-            external/oxidd/build/include
-            external/oxidd/build/oxidd-build-stamp
-          if-no-files-found: error
-          retention-days: 1
-
   build-test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -92,12 +46,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison gcc-14 valgrind
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
       - name: Configure
         env:
           CC: gcc-14
-        run: meson setup build -Doxidd=disabled
+          CXX: g++-14
+        run: meson setup build
       - name: Build
         run: ninja -C build
       - name: Run regression tests
@@ -124,6 +80,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -132,13 +89,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison clang
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
       - name: Configure, build and test
         env:
           CC: clang
         run: |
-          meson setup build-clang -Doxidd=disabled
+          meson setup build-clang
           ninja -C build-clang
           meson test -C build-clang --print-errorlogs
 
@@ -152,6 +110,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -160,24 +119,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison gcc-14
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
       - name: Configure, build, and test SIMD kernels
         env:
           CC: gcc-14
+          CXX: g++-14
         run: |
-          meson setup build-simd-${{ matrix.cpu }} -Doxidd=disabled -Dcpu=${{ matrix.cpu }}
+          meson setup build-simd-${{ matrix.cpu }} -Dcpu=${{ matrix.cpu }}
           meson compile -C build-simd-${{ matrix.cpu }} simd_check
           meson test -C build-simd-${{ matrix.cpu }} simd_kernels --print-errorlogs
 
-  # OxiDD-enabled build: links the shared FFI artifact, compiles the in-process
-  # safety + GR(1) solvers (src/lib/safety_oxidd.c, src/lib/gr1_oxidd.c,
-  # src/lib/aiger.c via tlsfcompose/tlsfsolve) and runs the full research
-  # suite. The Spot-verified verify_aiger_oxidd* tests auto-gate on Spot
-  # (absent here) and run locally; bounded_synthesis_harness still exercises a
-  # real in-process solve.
+  # Exercise the research executables and the Spot-verified native solvers.
   build-oxidd:
-    needs: oxidd
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -192,25 +147,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison gcc-14 python3
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
-      - name: Download OxiDD FFI artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: oxidd-ffi
-          path: external/oxidd
       - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
           CC: gcc-14
+          CXX: g++-14
         run: |
           # GitHub x86 runners are Haswell+ (AVX2-safe); exercises the
           # compile-time SIMD path in src/lib/simd.h.
-          meson setup build-oxidd -Doxidd=enabled -Dresearch_tools=true -Dcpu=avx2
+          meson setup build-oxidd -Dresearch_tools=true -Dcpu=avx2
           ninja -C build-oxidd
           meson test -C build-oxidd --print-errorlogs
 
   build-native-gr1:
-    needs: oxidd
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -225,59 +176,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison gcc-14 g++-14 make curl pkg-config
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
-      - name: Download OxiDD FFI artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: oxidd-ffi
-          path: external/oxidd
-      # Spot takes most of this job to build; reuse the installed prefix. It is
-      # saved right after building, so a later test failure still keeps it.
-      # Bump the key's suffix when the build step's flags or toolchain change.
-      - name: Restore pinned Spot build
-        id: spot-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: .spot
-          key: spot-2.16-${{ runner.os }}-ubuntu-24.04-gcc-14-no-python-v1
-      - name: Build pinned Spot release
-        if: steps.spot-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL https://www.lre.epita.fr/dload/spot/spot-2.16.tar.gz \
-            -o spot-2.16.tar.gz
-          tar -xf spot-2.16.tar.gz
-          cd spot-2.16
-          CC=gcc-14 CXX=g++-14 ./configure --disable-python \
-            --prefix="$GITHUB_WORKSPACE/.spot"
-          make -j2
-          make install
-      - name: Save pinned Spot build
-        if: steps.spot-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: .spot
-          key: ${{ steps.spot-cache.outputs.cache-primary-key }}
       - name: Build and test native C ABI
         env:
           CC: gcc-14
           CXX: g++-14
-          PKG_CONFIG_PATH: ${{ github.workspace }}/.spot/lib/pkgconfig
-          LD_LIBRARY_PATH: ${{ github.workspace }}/.spot/lib
         run: |
           pkg-config --modversion libspot
           git rev-parse HEAD
           git -C external/oxidd rev-parse HEAD
-          meson setup build-native-ci -Dnative_gr1=enabled -Doxidd=enabled \
+          meson setup build-native-ci \
             -Dresearch_tools=true -Dcpp_std=c++20
           meson compile -C build-native-ci -j1
           meson test -C build-native-ci --num-processes 1 --print-errorlogs
-          meson setup build-oxidd-ci -Dnative_gr1=disabled -Doxidd=enabled \
-            -Dresearch_tools=true -Dcpp_std=c++20
-          meson compile -C build-oxidd-ci -j1
-          python3 test/api/check_native_gate.py build-oxidd-ci
           # The configuration Acacia-Bonsai builds as a subproject.
-          meson setup build-native-lib -Dnative_gr1=enabled -Doxidd=enabled \
+          meson setup build-native-lib \
             -Dresearch_tools=false -Dcpp_std=c++23
           meson compile -C build-native-lib -j1
 
@@ -287,6 +202,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -295,27 +211,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison gcc gcovr
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
       - name: Build with coverage and report
         run: |
-          # Coverage is measured on the dependency-free build with the
-          # research CLIs enabled: they exercise graph/WL/template code without
-          # requiring Rust/OxiDD. The OxiDD solver files compile only with
-          # -Doxidd=enabled, and their correctness paths are exercised by the
-          # Spot-verified suite (local). Enabling OxiDD here would add ~4k solver
-          # lines to the denominator without Spot to cover them. Build and
-          # measure with the runner's default gcc and its matching gcov; mixing
-          # default gcc with gcov-14 makes gcov exit 3 and crashes gcovr. Gate on
-          # the parsed line percentage.
-          # aiger.c is excluded for the same reason as the solver files: it is an
-          # OxiDD-path TU (the AIG game model) whose only callers
-          # (tlsfcompose / csnf_emit_local_aiger) need -DHAVE_OXIDD, so it is
-          # never exercised in this dependency-free build (0% here), yet it links
-          # into the shared lib. It is covered by the local verify_aiger_oxidd*
-          # suite. Counting its ~780 untestable-here lines just makes the gate
-          # spuriously fragile.
-          meson setup build-cov -Db_coverage=true -Dresearch_tools=true -Doxidd=disabled
+          # Cover the complete library and research executables.
+          meson setup build-cov -Db_coverage=true -Dresearch_tools=true
           meson test -C build-cov
           summary=$(gcovr --root . \
             --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
@@ -332,6 +234,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -340,13 +243,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build flex bison gcc-14 time
+      - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
       - name: Build
         env:
           CC: gcc-14
+          CXX: g++-14
         run: |
-          meson setup build -Doxidd=disabled
+          meson setup build
           ninja -C build
       - name: Perf regression guard (no syfco needed)
         run: bench/bench.sh --check

@@ -1,11 +1,9 @@
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/aiger.h"
-#ifdef HAVE_OXIDD
 // Unused here: including the stamp makes libtlsf, and so every tool, relink
 // whenever the OxiDD archive is rebuilt.
-#include "oxidd_build_stamp.h"
-#endif
+#include "oxidd/oxidd_build_stamp.h"
 
 #include <ctype.h>
 #include <stdlib.h>

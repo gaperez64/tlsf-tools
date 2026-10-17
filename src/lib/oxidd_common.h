@@ -8,7 +8,7 @@
 /// named `controllable_*` are controllable moves; output `bad` is the unsafe
 /// predicate; latches are state).
 ///
-/// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
+/// Built into libtlsf.
 
 #include "tlsf/aiger.h"
 

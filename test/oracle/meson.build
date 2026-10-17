@@ -15,77 +15,74 @@ if python3.found()
   endif
 endif
 
-if native_gr1
-  if python3.found()
-    test('native_env_rank_api', python3,
-      args: [files('check_env_rank_api.py'),
-             '--binary', env_rank_fault_probe_exe,
-             '--fixture', files('env_rank_learner.tlsf'),
-             '--out', meson.project_build_root() / 'env-rank-api'],
-      # Small learner fixture keeps the debug build comfortably below 30 s.
-      timeout: 90, is_parallel: false)
-    test('native_env_lift_api', python3,
-      args: [files('check_env_lift_api.py'),
-             '--binary', env_rank_fault_probe_exe,
-             '--fixtures', meson.project_source_root() / 'test/oracle',
-             '--out', meson.project_build_root() / 'env-lift-api'],
-      # Three-fairness and test-only capped capacity keep debug work small.
-      timeout: 90, is_parallel: false)
-    test('typed_provenance', python3,
-      args: [files('test_typed_provenance.py'),
-             '--frontend', exe['tlsf2tlsf'],
-             '--reducer', gr1_environment_reduce_exe,
-             '--enum-fixture', files(cases / 'enum_demo.tlsf'),
-             '--builddir', meson.project_build_root()],
-      timeout: 120)
+if python3.found()
+  test('native_env_rank_api', python3,
+    args: [files('check_env_rank_api.py'),
+           '--binary', env_rank_fault_probe_exe,
+           '--fixture', files('env_rank_learner.tlsf'),
+           '--out', meson.project_build_root() / 'env-rank-api'],
+    # Small learner fixture keeps the debug build comfortably below 30 s.
+    timeout: 90, is_parallel: false)
+  test('native_env_lift_api', python3,
+    args: [files('check_env_lift_api.py'),
+           '--binary', env_rank_fault_probe_exe,
+           '--fixtures', meson.project_source_root() / 'test/oracle',
+           '--out', meson.project_build_root() / 'env-lift-api'],
+    # Three-fairness and test-only capped capacity keep debug work small.
+    timeout: 90, is_parallel: false)
+  test('typed_provenance', python3,
+    args: [files('test_typed_provenance.py'),
+           '--frontend', exe['tlsf2tlsf'],
+           '--reducer', gr1_environment_reduce_exe,
+           '--enum-fixture', files(cases / 'enum_demo.tlsf'),
+           '--builddir', meson.project_build_root()],
+    timeout: 120)
+endif
+if get_option('native_lift_oracle_root') != '' and spot_python_found
+  lift_diff_args = [files('test_native_lift_differential.py'),
+                    '--native', native_lift_exe,
+                    '--builddir', meson.project_build_root(),
+                    '--oracle-root', get_option('native_lift_oracle_root'),
+                    '--tools-build', meson.project_build_root()]
+  if get_option('native_lift_corpus_root') != ''
+    lift_diff_args += ['--corpus-root', get_option('native_lift_corpus_root'),
+                       '--corpus-limit', '8', '--seconds', '12']
   endif
-  if get_option('native_lift_oracle_root') != '' and spot_python_found
-    lift_diff_args = [files('test_native_lift_differential.py'),
-                      '--native', native_lift_exe,
-                      '--builddir', meson.project_build_root(),
-                      '--oracle-root', get_option('native_lift_oracle_root'),
-                      '--tools-build', meson.project_build_root()]
-    if get_option('native_lift_corpus_root') != ''
-      lift_diff_args += ['--corpus-root', get_option('native_lift_corpus_root'),
-                         '--corpus-limit', '8', '--seconds', '12']
-    endif
-    test('native_lift_differential', spot_python,
-         args: lift_diff_args, env: spot_python_env,
-         timeout: get_option('native_lift_corpus_root') != '' ? 180 : 90,
-         is_parallel: false)
+  test('native_lift_differential', spot_python,
+       args: lift_diff_args, env: spot_python_env,
+       timeout: get_option('native_lift_corpus_root') != '' ? 180 : 90,
+       is_parallel: false)
+endif
+if spot_python_found
+  native_diff_args = [files('test_native_reduction.py'),
+                      '--native', native_reduction_exe,
+                      '--builder', files(scripts / 'gr1_monitor_game.py'),
+                      '--tlsf2ltl', exe['tlsf2ltl'],
+                      '--tlsf2tlsf', exe['tlsf2tlsf'],
+                      '--tlsfinfo', exe['tlsfinfo'],
+                      '--fixtures', cases,
+                      '--builddir', meson.project_build_root()]
+  if get_option('native_reduction_corpus') != ''
+    native_diff_args += ['--corpus', get_option('native_reduction_corpus')]
   endif
-  if spot_python_found
-    native_diff_args = [files('test_native_reduction.py'),
-                        '--native', native_reduction_exe,
-                        '--builder', files(scripts / 'gr1_monitor_game.py'),
-                        '--tlsf2ltl', exe['tlsf2ltl'],
-                        '--tlsf2tlsf', exe['tlsf2tlsf'],
-                        '--tlsfinfo', exe['tlsfinfo'],
-                        '--fixtures', cases,
-                        '--builddir', meson.project_build_root()]
-    if get_option('native_reduction_corpus') != ''
-      native_diff_args += ['--corpus', get_option('native_reduction_corpus')]
-    endif
-    test('native_reduction_differential', spot_python,
-         args: native_diff_args, env: spot_python_env, timeout: 1800)
-    test('native_reduction_language', spot_python,
-         args: [files('test_native_reduction_language.py'),
-                '--native', native_reduction_exe,
-                '--tlsf2ltl', exe['tlsf2ltl'],
-                '--builddir', meson.project_build_root()],
-         env: spot_python_env, timeout: 120)
-  endif
+  test('native_reduction_differential', spot_python,
+       args: native_diff_args, env: spot_python_env, timeout: 1800)
+  test('native_reduction_language', spot_python,
+       args: [files('test_native_reduction_language.py'),
+              '--native', native_reduction_exe,
+              '--tlsf2ltl', exe['tlsf2ltl'],
+              '--builddir', meson.project_build_root()],
+       env: spot_python_env, timeout: 120)
 endif
 
-if research_tools and have_oxidd
+if research_tools
   if python3.found()
     test('oxidd_semantic_oracle', python3,
       args: [files('check_oxidd_oracle.py'), exe['tlsfsolve']], timeout: 120)
-    if native_gr1
-      test('native_oracle_8b158d7', python3,
-        args: [files('native_oracle.py'), meson.project_build_root()],
-        timeout: 900, is_parallel: false)
-    endif
+    test('native_oracle_8b158d7', python3,
+      args: [files('native_oracle.py'), meson.project_build_root(), oxidd_build[0]],
+      depends: oxidd_build,
+      timeout: 900, is_parallel: false)
     test('gr1_explicit_differential', python3,
       args: [files('test_gr1_differential.py'),
              '--solver', exe['tlsfsolve'], '--games', '320'],
@@ -124,15 +121,12 @@ if research_tools and have_oxidd
              '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck']],
       timeout: 180,
     )
-    # gr1_environment_reduce_exe is built only under native_gr1.
-    if native_gr1
-      test('gr1_environment_provenance', python3,
-        args: [files('test_gr1_environment_provenance.py'),
-               '--reduction', gr1_environment_reduce_exe,
-               '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck']],
-        timeout: 180,
-      )
-    endif
+    test('gr1_environment_provenance', python3,
+      args: [files('test_gr1_environment_provenance.py'),
+             '--reduction', gr1_environment_reduce_exe,
+             '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck']],
+      timeout: 180,
+    )
   endif
   if spot_python_found
     test('gr1_monitor_game', spot_python,

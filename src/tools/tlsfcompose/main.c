@@ -13,6 +13,7 @@
 
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
+#include "tlsf/process.h"
 #include "tlsf/aiger.h"
 #include "tlsf/ast.h"
 #include "build_info.h"
@@ -586,6 +587,10 @@ static bool emit_oxidd_cluster_aiger(const char *out_dir, uint32_t k,
 }
 
 int main(int argc, char *argv[]) {
+  if (tlsf_oxidd_configure_process_stack() != 0) {
+    perror("configure OxiDD process stack");
+    return 2;
+  }
   bool split = false, route_stats = false;
   bool realizability = false;
   bool lowercase = false, merge_mode = false;

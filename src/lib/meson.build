@@ -1,6 +1,4 @@
-# libtlsf and its private headers. The OxiDD solvers and the GR(1) checker
-# form a second archive, tlsf-oxidd: the OxiDD tools link it, and under
-# -Dnative_gr1=enabled it is folded into libtlsf, whose GR(1) API needs it.
+# libtlsf includes TLSF conversion, OxiDD and the native GR(1) API.
 
 flex_out = custom_target(
   'tlsf_lex',
@@ -17,7 +15,6 @@ bison_out = custom_target(
 )
 
 build_info_conf = configuration_data()
-build_info_conf.set('TLSF_BUILD_OXIDD', have_oxidd ? 1 : 0)
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
 configure_file(output: 'build_config.h', configuration: build_info_conf)
 
@@ -42,6 +39,7 @@ lib_sources = files(
   'normalize.c',
   'obligation_census.c',
   'pipeline.c',
+  'process.c',
   'pipeline_source.c',
   'print_ltlxba.c',
   'print_tlsf.c',
@@ -62,58 +60,26 @@ lib_sources = files(
   bison_out[0],
   bison_out[1], # tlsf_parse.h: compile the lexer only after it exists.
 ]
-lib_c_args = []
-lib_compile_deps = [yyjson_dep]
-lib_deps = [yyjson_dep]
-pkg_private_libs = []
-oxidd_link_whole = []
-
-if have_oxidd
-  oxidd_stamp_header = custom_target(
-    'oxidd_build_stamp',
-    output: 'oxidd_build_stamp.h',
-    command: [python3, oxidd_stamp_py, 'header', oxidd_dir,
-              oxidd_lib_path, oxidd_stamp_path, '@OUTPUT@'],
-    build_always_stale: true,
-  )
-  lib_sources += [oxidd_stamp_header]
-  # The decompose API's boolean-fragment pre-check.
-  lib_sources += files('precheck_unreal.c')
-  lib_c_args += ['-DHAVE_OXIDD']
-  lib_compile_deps += [oxidd_dep.partial_dependency(includes: true)]
-  lib_deps += [oxidd_dep]
-  pkg_private_libs += ['-loxidd_ffi_c', '-lpthread', '-lm']
-
-  tlsf_oxidd_lib = static_library(
-    'tlsf-oxidd',
-    files(
-      'gr1_check.c',
-      'gr1_oxidd.c',
-      'gr1_service.c',
-      'oxidd_common.c',
-      'oxidd_host.c',
-      'oxidd_order.c',
-      'safety_oxidd.c',
-    ) + [oxidd_stamp_header],
-    include_directories: [public_inc, lib_inc],
-    dependencies: lib_compile_deps,
-    pic: true,
-  )
-  if native_gr1
-    oxidd_link_whole = [tlsf_oxidd_lib]
-  endif
+lib_sources += files(
+  'precheck_unreal.c', 'oxidd_runtime.c', 'gr1_check.c', 'gr1_oxidd.c',
+  'gr1_service.c', 'oxidd_common.c', 'oxidd_host.c', 'oxidd_order.c',
+  'safety_oxidd.c', 'gr1_lift.cc', 'gr1_env_lift.cc', 'gr1_reduction.cc',
+)
+cpp_compiler = meson.get_compiler('cpp')
+cpp_runtime = 'stdc++'
+if host_machine.system() == 'darwin' and cpp_compiler.get_id() != 'gcc'
+  cpp_runtime = 'c++'
 endif
-
-if native_gr1
-  lib_sources += files('gr1_lift.cc', 'gr1_env_lift.cc', 'gr1_reduction.cc')
-  cpp_runtime = host_machine.system() == 'darwin' ? 'c++' : 'stdc++'
-  lib_compile_deps += [spot_dep.partial_dependency(compile_args: true,
-                                                   includes: true)]
-  lib_deps += [spot_dep,
-               meson.get_compiler('cpp').find_library(cpp_runtime)]
-  pkg_private_libs += ['-l' + cpp_runtime]
-endif
-if have_oxidd and host_machine.system() != 'darwin'
+lib_compile_deps = [yyjson_dep, oxidd_dep.partial_dependency(includes: true,
+                                                          sources: true),
+                   spot_dep.partial_dependency(compile_args: true, includes: true)]
+# An explicit dynamic -lstdc++ would override the wheel's static-runtime flag.
+cpp_runtime_static = cpp_runtime == 'stdc++' and \
+  get_option('cpp_link_args').contains('-static-libstdc++')
+cpp_runtime_dep = cpp_compiler.find_library(cpp_runtime, static: cpp_runtime_static)
+lib_deps = [yyjson_dep, oxidd_dep, spot_dep, cpp_runtime_dep]
+pkg_private_libs = ['-loxidd_ffi_c', '-lpthread', '-lm', '-l' + cpp_runtime]
+if host_machine.system() != 'darwin'
   pkg_private_libs += ['-ldl']
 endif
 
@@ -121,9 +87,7 @@ tlsf_lib = static_library(
   'tlsf',
   lib_sources,
   include_directories: [public_inc, lib_inc],
-  c_args: lib_c_args,
   dependencies: lib_compile_deps,
-  link_whole: oxidd_link_whole,
   install: true,
   pic: true,
 )
@@ -143,13 +107,7 @@ tlsf_internal_dep = declare_dependency(
   dependencies: tlsf_dep,
 )
 
-# The OxiDD solvers and checker, linked ahead of libtlsf, which they call.
-if have_oxidd
-  tlsf_oxidd_dep = declare_dependency(
-    link_with: native_gr1 ? [] : tlsf_oxidd_lib,
-    dependencies: tlsf_internal_dep,
-  )
-endif
+tlsf_oxidd_dep = tlsf_internal_dep
 
 # The fault-injection build of the lifting code; it must never reach the
 # installed library, so only test/unit compiles it (a second time).
@@ -165,5 +123,5 @@ pkg.generate(
   description: 'TLSF decomposition and preprocessing library',
   version: meson.project_version(),
   libraries_private: pkg_private_libs,
-  requires_private: ['yyjson'] + (native_gr1 ? ['libspot'] : []),
+  requires_private: ['yyjson', 'libspot'],
 )

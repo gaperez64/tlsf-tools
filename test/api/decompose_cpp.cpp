@@ -1,4 +1,5 @@
 #include "tlsf/decompose.hpp"
+#include "tlsf/ast_api.hpp"
 
 #include <cassert>
 #include <stdexcept>
@@ -12,6 +13,25 @@ static bool contains(const std::vector<std::string> &xs, const char *needle) {
 }
 
 int main() {
+  const std::string trivial = R"TLSF(
+INFO { TITLE: "precheck" SEMANTICS: Mealy TARGET: Mealy }
+MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEE { G o; } }
+)TLSF";
+  // Conversion is independent of the availability of the optional verdict.
+  auto conversion = tlsf::decompose(trivial);
+  assert(conversion.verdict == tlsf::Verdict::Unknown);
+  assert(conversion.verdict_trust == tlsf::Trust::None);
+  tlsf::Options checked;
+  checked.precheck = true;
+  auto prechecked = tlsf::decompose(trivial, checked);
+  assert(prechecked.verdict == tlsf::Verdict::Realizable);
+  assert(prechecked.verdict_trust == tlsf::Trust::Under);
+  assert(conversion.preprocessed_ltl == prechecked.preprocessed_ltl);
+  tlsf::ast::Ast converted_ast(trivial);
+  assert(converted_ast.result().verdict == tlsf::Verdict::Unknown);
+  tlsf::ast::Ast checked_ast(trivial, checked);
+  assert(checked_ast.result().verdict == tlsf::Verdict::Realizable);
+
   const std::string spec = R"TLSF(
 INFO {
   TITLE: "decompose_cpp"

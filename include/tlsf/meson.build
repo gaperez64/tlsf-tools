@@ -1,5 +1,4 @@
-# The public API. Every header in this directory is installed; the GR(1)
-# headers only when libtlsf carries that API (-Dnative_gr1=enabled).
+# The public API: every header is installed.
 
 version_h = vcs_tag(
   command: [git_version, '--dirty'],
@@ -25,6 +24,7 @@ public_headers = files(
   'intern.h',
   'normalize.h',
   'pipeline.h',
+  'process.h',
   'print_tlsf.h',
   'spec.h',
   'templates.h',
@@ -37,5 +37,5 @@ gr1_headers = files(
   'oxidd_options.h',
   'safety_oxidd.h',
 )
-install_headers(public_headers + (native_gr1 ? gr1_headers : []),
+install_headers(public_headers + gr1_headers,
                 subdir: 'tlsf')

@@ -5,6 +5,7 @@
 /// normalize.h): pre-expansion passes run before expand(), post-expansion
 /// passes run on the expanded formulas before re-emission.
 
+#include "tlsf/process.h"
 #include "build_info.h"
 #include "cli.h"
 #include "tlsf/expand.h"
@@ -76,6 +77,10 @@ static void apply_post(TlsfSpec *spec, FormulaList *L,
 }
 
 int main(int argc, char *argv[]) {
+  if (tlsf_oxidd_configure_process_stack() != 0) {
+    perror("configure OxiDD process stack");
+    return 2;
+  }
   bool trace = false;
   const char *input_file = nullptr, *output_file = nullptr;
   const char *os_arg = nullptr, *ot_arg = nullptr;

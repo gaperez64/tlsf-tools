@@ -12,7 +12,7 @@
 /// main.c keeps CLI parsing and plan emission in `main`.
 ///
 /// Internal to the tlsfcompose executable; not part of libtlsf's public API.
-/// Only compiled when the OxiDD feature is enabled (`HAVE_OXIDD`).
+/// Built into libtlsf.
 
 #include "tlsf/aiger.h"
 #include "tlsf/arena.h"

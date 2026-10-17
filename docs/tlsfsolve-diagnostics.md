@@ -12,9 +12,8 @@ available only in builds where `NDEBUG` is not defined:
 
 ```sh
 git submodule update --init --recursive external/oxidd
-scripts/build_oxidd.sh
 meson setup build-oxidd-diagnose \
-  -Dresearch_tools=true -Doxidd=enabled \
+  -Dresearch_tools=true \
   --buildtype=debugoptimized -Db_ndebug=false
 meson compile -C build-oxidd-diagnose
 build-oxidd-diagnose/tlsfsolve --version
