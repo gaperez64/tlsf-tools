@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static LtlFormat decompose_format(const TlsfDecomposeOptions *opts) {
   if (opts && opts->format == TLSF_DECOMPOSE_FORMAT_LTL)
@@ -190,11 +191,49 @@ static char *render_ltl(const Node *root, LtlFormat fmt, bool finite,
 }
 
 static bool fill_preprocessed(TlsfDecomposeResult *r, TlsfSpec *spec,
-                              LtlFormat fmt, bool lower) {
+                              LtlFormat fmt, bool lower,
+                              const TlsfDecomposeOptions *opts) {
   ClassifiedSpec *cs = classify_spec(spec);
   if (!cs)
     return false;
   Node *root = build_spec_formula(spec, cs, PRINT_ALL);
+  if (opts && opts->normalization_schedule && *opts->normalization_schedule) {
+    TlsfNormOptions norm;
+    tlsf_norm_options_default(&norm, opts->normalization_phase);
+    norm.finite_word = semantics_is_finite(spec->info.semantics);
+    if (opts->normalization_max_nodes)
+      norm.max_nodes = opts->normalization_max_nodes;
+    if (opts->normalization_max_growth_percent)
+      norm.max_growth_percent = opts->normalization_max_growth_percent;
+    if (!tlsf_norm_parse_schedule(spec->arena, opts->normalization_schedule,
+                                  "tlsf-decompose", &norm.schedule) ||
+        !tlsf_norm_schedule_check(&norm.schedule, &norm, "tlsf-decompose",
+                                  nullptr))
+      return false;
+    if (tlsf_norm_schedule_is_pre(&norm.schedule)) {
+      fprintf(
+          stderr,
+          "tlsf-decompose: normalization requires a post-expansion schedule\n");
+      return false;
+    }
+    r->normalization_schedule =
+        dup_cstr(tlsf_norm_schedule_string(spec->arena, &norm.schedule));
+    if (!r->normalization_schedule)
+      return false;
+    TlsfNormStats stats;
+    tlsf_norm_stats_init(&stats, norm.phase, r->normalization_schedule);
+    struct timespec before, after;
+    clock_gettime(CLOCK_MONOTONIC, &before);
+    root = tlsf_normalize_formula(spec->arena, root, &norm, &stats);
+    clock_gettime(CLOCK_MONOTONIC, &after);
+    r->normalization_time_ns =
+        ((uint64_t)after.tv_sec * 1000000000u + (uint64_t)after.tv_nsec) -
+        ((uint64_t)before.tv_sec * 1000000000u + (uint64_t)before.tv_nsec);
+    r->normalization_nodes_before = stats.nodes_before;
+    r->normalization_nodes_after = stats.nodes_after;
+    r->normalization_changed = stats.formulas_changed != 0;
+    r->normalization_bounds_rejected = stats.formulas_rejected != 0;
+  }
   r->preprocessed_ltl =
       render_ltl(root, fmt, semantics_is_finite(spec->info.semantics), lower);
   return r->preprocessed_ltl != nullptr;
@@ -242,7 +281,7 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
     goto fail;
   if (opts && opts->precheck)
     fill_verdict(r, cov);
-  if (!fill_preprocessed(r, spec, fmt, lower))
+  if (!fill_preprocessed(r, spec, fmt, lower, opts))
     goto fail;
   if (!collect_signals(cov, nullptr, AP_FLAG_INPUT, lower, &r->inputs,
                        &r->n_inputs) ||
@@ -339,6 +378,7 @@ void tlsf_decompose_result_free(TlsfDecomposeResult *r) {
   }
   free(r->clusters);
   free(r->preprocessed_ltl);
+  free(r->normalization_schedule);
   free_string_array(r->inputs, r->n_inputs);
   free_string_array(r->outputs, r->n_outputs);
   for (uint32_t i = 0; i < r->n_indexed_families; i++) {

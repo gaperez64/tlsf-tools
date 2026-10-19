@@ -1,5 +1,8 @@
 # Internal units: these may include libtlsf's private headers.
 
+test('decompose_normalization', executable('decompose_normalization',
+  'decompose_normalization.cpp', dependencies: tlsf_dep), suite: 'unit')
+
 # Header-only: the SIMD kernels in src/lib/simd.h.
 simd_check_exe = executable('simd_check', 'simd_check.c',
                             include_directories: lib_inc)

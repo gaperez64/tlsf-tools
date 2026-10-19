@@ -36,6 +36,10 @@ struct Options {
   Format format = Format::Ltlxba;
   std::string overwrite_semantics;
   std::string overwrite_target;
+  std::string normalization_schedule;
+  TlsfNormPhase normalization_phase = TLSF_NORM_PHASE_MATCH;
+  uint32_t normalization_max_nodes = 0;
+  uint32_t normalization_max_growth_percent = 0;
 };
 
 struct Cluster {
@@ -56,6 +60,12 @@ struct IndexedFamily {
 struct Result {
   std::vector<Cluster> clusters;
   std::string preprocessed_ltl;
+  std::string normalization_schedule;
+  uint64_t normalization_nodes_before = 0;
+  uint64_t normalization_nodes_after = 0;
+  uint64_t normalization_time_ns = 0;
+  bool normalization_changed = false;
+  bool normalization_bounds_rejected = false;
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
   std::vector<IndexedFamily> indexed_families;
@@ -95,6 +105,14 @@ inline Result decompose(const std::string &spec, const Options &options = {}) {
   c_options.overwrite_target = options.overwrite_target.empty()
                                    ? nullptr
                                    : options.overwrite_target.c_str();
+  c_options.normalization_schedule =
+      options.normalization_schedule.empty()
+          ? nullptr
+          : options.normalization_schedule.c_str();
+  c_options.normalization_phase = options.normalization_phase;
+  c_options.normalization_max_nodes = options.normalization_max_nodes;
+  c_options.normalization_max_growth_percent =
+      options.normalization_max_growth_percent;
 
   std::unique_ptr<TlsfDecomposeResult, detail::ResultDeleter> raw(
       tlsf_decompose_string(spec.c_str(), &c_options));
@@ -103,6 +121,14 @@ inline Result decompose(const std::string &spec, const Options &options = {}) {
 
   Result out;
   out.preprocessed_ltl = raw->preprocessed_ltl ? raw->preprocessed_ltl : "";
+  if (raw->normalization_schedule) {
+    out.normalization_schedule = raw->normalization_schedule;
+    out.normalization_nodes_before = raw->normalization_nodes_before;
+    out.normalization_nodes_after = raw->normalization_nodes_after;
+    out.normalization_time_ns = raw->normalization_time_ns;
+    out.normalization_changed = raw->normalization_changed;
+    out.normalization_bounds_rejected = raw->normalization_bounds_rejected;
+  }
   out.inputs = detail::copy_strings(raw->inputs, raw->n_inputs);
   out.outputs = detail::copy_strings(raw->outputs, raw->n_outputs);
   out.indexed_families.reserve(raw->n_indexed_families);

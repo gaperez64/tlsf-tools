@@ -1,6 +1,8 @@
 #ifndef TLSF_DECOMPOSE_H
 #define TLSF_DECOMPOSE_H
 
+#include "tlsf/normalize.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -35,6 +37,11 @@ typedef struct TlsfDecomposeOptions {
   TlsfDecomposeFormat format;
   const char *overwrite_semantics;
   const char *overwrite_target;
+  /// Optional post-expansion normalization of preprocessed_ltl only.
+  const char *normalization_schedule;
+  TlsfNormPhase normalization_phase;
+  uint32_t normalization_max_nodes;          ///< 0 = library default
+  uint32_t normalization_max_growth_percent; ///< 0 = library default
 } TlsfDecomposeOptions;
 
 typedef struct TlsfDecomposeCluster {
@@ -63,6 +70,12 @@ typedef struct TlsfDecomposeResult {
   uint32_t n_clusters;
 
   char *preprocessed_ltl;
+  char *normalization_schedule;
+  uint64_t normalization_nodes_before;
+  uint64_t normalization_nodes_after;
+  uint64_t normalization_time_ns;
+  bool normalization_changed;
+  bool normalization_bounds_rejected;
   char **inputs;
   char **outputs;
   uint32_t n_inputs;
