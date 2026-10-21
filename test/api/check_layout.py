@@ -24,10 +24,14 @@ errors = []
 targets = json.loads((info / "intro-targets.json").read_text())
 compiled = collections.defaultdict(list)
 for target in targets:
+    # A parent project may also compile the exported fault-injection sources.
+    # Audit targets defined by this project, as in a standalone build.
+    if not pathlib.Path(target["defined_in"]).resolve().is_relative_to(root):
+        continue
     for group in target["target_sources"]:
         for source in group.get("sources", []):
             path = pathlib.Path(source).resolve()
-            if root in path.parents and "subprojects" not in path.parts:
+            if root in path.parents and "subprojects" not in path.relative_to(root).parts:
                 compiled[path.relative_to(root)].append(target["name"])
 for source, owners in sorted(compiled.items()):
     fault_owners = {

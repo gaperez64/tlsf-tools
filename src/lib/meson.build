@@ -29,6 +29,7 @@ lib_sources = files(
   'ast_api.c',
   'classify.c',
   'cover.c',
+  'conversion.c',
   'decompose.c',
   'diagnostic.c',
   'expand.c',

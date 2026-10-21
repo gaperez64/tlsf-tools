@@ -3,6 +3,7 @@
 
 #include "tlsf/process.h"
 #include "classify.h"
+#include "conversion_internal.h"
 #include "build_info.h"
 #include "cli.h"
 #include "tlsf/expand.h"
@@ -221,48 +222,12 @@ int main(int argc, char *argv[]) {
   if (!spec)
     return 1;
 
-  // --- Apply semantics/target overrides ---
-  if (os_arg && !parse_semantics(os_arg, &spec->info.semantics)) {
-    fprintf(stderr, "tlsf2ltl: invalid semantics '%s'\n", os_arg);
-    spec_free(spec);
-    return 1;
-  }
-  if (ot_arg && !parse_target(ot_arg, &spec->info.target)) {
-    fprintf(stderr, "tlsf2ltl: invalid target '%s' (expect Mealy or Moore)\n",
-            ot_arg);
-    spec_free(spec);
-    return 1;
-  }
-  if (!spec_validate_semantics(spec, "tlsf2ltl")) {
-    spec_free(spec);
-    return 1;
-  }
-  if (fair_environment && semantics_is_finite(spec->info.semantics)) {
-    fprintf(stderr,
-            "tlsf2ltl: --fair-environment is only available for infinite "
-            "semantics\n");
-    spec_free(spec);
-    return 1;
-  }
-  if (fair_environment && !spec_add_fair_environment(spec)) {
-    fprintf(stderr, "tlsf2ltl: fair-environment transform failed (OOM)\n");
-    spec_free(spec);
-    return 1;
-  }
-
-  // --- Expand ---
-  if (expand(spec, overrides, n_overrides) != 0) {
-    spec_free(spec);
-    return 1;
-  }
-
-  // Free override name copies.
+  // Shared validation, expansion and single target adaptation.
+  bool prepared = conversion_prepare(spec, os_arg, ot_arg, overrides,
+                                     n_overrides, fair_environment, "tlsf2ltl");
   for (size_t i = 0; i < n_overrides; i++)
     free((void *)overrides[i].name);
-
-  // --- Mealy/Moore adaptation (after expansion: signals are scalar) ---
-  if (!spec_adapt_target(spec)) {
-    fprintf(stderr, "tlsf2ltl: semantics/target adaptation failed (OOM)\n");
+  if (!prepared) {
     spec_free(spec);
     return 1;
   }

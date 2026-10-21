@@ -4,6 +4,7 @@
 #include "decompose_internal.h"
 
 #include "classify.h"
+#include "conversion_internal.h"
 #include "gr.h"
 #include "tlsf/pipeline.h"
 #include "print_ltlxba.h"
@@ -21,182 +22,14 @@ static LtlFormat decompose_format(const TlsfDecomposeOptions *opts) {
   return LTL_FMT_LTLXBA;
 }
 
-static const char *semantics_name(Semantics s) {
-  switch (s) {
-  case SEM_MEALY:
-    return "Mealy";
-  case SEM_MOORE:
-    return "Moore";
-  case SEM_MEALY_STRICT:
-    return "Strict,Mealy";
-  case SEM_MOORE_STRICT:
-    return "Strict,Moore";
-  case SEM_MEALY_FINITE:
-    return "Finite,Mealy";
-  case SEM_MOORE_FINITE:
-    return "Finite,Moore";
-  }
-  return "Mealy";
-}
-
-static const char *target_name(Target t) {
-  return t == TARGET_MOORE ? "Moore" : "Mealy";
-}
-
-static char *dup_cstr(const char *s) {
-  if (!s)
-    s = "";
-  size_t n = strlen(s);
-  char *out = malloc(n + 1);
-  if (!out)
-    return nullptr;
-  memcpy(out, s, n + 1);
-  return out;
-}
-
-static char *dup_maybe_lower(const char *s, bool lower) {
-  char *out = dup_cstr(s);
-  if (!out || !lower)
-    return out;
-  for (char *p = out; *p; p++)
-    *p = (char)tolower((unsigned char)*p);
-  return out;
-}
-
-static void free_string_array(char **items, uint32_t count) {
-  if (!items)
-    return;
-  for (uint32_t i = 0; i < count; i++)
-    free(items[i]);
-  free(items);
-}
-
-static bool push_signal(char ***items, uint32_t *count, const char *name,
-                        bool lower) {
-  char **grown = realloc(*items, (*count + 1) * sizeof **items);
-  if (!grown)
-    return false;
-  *items = grown;
-  (*items)[*count] = dup_maybe_lower(name, lower);
-  if (!(*items)[*count])
-    return false;
-  (*count)++;
-  return true;
-}
-
-static bool collect_signals(ConstraintCover *cov, const bool *seen,
-                            uint8_t flag, bool lower, char ***items,
-                            uint32_t *count) {
-  *items = nullptr;
-  *count = 0;
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (seen && !seen[a])
-      continue;
-    if (!residual_signal_matches(cov, a, flag))
-      continue;
-    if (!push_signal(items, count, ap_table_name(&cov->aps, a), lower)) {
-      free_string_array(*items, *count);
-      *items = nullptr;
-      *count = 0;
-      return false;
-    }
-  }
-  return true;
-}
-
-static uint32_t count_indexed_families(const SignalDecl *signals,
-                                       uint32_t count) {
-  uint32_t result = 0;
-  for (uint32_t i = 0; i < count; i++)
-    if (signals[i].origin_is_bus &&
-        signals[i].origin_index == signals[i].origin_bus_lo)
-      result++;
-  return result;
-}
-
-static bool fill_indexed_family(TlsfDecomposeIndexedFamily *out,
-                                const SignalDecl *signals, uint32_t count,
-                                uint32_t first, bool is_output, bool lower) {
-  const SignalDecl *source = &signals[first];
-  out->lo = source->origin_bus_lo;
-  out->hi = source->origin_bus_hi;
-  out->is_output = is_output;
-  out->is_enum = source->origin_is_enum;
-  out->origin_name = dup_maybe_lower(source->origin_name, lower);
-  out->n_members = (uint32_t)out->hi - out->lo + 1u;
-  out->members = calloc(out->n_members, sizeof *out->members);
-  if (!out->origin_name || !out->members)
-    return false;
-
-  for (uint32_t i = first; i < count; i++) {
-    const SignalDecl *candidate = &signals[i];
-    if (!candidate->origin_is_bus ||
-        candidate->origin_name != source->origin_name ||
-        candidate->origin_bus_lo != out->lo ||
-        candidate->origin_bus_hi != out->hi)
-      continue;
-    uint32_t position = candidate->origin_index - out->lo;
-    if (position >= out->n_members || out->members[position])
-      return false;
-    out->members[position] = dup_maybe_lower(candidate->name, lower);
-    if (!out->members[position])
-      return false;
-  }
-  for (uint32_t i = 0; i < out->n_members; i++)
-    if (!out->members[i])
-      return false;
-  return true;
-}
-
-static bool collect_indexed_families(TlsfDecomposeResult *r,
-                                     const TlsfSpec *spec, bool lower) {
-  const uint32_t input_families =
-      count_indexed_families(spec->inputs, spec->input_count);
-  const uint32_t output_families =
-      count_indexed_families(spec->outputs, spec->output_count);
-  r->n_indexed_families = input_families + output_families;
-  if (!r->n_indexed_families)
-    return true;
-  r->indexed_families =
-      calloc(r->n_indexed_families, sizeof *r->indexed_families);
-  if (!r->indexed_families)
-    return false;
-
-  uint32_t at = 0;
-  const SignalDecl *lists[2] = {spec->inputs, spec->outputs};
-  const uint32_t counts[2] = {spec->input_count, spec->output_count};
-  for (uint32_t side = 0; side < 2; side++)
-    for (uint32_t i = 0; i < counts[side]; i++)
-      if (lists[side][i].origin_is_bus &&
-          lists[side][i].origin_index == lists[side][i].origin_bus_lo &&
-          !fill_indexed_family(&r->indexed_families[at++], lists[side],
-                               counts[side], i, side == 1, lower))
-        return false;
-  return at == r->n_indexed_families;
-}
-
-static char *render_ltl(const Node *root, LtlFormat fmt, bool finite,
-                        bool lower) {
-  char *buf = nullptr;
-  size_t len = 0;
-  FILE *ms = open_memstream(&buf, &len);
-  if (!ms)
-    return nullptr;
-  print_ltl(ms, root, fmt, /*full_parens=*/false, finite, lower);
-  fclose(ms);
-  if (len && buf[len - 1] == '\n')
-    buf[len - 1] = '\0';
-  return buf;
-}
-
 static bool fill_preprocessed(TlsfDecomposeResult *r, TlsfSpec *spec,
                               LtlFormat fmt, bool lower) {
   ClassifiedSpec *cs = classify_spec(spec);
   if (!cs)
     return false;
   Node *root = build_spec_formula(spec, cs, PRINT_ALL);
-  r->preprocessed_ltl =
-      render_ltl(root, fmt, semantics_is_finite(spec->info.semantics), lower);
+  r->preprocessed_ltl = conversion_render_ltl(
+      root, fmt, semantics_is_finite(spec->info.semantics), lower);
   return r->preprocessed_ltl != nullptr;
 }
 
@@ -235,8 +68,9 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
   if (!r)
     return nullptr;
   r->residual_trust = TLSF_DECOMPOSE_TRUST_EXACT;
-  r->semantics = dup_cstr(semantics_name(spec->info.semantics));
-  r->target = dup_cstr(target_name(spec->info.target));
+  r->semantics =
+      conversion_dup_cstr(conversion_semantics_name(spec->info.semantics));
+  r->target = conversion_dup_cstr(conversion_target_name(spec->info.target));
   r->gr_level = gr_level(spec);
   if (!r->semantics || !r->target)
     goto fail;
@@ -244,11 +78,12 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
     fill_verdict(r, cov);
   if (!fill_preprocessed(r, spec, fmt, lower))
     goto fail;
-  if (!collect_signals(cov, nullptr, AP_FLAG_INPUT, lower, &r->inputs,
-                       &r->n_inputs) ||
-      !collect_signals(cov, nullptr, AP_FLAG_OUTPUT, lower, &r->outputs,
-                       &r->n_outputs) ||
-      !collect_indexed_families(r, spec, lower))
+  if (!conversion_collect_signals(&cov->aps, nullptr, AP_FLAG_INPUT, lower,
+                                  &r->inputs, &r->n_inputs) ||
+      !conversion_collect_signals(&cov->aps, nullptr, AP_FLAG_OUTPUT, lower,
+                                  &r->outputs, &r->n_outputs) ||
+      !conversion_collect_families(&r->indexed_families, &r->n_indexed_families,
+                                   spec, lower))
     goto fail;
 
   r->n_clusters = rplan->nclusters;
@@ -271,12 +106,12 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
       goto fail;
     }
     TlsfDecomposeCluster *c = &r->clusters[k];
-    c->ltl = render_ltl(root, fmt, finite, lower);
+    c->ltl = conversion_render_ltl(root, fmt, finite, lower);
     if (!c->ltl ||
-        !collect_signals(cov, seen, AP_FLAG_INPUT, lower, &c->inputs,
-                         &c->n_inputs) ||
-        !collect_signals(cov, seen, AP_FLAG_OUTPUT, lower, &c->outputs,
-                         &c->n_outputs)) {
+        !conversion_collect_signals(&cov->aps, seen, AP_FLAG_INPUT, lower,
+                                    &c->inputs, &c->n_inputs) ||
+        !conversion_collect_signals(&cov->aps, seen, AP_FLAG_OUTPUT, lower,
+                                    &c->outputs, &c->n_outputs)) {
       free(seen);
       goto fail;
     }
@@ -334,17 +169,17 @@ void tlsf_decompose_result_free(TlsfDecomposeResult *r) {
     return;
   for (uint32_t i = 0; i < r->n_clusters; i++) {
     free(r->clusters[i].ltl);
-    free_string_array(r->clusters[i].inputs, r->clusters[i].n_inputs);
-    free_string_array(r->clusters[i].outputs, r->clusters[i].n_outputs);
+    conversion_free_strings(r->clusters[i].inputs, r->clusters[i].n_inputs);
+    conversion_free_strings(r->clusters[i].outputs, r->clusters[i].n_outputs);
   }
   free(r->clusters);
   free(r->preprocessed_ltl);
-  free_string_array(r->inputs, r->n_inputs);
-  free_string_array(r->outputs, r->n_outputs);
+  conversion_free_strings(r->inputs, r->n_inputs);
+  conversion_free_strings(r->outputs, r->n_outputs);
   for (uint32_t i = 0; i < r->n_indexed_families; i++) {
     free(r->indexed_families[i].origin_name);
-    free_string_array(r->indexed_families[i].members,
-                      r->indexed_families[i].n_members);
+    conversion_free_strings(r->indexed_families[i].members,
+                            r->indexed_families[i].n_members);
   }
   free(r->indexed_families);
   free(r->semantics);

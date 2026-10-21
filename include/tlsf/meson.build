@@ -18,6 +18,8 @@ public_headers = files(
   'ast_api.h',
   'ast_api.hpp',
   'cover.h',
+  'convert.h',
+  'convert.hpp',
   'decompose.h',
   'decompose.hpp',
   'expand.h',
