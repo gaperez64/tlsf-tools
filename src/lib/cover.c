@@ -1,6 +1,7 @@
 #include "tlsf/cover.h"
 
 #include "classify.h"
+#include "conversion_internal.h"
 #include "nnf.h"
 #include "tlsf/normalize.h"
 #include "rewrite.h"
@@ -28,35 +29,6 @@ const char *role_name(Role r) {
 // ---------------------------------------------------------------------------
 // AST walks
 // ---------------------------------------------------------------------------
-
-// Intern every atomic proposition occurring in `n` (no flag change).
-static void intern_aps(ApTable *t, const Node *n) {
-  switch (n->kind) {
-  case NODE_AP:
-    (void)ap_table_intern(t, n->name, 0);
-    return;
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    intern_aps(t, n->arg);
-    return;
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    intern_aps(t, n->lhs);
-    intern_aps(t, n->rhs);
-    return;
-  default:
-    return; // true / false
-  }
-}
 
 // Fill a constraint's support sets.  `neg` tracks occurrence polarity (NNF puts
 // negations only at leaves) and `nxt` tracks whether we are under an X.
@@ -198,7 +170,7 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   if (!c->nnf)
     return false;
   c->is_safety = classify_formula(c->nnf) == FCLASS_SAFETY;
-  intern_aps(&cov->aps, c->nnf);
+  conversion_intern_aps(&cov->aps, c->nnf);
   cov->count++;
   return true;
 }
@@ -212,14 +184,7 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
   cov->spec = spec;
   ap_table_init(&cov->aps, a);
 
-  // Seed the AP table with scalar signals so input/output flags are known.
-  // (Buses are exploded into scalar elements during expand().)
-  for (uint32_t i = 0; i < spec->input_count; i++)
-    if (!spec->inputs[i].is_bus)
-      (void)ap_table_intern(&cov->aps, spec->inputs[i].name, AP_FLAG_INPUT);
-  for (uint32_t i = 0; i < spec->output_count; i++)
-    if (!spec->outputs[i].is_bus)
-      (void)ap_table_intern(&cov->aps, spec->outputs[i].name, AP_FLAG_OUTPUT);
+  conversion_seed_signals(&cov->aps, spec);
 
   SectionDesc secs[] = {
       {TLSF_ROLE_INITIALLY, true, false, &spec->initially},

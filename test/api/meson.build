@@ -4,7 +4,7 @@
 foreach name : ['ast_visitor', 'aiger_roundtrip']
   test(name, executable(name, name + '.c', dependencies: tlsf_dep))
 endforeach
-foreach name : ['decompose_cpp', 'visitor_cpp']
+foreach name : ['decompose_cpp', 'visitor_cpp', 'convert']
   test(name, executable(name, name + '.cpp', dependencies: tlsf_dep))
 endforeach
 
@@ -57,5 +57,5 @@ endif
 if python3.found()
   test('source_layout', python3,
     args: [files('check_layout.py'), meson.project_source_root(),
-           meson.project_build_root()])
+           meson.global_build_root()])
 endif

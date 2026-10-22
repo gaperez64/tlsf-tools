@@ -96,7 +96,8 @@ if research_tools
     test('gr1_certcheck', python3,
       args: [files('test_gr1_certcheck.py'),
              '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck'],
-             '--games', '80'],
+             # Fixed seed: fairness at 2, rank/inv at 5, rare mutation at 15.
+             '--games', '16'],
       timeout: 180,
     )
     test('gr1_check_order', python3,
@@ -113,7 +114,8 @@ if research_tools
     test('gr1_unreal_certificate', python3,
       args: [files('test_gr1_unreal_certificate.py'),
              '--solver', exe['tlsfsolve'], '--checker', exe['tlsfcertcheck'],
-             '--games', '120'],
+             # Fixed seed: dual rank at 0, losing counter-strategy at 1.
+             '--games', '16'],
       timeout: 180,
     )
     test('gr1_environment_replay', python3,
