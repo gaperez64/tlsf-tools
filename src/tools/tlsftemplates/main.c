@@ -3,7 +3,6 @@
 /// -> solved): a block is SOLVED only after a side condition passes and a
 /// controller/decoder + certificate is produced.  Nothing is removed here.
 
-#include "tlsf/process.h"
 #include "build_info.h"
 #include "cli.h"
 #include "tlsf/cover.h"
@@ -118,10 +117,6 @@ static void print_composition(FILE *out, ConstraintCover *cov,
 }
 
 int main(int argc, char *argv[]) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   bool certify = false, solve = false, csnf = false, split = false,
        check = false, obligations = false, want_header = true;
   unsigned want = TPL_ALL;

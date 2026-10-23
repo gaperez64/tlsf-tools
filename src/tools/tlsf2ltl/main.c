@@ -1,7 +1,6 @@
 /// tlsf2ltl — parse a TLSF spec (file or stdin) and emit LTL in ltlxba format.
 /// See --help for the options.
 
-#include "tlsf/process.h"
 #include "classify.h"
 #include "conversion_internal.h"
 #include "build_info.h"
@@ -101,10 +100,6 @@ static int apply_nnf_all(TlsfSpec *spec) {
 // ---------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   PrintMode mode = PRINT_ALL;
   bool full_parens = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;

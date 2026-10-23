@@ -4,7 +4,6 @@
 /// no selection flag it prints the full INFO section followed by the signal
 /// and parameter lists.  See --help for the options.
 
-#include "tlsf/process.h"
 #include "build_info.h"
 #include "cli.h"
 #include "tlsf/expand.h"
@@ -228,10 +227,6 @@ static Selection parse_selection(const char *arg) {
 }
 
 int main(int argc, char *argv[]) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   Selection sel = SEL_NONE;
   const char *input_file = nullptr;
   const char *output_file = nullptr;

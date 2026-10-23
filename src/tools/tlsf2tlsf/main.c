@@ -9,7 +9,6 @@
 ///   --help
 
 #define _GNU_SOURCE
-#include "tlsf/process.h"
 #include "build_info.h"
 #include "cli.h"
 #include "tlsf/expand.h"
@@ -74,10 +73,6 @@ static void usage(const char *prog) {
 }
 
 int main(int argc, char *argv[]) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   const char *input_file = nullptr;
   const char *output_file = nullptr;
   const char *provenance_file = nullptr;

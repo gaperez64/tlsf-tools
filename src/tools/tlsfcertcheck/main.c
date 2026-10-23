@@ -1,4 +1,3 @@
-#include "tlsf/process.h"
 #include "gr1_check_internal.h"
 #include "build_info.h"
 
@@ -272,10 +271,6 @@ static int parse_options(int argc, char **argv, Options *options,
 }
 
 int main(int argc, char **argv) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   Options options;
   char *owned_policy_json = nullptr, *owned_cert_json = nullptr;
   int parsed =

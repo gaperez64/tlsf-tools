@@ -6,7 +6,6 @@
 /// an external synthesizer (e.g. `ltlsynt --ins=.. --outs=..`).  The certified
 /// controllers plus a controller for this residual realise the whole spec.
 
-#include "tlsf/process.h"
 #include "build_info.h"
 #include "cli.h"
 #include "tlsf/pipeline.h"
@@ -58,10 +57,6 @@ static void residual_print_signals_case(FILE *out, ConstraintCover *cov,
 }
 
 int main(int argc, char *argv[]) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   bool split = false, single = false, lowercase = false;
   LtlFormat fmt = LTL_FMT_LTLXBA;
   const char *input_file = nullptr, *output_file = nullptr, *out_dir = nullptr;

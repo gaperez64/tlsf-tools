@@ -471,9 +471,6 @@ the `bench.sh --check` regression guard.
 
 [MIT](LICENSE).
 
-OxiDD stack configuration: the CLIs call `tlsf_oxidd_configure_process_stack()`
-at process start, before any threads exist. With a finite `RLIMIT_AS` and no
-`OXIDD_STACK_SIZE`, this sets `min(1 GiB, max(8 MiB, RLIMIT_AS / 16))` bytes.
-An explicit `OXIDD_STACK_SIZE` always wins. Embedders may call the function from
-`<tlsf/process.h>` before starting threads; library operations never call it
-implicitly or change the environment during manager construction.
+OxiDD sizes its worker stacks to fit a finite `RLIMIT_AS` and returns an invalid
+manager, rather than aborting, when it cannot create one; an explicit
+`OXIDD_STACK_SIZE` always wins.

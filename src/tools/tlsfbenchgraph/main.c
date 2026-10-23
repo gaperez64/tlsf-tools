@@ -4,7 +4,6 @@
 /// reuses cover/recognize/certify and adds no new analysis.
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _XOPEN_SOURCE 700
-#include "tlsf/process.h"
 #include "tlsf/ast.h"
 #include "build_info.h"
 #include "classify.h"
@@ -411,10 +410,6 @@ static const char *basename_of(const char *p) {
 }
 
 int main(int argc, char *argv[]) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   bool summary = false, source_features = false, split = false;
   const char *output_file = nullptr;
   const char *pre_norm = nullptr, *match_norm = nullptr;
