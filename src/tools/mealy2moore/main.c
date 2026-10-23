@@ -6,7 +6,6 @@
 /// by evaluating the original output cone at the original latch resets and an
 /// arbitrary first-step input valuation, currently all inputs false.
 
-#include "tlsf/process.h"
 #include "tlsf/aiger.h"
 #include "build_info.h"
 
@@ -141,10 +140,6 @@ static Aig *mealy_to_moore(const Aig *src) {
 }
 
 int main(int argc, char **argv) {
-  if (tlsf_oxidd_configure_process_stack() != 0) {
-    perror("configure OxiDD process stack");
-    return 2;
-  }
   const char *path = nullptr;
   bool have_input = false;
   for (int i = 1; i < argc; i++) {

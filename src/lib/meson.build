@@ -40,7 +40,6 @@ lib_sources = files(
   'normalize.c',
   'obligation_census.c',
   'pipeline.c',
-  'process.c',
   'pipeline_source.c',
   'print_ltlxba.c',
   'print_tlsf.c',

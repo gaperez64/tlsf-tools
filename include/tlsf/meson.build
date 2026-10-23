@@ -26,7 +26,6 @@ public_headers = files(
   'intern.h',
   'normalize.h',
   'pipeline.h',
-  'process.h',
   'print_tlsf.h',
   'spec.h',
   'templates.h',
