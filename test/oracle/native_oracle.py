@@ -51,7 +51,7 @@ equal("pinned reference OxiDD submodule", submodule_revision,
       b"9158645e51ab03b44355aff222fb39aec4d0a0f8")
 equal("native OxiDD main",
       command("git", "-C", str(ROOT / "external/oxidd"), "rev-parse", "HEAD").strip(),
-      b"bc4354cbb86f3940bacc6675e4a0d2abb97ed8c4")
+      b"288a6efcf553f18fe4bf722635157f2453bb2618")
 WORK.mkdir(exist_ok=True)
 if not (SOURCE / ".oracle-extracted").exists():
     if SOURCE.exists():
