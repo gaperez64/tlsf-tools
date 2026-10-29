@@ -32,7 +32,8 @@ uint32_t __wrap_residual_cluster_keys(ConstraintCover *cov, const Node **rf,
 #elif defined(COMPOSITION_FAULT)
 #include "tlsf/templates.h"
 
-static bool composing;
+// Ignore unrelated Rayon worker allocations while csnf_compose is running.
+static _Thread_local bool composing;
 static size_t fail_at, count;
 static bool composition_fault(void) {
   if (!composing || ++count != fail_at)
