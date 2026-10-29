@@ -345,6 +345,8 @@ static bool cycle_dfs(const Csnf *c, const bool *accepted, uint32_t o,
 static int32_t find_decoder_cycle_block(const Csnf *c, const bool *accepted) {
   uint32_t A = c->cov->aps.count;
   uint8_t *color = calloc(A ? A : 1, 1);
+  if (!color)
+    return -2; // Allocation failure, distinct from an acyclic graph (-1).
   int32_t eject = -1;
   for (uint32_t o = 0; o < A && eject < 0; o++) {
     if (color[o] != 0 || comb_owner(c, accepted, o) < 0)
@@ -426,14 +428,8 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   bool *def_committed = calloc(B ? B : 1, sizeof(bool));
   bool *eliminated = r->elim_constraint;
   if (!r->accepted_block || !r->residual_constraint || !r->conflicts ||
-      !r->elim || !eliminated || !provider || !elim_excluded ||
-      !def_committed) {
-    free(provider);
-    free(elim_excluded);
-    free(def_committed);
-    csnf_composition_free(r);
-    return nullptr;
-  }
+      !r->elim || !eliminated || !provider || !elim_excluded || !def_committed)
+    goto fail;
   for (uint32_t b = 0; b < B; b++) {
     r->accepted_block[b] = c->blocks[b].status == CSNF_SOLVED;
     int32_t o = c->blocks[b].dec_output;
@@ -448,10 +444,14 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   // combinational-decoder cycle by excluding one provider (it stays residual).
   for (;;) {
     bool *cyc_set = calloc(B ? B : 1, sizeof(bool));
+    if (!cyc_set)
+      goto fail;
     for (uint32_t b = 0; b < B; b++)
       cyc_set[b] = r->accepted_block[b] && !elim_excluded[b];
     int32_t cyc = find_decoder_cycle_block(c, cyc_set);
     free(cyc_set);
+    if (cyc == -2)
+      goto fail;
     if (cyc < 0)
       break;
     elim_excluded[cyc] = true;
@@ -581,6 +581,8 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   r->neliminated = N - r->nresidual;
 
   bool *owned = calloc(A ? A : 1, sizeof(bool));
+  if (!owned)
+    goto fail;
   for (uint32_t k = 0; k < r->nelim; k++)
     owned[r->elim[k].output] = true;
   for (uint32_t b = 0; b < B; b++)
@@ -599,6 +601,13 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   free(def_committed);
   r->fully_solved = r->nresidual == 0;
   return r;
+
+fail:
+  free(provider);
+  free(elim_excluded);
+  free(def_committed);
+  csnf_composition_free(r);
+  return nullptr;
 }
 
 static bool accepted_direct_aiger_block(const Csnf *c, const CsnfComposition *r,
