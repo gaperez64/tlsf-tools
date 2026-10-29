@@ -1,0 +1,202 @@
+#include "tlsf/dpa.h"
+extern "C" {
+#include "tlsf/ast.h"
+}
+#include <spot/parseaut/public.hh>
+#include <spot/tl/parse.hh>
+#include <spot/tl/print.hh>
+#include <spot/twaalgos/contains.hh>
+#include <spot/twaalgos/isdet.hh>
+#include <spot/twaalgos/translate.hh>
+#include <spot/twaalgos/word.hh>
+#include <array>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <vector>
+
+// Keep the gate active in release builds too.
+#define CHECK(condition)                                                       \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      std::cerr << __FILE__ << ':' << __LINE__ << ": " << #condition << '\n';  \
+      std::abort();                                                            \
+    }                                                                          \
+  } while (0)
+
+static Node *ground(Arena *a, spot::formula f) {
+  using spot::op;
+  switch (f.kind()) {
+  case op::tt:
+    return node_true(a);
+  case op::ff:
+    return node_false(a);
+  case op::ap:
+    return node_ap(a, f.ap_name().c_str());
+  case op::Not:
+    return node_not(a, ground(a, f[0]));
+  case op::X:
+    return node_x(a, ground(a, f[0]));
+  case op::F:
+    return node_f(a, ground(a, f[0]));
+  case op::G:
+    return node_g(a, ground(a, f[0]));
+  case op::U:
+    return node_u(a, ground(a, f[0]), ground(a, f[1]));
+  case op::R:
+    return node_r(a, ground(a, f[0]), ground(a, f[1]));
+  case op::W:
+    return node_w(a, ground(a, f[0]), ground(a, f[1]));
+  case op::M:
+    return node_m(a, ground(a, f[0]), ground(a, f[1]));
+  case op::Implies:
+    return node_impl(a, ground(a, f[0]), ground(a, f[1]));
+  case op::Equiv:
+    return node_equiv(a, ground(a, f[0]), ground(a, f[1]));
+  case op::Xor:
+    return node_not(a, node_equiv(a, ground(a, f[0]), ground(a, f[1])));
+  case op::And:
+  case op::Or: {
+    Node *result = ground(a, f[0]);
+    for (unsigned i = 1; i < f.size(); ++i)
+      result = f.is(op::And) ? node_and(a, result, ground(a, f[i]))
+                             : node_or(a, result, ground(a, f[i]));
+    return result;
+  }
+  default:
+    abort();
+  }
+}
+
+static std::string label(TlsfDpa *c, uint32_t id,
+                         std::map<uint32_t, std::string> &memo) {
+  if (memo.count(id))
+    return memo.at(id);
+  const auto *n = tlsf_dpa_label_node(c, id);
+  CHECK(n);
+  std::string result;
+  if (n->kind != TLSF_DPA_DECISION)
+    result = n->kind == TLSF_DPA_TRUE ? "t" : "f";
+  else
+    result = "((" + std::to_string(n->ap) + " & " + label(c, n->high, memo) +
+             ") | (!" + std::to_string(n->ap) + " & " + label(c, n->low, memo) +
+             "))";
+  return memo[id] = result;
+}
+
+// Deliberately test-only: production exports a label DAG, never serialized HOA.
+static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
+  std::ostringstream out;
+  out << "HOA: v1\nStates: " << tlsf_dpa_state_count(c)
+      << "\nStart: " << tlsf_dpa_initial(c) << "\nAP: " << tlsf_dpa_ap_count(c);
+  for (uint32_t i = 0; i < tlsf_dpa_ap_count(c); ++i)
+    out << " \"" << tlsf_dpa_ap_name(c, i) << "\"";
+  out << "\ncontrollable-AP:";
+  for (uint32_t i = n_inputs; i < tlsf_dpa_ap_count(c); ++i)
+    out << ' ' << i;
+  out << "\nacc-name: parity max odd 4\nAcceptance: 4 Inf(3) | (Fin(3) & "
+         "Fin(2) & Inf(1))"
+         "\nproperties: trans-labels explicit-labels trans-acc deterministic "
+         "complete\n--BODY--\n";
+  std::map<uint32_t, std::string> memo;
+  for (uint32_t i = 0; i < tlsf_dpa_state_count(c); ++i) {
+    const TlsfDpaEdge *edges, *again;
+    size_t n, m;
+    auto status = tlsf_dpa_successors(c, i, &edges, &n);
+    CHECK(status.code == TLSF_DPA_OK);
+    status = tlsf_dpa_successors(c, i, &again, &m);
+    CHECK(status.code == TLSF_DPA_OK);
+    CHECK(again == edges && m == n && n);
+    out << "State: " << i << '\n';
+    for (size_t j = 0; j < n; ++j) {
+      CHECK(edges[j].successor < tlsf_dpa_state_count(c));
+      CHECK(edges[j].priority <= tlsf_dpa_max_priority(c));
+      out << '[' << label(c, edges[j].label, memo) << "] " << edges[j].successor
+          << " {" << edges[j].priority << "}\n";
+    }
+  }
+  return out.str() + "--END--\n";
+}
+
+static void check(const std::string &text) {
+  auto parsed = spot::parse_infix_psl(text);
+  CHECK(!parsed.format_errors(std::cerr));
+  auto f = parsed.f;
+  Arena *a = arena_new(4096);
+  Node *root = ground(a, f);
+  // Inputs first, outputs second; retain unused declarations on both sides.
+  constexpr std::array names = {"unused_in", "req",   "a", "unused_out",
+                                "c",         "grant", "b"};
+  constexpr uint32_t n_inputs = 3;
+  TlsfDpa *c = nullptr;
+  TlsfDpaBudget budget{};
+  budget.max_states = 10000;
+  budget.max_host_bytes = 64u << 20;
+  auto status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
+                                names.data(), n_inputs, names.data() + n_inputs,
+                                names.size() - n_inputs, &budget, &c);
+  arena_free(a); // construction must copy everything it needs
+  if (status.code != TLSF_DPA_OK) {
+    std::cerr << "declined " << text << " reason " << status.reason << '\n';
+    abort();
+  }
+  CHECK(tlsf_dpa_ap_count(c) == names.size());
+  for (uint32_t i = 0; i < names.size(); ++i)
+    CHECK(std::string(tlsf_dpa_ap_name(c, i)) == names[i]);
+  CHECK(tlsf_dpa_state_count(c) == 1); // no eager expansion in create
+  status = tlsf_dpa_expand(c);
+  CHECK(status.code == TLSF_DPA_OK);
+  std::string serialized = hoa(c, n_inputs);
+  auto dict = spot::make_bdd_dict();
+  auto aut = spot::automaton_stream_parser(serialized.c_str(), "generated")
+                 .parse(dict);
+  CHECK(aut && !aut->format_errors(std::cerr) && aut->aut);
+  CHECK(aut->aut->ap().size() == names.size());
+  for (uint32_t i = 0; i < names.size(); ++i)
+    CHECK(aut->aut->ap()[i].ap_name() == names[i]);
+  auto outputs = aut->aut->get_named_prop<bdd>("synthesis-outputs");
+  CHECK(outputs);
+  bdd expected_outputs = bddtrue;
+  for (uint32_t i = n_inputs; i < names.size(); ++i)
+    expected_outputs &= bdd_ithvar(dict->varnum(spot::formula::ap(names[i])));
+  CHECK(*outputs == expected_outputs);
+  // Clear the HOA's asserted properties before independently checking them.
+  aut->aut->prop_universal(spot::trival::maybe());
+  aut->aut->prop_complete(spot::trival::maybe());
+  CHECK(spot::is_deterministic(aut->aut) && spot::is_complete(aut->aut));
+  spot::translator translate(dict);
+  auto reference = translate.run(f);
+  if (!spot::are_equivalent(aut->aut, reference)) {
+    std::ofstream("dpa-mismatch.hoa") << serialized;
+    std::ofstream("dpa-mismatch.ltl") << text << '\n';
+    auto witness = aut->aut->exclusive_word(reference);
+    if (witness)
+      std::cerr << *witness << '\n';
+    std::cerr << "language mismatch: " << text << '\n';
+    abort();
+  }
+  std::cout << "equivalent: " << text << " (" << tlsf_dpa_state_count(c)
+            << " states)\n";
+  tlsf_dpa_free(c);
+}
+
+int main(int argc, char **argv) {
+  if (argc == 2) {
+    std::ifstream formulas(argv[1]);
+    CHECK(formulas);
+    std::string line;
+    while (std::getline(formulas, line))
+      if (!line.empty())
+        check(line);
+    return 0;
+  }
+  for (auto text : {"G(req -> X grant)", "F grant", "true", "false",
+                    "G F (a & X b)", "F G (!a | X !b)", "!(G(req -> X grant))",
+                    "!(F grant)", "G F (a & X X b)", "!(G F (a & X X b))",
+                    "G F (X a & X X X b)", "!(G F (X a & X X X b))",
+                    "G F (a & X !a)", "!(G F (a & X !a))", "G (a W (b R X c))",
+                    "F (a M (b U X c))", "G ((a <-> X b) & (a -> X c))"})
+    check(text);
+}

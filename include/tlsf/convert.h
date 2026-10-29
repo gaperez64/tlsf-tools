@@ -2,6 +2,7 @@
 #define TLSF_CONVERT_H
 
 #include "tlsf/decompose.h"
+#include "tlsf/ast_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +28,7 @@ typedef struct TlsfConversionResult {
   char *original_target;
   char *effective_target;
   int32_t gr_level;
+  TlsfAst *ast; ///< Owned expanded objective; no decomposition is constructed.
 } TlsfConversionResult;
 
 /// Parse, validate, expand and adapt once, then print the whole objective.

@@ -3,6 +3,8 @@
 
 #include "tlsf/convert.h"
 #include "tlsf/decompose.hpp"
+#include <memory>
+#include <utility>
 
 namespace tlsf {
 struct Conversion {
@@ -15,6 +17,7 @@ struct Conversion {
   std::string original_target;
   std::string effective_target;
   int gr_level = -1;
+  std::shared_ptr<TlsfAst> ast;
 };
 
 inline Conversion convert(const std::string &spec,
@@ -40,6 +43,8 @@ inline Conversion convert(const std::string &spec,
   out.original_target = raw->original_target;
   out.effective_target = raw->effective_target;
   out.gr_level = raw->gr_level;
+  out.ast =
+      std::shared_ptr<TlsfAst>(std::exchange(raw->ast, nullptr), tlsf_ast_free);
   return out;
 }
 } // namespace tlsf

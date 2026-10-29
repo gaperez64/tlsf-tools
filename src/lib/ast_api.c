@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "tlsf/ast_api.h"
+#include "ast_internal.h"
 
 #include "decompose_internal.h"
 #include "classify.h"
@@ -11,9 +12,11 @@
 #include "rewrite.h"
 
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 struct TlsfAst {
+  TlsfSpec *conversion_spec;
   TlsfPipeline *pipeline;
   ResidualPlan *residual_plan;
   TlsfDecomposeResult *result;
@@ -37,7 +40,48 @@ void tlsf_ast_free(TlsfAst *ast) {
   free(ast->cluster_roots);
   residual_plan_free(ast->residual_plan);
   tlsf_pipeline_free(ast->pipeline);
+  spec_free(ast->conversion_spec);
   free(ast);
+}
+
+static Node *lower_clone(Arena *arena, const Node *n) {
+  Node *copy = ARENA_ALLOC(arena, Node);
+  if (!copy)
+    return nullptr;
+  *copy = *n;
+  uint32_t count = tlsf_ast_node_child_count(public_node(n));
+  if (n->kind == NODE_AP) {
+    size_t len = strlen(n->name) + 1;
+    char *name = ARENA_ALLOC_N(arena, char, len);
+    if (!name)
+      return nullptr;
+    for (size_t i = 0; i < len; ++i)
+      name[i] = (char)tolower((unsigned char)n->name[i]);
+    copy->name = name;
+  } else if (count == 1) {
+    copy->arg = lower_clone(arena, n->arg);
+    if (!copy->arg)
+      return nullptr;
+  } else if (count == 2) {
+    copy->lhs = lower_clone(arena, n->lhs);
+    copy->rhs = lower_clone(arena, n->rhs);
+    if (!copy->lhs || !copy->rhs)
+      return nullptr;
+  }
+  return copy;
+}
+
+TlsfAst *tlsf_ast_take_conversion(TlsfSpec *spec, const Node *root) {
+  TlsfAst *ast = calloc(1, sizeof *ast);
+  if (!ast)
+    return nullptr;
+  ast->root = lower_clone(spec->arena, root);
+  if (!ast->root || arena_failed(spec->arena)) {
+    free(ast);
+    return nullptr;
+  }
+  ast->conversion_spec = spec;
+  return ast;
 }
 
 TlsfAst *tlsf_ast_from_file_ex(FILE *fp,

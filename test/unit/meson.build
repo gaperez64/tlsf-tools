@@ -1,5 +1,18 @@
 # Internal units: these may include libtlsf's private headers.
 
+dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
+  dependencies: tlsf_internal_dep)
+dpa_contract = executable('dpa_contract', 'dpa_contract.c',
+  link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite'],
+  dependencies: tlsf_internal_dep)
+test('dpa_contract', dpa_contract, timeout: 120)
+test('dpa_equivalence', dpa_equivalence, timeout: 120)
+randltl = find_program('randltl', required: false)
+if randltl.found()
+  test('dpa_random', python3, args: [files('dpa_random.py'),
+    dpa_equivalence, randltl], timeout: 120)
+endif
+
 objective_cli = static_library('objective-cli',
   files('../../src/tools/tlsf2ltl/main.c'),
   c_args: ['-Dmain=objective_cli_main'], dependencies: tool_dep)

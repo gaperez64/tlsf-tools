@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tlsf/convert.h"
+#include "ast_internal.h"
 #include "conversion_internal.h"
 #include "diagnostic.h"
 #include "gr.h"
@@ -380,7 +381,9 @@ TlsfConversionResult *tlsf_convert(const char *text,
                                    &result->n_indexed_families, spec, true) ||
       !collect_spec_signals(result, spec) || arena_failed(spec->arena))
     goto fail;
-  spec_free(spec);
+  result->ast = tlsf_ast_take_conversion(spec, root);
+  if (!result->ast)
+    goto fail;
   return result;
 fail:
   spec_free(spec);
@@ -404,5 +407,6 @@ void tlsf_conversion_result_free(TlsfConversionResult *result) {
   free(result->semantics);
   free(result->original_target);
   free(result->effective_target);
+  tlsf_ast_free(result->ast);
   free(result);
 }
