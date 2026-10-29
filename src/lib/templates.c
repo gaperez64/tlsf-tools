@@ -193,10 +193,13 @@ static char *formula_str(const Csnf *c, const Node *n) {
   FILE *ms = open_memstream(&buf, &sz);
   if (!ms)
     return nullptr;
-  print_ltl(ms, n, LTL_FMT_LTLXBA, false,
-            semantics_is_finite(c->cov->spec->info.semantics),
-            /*lower_atoms=*/false);
-  fclose(ms);
+  bool ok = print_ltl(ms, n, LTL_FMT_LTLXBA, false,
+                      semantics_is_finite(c->cov->spec->info.semantics),
+                      /*lower_atoms=*/false);
+  if (fclose(ms) != 0 || !ok) {
+    free(buf);
+    return nullptr;
+  }
   if (sz && buf[sz - 1] == '\n')
     buf[sz - 1] = '\0';
   return buf;
@@ -384,8 +387,8 @@ VerdictTrust block_trust(const Block *b) {
 }
 
 // A *definition* elimination `o := theta` (from G(o <-> theta)) makes `o`
-// logically equal to `theta`, so substituting it away is equivalence-preserving
-// regardless of any other constraint on `o`.  Reaction / reachability /
+// equal to `theta` when the environment holds. Substitution requires `o`
+// to be absent from environment-side sections.  Reaction / reachability /
 // persistence / safety-invariant Skolem values, by contrast, pick *one*
 // satisfying value for a constraint that only partially determines `o`;
 // eliminating those is sound only when `o` is not constrained elsewhere.
@@ -418,7 +421,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   int32_t *provider = malloc((A ? A : 1) * sizeof(int32_t));
   bool *elim_excluded = calloc(B ? B : 1, sizeof(bool));
   // Blocks whose combinational output(s) were eliminated in Phase A because
-  // they are *definitions* (always sound); these are exempt from the Phase-B
+  // they are admitted *definitions*; these are exempt from the Phase-B
   // guard.
   bool *def_committed = calloc(B ? B : 1, sizeof(bool));
   bool *eliminated = r->elim_constraint;
@@ -431,8 +434,15 @@ CsnfComposition *csnf_compose(const Csnf *c) {
     csnf_composition_free(r);
     return nullptr;
   }
-  for (uint32_t b = 0; b < B; b++)
+  for (uint32_t b = 0; b < B; b++) {
     r->accepted_block[b] = c->blocks[b].status == CSNF_SOLVED;
+    int32_t o = c->blocks[b].dec_output;
+    if (o >= 0 && is_definition_elim(&c->blocks[b], o))
+      for (uint32_t i = 0; i < N; i++)
+        if (cov->items[i].assumption_side &&
+            apset_test(&cov->items[i].outputs, (uint32_t)o))
+          r->accepted_block[b] = false;
+  }
 
   // Phase A: eliminate combinational outputs by substitution.  First break any
   // combinational-decoder cycle by excluding one provider (it stays residual).
@@ -459,7 +469,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
         provider[o] = (int32_t)b;
   }
   // Phase A commits only *definition* eliminations (o := theta), which are
-  // sound regardless of other constraints.  Non-definition combinational
+  // sound under the environment-side guard above. Non-definition combinational
   // providers (reaction / reachability / persistence / invariant Skolem) are
   // deferred: their `o := value` is only valid when `o` is not constrained by a
   // surviving residual, so they are tested by the Phase-B shared-output guard
@@ -637,7 +647,8 @@ void csnf_composition_free(CsnfComposition *r) {
   free(r);
 }
 
-void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
+bool csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
+  bool ok = true;
   ConstraintCover *cov = c->cov;
   uint32_t sol, cert, cand, resid = 0;
   count_status(c, &sol, &cert, &cand);
@@ -645,44 +656,53 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
     if (!c->solved[i])
       resid++;
 
-  fprintf(out, "c CSNF for %s\n", source);
-  fprintf(out, "p csnf %u %u %u %u\n", sol, cert, cand, resid);
-  fprintf(out, "m semantics %s\n",
-          semantics_is_moore(cov->spec->info.semantics) ? "Moore" : "Mealy");
+  ok &= fprintf(out, "c CSNF for %s\n", source) >= 0;
+  ok &= fprintf(out, "p csnf %u %u %u %u\n", sol, cert, cand, resid) >= 0;
+  ok &= fprintf(out, "m semantics %s\n",
+                semantics_is_moore(cov->spec->info.semantics) ? "Moore"
+                                                              : "Mealy") >= 0;
 
   for (uint32_t i = 0; i < c->nblocks; i++) {
     const Block *b = &c->blocks[i];
-    fprintf(out, "b %u %s %s\n", i, status_name(b->status), b->name);
+    ok &= fprintf(out, "b %u %s %s\n", i, status_name(b->status), b->name) >= 0;
     for (uint32_t k = 0; k < b->ncids; k++)
-      fprintf(out, "bc %u c%u\n", i, b->cids[k]);
+      ok &= fprintf(out, "bc %u c%u\n", i, b->cids[k]) >= 0;
     if (solve || b->status == CSNF_SOLVED) {
       if (b->dec_output >= 0 && b->dec_theta) {
         char *th = formula_str(c, b->dec_theta);
-        fprintf(out, "dec %u %s %s\n", i,
-                ap_table_name(&cov->aps, (uint32_t)b->dec_output),
-                th ? th : "");
+        if (!th)
+          return false;
+        ok &=
+            fprintf(out, "dec %u %s %s\n", i,
+                    ap_table_name(&cov->aps, (uint32_t)b->dec_output), th) >= 0;
         free(th);
       }
       if (b->nsf_output >= 0) {
-        fprintf(out, "nsf %u %s", i,
-                ap_table_name(&cov->aps, (uint32_t)b->nsf_output));
+        ok &= fprintf(out, "nsf %u %s", i,
+                      ap_table_name(&cov->aps, (uint32_t)b->nsf_output)) >= 0;
         for (uint32_t g = 0; g < b->nsf_nguards; g++) {
           char *gs = formula_str(c, b->nsf_guards[g]);
-          fprintf(out, " %s%s", g ? "| " : "", gs ? gs : "");
+          if (!gs)
+            return false;
+          ok &= fprintf(out, " %s%s", g ? "| " : "", gs) >= 0;
           free(gs);
         }
-        fprintf(out, "\n");
+        ok &= fprintf(out, "\n") >= 0;
       }
       if (b->sr_output >= 0) {
         const char *oname = ap_table_name(&cov->aps, (uint32_t)b->sr_output);
         for (uint32_t g = 0; g < b->sr_nsets; g++) {
           char *gs = formula_str(c, b->sr_set_guards[g]);
-          fprintf(out, "srset %u %s %s\n", i, oname, gs ? gs : "");
+          if (!gs)
+            return false;
+          ok &= fprintf(out, "srset %u %s %s\n", i, oname, gs) >= 0;
           free(gs);
         }
         for (uint32_t g = 0; g < b->sr_nresets; g++) {
           char *gs = formula_str(c, b->sr_reset_guards[g]);
-          fprintf(out, "srreset %u %s %s\n", i, oname, gs ? gs : "");
+          if (!gs)
+            return false;
+          ok &= fprintf(out, "srreset %u %s %s\n", i, oname, gs) >= 0;
           free(gs);
         }
       }
@@ -690,7 +710,9 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
         const char *oname = ap_table_name(&cov->aps, (uint32_t)b->tog_output);
         for (uint32_t g = 0; g < b->tog_nguards; g++) {
           char *gs = formula_str(c, b->tog_guards[g]);
-          fprintf(out, "tog %u %s %s\n", i, oname, gs ? gs : "");
+          if (!gs)
+            return false;
+          ok &= fprintf(out, "tog %u %s %s\n", i, oname, gs) >= 0;
           free(gs);
         }
       }
@@ -699,78 +721,93 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
             ap_table_name(&cov->aps, (uint32_t)b->fdelay_output);
         for (uint32_t g = 0; g < b->fdelay_n; g++) {
           char *gs = formula_str(c, b->fdelay_guards[g]);
-          fprintf(out, "fdresp %u %s %u %s\n", i, oname, b->fdelay_steps[g],
-                  gs ? gs : "");
+          if (!gs)
+            return false;
+          ok &= fprintf(out, "fdresp %u %s %u %s\n", i, oname,
+                        b->fdelay_steps[g], gs) >= 0;
           free(gs);
         }
       }
       if (b->db_output >= 0 && b->db_guard) {
         char *gs = formula_str(c, b->db_guard);
-        fprintf(out, "dbuchi %u %s %s\n", i,
-                ap_table_name(&cov->aps, (uint32_t)b->db_output), gs ? gs : "");
+        if (!gs)
+          return false;
+        ok &=
+            fprintf(out, "dbuchi %u %s %s\n", i,
+                    ap_table_name(&cov->aps, (uint32_t)b->db_output), gs) >= 0;
         free(gs);
       }
       if (b->cyc_n > 0 && b->status == CSNF_SOLVED) {
-        fprintf(out, "cyc %u %u", i, b->cyc_n);
+        ok &= fprintf(out, "cyc %u %u", i, b->cyc_n) >= 0;
         for (uint32_t k = 0; k < b->cyc_n; k++)
-          fprintf(out, " %s",
-                  ap_table_name(&cov->aps, (uint32_t)b->cyc_outputs[k]));
-        fprintf(out, "\n");
+          ok &= fprintf(
+                    out, " %s",
+                    ap_table_name(&cov->aps, (uint32_t)b->cyc_outputs[k])) >= 0;
+        ok &= fprintf(out, "\n") >= 0;
       }
       if (b->arb_n > 0 && b->status == CSNF_SOLVED) {
-        fprintf(out, "arb %u %u", i, b->arb_n);
+        ok &= fprintf(out, "arb %u %u", i, b->arb_n) >= 0;
         for (uint32_t k = 0; k < b->arb_n; k++)
-          fprintf(out, " %s",
-                  ap_table_name(&cov->aps, (uint32_t)b->arb_outputs[k]));
-        fprintf(out, "\n");
+          ok &= fprintf(
+                    out, " %s",
+                    ap_table_name(&cov->aps, (uint32_t)b->arb_outputs[k])) >= 0;
+        ok &= fprintf(out, "\n") >= 0;
       }
       if (b->one_output >= 0 && b->status == CSNF_SOLVED)
-        fprintf(out, "one %u %s\n", i,
-                ap_table_name(&cov->aps, (uint32_t)b->one_output));
+        ok &= fprintf(out, "one %u %s\n", i,
+                      ap_table_name(&cov->aps, (uint32_t)b->one_output)) >= 0;
       if (b->hold_output >= 0 && b->status == CSNF_SOLVED)
-        fprintf(out, "hold %u %s\n", i,
-                ap_table_name(&cov->aps, (uint32_t)b->hold_output));
+        ok &= fprintf(out, "hold %u %s\n", i,
+                      ap_table_name(&cov->aps, (uint32_t)b->hold_output)) >= 0;
       if (b->resp_output >= 0 && b->status == CSNF_SOLVED) {
         const TemplateCandidate *resp = constraint_find_candidate_payload(
             cov, &cov->items[b->cids[0]], CAND_RESPONSE);
         int32_t g = resp ? resp->u.response.guard : -1;
-        fprintf(out, "resp %u %s", i,
-                ap_table_name(&cov->aps, (uint32_t)b->resp_output));
+        ok &= fprintf(out, "resp %u %s", i,
+                      ap_table_name(&cov->aps, (uint32_t)b->resp_output)) >= 0;
         if (g >= 0)
-          fprintf(out, " %s", ap_table_name(&cov->aps, (uint32_t)g));
-        fprintf(out, "\n");
+          ok &= fprintf(out, " %s", ap_table_name(&cov->aps, (uint32_t)g)) >= 0;
+        ok &= fprintf(out, "\n") >= 0;
       }
       if (b->asg_output >= 0 && b->status == CSNF_SOLVED) {
-        fprintf(out, "asg %u %s", i,
-                ap_table_name(&cov->aps, (uint32_t)b->asg_output));
+        ok &= fprintf(out, "asg %u %s", i,
+                      ap_table_name(&cov->aps, (uint32_t)b->asg_output)) >= 0;
         for (uint32_t g = 0; g < b->asg_nguards; g++) {
           char *gs = formula_str(c, b->asg_guards[g]);
-          fprintf(out, " %s%s", g ? "| " : "", gs ? gs : "");
+          if (!gs)
+            return false;
+          ok &= fprintf(out, " %s%s", g ? "| " : "", gs) >= 0;
           free(gs);
         }
-        fprintf(out, "\n");
+        ok &= fprintf(out, "\n") >= 0;
       }
       if (b->reg_output >= 0 && b->reg_theta) {
         char *th = formula_str(c, b->reg_theta);
-        fprintf(out, "reg %u %s %s\n", i,
-                ap_table_name(&cov->aps, (uint32_t)b->reg_output),
-                th ? th : "");
+        if (!th)
+          return false;
+        ok &=
+            fprintf(out, "reg %u %s %s\n", i,
+                    ap_table_name(&cov->aps, (uint32_t)b->reg_output), th) >= 0;
         free(th);
       }
       for (uint32_t k = 0; k < b->inv_n; k++) {
         char *v = formula_str(c, b->inv_values[k]);
-        fprintf(out, "inv %u %s %s\n", i,
-                ap_table_name(&cov->aps, (uint32_t)b->inv_outputs[k]),
-                v ? v : "");
+        if (!v)
+          return false;
+        ok &= fprintf(out, "inv %u %s %s\n", i,
+                      ap_table_name(&cov->aps, (uint32_t)b->inv_outputs[k]),
+                      v) >= 0;
         free(v);
       }
     }
     if (b->cert)
-      fprintf(out, "cert %u %s\n", i, b->cert);
+      ok &= fprintf(out, "cert %u %s\n", i, b->cert) >= 0;
     // Claims = the member constraints' formulas.
     for (uint32_t k = 0; k < b->ncids; k++) {
       char *cl = formula_str(c, cov->items[b->cids[k]].formula);
-      fprintf(out, "cl %u %s\n", i, cl ? cl : "");
+      if (!cl)
+        return false;
+      ok &= fprintf(out, "cl %u %s\n", i, cl) >= 0;
       free(cl);
     }
   }
@@ -778,49 +815,59 @@ void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve) {
   // Dependent (decoded) outputs.
   for (uint32_t i = 0; i < c->nblocks; i++)
     if (c->blocks[i].status == CSNF_SOLVED && c->blocks[i].dec_output >= 0)
-      fprintf(out, "do %s\n",
-              ap_table_name(&cov->aps, (uint32_t)c->blocks[i].dec_output));
+      ok &= fprintf(out, "do %s\n",
+                    ap_table_name(&cov->aps,
+                                  (uint32_t)c->blocks[i].dec_output)) >= 0;
 
   // Residual (unsolved) constraints.
   for (uint32_t i = 0; i < c->nconstraints; i++)
     if (!c->solved[i])
-      fprintf(out, "r c%u\n", i);
+      ok &= fprintf(out, "r c%u\n", i) >= 0;
+  return ok && !ferror(out);
 }
 
-void csnf_emit_text(FILE *out, const Csnf *c, bool solve) {
+bool csnf_emit_text(FILE *out, const Csnf *c, bool solve) {
   (void)solve;
+  bool ok = true;
   ConstraintCover *cov = c->cov;
   uint32_t sol, cert, cand, resid = 0;
   count_status(c, &sol, &cert, &cand);
   for (uint32_t i = 0; i < c->nconstraints; i++)
     if (!c->solved[i])
       resid++;
-  fprintf(out, "blocks: %u  (solved %u, certified %u, candidate %u)\n",
-          c->nblocks, sol, cert, cand);
-  fprintf(out, "residual constraints: %u\n", resid);
+  ok &= fprintf(out, "blocks: %u  (solved %u, certified %u, candidate %u)\n",
+                c->nblocks, sol, cert, cand) >= 0;
+  ok &= fprintf(out, "residual constraints: %u\n", resid) >= 0;
   for (uint32_t i = 0; i < c->nblocks; i++) {
     const Block *b = &c->blocks[i];
-    fprintf(out, "  [%s] %s  (%u constraint%s)%s%s\n", status_name(b->status),
-            b->name, b->ncids, b->ncids == 1 ? "" : "s",
-            b->cert ? "  cert=" : "", b->cert ? b->cert : "");
+    ok &= fprintf(out, "  [%s] %s  (%u constraint%s)%s%s\n",
+                  status_name(b->status), b->name, b->ncids,
+                  b->ncids == 1 ? "" : "s", b->cert ? "  cert=" : "",
+                  b->cert ? b->cert : "") >= 0;
     if (b->dec_output >= 0 && b->status == CSNF_SOLVED) {
       char *th = formula_str(c, b->dec_theta);
-      fprintf(out, "      decoder: %s := %s\n",
-              ap_table_name(&cov->aps, (uint32_t)b->dec_output), th ? th : "");
+      if (!th)
+        return false;
+      ok &= fprintf(out, "      decoder: %s := %s\n",
+                    ap_table_name(&cov->aps, (uint32_t)b->dec_output), th) >= 0;
       free(th);
     }
     if (b->cyc_n > 0 && b->status == CSNF_SOLVED) {
-      fprintf(out, "      cycle:");
+      ok &= fprintf(out, "      cycle:") >= 0;
       for (uint32_t k = 0; k < b->cyc_n; k++)
-        fprintf(out, " %s",
-                ap_table_name(&cov->aps, (uint32_t)b->cyc_outputs[k]));
-      fprintf(out, "\n");
+        ok &=
+            fprintf(out, " %s",
+                    ap_table_name(&cov->aps, (uint32_t)b->cyc_outputs[k])) >= 0;
+      ok &= fprintf(out, "\n") >= 0;
     }
     if (b->db_output >= 0 && b->status == CSNF_SOLVED) {
       char *gs = formula_str(c, b->db_guard);
-      fprintf(out, "      deterministic Buchi: %s while G(%s) holds\n",
-              ap_table_name(&cov->aps, (uint32_t)b->db_output), gs ? gs : "");
+      if (!gs)
+        return false;
+      ok &= fprintf(out, "      deterministic Buchi: %s while G(%s) holds\n",
+                    ap_table_name(&cov->aps, (uint32_t)b->db_output), gs) >= 0;
       free(gs);
     }
   }
+  return ok && !ferror(out);
 }

@@ -58,6 +58,20 @@ static int prec_of(const Node *n) {
 // Dialect spelling tables
 // ---------------------------------------------------------------------------
 
+// A memory stream can fail one write without setting ferror().
+typedef struct Printer {
+  FILE *file;
+  bool failed;
+} Printer;
+
+static void put_text(Printer *out, const char *text) {
+  out->failed |= fputs(text, out->file) == EOF;
+}
+
+static void put_char(int c, Printer *out) {
+  out->failed |= fputc(c, out->file) == EOF;
+}
+
 typedef struct LtlSyntax {
   const char *t_true, *t_false;
   // Unary (spelling includes any required trailing separator).
@@ -66,31 +80,29 @@ typedef struct LtlSyntax {
   const char *op_and, *op_or, *op_impl, *op_equiv;
   const char *op_u, *op_r, *op_w, *op_m;
   // Atom renderer (handles any escaping the dialect needs).
-  void (*emit_atom)(FILE *out, const char *name);
+  void (*emit_atom)(Printer *out, const char *name);
 } LtlSyntax;
 
-static void atom_plain(FILE *out, const char *name) {
-  fprintf(out, "%s", name);
-}
+static void atom_plain(Printer *out, const char *name) { put_text(out, name); }
 
 // Some classic ltl2ba-compatible workflows conventionally lowercase atoms.
 // Spot itself accepts uppercase TLSF identifiers (including names beginning
 // with F/G/X); exact operator names are already forbidden by TLSF.
-static void atom_lower(FILE *out, const char *name) {
+static void atom_lower(Printer *out, const char *name) {
   for (const char *p = name; *p; p++)
-    fputc(tolower((unsigned char)*p), out);
+    put_char(tolower((unsigned char)*p), out);
 }
 
 // LaTeX math: wrap in \mathit{} and escape underscores; primes pass through.
-static void atom_latex(FILE *out, const char *name) {
-  fputs("\\mathit{", out);
+static void atom_latex(Printer *out, const char *name) {
+  put_text(out, "\\mathit{");
   for (const char *p = name; *p; p++) {
     if (*p == '_')
-      fputs("\\_", out);
+      put_text(out, "\\_");
     else
-      fputc(*p, out);
+      put_char(*p, out);
   }
-  fputc('}', out);
+  put_char('}', out);
 }
 
 // ltl2ba / spot ASCII (the historical default).
@@ -175,19 +187,19 @@ static const LtlSyntax *syntax_for(LtlFormat fmt) {
 // ---------------------------------------------------------------------------
 
 // Forward declaration.
-static void emit(FILE *out, const Node *n, int min_prec, bool full, bool finite,
-                 const LtlSyntax *s);
+static void emit(Printer *out, const Node *n, int min_prec, bool full,
+                 bool finite, const LtlSyntax *s);
 
 // Print a unary operator `op` applied to `arg`.  Unary operators are
 // right-associative, so the operand is emitted at the operator's own level.
-static void emit_unary(FILE *out, const char *op, const Node *arg, bool full,
+static void emit_unary(Printer *out, const char *op, const Node *arg, bool full,
                        bool finite, const LtlSyntax *s) {
-  fprintf(out, "%s", op);
+  put_text(out, op);
   emit(out, arg, 5, full, finite, s);
 }
 
 // Print a binary operator.  `lassoc` selects left- vs right-associativity.
-static void emit_binary(FILE *out, const Node *n, const char *op, int prec,
+static void emit_binary(Printer *out, const Node *n, const char *op, int prec,
                         bool lassoc, bool full, bool finite,
                         const LtlSyntax *s) {
   // left-assoc:  left at `prec`,   right at `prec+1`
@@ -195,15 +207,15 @@ static void emit_binary(FILE *out, const Node *n, const char *op, int prec,
   int left_min = lassoc ? prec : prec + 1;
   int right_min = lassoc ? prec + 1 : prec;
   emit(out, n->lhs, left_min, full, finite, s);
-  fprintf(out, "%s", op);
+  put_text(out, op);
   emit(out, n->rhs, right_min, full, finite, s);
 }
 
 // `finite` selects finite-word (LTLf) rendering: the strong next X[!] is kept
 // distinct from the weak next X (they coincide on infinite words, so for
 // infinite semantics both print as X).
-static void emit(FILE *out, const Node *n, int min_prec, bool full, bool finite,
-                 const LtlSyntax *s) {
+static void emit(Printer *out, const Node *n, int min_prec, bool full,
+                 bool finite, const LtlSyntax *s) {
   assert(n);
 
   int p = prec_of(n);
@@ -211,14 +223,14 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full, bool finite,
   bool paren = (p < PREC_ATOM) && (full || p < min_prec);
 
   if (paren)
-    fputc('(', out);
+    put_char('(', out);
 
   switch (n->kind) {
   case NODE_TRUE:
-    fprintf(out, "%s", s->t_true);
+    put_text(out, s->t_true);
     break;
   case NODE_FALSE:
-    fprintf(out, "%s", s->t_false);
+    put_text(out, s->t_false);
     break;
   case NODE_AP:
     s->emit_atom(out, n->name);
@@ -273,47 +285,53 @@ static void emit(FILE *out, const Node *n, int min_prec, bool full, bool finite,
   }
 
   if (paren)
-    fputc(')', out);
+    put_char(')', out);
 }
 
 // ---------------------------------------------------------------------------
 // Public formula entry points
 // ---------------------------------------------------------------------------
 
-void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens) {
-  emit(out, n, 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
+bool print_ltlxba_formula(FILE *out, const Node *n, bool full_parens) {
+  Printer p = {.file = out};
+  emit(&p, n, 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
+  return !p.failed && !ferror(p.file);
 }
 
-void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
+bool print_ltlxba_list(FILE *file, Node *const *formulas, uint32_t count,
                        bool full_parens) {
+  Printer p = {.file = file}, *out = &p;
   if (count == 0) {
-    fprintf(out, "true");
-    return;
+    put_text(out, "true");
+    return !p.failed && !ferror(p.file);
   }
   if (count == 1) {
     emit(out, formulas[0], 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
-    return;
+    return !p.failed && !ferror(p.file);
   }
   // Conjunction (prec 3); wrap when full, otherwise leave bare at top level.
   if (full_parens)
-    fputc('(', out);
+    put_char('(', out);
   for (uint32_t i = 0; i < count; i++) {
     if (i > 0)
-      fprintf(out, " && ");
+      put_text(out, " && ");
     // operand of &&
     emit(out, formulas[i], 4, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
   }
   if (full_parens)
-    fputc(')', out);
+    put_char(')', out);
+  return !p.failed && !ferror(p.file);
 }
 
-void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
+bool print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
                bool finite, bool lower_atoms) {
+  Printer p = {.file = out};
   LtlSyntax s = *syntax_for(fmt);
   if (lower_atoms)
     s.emit_atom = atom_lower;
-  emit(out, root, 1, full_parens, finite, &s);
-  fprintf(out, "\n");
+  emit(&p, root, 1, full_parens, finite, &s);
+  put_char('\n', &p);
+  return !p.failed && !ferror(p.file);
 }
 
 // ---------------------------------------------------------------------------
@@ -345,15 +363,18 @@ Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
   bool want_liveness = (mode == PRINT_ALL || mode == PRINT_LIVENESS);
   SectionPatternView view;
   if (!section_pattern_from_classified(&view, spec, cs))
-    return node_true(spec->arena);
-  return section_pattern_to_ltl(&view, want_safety, want_liveness);
+    return nullptr;
+  Node *root = section_pattern_to_ltl(&view, want_safety, want_liveness);
+  return arena_failed(spec->arena) ? nullptr : root;
 }
 
-void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
+bool print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
                        const ClassifiedSpec *cs, PrintMode mode,
                        bool full_parens) {
   Node *root = build_spec_formula(spec, cs, mode);
+  if (!root)
+    return false;
   bool finite = semantics_is_finite(spec->info.semantics);
-  print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite,
-            /*lower_atoms=*/false);
+  return print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite,
+                   /*lower_atoms=*/false);
 }

@@ -13,14 +13,18 @@ strict_sections_safety_parts(TlsfSpec *spec, const SectionPatternView *view,
     return false;
 
   Arena *a = spec->arena;
-  const Node *ei =
-      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_INITIALLY));
-  const Node *er =
-      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_REQUIRE));
-  const Node *si =
-      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_PRESET));
-  const Node *sa =
-      true_if_absent(a, section_pattern_conj(view, TLSF_ROLE_ASSERT));
+  Node *ei, *er, *si, *sa;
+  if (!section_pattern_conj(view, TLSF_ROLE_INITIALLY, &ei) ||
+      !section_pattern_conj(view, TLSF_ROLE_REQUIRE, &er) ||
+      !section_pattern_conj(view, TLSF_ROLE_PRESET, &si) ||
+      !section_pattern_conj(view, TLSF_ROLE_ASSERT, &sa))
+    return false;
+  ei = true_if_absent(a, ei);
+  er = true_if_absent(a, er);
+  si = true_if_absent(a, si);
+  sa = true_if_absent(a, sa);
+  if (arena_failed(a))
+    return false;
   if (!aig_initial_ok(ei) || !aig_initial_ok(si) || !aig_body_ok(er) ||
       !aig_body_ok(sa))
     return false;

@@ -35,6 +35,13 @@ foreach name, tool : exe
   test('version_' + name, check_version, args: [name, tool])
 endforeach
 if research_tools
+  if python3.found()
+    test('review_definition_and_finite_next', python3,
+      args: [files('check_review_regressions.py'), exe['tlsf2ltl'],
+             exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsfnorm'],
+             files(cases / 'definition-assumption.tlsf'),
+             files(cases / 'finite-next.tlsf')])
+  endif
   test('tlsfbenchgraph_schema', files('check_benchgraph_schema.sh'),
     args: [exe['tlsfbenchgraph'],
            files(cases / 'normalization_match.tlsf')])
@@ -308,6 +315,22 @@ foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
 endforeach
 endif
 if research_tools
+if python3.found()
+  research_failures = files('check_research_failures.py')
+  test('residual_cluster_alloc_failure', python3,
+    args: [research_failures, 'cluster', exe['tlsfresidual'],
+           files(cases / 'residual_false.tlsf'), residual_fault])
+  foreach format : ['csnf', 'text']
+    test('template_formula_alloc_failure_' + format, python3,
+      args: [research_failures, 'template', exe['tlsftemplates'],
+             files(cases / 'template_failure.tlsf'), template_fault, format])
+  endforeach
+  foreach tool : ['tlsfresidual', 'tlsfcompose']
+    test(tool + '_output_full', python3,
+      args: [research_failures, 'io', exe[tool],
+             files(cases / 'disjoint_assumptions.tlsf')])
+  endforeach
+endif
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
                 'server_merge', 'arbiter_nomutex', 'cluster_split',

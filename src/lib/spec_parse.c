@@ -12,13 +12,16 @@ TlsfSpec *spec_parse(FILE *in, const char *prog) {
   }
 
   yyscan_t scanner;
-  yylex_init(&scanner);
+  if (yylex_init_extra(spec, &scanner) != 0) {
+    spec_free(spec);
+    return nullptr;
+  }
   yyset_extra(spec, scanner);
   yyset_in(in, scanner);
   int rc = yyparse(scanner, spec);
   yylex_destroy(scanner);
 
-  if (rc != 0) {
+  if (rc != 0 || arena_failed(spec->arena)) {
     spec_free(spec);
     return nullptr;
   }

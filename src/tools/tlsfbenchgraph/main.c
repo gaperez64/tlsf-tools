@@ -255,7 +255,10 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
       continue;
     const Node *f =
         residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
-    f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);
+    f = apply_rewrites(
+        spec->arena, (Node *)f,
+        RW_SIMPLIFY_WEAK |
+            (semantics_is_finite(spec->info.semantics) ? RW_FINITE : 0));
     if (f->kind != NODE_TRUE)
       rf[i] = f;
   }
@@ -276,10 +279,14 @@ static void measure_residual(TlsfSpec *spec, ConstraintCover *cov,
       }
     if (outs > m->largest_residual_cluster_outputs)
       m->largest_residual_cluster_outputs = outs;
-    Node *nf = to_nnf(spec->arena, root, true);
+    Node *nf = to_nnf(spec->arena, root, true,
+                      semantics_is_finite(spec->info.semantics));
     if (nf && classify_formula(nf) == FCLASS_LIVENESS)
       m->residual_liveness_clusters++;
-    Node *sn = apply_rewrites(spec->arena, root, RW_STRONG_SIMPLIFY);
+    Node *sn = apply_rewrites(
+        spec->arena, root,
+        RW_STRONG_SIMPLIFY |
+            (semantics_is_finite(spec->info.semantics) ? RW_FINITE : 0));
     m->residual_size_norm += ast_node_count(sn ? sn : root);
   }
   for (uint32_t a = 0; a < A; a++)
@@ -378,7 +385,10 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
     }
     m.size_raw += ast_node_count(c->formula);
     measure_guard_shape(c->formula, 1, 0, &m.guard);
-    Node *nf = apply_rewrites(spec->arena, c->formula, RW_STRONG_SIMPLIFY);
+    Node *nf = apply_rewrites(
+        spec->arena, c->formula,
+        RW_STRONG_SIMPLIFY |
+            (semantics_is_finite(spec->info.semantics) ? RW_FINITE : 0));
     m.size_norm += nf ? ast_node_count(nf) : ast_node_count(c->formula);
     tlsf_norm_count_obstacles(c->formula, &m.obstacles);
   }

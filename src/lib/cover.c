@@ -92,6 +92,8 @@ void constraint_add_candidate(ConstraintCover *cov, Constraint *c,
   if (c->candidate_count == c->candidate_cap) {
     uint16_t nc = c->candidate_cap ? (uint16_t)(c->candidate_cap * 2u) : 4u;
     const char **arr = ARENA_ALLOC_N(cov->arena, const char *, nc);
+    if (!arr)
+      return;
     for (uint16_t i = 0; i < c->candidate_count; i++)
       arr[i] = c->candidates[i];
     c->candidates = arr;
@@ -151,6 +153,8 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   if (cov->count == cov->cap) {
     uint32_t nc = cov->cap ? cov->cap * 2 : 16;
     Constraint *arr = ARENA_ALLOC_N(a, Constraint, nc);
+    if (!arr)
+      return false;
     for (uint32_t i = 0; i < cov->count; i++)
       arr[i] = cov->items[i];
     cov->items = arr;
@@ -166,11 +170,14 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   c->formula = formula;
   c->match_formula = formula; // identity until match normalization runs
   c->route_formula = nullptr;
-  c->nnf = to_nnf(a, formula, true);
+  c->nnf =
+      to_nnf(a, formula, true, semantics_is_finite(cov->spec->info.semantics));
   if (!c->nnf)
     return false;
   c->is_safety = classify_formula(c->nnf) == FCLASS_SAFETY;
   conversion_intern_aps(&cov->aps, c->nnf);
+  if (arena_failed(a))
+    return false;
   cov->count++;
   return true;
 }
@@ -185,6 +192,8 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
   ap_table_init(&cov->aps, a);
 
   conversion_seed_signals(&cov->aps, spec);
+  if (arena_failed(a))
+    return nullptr;
 
   SectionDesc secs[] = {
       {TLSF_ROLE_INITIALLY, true, false, &spec->initially},
@@ -209,6 +218,8 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
       if (split) {
         Node **parts;
         uint32_t np = rewrite_decompose(a, f, &parts);
+        if (!np)
+          return nullptr;
         for (uint32_t p = 0; p < np; p++)
           if (!add_constraint(cov, d, parts[p]))
             return nullptr;
@@ -228,6 +239,8 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
     apset_init(&c->neg_outputs, a, n);
     apset_init(&c->cur_outputs, a, n);
     apset_init(&c->next_outputs, a, n);
+    if (arena_failed(a))
+      return nullptr;
     collect(c, &cov->aps, c->nnf, false, false);
   }
 

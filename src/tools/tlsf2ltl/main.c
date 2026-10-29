@@ -73,10 +73,11 @@ static void usage(const char *prog) {
 // ---------------------------------------------------------------------------
 
 static int apply_nnf_all(TlsfSpec *spec) {
+  bool finite = semantics_is_finite(spec->info.semantics);
 #define NNF_LIST(list)                                                         \
   do {                                                                         \
     for (uint32_t _i = 0; _i < (list).count; _i++) {                           \
-      Node *_n = to_nnf(spec->arena, (list).formulas[_i], true);               \
+      Node *_n = to_nnf(spec->arena, (list).formulas[_i], true, finite);       \
       if (!_n) {                                                               \
         fprintf(stderr, "tlsf2ltl: NNF transform failed (OOM)\n");             \
         return -1;                                                             \
@@ -179,7 +180,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "--output") == 0) {
       output_file = NEED_ARG();
     } else if (strcmp(argv[i], "--param") == 0) {
-      const char *a = NEED_ARG();
+      char *a = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsf2ltl: too many --param overrides\n");
         return 1;
@@ -220,8 +221,6 @@ int main(int argc, char *argv[]) {
   // Shared validation, expansion and single target adaptation.
   bool prepared = conversion_prepare(spec, os_arg, ot_arg, overrides,
                                      n_overrides, fair_environment, "tlsf2ltl");
-  for (size_t i = 0; i < n_overrides; i++)
-    free((void *)overrides[i].name);
   if (!prepared) {
     spec_free(spec);
     return 1;
@@ -254,6 +253,11 @@ int main(int argc, char *argv[]) {
 
   // --- Build the single spec formula, then apply any requested transforms ---
   Node *root = build_spec_formula(spec, cs, mode);
+  if (!root || arena_failed(spec->arena)) {
+    fprintf(stderr, "tlsf2ltl: objective assembly failed (OOM)\n");
+    spec_free(spec);
+    return 1;
+  }
 
   // Finite-word (ltlxba-fin) output: ltl2ba-fin has no
   // weak-until/strong-release operators, so eliminate them with the LTLf-valid
@@ -261,10 +265,10 @@ int main(int argc, char *argv[]) {
   // next is still distinguished as X[!] vs X by the printer's `finite` flag.
   bool finite = semantics_is_finite(spec->info.semantics);
   if (finite)
-    rw_flags |= RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE;
+    rw_flags |= RW_FINITE | RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE;
 
   root = apply_rewrites(spec->arena, root, rw_flags);
-  if (!root) {
+  if (!root || arena_failed(spec->arena)) {
     fprintf(stderr, "tlsf2ltl: transform failed (OOM)\n");
     spec_free(spec);
     return 1;
@@ -279,11 +283,12 @@ int main(int argc, char *argv[]) {
   // Preserve the historical SyFCo/classic-ltl2ba convention of lowercasing
   // ltlxba atoms.  Spot accepts case-preserving TLSF identifiers; callers that
   // need that fidelity should select the `ltl` dialect instead.
-  print_ltl(out, root, fmt, full_parens, finite,
-            /*lower_atoms=*/fmt == LTL_FMT_LTLXBA);
-  if (output_file)
-    fclose(out);
-
+  bool ok = print_ltl(out, root, fmt, full_parens, finite,
+                      /*lower_atoms=*/fmt == LTL_FMT_LTLXBA);
+  if ((output_file ? fclose(out) : fflush(out)) != 0)
+    ok = false;
+  if (!ok)
+    fprintf(stderr, "tlsf2ltl: objective output failed\n");
   spec_free(spec);
-  return 0;
+  return ok ? 0 : 1;
 }

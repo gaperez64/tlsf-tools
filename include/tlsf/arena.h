@@ -11,6 +11,7 @@
 ///   Foo   *f = ARENA_ALLOC(a, Foo);   // zero-initialised
 ///   arena_free(a);
 
+#include <stdbool.h>
 #include <stddef.h>
 
 /// Default slab size: 4 MiB — large enough for typical TLSF specs.
@@ -25,6 +26,13 @@ typedef struct ArenaSlabArena Arena;
 /// Returns nullptr on allocation failure.
 [[nodiscard]] void *arena_alloc_aligned(Arena *a, size_t size, size_t align);
 
+/// Checked array allocation; multiplication overflow is an allocation failure.
+[[nodiscard]] void *arena_alloc_array(Arena *a, size_t size, size_t count,
+                                      size_t align);
+
+/// Sticky for the lifetime of the arena, even if later allocations succeed.
+[[nodiscard]] bool arena_failed(const Arena *a);
+
 /// Free the arena and all memory it owns.  Safe to call with nullptr.
 void arena_free(Arena *a);
 
@@ -35,6 +43,6 @@ void arena_free(Arena *a);
 
 /// Typed array allocation: ARENA_ALLOC_N(arena, Type, n) → Type *
 #define ARENA_ALLOC_N(arena, Type, n)                                          \
-  ((Type *)arena_alloc_aligned((arena), sizeof(Type) * (n), _Alignof(Type)))
+  ((Type *)arena_alloc_array((arena), sizeof(Type), (n), _Alignof(Type)))
 
 #endif // TLSF_ARENA_H

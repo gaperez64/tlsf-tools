@@ -76,6 +76,13 @@ if spot_python_found
 endif
 
 if research_tools
+  if spot_python_found
+    test('disjoint_assumptions_equivalent', spot_python,
+      args: [files('test_disjoint_assumptions.py'), exe['tlsf2ltl'],
+             exe['tlsfresidual'], exe['tlsfcompose'],
+             files(cases / 'disjoint_assumptions.tlsf')],
+      env: spot_python_env)
+  endif
   if python3.found()
     test('oxidd_semantic_oracle', python3,
       args: [files('check_oxidd_oracle.py'), exe['tlsfsolve']], timeout: 120)

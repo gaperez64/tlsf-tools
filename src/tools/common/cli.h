@@ -15,10 +15,10 @@
 /// Open the output: `path`, or stdout when `path` is null.
 [[nodiscard]] FILE *cli_open_output(const char *path, const char *prog);
 
-/// Parse a `--param NAME=VALUE` argument.  The name is a malloc'd copy the
-/// caller frees after expand().  On a malformed argument prints a message
-/// prefixed with `prog` and returns false.
-[[nodiscard]] bool cli_parse_param(const char *arg, const char *prog,
+/// Parse a writable `--param NAME=VALUE` argument, splitting it in place at
+/// '='. The returned name borrows the argument's storage.  On a malformed
+/// argument prints a message prefixed with `prog` and returns false.
+[[nodiscard]] bool cli_parse_param(char *arg, const char *prog,
                                    ParamOverride *out);
 
 #endif // TLSF_CLI_H

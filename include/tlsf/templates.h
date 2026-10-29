@@ -120,8 +120,8 @@ bool csnf_emit_local_aiger(const Csnf *c, const CsnfComposition *r, Aig *g);
 
 /// Emit the model: `text` is human-readable, `csnf` is the DIMACS-style line
 /// format (see README).
-void csnf_emit_text(FILE *out, const Csnf *c, bool solve);
-void csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve);
+bool csnf_emit_text(FILE *out, const Csnf *c, bool solve);
+bool csnf_emit_lines(FILE *out, const Csnf *c, const char *source, bool solve);
 
 /// Tally block statuses and derived counts (any out-pointer may be nullptr).
 /// `dependent` counts SOLVED definition decoders; `residual` counts

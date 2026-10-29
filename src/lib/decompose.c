@@ -28,6 +28,8 @@ static bool fill_preprocessed(TlsfDecomposeResult *r, TlsfSpec *spec,
   if (!cs)
     return false;
   Node *root = build_spec_formula(spec, cs, PRINT_ALL);
+  if (!root || arena_failed(spec->arena))
+    return false;
   r->preprocessed_ltl = conversion_render_ltl(
       root, fmt, semantics_is_finite(spec->info.semantics), lower);
   return r->preprocessed_ltl != nullptr;
@@ -101,7 +103,7 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
     Node *root = residual_plan_build_cluster(spec, cov, rplan, rplan->keys[k],
                                              /*all=*/false,
                                              /*prune=*/!output_free, seen);
-    if (!root) {
+    if (!root || arena_failed(spec->arena)) {
       free(seen);
       goto fail;
     }
@@ -117,6 +119,8 @@ tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
     }
   }
   free(seen);
+  if (arena_failed(spec->arena))
+    goto fail;
   return r;
 
 fail:

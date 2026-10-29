@@ -43,7 +43,7 @@ static bool node_equal(const Node *x, const Node *y) {
 // equivalence-preserving.
 // ---------------------------------------------------------------------------
 
-static Node *simplify_weak_local(Arena *a, Node *n) {
+static Node *simplify_weak_local(Arena *a, Node *n, bool finite) {
   switch (n->kind) {
   case NODE_NOT:
     if (is_true(n->arg))
@@ -101,7 +101,8 @@ static Node *simplify_weak_local(Arena *a, Node *n) {
   case NODE_X:
     if (is_true(n->arg))
       return node_true(a);
-    if (is_false(n->arg))
+    // Weak next is true at the end of a finite word, even for false.
+    if (!finite && is_false(n->arg))
       return node_false(a);
     return n;
 
@@ -228,13 +229,15 @@ static Node *apply_local(Arena *a, Node *n, unsigned flags) {
   // Weak simplification (constant folding) last, so constants introduced by
   // the replacement rules (true U a, false R a) get folded on the next pass.
   if (flags & RW_SIMPLIFY_WEAK)
-    return simplify_weak_local(a, n);
+    return simplify_weak_local(a, n, flags & RW_FINITE);
 
   return n;
 }
 
 // Bottom-up single traversal: rewrite children, then apply the local rule.
 static Node *rw_pass(Arena *a, Node *n, unsigned flags) {
+  if (!n || arena_failed(a))
+    return nullptr;
   Node *t;
   switch (n->kind) {
   case NODE_TRUE:
@@ -285,27 +288,33 @@ static Node *rw_pass(Arena *a, Node *n, unsigned flags) {
     assert(false && "rewrite: unexpected high-level node");
     return n;
   }
+  if (!t)
+    return nullptr;
   node_copy_bounded(t, n);
   return apply_local(a, t, flags);
 }
 
 Node *apply_rewrites(Arena *a, Node *root, unsigned flags) {
+  if (!root || arena_failed(a))
+    return nullptr;
   if (flags == RW_NONE)
     return root;
 
   // NNF first (matches syfco -s1 ordering and eliminates ->/<->).
   if (flags & RW_NNF) {
-    root = to_nnf(a, root, true);
+    root = to_nnf(a, root, true, flags & RW_FINITE);
     if (!root)
       return nullptr;
   }
 
-  unsigned local = flags & ~(unsigned)RW_NNF;
+  unsigned local = flags & ~(unsigned)(RW_NNF | RW_FINITE);
   if (local == 0)
     return root;
 
   for (int it = 0; it < RW_FIXPOINT_CAP; it++) {
-    Node *next = rw_pass(a, root, local);
+    Node *next = rw_pass(a, root, local | (flags & RW_FINITE));
+    if (!next || arena_failed(a))
+      return nullptr;
     bool stable = node_equal(next, root);
     root = next;
     if (stable)
@@ -319,6 +328,8 @@ static void decomp_push(Arena *a, Node ***out, uint32_t *cap, uint32_t *cnt,
   if (*cnt == *cap) {
     uint32_t nc = *cap ? *cap * 2 : 8;
     Node **arr = ARENA_ALLOC_N(a, Node *, nc);
+    if (!arr)
+      return;
     for (uint32_t i = 0; i < *cnt; i++)
       arr[i] = (*out)[i];
     *out = arr;
@@ -333,6 +344,8 @@ static void decomp_push(Arena *a, Node ***out, uint32_t *cap, uint32_t *cnt,
 // left intact rather than reshaped to `F(Ga&&Gb)`).
 static void decomp_append(Arena *a, Node *f, Node ***out, uint32_t *cap,
                           uint32_t *cnt) {
+  if (!f || arena_failed(a))
+    return;
   if (f->kind == NODE_AND) {
     decomp_append(a, f->lhs, out, cap, cnt);
     decomp_append(a, f->rhs, out, cap, cnt);
@@ -346,6 +359,8 @@ static void decomp_append(Arena *a, Node *f, Node ***out, uint32_t *cap,
       Node *w = f->kind == NODE_G   ? node_g(a, sub[i])
                 : f->kind == NODE_X ? node_x(a, sub[i])
                                     : node_x_strong(a, sub[i]);
+      if (!w)
+        return;
       decomp_push(a, out, cap, cnt, w);
     }
     return;
@@ -357,6 +372,10 @@ uint32_t rewrite_decompose(Arena *a, Node *f, Node ***out) {
   Node **arr = nullptr;
   uint32_t cap = 0, cnt = 0;
   decomp_append(a, f, &arr, &cap, &cnt);
+  if (arena_failed(a)) {
+    *out = nullptr;
+    return 0;
+  }
   *out = arr;
   return cnt;
 }

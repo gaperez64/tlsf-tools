@@ -35,10 +35,9 @@ bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag);
 /// Build the cluster's monolithic LTL formula from the substituted residual
 /// formulas `rf` (`rf[i] == nullptr` => skip) belonging to cluster `kk` (or all
 /// when `all`).  Fills `seen` with the APs it mentions.  nullptr on OOM.  When
-/// `prune` is true the global assumption pool is narrowed to each cluster's
-/// cone of influence; pass false to keep *all* assumptions (needed for the
-/// output-free realizability check, whose cone-of-influence seed has no outputs
-/// and would otherwise drop the coupling assumptions).
+/// `prune` is true, keep every global assumption in every cluster. Pass false
+/// to keep all assumptions, including output-dependent ones, for the
+/// output-free realizability check.
 [[nodiscard]] Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
                                            const Node **rf, const uint32_t *key,
                                            uint32_t kk, bool all, bool prune,

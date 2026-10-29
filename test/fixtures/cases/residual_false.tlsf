@@ -1,0 +1,2 @@
+INFO { SEMANTICS: Mealy TARGET: Mealy }
+MAIN { OUTPUTS { p; } GUARANTEES { false; } }

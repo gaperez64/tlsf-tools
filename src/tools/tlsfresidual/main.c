@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--overwrite-target") == 0) {
       ot_arg = NEED_ARG();
     } else if (strcmp(a, "--param") == 0) {
-      const char *v = NEED_ARG();
+      char *v = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsfresidual: too many --param overrides\n");
         return 1;
@@ -140,8 +140,6 @@ int main(int argc, char *argv[]) {
   TlsfPipeline *p = tlsf_pipeline_load(fp, &popts);
   if (input_file)
     fclose(fp);
-  for (size_t i = 0; i < n_overrides; i++)
-    free((void *)overrides[i].name);
   if (!p)
     return 1;
 
@@ -179,12 +177,16 @@ int main(int argc, char *argv[]) {
 
   // Substitute solved combinational outputs out of every residual constraint.
   const Node **rf = calloc(N ? N : 1, sizeof(Node *));
+  bool *seen = calloc(A ? A : 1, sizeof(bool));
+  if (!rf || !seen) {
+    rc = 1;
+    goto done;
+  }
   for (uint32_t i = 0; i < N; i++)
     if (comp->residual_constraint[i])
       rf[i] =
           residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
 
-  bool *seen = calloc(A ? A : 1, sizeof(bool));
   bool finite = semantics_is_finite(spec->info.semantics);
 
   if (single) {
@@ -198,16 +200,25 @@ int main(int argc, char *argv[]) {
       fprintf(out, "\nc ins=");
       residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
       fprintf(out, "\n");
-      print_ltl(out, root, fmt, /*full_parens=*/false, finite,
-                /*lower_atoms=*/lowercase);
+      if (!print_ltl(out, root, fmt, false, finite, lowercase))
+        rc = 1;
     }
   } else {
     // Cluster residual constraints by shared output (output-disjoint
     // decomposition: E -> AND Gi == AND (E -> Gi)).
     uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
+    if (!key) {
+      rc = 1;
+      goto done;
+    }
     uint32_t *keys = nullptr;
     uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
 
+    if (!keys) {
+      free(key);
+      rc = 1;
+      goto done;
+    }
     fprintf(out, "c clusters %u\n", K);
     for (uint32_t k = 0; k < K && rc == 0; k++) {
       Node *root =
@@ -231,8 +242,9 @@ int main(int argc, char *argv[]) {
         fprintf(cf, "\nc ins=");
         residual_print_signals_case(cf, cov, seen, AP_FLAG_INPUT, lowercase);
         fprintf(cf, "\n");
-        print_ltl(cf, root, fmt, false, finite, /*lower_atoms=*/lowercase);
-        fclose(cf);
+        bool ok = print_ltl(cf, root, fmt, false, finite, lowercase);
+        if (fclose(cf) != 0 || !ok)
+          rc = 1;
         fprintf(out, "c cluster %u file=residual.%u.ltl outs=", k, k);
         residual_print_signals_case(out, cov, seen, AP_FLAG_OUTPUT, lowercase);
         fprintf(out, " ins=");
@@ -244,19 +256,22 @@ int main(int argc, char *argv[]) {
         fprintf(out, " ins=");
         residual_print_signals_case(out, cov, seen, AP_FLAG_INPUT, lowercase);
         fprintf(out, "\n");
-        print_ltl(out, root, fmt, false, finite, /*lower_atoms=*/lowercase);
+        if (!print_ltl(out, root, fmt, false, finite, lowercase))
+          rc = 1;
       }
     }
     free(key);
     free(keys);
   }
 
+done:
   free(seen);
   free(rf);
+  bool write_failed = ferror(out);
+  if ((output_file ? fclose(out) : fflush(out)) != 0 || write_failed)
+    rc = 1;
   if (rc)
-    fprintf(stderr, "tlsfresidual: classification failed (OOM)\n");
-  if (output_file)
-    fclose(out);
+    fprintf(stderr, "tlsfresidual: failed (OOM or I/O)\n");
   tlsf_pipeline_free(p);
   return rc;
 }

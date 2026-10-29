@@ -14,6 +14,8 @@ static Node *node_new(Arena *a, NodeKind k) {
 }
 
 static Node *node_unary(Arena *a, NodeKind k, Node *arg) {
+  if (arena_failed(a))
+    return nullptr;
   assert(arg);
   Node *n = node_new(a, k);
   if (n)
@@ -22,6 +24,8 @@ static Node *node_unary(Arena *a, NodeKind k, Node *arg) {
 }
 
 static Node *node_binary(Arena *a, NodeKind k, Node *lhs, Node *rhs) {
+  if (arena_failed(a))
+    return nullptr;
   assert(lhs && rhs);
   Node *n = node_new(a, k);
   if (n) {
@@ -39,6 +43,8 @@ Node *node_true(Arena *a) { return node_new(a, NODE_TRUE); }
 Node *node_false(Arena *a) { return node_new(a, NODE_FALSE); }
 
 Node *node_ap(Arena *a, const char *interned_name) {
+  if (arena_failed(a))
+    return nullptr;
   assert(interned_name);
   Node *n = node_new(a, NODE_AP);
   if (n)

@@ -73,113 +73,18 @@ void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
   }
 }
 
-// True if any AP occurring in `n` is set in `set` (length cov->aps.count).
-static bool residual_aps_hit(const Node *n, ConstraintCover *cov,
-                             const bool *set) {
-  switch (n->kind) {
-  case NODE_AP: {
-    int32_t i = ap_table_find(&cov->aps, n->name);
-    return i >= 0 && set[i];
-  }
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return residual_aps_hit(n->arg, cov, set);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return residual_aps_hit(n->lhs, cov, set) ||
-           residual_aps_hit(n->rhs, cov, set);
-  default:
-    return false;
-  }
-}
-
-// Finer clustering: decide which residual constraints to attach to cluster
-// `kk`. The cluster's own constraints (`key==kk`) are always kept; the global
-// (input-only) assumption pool (`key==UINT32_MAX`) is pruned to those
-// *relevant* to the cluster — a transitive cone of influence over shared
-// signals.  Assumptions over disjoint signals may be dropped exactly: the
-// environment's behavior on those signals cannot help win or lose this cluster,
-// while every reached assumption is retained regardless of safety/liveness
-// class.  Fills `include` (length n); returns false on OOM, in which case the
-// caller keeps the old (include-all-global) behavior.
-static bool cluster_assumption_mask(ConstraintCover *cov, const Node **rf,
-                                    const uint32_t *key, uint32_t kk,
-                                    uint32_t n, bool *include) {
-  uint32_t A = cov->aps.count;
-  bool *gsig = calloc(A ? A : 1, sizeof(bool));
-  bool *reached = calloc(n ? n : 1, sizeof(bool));
-  if (!gsig || !reached) {
-    free(gsig);
-    free(reached);
-    return false;
-  }
-  // Cluster core: every key==kk constraint stays; seed the cone with its
-  // signals.
-  for (uint32_t i = 0; i < n; i++) {
-    include[i] = false;
-    if (!rf[i] || key[i] != kk)
-      continue;
-    include[i] = true;
-    reached[i] = true;
-    residual_collect_aps(rf[i], cov, gsig);
-  }
-  // Transitive cone of influence over the global assumption pool.  A reached
-  // assumption grows the cone and is attached regardless of class.
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (uint32_t i = 0; i < n; i++) {
-      if (reached[i] || !rf[i] || key[i] != UINT32_MAX)
-        continue;
-      if (!residual_aps_hit(rf[i], cov, gsig))
-        continue;
-      reached[i] = true;
-      changed = true;
-      residual_collect_aps(rf[i], cov, gsig);
-      include[i] = true;
-    }
-  }
-  free(gsig);
-  free(reached);
-  return true;
-}
-
 bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
                                  const Node **rf, const uint32_t *key,
                                  uint32_t kk, bool all, bool prune, uint32_t n,
                                  bool *seen, SectionPatternView *view) {
   section_pattern_init(view, spec->arena, spec);
   memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
-  // Finer clustering prunes the global assumption pool per cluster.  Skip it
-  // under strict semantics: there the assumption/guarantee `W` structure drives
-  // the (AbsSynthe strict-safety) encoding, and dropping assumptions reshapes
-  // the formula into a nested-`G` form the backend does not recognize.
-  bool *include = nullptr;
-  if (!all && prune && !semantics_is_strict(spec->info.semantics)) {
-    include = malloc((n ? n : 1) * sizeof(bool));
-    if (include && !cluster_assumption_mask(cov, rf, key, kk, n, include)) {
-      free(include);
-      include =
-          nullptr; // OOM: fall back to the old include-all-global behavior
-    }
-  }
   for (uint32_t i = 0; i < n; i++) {
     if (!rf[i])
       continue;
     bool inc;
     if (all)
       inc = true;
-    else if (include)
-      inc = include[i];
     else if (!prune)
       // Output-free realizability check: the key==kk guarantees plus *every*
       // assumption (not just key==UINT32_MAX ones).  A coupling assumption like
@@ -189,17 +94,15 @@ bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
       // judged realizable.
       inc = key[i] == kk || cov->items[i].assumption_side;
     else
-      inc = key[i] == kk || key[i] == UINT32_MAX; // OOM fallback (prune path)
+      inc = key[i] == kk || key[i] == UINT32_MAX;
     if (!inc)
       continue;
     residual_collect_aps(rf[i], cov, seen);
     if (!section_pattern_add_classified(view, cov->items[i].role,
                                         (Node *)rf[i])) {
-      free(include);
       return false;
     }
   }
-  free(include);
   return true;
 }
 
@@ -211,10 +114,12 @@ Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,
                                    &view))
     return nullptr;
   Node *root = section_pattern_to_ltl(&view, true, true);
+  if (!root || arena_failed(spec->arena))
+    return nullptr;
   if (semantics_is_finite(spec->info.semantics))
     root = apply_rewrites(spec->arena, root,
                           RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
-  return root;
+  return arena_failed(spec->arena) ? nullptr : root;
 }
 
 uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,

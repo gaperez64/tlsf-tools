@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef TLSF_ARENA_FAULT
+bool tlsf_arena_fault(size_t size, bool slab);
+#endif
+
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -19,6 +23,7 @@ typedef struct ArenaSlab {
 struct ArenaSlabArena {
   ArenaSlab *head;     ///< current (most-recently allocated) slab
   size_t default_slab; ///< size used when a new slab is needed
+  bool failed;
 };
 
 // ---------------------------------------------------------------------------
@@ -32,6 +37,12 @@ static inline size_t align_up(size_t v, size_t align) {
 }
 
 static ArenaSlab *slab_new(size_t capacity) {
+  if (capacity > SIZE_MAX - sizeof(ArenaSlab))
+    return nullptr;
+#ifdef TLSF_ARENA_FAULT
+  if (tlsf_arena_fault(capacity, true))
+    return nullptr;
+#endif
   // Allocate header + data in one block.
   ArenaSlab *s = malloc(sizeof(ArenaSlab) + capacity);
   if (!s)
@@ -51,6 +62,7 @@ Arena *arena_new(size_t slab_size) {
   if (!a)
     return nullptr;
   a->default_slab = slab_size;
+  a->failed = false;
   a->head = slab_new(slab_size);
   if (!a->head) {
     free(a);
@@ -61,20 +73,30 @@ Arena *arena_new(size_t slab_size) {
 
 void *arena_alloc_aligned(Arena *a, size_t size, size_t align) {
   assert(a && "null arena");
+#ifdef TLSF_ARENA_FAULT
+  if (tlsf_arena_fault(size, false))
+    goto fail;
+#endif
   if (size == 0)
     size = 1; // guarantee non-null on success
 
   ArenaSlab *s = a->head;
+  assert(align && (align & (align - 1u)) == 0u);
+  if (s->used > SIZE_MAX - (align - 1u))
+    goto fail;
   size_t offset = align_up(s->used, align);
 
-  if (offset + size > s->capacity) {
+  if (offset > s->capacity || size > s->capacity - offset) {
     // Current slab is exhausted — allocate a new one.
     size_t new_cap = a->default_slab;
-    if (size > new_cap)
+    if (size > new_cap) {
+      if (size > SIZE_MAX - 4095u)
+        goto fail;
       new_cap = align_up(size, 4096u); // oversized single allocation
+    }
     ArenaSlab *ns = slab_new(new_cap);
     if (!ns)
-      return nullptr;
+      goto fail;
     ns->next = s;
     a->head = ns;
     s = ns;
@@ -85,7 +107,20 @@ void *arena_alloc_aligned(Arena *a, size_t size, size_t align) {
   memset(ptr, 0, size);
   s->used = offset + size;
   return ptr;
+fail:
+  a->failed = true;
+  return nullptr;
 }
+
+void *arena_alloc_array(Arena *a, size_t size, size_t count, size_t align) {
+  if (size && count > SIZE_MAX / size) {
+    a->failed = true;
+    return nullptr;
+  }
+  return arena_alloc_aligned(a, size * count, align);
+}
+
+bool arena_failed(const Arena *a) { return a->failed; }
 
 void arena_free(Arena *a) {
   if (!a)

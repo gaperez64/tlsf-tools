@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "--overwrite-target") == 0) {
       ot_arg = NEED_ARG();
     } else if (strcmp(argv[i], "--param") == 0) {
-      const char *a = NEED_ARG();
+      char *a = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsf2tlsf: too many --param overrides\n");
         return 1;
@@ -267,9 +267,6 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
-  for (size_t i = 0; i < n_overrides; i++)
-    free((void *)overrides[i].name);
 
   FILE *out = cli_open_output(output_file, "tlsf2tlsf");
   if (!out) {

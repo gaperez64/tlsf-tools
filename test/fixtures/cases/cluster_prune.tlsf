@@ -1,6 +1,6 @@
 INFO {
   TITLE: "cluster_prune"
-  DESCRIPTION: "liveness assumption G F !r is kept on the safety cluster that shares r and pruned only from disjoint clusters"
+  DESCRIPTION: "global liveness assumption G F !r is kept in both clusters, including the disjoint one"
   SEMANTICS: Mealy
   TARGET: Mealy
 }

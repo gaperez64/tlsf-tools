@@ -2,9 +2,20 @@
 #include "oxidd_runtime.h"
 
 #include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/resource.h>
 
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+
+#if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
+int main(void) {
+  puts("SKIP: RLIMIT_AS conflicts with AddressSanitizer shadow memory");
+  return 77;
+}
+#else
 // Under a finite RLIMIT_AS OxiDD sizes its worker stacks to fit; an explicit
 // stack it cannot map yields an invalid manager instead of an abort.
 int main(int argc, char **argv) {
@@ -24,3 +35,4 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
+#endif

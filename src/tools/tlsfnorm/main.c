@@ -145,7 +145,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--overwrite-target") == 0) {
       ot_arg = NEED_ARG();
     } else if (strcmp(a, "--param") == 0) {
-      const char *v = NEED_ARG();
+      char *v = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsfnorm: too many --param overrides\n");
         return 1;
@@ -307,8 +307,6 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  for (size_t i = 0; i < n_overrides; i++)
-    free((void *)overrides[i].name);
 
   FormulaList *lists[] = {&spec->initially, &spec->require, &spec->assume,
                           &spec->preset,    &spec->assert_, &spec->guarantee};

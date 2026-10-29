@@ -35,9 +35,8 @@ bool section_pattern_from_classified(SectionPatternView *v,
                                      const TlsfSpec *spec,
                                      const ClassifiedSpec *cs);
 
-Node *section_pattern_conj(const SectionPatternView *v, Role role);
-Node *section_pattern_guarantees(const SectionPatternView *v, bool safety,
-                                 bool liveness);
+/// Success with *out == nullptr means an empty section; false means failure.
+bool section_pattern_conj(const SectionPatternView *v, Role role, Node **out);
 bool section_pattern_role_empty(const SectionPatternView *v, Role role);
 int section_pattern_gr_level(const SectionPatternView *v);
 Node *section_pattern_to_ltl(const SectionPatternView *v, bool want_safety,

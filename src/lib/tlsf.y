@@ -1,4 +1,6 @@
 %{
+/* Clear freed pointers: GLR startup failure otherwise frees a stale pointer. */
+#define YYFREE(p) (free(p), (p) = nullptr)
 /* tlsf.y — TLSF v1.1/v1.2 parser */
 #include <stdio.h>
 #include "diagnostic.h"
@@ -167,6 +169,8 @@
 /* -------------------------------------------------------------------------
  * Bison options
  * --------------------------------------------------------------------- */
+/* GLR cleanup also visits fields left unset by partial initialization. */
+%initial-action { yystack.yytops = (yyGLRStateSet){0}; }
 %define api.pure
 %define parse.error detailed
 
@@ -554,6 +558,8 @@ signal_decl
     { /* width form: name[N] declares indices 0..N-1 */
       Node *lo = node_int(spec->arena, 0);
       Node *hi = ARENA_ALLOC(spec->arena, Node);
+      if (!lo || !hi)
+        YYNOMEM;
       hi->kind = NODE_INT_SUB; hi->lhs = $3; hi->rhs = node_int(spec->arena, 1);
       if (!spec_add_signal(spec, spec->cur_is_output, $1, true, lo, hi))
         YYNOMEM; }

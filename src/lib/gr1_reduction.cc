@@ -346,8 +346,8 @@ std::string printed_ltl(TlsfSpec *spec) {
   if (!stream)
     throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
                   "out of memory");
-  print_ltl(stream.get(), root, LTL_FMT_LTL, false, false, false);
-  if (fflush(stream.get()) != 0) {
+  bool ok = print_ltl(stream.get(), root, LTL_FMT_LTL, false, false, false);
+  if (fflush(stream.get()) != 0 || !ok) {
     stream.reset();
     free(buffer);
     throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",

@@ -12,8 +12,17 @@
 #include "diagnostic.h"
 #include "tlsf_parse.h"
 
+#include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
+
+  /* Catch flex's fatal allocation path at the lexer boundary, so Bison cleans
+   * up. */
+  static _Thread_local jmp_buf lexer_oom;
+#define YY_FATAL_ERROR(msg) longjmp(lexer_oom, 1)
+#define YY_DECL                                                                \
+  static int lex_token(YYSTYPE *yylval_param, YYLTYPE *yylloc_param,           \
+                       yyscan_t yyscanner)
 
 /* Location tracking */
 #define YY_USER_ACTION                                                         \
@@ -25,7 +34,7 @@ static int comment_depth = 0;
 %}
 
 %option reentrant bison-bridge bison-locations
-%option noyywrap nounput noinput
+%option noyywrap nounput noinput noyyalloc noyyrealloc noyyfree
 %option yylineno
 %option extra-type="TlsfSpec *"
 
@@ -229,3 +238,38 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
                     }
 
 %%
+
+/* Arena ownership also covers partially initialized flex buffers. */
+typedef struct LexAlloc {
+  size_t size;
+} LexAlloc;
+void *yyalloc(yy_size_t size, yyscan_t scanner) {
+  LexAlloc *p = ARENA_ALLOC_N(yyget_extra(scanner)->arena, LexAlloc,
+                              size / sizeof(LexAlloc) + 2);
+  if (!p)
+    return nullptr;
+  p->size = size;
+  return p + 1;
+}
+void *yyrealloc(void *old, yy_size_t size, yyscan_t scanner) {
+  void *p = yyalloc(size, scanner);
+  if (p && old) {
+    size_t previous = ((LexAlloc *)old)[-1].size;
+    memcpy(p, old, previous < size ? previous : size);
+  }
+  return p;
+}
+void yyfree(void *p, yyscan_t scanner) {
+  (void)p;
+  (void)scanner;
+}
+
+int yylex(YYSTYPE *value, YYLTYPE *location, yyscan_t scanner) {
+  if (arena_failed(yyget_extra(scanner)->arena) || setjmp(lexer_oom))
+    return TOK_ERROR;
+  int token = lex_token(value, location, scanner);
+  if ((token == TOK_IDENT || token == TOK_STRING || token == TOK_BITS) &&
+      !value->sval)
+    return TOK_ERROR;
+  return token;
+}

@@ -25,6 +25,8 @@ static uint32_t ptr_hash(const char *p) {
 
 static void rehash(ApTable *t, uint32_t new_hcap) {
   uint32_t *h = ARENA_ALLOC_N(t->arena, uint32_t, new_hcap);
+  if (!h)
+    return;
   for (uint32_t i = 0; i < new_hcap; i++)
     h[i] = 0;
   for (uint32_t i = 0; i < t->count; i++) {
@@ -53,6 +55,8 @@ int32_t ap_table_find(const ApTable *t, const char *name) {
 }
 
 uint32_t ap_table_intern(ApTable *t, const char *name, uint8_t flags) {
+  if (arena_failed(t->arena))
+    return UINT32_MAX;
   int32_t found = ap_table_find(t, name);
   if (found >= 0) {
     t->flags[found] |= flags;
@@ -64,6 +68,8 @@ uint32_t ap_table_intern(ApTable *t, const char *name, uint8_t flags) {
     uint32_t new_cap = t->cap ? t->cap * 2u : 16u;
     const char **nn = ARENA_ALLOC_N(t->arena, const char *, new_cap);
     uint8_t *nf = ARENA_ALLOC_N(t->arena, uint8_t, new_cap);
+    if (!nn || !nf)
+      return UINT32_MAX;
     for (uint32_t i = 0; i < t->count; i++) {
       nn[i] = t->names[i];
       nf[i] = t->flags[i];
@@ -98,6 +104,8 @@ void apset_init(ApSet *s, Arena *a, uint32_t nbits) {
   if (nwords == 0)
     nwords = 1;
   s->words = ARENA_ALLOC_N(a, uint64_t, nwords);
+  if (!s->words)
+    return;
   for (uint32_t i = 0; i < nwords; i++)
     s->words[i] = 0;
   s->nbits = nbits;

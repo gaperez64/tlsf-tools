@@ -28,7 +28,12 @@ ResidualPlan *residual_plan_build(TlsfSpec *spec, ConstraintCover *cov,
     const Node *f =
         residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
     if (opts.simplify_weak)
-      f = apply_rewrites(spec->arena, (Node *)f, RW_SIMPLIFY_WEAK);
+      f = apply_rewrites(
+          spec->arena, (Node *)f,
+          RW_SIMPLIFY_WEAK |
+              (semantics_is_finite(spec->info.semantics) ? RW_FINITE : 0));
+    if (!f || arena_failed(spec->arena))
+      goto fail;
     if (f->kind != NODE_TRUE)
       p->rf[i] = f;
   }
