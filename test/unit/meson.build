@@ -1,5 +1,32 @@
 # Internal units: these may include libtlsf's private headers.
 
+objective_cli = static_library('objective-cli',
+  files('../../src/tools/tlsf2ltl/main.c'),
+  c_args: ['-Dmain=objective_cli_main'], dependencies: tool_dep)
+objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
+  files('../../src/lib/arena.c'), c_args: ['-DTLSF_ARENA_FAULT'],
+  link_with: objective_cli,
+  link_args: ['-Wl,--wrap=build_spec_formula', '-Wl,--wrap=malloc',
+              '-Wl,--wrap=calloc', '-Wl,--wrap=realloc',
+              '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
+              '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
+              '-Wl,--wrap=cover_build'],
+  dependencies: tool_dep)
+test('objective_alloc', objective_alloc_exe)
+
+if research_tools
+  residual_fault = executable('residual-fault', 'research_fault.c',
+    files('../../src/tools/tlsfresidual/main.c'),
+    c_args: ['-DRESIDUAL_FAULT'],
+    link_args: ['-Wl,--wrap=residual_cluster_keys', '-Wl,--wrap=malloc'],
+    dependencies: tool_dep)
+  template_fault = executable('template-fault', 'research_fault.c',
+    files('../../src/tools/tlsftemplates/main.c'),
+    link_args: ['-Wl,--wrap=csnf_emit_lines', '-Wl,--wrap=csnf_emit_text',
+                '-Wl,--wrap=open_memstream'],
+    dependencies: tool_dep)
+endif
+
 # Header-only: the SIMD kernels in src/lib/simd.h.
 simd_check_exe = executable('simd_check', 'simd_check.c',
                             include_directories: lib_inc)

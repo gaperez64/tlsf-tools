@@ -748,10 +748,10 @@ static Node *pre_bounded_bool(Arena *a, Node *n) {
 
 // pre-weak: high-level weak simplifier (boolean + G/F/X constant folding).
 // Finite-word-safe: never folds (weak/strong) next over true.
-static Node *pre_weak(Arena *a, Node *n) {
+static Node *pre_weak(Arena *a, Node *n, bool finite) {
   switch (n->kind) {
   case NODE_NOT: {
-    Node *x = pre_weak(a, n->arg);
+    Node *x = pre_weak(a, n->arg, finite);
     if (x->kind == NODE_TRUE)
       return node_false(a);
     if (x->kind == NODE_FALSE)
@@ -761,7 +761,7 @@ static Node *pre_weak(Arena *a, Node *n) {
     return x == n->arg ? n : node_not(a, x);
   }
   case NODE_AND: {
-    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    Node *l = pre_weak(a, n->lhs, finite), *r = pre_weak(a, n->rhs, finite);
     if (l->kind == NODE_FALSE || r->kind == NODE_FALSE)
       return node_false(a);
     if (l->kind == NODE_TRUE)
@@ -773,7 +773,7 @@ static Node *pre_weak(Arena *a, Node *n) {
     return (l == n->lhs && r == n->rhs) ? n : node_and(a, l, r);
   }
   case NODE_OR: {
-    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    Node *l = pre_weak(a, n->lhs, finite), *r = pre_weak(a, n->rhs, finite);
     if (l->kind == NODE_TRUE || r->kind == NODE_TRUE)
       return node_true(a);
     if (l->kind == NODE_FALSE)
@@ -785,7 +785,7 @@ static Node *pre_weak(Arena *a, Node *n) {
     return (l == n->lhs && r == n->rhs) ? n : node_or(a, l, r);
   }
   case NODE_IMPL: {
-    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    Node *l = pre_weak(a, n->lhs, finite), *r = pre_weak(a, n->rhs, finite);
     if (l->kind == NODE_FALSE || r->kind == NODE_TRUE)
       return node_true(a);
     if (l->kind == NODE_TRUE)
@@ -793,11 +793,11 @@ static Node *pre_weak(Arena *a, Node *n) {
     return (l == n->lhs && r == n->rhs) ? n : node_impl(a, l, r);
   }
   case NODE_EQUIV: {
-    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    Node *l = pre_weak(a, n->lhs, finite), *r = pre_weak(a, n->rhs, finite);
     return (l == n->lhs && r == n->rhs) ? n : node_equiv(a, l, r);
   }
   case NODE_G: {
-    Node *x = pre_weak(a, n->arg);
+    Node *x = pre_weak(a, n->arg, finite);
     if (x->kind == NODE_TRUE)
       return node_true(a);
     if (x->kind == NODE_FALSE)
@@ -805,7 +805,7 @@ static Node *pre_weak(Arena *a, Node *n) {
     return x == n->arg ? n : node_g(a, x);
   }
   case NODE_F: {
-    Node *x = pre_weak(a, n->arg);
+    Node *x = pre_weak(a, n->arg, finite);
     if (x->kind == NODE_TRUE)
       return node_true(a);
     if (x->kind == NODE_FALSE)
@@ -813,20 +813,20 @@ static Node *pre_weak(Arena *a, Node *n) {
     return x == n->arg ? n : node_f(a, x);
   }
   case NODE_X: {
-    Node *x = pre_weak(a, n->arg);
-    if (x->kind == NODE_FALSE)
-      return node_false(a); // X false = false (also on finite words)
+    Node *x = pre_weak(a, n->arg, finite);
+    if (!finite && x->kind == NODE_FALSE)
+      return node_false(a);
     return x == n->arg ? n : node_x(a, x);
   }
   case NODE_NEXT_N: {
-    Node *b = pre_weak(a, n->rhs);
+    Node *b = pre_weak(a, n->rhs, finite);
     return b == n->rhs ? n : node_next_n(a, n->lhs, b);
   }
   case NODE_U:
   case NODE_R:
   case NODE_W:
   case NODE_M: {
-    Node *l = pre_weak(a, n->lhs), *r = pre_weak(a, n->rhs);
+    Node *l = pre_weak(a, n->lhs, finite), *r = pre_weak(a, n->rhs, finite);
     if (l == n->lhs && r == n->rhs)
       return n;
     return n->kind == NODE_U   ? node_u(a, l, r)
@@ -1189,7 +1189,7 @@ static Node *sickert2_step(Arena *a, Node *n, bool *done) {
 static Node *sickert_stage2(Arena *a, Node *n) {
   // Work on the NNF so every context is monotone (the identity needs that);
   // only fire when a GF/FG limit node sits under a temporal node.
-  Node *nnf = to_nnf(a, n, true);
+  Node *nnf = to_nnf(a, n, true, false);
   TlsfObstacles ob = {0};
   tlsf_norm_count_obstacles(nnf, &ob);
   if (ob.limit_under_temporal == 0)
@@ -1326,7 +1326,7 @@ static Node *sickert3_step(Arena *a, Node *n, bool *done) {
 }
 
 static Node *sickert_stage3(Arena *a, Node *n) {
-  Node *nnf = to_nnf(a, n, true);
+  Node *nnf = to_nnf(a, n, true, false);
   TlsfObstacles ob = {0};
   tlsf_norm_count_obstacles(nnf, &ob);
   if (ob.w_under_gf == 0 && ob.u_under_fg == 0)
@@ -1338,12 +1338,12 @@ static Node *sickert_stage3(Arena *a, Node *n) {
   return apply_rewrites(a, r, RW_SIMPLIFY_WEAK);
 }
 
-static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
+static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n, bool finite) {
   switch (p) {
   case TLSF_NORM_PASS_NNF:
-    return to_nnf(a, n, true);
+    return to_nnf(a, n, true, finite);
   case TLSF_NORM_PASS_WEAK:
-    return apply_rewrites(a, n, RW_SIMPLIFY_WEAK);
+    return apply_rewrites(a, n, RW_SIMPLIFY_WEAK | (finite ? RW_FINITE : 0));
   case TLSF_NORM_PASS_BOOL_CANON:
     return bool_canon(a, n);
   case TLSF_NORM_PASS_OR_TO_IMPL_PATTERN:
@@ -1357,13 +1357,14 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n) {
   case TLSF_NORM_PASS_PRE_BOUNDED_BOOL:
     return pre_bounded_bool(a, n);
   case TLSF_NORM_PASS_PRE_WEAK:
-    return pre_weak(a, n);
+    return pre_weak(a, n, finite);
   case TLSF_NORM_PASS_ROUTE_SAFE:
     // NNF + push G/X inward + weak simplify, to expose safety/liveness
     // structure for routing.  W is deliberately left intact (replacing it by
     // U||G would degrade syntactic safety classification).
-    return apply_rewrites(
-        a, n, RW_NNF | RW_PUSH_G_IN | RW_PUSH_X_IN | RW_SIMPLIFY_WEAK);
+    return apply_rewrites(a, n,
+                          RW_NNF | RW_PUSH_G_IN | RW_PUSH_X_IN |
+                              RW_SIMPLIFY_WEAK | (finite ? RW_FINITE : 0));
   case TLSF_NORM_PASS_SICKERT_STAGE2:
     return sickert_stage2(a, n);
   case TLSF_NORM_PASS_SICKERT_STAGE3:
@@ -1472,7 +1473,7 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
     for (uint32_t it = 0; it < iters; it++) {
       uint32_t nb = ast_node_count(cur);
       uint64_t t0 = now_ns();
-      Node *cand = apply_pass_once(a, pass, cur);
+      Node *cand = apply_pass_once(a, pass, cur, opts->finite_word);
       uint64_t dt = now_ns() - t0;
       if (!cand)
         cand = cur;

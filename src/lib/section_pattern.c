@@ -13,7 +13,11 @@ void section_pattern_init(SectionPatternView *v, Arena *a,
 
 bool section_pattern_add(SectionPatternView *v, Role role, Node *formula,
                          FormulaClass cls) {
+  if (!formula || arena_failed(v->arena))
+    return false;
   if (v->count == v->cap) {
+    if (v->cap > UINT32_MAX / 2u)
+      return false;
     uint32_t nc = v->cap ? v->cap * 2u : 16u;
     SectionPatternEntry *arr = ARENA_ALLOC_N(v->arena, SectionPatternEntry, nc);
     if (!arr)
@@ -35,7 +39,8 @@ bool section_pattern_add_classified(SectionPatternView *v, Role role,
                                     Node *formula) {
   FormulaClass cls = FCLASS_SAFETY;
   if (role == TLSF_ROLE_ASSERT || role == TLSF_ROLE_GUARANTEE) {
-    Node *nnf = to_nnf(v->arena, formula, true);
+    Node *nnf = to_nnf(v->arena, formula, true,
+                       semantics_is_finite(v->spec->info.semantics));
     if (!nnf)
       return false;
     cls = classify_formula(nnf);
@@ -74,6 +79,8 @@ bool section_pattern_from_classified(SectionPatternView *v,
 }
 
 static Node *and_opt(Arena *a, Node *x, Node *y) {
+  if (arena_failed(a))
+    return nullptr;
   if (!x)
     return y;
   if (!y)
@@ -81,8 +88,11 @@ static Node *and_opt(Arena *a, Node *x, Node *y) {
   return node_and(a, x, y);
 }
 
-static Node *conj_entries(const SectionPatternView *v, Role role,
-                          bool use_class, bool safety, bool liveness) {
+static bool conj_entries(const SectionPatternView *v, Role role, bool use_class,
+                         bool safety, bool liveness, Node **out) {
+  *out = nullptr;
+  if (arena_failed(v->arena))
+    return false;
   Node *acc = nullptr;
   for (uint32_t i = 0; i < v->count; i++) {
     const SectionPatternEntry *e = &v->entries[i];
@@ -92,17 +102,15 @@ static Node *conj_entries(const SectionPatternView *v, Role role,
                        (e->cls == FCLASS_LIVENESS && liveness)))
       continue;
     acc = and_opt(v->arena, acc, e->formula);
+    if (!acc)
+      return false;
   }
-  return acc;
+  *out = acc;
+  return true;
 }
 
-Node *section_pattern_conj(const SectionPatternView *v, Role role) {
-  return conj_entries(v, role, false, true, true);
-}
-
-Node *section_pattern_guarantees(const SectionPatternView *v, bool safety,
-                                 bool liveness) {
-  return conj_entries(v, TLSF_ROLE_GUARANTEE, true, safety, liveness);
+bool section_pattern_conj(const SectionPatternView *v, Role role, Node **out) {
+  return conj_entries(v, role, false, true, true, out);
 }
 
 bool section_pattern_role_empty(const SectionPatternView *v, Role role) {
@@ -167,38 +175,50 @@ Node *section_pattern_to_ltl(const SectionPatternView *v, bool want_safety,
   Arena *a = v->arena;
   bool strict = semantics_is_strict(v->spec->info.semantics);
 
-  Node *e_init = section_pattern_conj(v, TLSF_ROLE_INITIALLY);
-  Node *req_raw = section_pattern_conj(v, TLSF_ROLE_REQUIRE);
+  Node *e_init, *req_raw, *a_live, *s_pre, *g_gua;
+  Node *assert_raw = nullptr;
+  if (!section_pattern_conj(v, TLSF_ROLE_INITIALLY, &e_init) ||
+      !section_pattern_conj(v, TLSF_ROLE_REQUIRE, &req_raw) ||
+      !section_pattern_conj(v, TLSF_ROLE_ASSUME, &a_live) ||
+      !section_pattern_conj(v, TLSF_ROLE_PRESET, &s_pre) ||
+      !conj_entries(v, TLSF_ROLE_GUARANTEE, true, want_safety, want_liveness,
+                    &g_gua) ||
+      (want_safety && !section_pattern_conj(v, TLSF_ROLE_ASSERT, &assert_raw)))
+    return nullptr;
   Node *e_req = g_conj(a, req_raw);
-  Node *a_live = section_pattern_conj(v, TLSF_ROLE_ASSUME);
-  Node *s_pre = section_pattern_conj(v, TLSF_ROLE_PRESET);
+  if (req_raw && !e_req)
+    return nullptr;
 
   if (strict) {
-    Node *assert_raw =
-        want_safety ? section_pattern_conj(v, TLSF_ROLE_ASSERT) : nullptr;
     Node *safety_part = nullptr;
-    if (assert_raw)
-      safety_part = req_raw ? node_w(a, assert_raw, node_not(a, req_raw))
-                            : node_g(a, assert_raw);
+    if (assert_raw) {
+      Node *neg_req = req_raw ? node_not(a, req_raw) : nullptr;
+      if (req_raw && !neg_req)
+        return nullptr;
+      safety_part =
+          req_raw ? node_w(a, assert_raw, neg_req) : node_g(a, assert_raw);
+      if (!safety_part)
+        return nullptr;
+    }
 
     Node *env = and_opt(a, e_req, a_live);
-    Node *g_gua = section_pattern_guarantees(v, want_safety, want_liveness);
     Node *gua_part = g_gua ? (env ? node_impl(a, env, g_gua) : g_gua) : nullptr;
     Node *sys_safety = and_opt(a, want_safety ? s_pre : nullptr, safety_part);
     Node *body = and_opt(a, sys_safety, gua_part);
+    if (arena_failed(a))
+      return nullptr;
     if (!body)
       return node_true(a);
     return e_init ? node_impl(a, e_init, body) : body;
   }
 
   Node *env = and_opt(a, e_req, a_live);
-  Node *g_assert = want_safety
-                       ? g_conj(a, section_pattern_conj(v, TLSF_ROLE_ASSERT))
-                       : nullptr;
-  Node *g_gua = section_pattern_guarantees(v, want_safety, want_liveness);
+  Node *g_assert = g_conj(a, assert_raw);
   Node *sys = and_opt(a, g_assert, g_gua);
   Node *inner = sys ? (env ? node_impl(a, env, sys) : sys) : nullptr;
   Node *body = and_opt(a, want_safety ? s_pre : nullptr, inner);
+  if (arena_failed(a))
+    return nullptr;
   if (e_init)
     return body ? node_impl(a, e_init, body) : node_true(a);
   return body ? body : node_true(a);

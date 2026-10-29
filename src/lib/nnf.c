@@ -6,7 +6,7 @@
 // polarity=true  means the formula appears under an even number of negations.
 // polarity=false means it appears under an odd number (effectively negated).
 
-Node *to_nnf(Arena *a, Node *n, bool polarity) {
+Node *to_nnf(Arena *a, Node *n, bool polarity, bool finite) {
   assert(n);
 
   switch (n->kind) {
@@ -27,7 +27,7 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
   // NOT: flip polarity, recurse into argument.
   // -------------------------------------------------------------------------
   case NODE_NOT:
-    return to_nnf(a, n->arg, !polarity);
+    return to_nnf(a, n->arg, !polarity, finite);
 
   // -------------------------------------------------------------------------
   // Boolean connectives.
@@ -36,20 +36,20 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
   //   ¬(φ ∨ ψ) → ¬φ ∧ ¬ψ
   // -------------------------------------------------------------------------
   case NODE_AND: {
-    Node *l = to_nnf(a, n->lhs, polarity);
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, polarity, finite);
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_and(a, l, r) : node_or(a, l, r);
   }
   case NODE_OR: {
-    Node *l = to_nnf(a, n->lhs, polarity);
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, polarity, finite);
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_or(a, l, r) : node_and(a, l, r);
   }
 
   // IMPL: φ → ψ  ≡  ¬φ ∨ ψ
   case NODE_IMPL: {
-    Node *l = to_nnf(a, n->lhs, !polarity); // φ negated
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, !polarity, finite); // φ negated
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_or(a, l, r) : node_and(a, l, r);
   }
 
@@ -57,10 +57,10 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
   // At positive polarity: (¬φ ∨ ψ) ∧ (¬ψ ∨ φ)
   // At negative polarity: negate the whole thing → (φ ∧ ¬ψ) ∨ (ψ ∧ ¬φ)
   case NODE_EQUIV: {
-    Node *phi_pos = to_nnf(a, n->lhs, true);
-    Node *phi_neg = to_nnf(a, n->lhs, false);
-    Node *psi_pos = to_nnf(a, n->rhs, true);
-    Node *psi_neg = to_nnf(a, n->rhs, false);
+    Node *phi_pos = to_nnf(a, n->lhs, true, finite);
+    Node *phi_neg = to_nnf(a, n->lhs, false, finite);
+    Node *psi_pos = to_nnf(a, n->rhs, true, finite);
+    Node *psi_neg = to_nnf(a, n->rhs, false, finite);
     if (polarity) {
       // (¬φ ∨ ψ) ∧ (¬ψ ∨ φ)
       return node_and(a, node_or(a, phi_neg, psi_pos),
@@ -74,26 +74,23 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
 
   // -------------------------------------------------------------------------
   // Temporal: unary
-  // X commutes with negation: ¬(Xφ) = X(¬φ)
+  // Negation swaps weak and strong next (identical on infinite words).
   // ¬(Gφ) = F(¬φ),  ¬(Fφ) = G(¬φ)
   // -------------------------------------------------------------------------
   case NODE_X: {
-    Node *arg = to_nnf(a, n->arg, polarity);
-    return node_x(a, arg);
+    Node *arg = to_nnf(a, n->arg, polarity, finite);
+    return polarity || !finite ? node_x(a, arg) : node_x_strong(a, arg);
   }
   case NODE_X_STRONG: {
-    // Strong next: ¬(X[!]φ) = X(¬φ) — strong next becomes weak under neg.
-    // For simplicity we keep X_STRONG regardless of polarity here; a
-    // separate pass can handle LTLf-specific rules.
-    Node *arg = to_nnf(a, n->arg, polarity);
+    Node *arg = to_nnf(a, n->arg, polarity, finite);
     return polarity ? node_x_strong(a, arg) : node_x(a, arg);
   }
   case NODE_G: {
-    Node *arg = to_nnf(a, n->arg, polarity);
+    Node *arg = to_nnf(a, n->arg, polarity, finite);
     return polarity ? node_g(a, arg) : node_f(a, arg);
   }
   case NODE_F: {
-    Node *arg = to_nnf(a, n->arg, polarity);
+    Node *arg = to_nnf(a, n->arg, polarity, finite);
     return polarity ? node_f(a, arg) : node_g(a, arg);
   }
 
@@ -105,23 +102,23 @@ Node *to_nnf(Arena *a, Node *n, bool polarity) {
   // ¬(φ M ψ) = (¬φ) W (¬ψ)
   // -------------------------------------------------------------------------
   case NODE_U: {
-    Node *l = to_nnf(a, n->lhs, polarity);
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, polarity, finite);
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_u(a, l, r) : node_r(a, l, r);
   }
   case NODE_R: {
-    Node *l = to_nnf(a, n->lhs, polarity);
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, polarity, finite);
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_r(a, l, r) : node_u(a, l, r);
   }
   case NODE_W: {
-    Node *l = to_nnf(a, n->lhs, polarity);
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, polarity, finite);
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_w(a, l, r) : node_m(a, l, r);
   }
   case NODE_M: {
-    Node *l = to_nnf(a, n->lhs, polarity);
-    Node *r = to_nnf(a, n->rhs, polarity);
+    Node *l = to_nnf(a, n->lhs, polarity, finite);
+    Node *r = to_nnf(a, n->rhs, polarity, finite);
     return polarity ? node_m(a, l, r) : node_w(a, l, r);
   }
 

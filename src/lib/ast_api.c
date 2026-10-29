@@ -82,7 +82,7 @@ TlsfAst *tlsf_ast_from_file_ex(FILE *fp,
   if (!classified)
     goto fail;
   ast->root = build_spec_formula(pipeline->spec, classified, PRINT_ALL);
-  if (!ast->root)
+  if (!ast->root || arena_failed(pipeline->spec->arena))
     goto fail;
 
   ast->cluster_count = ast->residual_plan->nclusters;
@@ -121,6 +121,8 @@ TlsfAst *tlsf_ast_from_file_ex(FILE *fp,
         goto fail;
     }
   }
+  if (arena_failed(pipeline->spec->arena))
+    goto fail;
   return ast;
 
 fail:

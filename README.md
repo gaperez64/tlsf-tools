@@ -365,9 +365,9 @@ certificate, and stay `candidate`.
 `tlsfresidual` then substitutes the solved combinational outputs away and emits
 the residual over a *smaller* alphabet, **clustering** it by shared output
 (`E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)` when output sets are disjoint) into independent,
-parallelisable sub-problems. Reached assumptions are kept regardless of
-safety/liveness class; pruning drops only assumptions over disjoint signals, so
-the residual decomposition is labelled **TRUST_EXACT**. The emitted cluster
+parallelisable sub-problems. Every global assumption is kept in every
+cluster, including assumptions over disjoint signals: their conjunction may be
+inconsistent. The residual decomposition is labelled **TRUST_EXACT**. The emitted cluster
 formula is the formula solved and trusted.
 
 `tlsfcompose` turns that into a runnable plan: `controllers.aag` carries the

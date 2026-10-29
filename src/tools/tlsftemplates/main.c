@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--overwrite-target") == 0) {
       ot_arg = NEED_ARG();
     } else if (strcmp(a, "--param") == 0) {
-      const char *v = NEED_ARG();
+      char *v = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsftemplates: too many --param overrides\n");
         return 1;
@@ -276,8 +276,6 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  for (size_t i = 0; i < n_overrides; i++)
-    free((void *)overrides[i].name);
 
   ConstraintCover *cov = cover_build(spec, split);
   if (!cov) {
@@ -324,13 +322,11 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  if (csnf)
-    csnf_emit_lines(out, model, input_file ? input_file : "<stdin>", solve);
-  else
-    csnf_emit_text(out, model, solve);
-
-  int rc = 0;
-  if (check) {
+  bool ok = csnf ? csnf_emit_lines(out, model,
+                                   input_file ? input_file : "<stdin>", solve)
+                 : csnf_emit_text(out, model, solve);
+  int rc = ok ? 0 : 1;
+  if (check && rc == 0) {
     CsnfComposition *comp = csnf_compose(model);
     if (!comp) {
       fprintf(stderr, "tlsftemplates: out of memory\n");
@@ -340,8 +336,11 @@ int main(int argc, char *argv[]) {
       csnf_composition_free(comp);
     }
   }
-  if (output_file)
-    fclose(out);
+  bool write_failed = ferror(out);
+  if ((output_file ? fclose(out) : fflush(out)) != 0 || write_failed)
+    rc = 1;
+  if (rc)
+    fprintf(stderr, "tlsftemplates: emission failed (OOM or I/O)\n");
 
   csnf_free(model);
   spec_free(spec);

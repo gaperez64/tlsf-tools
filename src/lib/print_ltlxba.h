@@ -41,17 +41,18 @@ typedef enum PrintMode {
 } PrintMode;
 
 /// Print a single formula to `out` in ltlxba format.
-void print_ltlxba_formula(FILE *out, const Node *n, bool full_parens);
+[[nodiscard]] bool print_ltlxba_formula(FILE *out, const Node *n,
+                                        bool full_parens);
 
 /// Print a conjunction of all formulas in `list` to `out`.
 /// Prints "true" for an empty list.
-void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
-                       bool full_parens);
+[[nodiscard]] bool print_ltlxba_list(FILE *out, Node *const *formulas,
+                                     uint32_t count, bool full_parens);
 
 /// Assemble the single LTL formula defined by the (classified) spec, applying
 /// the strict / non-strict, safety/liveness and finite-word structure.  The
-/// returned node is allocated in `spec->arena`; never nullptr (an empty spec
-/// yields node_true).  This is the formula that downstream transforms and
+/// returned node is allocated in `spec->arena`; nullptr on failure (an empty
+/// spec yields node_true). This is the formula that downstream transforms and
 /// printers operate on.
 [[nodiscard]] Node *build_spec_formula(const TlsfSpec *spec,
                                        const ClassifiedSpec *cs,
@@ -62,13 +63,14 @@ void print_ltlxba_list(FILE *out, Node *const *formulas, uint32_t count,
 /// rendering of the strong next (X[!]).  `lower_atoms` lowercases atom names --
 /// an optional compatibility convention for classic ltl2ba/SyFCo workflows.
 /// Spot accepts case-preserving TLSF identifiers.
-void print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
-               bool finite, bool lower_atoms);
+[[nodiscard]] bool print_ltl(FILE *out, const Node *root, LtlFormat fmt,
+                             bool full_parens, bool finite, bool lower_atoms);
 
 /// Convenience: assemble the spec formula (ltlxba dialect) and print it.
 /// Retained for callers that do not apply transforms.
-void print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode,
-                       bool full_parens);
+/// Returns false on assembly or write failure.
+[[nodiscard]] bool print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
+                                     const ClassifiedSpec *cs, PrintMode mode,
+                                     bool full_parens);
 
 #endif // TLSF_PRINT_LTLXBA_H

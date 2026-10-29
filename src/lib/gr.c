@@ -351,9 +351,13 @@ static int classify_invariant(TlsfSpec *sp, const Node *f, const Node **live) {
 // Push G through conjunction (G(x ∧ y) = G x ∧ G y) and collapse G(G x)=G x,
 // so compact generalized-Büchi like G(F a ∧ F b) becomes G F a ∧ G F b.
 static Node *gnorm(Arena *a, const Node *n) {
+  if (!n || arena_failed(a))
+    return nullptr;
   switch (n->kind) {
   case NODE_G: {
     Node *m = gnorm(a, n->arg);
+    if (!m)
+      return nullptr;
     if (m->kind == NODE_AND)
       return node_and(a, gnorm(a, node_g(a, m->lhs)),
                       gnorm(a, node_g(a, m->rhs)));
@@ -401,7 +405,7 @@ int gr_level(TlsfSpec *spec) {
   do {                                                                         \
     const Node *_l = nullptr;                                                  \
     int _r = (classify_call);                                                  \
-    if (_r < 0)                                                                \
+    if (_r < 0 || arena_failed(spec->arena))                                   \
       return -1;                                                               \
     if (_r == 1) {                                                             \
       if ((is_sys) ? n_sys >= GR_CLAUSES : n_env >= GR_CLAUSES)                \
@@ -421,6 +425,8 @@ int gr_level(TlsfSpec *spec) {
     _stack[_sp++] = gnorm(spec->arena, (list).formulas[_i]);                   \
     while (_sp > 0) {                                                          \
       const Node *_n = _stack[--_sp];                                          \
+      if (!_n)                                                                 \
+        return -1;                                                             \
       if (_n->kind == NODE_AND) {                                              \
         if (_sp + 2 > 64)                                                      \
           return -1;                                                           \

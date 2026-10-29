@@ -166,13 +166,15 @@ bool conversion_collect_families(TlsfDecomposeIndexedFamily **families,
 
 char *conversion_render_ltl(const Node *root, LtlFormat fmt, bool finite,
                             bool lower) {
+  if (!root)
+    return nullptr;
   char *buf = nullptr;
   size_t len = 0;
   FILE *ms = open_memstream(&buf, &len);
   if (!ms)
     return nullptr;
-  print_ltl(ms, root, fmt, /*full_parens=*/false, finite, lower);
-  if (fclose(ms) != 0) {
+  bool ok = print_ltl(ms, root, fmt, /*full_parens=*/false, finite, lower);
+  if (fclose(ms) != 0 || !ok) {
     free(buf);
     return nullptr;
   }
@@ -253,7 +255,7 @@ bool conversion_prepare(TlsfSpec *spec, const char *semantics,
             "%s: semantics/target adaptation failed (OOM)\n", tool);
     return false;
   }
-  return true;
+  return !arena_failed(spec->arena);
 }
 
 static bool has_indexed_conjunction(const char *text) {
@@ -318,7 +320,8 @@ static bool collect_spec_signals(TlsfConversionResult *result, TlsfSpec *spec) {
                                 &spec->assert_,   &spec->guarantee};
   for (size_t i = 0; i < sizeof lists / sizeof *lists; ++i)
     for (uint32_t j = 0; j < lists[i]->count; ++j) {
-      Node *nnf = to_nnf(spec->arena, lists[i]->formulas[j], true);
+      Node *nnf = to_nnf(spec->arena, lists[i]->formulas[j], true,
+                         semantics_is_finite(spec->info.semantics));
       if (!nnf)
         return false;
       conversion_intern_aps(&aps, nnf);
@@ -367,7 +370,7 @@ TlsfConversionResult *tlsf_convert(const char *text,
   if (!classified)
     goto fail;
   Node *root = build_spec_formula(spec, classified, PRINT_ALL);
-  if (!root)
+  if (!root || arena_failed(spec->arena))
     goto fail;
   result->preprocessed_ltl =
       conversion_render_ltl(root, LTL_FMT_LTLXBA, false, true);
@@ -375,7 +378,7 @@ TlsfConversionResult *tlsf_convert(const char *text,
       !result->effective_target || !result->preprocessed_ltl ||
       !conversion_collect_families(&result->indexed_families,
                                    &result->n_indexed_families, spec, true) ||
-      !collect_spec_signals(result, spec))
+      !collect_spec_signals(result, spec) || arena_failed(spec->arena))
     goto fail;
   spec_free(spec);
   return result;

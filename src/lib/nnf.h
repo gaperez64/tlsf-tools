@@ -12,7 +12,7 @@
 ///       ¬(φ W ψ) → (¬φ) M (¬ψ)
 ///       ¬(G φ)   → F (¬φ)
 ///       ¬(F φ)   → G (¬φ)
-///       ¬(X φ)   → X (¬φ)   [X commutes with negation]
+///       ¬(X φ)   → X[!] (¬φ) on finite words; X (¬φ) otherwise
 ///
 /// The transform allocates new nodes from the arena; the original nodes
 /// are not modified (they remain reachable from the arena but unreferenced).
@@ -24,6 +24,6 @@
 /// Convert `n` to negation normal form.
 /// `polarity` is true for positive context, false for negative.
 /// Callers should pass polarity=true for a top-level formula.
-[[nodiscard]] Node *to_nnf(Arena *a, Node *n, bool polarity);
+[[nodiscard]] Node *to_nnf(Arena *a, Node *n, bool polarity, bool finite);
 
 #endif // TLSF_NNF_H

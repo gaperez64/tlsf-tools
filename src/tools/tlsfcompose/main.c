@@ -186,11 +186,11 @@ static size_t formula_bytes(const Node *root, LtlFormat fmt, bool finite) {
   FILE *ms = open_memstream(&buf, &len);
   if (!ms)
     return 0;
-  print_ltl(ms, root, fmt, /*full_parens=*/false, finite,
-            /*lower_atoms=*/false);
-  fclose(ms);
+  bool ok = print_ltl(ms, root, fmt, /*full_parens=*/false, finite,
+                      /*lower_atoms=*/false);
+  ok &= fclose(ms) == 0;
   free(buf);
-  return len;
+  return ok ? len : 0;
 }
 
 static void output_free_route(TlsfSpec *spec, const Node *root,
@@ -276,9 +276,13 @@ static bool compute_route_policy_stats(TlsfSpec *spec, ConstraintCover *cov,
       return false;
     }
     Node *root = section_pattern_to_ltl(&view, true, true);
-    if (finite)
+    if (root && finite)
       root = apply_rewrites(spec->arena, root,
                             RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
+    if (!root || arena_failed(spec->arena)) {
+      fprintf(stderr, "tlsfcompose: objective assembly failed (OOM)\n");
+      return false;
+    }
     ComposeRoute route;
     if (output_free)
       output_free_route(spec, root, &route);
@@ -286,6 +290,10 @@ static bool compute_route_policy_stats(TlsfSpec *spec, ConstraintCover *cov,
       (void)compose_route_select_sections(spec, root, &view, finite, bound_k,
                                           &route);
 
+    if (arena_failed(spec->arena)) {
+      fprintf(stderr, "tlsfcompose: objective assembly failed (OOM)\n");
+      return false;
+    }
     route_policy_stats_add(stats, &route, ast_node_count(root),
                            count_seen_aps(cov, seen, AP_FLAG_OUTPUT));
   }
@@ -331,9 +339,13 @@ static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
       return false;
     }
     Node *root = section_pattern_to_ltl(&view, true, true);
-    if (finite)
+    if (root && finite)
       root = apply_rewrites(spec->arena, root,
                             RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
+    if (!root || arena_failed(spec->arena)) {
+      fprintf(stderr, "tlsfcompose: objective assembly failed (OOM)\n");
+      return false;
+    }
     ComposeRoute route;
     if (output_free)
       output_free_route(spec, root, &route);
@@ -341,6 +353,10 @@ static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
       (void)compose_route_select_sections(spec, root, &view, finite, bound_k,
                                           &route);
       apply_preprocess_policy(&route, policy, policy_stats);
+    }
+    if (arena_failed(spec->arena)) {
+      fprintf(stderr, "tlsfcompose: objective assembly failed (OOM)\n");
+      return false;
     }
     char reason[192];
     LivenessSummary live = liveness_classify(root);
@@ -409,6 +425,11 @@ static TlsfDecomposeFormat decompose_format_from_ltl(LtlFormat fmt) {
                             : TLSF_DECOMPOSE_FORMAT_LTLXBA;
 }
 
+static bool finish_output(FILE *out, bool close_file) {
+  bool failed = ferror(out);
+  return (close_file ? fclose(out) : fflush(out)) == 0 && !failed;
+}
+
 static int merge_aiger_files(char *const *files, uint32_t count,
                              const char *output_file) {
   if (count == 0) {
@@ -447,8 +468,8 @@ static int merge_aiger_files(char *const *files, uint32_t count,
       rc = 1;
     } else {
       aig_write_aag(out, merged);
-      if (output_file)
-        fclose(out);
+      if (!finish_output(out, output_file != nullptr))
+        rc = 1;
     }
   }
   aig_free(merged);
@@ -537,13 +558,21 @@ static bool emit_oxidd_cluster_aiger(const char *out_dir, uint32_t k,
     return false;
   }
   Node *root = section_pattern_to_ltl(&view, true, true);
-  if (finite)
+  if (root && finite)
     root = apply_rewrites(spec->arena, root,
                           RW_NO_WEAK_UNTIL | RW_NO_STRONG_RELEASE);
+  if (!root || arena_failed(spec->arena)) {
+    fprintf(stderr, "tlsfcompose: objective assembly failed (OOM)\n");
+    return false;
+  }
 
   ComposeRoute route;
   (void)compose_route_select_sections(spec, root, &view, finite, bound_k,
                                       &route);
+  if (arena_failed(spec->arena)) {
+    fprintf(stderr, "tlsfcompose: objective assembly failed (OOM)\n");
+    return false;
+  }
   apply_preprocess_policy(&route, policy, policy_stats);
   if (!route.uses_oxidd)
     return true;
@@ -576,8 +605,10 @@ static bool emit_oxidd_cluster_aiger(const char *out_dir, uint32_t k,
     return false;
   }
   aig_write_aag(af, sub);
-  fclose(af);
+  bool ok = finish_output(af, true);
   aig_free(sub);
+  if (!ok)
+    return false;
   *solved = true;
   if (backend_label)
     *backend_label = backend ? backend : "OxiDD";
@@ -663,7 +694,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--overwrite-target") == 0) {
       ot_arg = NEED_ARG();
     } else if (strcmp(a, "--param") == 0) {
-      const char *v = NEED_ARG();
+      char *v = NEED_ARG();
       if (n_overrides >= 64) {
         fprintf(stderr, "tlsfcompose: too many --param overrides\n");
         return 1;
@@ -755,8 +786,6 @@ int main(int argc, char *argv[]) {
     spec_free(spec);
     return 1;
   }
-  for (size_t i = 0; i < n_overrides; i++)
-    free((void *)overrides[i].name);
   if (lowercase && !spec_validate_lowercase_signals(spec, "tlsfcompose")) {
     spec_free(spec);
     return 1;
@@ -897,8 +926,8 @@ int main(int argc, char *argv[]) {
                : 1;
     free(seen);
     residual_plan_free(rplan);
-    if (output_file)
-      fclose(out);
+    if (!finish_output(out, output_file != nullptr))
+      rc = 1;
     csnf_composition_free(comp);
     csnf_free(csnf);
     spec_free(spec);
@@ -937,11 +966,11 @@ int main(int argc, char *argv[]) {
     fputs("ctl ", dst);
     fputs_maybe_lower(dst, oname, lowercase);
     fputs(" := ", dst);
-    print_ltl(dst, comp->elim[k].value, fmt, /*full_parens=*/false, finite,
-              /*lower_atoms=*/lowercase);
+    if (!print_ltl(dst, comp->elim[k].value, fmt, false, finite, lowercase))
+      rc = 1;
   }
-  if (ctlf)
-    fclose(ctlf);
+  if (ctlf && !finish_output(ctlf, true))
+    rc = 1;
 
   if (out_dir && rc == 0) {
     char path[4096];
@@ -955,7 +984,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsfcompose: cannot encode %s\n", path);
         rc = 1;
       }
-      fclose(caf);
+      if (!finish_output(caf, true))
+        rc = 1;
     }
   }
 
@@ -995,7 +1025,10 @@ int main(int argc, char *argv[]) {
       fprintf(cf, "\nc ins=");
       print_string_list(cf, cluster->inputs, cluster->n_inputs);
       fprintf(cf, "\n%s\n", cluster->ltl);
-      fclose(cf);
+      if (!finish_output(cf, true)) {
+        rc = 1;
+        break;
+      }
       bool oxidd_solved = false;
       const char *oxidd_backend = nullptr;
       if (!emit_oxidd_cluster_aiger(out_dir, k, spec, cov, rplan, finite,
@@ -1029,7 +1062,8 @@ int main(int argc, char *argv[]) {
   if (shf) {
     fprintf(shf, "[ \"$ok\" = 1 ] && echo \"SPEC REALIZABLE\" || echo \"SPEC "
                  "UNREALIZABLE\"\n");
-    fclose(shf);
+    if (!finish_output(shf, true))
+      rc = 1;
   }
   if (rc == 0)
     fprintf(out,
@@ -1041,10 +1075,10 @@ int main(int argc, char *argv[]) {
   tlsf_decompose_result_free(dres);
   free(seen);
   residual_plan_free(rplan);
+  if (!finish_output(out, output_file != nullptr))
+    rc = 1;
   if (rc)
     fprintf(stderr, "tlsfcompose: failed (OOM or I/O)\n");
-  if (output_file)
-    fclose(out);
   csnf_composition_free(comp);
   csnf_free(csnf);
   spec_free(spec);

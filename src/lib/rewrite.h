@@ -50,6 +50,7 @@ typedef enum RewriteFlags {
   RW_PULL_X_OUT = 1u << 10,
   RW_SIMPLIFY_WEAK = 1u << 11,
   RW_NO_STRONG_RELEASE = 1u << 12,
+  RW_FINITE = 1u << 13, ///< Use finite-word next semantics.
 
   /// `syfco -nd`: replace weak-until, finally and globally.
   RW_NO_DERIVED = RW_NO_WEAK_UNTIL | RW_NO_FINALLY | RW_NO_GLOBALLY,

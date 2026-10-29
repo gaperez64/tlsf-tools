@@ -1398,6 +1398,8 @@ static Env *build_param_env(TlsfSpec *spec) {
   Env *head = nullptr;
   for (uint16_t i = 0; i < spec->param_count; i++) {
     Env *e = ARENA_ALLOC(spec->arena, Env);
+    if (!e)
+      return nullptr;
     e->b.name = spec->params[i].name;
     e->b.value = spec->params[i].value;
     e->parent = head;
@@ -1632,6 +1634,8 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
     }
 
   Env *env = build_param_env(spec);
+  if (arena_failed(spec->arena))
+    return -1;
 
   // --- Phase 2: resolve bus declaration bounds. ---
   SignalDecl *sig_lists[2] = {spec->inputs, spec->outputs};
