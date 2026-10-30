@@ -50,6 +50,7 @@ lib_sources = files(
   'provenance.c',
   'recognize.c',
   'residual.c',
+  'residual_sat.cc',
   'residual_plan.c',
   'rewrite.c',
   'section_pattern.c',

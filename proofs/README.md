@@ -44,6 +44,14 @@ What is proved:
   environment entries. Environment entries use inputs only; each system
   entry's outputs belong to its key's class. A key without a system entry is
   trivially realizable, even when the environment is inconsistent.
+- `Pruning.lean` proves `prune_realizable` for infinite Mealy games, for both
+  ordinary and strict objectives. `Prunable isIn K D` requires environment
+  roles in D, input-only atoms in D, and no D atom in any K entry. `EnvSat D`
+  is an infinite witness for `Initial D && G Require D && Assume D`. A
+  residual strategy pins D inputs to that witness and replays the original
+  strategy; locality transfers all K obligations. Adding D is pointwise
+  weakening, including the strict safety obligation. No finite theorem is
+  claimed.
 - `Examples.lean` proves every requested game counterexample, guard rejection,
   finite next boundary and finite split failure. It also checks an accepted
   Boolean fixture in both equivalence orientations and a list order requiring
@@ -78,6 +86,13 @@ of every output in each system entry. `whole es` contains every entry;
 `cluster es k` retains every environment entry and the system entries at k.
 The theorem quantifies over all keys, including unused keys. No finite split
 claim is made: finite components can need incompatible ending positions.
+After this split, `prune_realizable` may be applied separately to each cluster.
+It compares the full cluster K ++ D against K. All kept entries, including
+PRESET, ASSERT and retained environment entries, participate in disjointness.
+`EnvSat` is a full-word witness; only its input atoms matter under `Prunable`.
+If D is inconsistent, `pruning_without_envSat_changes_verdict` exhibits a
+realizable full objective and an unrealizable pruned objective for either shape.
+
 When C collapses the decomposition to one cluster, keeping every entry gives
 the original game directly, including for finite and output-dependent cases (`collapsed_cluster`,
 `collapsed_cluster_realizable_fin`).
@@ -89,10 +104,12 @@ fixtures belong to `Tlsf.Examples`.
 
 | Issue | Obligation | Theorem or definition |
 | --- | --- | --- |
-| #79 | Keep every environment entry; split only disjoint system outputs | `Clustered`, `cluster`, `cluster_same_environment`, `clusters_realizable` |
+| #79 | First split with every environment entry and disjoint system outputs | `Clustered`, `cluster`, `cluster_same_environment`, `clusters_realizable` |
 | #79 | Compose strategies with independent histories | `replay_ignores_outputs`, `replay_history`, `product_plays`, `cluster_product` |
 | #79 | Empty system key is realizable | `empty_cluster_objective`, `empty_cluster_realizable` |
-| #79 | Inconsistent disjoint assumptions cannot be pruned | `recurrence_conflict`, `issue79_original`, `issue79_pruned` |
+| #79 | Prune input-only environment entries disjoint from all kept entries, given a joint infinite witness | `Prunable`, `EnvSat`, `prune_realizable` |
+| #79 | Pinned-input strategy is causal and its replay matches the original play | `pinStrategy`, `replay_pin_history`, `play_pinStrategy` |
+| #79 | Inconsistent disjoint assumptions can change the verdict in either shape | `recurrence_conflict`, `issue79_original`, `issue79_pruned`, `issue79_env_unsat`, `pruning_without_envSat_changes_verdict` |
 | #84 | No eliminated output occurs on the environment side | `Admissible.occurrences`, `normalize_environment`, `elim_backward` |
 | #84 | Original game wins by falsifying an output assumption; residual loses; guard rejects | `issue84_original`, `issue84_residual`, `issue84_rejected` |
 | #86 | PRESET and strict ASSERT uses require a covering definition | `covers`, `covers_trans`, `enabled_cover`, `normalize_kept` |
@@ -215,12 +232,14 @@ implementation or the other CSNF template families.
 | `src/lib/templates.c:299–360,501–516` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
 | `src/lib/templates.c:405–409,479–497` | `Admissible.occurrences`, `covers`, `covers_trans`; the composition guard checks every affected section and rejects environment-side definitions |
 | `src/lib/templates.c:517–543` | `Admissible.distinct`, `original`, `residual`; one chosen provider per output, defining entries dropped |
-| `src/lib/residual.c:16–25` | `substPass`, `substPasses`; instantiate `passes = ds.length + 1` |
+| `src/lib/residual.c:19–28` | `substPass`, `substPasses`; instantiate `passes = ds.length + 1` |
 | `src/lib/residual_plan.c:23–39` | `residual`, `residual_objective`; optional additional rewrites require separate semantic correctness |
-| `src/lib/residual.c:27–56,65–74` | `Formula.atoms`, `normalize_untouched`; support collection and unused-output declaration removal |
+| `src/lib/residual_plan.c:44–53,72–115` | Freeze the first pruned/retained view across routing, solving and export; cache allocation failure disables pruning for the plan |
+| `src/lib/residual.c:30–59,68–77` | `Formula.atoms`, `normalize_untouched`; support collection and unused-output declaration removal |
 | `src/lib/section_pattern.c:81–114,173–225` | `sectionFormula`, `objectiveFormula`, `objective_sat`; empty sections are true, all section conjuncts are included |
-| `src/lib/residual.c:76–107` | `cluster`, `cluster_same_environment`; every cluster retains every environment entry |
-| `src/lib/residual.c:125–230` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
+| `src/lib/residual.c:111–183,186–233` | `Prunable`, `EnvSat`, `prune_realizable`; the transitive cone includes all kept roles, asserts dropped input support/disjointness, and prunes only infinite ordinary/strict Mealy games after a positive joint check |
+| `src/lib/residual_sat.cc:17–49,53–86` | `EnvSat`; direct AST translation conjoins INITIALLY, globally wrapped REQUIRE, and ASSUMPTIONS; Spot nonemptiness is a trusted witness-existence answer; uncertainty keeps D |
+| `src/lib/residual.c:251–356` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
 | `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:75–86` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
 | `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:815–819` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
@@ -232,9 +251,10 @@ that reconstruction by the composed letter map satisfies every such equation;
 
 ## Trusted gap
 
-For CSNF decomposition, **only definition elimination and clustering are
-proved**. The other CSNF templates—Phase B Skolem values, registers, reaction
-and liveness schedulers—are guarded but unproved. The rewrite theorems above
+For CSNF decomposition, **definition elimination, clustering, and conditional
+assumption pruning (`prune_realizable`) are proved**. The other CSNF
+templates—Phase B Skolem values, registers, reaction and liveness schedulers—are
+guarded but unproved. The rewrite theorems above
 are separate formula-equivalence results, not proofs of these controllers.
 
 The kernel checks a mathematical port; it does not execute or verify the C
@@ -340,10 +360,21 @@ only the mapped decoder reconstruction may subsequently assign the eliminated
 output. The absent-signal locality/substitution results support this interface,
 but the declaration/filtering code is not verified here.
 
-Union-find and cluster-key construction must establish `Clustered`, and every
-cluster must keep every environment entry. If an environment entry mentions an
-output, or the semantics is finite, the C fallback must retain one full game,
-including input-only system constraints. The `clusters_realizable` theorem is
+Union-find and cluster-key construction must establish `Clustered`. The
+initial cluster contains every environment entry. Pruning then requires
+`Prunable` and `EnvSat` for the actual dropped set. **Spot's positive
+satisfiability answer is trusted**: Lean neither verifies Spot nor checks an
+accepting run. The C AST-to-Spot translation must denote exactly
+`Initial D && G Require D && Assume D`, using the substituted residual formulas.
+The optional check uses at most 128 source AST nodes and a 256-state/1024-edge
+translation budget; failure, exceptions, missing Spot headers, or an elapsed
+50 ms deadline retain D. Spot calls are synchronous, so the elapsed-time
+check discards overruns rather than preempting a call. Spot is currently a
+required Meson dependency; the helper has a conservative compile-time
+fallback if its translation headers are unavailable. Finite semantics and
+Moore semantics/targets never use pruning. If an environment entry mentions an
+output, or the semantics is finite, the C fallback must retain one game
+before this proved pruning, including input-only system constraints. The `clusters_realizable` theorem is
 for infinite words with input-only environment entries. `finite_split_fails`
 shows that independent finite winning prefixes cannot in general be combined.
 
@@ -373,7 +404,7 @@ lake build
 For sequential per-module diagnostics:
 
 ```sh
-for module in LTL Game Objective Passes Definition Cluster Examples Rewrites; do
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
   timeout 300 lake build "TlsfProofs.$module" || exit $?
 done

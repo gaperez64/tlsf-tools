@@ -1,6 +1,9 @@
 #include "residual.h"
 
 #include "rewrite.h"
+#include "residual_sat.h"
+
+#include <assert.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -73,18 +76,139 @@ void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
   }
 }
 
+// True if any AP occurring in `n` is set in `set` (length cov->aps.count).
+static bool residual_aps_hit(const Node *n, ConstraintCover *cov,
+                             const bool *set) {
+  switch (n->kind) {
+  case NODE_AP: {
+    int32_t i = ap_table_find(&cov->aps, n->name);
+    return i >= 0 && set[i];
+  }
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return residual_aps_hit(n->arg, cov, set);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_M:
+    return residual_aps_hit(n->lhs, cov, set) ||
+           residual_aps_hit(n->rhs, cov, set);
+  default:
+    return false;
+  }
+}
+
+// Close the cluster core transitively over the global environment pool. Only
+// input-only, disjoint entries are candidates for D. Output-dependent entries
+// are seeded into K, including when the conservative one-game fallback applies.
+static bool cluster_assumption_mask(TlsfSpec *spec, ConstraintCover *cov,
+                                    const Node **rf, const uint32_t *key,
+                                    uint32_t kk, uint32_t n, bool *include) {
+  uint32_t A = cov->aps.count;
+  bool *kept = calloc(A ? A : 1, sizeof(bool));
+  bool *atoms = calloc(A ? A : 1, sizeof(bool));
+  Arena *scratch = arena_new(4096);
+  if (!kept || !atoms || !scratch) {
+    free(kept);
+    free(atoms);
+    arena_free(scratch);
+    return false;
+  }
+  bool ok = false;
+  SectionPatternView dropped;
+  section_pattern_init(&dropped, scratch, spec);
+  for (uint32_t i = 0; i < n; i++) {
+    include[i] = false;
+    if (!rf[i] || (key[i] != kk && key[i] != UINT32_MAX))
+      continue;
+    memset(atoms, 0, A);
+    residual_collect_aps(rf[i], cov, atoms);
+    bool input_only = true;
+    for (uint32_t a = 0; a < A; a++)
+      if (atoms[a] && !residual_signal_matches(cov, a, AP_FLAG_INPUT))
+        input_only = false;
+    if (key[i] == kk || !cov->items[i].assumption_side || !input_only) {
+      include[i] = true;
+      residual_collect_aps(rf[i], cov, kept);
+    }
+  }
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (uint32_t i = 0; i < n; i++) {
+      if (!rf[i] || include[i] || key[i] != UINT32_MAX ||
+          !residual_aps_hit(rf[i], cov, kept))
+        continue;
+      include[i] = true;
+      changed = true;
+      residual_collect_aps(rf[i], cov, kept);
+    }
+  }
+  for (uint32_t i = 0; i < n; i++) {
+    if (!rf[i] || include[i] || key[i] != UINT32_MAX)
+      continue;
+    Role r = cov->items[i].role;
+    bool environment = r == TLSF_ROLE_INITIALLY || r == TLSF_ROLE_REQUIRE ||
+                       r == TLSF_ROLE_ASSUME;
+    assert(environment && cov->items[i].assumption_side);
+    if (!environment || !cov->items[i].assumption_side)
+      goto done;
+    memset(atoms, 0, A);
+    residual_collect_aps(rf[i], cov, atoms);
+    for (uint32_t a = 0; a < A; a++) {
+      if (!atoms[a])
+        continue;
+      bool independent = residual_signal_matches(cov, a, AP_FLAG_INPUT) &&
+                         !kept[a];
+      assert(independent); // Prunable.inputs and Prunable.disjoint
+      if (!independent)
+        goto done;
+    }
+    if (!section_pattern_add(&dropped, r, (Node *)rf[i], FCLASS_SAFETY))
+      goto done;
+  }
+  // Empty D needs no solver; uncertainty always falls back to keeping D.
+  ok = !dropped.count || residual_env_satisfiable(&dropped);
+done:
+  arena_free(scratch);
+  free(atoms);
+  free(kept);
+  return ok;
+}
+
 bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
                                  const Node **rf, const uint32_t *key,
                                  uint32_t kk, bool all, bool prune, uint32_t n,
                                  bool *seen, SectionPatternView *view) {
   section_pattern_init(view, spec->arena, spec);
   memset(seen, 0, cov->aps.count ? cov->aps.count : 1);
+  bool *include = nullptr;
+  // prune_realizable covers infinite input-first Mealy games, with both
+  // ordinary and strict section objectives. No finite or Moore claim is used.
+  if (!all && prune && !semantics_is_finite(spec->info.semantics) &&
+      !semantics_is_moore(spec->info.semantics) &&
+      spec->info.target == TARGET_MEALY) {
+    include = malloc((n ? n : 1) * sizeof(bool));
+    if (include && !cluster_assumption_mask(spec, cov, rf, key, kk, n, include)) {
+      free(include);
+      include = nullptr;
+    }
+  }
   for (uint32_t i = 0; i < n; i++) {
     if (!rf[i])
       continue;
     bool inc;
     if (all)
       inc = true;
+    else if (include)
+      inc = include[i];
     else if (!prune)
       // Output-free realizability check: the key==kk guarantees plus *every*
       // assumption (not just key==UINT32_MAX ones).  A coupling assumption like
@@ -100,9 +224,11 @@ bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
     residual_collect_aps(rf[i], cov, seen);
     if (!section_pattern_add_classified(view, cov->items[i].role,
                                         (Node *)rf[i])) {
+      free(include);
       return false;
     }
   }
+  free(include);
   return true;
 }
 
