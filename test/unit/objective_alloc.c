@@ -24,7 +24,7 @@
 
 static size_t fail_at, allocations, match_size;
 static bool armed, fired, fail_slab, assembly_only;
-static bool rewrite_only, cover_only;
+static bool rewrite_only, cover_only, composition_only;
 static bool slab_at_assembly;
 static bool heap_after_assembly, heap_armed;
 static size_t heap_at, heap_count;
@@ -197,12 +197,23 @@ ConstraintCover *__wrap_cover_build(TlsfSpec *spec, bool split) {
   return cov;
 }
 
+CsnfComposition *__real_csnf_compose(const Csnf *);
+CsnfComposition *__wrap_csnf_compose(const Csnf *);
+CsnfComposition *__wrap_csnf_compose(const Csnf *c) {
+  if (composition_only)
+    heap_armed = true;
+  CsnfComposition *r = __real_csnf_compose(c);
+  if (composition_only)
+    heap_armed = false;
+  return r;
+}
+
 static void reset(size_t nth) {
   fail_at = nth;
   allocations = match_size = 0;
   armed = true;
   fired = fail_slab = assembly_only = slab_at_assembly = false;
-  rewrite_only = cover_only = false;
+  rewrite_only = cover_only = composition_only = false;
   heap_after_assembly = heap_armed = false;
   heap_at = heap_count = 0;
   stream_armed = false;
@@ -554,6 +565,58 @@ static void cover_checks(const char *source) {
   }
 }
 
+static void composition_sweep(const char *source, uint32_t accepted,
+                              uint32_t residual, uint32_t conflicts,
+                              uint32_t eliminated) {
+  size_t count = 0;
+  for (size_t n = 0; n <= count + 1; ++n) {
+    reset(0);
+    composition_only = true;
+    heap_at = n;
+    FILE *in = fmemopen((void *)source, strlen(source), "r");
+    CHECK(in);
+    TlsfPipelineError error = {0};
+    TlsfPipelineOptions opts = {
+        .certify = true, .template_mask = TPL_ALL, .error = &error};
+    TlsfPipeline *p = tlsf_pipeline_load(in, &opts);
+    fclose(in);
+    if (n == 0 || n == count + 1) {
+      CHECK(!fired && p && error.status == TLSF_PIPELINE_OK);
+      CsnfComposition *c = p->composition;
+      CHECK(c->naccepted == accepted && c->nresidual == residual);
+      CHECK(c->nconflicts == conflicts && c->nelim == eliminated);
+      CHECK(c->nowned_outputs == eliminated && !c->may_strengthen);
+      CHECK(c->fully_solved == (residual == 0));
+      CHECK(c->neliminated == p->cover->count - residual);
+      if (n == 0) {
+        count = heap_count;
+        CHECK(count >= 12);
+      }
+      tlsf_pipeline_free(p);
+      continue;
+    }
+    if (!fired || p)
+      fprintf(stderr, "composition n=%zu/%zu, result=%p\n", n, count,
+              (void *)p);
+    CHECK(fired && !p && error.status == TLSF_PIPELINE_LIMIT);
+    CHECK(!strcmp(error.stage, "compose"));
+    CHECK(strstr(error.message, "out of memory"));
+    reset(0);
+    composition_only = true;
+    heap_at = n;
+    TlsfAst *ast = tlsf_ast_from_string(source, nullptr);
+    CHECK(fired && !ast && !tlsf_ast_root(ast));
+    tlsf_ast_free(ast);
+    reset(0);
+    composition_only = true;
+    heap_at = n;
+    TlsfDecomposeResult *r = tlsf_decompose_string(source, nullptr);
+    CHECK(fired && !r);
+    tlsf_decompose_result_free(r);
+  }
+  printf("composition allocation sweep: %zu failures rejected\n", count);
+}
+
 static void rewrite_checks(void) {
   const char *source =
       "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
@@ -654,6 +717,15 @@ static void intern_sweeps(void) {
 }
 
 int main(void) {
+  composition_sweep("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
+                    "INPUTS { q; } OUTPUTS { p; } GUARANTEES { G(p <-> q); } }",
+                    1, 0, 0, 1);
+  composition_sweep(
+      "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { a; b; q; } "
+      "OUTPUTS { p; o1; o2; o3; o4; } GUARANTEES { G(p <-> q); "
+      "G(o1 <-> (a && o2)); G(o2 <-> (b && o1)); "
+      "G(o3 <-> (a && o4)); G(o4 <-> (b && o3)); F(p && o1 && o3); } }",
+      3, 3, 2, 3);
   arena_checks();
   stream_checks();
   csnf_stream_checks();

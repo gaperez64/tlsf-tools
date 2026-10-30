@@ -29,6 +29,45 @@ uint32_t __wrap_residual_cluster_keys(ConstraintCover *cov, const Node **rf,
   armed = false;
   return count;
 }
+#elif defined(COMPOSITION_FAULT)
+#include "tlsf/templates.h"
+
+// Ignore unrelated Rayon worker allocations while csnf_compose is running.
+static _Thread_local bool composing;
+static size_t fail_at, count;
+static bool composition_fault(void) {
+  if (!composing || ++count != fail_at)
+    return false;
+  fprintf(stderr, "injected composition allocation failure %zu\n", count);
+  return true;
+}
+void *__real_malloc(size_t);
+void *__wrap_malloc(size_t);
+void *__wrap_malloc(size_t n) {
+  return composition_fault() ? nullptr : __real_malloc(n);
+}
+void *__real_calloc(size_t, size_t);
+void *__wrap_calloc(size_t, size_t);
+void *__wrap_calloc(size_t n, size_t size) {
+  return composition_fault() ? nullptr : __real_calloc(n, size);
+}
+void *__real_realloc(void *, size_t);
+void *__wrap_realloc(void *, size_t);
+void *__wrap_realloc(void *p, size_t n) {
+  return composition_fault() ? nullptr : __real_realloc(p, n);
+}
+CsnfComposition *__real_csnf_compose(const Csnf *);
+CsnfComposition *__wrap_csnf_compose(const Csnf *);
+CsnfComposition *__wrap_csnf_compose(const Csnf *c) {
+  const char *nth = getenv("TLSF_TEST_COMPOSITION_ALLOC");
+  fail_at = nth ? strtoul(nth, nullptr, 10) : 0;
+  count = 0;
+  composing = true;
+  CsnfComposition *r = __real_csnf_compose(c);
+  composing = false;
+  fprintf(stderr, "composition allocations: %zu\n", count);
+  return r;
+}
 #else
 #include "tlsf/templates.h"
 
