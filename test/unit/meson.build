@@ -10,7 +10,7 @@ objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
               '-Wl,--wrap=calloc', '-Wl,--wrap=realloc',
               '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
               '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
-              '-Wl,--wrap=cover_build'],
+              '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
   dependencies: tool_dep)
 test('objective_alloc', objective_alloc_exe)
 
@@ -25,6 +25,12 @@ if research_tools
     link_args: ['-Wl,--wrap=csnf_emit_lines', '-Wl,--wrap=csnf_emit_text',
                 '-Wl,--wrap=open_memstream'],
     dependencies: tool_dep)
+  composition_fault = executable('composition-fault', 'research_fault.c',
+    tools['tlsfcompose']['sources'],
+    c_args: ['-DCOMPOSITION_FAULT'],
+    link_args: ['-Wl,--wrap=csnf_compose', '-Wl,--wrap=malloc',
+                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+    dependencies: tools['tlsfcompose']['dependencies'])
 endif
 
 # Header-only: the SIMD kernels in src/lib/simd.h.

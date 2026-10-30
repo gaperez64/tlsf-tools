@@ -317,6 +317,11 @@ endif
 if research_tools
 if python3.found()
   research_failures = files('check_research_failures.py')
+  foreach name : ['composition_alloc', 'compose_cycle']
+    test('composition_alloc_failure_' + name, python3,
+      args: [research_failures, 'composition', exe['tlsfcompose'],
+             files(cases / name + '.tlsf'), composition_fault])
+  endforeach
   test('residual_cluster_alloc_failure', python3,
     args: [research_failures, 'cluster', exe['tlsfresidual'],
            files(cases / 'residual_false.tlsf'), residual_fault])
