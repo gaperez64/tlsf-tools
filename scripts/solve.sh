@@ -84,7 +84,8 @@ else
   mkdir -p "$work_dir"
 fi
 rm -f "$work_dir"/cluster.*.aag "$work_dir"/cluster.*.formula \
-      "$work_dir"/cluster.*.ltl "$work_dir"/compose.sh \
+      "$work_dir"/cluster.*.ltl "$work_dir"/cluster.*.mealy \
+      "$work_dir"/cluster.*.spot "$work_dir"/compose.sh \
       "$work_dir"/controllers.aag "$work_dir"/controllers.txt \
       "$work_dir"/plan.txt
 
@@ -108,6 +109,15 @@ if [ "$lowercase" -eq 1 ]; then
 fi
 "$tlsfcompose" "${decompose_args[@]}" "$spec" > "$work_dir/plan.txt"
 
+# compose.sh can decide finite and Moore games, but this wrapper also exports
+# and merges controllers. Neither finite termination nor reconstruction of a
+# Moore controller from the input-delay encoding is implemented here. Decline
+# before passing any residual to either external backend under wrong semantics.
+if ! grep -qx '# Game: infinite Mealy' "$work_dir/compose.sh"; then
+  echo "solve.sh: controller export supports only infinite-word Mealy targets; finite games and Moore targets are unsupported" >&2
+  exit 2
+fi
+
 cluster_aags=()
 shopt -s nullglob
 for cluster in "$work_dir"/cluster.*.ltl; do
@@ -117,7 +127,8 @@ for cluster in "$work_dir"/cluster.*.ltl; do
   ins=$(sed -n 's/^c ins=//p' "$cluster")
   outs=$(sed -n 's/^c outs=//p' "$cluster")
   formula="$work_dir/cluster.$id.formula"
-  grep -v '^c ' "$cluster" > "$formula"
+  # Strip compose's metadata only: a line such as "c -> p" is a formula.
+  sed '/^c ins=/d; /^c outs=/d' "$cluster" > "$formula"
   aag="$work_dir/cluster.$id.aag"
 
   if [ -f "$aag" ]; then

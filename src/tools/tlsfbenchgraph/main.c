@@ -10,6 +10,7 @@
 #include "cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
+#include "tlsf/pipeline.h"
 #include "nnf.h"
 #include "tlsf/normalize.h"
 #include "recognize.h"
@@ -328,7 +329,8 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
     spec_free(spec);
     return m;
   }
-  ConstraintCover *cov = cover_build(spec, split);
+  ConstraintCover *cov = tlsf_pipeline_build_cover(
+      spec, &(TlsfPipelineOptions){.split = split, .tool_name = "tlsfbenchgraph"});
   if (!cov) {
     spec_free(spec);
     return m;
@@ -342,7 +344,7 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
     m.ok = true;
     for (uint32_t i = 0; i < cov->aps.count; i++) {
       uint8_t f = ap_table_flags(&cov->aps, i);
-      m.inputs += (f & AP_FLAG_INPUT) != 0;
+      m.inputs += (f & AP_FLAG_INPUT) != 0 || f == 0;
       m.outputs += (f & AP_FLAG_OUTPUT) != 0;
     }
     for (uint32_t i = 0; i < cov->count; i++)
@@ -355,7 +357,7 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
   m.ok = true;
   for (uint32_t i = 0; i < cov->aps.count; i++) {
     uint8_t f = ap_table_flags(&cov->aps, i);
-    m.inputs += (f & AP_FLAG_INPUT) != 0;
+    m.inputs += (f & AP_FLAG_INPUT) != 0 || f == 0;
     m.outputs += (f & AP_FLAG_OUTPUT) != 0;
   }
   m.constraints = cov->count;

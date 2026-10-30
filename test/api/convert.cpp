@@ -52,4 +52,23 @@ MAIN { INPUTS { A; unused_i; } OUTPUTS { B; unused_o; }
   assert(tlsf_ast_node_kind(tlsf_ast_root(retained.get())) == TLSF_AST_G);
   tlsf_conversion_result_free(nullptr);
   assert(!tlsf_convert(nullptr, "Mealy"));
+  // tlsf_convert always lowercases, including the returned AST. Implicit
+  // atoms must not merge with each other or a declared input/output.
+  for (const char *semantics : {"Mealy", "Moore", "Mealy,Strict", "Moore,Strict"})
+    for (const char *declaration : {"", "INPUTS { q; }", "OUTPUTS { q; }"})
+      for (const char *role : {"INITIALLY", "PRESET", "REQUIRE", "ASSERT",
+                               "ASSUMPTIONS", "GUARANTEES"}) {
+        const std::string source = "INFO { SEMANTICS: " + std::string(semantics) +
+            " TARGET: Mealy } MAIN { " + declaration + " " + role +
+            " { q <-> Q; } }";
+        assert(!tlsf_convert(source.c_str(), "Mealy"));
+      }
+  for (const char *semantics : {"Moore", "Moore,Strict"}) {
+    const std::string source = "INFO { SEMANTICS: " + std::string(semantics) +
+        " TARGET: Mealy } MAIN { OUTPUTS { p; } GUARANTEES { G(p <-> u); } }";
+    const auto implicit = tlsf::convert(source, "Mealy");
+    assert(implicit.inputs == std::vector<std::string>({"u"}));
+    assert(implicit.outputs == std::vector<std::string>({"p"}));
+    assert(implicit.preprocessed_ltl == "G (p <-> X u)");
+  }
 }

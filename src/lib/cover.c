@@ -40,7 +40,7 @@ static void collect(Constraint *c, const ApTable *t, const Node *n, bool neg,
     if (idx < 0)
       return;
     uint8_t f = ap_table_flags(t, (uint32_t)idx);
-    if (f & AP_FLAG_INPUT)
+    if ((f & AP_FLAG_INPUT) || f == 0)
       apset_set(&c->inputs, (uint32_t)idx);
     if (f & AP_FLAG_OUTPUT) {
       apset_set(&c->outputs, (uint32_t)idx);

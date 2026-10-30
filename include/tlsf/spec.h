@@ -285,7 +285,8 @@ void spec_free(TlsfSpec *s);
 
 /// Validate an explicitly requested lowercase export.  TLSF identifiers are
 /// case-sensitive, so reject exports that would merge two distinct expanded
-/// signals.  Prints a diagnostic prefixed with `prog` on collision.
+/// signals, including implicit atoms in every section and unused declarations.
+/// Prints a diagnostic prefixed with `prog` on collision or allocation failure.
 [[nodiscard]] bool spec_validate_lowercase_signals(const TlsfSpec *s,
                                                    const char *prog);
 
@@ -297,8 +298,15 @@ void spec_free(TlsfSpec *s);
                                               const char *prog);
 
 /// Adapt an expanded specification when its SEMANTICS and TARGET timing
-/// frames differ.  Moore-to-Mealy delays inputs; Mealy-to-Moore delays
-/// outputs.  Returns false on allocation failure.
+/// frames differ.  Moore-to-Mealy delays all non-output atoms (including
+/// implicit environment inputs); Mealy-to-Moore delays
+/// outputs. Returns false on allocation failure or an unsupported finite
+/// timing change. Call spec_validate_target_adaptation for its diagnostic.
 [[nodiscard]] bool spec_adapt_target(TlsfSpec *s);
+
+/// Refuse finite timing changes, whose terminal next obligations are not
+/// preserved by the infinite-word delay transform. Prints a diagnostic.
+[[nodiscard]] bool spec_validate_target_adaptation(const TlsfSpec *s,
+                                                   const char *prog);
 
 #endif // TLSF_SPEC_H

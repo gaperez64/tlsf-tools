@@ -66,6 +66,11 @@ typedef enum PrintMode {
 [[nodiscard]] bool print_ltl(FILE *out, const Node *root, LtlFormat fmt,
                              bool full_parens, bool finite, bool lower_atoms);
 
+/// Print Spot input with quoted atoms, preserving names such as Grant (which
+/// Spot otherwise reads as G rant). Includes a trailing newline.
+[[nodiscard]] bool print_spot_ltl(FILE *out, const Node *root, bool finite,
+                                  bool lower_atoms);
+
 /// Convenience: assemble the spec formula (ltlxba dialect) and print it.
 /// Retained for callers that do not apply transforms.
 /// Returns false on assembly or write failure.

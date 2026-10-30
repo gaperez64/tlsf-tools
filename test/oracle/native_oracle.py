@@ -92,7 +92,7 @@ setup_args = ["--reconfigure"] if (REFERENCE / "meson-private").exists() else []
 command("meson", "setup", str(REFERENCE), str(SOURCE), *setup_args,
         "-Doxidd=enabled", "-Dresearch_tools=true", "-Dcpp_std=c++20",
         "--wrap-mode=nodownload", timeout=300)
-command("meson", "compile", "-C", str(REFERENCE), "-j4",
+command("meson", "compile", "-C", str(REFERENCE), "-j1",
         "tlsf2tlsf", "tlsfsolve", "tlsfcertcheck", timeout=900)
 
 cases = ROOT / "test" / "fixtures" / "cases"

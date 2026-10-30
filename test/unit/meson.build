@@ -28,6 +28,8 @@ objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
 test('objective_alloc', objective_alloc_exe)
 
 if research_tools
+  phase_b_probe = executable('phase_b_probe', 'phase_b_probe.c',
+    dependencies: tlsf_internal_dep)
   residual_fault = executable('residual-fault', 'research_fault.c',
     files('../../src/tools/tlsfresidual/main.c'),
     c_args: ['-DRESIDUAL_FAULT'],

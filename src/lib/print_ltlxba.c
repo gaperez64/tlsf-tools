@@ -378,3 +378,30 @@ bool print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
   return print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite,
                    /*lower_atoms=*/false);
 }
+
+static void atom_spot_name(Printer *out, const char *name, bool lower) {
+  put_char('"', out);
+  for (const char *p = name; *p; p++) {
+    if (*p == '"' || *p == '\\')
+      put_char('\\', out);
+    put_char(lower ? tolower((unsigned char)*p) : (unsigned char)*p, out);
+  }
+  put_char('"', out);
+}
+
+static void atom_spot(Printer *out, const char *name) {
+  atom_spot_name(out, name, false);
+}
+
+static void atom_spot_lower(Printer *out, const char *name) {
+  atom_spot_name(out, name, true);
+}
+
+bool print_spot_ltl(FILE *out, const Node *root, bool finite, bool lower_atoms) {
+  Printer p = {.file = out};
+  LtlSyntax s = SYNTAX_LTL;
+  s.emit_atom = lower_atoms ? atom_spot_lower : atom_spot;
+  emit(&p, root, 1, false, finite, &s);
+  put_char('\n', &p);
+  return !p.failed && !ferror(p.file);
+}

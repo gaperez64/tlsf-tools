@@ -114,6 +114,14 @@ static bool guard_pairs_exclusive(ConstraintCover *cov, const Node **pos,
   return true;
 }
 
+// Controller guards are evaluated on the current letter, never on the future.
+static bool guards_are_boolean(const Node **guards, uint32_t count) {
+  for (uint32_t i = 0; i < count; i++)
+    if (ast_has_temporal(guards[i]))
+      return false;
+  return true;
+}
+
 // Parse G(alpha -> X o) / G(alpha -> X !o) (also X[!]); returns guard, output
 // index, sign, and whether the next operator is strong.
 static bool parse_guarded_next(ConstraintCover *cov, const Constraint *c,
@@ -209,46 +217,46 @@ static bool has_cand(const Constraint *c, const char *name) {
   return false;
 }
 
-// True if output `o` appears in no constraint outside the given block.  This is
-// the "free output" side condition: when it holds, a controller for `o` cannot
-// violate any other constraint, so the block can be solved in isolation.
+// True if output `o` occurs only in system constraints of the given block.
+// Environment reads (INITIALLY / REQUIRE / ASSUMPTIONS) always reject, even
+// inside the block: fixing o could prevent the system from falsifying them.
+// Every outside use counts, including unconditional PRESET and strict ASSERT
+// obligations (#86); non-definition values cannot be substituted into them.
 static bool output_is_free(ConstraintCover *cov, const uint32_t *block_ids,
                            uint32_t nblk, uint32_t o) {
+  if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT))
+    return false;
   for (uint32_t i = 0; i < cov->count; i++) {
+    if (!apset_test(&cov->items[i].outputs, o))
+      continue;
+    if (cov->items[i].assumption_side)
+      return false;
     bool inblk = false;
     for (uint32_t k = 0; k < nblk; k++)
       if (block_ids[k] == i)
         inblk = true;
-    if (inblk)
-      continue;
-    if (apset_test(&cov->items[i].outputs, o))
+    if (!inblk)
       return false;
   }
   return true;
 }
 
-// True if `n` mentions a next operator (decoder/assignment causality check).
-static bool has_next(const Node *n) {
-  switch (n->kind) {
-  case NODE_X:
-  case NODE_X_STRONG:
-    return true;
-  case NODE_NOT:
-  case NODE_F:
-  case NODE_G:
-    return has_next(n->arg);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_U:
-  case NODE_R:
-  case NODE_W:
-  case NODE_M:
-    return has_next(n->lhs) || has_next(n->rhs);
-  default:
-    return false;
+// A scheduler discharges the entire mutex, including unscheduled members.
+// Check controllability of every member and ownership of every output in all
+// block constraints, rather than just the recurrence/response targets.
+static bool scheduler_outputs_are_free(ConstraintCover *cov,
+                                       const uint32_t *ids, uint32_t count) {
+  for (uint32_t k = 0; k < count; k++) {
+    Constraint *cc = &cov->items[ids[k]];
+    const TemplateCandidate *mx =
+        constraint_find_candidate_payload(cov, cc, CAND_MUTEX);
+    for (uint32_t o = 0; o < cov->aps.count; o++)
+      if ((apset_test(&cc->outputs, o) ||
+           (mx && apset_test(&mx->u.mutex.members, o))) &&
+          !output_is_free(cov, ids, count, o))
+        return false;
   }
+  return true;
 }
 
 // Parse G(alpha -> o) / G(alpha -> !o); returns guard, output index, sign.
@@ -339,25 +347,9 @@ void certify_round_robin(Csnf *c, unsigned want, bool certify) {
         outs[no++] = rec_output;
     }
 
-    // Side condition: those outputs occur in no constraint outside the block.
-    bool disjoint = true;
-    if (certify) {
-      for (uint32_t i = 0; i < cov->count && disjoint; i++) {
-        bool inblk = false;
-        for (uint32_t k = 0; k < tb->count; k++)
-          if (tb->constraint_ids[k] == i)
-            inblk = true;
-        if (inblk)
-          continue;
-        for (uint32_t j = 0; j < no; j++)
-          if (apset_test(&cov->items[i].outputs, (uint32_t)outs[j])) {
-            disjoint = false;
-            break;
-          }
-      }
-    }
-
-    if (certify && disjoint) {
+    // At a finite ending GF forces every scheduled output true at once.
+    if (certify && !semantics_is_finite(cov->spec->info.semantics) &&
+        scheduler_outputs_are_free(cov, tb->constraint_ids, tb->count)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "round_robin_scheduler";
       blk->cyc_outputs = outs;
@@ -398,11 +390,11 @@ void certify_definition(Csnf *c, unsigned want, bool certify) {
     blk->cids = malloc(sizeof(uint32_t));
     blk->cids[0] = i;
     blk->ncids = 1;
-    // Sound iff Mealy, combinational (theta has no X), and acyclic (o not in
-    // theta).  Unlike the constant controllers, a decoder sets o to its defined
-    // value, so other constraints that only *read* o are fine; only a separate
-    // constraint on o's value could conflict (see caveat in BENCHGRAPH.md).
-    if (certify && !moore && !has_next(theta) && !occurs_in(theta, oname)) {
+    // A causal Mealy decoder requires temporal-free theta and no self-reference
+    // (#91). Section coverage and inter-decoder acyclicity are checked by
+    // csnf_compose before substitution.
+    if (certify && !moore && !ast_has_temporal(theta) &&
+        !occurs_in(theta, oname)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "definition_decoder";
       blk->dec_output = def_output;
@@ -417,6 +409,11 @@ void certify_definition(Csnf *c, unsigned want, bool certify) {
   }
 }
 
+// All five next/register families below are conservatively left residual in
+// finite games, for both weak and strong next. The emitted registers model
+// transitions, without checking the final-position obligation of an equality
+// or toggle. This also declines the implication-only families, whose weak-next
+// terminal obligations would be vacuous.
 void certify_set_reset_register(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_SET_RESET))
     return;
@@ -431,7 +428,6 @@ void certify_set_reset_register(Csnf *c, unsigned want, bool certify) {
     const Node **sets = malloc(cov->count * sizeof(Node *));
     const Node **resets = malloc(cov->count * sizeof(Node *));
     uint32_t nid = 0, ns = 0, nr = 0;
-    bool strong_next_sound = true;
 
     for (uint32_t i = 0; i < cov->count; i++) {
       if (c->claimed[i] || !has_cand(&cov->items[i], "guarded-next-assignment"))
@@ -448,8 +444,6 @@ void certify_set_reset_register(Csnf *c, unsigned want, bool certify) {
         resets[nr++] = alpha;
       else
         sets[ns++] = alpha;
-      if (strong && semantics_is_finite(cov->spec->info.semantics))
-        strong_next_sound = false;
     }
 
     if (ns == 0 || nr == 0) {
@@ -482,7 +476,10 @@ void certify_set_reset_register(Csnf *c, unsigned want, bool certify) {
     blk->sr_nsets = ns;
     blk->sr_nresets = nr;
 
-    if (certify && exclusive && strong_next_sound) {
+    if (certify && exclusive && guards_are_boolean(sets, ns) &&
+        guards_are_boolean(resets, nr) &&
+        !semantics_is_finite(cov->spec->info.semantics) &&
+        output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "set_reset_register";
       for (uint32_t k = 0; k < nid; k++)
@@ -512,7 +509,6 @@ void certify_toggle_register(Csnf *c, unsigned want, bool certify) {
     uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
     const Node **triggers = malloc(cov->count * sizeof(Node *));
     uint32_t nid = 0, nt = 0;
-    bool strong_next_sound = true;
 
     for (uint32_t i = 0; i < cov->count; i++) {
       if (c->claimed[i] || !has_cand(&cov->items[i], "toggle-register"))
@@ -525,8 +521,6 @@ void certify_toggle_register(Csnf *c, unsigned want, bool certify) {
         continue;
       ids[nid++] = i;
       triggers[nt++] = trigger;
-      if (strong && semantics_is_finite(cov->spec->info.semantics))
-        strong_next_sound = false;
     }
 
     if (nid == 0) {
@@ -550,7 +544,9 @@ void certify_toggle_register(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->tog_guards, triggers, nt * sizeof(Node *));
     blk->tog_nguards = nt;
 
-    if (certify && strong_next_sound) {
+    if (certify && guards_are_boolean(triggers, nt) &&
+        !semantics_is_finite(cov->spec->info.semantics) &&
+        output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "toggle_register";
       for (uint32_t k = 0; k < nid; k++)
@@ -580,7 +576,6 @@ void certify_fixed_delay_response(Csnf *c, unsigned want, bool certify) {
     const Node **guards = malloc(cov->count * sizeof(Node *));
     uint32_t *steps = malloc(cov->count * sizeof(uint32_t));
     uint32_t nid = 0, nd = 0;
-    bool strong_next_sound = true;
 
     for (uint32_t i = 0; i < cov->count; i++) {
       if (c->claimed[i] || !has_cand(&cov->items[i], "fixed-delay-response"))
@@ -596,8 +591,6 @@ void certify_fixed_delay_response(Csnf *c, unsigned want, bool certify) {
       ids[nid++] = i;
       guards[nd] = guard;
       steps[nd++] = delay;
-      if (strong && semantics_is_finite(cov->spec->info.semantics))
-        strong_next_sound = false;
     }
 
     if (nid == 0) {
@@ -625,7 +618,9 @@ void certify_fixed_delay_response(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->fdelay_steps, steps, nd * sizeof(uint32_t));
     blk->fdelay_n = nd;
 
-    if (certify && strong_next_sound && output_is_free(cov, ids, nid, o)) {
+    if (certify && guards_are_boolean(guards, nd) &&
+        !semantics_is_finite(cov->spec->info.semantics) &&
+        output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "fixed_delay_response";
       for (uint32_t k = 0; k < nid; k++)
@@ -690,7 +685,6 @@ void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
     const Node **trues = malloc(cov->count * sizeof(Node *));
     const Node **falses = malloc(cov->count * sizeof(Node *));
     uint32_t nid = 0, nt = 0, nf = 0;
-    bool strong_next_sound = true;
     for (uint32_t i = 0; i < cov->count; i++) {
       if (c->claimed[i] || !has_cand(&cov->items[i], "guarded-next-assignment"))
         continue;
@@ -706,8 +700,6 @@ void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
         falses[nf++] = alpha;
       else
         trues[nt++] = alpha;
-      if (strong && semantics_is_finite(cov->spec->info.semantics))
-        strong_next_sound = false;
     }
     if (nid == 0) {
       free(ids);
@@ -735,7 +727,10 @@ void certify_guarded_next(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->cids, ids, nid * sizeof(uint32_t));
     blk->ncids = nid;
     blk->nsf_output = (int32_t)o;
-    if (certify && exclusive && strong_next_sound) {
+    if (certify && exclusive && guards_are_boolean(trues, nt) &&
+        guards_are_boolean(falses, nf) &&
+        !semantics_is_finite(cov->spec->info.semantics) &&
+        output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "guarded_assignment_consistency";
       blk->nsf_guards = malloc((nt ? nt : 1) * sizeof(Node *));
@@ -813,19 +808,17 @@ void certify_arbiter(Csnf *c, unsigned want, bool certify) {
       if (!resp || resp->target < 0)
         continue; // the mutex member
       grants[ng++] = resp->target;
-      if (resp->guard < 0 ||
+      if (!(ap_table_flags(&cov->aps, (uint32_t)resp->target) & AP_FLAG_OUTPUT) ||
+          resp->guard < 0 ||
           !(ap_table_flags(&cov->aps, (uint32_t)resp->guard) & AP_FLAG_INPUT))
         ok = false; // request is not a plain environment input
     }
-    if (certify && ok)
-      for (uint32_t j = 0; j < ng && ok; j++)
-        if (!output_is_free(cov, tb->constraint_ids, tb->count,
-                            (uint32_t)grants[j]))
-          ok = false;
 
     blk->arb_outputs = grants;
     blk->arb_n = ng;
-    if (certify && ok) {
+    // A final request can require all grants simultaneously in a finite word.
+    if (certify && ok && !semantics_is_finite(cov->spec->info.semantics) &&
+        scheduler_outputs_are_free(cov, tb->constraint_ids, tb->count)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "fair_arbiter";
       for (uint32_t k = 0; k < tb->count; k++)
@@ -854,11 +847,16 @@ void certify_response(Csnf *c, unsigned want, bool certify) {
       continue;
     uint32_t *ids = malloc(cov->count * sizeof(uint32_t));
     uint32_t nid = 0;
+    bool input_guards = true;
     for (uint32_t i = 0; i < cov->count; i++) {
       const ResponseCandidate *resp = response_candidate(cov, &cov->items[i]);
       if (!c->claimed[i] && has_cand(&cov->items[i], "response") && resp &&
-          resp->target == (int32_t)o)
+          resp->target == (int32_t)o) {
         ids[nid++] = i;
+        if (resp->guard < 0 ||
+            !(ap_table_flags(&cov->aps, (uint32_t)resp->guard) & AP_FLAG_INPUT))
+          input_guards = false;
+      }
     }
     if (nid == 0) {
       free(ids);
@@ -877,7 +875,7 @@ void certify_response(Csnf *c, unsigned want, bool certify) {
     // A fair server owns g (no closed-form value to substitute), so it composes
     // only when g is otherwise free; merging the requests on g first means a
     // shared resource is one server, not a self-collision.
-    if (certify && output_is_free(cov, ids, nid, o)) {
+    if (certify && input_guards && output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = nid > 1 ? "fair_server" : "response_controller";
       for (uint32_t k = 0; k < nid; k++)
@@ -902,10 +900,7 @@ void certify_response(Csnf *c, unsigned want, bool certify) {
 // direct support check.)
 static bool output_constrained_elsewhere(ConstraintCover *cov, uint32_t o,
                                          uint32_t self) {
-  for (uint32_t j = 0; j < cov->count; j++)
-    if (j != self && apset_test(&cov->items[j].outputs, o))
-      return true;
-  return false;
+  return !output_is_free(cov, &self, 1, o);
 }
 
 // Persistence FG o: a free controllable output is held true forever.
@@ -975,7 +970,7 @@ void certify_reachability(Csnf *c, unsigned want, bool certify) {
 // Immediate reaction G(a -> o) / G(b -> !o): combinational assignment
 // o := OR(true-guards), sound in Mealy semantics when every (true, false) guard
 // pair is provably exclusive.  The assigned output is eliminated by
-// substitution during composition, so other constraints may still read it.
+// substitution during composition, only when no other constraint reads it.
 void certify_reaction(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_REACTION))
     return;
@@ -989,6 +984,7 @@ void certify_reaction(Csnf *c, unsigned want, bool certify) {
     const Node **trues = malloc(cov->count * sizeof(Node *));
     const Node **falses = malloc(cov->count * sizeof(Node *));
     uint32_t nid = 0, nt = 0, nf = 0;
+    bool no_self_reference = true;
     for (uint32_t i = 0; i < cov->count; i++) {
       if (c->claimed[i] || !has_cand(&cov->items[i], "reaction"))
         continue;
@@ -998,6 +994,8 @@ void certify_reaction(Csnf *c, unsigned want, bool certify) {
       if (!parse_reaction(cov, &cov->items[i], &alpha, &out, &neg) ||
           (uint32_t)out != o)
         continue;
+      if (occurs_in(alpha, ap_table_name(&cov->aps, o)))
+        no_self_reference = false;
       ids[nid++] = i;
       if (neg)
         falses[nf++] = alpha;
@@ -1026,7 +1024,9 @@ void certify_reaction(Csnf *c, unsigned want, bool certify) {
     memcpy(blk->cids, ids, nid * sizeof(uint32_t));
     blk->ncids = nid;
     blk->asg_output = (int32_t)o;
-    if (certify && exclusive && !moore && output_is_free(cov, ids, nid, o)) {
+    if (certify && exclusive && !moore && no_self_reference &&
+        guards_are_boolean(trues, nt) &&
+        guards_are_boolean(falses, nf) && output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "reaction_consistency";
       blk->asg_guards = malloc((nt ? nt : 1) * sizeof(Node *));
@@ -1047,9 +1047,10 @@ void certify_reaction(Csnf *c, unsigned want, bool certify) {
 
 // Delayed definition G(X o <-> theta) (also X[!]): a register o' := theta.
 // theta is over the current step (it may reference o — a sequential, not
-// combinational, dependency), so it must be causal (no X) and o free outside
-// the block.  Under finite semantics, X[!] candidates are recognized but not
-// solved by this closed-form register template.
+// combinational, dependency), so theta must be temporal-free and o free outside
+// the block. Under finite semantics, both X and X[!] candidates remain
+// unsolved: at the final position their value is independent of o, so the
+// equality still constrains theta (true for weak next, false for strong next).
 void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
   if (want && !(want & TPL_DELAYED_DEF))
     return;
@@ -1060,8 +1061,6 @@ void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
     if (c->claimed[i] || !has_cand(cc, "delayed-definition") || ddef_output < 0)
       continue;
     const Node *eq = constraint_match_formula(cc)->arg; // G(<eq>)
-    bool strong =
-        eq->lhs->kind == NODE_X_STRONG || eq->rhs->kind == NODE_X_STRONG;
     const Node *theta = ast_is_next(eq->lhs->kind) ? eq->rhs : eq->lhs;
     uint32_t o = (uint32_t)ddef_output;
     Block *blk = new_block(c);
@@ -1073,9 +1072,8 @@ void certify_delayed_definition(Csnf *c, unsigned want, bool certify) {
     blk->ncids = 1;
     blk->reg_output = (int32_t)o;
     blk->reg_theta = theta;
-    if (certify &&
-        (!strong || !semantics_is_finite(cov->spec->info.semantics)) &&
-        !has_next(theta) && output_is_free(cov, &i, 1, o)) {
+    if (certify && !semantics_is_finite(cov->spec->info.semantics) &&
+        !ast_has_temporal(theta) && output_is_free(cov, &i, 1, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "delayed_definition_register";
       c->solved[i] = true;
@@ -1208,6 +1206,11 @@ void certify_invariant(Csnf *c, unsigned want, bool certify) {
     uint32_t no = 0, ni = 0;
     bool too_many = false;
     for (uint32_t a = 0; a < A; a++) {
+      // This certifier still conservatively leaves implicit environment
+      // inputs residual, although the cover now records them in cc->inputs.
+      if (ap_table_flags(&cov->aps, a) == 0 &&
+          occurs_in(B, ap_table_name(&cov->aps, a)))
+        too_many = true;
       if (apset_test(&cc->outputs, a)) {
         if (no < 8)
           outs[no++] = a;

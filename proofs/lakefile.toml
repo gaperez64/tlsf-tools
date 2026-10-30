@@ -1,0 +1,8 @@
+name = "tlsfProofs"
+version = "0.1.0"
+defaultTargets = ["TlsfProofs"]
+
+[[lean_lib]]
+name = "TlsfProofs"
+weakLeanArgs = ["-j1", "-s2048", "-DElab.async=false"]
+leanOptions = { warningAsError = true }

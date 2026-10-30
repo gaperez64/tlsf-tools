@@ -88,6 +88,18 @@ MAIN {
   assert(result.target == "Moore");
   assert(result.preprocessed_ltl == "G (req -> X grant)");
 
+  for (const char *semantics : {"Moore", "Moore,Strict"}) {
+    const std::string implicit = "INFO { SEMANTICS: " + std::string(semantics) +
+        " TARGET: Mealy } MAIN { OUTPUTS { p; } GUARANTEE { G(p <-> u); } }";
+    auto adapted = tlsf::decompose(implicit);
+    assert(adapted.preprocessed_ltl == "G (p <-> X u)");
+    assert(adapted.residual_trust == tlsf::Trust::Exact);
+    assert(adapted.clusters.size() == 1);
+    assert(adapted.clusters[0].ltl == "G (p <-> X u)");
+    assert(adapted.clusters[0].inputs == std::vector<std::string>({"u"}));
+    assert(adapted.clusters[0].outputs == std::vector<std::string>({"p"}));
+  }
+
   const std::string case_sensitive = R"TLSF(
 INFO { TITLE: "case" SEMANTICS: Mealy TARGET: Mealy }
 MAIN {
@@ -110,6 +122,41 @@ MAIN {
     rejected_collision = true;
   }
   assert(rejected_collision);
+
+  for (const char *semantics : {"Mealy", "Moore", "Mealy,Strict", "Moore,Strict",
+                                "Mealy,Finite", "Moore,Finite"}) {
+    const std::string target = std::string(semantics).starts_with("Moore")
+                                   ? "Moore" : "Mealy";
+    const std::string header = "INFO { SEMANTICS: " + std::string(semantics) +
+                               " TARGET: " + target + " } MAIN { ";
+    const std::string implicit = header + "OUTPUTS { p; } "
+        "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; } }";
+    options.lowercase = false;
+    result = tlsf::decompose(implicit, options);
+    assert(result.preprocessed_ltl == "G (q <-> !Q) -> false");
+    assert(result.residual_trust == tlsf::Trust::Exact);
+    assert(contains(result.inputs, "q") && contains(result.inputs, "Q"));
+    assert(result.clusters.size() == 1);
+    assert(result.clusters[0].ltl == "G (q <-> !Q) -> false");
+    options.lowercase = true;
+    TlsfDecomposeOptions c_options = {};
+    c_options.lowercase = true;
+    for (const char *declaration : {"", "INPUTS { q; }", "OUTPUTS { q; }"})
+      for (const char *role : {"INITIALLY", "PRESET", "REQUIRE", "ASSERT",
+                               "ASSUMPTIONS", "GUARANTEES"}) {
+        const std::string source = header + declaration + " " + role +
+                                   " { q <-> Q; } }";
+        assert(!tlsf_decompose_string(source.c_str(), &c_options));
+        assert(!tlsf_ast_from_string(source.c_str(), &c_options));
+        rejected_collision = false;
+        try {
+          (void)tlsf::decompose(source, options);
+        } catch (const std::runtime_error &) {
+          rejected_collision = true;
+        }
+        assert(rejected_collision);
+      }
+  }
 
   // ltl2ba and ltl3ba silently truncate a formula at ' or @.
   const std::string primed = R"TLSF(
