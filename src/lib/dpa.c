@@ -35,7 +35,7 @@ bool dpa_poll(TlsfDpa *c) {
 bool dpa_enter(TlsfDpa *c) {
   if (!dpa_poll(c))
     return false;
-  if (c->recursion == 512) {
+  if (c->recursion == 2048) {
     dpa_decline(c, TLSF_DPA_HOST_LIMIT);
     return false;
   }
@@ -148,15 +148,15 @@ bool dpa_insert(TlsfDpa *c, DpaTable *t, void *item) {
   return true;
 }
 
-uint32_t dpa_state(TlsfDpa *c, uint32_t a, uint32_t r, uint32_t leaf) {
+uint32_t dpa_state(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
   if (!dpa_poll(c))
     return DPA_BAD;
-  uint64_t h = dpa_hash(a, r, leaf, 0);
+  uint64_t h = dpa_hash(tuple, leaf, 0, 0);
   for (uint32_t i = dpa_bucket(&c->states, h); i != DPA_BAD;) {
     if (!dpa_poll(c))
       return DPA_BAD;
     DpaState *s = c->states.items[i];
-    if (s->all == a && s->rejecting == r && s->leaf == leaf)
+    if (s->tuple == tuple && s->leaf == leaf)
       return i;
     i = s->key.next;
   }
@@ -165,7 +165,7 @@ uint32_t dpa_state(TlsfDpa *c, uint32_t a, uint32_t r, uint32_t leaf) {
   DpaState *s = dpa_alloc(c, 1, sizeof *s);
   if (!s)
     return DPA_BAD;
-  *s = (DpaState){.key.hash = h, .all = a, .rejecting = r, .leaf = leaf};
+  *s = (DpaState){.key.hash = h, .tuple = tuple, .leaf = leaf};
   return dpa_insert(c, &c->states, s) ? c->states.n - 1 : DPA_BAD;
 }
 
@@ -233,38 +233,18 @@ TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
   uint32_t f = dpa_formula(c, root, false, 0);
   if (!dpa_poll(c))
     goto fail;
-  unsigned tags = dpa_tags(c, f);
-  if (!(tags & (DPA_SAFETY | DPA_COSAFETY))) {
-    // Recognize precisely G F finite or its NNF dual F G finite. Boolean
-    // products and arbitrary Pi_2 components require the later proof gate.
-    if (!dpa_children(c, f))
-      goto fail;
-    DpaClass *cl = dpa_cls(c, f);
-    if (cl->low != 0 || cl->high != 1)
-      goto unsupported;
-    DpaAtom *outer = c->atoms.items[cl->var];
-    c->complement = outer->op == TLSF_AST_F;
-    if (outer->op != TLSF_AST_G && !c->complement)
-      goto unsupported;
-    uint32_t inner_id = outer->lhs;
-    if (!dpa_children(c, inner_id))
-      goto fail;
-    DpaClass *inner_class = dpa_cls(c, inner_id);
-    if (inner_class->low != 0 || inner_class->high != 1)
-      goto unsupported;
-    DpaAtom *inner = c->atoms.items[inner_class->var];
-    if (inner->op != (c->complement ? TLSF_AST_G : TLSF_AST_F) ||
-        !(dpa_tags(c, inner->lhs) & DPA_FINITE))
-      goto unsupported;
-    if (c->complement)
-      f = dpa_formula(c, root, true, 0);
+  c->acceptance = dpa_acceptance(c, f);
+  if (!dpa_poll(c))
+    goto fail;
+  c->colour_words = ((size_t)c->components.n + 63) / 64;
+  if (c->components.n > UINT32_MAX - 3) {
+    dpa_decline(c, TLSF_DPA_PRIORITY_LIMIT);
+    goto fail;
   }
-  dpa_tree_init(c);
-  uint32_t all = dpa_unfold(c, f);
-  uint32_t r = (dpa_tags(c, all) & (DPA_SAFETY | DPA_COSAFETY))
-                   ? 0
-                   : dpa_remainder(c, f);
-  c->initial = dpa_state(c, all, r, 1);
+  c->max_priority = (c->components.n + 2) | 1u;
+  // Pin the global acceptance now; its tree and the unfolded initial tuple
+  // may be exponential. Materialize both on the first successor request.
+  c->initial = dpa_state(c, DPA_BAD, DPA_BAD);
   if (!dpa_poll(c))
     goto fail;
   for (uint32_t i = 0; i < c->syntax.n; ++i)
@@ -274,8 +254,6 @@ TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
   c->syntax = (DpaTable){0};
   *out = c;
   return c->status;
-unsupported:
-  dpa_decline(c, TLSF_DPA_UNSUPPORTED);
 fail:;
   TlsfDpaStatus status = c->status;
   tlsf_dpa_free(c);
@@ -304,7 +282,9 @@ uint32_t tlsf_dpa_ap_count(const TlsfDpa *c) { return c ? c->aps : 0; }
 const char *tlsf_dpa_ap_name(const TlsfDpa *c, uint32_t ap) {
   return c && ap < c->aps ? c->names[ap] : nullptr;
 }
-uint32_t tlsf_dpa_max_priority(const TlsfDpa *c) { return c ? 3 : 0; }
+uint32_t tlsf_dpa_max_priority(const TlsfDpa *c) {
+  return c ? c->max_priority : 0;
+}
 size_t tlsf_dpa_state_count(const TlsfDpa *c) { return c ? c->states.n : 0; }
 
 static uint32_t export_impl(TlsfDpa *c, uint32_t f) {
@@ -356,10 +336,29 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     return (TlsfDpaStatus){TLSF_DPA_INVALID, TLSF_DPA_NONE};
   if (!dpa_poll(c))
     return c->status;
+  if (!c->started) {
+    c->started = true;
+    // Research admission uses syntax tags. Expansion uses exact class-support
+    // tags, materializing frozen operands when a fragment test first needs
+    // them.
+    for (uint32_t i = 0; i < c->classes.n && dpa_poll(c); ++i)
+      dpa_cls(c, i)->tags = 0;
+    dpa_tree_init(c);
+    uint32_t tuple = dpa_dela_initial(c);
+    if (!dpa_poll(c))
+      return c->status;
+    // No row has been requested, hence the sole state is still the initial
+    // state. Re-key it before discovery so normalization adds no extra state.
+    DpaState *initial = c->states.items[c->initial];
+    c->states.buckets[initial->key.hash & (c->states.bins - 1)] = DPA_BAD;
+    initial->tuple = tuple;
+    initial->leaf = c->leftmost;
+    initial->key.hash = dpa_hash(tuple, initial->leaf, 0, 0);
+    c->states.buckets[initial->key.hash & (c->states.bins - 1)] = c->initial;
+  }
   DpaState *s = c->states.items[id];
   if (!s->edges) {
-    uint32_t a = dpa_step_dag(c, s->all), r = dpa_step_dag(c, s->rejecting);
-    uint32_t root = dpa_product(c, a, r);
+    uint32_t root = dpa_dela_step(c, s->tuple, s->leaf);
     if (!dpa_poll(c))
       return c->status;
     // DAG children precede parents. Propagate and OR guards once per shared

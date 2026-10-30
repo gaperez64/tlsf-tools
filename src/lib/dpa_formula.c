@@ -35,6 +35,8 @@ uint32_t dpa_class(TlsfDpa *c, Bdd owned) {
                    .dag = DPA_BAD,
                    .remainder = DPA_BAD,
                    .label = DPA_BAD,
+                   .dual = DPA_BAD,
+                   .acceptance = DPA_BAD,
                    .var = DPA_BAD,
                    .low = DPA_BAD,
                    .high = DPA_BAD};
@@ -75,11 +77,12 @@ bool dpa_children(TlsfDpa *c, uint32_t f) {
   return dpa_poll(c);
 }
 
+static uint32_t materialize(TlsfDpa *c, uint32_t f);
 static unsigned tags_impl(TlsfDpa *c, uint32_t f) {
   if (!dpa_poll(c))
     return 0;
   if (f < 2)
-    return DPA_FINITE | DPA_SAFETY | DPA_COSAFETY;
+    return DPA_ALL;
   DpaClass *cl = dpa_cls(c, f);
   // tags+1 distinguishes a computed empty fragment intersection.
   if (cl->tags)
@@ -87,6 +90,25 @@ static unsigned tags_impl(TlsfDpa *c, uint32_t f) {
   if (!dpa_children(c, f))
     return 0;
   DpaAtom *atom = c->atoms.items[cl->var];
+  if ((c->started || !(atom->tags & (c->budget.allow_unproved
+                                         ? DPA_PI2 | DPA_SIGMA2
+                                         : DPA_SAFETY | DPA_COSAFETY))) &&
+      !atom->exact_tags && atom->op != TLSF_AST_AP &&
+      atom->op != TLSF_AST_KIND_COUNT) {
+    unsigned tags = dpa_tags(c, materialize(c, atom->lhs));
+    if (atom->op >= TLSF_AST_U)
+      tags &= dpa_tags(c, materialize(c, atom->rhs));
+    if (atom->op == TLSF_AST_F || atom->op == TLSF_AST_U ||
+        atom->op == TLSF_AST_M)
+      tags = (tags & (DPA_COSAFETY | DPA_SIGMA2)) |
+             ((tags & DPA_COSAFETY) ? DPA_PI2 : 0);
+    if (atom->op == TLSF_AST_G || atom->op == TLSF_AST_R ||
+        atom->op == TLSF_AST_W)
+      tags = (tags & (DPA_SAFETY | DPA_PI2)) |
+             ((tags & DPA_SAFETY) ? DPA_SIGMA2 : 0);
+    atom->tags = tags;
+    atom->exact_tags = true;
+  }
   unsigned tags = atom->tags & dpa_tags(c, cl->low) & dpa_tags(c, cl->high);
   cl->tags = tags + 1;
   return tags;
@@ -98,6 +120,45 @@ unsigned dpa_tags(TlsfDpa *c, uint32_t f) {
   unsigned result = tags_impl(c, f);
   --c->recursion;
   return result;
+}
+
+// Positive Boolean bodies over finite windows and F(window), or their G duals.
+static bool flat_body(TlsfDpa *c, uint32_t f, bool eventual) {
+  if (!dpa_enter(c))
+    return false;
+  DpaClass *cl = dpa_cls(c, f);
+  if (!cl->flat[eventual]) {
+    bool flat = dpa_tags(c, f) & DPA_FINITE;
+    if (!flat && dpa_children(c, f)) {
+      DpaAtom *atom = c->atoms.items[cl->var];
+      flat = ((atom->tags & DPA_FINITE) ||
+              (atom->op == (eventual ? TLSF_AST_F : TLSF_AST_G) &&
+               (dpa_tags(c, materialize(c, atom->lhs)) & DPA_FINITE))) &&
+             flat_body(c, cl->low, eventual) &&
+             flat_body(c, cl->high, eventual);
+    }
+    cl->flat[eventual] = flat ? 2 : 1;
+  }
+  --c->recursion;
+  return cl->flat[eventual] == 2;
+}
+
+bool dpa_admitted(TlsfDpa *c, uint32_t f) {
+  unsigned tags = dpa_tags(c, f);
+  if (c->budget.allow_unproved)
+    return tags & (DPA_PI2 | DPA_SIGMA2);
+  if (tags & (DPA_SAFETY | DPA_COSAFETY))
+    return true;
+  if (!dpa_children(c, f))
+    return false;
+  DpaClass *cl = dpa_cls(c, f);
+  if (cl->low != 0 || cl->high != 1)
+    return false;
+  DpaAtom *outer = c->atoms.items[cl->var];
+  if (outer->op != TLSF_AST_G && outer->op != TLSF_AST_F)
+    return false;
+  uint32_t body = materialize(c, outer->lhs);
+  return dpa_poll(c) && flat_body(c, body, outer->op == TLSF_AST_G);
 }
 
 uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
@@ -121,16 +182,18 @@ uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
   DpaAtom *atom = dpa_alloc(c, 1, sizeof *atom);
   if (!atom)
     return DPA_BAD;
-  unsigned tags = DPA_FINITE | DPA_SAFETY | DPA_COSAFETY;
-  if (op != TLSF_AST_AP) {
-    tags = dpa_tags(c, a);
+  unsigned tags = op == TLSF_AST_AP ? DPA_ALL : 0;
+  if (op != TLSF_AST_AP && op != TLSF_AST_KIND_COUNT) {
+    tags = ((DpaTerm *)c->terms.items[a])->tags;
     if (op == TLSF_AST_U || op == TLSF_AST_R || op == TLSF_AST_W ||
         op == TLSF_AST_M)
-      tags &= dpa_tags(c, b);
+      tags &= ((DpaTerm *)c->terms.items[b])->tags;
     if (op == TLSF_AST_F || op == TLSF_AST_U || op == TLSF_AST_M)
-      tags &= DPA_COSAFETY;
+      tags = (tags & (DPA_COSAFETY | DPA_SIGMA2)) |
+             ((tags & DPA_COSAFETY) ? DPA_PI2 : 0);
     if (op == TLSF_AST_G || op == TLSF_AST_R || op == TLSF_AST_W)
-      tags &= DPA_SAFETY;
+      tags = (tags & (DPA_SAFETY | DPA_PI2)) |
+             ((tags & DPA_SAFETY) ? DPA_SIGMA2 : 0);
   }
   *atom = (DpaAtom){.key.hash = h, .op = op, .lhs = a, .rhs = b, .tags = tags};
   uint32_t var = c->atoms.n;
@@ -143,11 +206,145 @@ uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
   return atom->cls;
 }
 
+// Owned, hash-consed NNF syntax keeps modal operands frozen until needed.
+// Compiling those Boolean classes during admission can itself be exponential.
+static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
+  if (!dpa_poll(c))
+    return DPA_BAD;
+  if (!c->terms.n) {
+    for (uint32_t i = 0; i < 2; ++i) {
+      DpaTerm *t = dpa_alloc(c, 1, sizeof *t);
+      if (!t)
+        return DPA_BAD;
+      *t = (DpaTerm){.op = i ? TLSF_AST_TRUE : TLSF_AST_FALSE,
+                     .cls = i,
+                     .dual = 1 - i,
+                     .tags = DPA_ALL};
+      if (!dpa_insert(c, &c->terms, t))
+        return DPA_BAD;
+    }
+  }
+  if (op == TLSF_AST_TRUE || op == TLSF_AST_FALSE)
+    return op == TLSF_AST_TRUE;
+  if (op == TLSF_AST_AND || op == TLSF_AST_OR) {
+    if (a > b) {
+      uint32_t tmp = a;
+      a = b;
+      b = tmp;
+    }
+    if (a == b)
+      return a;
+    if (op == TLSF_AST_AND && a < 2)
+      return a ? b : 0;
+    if (op == TLSF_AST_OR && a < 2)
+      return a ? 1 : b;
+  }
+  if ((op == TLSF_AST_X || op == TLSF_AST_F || op == TLSF_AST_G) && a < 2)
+    return a;
+  uint64_t h = dpa_hash((uint32_t)op, a, b, 0);
+  for (uint32_t i = dpa_bucket(&c->terms, h); i != DPA_BAD;) {
+    if (!dpa_poll(c))
+      return DPA_BAD;
+    DpaTerm *t = c->terms.items[i];
+    if (t->op == op && t->lhs == a && t->rhs == b)
+      return i;
+    i = t->key.next;
+  }
+  DpaTerm *t = dpa_alloc(c, 1, sizeof *t);
+  if (!t)
+    return DPA_BAD;
+  unsigned tags = DPA_ALL;
+  if (op != TLSF_AST_AP) {
+    tags = ((DpaTerm *)c->terms.items[a])->tags;
+    if (op == TLSF_AST_AND || op == TLSF_AST_OR || op >= TLSF_AST_U)
+      tags &= ((DpaTerm *)c->terms.items[b])->tags;
+    if (op == TLSF_AST_F || op == TLSF_AST_U || op == TLSF_AST_M)
+      tags = (tags & (DPA_COSAFETY | DPA_SIGMA2)) |
+             ((tags & DPA_COSAFETY) ? DPA_PI2 : 0);
+    if (op == TLSF_AST_G || op == TLSF_AST_R || op == TLSF_AST_W)
+      tags = (tags & (DPA_SAFETY | DPA_PI2)) |
+             ((tags & DPA_SAFETY) ? DPA_SIGMA2 : 0);
+  }
+  *t = (DpaTerm){.key.hash = h,
+                 .op = op,
+                 .lhs = a,
+                 .rhs = b,
+                 .tags = tags,
+                 .cls = DPA_BAD,
+                 .dual = DPA_BAD};
+  return dpa_insert(c, &c->terms, t) ? c->terms.n - 1 : DPA_BAD;
+}
+static TlsfAstKind dual_op(TlsfAstKind op) {
+  switch (op) {
+  case TLSF_AST_AND:
+    return TLSF_AST_OR;
+  case TLSF_AST_OR:
+    return TLSF_AST_AND;
+  case TLSF_AST_F:
+    return TLSF_AST_G;
+  case TLSF_AST_G:
+    return TLSF_AST_F;
+  case TLSF_AST_U:
+    return TLSF_AST_R;
+  case TLSF_AST_R:
+    return TLSF_AST_U;
+  case TLSF_AST_W:
+    return TLSF_AST_M;
+  case TLSF_AST_M:
+    return TLSF_AST_W;
+  default:
+    return op;
+  }
+}
+static uint32_t term_dual(TlsfDpa *c, uint32_t f) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  DpaTerm *t = c->terms.items[f];
+  uint32_t result = t->dual;
+  if (result == DPA_BAD) {
+    if (t->op == TLSF_AST_NOT)
+      result = t->lhs;
+    else if (t->op == TLSF_AST_AP)
+      result = term(c, TLSF_AST_NOT, f, 0);
+    else {
+      bool binary =
+          t->op == TLSF_AST_AND || t->op == TLSF_AST_OR || t->op >= TLSF_AST_U;
+      result = term(c, dual_op(t->op), term_dual(c, t->lhs),
+                    binary ? term_dual(c, t->rhs) : 0);
+    }
+    if (dpa_poll(c)) {
+      t->dual = result;
+      ((DpaTerm *)c->terms.items[result])->dual = f;
+    }
+  }
+  --c->recursion;
+  return result;
+}
+static uint32_t materialize(TlsfDpa *c, uint32_t f) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  DpaTerm *t = c->terms.items[f];
+  uint32_t result = t->cls;
+  if (result == DPA_BAD) {
+    if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR)
+      result = dpa_boolean(c, t->op == TLSF_AST_AND, materialize(c, t->lhs),
+                           materialize(c, t->rhs));
+    else if (t->op == TLSF_AST_NOT) {
+      uint32_t a = materialize(c, t->lhs);
+      if (dpa_poll(c))
+        result = dpa_class(c, oxidd_bdd_not(dpa_cls(c, a)->bdd));
+    } else
+      result = dpa_atom(c, t->op, t->lhs, t->rhs);
+    t->cls = result;
+  }
+  --c->recursion;
+  return result;
+}
 static uint32_t transport(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                           unsigned depth, unsigned next);
 static uint32_t wrap_next(TlsfDpa *c, uint32_t f, unsigned next) {
   while (next-- && dpa_poll(c))
-    f = dpa_atom(c, TLSF_AST_X, f, 0);
+    f = term(c, TLSF_AST_X, f, 0);
   return f;
 }
 
@@ -155,7 +352,7 @@ static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                              unsigned depth, unsigned next) {
   if (!dpa_poll(c))
     return DPA_BAD;
-  if (depth > 256)
+  if (depth > 1024)
     return dpa_decline(c, TLSF_DPA_UNSUPPORTED);
   if (!n) {
     c->status.code = TLSF_DPA_INVALID;
@@ -168,10 +365,9 @@ static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,
     const char *name = tlsf_ast_node_ap_name(n);
     for (uint32_t i = 0; i < c->aps && dpa_poll(c); ++i)
       if (name && !strcmp(c->names[i], name)) {
-        DpaAtom *atom = c->atoms.items[i];
-        uint32_t f =
-            neg ? dpa_class(c, oxidd_bdd_not(dpa_cls(c, atom->cls)->bdd))
-                : atom->cls;
+        uint32_t f = term(c, TLSF_AST_AP, i, 0);
+        if (neg)
+          f = term(c, TLSF_AST_NOT, f, 0);
         return wrap_next(c, f, next);
       }
     if (dpa_poll(c))
@@ -190,22 +386,24 @@ static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,
   if (op == TLSF_AST_IMPL || op == TLSF_AST_EQUIV) {
     a = transport(c, left, !neg, depth + 1, next);
     b = transport(c, right, neg, depth + 1, next);
-    uint32_t first = dpa_boolean(c, neg, a, b);
+    uint32_t first = term(c, neg ? TLSF_AST_AND : TLSF_AST_OR, a, b);
     if (op == TLSF_AST_IMPL)
       return first;
     a = transport(c, left, neg, depth + 1, next);
     b = transport(c, right, !neg, depth + 1, next);
-    return dpa_boolean(c, !neg, first, dpa_boolean(c, neg, a, b));
+    return term(c, neg ? TLSF_AST_OR : TLSF_AST_AND, first,
+                term(c, neg ? TLSF_AST_AND : TLSF_AST_OR, a, b));
   }
   if (op == TLSF_AST_AND || op == TLSF_AST_OR) {
     a = transport(c, left, neg, depth + 1, next);
     b = transport(c, right, neg, depth + 1, next);
-    return dpa_boolean(c, (op == TLSF_AST_AND) != neg, a, b);
+    return term(c, ((op == TLSF_AST_AND) != neg) ? TLSF_AST_AND : TLSF_AST_OR,
+                a, b);
   }
-  a = dpa_formula(c, left, neg, depth + 1);
+  a = transport(c, left, neg, depth + 1, 0);
   if (op == TLSF_AST_U || op == TLSF_AST_R || op == TLSF_AST_W ||
       op == TLSF_AST_M)
-    b = dpa_formula(c, right, neg, depth + 1);
+    b = transport(c, right, neg, depth + 1, 0);
   else
     b = 0;
   if (neg) {
@@ -232,7 +430,7 @@ static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,
       break;
     }
   }
-  return wrap_next(c, dpa_atom(c, op, a, b), next);
+  return wrap_next(c, term(c, op, a, b), next);
 }
 
 // NNF and X-through-Boolean transport share the input traversal memo. Modal
@@ -262,7 +460,10 @@ static uint32_t transport(TlsfDpa *c, const TlsfAstNode *n, bool neg,
 
 uint32_t dpa_formula(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                      unsigned depth) {
-  return transport(c, n, neg, depth, 0);
+  if (!c->terms.n)
+    term(c, TLSF_AST_FALSE, 0, 0);
+  uint32_t f = transport(c, n, neg, depth, 0);
+  return dpa_poll(c) ? materialize(c, f) : DPA_BAD;
 }
 
 enum { UNFOLD, STEP, REDUCE, DROP_X };
@@ -295,16 +496,17 @@ static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,
   DpaAtom *atom = c->atoms.items[cl->var];
   uint32_t v = atom->cls;
   if (mode == STEP && atom->op == TLSF_AST_X)
-    v = atom->lhs;
+    v = materialize(c, atom->lhs);
   else if (mode == REDUCE && atom->op != TLSF_AST_AP &&
-           !(atom->tags & DPA_COSAFETY))
+           !(dpa_tags(c, atom->cls) & DPA_COSAFETY))
     v = 1;
   else if (mode == DROP_X && atom->op == TLSF_AST_X && !protect[cl->var])
     v = 1;
   else if (mode == UNFOLD && atom->op != TLSF_AST_AP &&
            atom->op != TLSF_AST_X) {
-    uint32_t a = dpa_unfold(c, atom->lhs);
-    uint32_t b = dpa_unfold(c, atom->rhs);
+    uint32_t a = dpa_unfold(c, materialize(c, atom->lhs));
+    uint32_t b =
+        (atom->op >= TLSF_AST_U ? dpa_unfold(c, materialize(c, atom->rhs)) : 0);
     switch (atom->op) {
     case TLSF_AST_F:
       v = dpa_boolean(c, false, a, v);
@@ -421,8 +623,9 @@ static void protected_impl(TlsfDpa *c, uint32_t f, bool inside, bool *protect,
   if (atom->op == TLSF_AST_X && inside)
     protect[cl->var] = true;
   if (atom->op != TLSF_AST_AP && (inside || atom->op != TLSF_AST_X)) {
-    protected_x(c, atom->lhs, true, protect, epoch);
-    protected_x(c, atom->rhs, true, protect, epoch);
+    protected_x(c, materialize(c, atom->lhs), true, protect, epoch);
+    if (atom->op >= TLSF_AST_U)
+      protected_x(c, materialize(c, atom->rhs), true, protect, epoch);
   }
   protected_x(c, cl->low, inside, protect, epoch);
   protected_x(c, cl->high, inside, protect, epoch);
@@ -438,7 +641,10 @@ uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {
   for (;;) {
     if (!dpa_poll(c))
       return DPA_BAD;
-    bool *protect = dpa_alloc(c, c->atoms.n, sizeof *protect);
+    // Protection may materialize frozen operands; each syntax term adds at
+    // most one atom, and this walk creates no new syntax.
+    bool *protect =
+        dpa_alloc(c, (size_t)c->atoms.n + c->terms.n, sizeof *protect);
     if (!protect) {
       dpa_release(c, protect);
       return DPA_BAD;
@@ -456,4 +662,33 @@ uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {
     r = dpa_remainder(c, unfolded);
   cl->remainder = r;
   return r;
+}
+
+uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  uint32_t result = DPA_BAD;
+  if (f < 2)
+    result = 1 - f;
+  else if (dpa_cls(c, f)->dual != DPA_BAD)
+    result = dpa_cls(c, f)->dual;
+  else if (dpa_children(c, f)) {
+    DpaClass *cl = dpa_cls(c, f);
+    DpaAtom *atom = c->atoms.items[cl->var];
+    uint32_t v;
+    if (atom->op == TLSF_AST_AP)
+      v = dpa_class(c, oxidd_bdd_not(dpa_cls(c, atom->cls)->bdd));
+    else {
+      TlsfAstKind op = dual_op(atom->op);
+      uint32_t rhs = op >= TLSF_AST_U ? term_dual(c, atom->rhs) : 0;
+      v = dpa_atom(c, op, term_dual(c, atom->lhs), rhs);
+    }
+    result = dpa_ite(c, v, dpa_dual(c, cl->low), dpa_dual(c, cl->high));
+    if (dpa_poll(c)) {
+      cl->dual = result;
+      dpa_cls(c, result)->dual = f;
+    }
+  }
+  --c->recursion;
+  return result;
 }

@@ -96,9 +96,18 @@ static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
   out << "\ncontrollable-AP:";
   for (uint32_t i = n_inputs; i < tlsf_dpa_ap_count(c); ++i)
     out << ' ' << i;
-  out << "\nacc-name: parity max odd 4\nAcceptance: 4 Inf(3) | (Fin(3) & "
-         "Fin(2) & Inf(1))"
-         "\nproperties: trans-labels explicit-labels trans-acc deterministic "
+  uint32_t priorities = tlsf_dpa_max_priority(c) + 1;
+  out << "\nacc-name: parity max odd " << priorities
+      << "\nAcceptance: " << priorities << ' ';
+  for (uint32_t odd = 1; odd < priorities; odd += 2) {
+    if (odd > 1)
+      out << " | ";
+    out << "(Inf(" << odd << ')';
+    for (uint32_t higher = odd + 1; higher < priorities; ++higher)
+      out << " & Fin(" << higher << ')';
+    out << ')';
+  }
+  out << "\nproperties: trans-labels explicit-labels trans-acc deterministic "
          "complete\n--BODY--\n";
   std::map<uint32_t, std::string> memo;
   for (uint32_t i = 0; i < tlsf_dpa_state_count(c); ++i) {
@@ -120,7 +129,8 @@ static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
   return out.str() + "--END--\n";
 }
 
-static void check(const std::string &text) {
+static void check(const std::string &text, bool allow_unproved = false,
+                  bool expect_bdd_limit = false) {
   auto parsed = spot::parse_infix_psl(text);
   CHECK(!parsed.format_errors(std::cerr));
   auto f = parsed.f;
@@ -132,6 +142,7 @@ static void check(const std::string &text) {
   constexpr uint32_t n_inputs = 3;
   TlsfDpa *c = nullptr;
   TlsfDpaBudget budget{};
+  budget.allow_unproved = allow_unproved;
   budget.max_states = 10000;
   budget.max_host_bytes = 64u << 20;
   auto status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
@@ -140,14 +151,34 @@ static void check(const std::string &text) {
   arena_free(a); // construction must copy everything it needs
   if (status.code != TLSF_DPA_OK) {
     std::cerr << "declined " << text << " reason " << status.reason << '\n';
-    abort();
+    tlsf_dpa_free(c);
+    exit(status.code == TLSF_DPA_DECLINED ? 77 : 1);
   }
   CHECK(tlsf_dpa_ap_count(c) == names.size());
   for (uint32_t i = 0; i < names.size(); ++i)
     CHECK(std::string(tlsf_dpa_ap_name(c, i)) == names[i]);
   CHECK(tlsf_dpa_state_count(c) == 1); // no eager expansion in create
   status = tlsf_dpa_expand(c);
-  CHECK(status.code == TLSF_DPA_OK);
+  if (expect_bdd_limit) {
+    CHECK(status.code == TLSF_DPA_DECLINED &&
+          status.reason == TLSF_DPA_BDD_LIMIT);
+    CHECK(tlsf_dpa_expand(c).reason == TLSF_DPA_BDD_LIMIT);
+    const TlsfDpaEdge *edges = reinterpret_cast<const TlsfDpaEdge *>(1);
+    size_t count = 1;
+    CHECK(tlsf_dpa_successors(c, 0, &edges, &count).reason ==
+          TLSF_DPA_BDD_LIMIT);
+    CHECK(!edges && !count);
+    std::cout << "bounded expansion declined: " << text << '\n';
+    tlsf_dpa_free(c);
+    return;
+  }
+  if (status.code != TLSF_DPA_OK) {
+    std::cerr << "expansion status " << status.code << " reason "
+              << status.reason << " states " << tlsf_dpa_state_count(c) << ": "
+              << text << '\n';
+    tlsf_dpa_free(c);
+    exit(status.code == TLSF_DPA_DECLINED ? 77 : 1);
+  }
   std::string serialized = hoa(c, n_inputs);
   auto dict = spot::make_bdd_dict();
   auto aut = spot::automaton_stream_parser(serialized.c_str(), "generated")
@@ -183,13 +214,14 @@ static void check(const std::string &text) {
 }
 
 int main(int argc, char **argv) {
-  if (argc == 2) {
+  if (argc >= 2) {
     std::ifstream formulas(argv[1]);
     CHECK(formulas);
     std::string line;
     while (std::getline(formulas, line))
       if (!line.empty())
-        check(line);
+        check(line, argc >= 3 && std::string(argv[2]) == "--allow-unproved",
+              argc == 4 && std::string(argv[3]) == "--expect-bdd-limit");
     return 0;
   }
   for (auto text : {"G(req -> X grant)", "F grant", "true", "false",
@@ -199,4 +231,51 @@ int main(int argc, char **argv) {
                     "G F (a & X !a)", "!(G F (a & X !a))", "G (a W (b R X c))",
                     "F (a M (b U X c))", "G ((a <-> X b) & (a -> X c))"})
     check(text);
+  for (auto text : {
+           "G F a & F G b",
+           "G F a | F G b",
+           "(G F a) <-> (F G b)",
+           "!((G F a) <-> (F G b))",
+           "(G F a & F G b) | (G F a & G F c)",
+           "G F a | !(G F a)",
+           "G F a & !(G F a)",
+           "(G F a -> F G b) & (F G b -> G F a)",
+       })
+    check(text);
+  for (auto text : {
+           "G(a -> F b)",
+           "!(G(a -> F b))",
+           "G(F a | F (X b & X X c))",
+           "F(G a & G (X b | X X c))",
+           "G(a | F (b & X X c))",
+           "F(a & G (b | X X c))",
+           "G((a | F (X b)) & (F c | (X a & F (b | X X c))))",
+           "F((a & G (X b)) | (G c & (X a | G (b & X X c))))",
+           "!(G((a | F (X b)) & (F c | (X a & F (b | X X c)))))",
+           "!(F((a & G (X b)) | (G c & (X a | G (b & X X c)))))",
+           "G(a | F (b & X c)) <-> F(c & G (a | X b))",
+       })
+    check(text);
+  for (auto text : {
+           "G(a -> F(b U c))",
+           "G F(a U b)",
+           "X ((G F a & F G b) | G F c)",
+           "G (a -> F b)",
+           "!(G (a -> F b))",
+           "G (a U (b & X c))",
+           "!(G (a U (b & X c)))",
+           "(a U b) R (c U X a)",
+           "!((a U b) R (c U X a))",
+           "(a M b) W (c M X a)",
+           "!((a M b) W (c M X a))",
+           "G ((a & X F b) | F (c & X X a))",
+           "!(G ((a & X F b) | F (c & X X a)))",
+           "G ((X X a & F b) | X F c)",
+           "!(G ((X X a & F b) | X F c))",
+           "G (F (a & X b) & X X F (b & X c))",
+           "!(G (F (a & X b) & X X F (b & X c)))",
+           "G F (a & X X b) & F G (b | X c)",
+           "((G F a & F G b) | (G F c & F G a)) <-> (G F b)",
+       })
+    check(text, true);
 }
