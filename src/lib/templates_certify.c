@@ -808,7 +808,8 @@ void certify_arbiter(Csnf *c, unsigned want, bool certify) {
       if (!resp || resp->target < 0)
         continue; // the mutex member
       grants[ng++] = resp->target;
-      if (!(ap_table_flags(&cov->aps, (uint32_t)resp->target) & AP_FLAG_OUTPUT) ||
+      if (!(ap_table_flags(&cov->aps, (uint32_t)resp->target) &
+            AP_FLAG_OUTPUT) ||
           resp->guard < 0 ||
           !(ap_table_flags(&cov->aps, (uint32_t)resp->guard) & AP_FLAG_INPUT))
         ok = false; // request is not a plain environment input
@@ -1025,8 +1026,8 @@ void certify_reaction(Csnf *c, unsigned want, bool certify) {
     blk->ncids = nid;
     blk->asg_output = (int32_t)o;
     if (certify && exclusive && !moore && no_self_reference &&
-        guards_are_boolean(trues, nt) &&
-        guards_are_boolean(falses, nf) && output_is_free(cov, ids, nid, o)) {
+        guards_are_boolean(trues, nt) && guards_are_boolean(falses, nf) &&
+        output_is_free(cov, ids, nid, o)) {
       blk->status = CSNF_SOLVED;
       blk->cert = "reaction_consistency";
       blk->asg_guards = malloc((nt ? nt : 1) * sizeof(Node *));

@@ -330,7 +330,8 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
     return m;
   }
   ConstraintCover *cov = tlsf_pipeline_build_cover(
-      spec, &(TlsfPipelineOptions){.split = split, .tool_name = "tlsfbenchgraph"});
+      spec,
+      &(TlsfPipelineOptions){.split = split, .tool_name = "tlsfbenchgraph"});
   if (!cov) {
     spec_free(spec);
     return m;

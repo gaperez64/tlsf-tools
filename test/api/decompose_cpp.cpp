@@ -89,7 +89,8 @@ MAIN {
   assert(result.preprocessed_ltl == "G (req -> X grant)");
 
   for (const char *semantics : {"Moore", "Moore,Strict"}) {
-    const std::string implicit = "INFO { SEMANTICS: " + std::string(semantics) +
+    const std::string implicit =
+        "INFO { SEMANTICS: " + std::string(semantics) +
         " TARGET: Mealy } MAIN { OUTPUTS { p; } GUARANTEE { G(p <-> u); } }";
     auto adapted = tlsf::decompose(implicit);
     assert(adapted.preprocessed_ltl == "G (p <-> X u)");
@@ -123,14 +124,16 @@ MAIN {
   }
   assert(rejected_collision);
 
-  for (const char *semantics : {"Mealy", "Moore", "Mealy,Strict", "Moore,Strict",
-                                "Mealy,Finite", "Moore,Finite"}) {
-    const std::string target = std::string(semantics).starts_with("Moore")
-                                   ? "Moore" : "Mealy";
+  for (const char *semantics :
+       {"Mealy", "Moore", "Mealy,Strict", "Moore,Strict", "Mealy,Finite",
+        "Moore,Finite"}) {
+    const std::string target =
+        std::string(semantics).starts_with("Moore") ? "Moore" : "Mealy";
     const std::string header = "INFO { SEMANTICS: " + std::string(semantics) +
                                " TARGET: " + target + " } MAIN { ";
-    const std::string implicit = header + "OUTPUTS { p; } "
-        "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; } }";
+    const std::string implicit =
+        header + "OUTPUTS { p; } "
+                 "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; } }";
     options.lowercase = false;
     result = tlsf::decompose(implicit, options);
     assert(result.preprocessed_ltl == "G (q <-> !Q) -> false");
@@ -144,8 +147,8 @@ MAIN {
     for (const char *declaration : {"", "INPUTS { q; }", "OUTPUTS { q; }"})
       for (const char *role : {"INITIALLY", "PRESET", "REQUIRE", "ASSERT",
                                "ASSUMPTIONS", "GUARANTEES"}) {
-        const std::string source = header + declaration + " " + role +
-                                   " { q <-> Q; } }";
+        const std::string source =
+            header + declaration + " " + role + " { q <-> Q; } }";
         assert(!tlsf_decompose_string(source.c_str(), &c_options));
         assert(!tlsf_ast_from_string(source.c_str(), &c_options));
         rejected_collision = false;

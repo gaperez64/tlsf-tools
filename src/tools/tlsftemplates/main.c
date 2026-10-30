@@ -279,7 +279,8 @@ int main(int argc, char *argv[]) {
   }
 
   ConstraintCover *cov = tlsf_pipeline_build_cover(
-      spec, &(TlsfPipelineOptions){.split = split, .tool_name = "tlsftemplates"});
+      spec,
+      &(TlsfPipelineOptions){.split = split, .tool_name = "tlsftemplates"});
   if (!cov) {
     spec_free(spec);
     return 1;

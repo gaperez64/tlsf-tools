@@ -25,7 +25,7 @@ static void pipeline_status(const TlsfPipelineOptions *opts,
 }
 
 ConstraintCover *tlsf_pipeline_build_cover(TlsfSpec *spec,
-                                          const TlsfPipelineOptions *opts) {
+                                           const TlsfPipelineOptions *opts) {
   const char *tool = pipeline_tool_name(opts);
   if (!spec_validate_target_adaptation(spec, tool)) {
     pipeline_status(opts, TLSF_PIPELINE_DECLINED, "adapt",

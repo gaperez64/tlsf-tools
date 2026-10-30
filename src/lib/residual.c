@@ -170,9 +170,9 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
     // output treated as locally controllable.  Both are unsound, so collapse
     // all output components and attach input-only guarantees to that component.
     // Finite-word controllers also share the choice of where the word ends.
-    // proofs/TlsfProofs/Cluster.lean (clusters_realizable) covers infinite words
-    // only; proofs/TlsfProofs/Examples.lean (finite_split_fails) shows why finite
-    // residuals must likewise stay in one cluster.
+    // proofs/TlsfProofs/Cluster.lean (clusters_realizable) covers infinite
+    // words only; proofs/TlsfProofs/Examples.lean (finite_split_fails) shows
+    // why finite residuals must likewise stay in one cluster.
     for (uint32_t a = 0; a < A; a++)
       if (ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT) {
         if (collapse_root < 0)

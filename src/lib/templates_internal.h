@@ -74,14 +74,16 @@ struct Csnf {
 // UNREALIZABLE verdict is not trustworthy. An EXACT certifier preserves
 // realizability: definitions substitute forced values; registers and reactions
 // choose causal satisfying values only when their outputs are otherwise free.
-// This does not claim trace equivalence for a partial assignment. An OVER-approximation
-// instead *weakens* the spec: its REALIZABLE verdict is not trustworthy
-// (false-REALs are caught by the `--verify` controller model-check), but its
-// UNREALIZABLE verdict is sound.  No template certifier is OVER (none weakens);
-// `TRUST_OVER` is used by the spec-level boolean-fragment UNREAL pre-check
-// (precheck_unreal.c) and by the W/R-safety route, which drop guarantees.
+// This does not claim trace equivalence for a partial assignment. An
+// OVER-approximation instead *weakens* the spec: its REALIZABLE verdict is not
+// trustworthy (false-REALs are caught by the `--verify` controller
+// model-check), but its UNREALIZABLE verdict is sound.  No template certifier
+// is OVER (none weakens); `TRUST_OVER` is used by the spec-level
+// boolean-fragment UNREAL pre-check (precheck_unreal.c) and by the W/R-safety
+// route, which drop guarantees.
 typedef enum {
-  TRUST_EXACT, // realizability-preserving under the certifier/composition guards
+  TRUST_EXACT, // realizability-preserving under the certifier/composition
+               // guards
   TRUST_UNDER, // strategy commitment (strengthening): UNREAL not trustworthy
   TRUST_OVER,  // weakening (drops guarantees): REAL not trustworthy, UNREAL is
 } VerdictTrust;

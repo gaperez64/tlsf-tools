@@ -397,7 +397,8 @@ static void atom_spot_lower(Printer *out, const char *name) {
   atom_spot_name(out, name, true);
 }
 
-bool print_spot_ltl(FILE *out, const Node *root, bool finite, bool lower_atoms) {
+bool print_spot_ltl(FILE *out, const Node *root, bool finite,
+                    bool lower_atoms) {
   Printer p = {.file = out};
   LtlSyntax s = SYNTAX_LTL;
   s.emit_atom = lower_atoms ? atom_spot_lower : atom_spot;

@@ -143,8 +143,8 @@ int main(int argc, char *argv[]) {
   if (input_file)
     fclose(fp);
   if (!p) {
-    fprintf(stderr, "%s\n", error.message[0] ? error.message
-                                            : "tlsfresidual: pipeline failed");
+    fprintf(stderr, "%s\n",
+            error.message[0] ? error.message : "tlsfresidual: pipeline failed");
     return 1;
   }
 

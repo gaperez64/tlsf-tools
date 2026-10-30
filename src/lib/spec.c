@@ -64,7 +64,8 @@ static Node *wrap_signal_aps(Arena *arena, Node *node,
   case NODE_X_STRONG:
   case NODE_F:
   case NODE_G:
-    node->arg = wrap_signal_aps(arena, node->arg, outputs, count, shift_outputs);
+    node->arg =
+        wrap_signal_aps(arena, node->arg, outputs, count, shift_outputs);
     return node->arg ? node : nullptr;
   case NODE_AND:
   case NODE_OR:
@@ -74,8 +75,10 @@ static Node *wrap_signal_aps(Arena *arena, Node *node,
   case NODE_R:
   case NODE_W:
   case NODE_M:
-    node->lhs = wrap_signal_aps(arena, node->lhs, outputs, count, shift_outputs);
-    node->rhs = wrap_signal_aps(arena, node->rhs, outputs, count, shift_outputs);
+    node->lhs =
+        wrap_signal_aps(arena, node->lhs, outputs, count, shift_outputs);
+    node->rhs =
+        wrap_signal_aps(arena, node->rhs, outputs, count, shift_outputs);
     return node->lhs && node->rhs ? node : nullptr;
   default:
     return node;
@@ -84,10 +87,12 @@ static Node *wrap_signal_aps(Arena *arena, Node *node,
 
 bool spec_validate_target_adaptation(const TlsfSpec *s, const char *prog) {
   if (semantics_is_finite(s->info.semantics) &&
-      semantics_is_moore(s->info.semantics) != (s->info.target == TARGET_MOORE)) {
+      semantics_is_moore(s->info.semantics) !=
+          (s->info.target == TARGET_MOORE)) {
     fprintf(tlsf_diagnostic_stream(),
             "%s: finite semantics/target adaptation is unsupported; "
-            "SEMANTICS and TARGET must agree\n", prog);
+            "SEMANTICS and TARGET must agree\n",
+            prog);
     return false;
   }
   return true;
@@ -105,8 +110,8 @@ bool spec_adapt_target(TlsfSpec *s) {
   do {                                                                         \
     for (uint32_t i = 0; i < (list).count; i++) {                              \
       (list).formulas[i] =                                                     \
-          wrap_signal_aps(s->arena, (list).formulas[i], s->outputs,             \
-                          s->output_count, !semantics_moore);                 \
+          wrap_signal_aps(s->arena, (list).formulas[i], s->outputs,            \
+                          s->output_count, !semantics_moore);                  \
       if (!(list).formulas[i])                                                 \
         return false;                                                          \
     }                                                                          \
@@ -530,7 +535,7 @@ bool spec_validate_lowercase_signals(const TlsfSpec *s, const char *prog) {
   ap_table_init(&aps, scratch);
   conversion_seed_signals(&aps, s);
   const FormulaList *lists[] = {&s->initially, &s->require, &s->assume,
-                                &s->preset, &s->assert_, &s->guarantee};
+                                &s->preset,    &s->assert_, &s->guarantee};
   for (size_t l = 0; l < sizeof lists / sizeof lists[0]; l++)
     for (uint32_t i = 0; i < lists[l]->count; i++)
       conversion_intern_aps(&aps, lists[l]->formulas[i]);

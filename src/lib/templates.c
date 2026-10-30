@@ -590,8 +590,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
           }
         bool shared = false;
         for (uint32_t i = 0; i < N; i++)
-          if (r->residual_constraint[i] &&
-              apset_test(&phase_b_outputs[i], o)) {
+          if (r->residual_constraint[i] && apset_test(&phase_b_outputs[i], o)) {
             shared = true;
             break;
           }

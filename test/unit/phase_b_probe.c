@@ -15,12 +15,13 @@ int main(int argc, char **argv) {
   bool chain = strcmp(argv[1], "chain") == 0;
   // In the chain, s precedes p in the AP table: p := s is substituted after
   // s := r, so closing G p's support to r requires another pass.
-  const char *source = chain
-      ? "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { q; } "
-        "OUTPUTS { s; p; r; } GUARANTEES { G(p <-> s); G(s <-> r); "
-        "G(q -> X !r); G p; } }"
-      : "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { q; } "
-        "OUTPUTS { p; r; } GUARANTEES { G(p <-> r); G(q -> X !r); G p; } }";
+  const char *source =
+      chain
+          ? "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { q; } "
+            "OUTPUTS { s; p; r; } GUARANTEES { G(p <-> s); G(s <-> r); "
+            "G(q -> X !r); G p; } }"
+          : "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { q; } "
+            "OUTPUTS { p; r; } GUARANTEES { G(p <-> r); G(q -> X !r); G p; } }";
   FILE *input = fmemopen((void *)source, strlen(source), "r");
   assert(input);
   TlsfSpec *spec = spec_parse(input, "phase-b-probe");
@@ -57,12 +58,13 @@ int main(int argc, char **argv) {
     printf("conflict: shared-output %s\n",
            ap_table_name(&cov->aps, (uint32_t)cf->output));
   }
-  ResidualPlan *plan = residual_plan_build(spec, cov, csnf, comp,
-                                          (ResidualPlanOptions){0});
+  ResidualPlan *plan =
+      residual_plan_build(spec, cov, csnf, comp, (ResidualPlanOptions){0});
   assert(plan);
   bool *seen = calloc(cov->aps.count, sizeof(bool));
   assert(seen);
-  Node *formula = residual_plan_build_cluster(spec, cov, plan, 0, true, true, seen);
+  Node *formula =
+      residual_plan_build_cluster(spec, cov, plan, 0, true, true, seen);
   assert(formula);
   assert(print_ltl(stdout, formula, LTL_FMT_LTLXBA, false, false, false));
   free(seen);
