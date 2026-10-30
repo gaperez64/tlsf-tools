@@ -4,19 +4,18 @@
 // the finite remainder, and extracts R from raw a rather than unfolded a.
 static uint32_t transition(TlsfDpa *c, uint32_t a, uint32_t r) {
   uint32_t next = dpa_unfold(c, a), rejecting = 0;
-  unsigned tags = dpa_tags(c, next);
   bool mark = false;
   if (next == 0) {
     // rejecting sink
-  } else if (next == 1 || (tags & DPA_SAFETY)) {
+  } else if (next == 1 || dpa_has_tags(c, next, DPA_SAFETY)) {
     mark = true;
-  } else if (tags & DPA_COSAFETY) {
+  } else if (dpa_has_tags(c, next, DPA_COSAFETY)) {
     // suspended until a finite witness reaches true
   } else {
     rejecting = dpa_unfold(c, r);
     if (rejecting == 0)
       rejecting = dpa_remainder(c, a);
-    else if (dpa_tags(c, rejecting) & DPA_FINITE) {
+    else if (dpa_has_tags(c, rejecting, DPA_FINITE)) {
       rejecting = dpa_boolean(c, true, rejecting, dpa_remainder(c, a));
       if (rejecting == 0)
         next = 0;
@@ -167,6 +166,35 @@ uint32_t dpa_tuple(TlsfDpa *c, const uint32_t *values) {
   return dpa_insert(c, &c->tuples, t) ? c->tuples.n - 1 : DPA_BAD;
 }
 
+// Unknown entries are DPA_BAD; only terminal residuals supply truth constants.
+static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,
+                                   const uint32_t *values, uint64_t epoch) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  uint32_t result = f;
+  if (f > 1 && dpa_children(c, f)) {
+    DpaClass *cl = dpa_cls(c, f);
+    if (cl->epoch == epoch) {
+      result = cl->mapped;
+      goto done;
+    }
+    DpaAtom *atom = c->atoms.items[cl->var];
+    uint32_t p = values[atom->lhs];
+    DpaPair *pair = p == DPA_BAD ? nullptr : c->pairs.items[p];
+    if (pair && pair->all < 2)
+      result =
+          terminal_condition(c, pair->all ? cl->high : cl->low, values, epoch);
+    else
+      result =
+          dpa_ite(c, atom->cls, terminal_condition(c, cl->high, values, epoch),
+                  terminal_condition(c, cl->low, values, epoch));
+    cl->epoch = epoch;
+    cl->mapped = result;
+  }
+done:
+  --c->recursion;
+  return result;
+}
 static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
   if (!dpa_enter(c))
     return DPA_BAD;
@@ -193,6 +221,16 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
   values = dpa_alloc(c, c->components.n, sizeof *values);
   if (!values)
     goto done;
+  for (uint32_t i = 0; i < c->components.n; ++i) {
+    DpaDag *d = c->dags.items[t->values[i]];
+    values[i] = d->kind == 3 ? d->low : DPA_BAD;
+  }
+  uint32_t truth = terminal_condition(c, c->acceptance, values, ++c->epoch);
+  if (truth < 2) {
+    uint32_t target = dpa_state(c, DPA_BAD, truth);
+    result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);
+    goto cache;
+  }
   if (var == DPA_BAD) {
     uint64_t *colours = dpa_alloc(c, c->colour_words, sizeof *colours);
     if (!colours)
@@ -220,6 +258,7 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     }
     result = dpa_dag(c, 1, var, children[0], children[1]);
   }
+cache:;
   DpaProduct *p = dpa_alloc(c, 1, sizeof *p);
   if (p) {
     *p = (DpaProduct){.key.hash = h, .lhs = tuple, .rhs = leaf, .dag = result};
@@ -257,7 +296,7 @@ uint32_t dpa_dela_initial(TlsfDpa *c) {
   for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i) {
     DpaComponent *p = c->components.items[i];
     uint32_t all = dpa_unfold(c, p->formula);
-    uint32_t r = (dpa_tags(c, all) & (DPA_SAFETY | DPA_COSAFETY))
+    uint32_t r = dpa_has_tags(c, all, DPA_SAFETY | DPA_COSAFETY)
                      ? 0
                      : dpa_remainder(c, p->formula);
     initial[i] = dpa_pair(c, all, r);

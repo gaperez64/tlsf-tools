@@ -433,4 +433,170 @@ outside this guard**, unless canonicalization already places it inside. A
 Π₂/Σ₂ tag or finite tests do not prove the general theorem. Proof review and
 implementation/bridge validation remain separate gates.
 
+## 9. Exact factoring and current-letter care
+
+These transformations change the representation of the construction, within
+the admission decision of §8. `check_admission` first applies the original
+canonical-support guard to the original formula: at a nonconstant class x,
+accept it if `dpa_admitted(x)`; otherwise require its supported top atom to
+be admitted and check both Boolean cofactors. This is exactly the recursion
+of the original `dpa_acceptance`, without allocating colours. In particular,
+distribution cannot newly admit `G(G a ∧ F b)` or `F(F a ∨ G b)` by exposing
+a proved Boolean product. `allow_unproved` uses its original Π₂/Σ₂ guard in
+this same check; none of the transformations supplies the missing general
+component theorem. Resource exhaustion still declines, without publishing a
+partial row. The claims below concern successful construction.
+
+### 9.1. Grouping compatible obligations
+
+At an outer ∧ or ∨, flatten only siblings with that same operator ⋄.
+Partition the operands with sound syntax tags into safety S, co-safety C,
+finite B, and remaining operands T. Finite operands are collected separately
+because they belong to both grammars. If C is nonempty, join B to C;
+otherwise join B to S. Use ⋄'s identity for an empty group. Each grouped
+operand has exactly the conjunction/disjunction of its former siblings as
+its language: associativity, commutativity, and the identity law prove the
+formula equality. Both `s` and `c` are closed under both Boolean operators,
+and `b⊆s∩c`, by Stage 1 §1. Thus the new components satisfy the **Stage 1 §4
+safety/co-safety theorem**, including both language inclusions. Remaining
+components retain their previous proof obligation (Stage 1 §4 or §6 here).
+Applying the **fixed Boolean-product theorem (§4)** to these exact component
+languages and then **§5's global Zielonka theorem** proves the same language
+for the regrouped DPA. Choosing C rather than S for the finite operands is
+only a representation choice justified by these closure properties.
+
+Canonical absorption can remove an unsupported syntax operand. The original
+guard alone does not justify visiting that operand again. Before constructing
+any components, `groupable` therefore descends through **every** ∧/∨ node of
+the factored outer syntax, including canonically absorbed branches. At each
+non-Boolean leaf it applies `check_admission` to that leaf's canonical class.
+This check returns false for unsupported support without changing the context
+status or creating colours. If any leaf fails, construction uses the original
+`dpa_acceptance(c, original_class)`; no decline is cleared or context retried.
+Resource failures retain their original status and do not trigger a retry.
+
+Write A_m for the original canonical-support admission predicate in mode m.
+Induction on the canonical Boolean decision DAG shows `check_admission(x)`
+computes A_m(x): constants pass, admitted whole classes pass, and otherwise
+the supported top atom and both cofactors must pass. A fresh epoch memoizes
+shared classes; a false result short-circuits the traversal. Thus the initial
+check rejects exactly the original unsupported domain. If it passes but
+`groupable` fails, the original acceptance recursion succeeds by that same
+induction. If both pass, all canonical acceptance calls on remaining syntax
+leaves satisfy A_m; grouped safety/co-safety/finite classes are admitted by
+the closure argument above. Every syntax acceptance call is consequently
+supported, even when a shared or absorbed subtree is visited by flattening.
+Ignoring resource failures, the new constructor therefore succeeds exactly
+on A_m. On the proved domain, the component and product theorems cited above
+give the original infinite-word language in both paths. In `allow_unproved`
+mode this language claim remains conditional on the general component theorem
+of §6; preserving admission does not discharge that theorem.
+
+### 9.2. The two temporal distributions
+
+For every infinite word w and position n,
+
+```text
+w,n ⊨ G(a ∧ b) ⇔ ∀j≥n: (w,j ⊨ a ∧ w,j ⊨ b)
+                ⇔ (∀j≥n: w,j ⊨ a) ∧ (∀j≥n: w,j ⊨ b),
+w,n ⊨ F(a ∨ b) ⇔ ∃j≥n: (w,j ⊨ a ∨ w,j ⊨ b)
+                ⇔ (∃j≥n: w,j ⊨ a) ∨ (∃j≥n: w,j ⊨ b).
+```
+
+Therefore `G(a∧b)=Ga∧Gb` and `F(a∨b)=Fa∨Fb`. Already compatible safety/co-safety
+syntax is retained as one monitor; distributing inside it is unnecessary.
+Structural congruence permits
+replacement inside any NNF syntax context, including frozen modal operands.
+Hash-consing/memoization changes no formula. The recursion terminates because
+each distribution moves G/F onto strict Boolean subterms; ordinary recursive
+calls descend the syntax DAG. These are the **infinite-word semantic identities
+used for canonicalization in Stage 1 §1**, with component correctness and the
+final parity language supplied by **Stage 1 §4, §6 here, and §§4–5 here**.
+The original admission guard is evaluated first, as above.
+
+### 9.3. Terminally decided products
+
+Consider a partial current-letter path through `joint`. A component DAG leaf
+fixes its target pair for every completion of that path. If that pair's
+all-field is 0 or 1, §2's transition table keeps it forever in `(0,0)` or
+`(1,0)`, with respectively no marks or a mark on every edge. Consequently its
+`Inf(i)` truth is exactly that constant, independently of the remaining word,
+the rejecting field, and the finite prefix of marks. Substitute only these
+constants in the fixed acceptance Boolean β of §4. Components whose target
+is still a decision, or whose all-field is nonterminal, remain variables.
+Complemented occurrences in β keep their Boolean polarity during substitution.
+
+If the result is the Boolean constant t, every infinite continuation has
+acceptance truth t. Replace this branch by an absorbing state identified
+by the reserved absent tuple and t. Its universal self-loop has priority P
+for t=1 and P−1 for t=0, where P is the odd export constant of §5. The
+recurring maximum is therefore odd exactly for t=1. The entering priority
+and all earlier priorities occur only finitely before this constant suffix
+and cannot change acceptance. This proves equality of the residual languages,
+using the **fixed Boolean-product theorem (§4)**, the **terminal rows of §2**,
+and **§5's max-odd parity characterization**. For an undecided β use the
+unchanged tuple and global-tree update. No arbitrary nonterminal component
+is dropped and no conditional/local acceptance tree is introduced.
+
+### 9.4. Unfolding under current-AP choices
+
+Let C be a consistent cube of assignments to current AP variables only.
+For syntax t the care traversal returns `U(t)|C`; a class traversal returns
+a class agreeing with `U(x)` on all valuations satisfying C. Modal variables
+retain the independent interpretation of Stage 1 §2. A known current AP is
+replaced by its chosen Boolean value; an unknown AP is retained. `[Xf]` and
+every displayed continuation in the unfolding equations remain frozen and
+are never evaluated under C. Boolean syntax uses the usual homomorphism,
+including constant short-circuiting; the modal clauses are exactly Stage 1
+§2's equations with their operand unfoldings restricted to C.
+
+Prove the invariant simultaneously by induction on syntax and the class BDD.
+At a current AP decision p, traverse the low/high cofactors under `C∧¬p`
+and `C∧p`, restore the previous assignment, and recombine with ITE(p,high,low).
+Shannon's identity proves agreement with `U(x)` under C. At a modal decision,
+the operand induction gives its unfolded decision expression under C, and
+the cofactor induction plus ITE proves the same claim. APs precede every
+modal variable in the existing order; hence assigned APs cannot occur in a
+remaining class cofactor. For a provably finite class U fixes every supported
+AP/X atom, so returning that class directly also satisfies the invariant.
+At the root C=true, the result is propositionally equal to the original U(x).
+The memo key is `(syntax-or-class, owned ID, canonical AP cube)`; different
+partial assignments cannot share a result accidentally. Storage and recursion
+use the existing host/cancellation budgets; no linear bound is claimed.
+
+This relies on **Stage 1 §2's frozen unfolding definition** and Shannon
+expansion. Equality of U leaves the **Stage 1 §3 derivative lemma**, extractor
+ρ, §2's ordered transition table, and the **component/product/parity theorems**
+unchanged. In particular current care never constrains APs exposed by a future
+X step, and introduces zero lookahead.
+
+### 9.5. Fragment bounds with exact fallback
+
+Write T(x) for the original exact support-tag intersection used during
+expansion. Maintain cached bit sets `L(x)⊆T(x)⊆H(x)`. Constants have all tags.
+For an atom, the sound syntax tags (or already refined exact tags) give L.
+The operator's actual tag transfer in `tags_impl` gives H: F/U/M can only
+produce `{co-safety,Π₂,Σ₂}`, G/R/W only `{safety,Π₂,Σ₂}`, and AP/X use the
+unrestricted set of tags. X's operand is not assumed finite. For a Boolean
+class with supported top atom v, intersect the respective bounds of v and
+both cofactors. This preserves both inclusions because T uses exactly that
+intersection. Soundness of the initial syntax bounds follows by structural
+induction on the **grammars of Stage 1 §1 and §1 here** and their operator
+transfer rules; Boolean canonicalization can add memberships by removing
+support but cannot invalidate those syntax memberships. Cached lower bounds
+remain sound if an atom is subsequently refined.
+
+For the original predicate `T(x)∩M≠∅`, return true if `L(x)∩M≠∅`, false if
+`H(x)∩M=∅`, and otherwise call the unchanged `dpa_tags` exact computation.
+Thus every answer equals the original predicate, including masks containing
+both safety and co-safety. The safety test still precedes the co-safety test
+in §2. The reduce and finite-retry tests in ρ use the same rule, preserving
+every substitution, protected-X computation, and retry. This establishes
+identity of the transition rules needed by the **Stage 1 §4 and §6 component
+theorems**; conservative tags alone would not establish that identity.
+
+None of §9 uses support blocking (#81), external suspension/round robin (#82),
+local-tree/reset/stuttering reductions (#83), `State.inDifferentSccs`, or
+lookahead. Undecided products retain §5's original global tree and update.
+
 VERDICT: done

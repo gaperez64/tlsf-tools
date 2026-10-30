@@ -145,6 +145,10 @@ static void check(const std::string &text, bool allow_unproved = false,
   budget.allow_unproved = allow_unproved;
   budget.max_states = 10000;
   budget.max_host_bytes = 64u << 20;
+  if (expect_bdd_limit) {
+    budget.bdd_nodes = 1u << 12;
+    budget.bdd_cache = 1u << 10;
+  }
   auto status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
                                 names.data(), n_inputs, names.data() + n_inputs,
                                 names.size() - n_inputs, &budget, &c);
@@ -257,6 +261,57 @@ int main(int argc, char **argv) {
        })
     check(text);
   for (auto text : {
+           // Safety/co-safety siblings and finite initial conditions, both
+           // Boolean operations, with a separate recurrence component.
+           "G(a -> X b) & G(b -> X X c) & G F req",
+           "F(a & X b) | F(b & X X c) | F G req",
+           "!a & b & X c & F(a & X b) & F(!b | X X c) & G F req",
+           "a | !b | X !c | G(!a | X !b) | G(b & X X !c) | F G req",
+           "a & X b & G(a -> X c) & G F req",
+           // Unsupported syntax absorbed by the original canonical support.
+           "(a & G F b) | (a & G F b & X G F b)",
+           // G over conjunction and its F/disjunction dual, also nested.
+           "G((a -> X b) & (b -> F c) & (c -> F req))",
+           "F((a & X !b) | (b & G !c) | (c & G !req))",
+           "G(F((a & X b) | (c & X req)) & F grant)",
+           // A terminal residual decides the entire product; complementary
+           // acceptance literals must substitute with the right polarity.
+           "G a & G F b",
+           "F a | F G b",
+           "G a | G F b",
+           "F a & F G b",
+           "(G a & G F b) | (F c & F G req)",
+           // Current AP care reaches modal bodies but never crosses X.
+           "a & F(!a & X b)",
+           "a & X !a & F(!a & X b)",
+           "a & X F !a",
+           "a & ((a & X b) U (!a & X c))",
+           "a & ((a & X b) M (!a & X c))",
+           "a & ((a | X b) R (!a | X c))",
+           "a & ((a | X b) W (!a | X c))",
+           // Small chain shape: recurrence implications, a finite initial
+           // cube, and several transition obligations under that cube.
+           "(G F a -> G F (b | req)) & (G F b -> G F (a | c)) & "
+           "((!a & !b & req) -> (G(a -> X b) & G(b -> X c) & G(req -> X a)))",
+           // Small AMBA shape: fairness plus initial grants, a bundled G
+           // of finite consistency, next-step stability and response clauses.
+           "(req & G F req) -> (a & !b & G((a | b) & !(a & b) & "
+           "(!req -> ((X a <-> a) & (X b <-> b))) & "
+           "(c -> F(!c | a)) & (grant -> F(!grant | b))))",
+           // Small SPI shape: many safety clauses beside recurrence.
+           "G(a -> X b) & G(b -> X X c) & G(c -> X req) & "
+           "G(req -> X grant) & G F !grant",
+       }) {
+    check(text);
+    check("!(" + std::string(text) + ")");
+  }
+  for (auto text : {"(G F a & F G b) | (G F a & F G b & G F G F b)",
+                    "!((G F a & F G b) | (G F a & F G b & G F G F b))"})
+    check(text, true);
+  for (auto text : {
+           // Research admission keeps the syntax tags; expansion must refine
+           // the ambiguous X bound using canonical absorption in its body.
+           "X G(a | (a & F G b))",
            "G(a -> F(b U c))",
            "G F(a U b)",
            "X ((G F a & F G b) | G F c)",

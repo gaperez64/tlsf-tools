@@ -340,6 +340,24 @@ static void canonical(Arena *a, Node *p, Node *q) {
   tlsf_dpa_free(c);
 }
 
+static void bounds(Arena *a, Node *p, Node *q) {
+  TlsfDpa *c;
+  assert(create(node_true(a), nullptr, &c).code == TLSF_DPA_OK);
+  c->started = true;
+  // Syntax cannot establish safety here. Canonical absorption inside the
+  // frozen X operand can; the ambiguous bound must use the exact fallback.
+  Node *body = node_or(a, p, node_and(a, p, node_f(a, node_g(a, q))));
+  uint32_t f =
+      dpa_formula(c, (TlsfAstNode *)node_x(a, node_g(a, body)), false, 0);
+  assert(dpa_children(c, f));
+  DpaAtom *atom = c->atoms.items[dpa_cls(c, f)->var];
+  assert(!(atom->tags & DPA_SAFETY) && !atom->exact_tags);
+  assert(dpa_has_tags(c, f, DPA_SAFETY) && atom->exact_tags);
+  for (unsigned mask = 0; mask <= DPA_ALL; ++mask)
+    assert(dpa_has_tags(c, f, mask) == !!(dpa_tags(c, f) & mask));
+  tlsf_dpa_free(c);
+}
+
 int main(void) {
   Arena *a = arena_new(4096);
   Node *p = node_ap(a, "a"), *q = node_ap(a, "b");
@@ -359,8 +377,20 @@ int main(void) {
   sweeps(node_g(a, node_u(a, p, node_and(a, q, node_x(a, p)))), true);
   sweeps(node_g(a, node_or(a, p, node_f(a, node_and(a, q, node_x(a, p))))),
          false);
+  // Group a finite initial constraint with co-safety siblings, distribute G
+  // and F, constrain their unfolding, and reach both terminal product sinks.
+  sweeps(node_and(a, node_not(a, p),
+                  node_and(a, node_f(a, p),
+                           node_and(a, node_f(a, node_x(a, q)), pi))),
+         false);
+  Node *bundle = node_g(a, node_and(a, node_impl(a, p, node_x(a, q)),
+                                    node_f(a, node_or(a, p, q))));
+  sweeps(bundle, false);
+  sweeps(node_not(a, bundle), false);
+  sweeps(node_x(a, node_g(a, node_or(a, p, node_and(a, p, sigma)))), true);
   symbolic(a);
   canonical(a, p, q);
+  bounds(a, p, q);
   arena_free(a);
   puts("DPA contract passed");
 }

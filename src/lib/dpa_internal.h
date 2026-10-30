@@ -30,7 +30,7 @@ typedef struct {
   Bdd bdd;
   uint32_t unfold, step, dag, remainder, label, dual, acceptance;
   uint32_t var, low, high;
-  unsigned tags;
+  unsigned tags, quick_low, quick_high;
   unsigned char flat[2]; // cached q/r membership: 0 unknown, 1 no, 2 yes
   TlsfDpaLabelNode description;
   uint64_t epoch;
@@ -40,7 +40,7 @@ typedef struct {
 typedef struct {
   DpaKey key;
   TlsfAstKind op;
-  uint32_t lhs, rhs, cls, dual;
+  uint32_t lhs, rhs, cls, dual, factored;
   unsigned tags;
 } DpaTerm;
 typedef struct {
@@ -98,9 +98,9 @@ struct TlsfDpa {
   size_t bytes;
   oxidd_bdd_manager_t manager;
   DpaTable classes, atoms, terms, states, dags, products, syntax;
-  DpaTable components, pairs, tuples, joints, trees, paths;
+  DpaTable components, pairs, tuples, joints, trees, paths, unfolds;
   char **names;
-  uint32_t aps, initial;
+  uint32_t aps, initial, formula_term;
   uint32_t acceptance, root, leftmost, max_priority;
   size_t colour_words;
   bool root_accepts, started;
@@ -123,6 +123,7 @@ uint32_t dpa_ite(TlsfDpa *c, uint32_t v, uint32_t hi, uint32_t lo);
 uint32_t dpa_formula(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                      unsigned depth);
 unsigned dpa_tags(TlsfDpa *c, uint32_t f);
+bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask);
 bool dpa_admitted(TlsfDpa *c, uint32_t f);
 bool dpa_children(TlsfDpa *c, uint32_t f);
 uint32_t dpa_unfold(TlsfDpa *c, uint32_t f);
@@ -135,6 +136,7 @@ uint32_t dpa_state(TlsfDpa *c, uint32_t tuple, uint32_t leaf);
 uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r);
 uint32_t dpa_tuple(TlsfDpa *c, const uint32_t *values);
 uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f);
+uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f);
 uint32_t dpa_dual(TlsfDpa *c, uint32_t f);
 uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf);
 uint32_t dpa_dela_initial(TlsfDpa *c);

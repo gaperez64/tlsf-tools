@@ -233,7 +233,7 @@ TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
   uint32_t f = dpa_formula(c, root, false, 0);
   if (!dpa_poll(c))
     goto fail;
-  c->acceptance = dpa_acceptance(c, f);
+  c->acceptance = dpa_grouped_acceptance(c, f);
   if (!dpa_poll(c))
     goto fail;
   c->colour_words = ((size_t)c->components.n + 63) / 64;
@@ -357,6 +357,14 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     c->states.buckets[initial->key.hash & (c->states.bins - 1)] = c->initial;
   }
   DpaState *s = c->states.items[id];
+  if (s->tuple == DPA_BAD && s->leaf < 2 && !s->edges) {
+    uint32_t label = dpa_export(c, 1);
+    s->edges = dpa_alloc(c, 1, sizeof *s->edges);
+    if (!s->edges)
+      return c->status;
+    s->count = 1;
+    s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};
+  }
   if (!s->edges) {
     uint32_t root = dpa_dela_step(c, s->tuple, s->leaf);
     if (!dpa_poll(c))

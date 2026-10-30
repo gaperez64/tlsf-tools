@@ -122,6 +122,48 @@ unsigned dpa_tags(TlsfDpa *c, uint32_t f) {
   return result;
 }
 
+// Cached lower/upper bounds only. An undecided predicate still uses exact tags.
+static void tag_bounds(TlsfDpa *c, uint32_t f, unsigned *lo, unsigned *hi) {
+  if (!dpa_enter(c)) {
+    *lo = 0;
+    *hi = DPA_ALL;
+    return;
+  }
+  DpaClass *cl = dpa_cls(c, f);
+  if (!cl->quick_high) {
+    unsigned l = DPA_ALL, h = DPA_ALL;
+    if (f > 1 && dpa_children(c, f)) {
+      DpaAtom *a = c->atoms.items[cl->var];
+      l = a->tags;
+      if (a->op == TLSF_AST_F || a->op == TLSF_AST_U || a->op == TLSF_AST_M)
+        h = DPA_COSAFETY | DPA_PI2 | DPA_SIGMA2;
+      else if (a->op == TLSF_AST_G || a->op == TLSF_AST_R ||
+               a->op == TLSF_AST_W)
+        h = DPA_SAFETY | DPA_PI2 | DPA_SIGMA2;
+      unsigned ll, lh, hl, hh;
+      tag_bounds(c, cl->low, &ll, &lh);
+      tag_bounds(c, cl->high, &hl, &hh);
+      l &= ll & hl;
+      h &= lh & hh;
+    }
+    cl->quick_low = l + 1;
+    cl->quick_high = h + 1;
+  }
+  *lo = cl->quick_low - 1;
+  *hi = cl->quick_high - 1;
+  --c->recursion;
+}
+bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask) {
+  if (!dpa_poll(c))
+    return false;
+  unsigned lo, hi;
+  tag_bounds(c, f, &lo, &hi);
+  if (lo & mask)
+    return true;
+  if (!(hi & mask))
+    return false;
+  return dpa_tags(c, f) & mask;
+}
 // Positive Boolean bodies over finite windows and F(window), or their G duals.
 static bool flat_body(TlsfDpa *c, uint32_t f, bool eventual) {
   if (!dpa_enter(c))
@@ -458,15 +500,131 @@ static uint32_t transport(TlsfDpa *c, const TlsfAstNode *n, bool neg,
   return dpa_insert(c, &c->syntax, entry) ? f : DPA_BAD;
 }
 
+// Validate the original canonical support before changing its representation.
+static bool check_admission(TlsfDpa *c, uint32_t f, uint64_t epoch) {
+  if (!dpa_enter(c))
+    return false;
+  bool result = true;
+  if (f > 1 && dpa_children(c, f)) {
+    DpaClass *cl = dpa_cls(c, f);
+    if (cl->epoch != epoch) {
+      cl->epoch = epoch;
+      if (!dpa_admitted(c, f)) {
+        DpaAtom *atom = c->atoms.items[cl->var];
+        result = dpa_admitted(c, atom->cls) &&
+                 check_admission(c, cl->low, epoch) &&
+                 check_admission(c, cl->high, epoch);
+      }
+    }
+  }
+  --c->recursion;
+  return dpa_poll(c) && result;
+}
+static uint32_t factor_term(TlsfDpa *c, uint32_t id) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  DpaTerm *t = c->terms.items[id];
+  uint32_t result = id;
+  // Compatible fragments already belong in one monitor.
+  if (id > 1 && !t->factored && !(t->tags & (DPA_SAFETY | DPA_COSAFETY))) {
+    uint32_t a = factor_term(c, t->lhs);
+    bool binary =
+        t->op == TLSF_AST_AND || t->op == TLSF_AST_OR || t->op >= TLSF_AST_U;
+    uint32_t b = binary ? factor_term(c, t->rhs) : 0;
+    if (dpa_poll(c)) {
+      DpaTerm *body = c->terms.items[a];
+      if ((t->op == TLSF_AST_G && body->op == TLSF_AST_AND) ||
+          (t->op == TLSF_AST_F && body->op == TLSF_AST_OR))
+        result = factor_term(c, term(c, body->op, term(c, t->op, body->lhs, 0),
+                                     term(c, t->op, body->rhs, 0)));
+      else
+        result = term(c, t->op, a, b);
+      if (dpa_poll(c))
+        t->factored = result + 1;
+    }
+  } else if (t->factored)
+    result = t->factored - 1;
+  --c->recursion;
+  return result;
+}
+// Check every leaf that flattening could expose, before allocating components.
+static bool groupable(TlsfDpa *c, uint32_t id, uint64_t epoch) {
+  if (!dpa_enter(c))
+    return false;
+  DpaTerm *t = c->terms.items[id];
+  bool result = t->op == TLSF_AST_AND || t->op == TLSF_AST_OR
+                    ? groupable(c, t->lhs, epoch) && groupable(c, t->rhs, epoch)
+                    : check_admission(c, materialize(c, id), epoch);
+  --c->recursion;
+  return result;
+}
+static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id);
+static void group_operands(TlsfDpa *c, uint32_t id, TlsfAstKind op,
+                           uint32_t *safety, uint32_t *cosafety,
+                           uint32_t *finite, uint32_t *rest) {
+  if (!dpa_enter(c))
+    return;
+  DpaTerm *t = c->terms.items[id];
+  bool conjunction = op == TLSF_AST_AND;
+  if (t->op == op) {
+    group_operands(c, t->lhs, op, safety, cosafety, finite, rest);
+    group_operands(c, t->rhs, op, safety, cosafety, finite, rest);
+  } else if (t->tags & DPA_FINITE)
+    *finite = dpa_boolean(c, conjunction, *finite, materialize(c, id));
+  else if (t->tags & DPA_SAFETY)
+    *safety = dpa_boolean(c, conjunction, *safety, materialize(c, id));
+  else if (t->tags & DPA_COSAFETY)
+    *cosafety = dpa_boolean(c, conjunction, *cosafety, materialize(c, id));
+  else
+    *rest = dpa_boolean(c, conjunction, *rest, syntax_acceptance(c, id));
+  --c->recursion;
+}
+static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  DpaTerm *t = c->terms.items[id];
+  uint32_t f = materialize(c, id), result = DPA_BAD;
+  if (!dpa_poll(c))
+    goto done;
+  if (f < 2 || dpa_admitted(c, f))
+    result = dpa_acceptance(c, f);
+  else if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR) {
+    bool conjunction = t->op == TLSF_AST_AND;
+    uint32_t safety = conjunction, cosafety = conjunction, finite = conjunction,
+             rest = conjunction;
+    group_operands(c, id, t->op, &safety, &cosafety, &finite, &rest);
+    if (cosafety != (uint32_t)conjunction)
+      cosafety = dpa_boolean(c, conjunction, cosafety, finite);
+    else
+      safety = dpa_boolean(c, conjunction, safety, finite);
+    result = dpa_boolean(c, conjunction, rest,
+                         dpa_boolean(c, conjunction, dpa_acceptance(c, safety),
+                                     dpa_acceptance(c, cosafety)));
+  } else
+    result = dpa_acceptance(c, f);
+done:
+  --c->recursion;
+  return result;
+}
+uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {
+  if (!check_admission(c, f, ++c->epoch))
+    return dpa_decline(c, TLSF_DPA_UNSUPPORTED);
+  uint32_t id = factor_term(c, c->formula_term);
+  bool grouped = dpa_poll(c) && groupable(c, id, ++c->epoch);
+  if (!dpa_poll(c))
+    return DPA_BAD;
+  return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);
+}
 uint32_t dpa_formula(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                      unsigned depth) {
   if (!c->terms.n)
     term(c, TLSF_AST_FALSE, 0, 0);
   uint32_t f = transport(c, n, neg, depth, 0);
+  c->formula_term = f;
   return dpa_poll(c) ? materialize(c, f) : DPA_BAD;
 }
 
-enum { UNFOLD, STEP, REDUCE, DROP_X };
+enum { STEP, REDUCE, DROP_X };
 static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,
                          const bool *protect);
 static uint32_t map_class(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,
@@ -486,9 +644,7 @@ static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,
     cl->epoch = epoch;
     cl->mapped = DPA_BAD;
   }
-  uint32_t *slot = mode == UNFOLD ? &cl->unfold
-                   : mode == STEP ? &cl->step
-                                  : &cl->mapped;
+  uint32_t *slot = mode == STEP ? &cl->step : &cl->mapped;
   if (slot && *slot != DPA_BAD)
     return *slot;
   if (!dpa_children(c, f))
@@ -498,35 +654,11 @@ static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,
   if (mode == STEP && atom->op == TLSF_AST_X)
     v = materialize(c, atom->lhs);
   else if (mode == REDUCE && atom->op != TLSF_AST_AP &&
-           !(dpa_tags(c, atom->cls) & DPA_COSAFETY))
+           !dpa_has_tags(c, atom->cls, DPA_COSAFETY))
     v = 1;
   else if (mode == DROP_X && atom->op == TLSF_AST_X && !protect[cl->var])
     v = 1;
-  else if (mode == UNFOLD && atom->op != TLSF_AST_AP &&
-           atom->op != TLSF_AST_X) {
-    uint32_t a = dpa_unfold(c, materialize(c, atom->lhs));
-    uint32_t b =
-        (atom->op >= TLSF_AST_U ? dpa_unfold(c, materialize(c, atom->rhs)) : 0);
-    switch (atom->op) {
-    case TLSF_AST_F:
-      v = dpa_boolean(c, false, a, v);
-      break;
-    case TLSF_AST_G:
-      v = dpa_boolean(c, true, a, v);
-      break;
-    case TLSF_AST_U:
-    case TLSF_AST_W:
-      v = dpa_boolean(c, false, b, dpa_boolean(c, true, a, v));
-      break;
-    case TLSF_AST_R:
-    case TLSF_AST_M:
-      v = dpa_boolean(c, true, b, dpa_boolean(c, false, a, v));
-      break;
-    default:
-      c->status.code = TLSF_DPA_INTERNAL;
-      return DPA_BAD;
-    }
-  }
+
   uint32_t low = map_class(c, cl->low, mode, epoch, protect);
   uint32_t high = map_class(c, cl->high, mode, epoch, protect);
   uint32_t result = dpa_ite(c, v, high, low);
@@ -535,8 +667,142 @@ static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,
   return result;
 }
 
+static uint32_t unfold_care(TlsfDpa *c, uint32_t id, uint32_t cube,
+                            signed char *care, bool syntax);
+static uint32_t unfold_term_care(TlsfDpa *c, uint32_t id, uint32_t cube,
+                                 signed char *care);
+static uint32_t unfold_atom_care(TlsfDpa *c, DpaAtom *atom, uint32_t cube,
+                                 signed char *care) {
+  if (atom->op == TLSF_AST_AP)
+    return care[atom->lhs] < 0 ? atom->cls : (uint32_t)care[atom->lhs];
+  if (atom->op == TLSF_AST_X)
+    return atom->cls;
+  uint32_t a = unfold_care(c, atom->lhs, cube, care, true);
+  uint32_t b =
+      atom->op >= TLSF_AST_U ? unfold_care(c, atom->rhs, cube, care, true) : 0;
+  uint32_t v = atom->cls;
+  switch (atom->op) {
+  case TLSF_AST_F:
+    return dpa_boolean(c, false, a, v);
+  case TLSF_AST_G:
+    return dpa_boolean(c, true, a, v);
+  case TLSF_AST_U:
+  case TLSF_AST_W:
+    return dpa_boolean(c, false, b, dpa_boolean(c, true, a, v));
+  case TLSF_AST_R:
+  case TLSF_AST_M:
+    return dpa_boolean(c, true, b, dpa_boolean(c, false, a, v));
+  default:
+    c->status.code = TLSF_DPA_INTERNAL;
+    return DPA_BAD;
+  }
+}
+static uint32_t unfold_term_care(TlsfDpa *c, uint32_t id, uint32_t cube,
+                                 signed char *care) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  DpaTerm *t = c->terms.items[id];
+  uint32_t result = DPA_BAD;
+  if (id < 2)
+    result = id;
+  else if (t->op == TLSF_AST_NOT) {
+    uint32_t a = unfold_care(c, t->lhs, cube, care, true);
+    if (dpa_poll(c))
+      result = dpa_class(c, oxidd_bdd_not(dpa_cls(c, a)->bdd));
+  } else if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR) {
+    bool conjunction = t->op == TLSF_AST_AND;
+    uint32_t a = unfold_care(c, t->lhs, cube, care, true);
+    if (a == (uint32_t)!conjunction)
+      result = a;
+    else
+      result = dpa_boolean(c, conjunction, a,
+                           unfold_care(c, t->rhs, cube, care, true));
+  } else {
+    uint32_t f = materialize(c, id);
+    if (dpa_poll(c)) {
+      DpaAtom *atom = NULL;
+      if (f < 2)
+        result = f;
+      else if (dpa_children(c, f)) {
+        atom = c->atoms.items[dpa_cls(c, f)->var];
+        result = unfold_atom_care(c, atom, cube, care);
+      }
+    }
+  }
+  --c->recursion;
+  return result;
+}
+static uint32_t unfold_class_care(TlsfDpa *c, uint32_t f, uint32_t cube,
+                                  signed char *care) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  uint32_t result = f;
+  unsigned lo, hi;
+  tag_bounds(c, f, &lo, &hi);
+  if (!(lo & DPA_FINITE) && f > 1 && dpa_children(c, f)) {
+    DpaClass *cl = dpa_cls(c, f);
+    DpaAtom *atom = c->atoms.items[cl->var];
+    uint32_t low, high, v;
+    if (atom->op == TLSF_AST_AP) {
+      signed char old = care[atom->lhs];
+      care[atom->lhs] = 0;
+      low =
+          unfold_care(c, cl->low, dpa_ite(c, atom->cls, 0, cube), care, false);
+      care[atom->lhs] = 1;
+      high =
+          unfold_care(c, cl->high, dpa_ite(c, atom->cls, cube, 0), care, false);
+      care[atom->lhs] = old;
+      v = atom->cls;
+    } else {
+      v = unfold_atom_care(c, atom, cube, care);
+      low = unfold_care(c, cl->low, cube, care, false);
+      high = unfold_care(c, cl->high, cube, care, false);
+    }
+    result = dpa_ite(c, v, high, low);
+  }
+  --c->recursion;
+  return result;
+}
+// The cube records only CURRENT AP choices; X and continuations stay frozen.
+static uint32_t unfold_care(TlsfDpa *c, uint32_t id, uint32_t cube,
+                            signed char *care, bool syntax) {
+  if (!dpa_poll(c))
+    return DPA_BAD;
+  if (id < 2)
+    return id;
+  uint64_t h = dpa_hash(id, cube, syntax, 0);
+  for (uint32_t i = dpa_bucket(&c->unfolds, h); i != DPA_BAD;) {
+    if (!dpa_poll(c))
+      return DPA_BAD;
+    DpaDag *p = c->unfolds.items[i];
+    if (p->kind == (uint32_t)syntax && p->var == id && p->low == cube)
+      return p->high;
+    i = p->key.next;
+  }
+  uint32_t result = syntax ? unfold_term_care(c, id, cube, care)
+                           : unfold_class_care(c, id, cube, care);
+  DpaDag *p = dpa_alloc(c, 1, sizeof *p);
+  if (!p)
+    return DPA_BAD;
+  *p = (DpaDag){
+      .key.hash = h, .kind = syntax, .var = id, .low = cube, .high = result};
+  return dpa_insert(c, &c->unfolds, p) ? result : DPA_BAD;
+}
 uint32_t dpa_unfold(TlsfDpa *c, uint32_t f) {
-  return map_class(c, f, UNFOLD, 0, nullptr);
+  if (!dpa_poll(c))
+    return DPA_BAD;
+  DpaClass *cl = dpa_cls(c, f);
+  if (cl->unfold != DPA_BAD)
+    return cl->unfold;
+  signed char *care = dpa_alloc(c, c->aps, sizeof *care);
+  if (!care)
+    return DPA_BAD;
+  memset(care, -1, c->aps);
+  uint32_t result = unfold_care(c, f, 1, care, false);
+  dpa_release(c, care);
+  if (dpa_poll(c))
+    cl->unfold = result;
+  return result;
 }
 
 uint32_t dpa_dag(TlsfDpa *c, uint32_t kind, uint32_t var, uint32_t lo,
@@ -658,7 +924,7 @@ uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {
   }
   r = dpa_unfold(c, r);
   uint32_t unfolded = dpa_unfold(c, f);
-  if ((dpa_tags(c, r) & DPA_FINITE) && unfolded != f)
+  if (dpa_has_tags(c, r, DPA_FINITE) && unfolded != f)
     r = dpa_remainder(c, unfolded);
   cl->remainder = r;
   return r;

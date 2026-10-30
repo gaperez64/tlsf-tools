@@ -143,6 +143,13 @@ static void admission(Arena *a) {
       node_g(a, node_or(a, p, node_and(a, p, node_f(a, node_g(a, q)))));
   Node *absorbed_dual =
       node_f(a, node_and(a, p, node_or(a, p, node_g(a, node_f(a, q)))));
+  Node *initial = node_and(a, p, node_g(a, node_f(a, q)));
+  Node *mixed = node_and(a, node_g(a, node_f(a, p)), node_f(a, node_g(a, q)));
+  Node *group_absorbed = node_or(
+      a, initial, node_and(a, initial, node_x(a, node_g(a, node_f(a, q)))));
+  Node *group_nested = node_or(
+      a, mixed,
+      node_and(a, mixed, node_g(a, node_f(a, node_g(a, node_f(a, q))))));
   Node *proved[] = {node_g(a, window),
                     node_f(a, window),
                     gf,
@@ -160,13 +167,20 @@ static void admission(Arena *a) {
                     absorbed,
                     absorbed_dual,
                     node_not(a, absorbed),
-                    node_not(a, absorbed_dual)};
+                    node_not(a, absorbed_dual),
+                    group_absorbed,
+                    node_not(a, group_absorbed),
+                    group_nested,
+                    node_not(a, group_nested)};
   Node *unproved[] = {node_g(a, node_f(a, node_u(a, p, q))),
                       node_g(a, node_impl(a, p, node_f(a, node_u(a, p, q)))),
-                      node_x(a, gf),
-                      node_g(a, node_f(a, node_f(a, p))),
+                      node_x(a, gf), node_g(a, node_f(a, node_f(a, p))),
                       node_g(a, node_or(a, node_f(a, p), node_g(a, q))),
-                      node_f(a, node_and(a, node_g(a, p), node_f(a, q)))};
+                      node_f(a, node_and(a, node_g(a, p), node_f(a, q))),
+                      // Factoring could expose a proved Boolean product, but
+                      // admission is checked before G/F distribution.
+                      node_g(a, node_and(a, node_g(a, p), node_f(a, q))),
+                      node_f(a, node_or(a, node_f(a, p), node_g(a, q)))};
   const char *names[] = {"a", "b"};
   for (unsigned mode = 0; mode < 3; ++mode) {
     TlsfDpaBudget budget = {.allow_unproved = mode == 2};
