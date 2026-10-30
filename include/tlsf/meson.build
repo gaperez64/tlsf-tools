@@ -22,6 +22,7 @@ public_headers = files(
   'convert.hpp',
   'decompose.h',
   'decompose.hpp',
+  'dpa.h',
   'expand.h',
   'intern.h',
   'normalize.h',
