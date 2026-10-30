@@ -237,9 +237,9 @@ implementation or the other CSNF template families.
 | `src/lib/residual_plan.c:44–53,72–115` | Freeze the first pruned/retained view across routing, solving and export; cache allocation failure disables pruning for the plan |
 | `src/lib/residual.c:30–59,68–77` | `Formula.atoms`, `normalize_untouched`; support collection and unused-output declaration removal |
 | `src/lib/section_pattern.c:81–114,173–225` | `sectionFormula`, `objectiveFormula`, `objective_sat`; empty sections are true, all section conjuncts are included |
-| `src/lib/residual.c:111–183,186–233` | `Prunable`, `EnvSat`, `prune_realizable`; the transitive cone includes all kept roles, asserts dropped input support/disjointness, and prunes only infinite ordinary/strict Mealy games after a positive joint check |
-| `src/lib/residual_sat.cc:17–49,53–86` | `EnvSat`; direct AST translation conjoins INITIALLY, globally wrapped REQUIRE, and ASSUMPTIONS; Spot nonemptiness is a trusted witness-existence answer; uncertainty keeps D |
-| `src/lib/residual.c:251–356` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
+| `src/lib/residual.c:111–184,186–234` | `Prunable`, `EnvSat`, `prune_realizable`; the transitive cone includes all kept roles, asserts dropped input support/disjointness, and prunes only infinite ordinary/strict Mealy games after a positive joint check |
+| `src/lib/residual_sat.cc:17–74,78–116` | `EnvSat`; direct AST translation conjoins INITIALLY, globally wrapped REQUIRE, and ASSUMPTIONS; Spot nonemptiness is a trusted witness-existence answer; uncertainty keeps D |
+| `src/lib/residual.c:252–357` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
 | `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:75–86` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
 | `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:815–819` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |

@@ -41,10 +41,10 @@ ResidualPlan *residual_plan_build(TlsfSpec *spec, ConstraintCover *cov,
   p->nclusters = residual_cluster_keys(cov, p->rf, n, p->key, &p->keys);
   if (!p->keys)
     goto fail;
-  p->cluster_views = calloc(p->nclusters ? p->nclusters : 1,
-                            sizeof(*p->cluster_views));
-  p->cluster_view_ready = calloc(p->nclusters ? p->nclusters : 1,
-                                 sizeof(*p->cluster_view_ready));
+  p->cluster_views =
+      calloc(p->nclusters ? p->nclusters : 1, sizeof(*p->cluster_views));
+  p->cluster_view_ready =
+      calloc(p->nclusters ? p->nclusters : 1, sizeof(*p->cluster_view_ready));
   if (!p->cluster_views || !p->cluster_view_ready) {
     free(p->cluster_views);
     free(p->cluster_view_ready);

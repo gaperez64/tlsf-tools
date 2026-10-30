@@ -165,8 +165,8 @@ static bool cluster_assumption_mask(TlsfSpec *spec, ConstraintCover *cov,
     for (uint32_t a = 0; a < A; a++) {
       if (!atoms[a])
         continue;
-      bool independent = residual_signal_matches(cov, a, AP_FLAG_INPUT) &&
-                         !kept[a];
+      bool independent =
+          residual_signal_matches(cov, a, AP_FLAG_INPUT) && !kept[a];
       assert(independent); // Prunable.inputs and Prunable.disjoint
       if (!independent)
         goto done;
@@ -196,7 +196,8 @@ bool residual_build_cluster_view(TlsfSpec *spec, ConstraintCover *cov,
       !semantics_is_moore(spec->info.semantics) &&
       spec->info.target == TARGET_MEALY) {
     include = malloc((n ? n : 1) * sizeof(bool));
-    if (include && !cluster_assumption_mask(spec, cov, rf, key, kk, n, include)) {
+    if (include &&
+        !cluster_assumption_mask(spec, cov, rf, key, kk, n, include)) {
       free(include);
       include = nullptr;
     }

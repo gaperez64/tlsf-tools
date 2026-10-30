@@ -30,25 +30,25 @@ static void check(bool admitted) {
   bool *discharged = calloc(cov->count, sizeof(bool));
   assert(discharged);
   CsnfComposition comp = {.elim_constraint = discharged};
-  ResidualPlan *plan = residual_plan_build(spec, cov, nullptr, &comp,
-                                          (ResidualPlanOptions){0});
+  ResidualPlan *plan =
+      residual_plan_build(spec, cov, nullptr, &comp, (ResidualPlanOptions){0});
   assert(plan && plan->nclusters == 1);
   bool *seen = calloc(cov->aps.count, sizeof(bool));
   assert(seen);
   SectionPatternView first, second;
   calls = 0;
   answer = admitted;
-  assert(residual_plan_build_cluster_view(spec, cov, plan, plan->keys[0],
-                                          false, true, seen, &first));
+  assert(residual_plan_build_cluster_view(spec, cov, plan, plan->keys[0], false,
+                                          true, seen, &first));
   assert(calls == 1 && first.count == (admitted ? 1u : 2u));
   // Simulate a later timeout (or a later successful check). Export must use
   // exactly the first view, including the first decision to retain D.
   answer = !admitted;
-  assert(residual_plan_build_cluster_view(spec, cov, plan, plan->keys[0],
-                                          false, true, seen, &second));
+  assert(residual_plan_build_cluster_view(spec, cov, plan, plan->keys[0], false,
+                                          true, seen, &second));
   assert(calls == 1 && second.entries == first.entries);
-  assert(residual_plan_build_cluster(spec, cov, plan, plan->keys[0],
-                                      false, true, seen));
+  assert(residual_plan_build_cluster(spec, cov, plan, plan->keys[0], false,
+                                     true, seen));
   assert(calls == 1);
   int32_t q = -1;
   for (uint32_t a = 0; a < cov->aps.count; a++)
