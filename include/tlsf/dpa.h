@@ -37,6 +37,9 @@ typedef struct {
   const volatile bool *cancel; // borrowed until free; one caller per context
   int (*cancelled)(void *);    // may load an atomic flag
   void *cancel_ctx;
+  // Research only: admit components outside STAGE2-PROOF.md's proved grammar;
+  // their correctness remains unproved (issue #80). Default false.
+  bool allow_unproved;
 } TlsfDpaBudget;
 typedef struct {
   TlsfDpaLabel label;
@@ -56,10 +59,13 @@ typedef struct {
 
 // Infinite-word ground AST only. The conversion API rejects finite semantics.
 // Copies the AST and partition (inputs first, including unused declarations).
-// Stage 1 admits syntactic safety/co-safety, GF finite-window formulas and
-// their complements. Everything else declines. Failure always sets *out=NULL.
-// Syntax depth above 256 declines; recursive symbolic work is capped at 512
-// frames (host limit). BDD nodes/cache are separate from C host-byte
+// Admits Boolean combinations of safety/co-safety, G(q) and F(r), where q is
+// Boolean over finite b and F(b), and r is Boolean over finite b and G(b).
+// With allow_unproved, admits Boolean syntactic Pi_2/Sigma_2 combinations.
+// Failure always sets *out=NULL. Creation fixes the global acceptance; the
+// first successor request materializes its tree and the initial component
+// tuple. Syntax depth above 1024 declines; recursive symbolic work is capped at
+// 2048 frames (host limit). BDD nodes/cache are separate from C host-byte
 // accounting. Deadlines/cancellation are cooperative between individual FFI
 // operations.
 TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,

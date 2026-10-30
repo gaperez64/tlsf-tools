@@ -29,6 +29,33 @@ Bdd __wrap_oxidd_bdd_ite(Bdd a, Bdd b, Bdd d) {
   return __real_oxidd_bdd_ite(a, b, d);
 }
 
+// All BDD operations newly used by the global acceptance/tree participate.
+#define WRAP_BDD1(name)                                                        \
+  Bdd __real_##name(Bdd);                                                      \
+  Bdd __wrap_##name(Bdd);                                                      \
+  Bdd __wrap_##name(Bdd a) {                                                   \
+    if (armed && ++bdd_count == bdd_at) {                                      \
+      fired = true;                                                            \
+      return (Bdd){0};                                                         \
+    }                                                                          \
+    return __real_##name(a);                                                   \
+  }
+#define WRAP_BDD2(name)                                                        \
+  Bdd __real_##name(Bdd, Bdd);                                                 \
+  Bdd __wrap_##name(Bdd, Bdd);                                                 \
+  Bdd __wrap_##name(Bdd a, Bdd b) {                                            \
+    if (armed && ++bdd_count == bdd_at) {                                      \
+      fired = true;                                                            \
+      return (Bdd){0};                                                         \
+    }                                                                          \
+    return __real_##name(a, b);                                                \
+  }
+WRAP_BDD1(oxidd_bdd_not)
+WRAP_BDD1(oxidd_bdd_cofactor_false)
+WRAP_BDD1(oxidd_bdd_cofactor_true)
+WRAP_BDD2(oxidd_bdd_and)
+WRAP_BDD2(oxidd_bdd_or)
+
 static const char *const names[] = {"a", "b"};
 static TlsfDpaStatus create(Node *f, const TlsfDpaBudget *budget, TlsfDpa **c) {
   return tlsf_dpa_create((const TlsfAstNode *)f, names, 2, nullptr, 0, budget,
@@ -202,10 +229,11 @@ static void recurrence(Arena *a, Node *p, Node *q) {
   }
 }
 
-static void sweeps(Node *f) {
+static void sweeps(Node *f, bool allow_unproved) {
+  TlsfDpaBudget budget = {.allow_unproved = allow_unproved};
   TlsfDpa *c;
   reset(0, 0);
-  assert(create(f, nullptr, &c).code == TLSF_DPA_OK);
+  assert(create(f, &budget, &c).code == TLSF_DPA_OK);
   assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
   size_t hosts = host_count, bdds = bdd_count;
   size_t total_hosts = hosts;
@@ -216,7 +244,7 @@ static void sweeps(Node *f) {
     assert(limit);
     for (size_t i = 1; i <= limit; ++i) {
       reset(type ? 0 : i, type ? i : 0);
-      TlsfDpaStatus status = create(f, nullptr, &c);
+      TlsfDpaStatus status = create(f, &budget, &c);
       if (c)
         status = tlsf_dpa_expand(c);
       assert(fired && status.code == TLSF_DPA_DECLINED);
@@ -228,28 +256,32 @@ static void sweeps(Node *f) {
   }
   // Fault every allocation in a later expansion after a published row.
   reset(0, 0);
-  assert(create(f, nullptr, &c).code == TLSF_DPA_OK);
+  assert(create(f, &budget, &c).code == TLSF_DPA_OK);
   const TlsfDpaEdge *first;
   size_t count;
   assert(tlsf_dpa_successors(c, 0, &first, &count).code == TLSF_DPA_OK);
   reset(0, 0);
   assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
   hosts = host_count;
+  size_t later_bdds = bdd_count;
   armed = false;
   tlsf_dpa_free(c);
-  for (size_t i = 1; i <= hosts; ++i) {
-    assert(create(f, nullptr, &c).code == TLSF_DPA_OK);
-    assert(tlsf_dpa_successors(c, 0, &first, &count).code == TLSF_DPA_OK);
-    TlsfDpaEdge saved = first[0];
-    reset(i, 0);
-    assert(tlsf_dpa_expand(c).code == TLSF_DPA_DECLINED && fired);
-    assert(!memcmp(first, &saved, sizeof saved));
-    assert(tlsf_dpa_label_node(c, saved.label));
-    no_row(c, 0, TLSF_DPA_HOST_LIMIT);
-    armed = false;
-    tlsf_dpa_free(c);
+  for (unsigned type = 0; type < 2; ++type) {
+    size_t limit = type ? later_bdds : hosts;
+    for (size_t i = 1; i <= limit; ++i) {
+      assert(create(f, &budget, &c).code == TLSF_DPA_OK);
+      assert(tlsf_dpa_successors(c, 0, &first, &count).code == TLSF_DPA_OK);
+      TlsfDpaEdge saved = first[0];
+      reset(type ? 0 : i, type ? i : 0);
+      assert(tlsf_dpa_expand(c).code == TLSF_DPA_DECLINED && fired);
+      assert(!memcmp(first, &saved, sizeof saved));
+      assert(tlsf_dpa_label_node(c, saved.label));
+      no_row(c, 0, type ? TLSF_DPA_BDD_LIMIT : TLSF_DPA_HOST_LIMIT);
+      armed = false;
+      tlsf_dpa_free(c);
+    }
   }
-  assert(create(f, nullptr, &c).code == TLSF_DPA_OK);
+  assert(create(f, &budget, &c).code == TLSF_DPA_OK);
   assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
   tlsf_dpa_free(c);
   printf("allocation sweep: %zu host, %zu BDD operations, %zu later host "
@@ -308,6 +340,24 @@ static void canonical(Arena *a, Node *p, Node *q) {
   tlsf_dpa_free(c);
 }
 
+static void bounds(Arena *a, Node *p, Node *q) {
+  TlsfDpa *c;
+  assert(create(node_true(a), nullptr, &c).code == TLSF_DPA_OK);
+  c->started = true;
+  // Syntax cannot establish safety here. Canonical absorption inside the
+  // frozen X operand can; the ambiguous bound must use the exact fallback.
+  Node *body = node_or(a, p, node_and(a, p, node_f(a, node_g(a, q))));
+  uint32_t f =
+      dpa_formula(c, (TlsfAstNode *)node_x(a, node_g(a, body)), false, 0);
+  assert(dpa_children(c, f));
+  DpaAtom *atom = c->atoms.items[dpa_cls(c, f)->var];
+  assert(!(atom->tags & DPA_SAFETY) && !atom->exact_tags);
+  assert(dpa_has_tags(c, f, DPA_SAFETY) && atom->exact_tags);
+  for (unsigned mask = 0; mask <= DPA_ALL; ++mask)
+    assert(dpa_has_tags(c, f, mask) == !!(dpa_tags(c, f) & mask));
+  tlsf_dpa_free(c);
+}
+
 int main(void) {
   Arena *a = arena_new(4096);
   Node *p = node_ap(a, "a"), *q = node_ap(a, "b");
@@ -317,11 +367,30 @@ int main(void) {
   stability(delayed);
   declines(a, p);
   recurrence(a, p, q);
-  sweeps(node_g(a, node_f(a, node_and(a, p, node_x(a, q)))));
-  sweeps(node_g(a, node_f(a, node_and(a, p, node_x(a, node_x(a, q))))));
-  sweeps(delayed); // include vector/hash growth in the failure sweep
+  sweeps(node_g(a, node_f(a, node_and(a, p, node_x(a, q)))), false);
+  sweeps(node_g(a, node_f(a, node_and(a, p, node_x(a, node_x(a, q))))), false);
+  sweeps(delayed, false); // include vector/hash growth in the failure sweep
+  Node *pi = node_g(a, node_f(a, node_and(a, p, node_x(a, q))));
+  Node *sigma = node_f(a, node_g(a, node_and(a, q, node_x(a, p))));
+  sweeps(node_and(a, pi, sigma), false);
+  sweeps(node_equiv(a, pi, sigma), false);
+  sweeps(node_g(a, node_u(a, p, node_and(a, q, node_x(a, p)))), true);
+  sweeps(node_g(a, node_or(a, p, node_f(a, node_and(a, q, node_x(a, p))))),
+         false);
+  // Group a finite initial constraint with co-safety siblings, distribute G
+  // and F, constrain their unfolding, and reach both terminal product sinks.
+  sweeps(node_and(a, node_not(a, p),
+                  node_and(a, node_f(a, p),
+                           node_and(a, node_f(a, node_x(a, q)), pi))),
+         false);
+  Node *bundle = node_g(a, node_and(a, node_impl(a, p, node_x(a, q)),
+                                    node_f(a, node_or(a, p, q))));
+  sweeps(bundle, false);
+  sweeps(node_not(a, bundle), false);
+  sweeps(node_x(a, node_g(a, node_or(a, p, node_and(a, p, sigma)))), true);
   symbolic(a);
   canonical(a, p, q);
+  bounds(a, p, q);
   arena_free(a);
   puts("DPA contract passed");
 }
