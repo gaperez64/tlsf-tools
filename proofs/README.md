@@ -734,6 +734,32 @@ obligations are:
 - Validate that implementation and policy change against the required C/Spot
   and failure-path gates.
 
+### Task T: executable representation (first milestone)
+
+`TlsfProofs/Dpa/Impl/Classes.lean` provides executable truth tables over an
+explicit finite ordered list of modal atoms. `table_exact` proves that, on
+that alphabet, equality of the emitted vectors is exactly equality of the
+semantic `Class` values. `equivalent_exact` supplies an executable equality
+test for any two formulas by covering both alphabets. `uses_exact` proves that
+the executable support test is exactly `Uses`; `hasTag_exact` lifts any
+executable atom predicate to the semantic `HasTag`. These tests account for
+Boolean absorption and keep frozen modal operands and temporal duals
+independent. Duplicate atoms are removed before enumeration.
+
+Run the diagnostic executable from `proofs/`, using the Task T resource limits:
+
+```sh
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  env TMPDIR="$PWD/../build-scratch-t/tmp" LEAN_NUM_THREADS=1 \
+  lake exe dpaImplClasses
+```
+
+Its twelve checks exercise absorption, constants, essential and absent support,
+frozen operands and independent duals. `class_checks` also checks these same
+executable definitions by kernel reduction. This is a representation milestone,
+not an automaton exporter or a completed C refinement. No C code, admission
+policy or golden expectation changes in this milestone.
+
 ### C ↔ Lean correspondence
 
 These are semantic correspondences, not a C verification certificate. Line
