@@ -1,0 +1,8 @@
+G (((X X X X X X X X a) & F (b & X !b)) | ((!a | X X X X X X X b) & F (X c & X X !c)))
+G (((X X X X X X X X X X X X a) & F (b & X !b)) | ((!a | X X X X X X X X X X X b) & F (X c & X X !c)))
+G (a | F ((X X X X X X X X X X X X X X X X X X X X b) & (X X X X X X X X X X !c)))
+G (((X X X X X X X X X X X X X X X X X X X X a) & F (b & X !b)) | ((!a | X X X X X X X X X X X X X X X X X X X b) & F (X c & X X !c)))
+F (G ((X X X X X X X X X X X X X X X X X X X X a) | (X X X X X X X X X X X X X X X X X X X !b)) & X X X X X X X X X X c)
+G (a | F ((X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X b) & (X X X X X X X X X X X X X X X X !c)))
+G (((X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X a) & F (b & X !b)) | ((!a | X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X b) & F (X c & X X !c)))
+F (G ((X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X a) | (X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X !b)) & X X X X X X X X X X X X X X X X c)
