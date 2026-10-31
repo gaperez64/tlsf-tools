@@ -26,6 +26,13 @@ theorem mem_arcs (e : Arc na nb alphabet) : e ∈ arcs na nb alphabet := by
   rcases e with ⟨⟨a,b⟩,c⟩
   simp [arcs, vertices]
 
+def activeArcs (vs : List (Vertex na nb)) (alphabet : Nat) : List (Arc na nb alphabet) :=
+  vs.flatMap (fun v => (List.finRange alphabet).map (fun a => (v,a)))
+
+theorem mem_activeArcs (e : Arc na nb alphabet) (h : e.1 ∈ vs) : e ∈ activeArcs vs alphabet := by
+  rcases e with ⟨v,a⟩
+  simp [activeArcs, h]
+
 /-- A data value prevents function eta expansion from recomputing earlier
 Floyd layers at every matrix lookup in compiled code. -/
 structure FrozenMatrix (na nb : Nat) where
@@ -165,9 +172,9 @@ def thresholdCheck (R : Matrix na nb) (vs : List (Vertex na nb)) (p q : Nat) : B
     let edge := graph A B (bounded A B p q)
     let C := sparseClosure edge vs
     sparseClosedCheck edge C &&
-      (arcs na nb alphabet).all (fun e =>
+      (activeArcs vs alphabet).all (fun e =>
         if R (A.initial, B.initial) e.1 then
-          (arcs na nb alphabet).all (fun f => !badWalk A B R C.get p q e f)
+          (activeArcs vs alphabet).all (fun f => !badWalk A B R C.get p q e f)
         else true)
 
 def leftPriorities : List Nat := ((arcs na nb alphabet).map (leftPriority A)).eraseDups
@@ -178,9 +185,9 @@ def rightPriorities : List Nat := ((arcs na nb alphabet).map (rightPriority B)).
 def check : Bool :=
   let edge := graph A B (fun _ => true)
   let R := sparseClosure edge (reachablePairs A B)
-  sparseClosedCheck edge R &&
+  (R.active (A.initial, B.initial) && sparseClosedCheck edge R) &&
     (leftPriorities (nb := nb) A).all (fun p => (rightPriorities (na := na) B).all
-      (thresholdCheck A B R.get (reachablePairs A B) p))
+      (thresholdCheck A B R.get R.states p))
 
 variable {A B}
 
@@ -286,9 +293,12 @@ finite alphabet. State cardinalities and transition structures may differ. -/
 theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphabet) (Fin nb))
     (h : check A B = true) : ∀ w, A.Accepts w ↔ B.Accepts w := by
   intro w
-  let R := (sparseClosure (graph A B (fun _ => true)) (reachablePairs A B)).get
+  let S := sparseClosure (graph A B (fun _ => true)) (reachablePairs A B)
+  let R := S.get
   obtain ⟨hR,hchecks⟩ := Bool.and_eq_true_iff.mp h
-  have hr : Closed (graph A B (fun _ => true)) R := sparseClosedCheck_sound _ _ hR
+  obtain ⟨hinit,hclosed⟩ := Bool.and_eq_true_iff.mp hR
+  have hinitmem : (A.initial, B.initial) ∈ S.states := (S.active_exact _).mp hinit
+  have hr : Closed (graph A B (fun _ => true)) R := sparseClosedCheck_sound _ _ hclosed
   have hlmem (n : Nat) : A.priorities w n ∈ leftPriorities (nb := nb) A := by
     apply List.mem_eraseDups.mpr
     exact List.mem_map.mpr ⟨observed A B w n, mem_arcs _, rfl⟩
@@ -302,14 +312,14 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     intro hne
     have ht := (List.all_eq_true.mp ((List.all_eq_true.mp hchecks) p hp)) q hq
     simp only [thresholdCheck, hne, ↓reduceIte, Bool.and_eq_true] at ht
-    let C := (sparseClosure (graph A B (bounded A B p q)) (reachablePairs A B)).get
+    let C := (sparseClosure (graph A B (bounded A B p q)) S.states).get
     have hc : Closed (graph A B (bounded A B p q)) C := sparseClosedCheck_sound _ _ ht.1
     have hab (k : Nat) (hk : max N M ≤ k) : bounded A B p q (observed A B w k) = true := by
       apply decide_eq_true
       exact ⟨hN k (by omega), hM k (by omega)⟩
-    obtain ⟨e,he,hoe⟩ := finite_often (arcs na nb alphabet) (observed A B w)
+    obtain ⟨e,_,hoe⟩ := finite_often (arcs na nb alphabet) (observed A B w)
       (fun n => A.priorities w n = p) (fun _ => mem_arcs _) hop
-    obtain ⟨f,hf,hof⟩ := finite_often (arcs na nb alphabet) (observed A B w)
+    obtain ⟨f,_,hof⟩ := finite_often (arcs na nb alphabet) (observed A B w)
       (fun n => B.priorities w n = q) (fun _ => mem_arcs _) hoq
     obtain ⟨i,hi,hei,hpi⟩ := hoe (max N M)
     obtain ⟨j,hj,hfj,hqj⟩ := hof (i+1)
@@ -317,6 +327,11 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     have hre : R (A.initial,B.initial) e.1 = true := by
       have hh := closed_run (fun _ => true) R hr w 0 i (by omega) (by intros; rfl)
       simpa only [observed, ← hei, pairRun, Parity.run] using hh
+    have hrf : R (A.initial,B.initial) f.1 = true := by
+      have hh := closed_run (fun _ => true) R hr w 0 j (by omega) (by intros; rfl)
+      simpa only [observed, ← hfj, pairRun, Parity.run] using hh
+    have he := mem_activeArcs e (S.target_active _ _ hinitmem hre)
+    have hf := mem_activeArcs f (S.target_active _ _ hinitmem hrf)
     have hef : C (target A B e) f.1 = true := by
       have hh := closed_run (bounded A B p q) C hc w (i+1) j hj
         (fun t ht => hab t (by omega))
@@ -335,8 +350,8 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
       simp only [badWalk, hre, hbe, hbf, hpe, hqf, decide_true, hef, hfe, Bool.and_self]
     have hnoe := (List.all_eq_true.mp ht.2) e he
     change (if R (A.initial, B.initial) e.1 = true then
-      (arcs na nb alphabet).all (fun f => !badWalk A B R C p q e f) else true) = true at hnoe
-    have hnoe' : (arcs na nb alphabet).all (fun f => !badWalk A B R C p q e f) = true := by
+      (activeArcs S.states alphabet).all (fun f => !badWalk A B R C p q e f) else true) = true at hnoe
+    have hnoe' : (activeArcs S.states alphabet).all (fun f => !badWalk A B R C p q e f) = true := by
       simpa only [hre, ↓reduceIte] using hnoe
     have hno := (List.all_eq_true.mp hnoe') f hf
     rw [hbad] at hno

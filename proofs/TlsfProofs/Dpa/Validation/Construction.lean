@@ -139,7 +139,7 @@ theorem Assembly.buchi_language (r : Assembly ap) (f : Formula (Fin ap))
   exact (product_language _ _ w (fun i => hp.1 i w)).trans (hp.2 w)
 
 def construct (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
-    Option (Assembly ap) := (referencePlan rank atomRank f).map compileBasis
+    Option (Assembly ap) := (referencePlan rank atomRank f).map (fun p => compileBasis p.expanded)
 
 /-- The same executable construction supplies the parity language, and the
 state-based round-monitor language whenever its acceptance is positive. -/
@@ -149,10 +149,11 @@ theorem uncached_construction_language (rank atomRank : Formula (Fin ap) → Nat
       (∀ w, r.parity.Accepts w ↔ Sat none w f 0) ∧
       (positiveb r.skeleton = true → ∀ w, r.buchi.Accepts w ↔ Sat none w f 0) := by
   obtain ⟨p, hp, hv, hl⟩ := referencePlan_success rank atomRank f ha
-  have hb := compileBasis_presentation p hv
-  have hpres : ProductPresentation f (storeClasses (compileBasis p).store) (compileBasis p).skeleton :=
-    ⟨hb.1, fun w => (hb.2 w).trans (hl w 0)⟩
-  exact ⟨compileBasis p, by simp [construct, hp],
+  have hb := compileBasis_presentation p.expanded (p.expanded_valid hv)
+  have hpres : ProductPresentation f (storeClasses (compileBasis p.expanded).store)
+      (compileBasis p.expanded).skeleton :=
+    ⟨hb.1, fun w => (hb.2 w).trans (by simpa only [p.expanded_source] using hl w 0)⟩
+  exact ⟨compileBasis p.expanded, by simp [construct, hp],
     fun w => Assembly.parity_language _ f hpres w,
     fun hb w => Assembly.buchi_language _ f hpres hb w⟩
 

@@ -6,7 +6,7 @@ import TlsfProofs.Dpa.Impl.Tags
 Reference for `src/lib/dpa_formula.c:664` (REDUCE and DROP_X), `:891`/`:914`
 (syntactic protection from current support), and `:938` (elision and retry).
 The definitions run on formula representatives; every equality decision uses
-the executable canonical truth tables, never structural formula equality.
+proved Boolean class equality, independently of syntactic representatives.
 Theorems identify their results with the semantic classes of `Classes.lean`.
 -/
 namespace Tlsf.Dpa.Impl
@@ -34,16 +34,17 @@ theorem nonXModalb_exact (a : Formula α) : nonXModalb a = true ↔ nonXModal a 
   cases a <;> simp [nonXModalb, nonXModal]
 
 def protectedb (f t : Formula (Fin ap)) : Bool :=
-  (modalAtoms f).any (fun a => uses f a && nonXModalb a && decide (t ∈ subformulas a))
+  (modalAtoms f).eraseDups.any (fun a =>
+    nonXModalb a && decide (t ∈ subformulas a) && uses f a)
 
 theorem protected_exact (f t : Formula (Fin ap)) :
     protectedb f t = true ↔ Protected (Class.ofFormula f) t := by
   simp only [protectedb, List.any_eq_true, Bool.and_eq_true, uses_exact,
-    nonXModalb_exact, decide_eq_true_eq]
+    nonXModalb_exact, decide_eq_true_eq, List.mem_eraseDups]
   constructor
-  · rintro ⟨a, _, ⟨ha, hm⟩, ht⟩; exact ⟨a, ha, hm, ht⟩
+  · rintro ⟨a, _, ⟨hm, ht⟩, ha⟩; exact ⟨a, ha, hm, ht⟩
   · rintro ⟨a, ha, hm, ht⟩
-    exact ⟨a, uses_in_bound (fun σ τ hh => propEval_local f σ τ hh) ha, ⟨ha, hm⟩, ht⟩
+    exact ⟨a, uses_in_bound (fun σ τ hh => propEval_local f σ τ hh) ha, ⟨hm, ht⟩, ha⟩
 
 /-- Simultaneous substitution; frozen modal operands are not traversed. -/
 def replace (p : Formula (Fin ap) → Bool) : Formula (Fin ap) → Formula (Fin ap)

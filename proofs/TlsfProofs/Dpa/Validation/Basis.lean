@@ -6,6 +6,54 @@ presentation, independent of C allocation, caches, traces and evaluation order. 
 namespace Tlsf.Dpa.Impl
 variable {ap : Nat}
 
+/-- Split Boolean children only when both have admitted component languages.
+Otherwise retain the already admitted whole class, including absorption cases. -/
+def splitWhole : Formula (Fin ap) → AcceptancePlan ap
+  | .conj f g =>
+    if researchAdmitted f && researchAdmitted g then .binary true (splitWhole f) (splitWhole g)
+    else .whole (.conj f g)
+  | .disj f g =>
+    if researchAdmitted f && researchAdmitted g then .binary false (splitWhole f) (splitWhole g)
+    else .whole (.disj f g)
+  | f => .whole f
+
+theorem splitWhole_source (f : Formula (Fin ap)) : (splitWhole f).source = f := by
+  induction f with
+  | conj f g ih ih' | disj f g ih ih' =>
+    simp only [splitWhole]
+    split
+    · simp [AcceptancePlan.source, ih, ih']
+    · rfl
+  | _ => rfl
+
+theorem splitWhole_valid (f : Formula (Fin ap)) (hn : NNF f)
+    (ha : researchAdmitted f = true) : (splitWhole f).Valid := by
+  induction f with
+  | conj f g ih ih' | disj f g ih ih' =>
+    simp only [splitWhole]
+    split
+    · rename_i hh
+      have ht := Bool.and_eq_true_iff.mp hh
+      exact ⟨ih hn.1 ht.1, ih' hn.2 ht.2⟩
+    · exact ⟨hn, ha⟩
+  | _ => exact ⟨hn, ha⟩
+
+def AcceptancePlan.expanded : AcceptancePlan ap → AcceptancePlan ap
+  | .constant b => .constant b
+  | .whole f => splitWhole f
+  | .binary op p q => .binary op p.expanded q.expanded
+  | .shannon a p q => .shannon a p.expanded q.expanded
+
+theorem AcceptancePlan.expanded_source (p : AcceptancePlan ap) : p.expanded.source = p.source := by
+  induction p <;> simp_all [expanded, source, splitWhole_source]
+
+theorem AcceptancePlan.expanded_valid (p : AcceptancePlan ap) (hp : p.Valid) : p.expanded.Valid := by
+  induction p with
+  | constant _ => trivial
+  | whole f => exact splitWhole_valid f hp.1 hp.2
+  | binary _ _ _ ih ih' => exact ⟨ih hp.1, ih' hp.2⟩
+  | shannon _ _ _ ih ih' => exact ⟨hp.1, ih hp.2.1, ih' hp.2.2⟩
+
 def AcceptancePlan.atoms : AcceptancePlan ap → List (Formula (Fin ap))
   | .constant _ => []
   | .whole f => [f]

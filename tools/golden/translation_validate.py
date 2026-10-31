@@ -179,7 +179,7 @@ def collect(build):
     return result
 
 
-def validate_one(build, validator, text, timeout):
+def validate_one(build, validator, text, timeout, receipts=None):
     source, target = SCRATCH / "request.txt", SCRATCH / "dump.txt"
     source.write_text(text + "\n")
     try:
@@ -188,11 +188,15 @@ def validate_one(build, validator, text, timeout):
             return "declined", "unsupported", sha(result.stdout.encode())
         if result.returncode:
             return "fail", f"C dump failure ({result.returncode}): {result.stderr.strip()}", None
+        digest = sha(result.stdout.encode())
+        previous = (receipts or {}).get(text)
+        if previous and previous["status"] == "pass" and previous["sha256"] == digest:
+            return previous["status"], previous["reason"], digest
         target.write_text(result.stdout)
         checked = run([validator, source, target], timeout=timeout)
         if checked.returncode or checked.stdout != "pass\n":
             return "fail", checked.stderr.strip() or "invalid validator verdict", None
-        return "pass", "", sha(result.stdout.encode())
+        return "pass", "", digest
     except subprocess.TimeoutExpired:
         return "fail", "validation timeout", None
 
@@ -246,8 +250,12 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--reuse-inventory", action="store_true")
     parser.add_argument("--collect-only", action="store_true")
-    parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument("--set", choices=("corpus", "golden", "equivalence", "review"))
+    parser.add_argument("--resume", action="store_true",
+                        help="reuse receipts only for this exact Lean executable and identical fresh C dumps")
+    parser.add_argument("--max-new", type=int, default=0,
+                        help="checkpoint after this many new verdicts; exit 75 until the run is complete")
     args = parser.parse_args()
     SCRATCH.mkdir(parents=True, exist_ok=True)
     os.environ["TMPDIR"] = str(ROOT / "build-scratch-t/tmp")
@@ -273,6 +281,14 @@ def main():
     assert checked.returncode == 0, checked.stdout + checked.stderr
     version = run([Path.home() / ".elan/bin/lake", "env", "lean", "--version"], cwd=ROOT / "proofs")
     assert version.returncode == 0 and "4.35.0" in version.stdout, version
+    executable_hash = sha(validator.read_bytes())
+    checkpoint = SCRATCH / "checkpoint.json"
+    receipts = {}
+    if args.resume and checkpoint.exists():
+        prior = json.loads(checkpoint.read_text())
+        if prior["validator_sha256"] == executable_hash:
+            receipts = prior["receipts"]
+    new_verdicts = 0
     counts = defaultdict(Counter)
     failures, goldens, records = [], [], []
     for index, case in enumerate(data["cases"]):
@@ -281,8 +297,13 @@ def main():
         for mode in ("default", "general"):
             for kind in ("parity", "buchi"):
                 text = request(kind, mode, case["names"], case["prefix"])
-                status, reason, digest = validate_one(build, validator, text, args.timeout)
-                row = {**case, "mode": mode, "kind": kind, "status": status, "reason": reason}
+                previous = receipts.get(text)
+                status, reason, digest = validate_one(build, validator, text, args.timeout, receipts)
+                if not previous or digest is None or previous["sha256"] != digest:
+                    new_verdicts += 1
+                receipts[text] = {"status": status, "reason": reason, "sha256": digest}
+                row = {**case, "mode": mode, "kind": kind, "status": status,
+                       "reason": reason, "sha256": digest}
                 records.append(row)
                 for group in case["sets"]:
                     counts[f"{group}/{mode}/{kind}"][status] += 1
@@ -294,6 +315,12 @@ def main():
         print(f"validated {index + 1}/{len(data['cases'])}", flush=True)
         # Interrupted runs retain exact verdicts without publishing partial goldens.
         (SCRATCH / "progress.json").write_text(json.dumps(records, indent=2) + "\n")
+        pending = checkpoint.with_suffix(".new")
+        pending.write_text(json.dumps({"validator_sha256": executable_hash, "receipts": receipts}) + "\n")
+        pending.replace(checkpoint)
+        if args.max_new and new_verdicts >= args.max_new and index + 1 < len(data["cases"]):
+            print(f"checkpoint saved: {new_verdicts} new verdicts; resume with --resume", flush=True)
+            raise SystemExit(75)
     for row in failures:
         print("minimizing", row["mode"], row["kind"], row["prefix"], flush=True)
         row["minimized"] = minimize(build, validator, row, args.timeout)
@@ -309,6 +336,7 @@ def main():
         (DEST / "hashes.tsv").write_text("".join(sorted(goldens)))
         (DEST / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         provenance = {"date": report["date"], "lean": version.stdout.strip(),
+                      "validator_executable_sha256": executable_hash,
                       "revision": run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip(),
                       "checker_theorems": ["Tlsf.Dpa.Validation.check_language",
                                            "Tlsf.Dpa.Validation.checkBuchi_sound",

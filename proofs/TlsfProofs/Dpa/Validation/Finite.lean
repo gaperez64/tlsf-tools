@@ -126,6 +126,13 @@ variable {ap : Nat}
 def State.same (s t : State ap) : Bool :=
   equivalent s.all t.all && equivalent s.rejecting t.rejecting
 
+def State.representative (s : State ap) : State ap :=
+  ⟨reduceProp s.all, reduceProp s.rejecting⟩
+
+theorem State.representative_exact (s : State ap) : s.representative.denote = s.denote := by
+  cases s
+  simp [State.representative, State.denote, reduceProp_class]
+
 theorem State.same_exact (s t : State ap) : s.same t = true ↔ s.denote = t.denote := by
   simp only [State.same, Bool.and_eq_true, equivalent_exact]
   constructor
@@ -194,13 +201,17 @@ not memoize construction calls or model any C cache. Closure still checks the
 prepared representatives independently. -/
 @[noinline] def Assembly.prepareParity (r : Assembly ap) (s : Configuration r × List Nat) :
     Configuration r × List Nat :=
-  let coordinates := Vector.ofFn s.1
+  let coordinates := Vector.ofFn (fun i => (s.1 i).representative)
   (fun i => coordinates[i], s.2)
 
 theorem Assembly.prepareParity_exact (r : Assembly ap) (s : Configuration r × List Nat) :
-    r.prepareParity s = s := by
-  cases s
-  simp [Assembly.prepareParity, Vector.getElem_ofFn]
+    r.parityKey (r.prepareParity s) = r.parityKey s := by
+  apply Prod.ext
+  · funext i
+    change ((Vector.ofFn (fun j => (s.1 j).representative))[i]).denote = (s.1 i).denote
+    simp only [Fin.getElem_fin, Vector.getElem_ofFn]
+    exact State.representative_exact _
+  · rfl
 
 def Assembly.exportParity (r : Assembly ap) (fuel : Nat) :=
   Validation.exportParity r.finiteParitySource r.paritySame fuel r.prepareParity
@@ -252,13 +263,18 @@ theorem Assembly.finiteBuchiSource_congr (r : Assembly ap)
 @[noinline] def Assembly.prepareBuchi (r : Assembly ap)
     (s : Configuration r × RoundState r.store.length) :
     Configuration r × RoundState r.store.length :=
-  let coordinates := Vector.ofFn s.1
+  let coordinates := Vector.ofFn (fun i => (s.1 i).representative)
   (fun i => coordinates[i], s.2)
 
 theorem Assembly.prepareBuchi_exact (r : Assembly ap)
-    (s : Configuration r × RoundState r.store.length) : r.prepareBuchi s = s := by
-  cases s
-  simp [Assembly.prepareBuchi, Vector.getElem_ofFn]
+    (s : Configuration r × RoundState r.store.length) :
+    r.buchiKey (r.prepareBuchi s) = r.buchiKey s := by
+  apply Prod.ext
+  · funext i
+    change ((Vector.ofFn (fun j => (s.1 j).representative))[i]).denote = (s.1 i).denote
+    simp only [Fin.getElem_fin, Vector.getElem_ofFn]
+    exact State.representative_exact _
+  · rfl
 
 def Assembly.exportBuchi (r : Assembly ap) (fuel : Nat) :=
   Validation.exportParity r.finiteBuchiSource.toParity r.buchiSame fuel r.prepareBuchi

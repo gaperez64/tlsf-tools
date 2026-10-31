@@ -1,5 +1,6 @@
 import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
+import TlsfProofs.Dpa.Validation.Basis
 
 /-!
 # Recursive factoring of frozen syntax
@@ -315,12 +316,21 @@ theorem factor_success (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) 
     ∃ t, factor rank f = some t ∧ FactorSpec f t :=
   factorTerm_success rank _ f hf (by omega)
 
-/-- Prefer the factored plan, falling back to the admitted original. -/
+/-- A static reference cost balances colour-product size against the size of
+each component's residual domain. It has no bearing on language correctness. -/
+def planCost (p : AcceptancePlan ap) : Nat :=
+  let basis := p.expanded.basis
+  4 ^ basis.length + (basis.map (fun e => 2 ^ (Dpa.subformulas e.formula).length)).sum
+
+/-- Choose between two proved presentations before running any component. -/
 def factoringPlan (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
     Option (AcceptancePlan ap) := do
   let t ← factor rank f
   match canonicalPlan atomRank t with
-  | some p => some p
+  | some p =>
+    match canonicalPlan atomRank f with
+    | some q => some (if planCost p ≤ planCost q then p else q)
+    | none => some p
   | none => canonicalPlan atomRank f
 
 theorem factoringPlan_success (rank atomRank : Formula (Fin ap) → Nat)
@@ -331,8 +341,17 @@ theorem factoringPlan_success (rank atomRank : Formula (Fin ap) → Nat)
   cases hp : canonicalPlan atomRank t with
   | some p =>
     obtain ⟨hv, he⟩ := canonicalPlan_spec atomRank t hspec.1 p hp
-    exact ⟨p, by simp [factoringPlan, ht, hp], hv,
-      fun w n => (class_language he w n).trans (hspec.2.2 w n)⟩
+    cases hq : canonicalPlan atomRank f with
+    | none =>
+      exact ⟨p, by simp [factoringPlan, ht, hp, hq], hv,
+        fun w n => (class_language he w n).trans (hspec.2.2 w n)⟩
+    | some q =>
+      obtain ⟨hqv, hqe⟩ := canonicalPlan_spec atomRank f hf q hq
+      by_cases cost : planCost p ≤ planCost q
+      · exact ⟨p, by simp [factoringPlan, ht, hp, hq, cost], hv,
+          fun w n => (class_language he w n).trans (hspec.2.2 w n)⟩
+      · exact ⟨q, by simp [factoringPlan, ht, hp, hq, cost], hqv,
+          fun w n => class_language hqe w n⟩
   | none =>
     obtain ⟨p, he⟩ := canonicalPlan_success atomRank f hc
     obtain ⟨hv, hc⟩ := canonicalPlan_spec atomRank f hf p he

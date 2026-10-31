@@ -4,15 +4,15 @@ import TlsfProofs.Dpa.Classes
 # Executable propositional classes
 
 `src/lib/dpa_formula.c:3` interns Boolean functions, and `:64` obtains their
-reduced Shannon children. This reference uses exhaustive truth tables instead
-of a BDD manager. The ordered finite atom list is explicit; the table is
-canonical for that list. Frozen modal formulas are independent variables,
+reduced Shannon children. This reference uses branch-pruned Shannon comparison
+over an explicit finite atom list, independently of a BDD manager.
+Frozen modal formulas are independent variables,
 including a formula and its temporal dual. AP negation is complementation.
 
 The executable definitions below do not use classical decision procedures.
 The refinement theorems identify equality and support with `Classes.lean`.
-The reference is exponential in the number of modal atoms, as a truth table
-must be; it is not a proposed replacement for the production BDD library.
+The reference has exponential worst-case cost in the number of modal atoms;
+it is not a proposed replacement for the production BDD library.
 -/
 namespace Tlsf.Dpa.Impl
 open Formula
@@ -71,13 +71,17 @@ theorem table_exact (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap))
     intro σ _
     exact congrArg (fun x : Class ap => x σ) he
 
-def propAnd : Formula α → Formula α → Formula α
+def propAnd [DecidableEq α] (f g : Formula α) : Formula α :=
+  if f = g then f else
+  match f, g with
   | .ff, _ | _, .ff => .ff
   | .tt, g => g
   | f, .tt => f
   | f, g => .conj f g
 
-def propOr : Formula α → Formula α → Formula α
+def propOr [DecidableEq α] (f g : Formula α) : Formula α :=
+  if f = g then f else
+  match f, g with
   | .tt, _ | _, .tt => .tt
   | .ff, g => g
   | f, .ff => f
@@ -90,11 +94,17 @@ def propNot : Formula α → Formula α
 
 theorem propAnd_eval (σ : Assignment ap) (f g : Formula (Fin ap)) :
     propEval σ (propAnd f g) = (propEval σ f && propEval σ g) := by
-  cases f <;> cases g <;> simp [propAnd, propEval]
+  unfold propAnd
+  split
+  · rename_i h; subst g; simp
+  · cases f <;> cases g <;> simp [propEval]
 
 theorem propOr_eval (σ : Assignment ap) (f g : Formula (Fin ap)) :
     propEval σ (propOr f g) = (propEval σ f || propEval σ g) := by
-  cases f <;> cases g <;> simp [propOr, propEval]
+  unfold propOr
+  split
+  · rename_i h; subst g; simp
+  · cases f <;> cases g <;> simp [propEval]
 
 theorem propNot_eval (σ : Assignment ap) (f : Formula (Fin ap)) :
     propEval σ (propNot f) = !propEval σ f := by
@@ -102,7 +112,7 @@ theorem propNot_eval (σ : Assignment ap) (f : Formula (Fin ap)) :
 
 /-- Simplify only outer propositional structure. Frozen modal operands stay
 verbatim, so this preserves Boolean classes, not merely temporal languages. -/
-def reduceProp : Formula α → Formula α
+def reduceProp [DecidableEq α] : Formula α → Formula α
   | .neg f => propNot (reduceProp f)
   | .conj f g => propAnd (reduceProp f) (reduceProp g)
   | .disj f g => propOr (reduceProp f) (reduceProp g)
@@ -129,34 +139,6 @@ theorem reduceProp_class (f : Formula (Fin ap)) :
     Class.ofFormula (reduceProp f) = Class.ofFormula f :=
   Class.ext (fun σ => reduceProp_eval σ f)
 
-/-- Canonical class identity, with constant propagation and a structural
-fast path before the exhaustive, short-circuiting truth comparison. -/
-def equivalent (f g : Formula (Fin ap)) : Bool :=
-  let f := reduceProp f
-  let g := reduceProp g
-  let atoms := (modalAtoms f ++ modalAtoms g).eraseDups
-  if f = g then true else
-    (assignments atoms).all (fun σ => propEval σ f == propEval σ g)
-
-theorem equivalent_exact (f g : Formula (Fin ap)) :
-    equivalent f g = true ↔ Class.ofFormula f = Class.ofFormula g := by
-  unfold equivalent
-  dsimp only
-  split
-  · rename_i he
-    simp only [true_iff]
-    exact (reduceProp_class f).symm.trans ((congrArg Class.ofFormula he).trans (reduceProp_class g))
-  · rw [List.all_eq_true]
-    simp only [beq_iff_eq]
-    rw [← List.map_inj_left]
-    change table _ (reduceProp f) = table _ (reduceProp g) ↔ _
-    rw [table_exact]
-    · rw [reduceProp_class, reduceProp_class]
-    · intro σ τ h
-      exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
-    · intro σ τ h
-      exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
-
 /-- Boolean cofactor: modal operands remain frozen. Negated AP constants are
 allowed by `NNF`; the canonical class removes their syntax when tested. -/
 def cofactor (a : Formula (Fin ap)) (value : Bool) : Formula (Fin ap) → Formula (Fin ap)
@@ -177,6 +159,97 @@ theorem cofactor_eval (a f : Formula (Fin ap)) (value : Bool) (σ : Assignment a
   | conj _ _ ih ih' | disj _ _ ih ih' | impl _ _ ih ih' | equiv _ _ ih ih' =>
     simp only [cofactor, propEval, ih, ih']
   | _ => simp only [cofactor]; split <;> cases value <;> simp_all [propEval, setAtom]
+
+theorem cofactor_depends (f a : Formula (Fin ap)) (b : Bool) {atoms : List (Formula (Fin ap))}
+    (hf : (Class.ofFormula f).DependsOn (a :: atoms)) :
+    (Class.ofFormula (cofactor a b f)).DependsOn atoms := by
+  intro σ τ h
+  change propEval σ (cofactor a b f) = propEval τ (cofactor a b f)
+  rw [cofactor_eval, cofactor_eval]
+  apply hf
+  intro t ht
+  rcases List.mem_cons.mp ht with rfl | ht
+  · simp [setAtom]
+  · by_cases he : t = a
+    · subst t; simp [setAtom]
+    · simp [setAtom, he, h t ht]
+
+theorem cofactor_pair_exact (a f g : Formula (Fin ap)) :
+    (Class.ofFormula (cofactor a false f) = Class.ofFormula (cofactor a false g) ∧
+      Class.ofFormula (cofactor a true f) = Class.ofFormula (cofactor a true g)) ↔
+      Class.ofFormula f = Class.ofFormula g := by
+  constructor
+  · rintro ⟨hl, hh⟩
+    apply Class.ext
+    intro σ
+    change propEval σ f = propEval σ g
+    have hid : setAtom σ a (σ a) = σ := by
+      funext t; by_cases ht : t = a <;> simp [setAtom, ht]
+    have he : propEval (setAtom σ a (σ a)) f = propEval (setAtom σ a (σ a)) g := by
+      cases h : σ a
+      · have he := congrArg (fun c : Class ap => c σ) hl
+        simpa only [Class.ofFormula, cofactor_eval, h] using he
+      · have he := congrArg (fun c : Class ap => c σ) hh
+        simpa only [Class.ofFormula, cofactor_eval, h] using he
+    simpa only [hid] using he
+  · intro h
+    constructor <;> apply Class.ext <;> intro σ
+    · exact (cofactor_eval a f false σ).trans
+        ((congrArg (fun c : Class ap => c (setAtom σ a false)) h).trans (cofactor_eval a g false σ).symm)
+    · exact (cofactor_eval a f true σ).trans
+        ((congrArg (fun c : Class ap => c (setAtom σ a true)) h).trans (cofactor_eval a g true σ).symm)
+
+/-- Exhaustive Shannon equality with constant propagation at every branch.
+Equal residuals stop immediately; no truth-vector allocation or memo is used. -/
+def equivalentOn : List (Formula (Fin ap)) → Formula (Fin ap) → Formula (Fin ap) → Bool
+  | [], f, g => propEval (fun _ => false) (reduceProp f) == propEval (fun _ => false) (reduceProp g)
+  | a :: atoms, f, g =>
+    let f := reduceProp f
+    let g := reduceProp g
+    if f = g then true else
+      equivalentOn atoms (cofactor a false f) (cofactor a false g) &&
+        equivalentOn atoms (cofactor a true f) (cofactor a true g)
+
+theorem equivalentOn_exact (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap))
+    (hf : (Class.ofFormula f).DependsOn atoms) (hg : (Class.ofFormula g).DependsOn atoms) :
+    equivalentOn atoms f g = true ↔ Class.ofFormula f = Class.ofFormula g := by
+  induction atoms generalizing f g with
+  | nil =>
+    simp only [equivalentOn, reduceProp_eval, beq_iff_eq]
+    constructor
+    · intro he; apply Class.ext; intro σ
+      exact (hf σ (fun _ => false) (by simp)).trans
+        (he.trans (hg σ (fun _ => false) (by simp)).symm)
+    · intro he; exact congrArg (fun c : Class ap => c (fun _ => false)) he
+  | cons a atoms ih =>
+    have hf' : (Class.ofFormula (reduceProp f)).DependsOn (a :: atoms) := by
+      simpa only [reduceProp_class] using hf
+    have hg' : (Class.ofFormula (reduceProp g)).DependsOn (a :: atoms) := by
+      simpa only [reduceProp_class] using hg
+    simp only [equivalentOn]
+    split
+    · rename_i he
+      simp only [true_iff]
+      exact (reduceProp_class f).symm.trans ((congrArg Class.ofFormula he).trans (reduceProp_class g))
+    · rw [Bool.and_eq_true, ih _ _ (cofactor_depends _ _ false hf') (cofactor_depends _ _ false hg'),
+        ih _ _ (cofactor_depends _ _ true hf') (cofactor_depends _ _ true hg'), cofactor_pair_exact]
+      rw [reduceProp_class, reduceProp_class]
+
+def equivalent (f g : Formula (Fin ap)) : Bool :=
+  let f := reduceProp f
+  let g := reduceProp g
+  equivalentOn (modalAtoms f ++ modalAtoms g).eraseDups f g
+
+theorem equivalent_exact (f g : Formula (Fin ap)) :
+    equivalent f g = true ↔ Class.ofFormula f = Class.ofFormula g := by
+  unfold equivalent
+  dsimp only
+  rw [equivalentOn_exact]
+  · rw [reduceProp_class, reduceProp_class]
+  · intro σ τ h
+    exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
+  · intro σ τ h
+    exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
 
 theorem cofactor_unused (f a : Formula (Fin ap)) :
     Class.ofFormula (cofactor a false f) = Class.ofFormula (cofactor a true f) ↔
