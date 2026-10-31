@@ -1,5 +1,11 @@
 # Internal units: these may include libtlsf's private headers.
 
+dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
+if research_tools
+  tv_inventory = executable('tv_inventory', '../../tools/golden/tv_inventory.cc',
+    link_args: ['-Wl,--wrap=dpa_buchi_create'], dependencies: tlsf_internal_dep)
+endif
+
 dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
   cpp_args: ['-DDPA_GOLDEN_DIR="' + (meson.project_source_root() / 'test/fixtures/golden/dpa') + '"'],
   dependencies: tlsf_internal_dep)

@@ -19,3 +19,5 @@ import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Validation.Construction
 import TlsfProofs.Dpa.Validation.Equivalence
 import TlsfProofs.Dpa.Validation.Finite
+import TlsfProofs.Dpa.Validation.Dump
+import TlsfProofs.Dpa.Validation.ProtocolChecks

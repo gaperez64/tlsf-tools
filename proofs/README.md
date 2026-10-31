@@ -425,118 +425,114 @@ timeout 1500 lake build
 
 ## Issues #80 / #83: translation validation
 
-The C bridge now targets **translation validation**, rather than a model of
-C's caches, memo phases, constructor traces, or argument evaluation order.
-General admission remains disabled in the production reduction until the
-finite-table exporter, sound equivalence checker, complete formula inventory,
-and hash regression gate all pass. The recorded coverage is still default
-148/217 and research 155/217; it has not been recomputed in this milestone.
+The proof boundary is an independent, uncached reference construction plus
+language equivalence of finite automata. C caches, traces, memo phases and
+allocation order are not modeled.
 
-### Proved reference construction
+`Impl.uncached_construction_language` proves the executable symbolic reference
+recognizes an admitted formula. Its pipeline performs syntax transport, pure
+factoring and selection, fresh component assembly, product progression,
+Zielonka construction and max-odd export. The positive Buchi round monitor
+requires the executable `positiveb` check, since a general parity formula such
+as `F G a` need not have a deterministic Buchi recognizer.
 
-`Tlsf.Dpa.Impl.uncached_construction_language` states:
+`Validation/Finite.lean` explores representatives in BFS order and merges
+component all/rejecting fields using proved Boolean class equality. Tree paths
+and round residual/incoming bits remain in the key. Independently of discovery,
+it checks initial correspondence and every state/letter transition, including
+terminal loops. `exportParity_language` and `exportBuchi_language` prove that
+any returned closed finite table has exactly the symbolic machine's language.
+Resource exhaustion returns no table and is a validation failure. No theorem
+claims a fixed exploration limit succeeds for every admitted formula.
 
-```lean
-transportedResearchCheck rank f = true →
-  ∃ r, construct rank atomRank f = some r ∧
-    (∀ w, r.parity.Accepts w ↔ Sat none w f 0) ∧
-    (positiveb r.skeleton = true → ∀ w, r.buchi.Accepts w ↔ Sat none w f 0)
-```
-
-The executable definitions used by this theorem perform syntax transport,
-pure factoring, canonical plan selection (with original-formula fallback),
-fresh component assembly, complete product progression, exhaustive Zielonka
-construction, and max-odd export. They reuse `pi2_language`,
-`sigma2_language`, `general_pi2_language`, `tree_minEven`, `tree_maxOdd`, and
-`completedRounds_language`. Zielonka maximality, subset and equality tests now
-compute over finite colour vectors. `buildTree` and the executable use the
-same definitions as the theorems; no classical decision procedure runs in the
-construction. The round monitor exports its incoming mark as state acceptance.
-
-Parity uses the executable canonical structural research domain. Its full
-connection to C admission, including factoring and default-only frozen-operand
-absorption examples, has not been certified. The Büchi conclusion requires
-positive acceptance, checked executably by `positiveb`. This restriction is
-necessary: general parity admission includes `F G a`, which has no complete
-deterministic Büchi recognizer. C's reduction uses a positive Π₂ grammar.
-The automatic bridge from that grammar to a positive compiled acceptance
-still needs to be connected to the offline inventory.
-
-The current machines use executable formula representatives as their symbolic
-state type. `finite_component_states` proves finiteness of their semantic
-component coordinates; exporting a closed finite table by merging Boolean
-equivalent representatives, with a proof about the exported table, remains
-required. The language theorem alone does not certify a finite serialized
-artifact, C output, or successful validation.
+The pure `Impl.normalize` pass simplifies Boolean expressions below modalities.
+Every local replacement uses `equivalent_exact`, and `normalize_language`
+proves the complete traversal preserves the infinite-word language. This
+covers default-only frozen-operand absorption review examples without any C
+cache or compiler model. `normalized_finite_construction_language` composes
+normalization, admitted construction and finite export; the Buchi conclusion
+explicitly requires `positiveb` success.
 
 ### Obligation table
 
 | Obligation | Result / status |
 | --- | --- |
-| Executable transport, factoring and admission-success selection | `referencePlan_success`, `factor_success`, `canonicalPlan_spec` |
-| Complete Π₂ / dual Σ₂ component languages | `pi2_language`, `sigma2_language` |
-| Fresh-coordinate assembly and fixed Boolean product | `assemble_presentation`, `Assembly.colours_exact`, `product_language` |
-| Executable Zielonka construction and parity language | `maximalOppositeb_exact`, `buildTree`, `tree_maxOdd`, `Assembly.parity_language` |
-| Executable positive Büchi round monitor | `positiveb_exact`, `completedRounds_language`, `Assembly.buchi_language` |
-| Composition from executable research admission | `uncached_construction_language` |
-| Finite closed reference-table export | `Validation.exportParity_language`, `Validation.exportBuchi_language`, `Impl.uncached_finite_construction_language`; checked closure with Boolean-class merging, explicit exploration limit |
-| Executable parity and state-based Büchi language-equivalence checker | `Validation.check_language`, `Validation.checkBuchi_sound`; proved sound, independent of state isomorphism |
-| Canonical C dump, parsing, full formula inventory and offline validation | Open; zero translation-validation verdicts recorded |
-| Hash goldens and C regression gate | Open; existing language fixtures remain regression evidence |
-| Enable general admission and regenerate declined cases | Blocked on every preceding validation obligation |
+| Executable transport, factoring and successful plan selection | `referencePlan_success`, `factor_success`, `canonicalPlan_spec` |
+| Complete Pi2 and dual Sigma2 component languages | `pi2_language`, `sigma2_language`, `general_pi2_language` |
+| Fresh-coordinate assembly and Boolean product | `assemble_presentation`, `Assembly.colours_exact`, `product_language` |
+| Executable Zielonka construction and parity language | `buildTree`, `tree_maxOdd`, `Assembly.parity_language` |
+| Positive Buchi round monitor | `positiveb_exact`, `completedRounds_language`, `Assembly.buchi_language` |
+| Boolean simplification under modalities | `normalize_language` |
+| Checked finite reference export | `exportParity_language`, `exportBuchi_language`, `normalized_finite_construction_language` |
+| Language equality for arbitrary finite state counts | `Validation.check_language`, `Validation.checkBuchi_sound` |
+| Checked alphabet compaction | `checkCompact_sound`, `checkBuchiCompact_sound` |
+| Parsed C table recognizes the requested formula after successful validation | `validate_parity_sound`, `validate_buchi_sound` |
+| Complete corpus inventory, hash goldens and general-admission enablement | Full run pending; general admission remains disabled |
 
-### Trusted boundary
+The equivalence checker searches for reachable closed walks with conflicting
+recurrent maximal priority parities. Its computed closures are checked for
+reflexivity, edge inclusion and transitivity. It requires no state isomorphism.
+Alphabet compaction merges letters only after checking identical transitions
+and priorities at every state of both tables. It invokes the same proved
+`check` / `checkBuchi`, with a proof lifting equality to the original alphabet.
+Reference transition tables are materialized once; `freeze_exact` and
+`freezeBuchi_exact` prove this preserves the machines exactly.
 
-The Lean kernel checks the reference language proofs. Dependency audits permit
-only `propext`, `Classical.choice`, and `Quot.sound`; classical reasoning in
-proofs does not replace executable algorithms. There are no external Lean
-packages or proof shortcuts. Terminal optimization results
-`terminal_product_decided` and `terminal_absorption` remain in
-`Dpa/Refinements.lean`; the uncached reference does not need that optimization.
+### Dump protocol and trusted boundary
 
-Once the offline pipeline is complete, C correctness will be validated **only
-on the enumerated formulas, admission modes, AP orders, and dumped acceptance
-kinds**, with an exact canonical hash guarding each validated artifact in CI.
-For other inputs, the C implementation, BDD library, decoding and memory safety
-remain trusted. At present no C automaton has passed this proposed Lean
-translation-validation pipeline, so the C-to-reference boundary remains open
-for all inputs. Existing bounded lasso goldens do not establish unbounded
-language equality.
+The C executable `test/unit/dpa_dump.c` takes a `TV1` request with acceptance
+kind, admission mode, explicit AP order and a prefix formula. It exports BFS
+states discovered in increasing valuation order, sorted complete rows, max-odd
+priorities and source-state Buchi acceptance. AP i is bit i of each valuation.
+The Lean executable `dpaValidate REQUEST DUMP` independently parses both files,
+rejects AP/formula/mode mismatches, duplicate APs, missing or unordered edges,
+invalid target/acceptance values and trailing data, builds the proved reference
+for that same formula and AP order, and checks language equality. Every parse,
+construction, positivity, export or comparison failure is a failing exit.
 
-Round-10 review found a decoded-trace discrepancy from unfolding's quick-cache
-writes. It reported no admitted-formula language counterexample or reachable
-startup soundness issue. Production parity and Büchi reset before initializing
-remainders; no C startup fix or narrowing is justified by that review.
+The kernel checks the construction, finite-export and checker proofs. Axiom
+audits permit only `propext`, `Classical.choice` and `Quot.sound`. Decoding,
+serialization, hashing, C memory safety and the BDD library remain trusted.
+Successful offline checks validate C only on the enumerated formulas, admission
+modes, AP orders and acceptance kinds, with an exact canonical hash gate in CI.
+They do not establish C correctness on other inputs. Existing bounded lasso
+goldens alone do not establish unbounded language equality.
 
-### Pruning and regeneration
+### Offline regeneration and CI
 
-Removed the cache/trace-only modules `TagTrace`, `QuickTrace`, `RemainderTrace`,
-`SupportedTrace`, `ComponentTrace`, `Cache`, `Grouping`, `DefaultTags`, the
-refined-cache component chain, and the memoized terminal export model.
-`Store.lean` now appends fresh reference coordinates; it performs no lookup,
-sharing or cache reuse. Pure factoring remains; its cached variants are gone.
-The former trace diagnostics and axiom audit were replaced by reference
-construction checks and an audit of the retained language chain.
-Before pruning, `proofs/**/*.lean` (excluding `.lake`) contained **18,290 lines
-in 45 files**. Final counts and validation results are recorded at the end of
-this section.
-
-Offline regeneration belongs under `tools/golden/`, requires Lean 4.35.0,
-and must not run in CI. No translation-validation regeneration command is
-available yet. Do not regenerate or claim validated hashes until the finite
-exporter and equivalence checker are connected. Current reference checks:
+Regeneration is `tools/golden/translation_validate.py`; it requires Lean 4.35.0
+and is not run in CI. It inventories every monitor constructor reached by the
+217-spec corpus under both policies, including constructors in failed
+reductions, and includes the DPA equivalence formulas, all language-golden
+formulas and review-k/l/i examples. It checks both parity and Buchi where C
+admits that kind; unsupported cases are reported separately. Every validation
+failure is retained with its formula and a minimized reproducer. General
+admission must stay disabled while any failure remains.
 
 ```sh
 mkdir -p build-scratch-t/tmp
 export TMPDIR="$PWD/build-scratch-t/tmp" LEAN_NUM_THREADS=1
-cd proofs
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  env LEAN_NUM_THREADS=1 lake build
+  meson setup build-scratch-t/c-tv -Dbuildtype=release -Dresearch_tools=true
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  env LEAN_NUM_THREADS=1 lake exe dpaImplChecks
+  meson compile -C build-scratch-t/c-tv -j2 dpa_dump tv_inventory
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  env LEAN_NUM_THREADS=1 lake env lean ../tools/golden/dpa_impl_audit.lean
+  python3 tools/golden/translation_validate.py --build build-scratch-t/c-tv
 ```
+
+All transient artifacts and TMPDIR stay under `build-scratch-t/`. Only compact
+canonical hashes, verdicts, counts, failures and provenance are published under
+`test/fixtures/golden/translation/`; dump tables stay in scratch. The C hash
+gate recomputes the exact same dump without Lean. The total golden budget is
+4,629,524 bytes.
+
+Before this task, tracked Lean source was 12,679 lines (18,699 before pruning).
+The finite-export regressions pass 30/30; protocol regressions pass 17/17,
+covering malformed input, AP order, source-state Buchi acceptance, positivity,
+language disagreement and alphabet compaction. All admitted review examples
+pass under both policies. Fresh corpus coverage is default 148/217 and general
+155/217; no admission policy has changed. Full validation counts and the final
+source/fixture census will replace this pending milestone after the full run.
 
 ### Source map
 
@@ -612,90 +608,3 @@ remain outside the language theorems.
 | `src/lib/dpa_zielonka.c:187` | `void dpa_tree_init(TlsfDpa *c) {` |
 | `src/lib/dpa_zielonka.c:198` | `uint32_t dpa_tree_step(TlsfDpa *c, uint32_t *leaf, const uint64_t *colours) {` |
 | `src/lib/dpa_zielonka.c:231` | `return c->max_priority - priority;` |
-
-### Milestone validation (2026-10-31)
-
-Full Lake library/executable build: 68 jobs passed, warnings treated as errors.
-Executable reference checks: 11 passed, zero failed. Eleven dependency audits
-contain only the three permitted axioms. The prohibited-token scan, proof-source
-reference gate and golden-provenance gate passed. Lean source after this pruning
-milestone: **12,308 lines in 33 files** (before: 18,290 / 45). Existing
-goldens: **2,986,929 bytes**; no translation-validation goldens have been added.
-The finite-product equivalence checker is now proved sound. The next obligation
-is a certified finite export of the symbolic reference, followed by the dump
-parser and complete offline inventory. A language proof for symbolic runs alone
-cannot establish equality of a C dump.
-
-### Verified language checker
-
-For complete deterministic max-odd automata over the same finite alphabet,
-with arbitrary state counts:
-
-```lean
-Validation.check A B = true → A.Accepts = B.Accepts
-Validation.checkBuchi A B = true → A.Accepts = B.Accepts
-```
-
-The theorem names are `Tlsf.Dpa.Validation.check_language` and
-`Tlsf.Dpa.Validation.checkBuchi_sound`. The parity proof also exports the
-pointwise form `check_sound`. The executable tests reachable closed walks in
-the product, restricted to each opposite-parity pair of priority thresholds.
-It computes Floyd reachability with materialized matrices, then independently
-checks edge inclusion, reflexivity and transitivity before using a closure.
-The proof takes recurrent maximal priorities of any two disagreeing runs and
-finds a forbidden closed walk containing both. It neither constructs nor
-requires a state isomorphism. The Büchi checker embeds state acceptance as
-source-state priorities 0/1 and proves the embedding exact.
-
-Ten kernel-checked checker regressions cover different state counts, priority
-renaming, transient priorities, unreachable states, letter-dependent languages,
-and differing Büchi acceptance frequencies. This milestone still records zero
-C-to-Lean validation verdicts; checker regressions are not corpus validation.
-
-Checker milestone validation: full Lake build (72 jobs), **21 executable checks
-passed / zero failed**, 15 axiom reports with only permitted axioms, and 3/3
-Meson documentation/provenance/oracle gates passed. The checker’s compiled
-regressions finish in under one second after storing Floyd layers as array
-data. Lean sources now total **12,660 lines in 35 files**, compared with
-18,290 / 45 before pruning. Translation-validation corpus: **0 pass / 0 fail /
-not run**. Existing goldens remain 2,986,929 bytes.
-
-Final source census for this delivery: **18,699 → 12,679 tracked Lean lines**
-(including the offline audit), or **18,290 → 12,660** under `proofs/` alone.
-The full requested first milestone remains partial: the symbolic language
-composition is proved, but a certified finite exported automaton and the full
-C-admission connection remain open. Milestone 2 (sound finite-automaton
-checkers) is proved. Milestones 3–4 and enablement are unimplemented. No
-formula has been silently enabled or declared validated.
-
-TV2 adds **sound finite export** in `Validation/Finite.lean`. The exporter
-merges component all/rejecting fields by the proved Boolean class equality;
-tree paths and round residual/incoming bits stay in the state key. It checks
-initial correspondence and closure on every state and letter, including
-terminal loops, independently of BFS discovery. `exportParity_language` and
-`exportBuchi_language` prove the returned complete table has the symbolic
-machine's language. `uncached_finite_construction_language` composes those
-results with the formula theorem; the Buchi conclusion explicitly requires
-`positiveb`. Resource exhaustion returns no table and must fail validation.
-This is a soundness result for successful exports, not a proof that a fixed
-resource limit suffices for every admitted formula. The C admission inventory
-and its connection to reference admission remain obligations before enablement.
-
-Finite-export milestone checks: **30 executable checks / zero failures**,
-including constants, GF, FG, positive Buchi exports and resource exhaustion.
-All 18 theorem dependency audits use only the permitted axioms. The offline
-driver must retain formula and AP order, validate every required case in both
-admissions, and bind successes to canonical C hashes before admission changes.
-
-The final clean rebuild removed all old `.lake` artifacts, rebuilt 72 jobs
-successfully with warnings as errors, and reran all 21 executable checks
-without failures. No deleted module was needed.
-
-Final serial C/CI regression run: **8/8 passed** (`dpa_contract`,
-`dpa_equivalence`, `dpa_buchi_goldens`, `dpa_equivalence_research`,
-`dpa_stage2`, `proof_source_references`, `no_external_oracles`, and
-`golden_provenance`). No C implementation or golden expectation changed.
-Coverage remains recorded as default **148 → 148/217** and research
-**155 → 155/217**, not remeasured; enabling and its required fresh coverage
-measurement have not occurred. All milestones in this delivery are committed,
-with the requested trailers, and nothing is pushed.

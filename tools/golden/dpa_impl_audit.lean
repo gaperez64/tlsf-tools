@@ -2,6 +2,7 @@ import TlsfProofs.Dpa.Validation.Construction
 import TlsfProofs.Dpa.Impl.Main
 import TlsfProofs.Dpa.Validation.Equivalence
 import TlsfProofs.Dpa.Validation.Finite
+import TlsfProofs.Dpa.Validation.Dump
 
 #print axioms Tlsf.Dpa.Impl.uncached_construction_language
 #print axioms Tlsf.Dpa.Impl.referencePlan_success
@@ -21,3 +22,11 @@ import TlsfProofs.Dpa.Validation.Finite
 #print axioms Tlsf.Dpa.Validation.exportParity_language
 #print axioms Tlsf.Dpa.Validation.exportBuchi_language
 #print axioms Tlsf.Dpa.Impl.uncached_finite_construction_language
+#print axioms Tlsf.Dpa.Impl.normalize_language
+#print axioms Tlsf.Dpa.Impl.normalized_finite_construction_language
+#print axioms Tlsf.Dpa.Validation.checkCompact_sound
+#print axioms Tlsf.Dpa.Validation.checkBuchiCompact_sound
+#print axioms Tlsf.Dpa.Validation.freeze_exact
+#print axioms Tlsf.Dpa.Validation.freezeBuchi_exact
+#print axioms Tlsf.Dpa.Validation.validate_parity_sound
+#print axioms Tlsf.Dpa.Validation.validate_buchi_sound
