@@ -585,13 +585,13 @@ only `propext`, `Classical.choice` and `Quot.sound`.
 
 ### Extractor correspondence in both modes after review
 
-`src/lib/dpa_formula.c:866` walks the retained NNF syntax to collect X
-subformulas; `src/lib/dpa_formula.c:889` starts that walk only at supported
+`src/lib/dpa_formula.c:891` walks the retained NNF syntax to collect X
+subformulas; `src/lib/dpa_formula.c:914` starts that walk only at supported
 non-X modal atoms of the current reduced class (F/U/M in research mode).
 This implements `subformulas` and `Protected` at
 `TlsfProofs/Dpa/Classes.lean:503` and `:520`. Boolean materialization of a
 protector's operands cannot remove a protected X. Only X atoms are interned,
-with their operands frozen. `src/lib/dpa_formula.c:913` still performs
+with their operands frozen. `src/lib/dpa_formula.c:938` still performs
 REDUCE, repeated simultaneous DROP_X with protection recomputed after each
 removal, unfolding, and the finite-result retry in that order, matching
 `reduce`, `dropX`, `extractPass`, and `rho` at
@@ -704,18 +704,18 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
 | `src/lib/dpa_formula.c:394`, `:524`, `:610` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; C traversal bridge trusted |
-| `src/lib/dpa_formula.c:639`, `:851` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
-| `src/lib/dpa_formula.c:675`, `:736`, `:792` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
-| `src/lib/dpa_formula.c:639`, `:866`/`:889`, `:913` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
+| `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
+| `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
+| `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
 | `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable` |
-| `src/lib/dpa_dela.c:72`, `:292` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
+| `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
-| `src/lib/dpa_dela.c:198`, `:273` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
-| `src/lib/dpa_dela.c:170`, `:231`; `src/lib/dpa.c:365` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
+| `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
+| `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
 | `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
 | `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
 | `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority`, `ZTree.recurrent_run`, `tree_minEven` |
-| `src/lib/dpa.c:244`; `src/lib/dpa_zielonka.c:231` — odd P and P−p | `exportBound`, `exportBound_odd`, `exportBound_large`, `parity_export`, `tree_maxOdd` |
+| `src/lib/dpa.c:246`; `src/lib/dpa_zielonka.c:231` — odd P and P−p | `exportBound`, `exportBound_odd`, `exportBound_large`, `parity_export`, `tree_maxOdd` |
 
 ### Trusted gaps and evidence boundary
 
@@ -777,7 +777,7 @@ audit omitted a constructor-success obligation:
 
 - **§9.1 grouping condition.** Both the Markdown's former “C is nonempty”
   rule and Lean's former `C ≠ []` branch differed from C at
-  `src/lib/dpa_formula.c:596`. C compares the folded canonical co-safety
+  `src/lib/dpa_formula.c:597`. C compares the folded canonical co-safety
   class with the outer operator's Boolean identity. For conjunction,
   `τ = F q ∨ (p ∨ ¬p)` is a co-safety operand whose class is true, despite
   `[τ]` being nonempty (`nonempty_cosafety_identity`). With safety operand
@@ -788,7 +788,7 @@ audit omitted a constructor-success obligation:
 - **§9.1 constructor success.** The former `factoredAdmission` returned
   `true` unconditionally after a successful grouping guard. Its theorem
   proved only the outer control-flow identity, not success of C's
-  `syntax_acceptance` call at `src/lib/dpa_formula.c:616`. The replacement
+  `syntax_acceptance` call at `src/lib/dpa_formula.c:617`. The replacement
   propagates optional failures from recursive remaining syntax and canonical
   acceptance of both grouped classes. `syntaxAcceptance_success` proves all
   these calls succeed under the exhaustive leaf guard; original admission,
