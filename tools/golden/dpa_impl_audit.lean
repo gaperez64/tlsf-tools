@@ -81,3 +81,14 @@ Every reported dependency set must be contained in
 #print axioms Tlsf.Dpa.Impl.groupedPlan_language
 #print axioms Tlsf.Dpa.Impl.assemble_grouped_presentation
 #print axioms assembly_checks
+#print axioms Tlsf.Dpa.Impl.termBoolean_language
+#print axioms Tlsf.Dpa.Impl.termBoolean_nnf
+#print axioms Tlsf.Dpa.Impl.termUnary_language
+#print axioms Tlsf.Dpa.Impl.termUnary_nnf
+#print axioms Tlsf.Dpa.Impl.wrapNext_language
+#print axioms Tlsf.Dpa.Impl.wrapNext_nnf
+#print axioms Tlsf.Dpa.Impl.transport_domain
+#print axioms Tlsf.Dpa.Impl.transport_language
+#print axioms Tlsf.Dpa.Impl.transport_nnf
+#print axioms Tlsf.Dpa.Impl.transport_class_language
+#print axioms transport_checks

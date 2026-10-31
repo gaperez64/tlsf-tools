@@ -43,6 +43,8 @@ ANCHORS = {
     'src/lib/dpa_formula.c': {
         'static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {',
         'static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {',
+        'static uint32_t materialize(TlsfDpa *c, uint32_t f) {',
+        'static uint32_t wrap_next(TlsfDpa *c, uint32_t f, unsigned next) {',
         'uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {',
         'uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {',
         'bool dpa_admitted(TlsfDpa *c, uint32_t f) {',

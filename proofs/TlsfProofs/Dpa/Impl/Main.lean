@@ -2,6 +2,7 @@ import TlsfProofs.Dpa.Impl.Admission
 import TlsfProofs.Dpa.Impl.Buchi
 import TlsfProofs.Dpa.Impl.Store
 import TlsfProofs.Dpa.Impl.Assembly
+import TlsfProofs.Dpa.Impl.Transport
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -9,6 +10,65 @@ open Tlsf Tlsf.Dpa Tlsf.Dpa.Impl
 
 private def a : Formula (Fin 2) := .ap 0
 private def b : Formula (Fin 2) := .ap 1
+
+private def transportRank : Formula (Fin 2) → Nat
+  | .ff => 0 | .tt => 1 | .ap a => a.val + 2 | .neg _ => 4 | _ => 5
+
+private def transportChecks : List (String × Bool × Bool) := [
+  ("term-sort-by-ID", decide (termBoolean transportRank true b a = .conj a b), true),
+  ("term-duplicate", decide (termBoolean transportRank false a a = a), true),
+  ("term-and-false", decide (termBoolean transportRank true a .ff = .ff), true),
+  ("term-and-true", decide (termBoolean transportRank true a .tt = a), true),
+  ("term-or-false", decide (termBoolean transportRank false a .ff = a), true),
+  ("term-or-true", decide (termBoolean transportRank false a .tt = .tt), true),
+  ("transport-X-constant", decide (transport transportRank (.next .tt) false 0 = some .tt), true),
+  ("transport-F-constant", decide (transport transportRank (.eventually .ff) false 3 = some .ff), true),
+  ("transport-G-constant", decide (transport transportRank (.globally .tt) true 2 = some .ff), true),
+  ("transport-X-through-and", decide
+    (transport transportRank (.next (.conj a b)) false 0 = some (.conj (.next a) (.next b))), true),
+  ("transport-pending-X", decide
+    (transport transportRank (.next (.disj a b)) false 2 =
+      some (.disj (.next (.next (.next a))) (.next (.next (.next b))))), true),
+  ("transport-DeMorgan-X", decide
+    (transport transportRank (.next (.neg (.conj a b))) false 0 =
+      some (.disj (.next (.neg a)) (.next (.neg b)))), true),
+  ("transport-modal-reset", decide
+    (transport transportRank (.next (.eventually (.conj (.next a) b))) false 0 =
+      some (.next (.eventually (.conj b (.next a))))), true),
+  ("transport-frozen-absorption", decide
+    (transport transportRank (.eventually (.disj a (.conj a b))) false 0 =
+      some (.eventually (.disj a (.conj a b)))), true),
+  ("transport-U-reset", decide
+    (transport transportRank (.next (.until a (.next b))) false 0 =
+      some (.next (.until a (.next b)))), true),
+  ("transport-U-dual", decide
+    (transport transportRank (.until a b) true 0 = some (.release (.neg a) (.neg b))), true),
+  ("transport-R-dual", decide
+    (transport transportRank (.release a b) true 0 = some (.until (.neg a) (.neg b))), true),
+  ("transport-W-dual", decide
+    (transport transportRank (.weakUntil a b) true 0 = some (.strongRelease (.neg a) (.neg b))), true),
+  ("transport-M-dual", decide
+    (transport transportRank (.strongRelease a b) true 0 = some (.weakUntil (.neg a) (.neg b))), true),
+  ("transport-F-dual", decide
+    (transport transportRank (.eventually a) true 1 = some (.next (.globally (.neg a)))), true),
+  ("transport-G-dual", decide
+    (transport transportRank (.globally a) true 1 = some (.next (.eventually (.neg a)))), true),
+  ("transport-implication", decide
+    (transport transportRank (.impl a b) false 0 = some (.disj b (.neg a))), true),
+  ("transport-negated-implication", decide
+    (transport transportRank (.impl a b) true 0 = some (.conj a (.neg b))), true),
+  ("transport-equivalence", decide
+    (transport transportRank (.equiv a b) false 0 =
+      some (.conj (.disj b (.neg a)) (.disj a (.neg b)))), true),
+  ("transport-negated-equivalence", decide
+    (transport transportRank (.equiv a b) true 0 =
+      some (.disj (.conj a (.neg b)) (.conj b (.neg a)))), true),
+  ("transport-reject-strong-next", decide
+    (transport transportRank (.strongNext a) false 0 = none), true),
+  ("transport-reject-absorbed-strong-next", decide
+    (transport transportRank (.conj .ff (.strongNext a)) false 0 = none), true),
+  ("X-distribution-changes-frozen-class", equivalent
+    (.next (.conj a b)) (.conj (.next a) (.next b)), false)]
 
 private def checks : List (String × Bool × Bool) := [
   ("absorption", equivalent (.disj a (.conj a b)) a, true),
@@ -192,11 +252,14 @@ theorem store_checks : storeChecks.all (fun (_, actual, expected) => actual == e
 theorem assembly_checks : assemblyChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
 
+theorem transport_checks : transportChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

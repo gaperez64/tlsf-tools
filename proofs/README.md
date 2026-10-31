@@ -764,7 +764,7 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake exe dpaImplChecks
 ```
 
-The 68 checks exercise absorption, constants, essential and absent support,
+The 96 checks exercise absorption, constants, essential and absent support,
 frozen operands, independent duals, both U/M protector operands, nested X,
 protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
 and nonconstant finite retention at renewal. They also cover canonical dual
@@ -779,10 +779,47 @@ weak-dual sharing in parity mode, its separation in Büchi mode, and lookup
 order when an earlier cached-dual hit precedes a later equal-class hit. Eight
 assembly checks cover constant acceptance, canonical tautology folding,
 mixed Π₂/Σ₂ literals, shared leaves, a Shannon branch sharing a cached dual,
-old indices, and both grouped identity branches.
+old indices, and both grouped identity branches. Twenty-eight transport checks
+cover ID sorting, duplicate/constant folding, accumulated X through Boolean
+nodes, resets under frozen modal operands, preservation of frozen absorption,
+all temporal duals, implication/equivalence polarities, and strong-next rejection
+inside an absorbed branch. The X-distribution check explicitly distinguishes
+language preservation from frozen-class equality.
 `class_checks`, `component_checks`, `dual_admission_checks`, `buchi_checks` and
-`store_checks`, and `assembly_checks` check these same
+`store_checks`, `assembly_checks`, and `transport_checks` check these same
 executable definitions by kernel reduction.
+
+**Task T3, item 1 proved at the decoded-syntax boundary.**
+`Impl/Transport.lean` follows `formula_impl` at `src/lib/dpa_formula.c:394`
+directly, with C's negation flag and pending X count. It does not call
+`to_nnf` or use `nnf_sat` to stand in for the traversal. `termBoolean_language`
+and `termBoolean_nnf` model ID sorting, duplicate elimination and constant
+folding in `term` at `src/lib/dpa_formula.c:254`. The rank parameter is the
+permanent ID in an append-only term arena; the proofs work for every rank.
+`termUnary_language` covers the X/F/G constant branch, and
+`wrapNext_language` proves C's repeated wrapping at `src/lib/dpa_formula.c:388`.
+The direct successful-traversal invariant is:
+
+```lean
+Impl.transport_language (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap))
+  (negate : Bool) (pending : Nat) (t : Formula (Fin ap))
+  (ht : Impl.transport rank f negate pending = some t) (w : Word (Fin ap)) (j : Nat) :
+  Sat none w t j ↔
+    (if negate then ¬Sat none w f (j + pending) else Sat none w f (j + pending))
+```
+
+Boolean children inherit `pending`; modal children restart at zero before
+wrapping the frozen result. All implication/equivalence branches follow C's
+operand/polarity choices. `transport_domain` identifies exactly the expanded
+syntax without strong-next, before resource/invalid-input failures.
+`transport_nnf` supplies NNF for every successful result.
+`transport_class_language` gives `NNFClass (Class.ofFormula t)` and its original
+input language at every word/position, matching materialization's frozen
+modal operands at `src/lib/dpa_formula.c:366`. The result is language equality:
+X(p ∧ q) and X p ∧ X q are still different classes over independent frozen
+atoms. C hash-consed IDs, pointer memoization, AP-name resolution and bounded
+successful-execution refinement remain representation obligations; no numeric
+C ID equality or automaton-constructor theorem is claimed here.
 
 `Impl/Tags.lean` proves all five executable structural classifiers exact,
 including `pi2b_exact` and `sigma2b_exact`. `classTag_exact` identifies their
@@ -914,19 +951,21 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 77 dependency reports contain only the three permitted axioms; the six
+All 88 dependency reports contain only the three permitted axioms; the seven
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (58 Lake jobs). The proof
+library and `dpaImplChecks` with warnings as errors (60 Lake jobs). The proof
 source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-147 references / 105 anchored C/Lean targets pass. Both documentation gates
+158 references / 116 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2.** These are proved executable component and
+**Current boundary for Task T/T2/T3.** These are proved executable transport, component and
 decision milestones. Task T2 item 1 is complete. Its item 2 store and
 plan-assembly invariants are proved, but the complete C selector/order bridge
-and items 3–4 remain incomplete; item 5 is deliberately not enabled. The executable is a
+and its items 3–4 remain incomplete; its item 5 is deliberately not enabled.
+Task T3 item 1 is proved at the decoded-syntax boundary; items 2–5 remain
+open and item 6 is not enabled. The executable is a
 diagnostic, not a BFS automaton exporter; there
 is no matching C dump or new C↔Lean automaton golden. The 30 existing golden
 files remain unchanged at 2,986,929 bytes, including 541 DPA membership records;
@@ -940,26 +979,26 @@ The smallest remaining constructor lemma is **selection of the exact
 construction plan from C's transported, materialized class and frozen
 syntax**. It must establish `AcceptancePlan.Valid`, identify the selected
 plan's source language with the input, and refine the actual order of store
-calls and acceptance-cache hits. A prerequisite is the smart-constructor /
-transport lemma for constant folding and accumulated X placement: C carries
-the pending X count through Boolean nodes and resets it under frozen modal
-operands. Applying `nnf_sat` alone does not model this traversal, and literal
-Boolean class equality is false for some of its language-preserving rewrites:
-X(p ∧ q) and X p ∧ X q use different independent frozen modal atoms. The
+calls and acceptance-cache hits. The smart-constructor / transport
+language prerequisite is now proved above, including constant folding and the
+pending X count through Boolean nodes with resets under frozen modal operands.
+This does not identify the acceptance plan selected from that syntax. The
 proved store/assembly invariant supplies the result once this concrete
 selection is established, but cannot be used as its premise. Cached NNF
 duals likewise cannot be replaced by `Class.compl`. Neither an existential
 `admitted_grammar` witness nor arbitrary valid plans identify the selected C
 constructor or its colour order.
 
-Further independent bridges remain: C transport/smart constructors; default
+Further independent bridges remain: default
 recursive canonical tag refinement; the complete grouped constructor and
 terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
 state split, component-store preservation and explicit-plan assembly are now
 proved above. The concrete constructor selector and syntax bridge remain
-necessary to identify its constructed positive acceptance with the input.
+necessary to identify its constructed positive acceptance with the transported
+input. The transport language theorem now connects that input to the original
+formula once the concrete selector is proved.
 C code, production admission, and the remaining trusted
 boundary below remain unchanged.
 
@@ -975,7 +1014,8 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
-| `src/lib/dpa_formula.c:394`, `:524`, `:610` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; C traversal bridge trusted |
+| `src/lib/dpa_formula.c:254`, `:388`, `:394`, `:366` — smart constructors, pending-X transport, frozen materialization | `Impl.termBoolean_language`, `Impl.termUnary_language`, `Impl.wrapNext_language`, `Impl.transport_domain`, `Impl.transport_language`, `Impl.transport_nnf`, `Impl.transport_class_language`; numeric syntax-ID/memo refinement pending |
+| `src/lib/dpa_formula.c:524`, `:610` — factoring | `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; concrete selector pending |
 | `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
 | `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
 | `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
@@ -998,9 +1038,12 @@ numbers refer to the merged worktree's formatted sources.
   complemented edges, interning, cofactors, support walks, or Shannon DAGs to
   the extensional Boolean functions used here. Allocation, host budgets,
   cancellation and failure propagation are also outside these Lean results.
-- **Canonical NNF.** The existing core proves NNF semantic identities, but the
-  lazy-DPA transport, constant folding, modal-operand canonicalization and
-  canonical X placement are not connected to `NNFClass` by a C refinement.
+- **Canonical NNF representation.** The executable decoded-syntax traversal
+  now proves NNF and the exact original language, including C's smart
+  constructors, constant folding and pending X placement. Its rank parameter
+  abstracts permanent syntax IDs; hash-consing, pointer-memo keys, AP-name
+  lookup, resource bounds and a representation refinement of successful C
+  executions remain outside this theorem.
   Research-mode tags now inspect structural frozen syntax, and the protected
   walk inspects all syntactic X subformulas of supported modal atoms, as in
   `Protected`. Their imperative syntax IDs, support traversal and memo epochs
