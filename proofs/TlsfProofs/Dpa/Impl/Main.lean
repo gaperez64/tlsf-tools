@@ -8,6 +8,7 @@ import TlsfProofs.Dpa.Impl.Cache
 import TlsfProofs.Dpa.Impl.Grouping
 import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Impl.DefaultTags
+import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -481,6 +482,90 @@ private def defaultTagChecks : List (String × Bool × Bool) := [
          let old := (cachedTagBounds {} absorbedNext []).2
          pure (fragmentMask (cachedTagBounds s absorbedNext old).1.low)) = some 26), true)]
 
+private def terminalAnd : ColourDag 2 := .node 0 (.leaf false)
+  (.node 1 (.leaf false) (.leaf true))
+private def terminalOr : ColourDag 2 := .node 0
+  (.node 1 (.leaf false) (.leaf true)) (.leaf true)
+private def terminalNeg : ColourDag 2 := .node 0 (.leaf true) (.leaf false)
+private def unknownTerminals : Fin 2 → Option Bool := fun _ => none
+private def firstTerminal (b : Bool) : Fin 2 → Option Bool :=
+  fun i => if i == 0 then some b else none
+private def terminalTest (known : Fin 2 → Option Bool) (f : ColourDag 2) : Option Bool :=
+  (terminalShortcut (fun _ => false) 1 known f []).1
+private def terminalShared : ColourDag 2 :=
+  .node 0 (.node 1 (.leaf false) (.leaf true)) (.node 1 (.leaf false) (.leaf true))
+
+private def terminalChecks : List (String × Bool × Bool) := [
+  ("terminal-constant-false", decide
+    (terminalTest unknownTerminals (.leaf false) = some false), true),
+  ("terminal-constant-true", decide
+    (terminalTest unknownTerminals (.leaf true) = some true), true),
+  ("terminal-unknown-keeps-symbolic", decide
+    (terminalTest unknownTerminals terminalAnd = none), true),
+  ("terminal-and-shortcut-false", decide
+    (terminalTest (firstTerminal false) terminalAnd = some false), true),
+  ("terminal-or-shortcut-true", decide
+    (terminalTest (firstTerminal true) terminalOr = some true), true),
+  ("terminal-partial-true-is-insufficient", decide
+    (terminalTest (firstTerminal true) terminalAnd = none), true),
+  ("terminal-all-true", decide
+    (terminalTest (fun _ => some true) terminalAnd = some true), true),
+  ("terminal-complement-false-target", decide
+    (terminalTest (firstTerminal false) terminalNeg = some true), true),
+  ("terminal-complement-true-target", decide
+    (terminalTest (firstTerminal true) terminalNeg = some false), true),
+  ("terminal-pair-rejecting-does-not-decide", decide
+    (terminalValue (⟨.globally a, .ff⟩ : State 2) = none), true),
+  ("terminal-pair-all-true", decide
+    (terminalValue (⟨.tt, .globally a⟩ : State 2) = some true), true),
+  ("terminal-pair-all-false", decide
+    (terminalValue (⟨.ff, .tt⟩ : State 2) = some false), true),
+  ("terminal-canonical-all-true", decide
+    (terminalValue (⟨.disj a (.neg a), .ff⟩ : State 2) = some true), true),
+  ("terminal-unavailable-target", decide
+    (partialTerminalValues (fun _ : Fin 2 => (none : Option (State 2))) 0 = none), true),
+  ("terminal-low-first-shared-cache", decide
+    ((terminalCondition (fun _ => false) 1 unknownTerminals terminalShared []).2.length = 2), true),
+  ("terminal-high-first-shared-cache", decide
+    ((terminalCondition (fun _ => true) 1 unknownTerminals terminalShared []).2.length = 2), true),
+  ("terminal-epoch-hit-keeps-cache", decide
+    (let r := terminalCondition (fun _ => false) 1 (firstTerminal false) terminalAnd []
+     (terminalCondition (fun _ => true) 1 (firstTerminal false) terminalAnd r.2).2.length =
+       r.2.length), true),
+  ("terminal-stale-epoch-ignored", decide
+    ((terminalShortcut (fun _ => false) 1 (firstTerminal false) terminalAnd
+      [⟨0, terminalAnd, .leaf true⟩]).1 = some false), true),
+  ("terminal-equivalent-key-hit", decide
+    ((terminalCondition (fun _ => false) 1 unknownTerminals terminalShared
+      [⟨1, .node 1 (.leaf false) (.leaf true), .node 1 (.leaf false) (.leaf true)⟩]).2.length = 1), true),
+  ("terminal-constant-before-memo", decide
+    ((terminalCondition (fun _ => false) 1 unknownTerminals (.leaf false)
+      [⟨1, .leaf false, .leaf true⟩]).1 = .leaf false), true),
+  ("terminal-empty-colour-true", decide
+    ((terminalShortcut (fun _ => false) 1 (fun _ : Fin 0 => none) (.leaf true) []).1 = some true), true),
+  ("terminal-true-reserved-priority", decide (terminalPriority 2 true = 5), true),
+  ("terminal-false-reserved-priority", decide (terminalPriority 2 false = 4), true),
+  ("terminal-ordinary-step", decide
+    (shortcutStep 2 (fun (s : Nat) (_ : Unit) => (s+1, 7)) (fun _ _ => none) ()
+      (.active 0) = (.active 1, 7)), true),
+  ("terminal-enter-reserved-false", decide
+    (shortcutStep 2 (fun (s : Nat) (_ : Unit) => (s+1, 7)) (fun _ _ => some false) ()
+      (.active 0) = (.absorbing false, 4)), true),
+  ("terminal-reserved-loop", decide
+    (shortcutStep 2 (fun (s : Nat) (_ : Unit) => (s+1, 7)) (fun _ _ => some true) ()
+      (.absorbing false) = (.absorbing false, 4)), true),
+  ("terminal-delayed-shortcut-priorities", decide
+    ([0, 1, 2, 3, 4].map (shortcutPriorities 2
+      (fun (s : Nat) (_ : Unit) => (s+1, 7))
+      (fun s _ => if s == 2 then some true else none) 0 (fun _ => ())) = [7, 7, 5, 5, 5]), true),
+  ("terminal-Buchi-shortcut-disabled", decide
+    ((productTerminalShortcut true (fun _ => false) 1 unknownTerminals (.leaf true) []).1 = none), true),
+  ("terminal-parity-shortcut-enabled", decide
+    ((productTerminalShortcut false (fun _ => false) 1 unknownTerminals (.leaf true) []).1 = some true), true),
+  ("terminal-delayed-sink-state", decide
+    (shortcutRun 2 (fun (s : Nat) (_ : Unit) => (s+1, 7))
+      (fun s _ => if s == 2 then some true else none) 0 (fun _ => ()) 4 = .absorbing true), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -518,11 +603,14 @@ theorem factoring_checks : factoringChecks.all (fun (_, actual, expected) => act
 theorem default_tag_checks : defaultTagChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem terminal_checks : terminalChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ terminalChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + terminalChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

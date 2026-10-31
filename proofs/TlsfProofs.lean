@@ -19,3 +19,4 @@ import TlsfProofs.Dpa.Impl.Cache
 import TlsfProofs.Dpa.Impl.Grouping
 import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Impl.DefaultTags
+import TlsfProofs.Dpa.Impl.Terminal

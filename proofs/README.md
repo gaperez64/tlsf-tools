@@ -1077,6 +1077,38 @@ cache writes, exact-tag hits, equivalent class keys and stale cached bounds.
 The component/extractor language theorem for these refined predicates is
 still required; this milestone alone does not close T6 item 1.
 
+**Task T6, terminal product shortcut proved at the decoded boundary.**
+`Impl/Terminal.lean` executes `terminal_condition` at
+`src/lib/dpa_dela.c:170`, including canonical class-key memo hits, epoch
+isolation, known-target branch selection, and both argument orders when
+unknown colours retain both children. `terminalCondition_spec` proves that
+the returned residual denotes substitution of exactly the available
+terminal target pairs. Nonterminal and unavailable pairs remain symbolic;
+the rejecting field does not provide a truth constant. Fresh epochs may
+reuse a memo containing arbitrary older entries. Numeric epoch uniqueness,
+BDD interning and owned state IDs remain representation assumptions.
+
+`terminalShortcut_product_language` derives the constant-substitution
+hypothesis of `terminal_product_decided` from the executable constant test.
+It covers arbitrary Boolean acceptance, including complemented coordinates.
+`terminalShortcut_parity` compares the resulting absorbing suffix with the
+abstract tree's max-odd export. `terminalExport_input_language` additionally
+executes the ordinary/reserved-state transition and the absorbing loop at
+`src/lib/dpa.c:536`, deriving the suffix rather than assuming it. Given an
+actual successful shortcut, a product presentation, and identification of
+available target pairs with component runs after the current letter, both
+its max-odd stream and its P−p min-even stream recognize the input language.
+All earlier priorities are irrelevant to this argument. The ordinary joint
+transition/target-pair simulation remains a premise; this is not the full
+pipeline theorem. `productTerminalShortcut_buchi` proves that the mode guard
+disables the shortcut in Büchi mode, as C does.
+
+The 30 terminal checks cover both constants, empty colour support, partial
+and unknown targets, complemented acceptance, canonical all-field tests,
+same-epoch hits, stale epochs, equivalent class keys, shared cofactors,
+both child orders, reserved priorities, entry into a sink, its loop and the
+Büchi-mode guard.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1085,12 +1117,12 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 185 dependency reports contain only the three permitted axioms; the twelve
+All 206 dependency reports contain only the three permitted axioms; the thirteen
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (70 Lake jobs). All 175
+library and `dpaImplChecks` with warnings as errors (72 Lake jobs). All 205
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-186 references / 144 anchored C/Lean targets pass. Both documentation gates
+191 references / 149 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
@@ -1100,8 +1132,9 @@ is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
 Task T4 item 1's cache/order and grouped syntax selection are now composed
 with the decoded transport and memoized factoring traversal. Task T5 item 1
-is proved. T6 proves the recursive default tag/cache invariant, while its
-component/extractor use and terminal shortcut remain open. T6 items 2–4
+is proved. T6 proves the recursive default tag/cache invariant and the
+terminal shortcut at the decoded boundary. Item 1 remains partial because
+the refined tags' component/extractor language use is open. T6 items 2–4
 remain open and item 5 is deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
@@ -1128,7 +1161,7 @@ Cached NNF duals cannot be replaced by `Class.compl`, and an existential
 `admitted_grammar` witness does not identify the constructor trace.
 
 Further independent bridges remain: use of the refined default tags in the
-component/extractor; the terminal product shortcut; C's lexicographically ordered tree/export; and
+component/extractor; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
 state split, component-store preservation and explicit-plan assembly are now
@@ -1167,7 +1200,7 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_dela.c:117`; `src/lib/dpa_formula.c:583` — shared-store acceptance assembly from explicit valid plans | `Impl.assemble_spec`, `Impl.assemble_presentation`, `Impl.assemble_shannon_presentation`, `Impl.assemble_grouped_presentation`; uncached reference plans |
 | `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
 | `src/lib/dpa_dela.c:203`, `:272`, `:278`; `src/lib/dpa.c:300` — seen-colour residual, reset, incoming state split and initial bit | `Impl.seenColours_exact`, `Impl.roundRun_residual`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language` |
-| `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
+| `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `Impl.terminalCondition_spec`, `Impl.terminalShortcut_product_language`, `Impl.terminalShortcut_parity`, `Impl.terminalExport_input_language`; available-target simulation premise; `terminal_product_decided`, `terminal_absorption` |
 | `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
 | `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
 | `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority`, `ZTree.recurrent_run`, `tree_minEven` |
