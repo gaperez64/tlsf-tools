@@ -79,12 +79,101 @@ def collect(build):
         add(NAMES, prefix, "golden", text)
         if text in equivalences:
             add(NAMES, prefix, "equivalence", text)
+    # Include every pinned infinite-word verdict and every stored monitor
+    # construction formula, including historical accepted rows archived in
+    # provenance. Finite-word games are outside this automaton API.
+    golden_formulas = defaultdict(list)
+
+    def add_formula(text, inputs, outputs, origin):
+        atom_names = set()
+        for token in re.findall(r'"(?:[^"\\]|\\.)*"|[A-Za-z_@][A-Za-z0-9_@\']*', text):
+            if token.startswith('"'):
+                atom_names.add(json.loads(token))
+            elif token not in ("G", "F", "X", "U", "R", "W", "M", "true", "false"):
+                atom_names.add(token)
+
+        def literal(name):
+            if name.startswith("/^") and name.endswith("$/"):
+                encoded = name[2:-2]
+                assert re.fullmatch(r"(?:\\x[0-9a-fA-F]{2})+", encoded), name
+                return [bytes.fromhex("".join(re.findall(r"\\x([0-9a-fA-F]{2})", encoded))).decode()]
+            if name.startswith("/") and name.endswith("/"):
+                return sorted(a for a in atom_names if re.search(name[1:-1], a))
+            return [name]
+        inputs = [a for name in inputs for a in literal(name)]
+        outputs = [a for name in outputs for a in literal(name)]
+        golden_formulas[(text, tuple(inputs), tuple(outputs))].append(origin)
+
+    def stored_monitors(value, origin):
+        if isinstance(value, dict):
+            if all(k in value for k in ("monitors", "inputs", "outputs")):
+                names = lambda xs: [x if isinstance(x, str) else x["name"] for x in xs]
+                ins, outs = names(value["inputs"]), names(value["outputs"])
+                for monitor in value["monitors"]:
+                    if "construction_formula" not in monitor:
+                        continue
+                    support = (monitor.get("source_origin") or {}).get("signals", ins + outs)
+                    add_formula(monitor["construction_formula"],
+                                [x for x in ins if x in support],
+                                [x for x in outs if x in support], origin)
+            for child in value.values():
+                stored_monitors(child, origin)
+        elif isinstance(value, list):
+            for child in value:
+                stored_monitors(child, origin)
+
+    for path in sorted((ROOT / "test/fixtures/golden").glob("*.json")):
+        rows = json.loads(path.read_text())
+        if isinstance(rows, list):
+            for index, row in enumerate(rows):
+                if isinstance(row, list) and len(row) > 1 and row[0] == "verdict":
+                    fields = row[1]
+                    if len(fields) >= 4 and not fields[3]:
+                        add_formula(fields[0], list(filter(None, fields[1].split(","))),
+                                    list(filter(None, fields[2].split(","))), f"{path.name}:{index}")
+        stored_monitors(rows, path.name)
+    for (text, ins, outs), origins in sorted(golden_formulas.items()):
+        aliases = {name: f"tvrename{i}" for i, name in enumerate(ins + outs)}
+        reverse = {alias: name for name, alias in aliases.items()}
+
+        def rename(match):
+            token = match.group()
+            if token.startswith('"'):
+                return aliases[json.loads(token)]
+            if token in ("0", "1"):
+                return "true" if token == "1" else "false"
+            if token in ("G", "F", "X", "U", "R", "W", "M", "true", "false"):
+                return token
+            return aliases.get(token, token)
+
+        # The frontend lowercases APs. Temporary valid identifiers preserve
+        # the golden's case-sensitive, sometimes quoted AP identities; restore
+        # their exact names and order on the parsed prefix AST afterward.
+        body = re.sub(r'"(?:[^"\\]|\\.)*"|[A-Za-z_@][A-Za-z0-9_@\']*|\b[01]\b', rename, text)
+        body = re.sub(r"(?<!&)&(?!&)", "&&", body)
+        body = re.sub(r"(?<!\|)\|(?!\|)", "||", body)
+        source = ("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { " +
+                  " ".join(aliases[x] + ";" for x in ins) + " } OUTPUTS { " +
+                  " ".join(aliases[x] + ";" for x in outs) + " } GUARANTEES { " + body + "; } }")
+        path = SCRATCH / "golden-formula.tlsf"
+        path.write_text(source)
+        grounded = run([build / "test/unit/tv_inventory", "--ground", path])
+        assert grounded.returncode == 0, (text, grounded.stderr)
+        fields = grounded.stdout.split()
+        assert fields[:3] == ["TV1", "parity", "default"], grounded.stdout
+        count = int(fields[3])
+        names = [reverse[x] for x in fields[4:4 + count]]
+        prefix = " ".join("$" + reverse[x[1:]] if x.startswith("$") else x
+                          for x in fields[4 + count:])
+        for origin in origins:
+            add(names, prefix, "golden", origin)
     for prefix in REVIEWS:
         for formula in (prefix, "! " + prefix):
             names = sorted({x[1:] for x in formula.split() if x.startswith("$")})
             add(names, formula, "review", formula)
     source_hashes = {str(p.relative_to(ROOT)): sha(p.read_bytes()) for p in paths}
     result = {"cases": sorted(cases.values(), key=lambda x: (x["names"], x["prefix"])),
+              "golden_formula_inventory_sha256": sha(json.dumps(sorted(golden_formulas)).encode()),
               "coverage": coverage, "corpus_sources": source_hashes}
     (SCRATCH / "inventory.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
@@ -164,14 +253,16 @@ def main():
     os.environ["TMPDIR"] = str(ROOT / "build-scratch-t/tmp")
     os.environ["LEAN_NUM_THREADS"] = "1"
     build = args.build.resolve()
-    data = json.loads((SCRATCH / "inventory.json").read_text()) if args.reuse_inventory else collect(build)
-    for path, digest in data["corpus_sources"].items():
-        assert sha((ROOT / path).read_bytes()) == digest, f"stale corpus inventory: {path}"
-    if args.collect_only:
-        return
     compiled = run(["meson", "compile", "-C", build, "-j2", "dpa_dump", "tv_inventory"],
                    cwd=ROOT, timeout=600)
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+    data = json.loads((SCRATCH / "inventory.json").read_text()) if args.reuse_inventory else collect(build)
+    for path, digest in data["corpus_sources"].items():
+        assert sha((ROOT / path).read_bytes()) == digest, f"stale corpus inventory: {path}"
+    assert all(row["status"] != "timeout" for rows in data["coverage"].values() for row in rows), \
+        "incomplete corpus inventory: a reduction timed out"
+    if args.collect_only:
+        return
     # Never accept verdicts from an executable left over from a failed build.
     built = run([Path.home() / ".elan/bin/lake", "build", "dpaValidate"],
                 cwd=ROOT / "proofs", timeout=600)
@@ -235,6 +326,7 @@ def main():
                                            Path(__file__).resolve(),
                                            ROOT / "tools/golden/tv_inventory.cc"})},
                       "corpus_sources": data["corpus_sources"],
+                      "golden_formula_inventory_sha256": data["golden_formula_inventory_sha256"],
                       "validated_artifacts": sum(r["status"] == "pass" for r in records),
                       "golden_artifacts": len(goldens)}
         (DEST / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")

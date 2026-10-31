@@ -35,3 +35,5 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Impl.uses_exact
 #print axioms Tlsf.Dpa.Impl.Assembly.prepareParity_exact
 #print axioms Tlsf.Dpa.Impl.Assembly.prepareBuchi_exact
+#print axioms Tlsf.Dpa.Validation.sparseClosedCheck_sound
+#print axioms Tlsf.Dpa.Impl.compileBasis_presentation

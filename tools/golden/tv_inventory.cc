@@ -7,6 +7,7 @@
 #undef main
 extern "C" {
 #include "dpa_buchi.h"
+#include "tlsf/convert.h"
 TlsfDpaStatus __real_dpa_buchi_create(const TlsfAstNode *, const char *const *,
                                       uint32_t, const TlsfDpaBudget *,
                                       TlsfDpa **, char *);
@@ -43,6 +44,25 @@ extern "C" TlsfDpaStatus __wrap_dpa_buchi_create(const TlsfAstNode *root,
 }
 
 int main(int argc, char **argv) {
+  if (argc == 3 && std::string(argv[1]) == "--ground") {
+    std::ifstream in(argv[2]);
+    if (!in)
+      return 2;
+    std::string bytes((std::istreambuf_iterator<char>(in)), {});
+    auto *converted = tlsf_convert(bytes.c_str(), "Mealy");
+    if (!converted)
+      return 2;
+    std::cout << "TV1 parity default "
+              << converted->n_inputs + converted->n_outputs << ' ';
+    for (uint32_t i = 0; i < converted->n_inputs; ++i)
+      std::cout << converted->inputs[i] << ' ';
+    for (uint32_t i = 0; i < converted->n_outputs; ++i)
+      std::cout << converted->outputs[i] << ' ';
+    prefix(tlsf_ast_root(converted->ast));
+    std::cout << std::endl;
+    tlsf_conversion_result_free(converted);
+    return 0;
+  }
   if (argc < 2 ||
       (std::string(argv[1]) != "default" && std::string(argv[1]) != "general"))
     return 2;

@@ -12,6 +12,10 @@ private def probe (input output : String) : Bool :=
     let d ← parseDump r output
     validate r d 64).isOk
 
+private def delay32 : Parity (Fin 2) (Fin 32) :=
+  ⟨0, fun s a => (⟨(2*s.val + a.val) % 32, Nat.mod_lt _ (by decide)⟩,
+    if s.val = 0 then 2 else 3)⟩
+
 def protocolChecks : List (String × Bool) := [
   ("complete-parity-dump", probe request dump),
   ("AP-order-mismatch", !probe "TV1 parity default 2 a b G F $a"
@@ -33,6 +37,7 @@ def protocolChecks : List (String × Bool) := [
     "TV1 buchi general 1 a F G $a states 1 1 0 0 0 1 0 1 0 1 end"),
   ("compact-different-state-count", checkCompact (singleton 1) (alternating 3 0)),
   ("compact-disagreement", !checkCompact (singleton 1) infLetters),
-  ("compact-Buchi-frequency", checkBuchiCompact allBuchi alternatingBuchi)]
+  ("compact-Buchi-frequency", checkBuchiCompact allBuchi alternatingBuchi),
+  ("sparse-delay-product", check delay32 delay32)]
 
 end Tlsf.Dpa.Validation

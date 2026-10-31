@@ -162,9 +162,10 @@ theorem Assembly.productStep_congr (r : Assembly ap) (s t : Configuration r)
 abbrev Alphabet (ap : Nat) := Fin (colourVectors ap).length
 def decode (a : Alphabet ap) : Letter (Fin ap) := (colourVectors ap)[a.val]
 
-def Assembly.finiteParitySource (r : Assembly ap) :
+@[noinline] def Assembly.finiteParitySource (r : Assembly ap) :
     Validation.Parity (Alphabet ap) (Configuration r × List Nat) :=
-  ⟨r.parity.initial, fun s a => r.parity.step s (decode a)⟩
+  let source := r.parity
+  ⟨source.initial, fun s a => source.step s (decode a)⟩
 
 def Assembly.paritySame (r : Assembly ap) (s t : Configuration r × List Nat) : Bool :=
   r.configurationSame s.1 t.1 && decide (s.2 = t.2)
@@ -221,9 +222,10 @@ theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
     funext n; simp only [Validation.Parity.priorities, hr]; rfl
   exact he.trans (by unfold Validation.Parity.Accepts; rw [hp])
 
-def Assembly.finiteBuchiSource (r : Assembly ap) :
+@[noinline] def Assembly.finiteBuchiSource (r : Assembly ap) :
     Validation.Buchi (Alphabet ap) (Configuration r × RoundState r.store.length) :=
-  ⟨r.buchi.initial, fun s a => r.buchi.step s (decode a), r.buchi.accepting⟩
+  let source := r.buchi
+  ⟨source.initial, fun s a => source.step s (decode a), source.accepting⟩
 
 def Assembly.buchiSame (r : Assembly ap)
     (s t : Configuration r × RoundState r.store.length) : Bool :=

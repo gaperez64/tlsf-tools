@@ -30,6 +30,6 @@ def equivalenceChecks : List (String × Bool) := [
   ("buchi-different-state-count", checkBuchi allBuchi alternatingBuchi),
   ("buchi-rejecting-loop", !checkBuchi alternatingBuchi noneBuchi)]
 
-theorem equivalence_checks : equivalenceChecks.all Prod.snd = true := by decide
+theorem equivalence_checks : equivalenceChecks.all Prod.snd = true := by decide +kernel
 
 end Tlsf.Dpa.Validation

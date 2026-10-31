@@ -431,7 +431,7 @@ allocation order are not modeled.
 
 `Impl.uncached_construction_language` proves the executable symbolic reference
 recognizes an admitted formula. Its pipeline performs syntax transport, pure
-factoring and selection, fresh component assembly, product progression,
+factoring and selection, a fixed finite component basis, product progression,
 Zielonka construction and max-odd export. The positive Buchi round monitor
 requires the executable `positiveb` check, since a general parity formula such
 as `F G a` need not have a deterministic Buchi recognizer.
@@ -447,6 +447,13 @@ any returned closed finite table has exactly the symbolic machine's language.
 Resource exhaustion returns no table and is a validation failure. No theorem
 claims a fixed exploration limit succeeds for every admitted formula.
 
+`Validation/Basis.lean` chooses the complete finite basis of distinct oriented
+component records before running any machine. `compileBasis_presentation`
+proves the indexed Boolean/Shannon plan has the formula's language over that
+basis. Repeated plan occurrences use the same coordinate, avoiding exponential
+Zielonka work over duplicate colours. This is a static product presentation;
+no C cache, lookup history or call order is modeled.
+
 The pure `Impl.normalize` pass simplifies Boolean expressions below modalities.
 Every local replacement uses `equivalent_exact`, and `normalize_language`
 proves the complete traversal preserves the infinite-word language. This
@@ -461,7 +468,7 @@ explicitly requires `positiveb` success.
 | --- | --- |
 | Executable transport, factoring and successful plan selection | `referencePlan_success`, `factor_success`, `canonicalPlan_spec` |
 | Complete Pi2 and dual Sigma2 component languages | `pi2_language`, `sigma2_language`, `general_pi2_language` |
-| Fresh-coordinate assembly and Boolean product | `assemble_presentation`, `Assembly.colours_exact`, `product_language` |
+| Fixed component basis and Boolean product | `compileBasis_presentation`, `assemble_presentation`, `Assembly.colours_exact`, `product_language` |
 | Executable Zielonka construction and parity language | `buildTree`, `tree_maxOdd`, `Assembly.parity_language` |
 | Positive Buchi round monitor | `positiveb_exact`, `completedRounds_language`, `Assembly.buchi_language` |
 | Boolean simplification under modalities | `normalize_language` |
@@ -474,7 +481,12 @@ explicitly requires `positiveb` success.
 The equivalence checker searches for reachable closed walks with conflicting
 recurrent maximal priority parities. Its computed closures are checked for
 reflexivity, edge inclusion and transitivity. It requires no state isomorphism.
-Alphabet compaction merges letters only after checking identical transitions
+`sparseClosedCheck_sound` proves a sparse closure extends to a closed
+relation on the full product: no edge may leave the listed states, and
+reflexivity, edge inclusion and transitivity are checked on that subgraph.
+Floyd layers are materialized only for reachable pairs. This avoids the
+Cartesian matrix blowup for delayed safety monitors without adding a state
+isomorphism assumption. Alphabet compaction merges letters only after checking identical transitions
 and priorities at every state of both tables. It invokes the same proved
 `check` / `checkBuchi`, with a proof lifting equality to the original alphabet.
 Class equality propagates propositional constants and short-circuits the
@@ -509,7 +521,8 @@ Regeneration is `tools/golden/translation_validate.py`; it requires Lean 4.35.0
 and is not run in CI. It inventories every monitor constructor reached by the
 217-spec corpus under both policies, including constructors in failed
 reductions, and includes the DPA equivalence formulas, all language-golden
-formulas and review-k/l/i examples. It checks both parity and Buchi where C
+formulas, every pinned infinite-word verdict and stored monitor construction
+formula (including historical accepted rows), and review-k/l/i examples. It checks both parity and Buchi where C
 admits that kind; unsupported cases are reported separately and their canonical decline dumps
 are also hash-guarded. Every validation
 failure is retained with its formula and a minimized reproducer. General
@@ -533,7 +546,7 @@ gate recomputes the exact same dump without Lean. The total golden budget is
 4,629,524 bytes.
 
 Before this task, tracked Lean source was 12,679 lines (18,699 before pruning).
-The finite-export regressions pass 30/30; protocol regressions pass 17/17,
+The finite-export regressions pass 30/30; protocol regressions pass 18/18,
 covering malformed input, AP order, source-state Buchi acceptance, positivity,
 language disagreement and alphabet compaction. All admitted review examples
 pass under both policies. Fresh corpus coverage is default 148/217 and general

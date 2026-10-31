@@ -5,9 +5,9 @@
 extern "C" {
 #endif
 // Private Stage 1/2 view: HasTag Pi2 plus the budget's admission policy.
-// Production selects the proved default. States remember the prior mark.
-// The ordinary DPA successor/label APIs apply; edge priorities are 0/1 and
-// every row has the same priority as its source state's acceptance mark.
+// Admission follows the requested budget policy. States remember the prior
+// mark. The ordinary DPA successor/label APIs apply; edge priorities are 0/1
+// and every row has the same priority as its source state's acceptance mark.
 // klass reports grammatical tags, not the smallest semantic language class.
 // In particular, a non-safety tag does not establish semantic non-safety.
 TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,

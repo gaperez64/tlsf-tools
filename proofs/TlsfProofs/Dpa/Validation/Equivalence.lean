@@ -62,10 +62,88 @@ theorem closedCheck_sound (edge R : Matrix na nb) (h : closedCheck edge R = true
     fun x y z hxy hyz => ((h x (mem_vertices x)).2 y (mem_vertices y)).2
       z (mem_vertices z) ⟨hxy, hyz⟩⟩
 
+/-- A sparse relation is universal from unlisted sources and false from a
+listed source to an unlisted target. Closedness is checked on the listed
+subgraph, including the obligation that no edge leaves it. This extends to a
+closed relation on the full product without a Cartesian matrix. -/
+structure SparseMatrix (na nb : Nat) where
+  states : List (Vertex na nb)
+  cells : Array Bool
+
+def SparseMatrix.active (R : SparseMatrix na nb) (x : Vertex na nb) : Bool :=
+  R.states.contains x
+
+def SparseMatrix.get (R : SparseMatrix na nb) : Matrix na nb := fun x y =>
+  if R.active x then R.active y &&
+    R.cells.getD (R.states.idxOf x * R.states.length + R.states.idxOf y) false
+  else true
+
+def sparseTabulate (vs : List (Vertex na nb)) (R : Matrix na nb) : SparseMatrix na nb :=
+  ⟨vs, (vs.flatMap (fun x => vs.map (R x))).toArray⟩
+
+@[noinline] def sparseClosure (edge : Matrix na nb) (vs : List (Vertex na nb)) :
+    SparseMatrix na nb :=
+  vs.foldl (fun R z => sparseTabulate vs
+    (fun x y => R.get x y || (R.get x z && R.get z y)))
+    (sparseTabulate vs (fun x y => decide (x = y) || edge x y))
+
+def sparseClosedCheck (edge : Matrix na nb) (R : SparseMatrix na nb) : Bool :=
+  R.states.all (fun x => R.get x x &&
+    ((vertices na nb).all (fun y => !edge x y || R.active y) &&
+    R.states.all (fun y => (!edge x y || R.get x y) &&
+      R.states.all (fun z => !(R.get x y && R.get y z) || R.get x z))))
+
+theorem SparseMatrix.active_exact (R : SparseMatrix na nb) (x : Vertex na nb) :
+    R.active x = true ↔ x ∈ R.states := by simp [active]
+
+theorem SparseMatrix.target_active (R : SparseMatrix na nb) (x y : Vertex na nb)
+    (hx : x ∈ R.states) (h : R.get x y = true) : y ∈ R.states := by
+  have ha := (R.active_exact x).mpr hx
+  simp only [get, ha, ↓reduceIte, Bool.and_eq_true] at h
+  exact (R.active_exact y).mp h.1
+
+theorem sparseClosedCheck_sound (edge : Matrix na nb) (R : SparseMatrix na nb)
+    (h : sparseClosedCheck edge R = true) : Closed edge R.get := by
+  have imp (a b : Bool) : (!a || b) = true ↔ (a = true → b = true) := by
+    cases a <;> cases b <;> decide
+  simp only [sparseClosedCheck, List.all_eq_true, Bool.and_eq_true, imp] at h
+  constructor
+  · intro x
+    by_cases hx : x ∈ R.states
+    · exact (h x hx).1
+    · have ha : R.active x = false := by simpa [SparseMatrix.active] using hx
+      simp [SparseMatrix.get, ha]
+  · intro x y he
+    by_cases hx : x ∈ R.states
+    · have hy := (R.active_exact y).mp ((h x hx).2.1 y (mem_vertices y) he)
+      exact ((h x hx).2.2 y hy).1 he
+    · have ha : R.active x = false := by simpa [SparseMatrix.active] using hx
+      simp [SparseMatrix.get, ha]
+  · intro x y z hxy hyz
+    by_cases hx : x ∈ R.states
+    · have hy := R.target_active x y hx hxy
+      have hz := R.target_active y z hy hyz
+      exact ((h x hx).2.2 y hy).2 z hz ⟨hxy, hyz⟩
+    · have ha : R.active x = false := by simpa [SparseMatrix.active] using hx
+      simp [SparseMatrix.get, ha]
+
 variable (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphabet) (Fin nb))
 
 def target (e : Arc na nb alphabet) : Vertex na nb :=
   ((A.step e.1.1 e.2).1, (B.step e.1.2 e.2).1)
+
+def discoverPairs : Nat → Nat → Array (Vertex na nb) → Array (Vertex na nb)
+  | 0, _, states => states
+  | fuel+1, cursor, states =>
+    if h : cursor < states.size then
+      let next := (List.finRange alphabet).foldl (fun xs a =>
+        let t := target A B (states[cursor], a)
+        if xs.contains t then xs else xs.push t) states
+      discoverPairs fuel (cursor+1) next
+    else states
+
+def reachablePairs : List (Vertex na nb) :=
+  (discoverPairs A B (na*nb+1) 0 #[(A.initial, B.initial)]).toList
 
 def leftPriority (e : Arc na nb alphabet) : Nat := (A.step e.1.1 e.2).2
 
@@ -82,12 +160,15 @@ def badWalk (R C : Matrix na nb) (p q : Nat) (e f : Arc na nb alphabet) : Bool :
     decide (leftPriority A e = p) && decide (rightPriority B f = q) &&
     C (target A B e) f.1 && C (target A B f) e.1
 
-def thresholdCheck (R : Matrix na nb) (p q : Nat) : Bool :=
+def thresholdCheck (R : Matrix na nb) (vs : List (Vertex na nb)) (p q : Nat) : Bool :=
   if p % 2 = q % 2 then true else
     let edge := graph A B (bounded A B p q)
-    let C := (closure edge).get
-    closedCheck edge C &&
-      (arcs na nb alphabet).all (fun e => (arcs na nb alphabet).all (fun f => !badWalk A B R C p q e f))
+    let C := sparseClosure edge vs
+    sparseClosedCheck edge C &&
+      (arcs na nb alphabet).all (fun e =>
+        if R (A.initial, B.initial) e.1 then
+          (arcs na nb alphabet).all (fun f => !badWalk A B R C.get p q e f)
+        else true)
 
 def leftPriorities : List Nat := ((arcs na nb alphabet).map (leftPriority A)).eraseDups
 
@@ -96,9 +177,10 @@ def rightPriorities : List Nat := ((arcs na nb alphabet).map (rightPriority B)).
 /-- Full finite-graph language check, with independently checked closures. -/
 def check : Bool :=
   let edge := graph A B (fun _ => true)
-  let R := (closure edge).get
-  closedCheck edge R &&
-    (leftPriorities (nb := nb) A).all (fun p => (rightPriorities (na := na) B).all (thresholdCheck A B R p))
+  let R := sparseClosure edge (reachablePairs A B)
+  sparseClosedCheck edge R &&
+    (leftPriorities (nb := nb) A).all (fun p => (rightPriorities (na := na) B).all
+      (thresholdCheck A B R.get (reachablePairs A B) p))
 
 variable {A B}
 
@@ -204,9 +286,9 @@ finite alphabet. State cardinalities and transition structures may differ. -/
 theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphabet) (Fin nb))
     (h : check A B = true) : ∀ w, A.Accepts w ↔ B.Accepts w := by
   intro w
-  let R := (closure (graph A B (fun _ => true))).get
+  let R := (sparseClosure (graph A B (fun _ => true)) (reachablePairs A B)).get
   obtain ⟨hR,hchecks⟩ := Bool.and_eq_true_iff.mp h
-  have hr : Closed (graph A B (fun _ => true)) R := closedCheck_sound _ _ hR
+  have hr : Closed (graph A B (fun _ => true)) R := sparseClosedCheck_sound _ _ hR
   have hlmem (n : Nat) : A.priorities w n ∈ leftPriorities (nb := nb) A := by
     apply List.mem_eraseDups.mpr
     exact List.mem_map.mpr ⟨observed A B w n, mem_arcs _, rfl⟩
@@ -220,8 +302,8 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     intro hne
     have ht := (List.all_eq_true.mp ((List.all_eq_true.mp hchecks) p hp)) q hq
     simp only [thresholdCheck, hne, ↓reduceIte, Bool.and_eq_true] at ht
-    let C := (closure (graph A B (bounded A B p q))).get
-    have hc : Closed (graph A B (bounded A B p q)) C := closedCheck_sound _ _ ht.1
+    let C := (sparseClosure (graph A B (bounded A B p q)) (reachablePairs A B)).get
+    have hc : Closed (graph A B (bounded A B p q)) C := sparseClosedCheck_sound _ _ ht.1
     have hab (k : Nat) (hk : max N M ≤ k) : bounded A B p q (observed A B w k) = true := by
       apply decide_eq_true
       exact ⟨hN k (by omega), hM k (by omega)⟩
@@ -251,7 +333,12 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     have hqf : rightPriority B f = q := by rw [← hfj]; exact hqj
     have hbad : badWalk A B R C p q e f = true := by
       simp only [badWalk, hre, hbe, hbf, hpe, hqf, decide_true, hef, hfe, Bool.and_self]
-    have hno := (List.all_eq_true.mp ((List.all_eq_true.mp ht.2) e he)) f hf
+    have hnoe := (List.all_eq_true.mp ht.2) e he
+    change (if R (A.initial, B.initial) e.1 = true then
+      (arcs na nb alphabet).all (fun f => !badWalk A B R C p q e f) else true) = true at hnoe
+    have hnoe' : (arcs na nb alphabet).all (fun f => !badWalk A B R C p q e f) = true := by
+      simpa only [hre, ↓reduceIte] using hnoe
+    have hno := (List.all_eq_true.mp hnoe') f hf
     rw [hbad] at hno
     contradiction
   exact (maxOdd_recurrent_max _ p hop ⟨N,hN⟩).trans

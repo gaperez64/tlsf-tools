@@ -1,6 +1,7 @@
 import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Impl.Buchi
 import TlsfProofs.Dpa.Validation.Automaton
+import TlsfProofs.Dpa.Validation.Basis
 
 /-! The uncached executable construction. Correctness concerns the machines
 returned here, independently of C's representation and optimizations. -/
@@ -40,14 +41,15 @@ theorem Assembly.colours_exact (r : Assembly ap) (w : Word (Fin ap)) :
 def Assembly.tree (r : Assembly ap) : ZTree r.skeleton (fullColours r.store.length) :=
   buildTree r.skeleton (fullColours r.store.length)
 
-def Assembly.parity (r : Assembly ap) :
-    Validation.Parity (Letter (Fin ap)) (Configuration r × List Nat) where
-  initial := (r.productInitial, r.tree.leftmost)
-  step s v :=
-    let p := r.productStep s.1 v
-    let t := r.tree.advance s.2 p.2
-    ((p.1, t.1), exportBound r.store.length -
-      (t.2 + if r.skeleton (fullColours r.store.length) then 0 else 1))
+@[noinline] def Assembly.parity (r : Assembly ap) :
+    Validation.Parity (Letter (Fin ap)) (Configuration r × List Nat) :=
+  let tree := r.tree
+  { initial := (r.productInitial, tree.leftmost)
+    step := fun s v =>
+      let p := r.productStep s.1 v
+      let t := tree.advance s.2 p.2
+      ((p.1, t.1), exportBound r.store.length -
+        (t.2 + if r.skeleton (fullColours r.store.length) then 0 else 1)) }
 
 theorem Assembly.parity_run (r : Assembly ap) (w : Word (Fin ap)) (n : Nat) :
     r.parity.run w n = (r.productRun w n, treeRun r.tree (r.colours w) n) := by
@@ -106,13 +108,14 @@ theorem positiveb_exact (β : Skeleton m) : positiveb β = true ↔ PositiveColo
   exact ⟨fun h a b hab ha => h a (colourVectors_complete a) b (colourVectors_complete b) ⟨hab, ha⟩,
     fun h a _ b _ hab => h a b hab.1 hab.2⟩
 
-def Assembly.buchi (r : Assembly ap) :
-    Validation.Buchi (Letter (Fin ap)) (Configuration r × RoundState r.store.length) where
-  initial := (r.productInitial, roundInitial (truthDag _ r.skeleton))
-  step s v :=
-    let p := r.productStep s.1 v
-    (p.1, roundStep (truthDag _ r.skeleton) s.2 p.2)
-  accepting s := s.2.incoming
+@[noinline] def Assembly.buchi (r : Assembly ap) :
+    Validation.Buchi (Letter (Fin ap)) (Configuration r × RoundState r.store.length) :=
+  let diagram := truthDag _ r.skeleton
+  { initial := (r.productInitial, roundInitial diagram)
+    step := fun s v =>
+      let p := r.productStep s.1 v
+      (p.1, roundStep diagram s.2 p.2)
+    accepting := fun s => s.2.incoming }
 
 theorem Assembly.buchi_run (r : Assembly ap) (w : Word (Fin ap)) (n : Nat) :
     r.buchi.run w n = (r.productRun w n, roundRun (truthDag _ r.skeleton) (r.colours w) n) := by
@@ -136,7 +139,7 @@ theorem Assembly.buchi_language (r : Assembly ap) (f : Formula (Fin ap))
   exact (product_language _ _ w (fun i => hp.1 i w)).trans (hp.2 w)
 
 def construct (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
-    Option (Assembly ap) := (referencePlan rank atomRank f).map (fun p => assemble false p [])
+    Option (Assembly ap) := (referencePlan rank atomRank f).map compileBasis
 
 /-- The same executable construction supplies the parity language, and the
 state-based round-monitor language whenever its acceptance is positive. -/
@@ -146,9 +149,10 @@ theorem uncached_construction_language (rank atomRank : Formula (Fin ap) → Nat
       (∀ w, r.parity.Accepts w ↔ Sat none w f 0) ∧
       (positiveb r.skeleton = true → ∀ w, r.buchi.Accepts w ↔ Sat none w f 0) := by
   obtain ⟨p, hp, hv, hl⟩ := referencePlan_success rank atomRank f ha
-  have hs : StoreValid ([] : ComponentStore ap) := by intro e he; simp at he
-  have hpres := assemble_presentation_of_language false p hv [] hs f (fun w => hl w 0)
-  exact ⟨assemble false p [], by simp [construct, hp],
+  have hb := compileBasis_presentation p hv
+  have hpres : ProductPresentation f (storeClasses (compileBasis p).store) (compileBasis p).skeleton :=
+    ⟨hb.1, fun w => (hb.2 w).trans (hl w 0)⟩
+  exact ⟨compileBasis p, by simp [construct, hp],
     fun w => Assembly.parity_language _ f hpres w,
     fun hb w => Assembly.buchi_language _ f hpres hb w⟩
 
