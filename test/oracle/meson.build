@@ -81,7 +81,8 @@ if research_tools
       args: [files('check_oxidd_oracle.py'), exe['tlsfsolve']], timeout: 120)
     test('native_oracle_8b158d7', python3,
       args: [files('native_oracle.py'), meson.project_build_root(), oxidd_build[0]],
-      depends: oxidd_build,
+      depends: [oxidd_build, exe['tlsf2tlsf'], exe['tlsfsolve'],
+                exe['tlsfcertcheck'], native_api_c_exe],
       timeout: 900, is_parallel: false)
     test('gr1_explicit_differential', python3,
       args: [files('test_gr1_differential.py'),
