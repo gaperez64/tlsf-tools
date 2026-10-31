@@ -36,6 +36,9 @@ ANCHORS = {
         'uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {',
     },
     'src/lib/dpa_formula.c': {
+        'static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {',
+        'uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {',
+        'uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {',
         'bool dpa_admitted(TlsfDpa *c, uint32_t f) {',
         'bool dpa_children(TlsfDpa *c, uint32_t f) {',
         'bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask) {',
@@ -77,7 +80,8 @@ ANCHORS = {
 }
 
 root = Path(sys.argv[1])
-readme = (root / "proofs/README.md").read_text()
+documents = [root / "proofs/README.md"] + sorted(
+    (root / "proofs/TlsfProofs/Dpa/Impl").glob("*.lean"))
 # A shorthand location inherits the last named file in the same paragraph or
 # table. This includes `:891`/`:914` and the Lean `:578`–`:596` range.
 reference = re.compile(
@@ -86,7 +90,8 @@ reference = re.compile(
 count = anchored = 0
 seen = {name: set() for name in ANCHORS}
 covered = {}
-for block in re.split(r"\n\s*\n", readme):
+for block in (block for document in documents
+              for block in re.split(r"\n\s*\n", document.read_text())):
     name = None
     for match in reference.finditer(block):
         name = match["name"] or name

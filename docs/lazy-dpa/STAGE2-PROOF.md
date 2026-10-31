@@ -4,7 +4,10 @@
 §6 proves both component inclusions for `G(q)`, where q is a positive Boolean
 combination of finite windows and `F` of finite windows, and for its `F`/`G`
 duals. Together with the Boolean-product/Zielonka theorems, this gives the
-admitted grammar at the end. The general Π₂/Σ₂ gate remains unproved.
+admitted grammar at the end. The general Π₂ component theorem was subsequently
+proved in `GeneralConverse.lean`; Task T adds executable Π₂/Σ₂ component
+simulation. The complete general C constructor/enablement gate remains open;
+see §10 and `proofs/README.md`.
 
 This extends [STAGE1-PROOF.md](STAGE1-PROOF.md), using its definitions of `b`, `s`,
 `c`, NNF dualization, AP_COMBINED classes, frozen unfolding `U`, simultaneous
@@ -605,4 +608,30 @@ None of §9 uses support blocking (#81), external suspension/round robin (#82),
 local-tree/reset/stuttering reductions (#83), `State.inDifferentSccs`, or
 lookahead. Undecided products retain §5's original global tree and update.
 
-VERDICT: done
+## 10. Task T executable refinement status
+
+`proofs/TlsfProofs/Dpa/Impl/` now contains core-only executable class equality,
+exact support, all five structural tags, syntactic protection, simultaneous
+DROP_X, bounded elision, unfolding, retry and the ordered component table.
+Simulation theorems reduce its infinite runs to `general_pi2_language`.
+NNF dualization respects canonical class equality and maps Σ₂ support to Π₂
+support, so the dual run also has the exact Σ₂ language. The fresh oriented
+component has both one-set numeric parity languages. Canonical research
+admission has the support-union domain and Shannon recursion; the grouping
+test uses the folded class's equality with the Boolean identity.
+
+The executable checks include the review-k/l protected remainders and
+review-i's identity group: 39 checks pass both by kernel reduction and in
+`lake exe dpaImplChecks`. The offline dependency audit is
+`tools/golden/dpa_impl_audit.lean`; its dependencies are restricted to
+`propext`, `Classical.choice`, and `Quot.sound`.
+
+This does not yet provide the complete constructor/store invariant, the C
+transport and recursive default-tag refinements, a C-ordered tree/export, or
+the C↔Lean BFS goldens. In addition, the GR(1) reduction uses the state-based
+positive-Boolean Büchi round encoding in `dpa_buchi_create`, which still needs
+its own round-monitor simulation/language lemma. General admission stays
+research-only. The precise first remaining component-store lemma and why the
+fresh-component theorem does not imply it are recorded in `proofs/README.md`.
+
+VERDICT: done (targeted Stage 2 grammar); Task T enablement remains open

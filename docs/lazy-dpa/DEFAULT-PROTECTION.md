@@ -1,5 +1,12 @@
 # Default-mode effect of syntactic X protection
 
+Task T now also checks the research component algorithm in an executable Lean
+model. Its simulation includes recomputed syntactic protection, simultaneous
+DROP_X and retry; the executable regressions pin the review-k/l rejecting
+classes below. This strengthens the component evidence without changing C,
+default admission, state counts, or the still-open complete constructor bridge.
+See `proofs/README.md` for the exact theorem scope and remaining obligations.
+
 Keep syntactic X protection in both modes. The default admission predicate is
 unchanged, but the automata can differ, including their priorities, state
 counts and resource-budget outcomes. This audit compares parent `b149ef5`

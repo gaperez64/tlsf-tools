@@ -1,4 +1,4 @@
-import TlsfProofs.Dpa.Impl.Component
+import TlsfProofs.Dpa.Impl.Admission
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -56,6 +56,27 @@ private def componentChecks : List (String × Bool × Bool) := [
   ("finite-renewal-mark",
     (Impl.transition (fun _ => false) ⟨unfoldSyntax (.globally (.eventually a)), .next a⟩).mark, true)]
 
+private def dualAndAdmissionChecks : List (String × Bool × Bool) := [
+  ("sigma2-oriented-dual", classTag .pi2 (dual (.eventually (.globally a))), true),
+  ("dual-language-is-not-Boolean-complement", equivalent (dual (.eventually a)) (.neg (.eventually a)), false),
+  ("dual-class-congruence", equivalent
+    (dual (.disj (.eventually a) (.conj (.eventually a) (.next b))))
+    (dual (.eventually a)), true),
+  ("absorbed-unsupported-sigma2", classTag .pi2 (dual
+    (.disj (.eventually (.globally a)) (.conj (.eventually (.globally a)) (.globally (.eventually (.globally b)))))), true),
+  ("mixed-whole-class", researchAdmitted (.conj (.globally (.eventually a)) (.eventually (.globally b))), false),
+  ("mixed-canonical-admission", canonicalResearchCheck (.conj (.globally (.eventually a)) (.eventually (.globally b))), true),
+  ("frozen-absorption-full-decline", canonicalResearchCheck absorbedFrozen, false),
+  ("absorbed-unsupported-admission", canonicalResearchCheck (.disj a (.conj a absorbedFrozen)), true),
+  ("review-i-identity-grouping", decide
+    (Impl.compatibleGroups true [.globally b]
+      [.disj (.eventually b) (.disj a (.neg a))] [a] [] =
+      [booleanFold true [.globally b, a],
+       booleanFold true [.disj (.eventually b) (.disj a (.neg a))]]), true),
+  ("nonidentity-grouping", decide
+    (Impl.compatibleGroups true [.globally b] [.eventually b] [a] [] =
+      [booleanFold true [.globally b], booleanFold true [.eventually b, a]]), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -63,11 +84,14 @@ theorem class_checks : checks.all (fun (_, actual, expected) => actual == expect
 theorem component_checks : componentChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
 
+theorem dual_admission_checks : dualAndAdmissionChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

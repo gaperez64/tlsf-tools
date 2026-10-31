@@ -495,6 +495,10 @@ are identified explicitly; they are not premises of the language equalities.
 | Task J: nested Π₂ failed constraints | `pi2_cosafety_failure`, `class_pi2_cosafety_failure`, `general_eventually_false_cosafety_constraints` | Checked for the full Π₂ nesting structure and arbitrary NNF classes; every sufficiently late raw position has a false co-safety consequence |
 | Task J: closed-alphabet descent and protection | `eventually_protected_of_cosafety_constraint`, `general_eventually_false_protected_constraints`, `general_eventually_false_passes` | Checked at every sufficiently late raw position and every intermediate weakening; no finite-window flush or never-false premise |
 | Task J: general component language | `general_pi2_converse`, `general_pi2_language` | General Π₂ converse and language equality proved, including retry and retained finite remainders; C admission/refinement unchanged |
+| Task T: executable canonical class decisions | `Impl.table_exact`, `Impl.equivalent_exact`, `Impl.uses_exact`, `Impl.hasTag_exact` | Checked executable truth tables and exact support, including Boolean absorption |
+| Task T: executable component simulation | `Impl.classTag_exact`, `Impl.rho_exact`, `Impl.initial_exact`, `Impl.transition_exact`, `Impl.run_exact`, `Impl.marks_exact` | Checked for research structural tags; C transport, IDs and caches still outside the bridge |
+| Task T: Π₂/Σ₂ orientation and numeric parity | `Impl.pi2_language`, `Impl.sigma2_language`, `Impl.dual_class_congr`, `Impl.class_sigma2_dual_pi2`, `Impl.research_component_language` | Checked for NNF whole classes accepted by research admission, including arbitrary canonical support; complete constructor/export theorem pending |
+| Task T: canonical research domain and grouping branch | `Impl.canonicalResearchCheck_exact`, `Impl.canonicalResearchCheck_shannon`, `Impl.compatibleGroups_exact` | Executable support-union predicate and folded-class identity branch checked; constructor success/product simulation pending |
 | STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
 | STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
 | STAGE2 §3 (2): all/rejecting invariant | `ComponentInvariant`, `initial_invariant`, `transition_invariant`, `run_invariant`, `run_remainder` | Checked for arbitrary NNF inputs, without a Π₂ converse hypothesis |
@@ -581,8 +585,10 @@ The successful proof uses semantic falsity and closed-alphabet descent.
 **Remaining boundary.** There is no remaining general Π₂ component-language
 gap in the Lean model. The research-mode alignment below closes the two
 operational mismatches found in review; the C representation refinement remains
-trusted. The §9 constructor and admission results have not been extended to
-the general Π₂/Σ₂ grammar. General admission remains opt-in through
+trusted. Task T below adds executable component simulation and general
+canonical-support Σ₂ dual classification. The §9 complete constructor and
+admission results have not been extended to the general Π₂/Σ₂ grammar.
+General admission remains opt-in through
 `allow_unproved`; default admission is unchanged.
 
 The repeatable search is `tools/golden/dpa_pi2_converse.py`. The recorded run
@@ -749,16 +755,20 @@ independent. Duplicate atoms are removed before enumeration.
 Run the diagnostic executable from `proofs/`, using the Task T resource limits:
 
 ```sh
+mkdir -p ../build-scratch-t/tmp
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   env TMPDIR="$PWD/../build-scratch-t/tmp" LEAN_NUM_THREADS=1 \
   lake exe dpaImplChecks
 ```
 
-The 29 checks exercise absorption, constants, essential and absent support,
+The 39 checks exercise absorption, constants, essential and absent support,
 frozen operands, independent duals, both U/M protector operands, nested X,
 protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
-and nonconstant finite retention at renewal. `class_checks` and
-`component_checks` check these same executable definitions by kernel reduction.
+and nonconstant finite retention at renewal. They also cover canonical dual
+congruence, Σ₂ orientation with absorbed unsupported syntax, mixed Π₂/Σ₂
+canonical admission and review-i's nonempty co-safety identity case.
+`class_checks`, `component_checks` and `dual_admission_checks` check these same
+executable definitions by kernel reduction.
 
 `Impl/Tags.lean` proves all five executable structural classifiers exact,
 including `pi2b_exact` and `sigma2b_exact`. `classTag_exact` identifies their
@@ -790,14 +800,78 @@ languages. These do not identify that numeric table with C's global tree or
 its terminal shortcuts. All new main theorem dependency audits contain only
 `propext`, `Classical.choice`, and `Quot.sound` (some use fewer).
 
-This is a proved executable component milestone, not an automaton exporter or
-a completed C refinement. C transport/smart constructors, default recursive
-canonical tag refinement, class-level dual orientation, component sharing,
-grouped construction and the C-ordered global tree still need their executable
-bridges. In particular the reduction calls `dpa_buchi_create`, whose
-`seen_colours` round monitor also needs a simulation/language theorem before
-changing production admission. No C code, admission policy or golden
-expectation changes in these milestones.
+`Impl/Dual.lean` proves `dual_class_congr`: NNF dualization respects semantic
+class equality. `class_sigma2_dual_pi2` proves that exact Σ₂ support becomes
+exact Π₂ support under dualization; it does not assume the chosen syntax is
+itself Σ₂. The key substitution is
+`dualAssignment σ a = !propEval σ (dual a)`, with
+`propEval σ (dual f) = !propEval (dualAssignment σ) f` for NNF f. Support
+locality and the structural dual grammar then prove the classification.
+Thus `sigma2_language` gives `FinMarks (Impl.marks (Impl.dual f) w) ↔ Sat none
+w f 0` for every NNF f with `Impl.classTag .sigma2 f = true`.
+
+`research_component_language` covers every NNF whole class accepted by
+`researchAdmitted`: C's Π₂-first orientation, followed by Fin acceptance on
+the Σ₂ dual, has both one-set numeric parity languages equal to the formula.
+`Impl/Admission.lean` checks the full canonical research support-union
+predicate and its Shannon recursion, and proves the executable grouping
+decision equal to §9.1's corrected reference. This includes the folded-class
+identity branch, rather than a test of list nonemptiness.
+
+The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
+
+```sh
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  env TMPDIR="$PWD/../build-scratch-t/tmp" LEAN_NUM_THREADS=1 \
+  lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
+```
+
+All 34 dependency reports contain only the three permitted axioms; the three
+concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
+library and `dpaImplChecks` with warnings as errors (52 Lake jobs). The proof
+source scan has no prohibited declarations or decision shortcuts. The source
+reference guard now scans the executable modules as well as this README:
+123 references / 81 anchored C/Lean targets pass. Both affected Meson gates,
+`proof_source_references` and `golden_provenance`, pass (2/2, no rebuild).
+
+**Stopping boundary for Task T.** These are proved executable component and
+decision milestones. Items 1–3 are incomplete and item 4 is deliberately not
+enabled. The executable is a diagnostic, not a BFS automaton exporter; there
+is no matching C dump or new C↔Lean automaton golden. The 30 existing golden
+files remain unchanged at 2,986,929 bytes, including 541 DPA membership records;
+zero new automaton goldens were generated. Recorded corpus coverage remains 148/217 by default
+and 155/217 with research admission; these milestones did not rerun or change
+that corpus inventory. No new language counterexample or narrowing of C was
+found. The frozen-operand absorption example was already declined in research
+mode by the earlier review-l alignment.
+
+The smallest remaining constructor lemma is **preservation of the component
+store when a component is interned or shared**. Given a store in which every
+colour already denotes its complete oriented run, interning an admitted NNF
+class f must return a literal whose recurrent truth is `Holds w 0 f`, preserve
+the truth of all existing literals, and preserve their coordinate indices.
+The fresh-component language is proved above. The equal-class and cached
+dual branches still need an executable store invariant and simulation of the
+actual lookup/update, before the Shannon and grouped acceptance recursions
+can be assembled into `ProductPresentation`. This is not supplied by the
+existential `admitted_grammar` theorem or by a fresh-component theorem alone.
+Treating a cached NNF dual as `Class.compl` is false: modal atoms and their
+NNF duals are independent Boolean variables. `dual_class_congr` proves the
+correct substitution law, but does not prove the cache/index invariant or
+model the C term constructor's constant folding and X placement.
+
+Further independent bridges remain: C transport/smart constructors; default
+recursive canonical tag refinement; the complete grouped constructor and
+terminal product shortcut; C's lexicographically ordered tree/export; and
+the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
+The reduction also calls `dpa_buchi_create`: its positive-Boolean
+`seen_colours` round monitor needs
+`Inf(completedRounds β colours) ↔ EmersonLei β colours`, plus the
+incoming-mark state split. The existing fixed-product/parity theorem does
+not establish that state-based Büchi encoding. Testing β on each individual
+edge is insufficient: alternating marks can satisfy a conjunction of Inf
+conditions without ever satisfying the conjunction on one edge. C code,
+production admission, and the larger trusted boundary below remain unchanged.
 
 ### C ↔ Lean correspondence
 
