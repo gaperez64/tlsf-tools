@@ -491,7 +491,11 @@ isomorphism assumption. Alphabet compaction merges letters only after checking i
 and priorities at every state of both tables. It invokes the same proved
 `check` / `checkBuchi`, with a proof lifting equality to the original alphabet.
 Class equality uses branch-pruned Shannon comparison after propagating
-propositional constants. Support is tested by simplified Shannon cofactors;
+propositional constants. Deterministic mixed, single-atom and
+single-complement assignments reject unequal residuals early; `sampleAgreement_of_eq` proves equal classes always
+pass this filter. `associationAgreement_sound` handles reassociation,
+commutation and repeated terms at a Boolean root; the full Shannon check
+decides every remaining equality. Support is tested by simplified Shannon cofactors;
 `reduceProp_class`, `cofactor_unused` and `uses_exact` prove these optimizations
 preserve classes and support. Protection tests distinct modal atoms and checks
 syntactic containment before support, with the same proved predicate.
@@ -546,7 +550,7 @@ All transient artifacts and TMPDIR stay under `build-scratch-t/`. Only compact
 canonical hashes, verdicts, counts, failures and provenance are published under
 `test/fixtures/golden/translation/`; dump tables stay in scratch. The C hash
 gate recomputes the exact same dump without Lean. The total golden budget is
-4,629,524 bytes.
+4,613,734 bytes (4.4 MiB).
 
 Long runs can use `--max-new N` to checkpoint (exit 75), then `--resume`.
 Receipts are reused only for the identical Lean executable and a freshly

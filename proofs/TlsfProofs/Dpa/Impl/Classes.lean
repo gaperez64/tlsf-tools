@@ -245,21 +245,123 @@ theorem equivalentOn_exact (atoms : List (Formula (Fin ap))) (f g : Formula (Fin
           ih _ _ (cofactor_depends _ _ true hf') (cofactor_depends _ _ true hg'), cofactor_pair_exact]
         rw [reduceProp_class, reduceProp_class]
 
+/-- Cheap necessary equality tests separate most unequal residuals before
+Shannon recursion. Every sampled assignment is only a rejection filter. -/
+def probeCode : Formula (Fin ap) → Nat
+  | .tt => 1 | .ff => 2 | .ap a => 3 + 31 * a.val
+  | .neg f => (5 + 37 * probeCode f) % 65521
+  | .next f => (7 + 37 * probeCode f) % 65521
+  | .strongNext f => (11 + 37 * probeCode f) % 65521
+  | .eventually f => (13 + 37 * probeCode f) % 65521
+  | .globally f => (17 + 37 * probeCode f) % 65521
+  | .conj f g => (19 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .disj f g => (23 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .impl f g => (29 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .equiv f g => (31 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .until f g => (41 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .release f g => (43 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .weakUntil f g => (47 + 37 * probeCode f + 101 * probeCode g) % 65521
+  | .strongRelease f g => (53 + 37 * probeCode f + 101 * probeCode g) % 65521
+
+def probeAssignment (seed : Nat) (a : Formula (Fin ap)) : Bool :=
+  decide ((probeCode a * (seed + 1) ^ 2 + 17 * seed) % 101 < 50)
+
+def sampleAgreement (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap)) : Bool :=
+  if f = g then true else
+  (List.range 16).all (fun seed => propEval (probeAssignment seed) f ==
+    propEval (probeAssignment seed) g) &&
+  atoms.all (fun a =>
+    (propEval (setAtom (fun _ => false) a true) f ==
+      propEval (setAtom (fun _ => false) a true) g) &&
+    (propEval (setAtom (fun _ => true) a false) f ==
+      propEval (setAtom (fun _ => true) a false) g))
+
+theorem sampleAgreement_of_eq (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap))
+    (he : Class.ofFormula f = Class.ofFormula g) : sampleAgreement atoms f g = true := by
+  unfold sampleAgreement
+  split
+  · rfl
+  · simp only [List.all_eq_true, Bool.and_eq_true, beq_iff_eq]
+    constructor
+    · intro seed _
+      exact congrArg (fun c : Class ap => c (probeAssignment seed)) he
+    · intro a _
+      exact ⟨congrArg (fun c : Class ap => c (setAtom (fun _ => false) a true)) he,
+        congrArg (fun c : Class ap => c (setAtom (fun _ => true) a false)) he⟩
+
+def conjuncts : Formula α → List (Formula α)
+  | .tt => [] | .conj f g => conjuncts f ++ conjuncts g | f => [f]
+
+def disjuncts : Formula α → List (Formula α)
+  | .ff => [] | .disj f g => disjuncts f ++ disjuncts g | f => [f]
+
+theorem conjuncts_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
+    (conjuncts f).all (propEval σ) = propEval σ f := by
+  induction f <;> simp_all [conjuncts, propEval, List.all_append]
+
+theorem disjuncts_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
+    (disjuncts f).any (propEval σ) = propEval σ f := by
+  induction f <;> simp_all [disjuncts, propEval, List.any_append]
+
+def sameTerms [DecidableEq α] (xs ys : List α) : Bool :=
+  xs.all (fun x => decide (x ∈ ys)) && ys.all (fun y => decide (y ∈ xs))
+
+theorem sameTerms_mem [DecidableEq α] (xs ys : List α) (h : sameTerms xs ys = true) :
+    ∀ x, x ∈ xs ↔ x ∈ ys := by
+  simp only [sameTerms, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at h
+  exact fun x => ⟨h.1 x, h.2 x⟩
+
+def associationAgreement (f g : Formula (Fin ap)) : Bool :=
+  sameTerms (conjuncts f) (conjuncts g) || sameTerms (disjuncts f) (disjuncts g)
+
+theorem associationAgreement_sound (f g : Formula (Fin ap))
+    (h : associationAgreement f g = true) : Class.ofFormula f = Class.ofFormula g := by
+  rcases Bool.or_eq_true_iff.mp h with hc | hd
+  · have hm := sameTerms_mem _ _ hc
+    apply Class.ext
+    intro σ
+    change propEval σ f = propEval σ g
+    rw [← conjuncts_eval f σ, ← conjuncts_eval g σ]
+    apply Bool.eq_iff_iff.mpr
+    simp only [List.all_eq_true]
+    exact ⟨fun h x hx => h x ((hm x).mpr hx), fun h x hx => h x ((hm x).mp hx)⟩
+  · have hm := sameTerms_mem _ _ hd
+    apply Class.ext
+    intro σ
+    change propEval σ f = propEval σ g
+    rw [← disjuncts_eval f σ, ← disjuncts_eval g σ]
+    apply Bool.eq_iff_iff.mpr
+    simp only [List.any_eq_true]
+    exact ⟨fun ⟨x, hx, hv⟩ => ⟨x, (hm x).mp hx, hv⟩,
+      fun ⟨x, hx, hv⟩ => ⟨x, (hm x).mpr hx, hv⟩⟩
+
 def equivalent (f g : Formula (Fin ap)) : Bool :=
   let f := reduceProp f
   let g := reduceProp g
-  equivalentOn (modalAtoms f ++ modalAtoms g).eraseDups f g
+  let atoms := (modalAtoms f ++ modalAtoms g).eraseDups
+  sampleAgreement atoms f g && (associationAgreement f g || equivalentOn atoms f g)
 
 theorem equivalent_exact (f g : Formula (Fin ap)) :
     equivalent f g = true ↔ Class.ofFormula f = Class.ofFormula g := by
   unfold equivalent
   dsimp only
-  rw [equivalentOn_exact]
-  · rw [reduceProp_class, reduceProp_class]
-  · intro σ τ h
+  have hf : (Class.ofFormula (reduceProp f)).DependsOn
+      (modalAtoms (reduceProp f) ++ modalAtoms (reduceProp g)).eraseDups := by
+    intro σ τ h
     exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
-  · intro σ τ h
+  have hg : (Class.ofFormula (reduceProp g)).DependsOn
+      (modalAtoms (reduceProp f) ++ modalAtoms (reduceProp g)).eraseDups := by
+    intro σ τ h
     exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
+  rw [Bool.and_eq_true, Bool.or_eq_true, equivalentOn_exact _ _ _ hf hg]
+  constructor
+  · intro h
+    have he := h.2.elim (associationAgreement_sound _ _) id
+    simpa only [reduceProp_class] using he
+  · intro h
+    have he : Class.ofFormula (reduceProp f) = Class.ofFormula (reduceProp g) := by
+      simpa only [reduceProp_class] using h
+    exact ⟨sampleAgreement_of_eq _ _ _ he, Or.inr he⟩
 
 theorem cofactor_unused (f a : Formula (Fin ap)) :
     Class.ofFormula (cofactor a false f) = Class.ofFormula (cofactor a true f) ↔

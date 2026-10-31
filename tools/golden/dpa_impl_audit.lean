@@ -42,3 +42,5 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Impl.equivalentOn_exact
 #print axioms Tlsf.Dpa.Impl.State.representative_exact
 #print axioms Tlsf.Dpa.Impl.protected_exact
+#print axioms Tlsf.Dpa.Impl.sampleAgreement_of_eq
+#print axioms Tlsf.Dpa.Impl.associationAgreement_sound
