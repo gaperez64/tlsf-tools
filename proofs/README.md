@@ -1215,6 +1215,26 @@ instantiates that seed result. These statements do not yet extend the
 closed-alphabet descent to refined Π₂ input tags or prove that accepting
 runs satisfy every active obligation across refined co-safety suspensions.
 
+**Task T9, false-seed converse with refined suspensions.**
+`Impl/RefinedConverse.lean` proves `runTagged_converse_of_false_seeds`
+for arbitrary changing sound classifiers. On a false-input accepting run,
+true and safety rows are impossible. Once new seeds are false, the first
+marked renewal installs a false rejecting field. A false-field invariant
+then survives ordinary progress, co-safety suspension to the false sentinel,
+and resumption from a false seed. A later finite renewal would contradict
+the refined finite-window/never-false obligation theorem. This avoids any
+assumption that refined co-safety answers persist across calls.
+
+`runTagged_pi2_language` combines that converse with T8's eventual-false-seed
+lemma and forward acceptance. It proves full accepting-run equality for
+**structural Π₂ inputs with refined runtime classifiers**, including both
+one-colour parity orientations (`runTagged_pi2_parity`) and satisfaction of
+every active obligation (`runTagged_pi2_active_obligation`).
+`defaultTrace_pi2_language` discharges soundness and lower bounds with the
+persistent shared-cache interpreter, including startup; a universal GF
+witness exercises that corollary. These are not yet language theorems for
+recursive refined Π₂ input tags or a compilation of C's concrete queries.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1223,18 +1243,18 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 323 dependency reports contain only the three permitted axioms. The
-`terminal_checks` diagnostic and all five universal refined-language/shared-trace
+All 331 dependency reports contain only the three permitted axioms. The
+`terminal_checks` diagnostic and all six universal refined-language/shared-trace
 witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other fourteen
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (82 Lake jobs). All 236
+library and `dpaImplChecks` with warnings as errors (84 Lake jobs). All 236
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-197 references / 155 anchored C/Lean targets pass. Both documentation gates
+198 references / 156 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3/T4/T5/T6/T7/T8.** These are proved executable
+**Current boundary for Task T/T2/T3/T4/T5/T6/T7/T8/T9.** These are proved executable
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
@@ -1248,8 +1268,10 @@ item 1 remains partial. T8 proves persistence and realization of dependent
 default-tag query traces, the resulting all-field language corollary,
 forward acceptance, finite/safety/structural co-safety equivalences, and
 preservation of protected first passes and false seeds for structural Π₂
-inputs. Compilation of the concrete C traversal and full refined Π₂
-accepting-run language remain open. Items 2–4 remain open; item 5 is
+inputs. T9 proves the false-seed converse, structural Π₂ accepting-run
+equality with refined classifiers, both one-colour parity orientations, and
+active-obligation satisfaction. Compilation of the concrete C traversal and
+the recursive refined Π₂ input domain remain open. Items 2–4 remain open; item 5 is
 deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
@@ -1271,22 +1293,23 @@ occurrences would also query absorbed atoms and can change cache history;
 the fresh-query diagnostic and an arbitrary trace are not substitutes for
 the supported traversal and the actual cached predicate decisions.
 
-Next, prove the remaining accepting-run converse for the resulting compiled
-component. T8's forward theorem uses structural lower bounds as well as sound
-positive answers; soundness alone would allow an all-false classifier to
-suppress finite renewals. Its protected-constraint and false-seed theorems
-now cover the actual retained atoms and retry for structural Π₂ inputs.
-The smallest missing acceptance lemma is satisfaction of an active rejecting
-obligation on an accepting compiled run, including when a refined co-safety
-suspension discards that field. `runTagged_satisfied_obligation` assumes the
-input word is satisfying, so it cannot prove this converse; never reaching
-false alone cannot establish an arbitrary co-safety obligation. A false
-eventuality can remain propositionally nonconstant forever. The eventual
-false-constraint descent must additionally be extended from structural
-`HasTag Pi2` to the recursive refined Π₂ predicate for the full default domain.
-An arbitrary sound trace is not the compiled C execution. An alternative
-structural language witness, `classTag_exact`, or an existential
-`admitted_grammar` witness cannot supply these identifications.
+The smallest remaining acceptance lemma is **eventual false extracted seeds
+for recursive refined Π₂ inputs on the compiled default-tag run**.
+`runTagged_converse_of_false_seeds` now discharges the accepting-run step,
+including discarded obligations, without requiring tag persistence. Its
+structural Π₂ instance reuses `general_pi2_converse`'s protected-constraint
+descent through T8's actual tagged extractor and retry lemmas. The descent
+still starts from `HasTag Pi2`, whereas `defaultTags_sound` supplies
+`HasTag (RefinedAtom .pi2)`. A refined frozen operand can be co-safety only
+after Boolean absorption inside its materialized syntax; it need not have
+structural `cosafety`. Structural lower bounds therefore do not guarantee
+that an arbitrary sound classifier retains every refined co-safety atom.
+The concrete cache/query dependencies must justify those retentions; a
+fresh-query diagnostic or an arbitrary sound trace cannot do so. An
+alternative structural language witness, `classTag_exact`, or an existential
+`admitted_grammar` witness cannot identify those frozen atoms or their
+protected X syntax. The forward theorem still needs structural lower
+bounds, since soundness alone permits suppressing finite renewals.
 Cached NNF duals cannot be replaced by `Class.compl`.
 
 Further independent bridges remain: C's lexicographically ordered tree/export;

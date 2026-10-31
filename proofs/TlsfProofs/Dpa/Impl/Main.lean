@@ -11,6 +11,7 @@ import TlsfProofs.Dpa.Impl.DefaultTags
 import TlsfProofs.Dpa.Impl.RefinedComponent
 import TlsfProofs.Dpa.Impl.TagTrace
 import TlsfProofs.Dpa.Impl.RefinedAcceptance
+import TlsfProofs.Dpa.Impl.RefinedConverse
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -567,6 +568,13 @@ theorem shared_trace_acceptance_witness (w : Word (Fin 2)) :
   apply defaultTrace_finite_language _ _ _ _ _ _ TagCache.empty_valid
     (by simp [absorbedNext, absorbedOperand, NNF, a, b])
   exact diagnosticTags_sound absorbedNext .finite (by decide +kernel)
+
+theorem shared_trace_pi2_language_witness (w : Word (Fin 2)) :
+    Inf (marksTagged
+      (defaultTraceClassifier transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+        (fun _ => queryTrace (.conj absorbedNext b)) {}) gf w) ↔ Sat none w gf 0 :=
+  defaultTrace_pi2_language _ _ _ _ _ _ TagCache.empty_valid
+    (by simp [gf, NNF, a]) (by decide +kernel) w
 
 theorem shared_trace_false_seeds_witness (w : Word (Fin 2))
     (hf : ¬Sat none w gf 0)
