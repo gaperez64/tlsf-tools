@@ -402,7 +402,9 @@ The checked semantic class model is a Boolean function with a finite formula
 representative. `class_finite_atoms` supplies a finite atom set on which each
 function depends. Modal atoms, including a formula and its NNF dual, remain
 independent; AP negation shares its AP variable. `Uses` is exact dependence,
-so support tests and protection disregard propositionally absorbed operands.
+so support tests disregard propositionally absorbed atoms of the current class.
+A supported protector still contributes every X subformula of its frozen
+syntax, including Xs inside Boolean operands that would absorb if materialized.
 `Positive` states modal monotonicity; `NNFClass` supplies an NNF representative.
 `GeneralConverse.lean` now proves the common finite alphabet of both fields
 (`run_subformulaBound`), injection into finite Boolean truth tables
@@ -580,7 +582,7 @@ The dependency audit of the new general converse/language, protected-constraint
 and first-pass results, together with `admitted_grammar`, contains
 only `propext`, `Classical.choice` and `Quot.sound`.
 
-### Research-mode correspondence after review
+### Extractor correspondence in both modes after review
 
 `src/lib/dpa_formula.c:866` walks the retained NNF syntax to collect X
 subformulas; `src/lib/dpa_formula.c:889` starts that walk only at supported
@@ -617,6 +619,46 @@ research mode: absorption inside a frozen operand alone cannot establish
 `HasTag Pi2`. Default admission still accepts its existing canonical fragment,
 so some formulas accepted by default can now decline in research mode.
 Absorption in the outer class support remains available in both modes.
+
+The syntactic-protection change also applies with `allow_unproved=false`.
+**The default admission predicate is unchanged, but the automata can differ.**
+The default theorems use the same extractor: `initial` and `transition` in
+`Stage1.lean` call `rho`; `marks` and `run` refer to that table.
+`flat_global_language`, the GF/FG corollaries and `admitted_grammar` in
+`Converse.lean` consequently concern `Classes.lean`'s syntactic `Protected`,
+`dropX`, `extractPass` and `rho`. There is no mode-parameterized extractor in
+Lean. Safety/co-safety runs bypass extraction by `simple_run`; this does not
+make the complete admitted fragment insensitive to protection. The flat
+converse explicitly uses `flat_constraint_protected` and
+`minimal_extractPass_constraint` during simultaneous X removal.
+
+For example, `G(F(a | (a & X X b)) | X X b)` is in `Admitted`: the F body
+and `X X b` are finite windows, so its body is `FlatQ`. The supported F atom
+protects `X X b` syntactically although its operand materializes to `a`.
+The Lean initial rejecting class is `a | F(a | (a & X X b)) | X X b`,
+not true. HEAD `ea89484` implements this extractor in both modes; parent
+`b149ef5` instead loses this protection when it materializes the F operand.
+The existing theorems do not establish correspondence for that older
+extractor. Keep the syntactic walk in both modes, subject to the same trusted
+C representation/tag/constructor bridge as the other correspondence claims.
+This is not a new certification of the whole C implementation.
+
+The example expands to **4 states on the parent and 5 on HEAD** in either
+mode. At `max_states=4`, the parent completes and HEAD declines with
+`TLSF_DPA_STATE_LIMIT`; both unrestricted automata pass Spot equivalence.
+`default_syntactic_protection` in `test/unit/dpa_stage2.c` pins the initial
+rejecting field, the five-state result and the four-state budget decline in
+both modes. The equivalence suite also checks the example and its negation.
+See [the default-effect audit](../docs/lazy-dpa/DEFAULT-PROTECTION.md) for
+the paired measurements and their resource limits.
+
+The matched existing equivalence invocations (110 fixtures and 72 random
+cases) pass on both revisions with all 182 state counts unchanged. The 24
+inventory names recoverable from `STAGE2-INVENTORY.md` decline as unsupported
+by default on both; all admit in research mode and hit expansion budgets
+(five host, two BDD, seventeen deadlines). The complete 69-objective rerun is
+pending the missing external name list, especially its 45 default-admitted
+objectives; the historical admission totals are not a new measurement.
 
 Validation of this alignment, with builds and tests serialized in a 5 GiB
 cgroup and no OOM events:

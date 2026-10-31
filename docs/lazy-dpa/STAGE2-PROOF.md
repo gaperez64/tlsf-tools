@@ -39,7 +39,10 @@ suspension. It never denotes a resource failure. The extractor is exactly Stage 
 supported X atoms absent from the X-subformula sets of the current supported
 non-X modal atoms; unfold; retry on `U(x)` if the result is finite and `x≠U(x)`.
 Protection is recomputed after each removal. The surviving non-X protectors are
-F/U/M, and their entire X subformula sets are protected, including nested X tails.
+F/U/M, and their entire syntactic X subformula sets are protected, including
+nested X tails and Xs in operands that would absorb if materialized. This
+extractor is also used by the default-fragment Lean theorems; see the
+[default-effect audit](DEFAULT-PROTECTION.md).
 
 For canonical input class `x`, initialize `(U(x),false)` if `U(x)` is safety or
 co-safety, otherwise `(U(x),ρ(x))`. Constants use `(false,false)` and `(true,false)`.

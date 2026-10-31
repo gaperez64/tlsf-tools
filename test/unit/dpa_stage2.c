@@ -223,6 +223,46 @@ static void admission(Arena *a) {
   }
 }
 
+static void default_syntactic_protection(Arena *a) {
+  Node *p = node_ap(a, "a"), *q = node_ap(a, "b");
+  Node *x = node_x(a, node_x(a, q));
+  Node *hidden = node_or(a, p, node_and(a, p, x));
+  Node *body = node_or(a, node_f(a, hidden), x);
+  Node *root = node_g(a, body);
+  const char *names[] = {"a", "b"};
+  for (unsigned research = 0; research < 2; ++research)
+    for (unsigned limited = 0; limited < 2; ++limited) {
+      // This flat default-fragment formula needs five states with Lean's
+      // syntactic protection, even though the hidden operand absorbs to a.
+      TlsfDpaBudget budget = {.max_states = limited ? 4 : 5,
+                              .allow_unproved = research};
+      TlsfDpa *c;
+      assert(tlsf_dpa_create((TlsfAstNode *)root, names, 2, nullptr, 0, &budget,
+                             &c)
+                 .code == TLSF_DPA_OK);
+      const TlsfDpaEdge *edges;
+      size_t count;
+      assert(tlsf_dpa_successors(c, tlsf_dpa_initial(c), &edges, &count).code ==
+             TLSF_DPA_OK);
+      DpaState *state = c->states.items[c->initial];
+      DpaTuple *tuple = c->tuples.items[state->tuple];
+      DpaPair *pair = c->pairs.items[tuple->values[0]];
+      uint32_t expected =
+          dpa_unfold(c, dpa_formula(c, (TlsfAstNode *)body, false, 0));
+      assert(pair->rejecting == expected && pair->rejecting != 1);
+      TlsfDpaStatus status = tlsf_dpa_expand(c);
+      if (limited) {
+        assert(status.code == TLSF_DPA_DECLINED &&
+               status.reason == TLSF_DPA_STATE_LIMIT);
+        assert(tlsf_dpa_expand(c).reason == TLSF_DPA_STATE_LIMIT);
+      } else {
+        assert(status.code == TLSF_DPA_OK);
+        assert(tlsf_dpa_state_count(c) == 5);
+      }
+      tlsf_dpa_free(c);
+    }
+}
+
 static void syntactic_protection(Arena *a) {
   Node *p = node_ap(a, "a"), *q = node_ap(a, "b");
   Node *x = node_x(a, node_f(a, q));
@@ -269,6 +309,7 @@ static void syntactic_protection(Arena *a) {
 }
 int main(void) {
   Arena *a = arena_new(4096);
+  default_syntactic_protection(a);
   syntactic_protection(a);
   admission(a);
   trees(a);

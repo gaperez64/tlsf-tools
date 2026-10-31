@@ -66,8 +66,10 @@ syntactic test, without graph or support-change heuristics.
 
 **Extractor ρ.** On class x, replace each supported non-co-safety modal atom by
 true. On the resulting class y, repeatedly collect all X subformulas inside
-supported non-X modal atoms, and replace supported X atoms outside that protected
-set by true, until unchanged. Compute `z = U(y)`. If z is finite and `x ≠ U(x)`,
+supported non-X modal atoms, using their frozen syntax even inside operands
+that would be propositionally absorbed if materialized. Replace supported X
+atoms outside that protected set by true, until unchanged. Compute `z = U(y)`.
+If z is finite and `x ≠ U(x)`,
 retry the entire extraction on `U(x)`; otherwise return z. Idempotence of U
 makes a second retry impossible. Protection is recomputed from the reduced
 support on every iteration. Each changing iteration removes a supported X

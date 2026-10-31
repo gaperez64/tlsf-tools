@@ -2,12 +2,19 @@
 #include "tlsf/convert.h"
 #include "tlsf/dpa.h"
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
-// External inventories supply paths; admission never enumerates successors.
+// External inventories supply paths. Only --expand enumerates successors;
+// its TSV distinguishes admissions, completed counts and censored counts.
 int main(int argc, char **argv) {
+  bool expand = argc > 1 && !strcmp(argv[1], "--expand");
+  int first = expand ? 2 : 1;
   unsigned admitted[2] = {0};
-  for (int i = 1; i < argc; ++i) {
+  if (expand)
+    puts("source\tmode\tadmission_code\tadmission_reason\texpansion_code\t"
+         "expansion_reason\tstates");
+  for (int i = first; i < argc; ++i) {
     FILE *fp = fopen(argv[i], "rb");
     if (!fp || fseek(fp, 0, SEEK_END))
       return 1;
@@ -29,6 +36,7 @@ int main(int argc, char **argv) {
       if (clock_gettime(CLOCK_MONOTONIC, &now))
         return 1;
       TlsfDpaBudget budget = {
+          .max_states = expand ? 10000 : 0,
           .max_host_bytes = 512u << 20,
           .bdd_nodes = 1u << 22,
           .deadline_mono_ns = (uint64_t)now.tv_sec * UINT64_C(1000000000) +
@@ -43,18 +51,31 @@ int main(int argc, char **argv) {
         ++admitted[research];
         if (!research)
           default_admitted = true;
-      } else if (status.code != TLSF_DPA_DECLINED ||
-                 status.reason != TLSF_DPA_UNSUPPORTED || c ||
-                 (research && default_admitted)) {
+      } else if (!expand && (status.code != TLSF_DPA_DECLINED ||
+                             status.reason != TLSF_DPA_UNSUPPORTED || c ||
+                             (research && default_admitted))) {
         fprintf(stderr, "unexpected admission result: %s (%u/%u)\n", argv[i],
                 (unsigned)status.code, (unsigned)status.reason);
         tlsf_dpa_free(c);
         return 1;
       }
+      if (expand) {
+        printf("%s\t%s\t%u\t%u\t", argv[i], research ? "research" : "default",
+               (unsigned)status.code, (unsigned)status.reason);
+        if (status.code == TLSF_DPA_OK) {
+          status = tlsf_dpa_expand(c);
+          printf("%u\t%u\t%zu\n", (unsigned)status.code,
+                 (unsigned)status.reason, tlsf_dpa_state_count(c));
+        } else
+          puts("NA\tNA\t0");
+        fflush(stdout);
+      }
       tlsf_dpa_free(c);
     }
     tlsf_conversion_result_free(converted);
   }
-  printf("admitted %u/%d default, %u/%d research; no expansion\n", admitted[0],
-         argc - 1, admitted[1], argc - 1);
+  fprintf(expand ? stderr : stdout,
+          "admitted %u/%d default, %u/%d research; %s\n", admitted[0],
+          argc - first, admitted[1], argc - first,
+          expand ? "expansion attempted" : "no expansion");
 }

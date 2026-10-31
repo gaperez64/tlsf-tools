@@ -257,6 +257,8 @@ int main(int argc, char **argv) {
   for (auto text : {
            "G(a -> F b)",
            "!(G(a -> F b))",
+           "G(F(a | (a & X X b)) | X X b)",
+           "!(G(F(a | (a & X X b)) | X X b))",
            "G(F a | F (X b & X X c))",
            "F(G a & G (X b | X X c))",
            "G(a | F (b & X X c))",
