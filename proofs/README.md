@@ -452,7 +452,10 @@ claims a fixed exploration limit succeeds for every admitted formula.
 component records before running any machine. `compileBasis_presentation`
 proves the indexed Boolean/Shannon plan has the formula's language over that
 basis. Repeated plan occurrences use the same coordinate, avoiding exponential
-Zielonka work over duplicate colours. This is a static product presentation;
+Zielonka work over duplicate colours. Plan selection first minimizes the
+number of component colours. Admitted Boolean components remain whole, so
+the proved component terminal behavior handles their constants directly.
+This is a static product presentation;
 no C cache, lookup history or call order is modeled.
 
 The pure `Impl.normalize` pass simplifies Boolean expressions below modalities.
@@ -480,19 +483,20 @@ explicitly requires `positiveb` success.
 | Complete corpus inventory, hash goldens and general-admission enablement | Full run pending; general admission remains disabled |
 
 The equivalence checker searches for reachable closed walks with conflicting
-recurrent maximal priority parities. Its computed closures are checked for
-reflexivity, edge inclusion and transitivity. It requires no state isomorphism.
-`sparseClosedCheck_sound` proves a sparse closure extends to a closed
-relation on the full product: no edge may leave the listed states, and
-reflexivity, edge inclusion and transitivity are checked on that subgraph.
-Floyd layers are materialized only for reachable pairs. A finite position
-table carries a proof that every entry equals the original list index; the
-width is also certified. Matrix lookups take constant time, and Floyd layers
-reuse this fixed index table. This avoids the
-Cartesian matrix blowup for delayed safety monitors without adding a state
-isomorphism assumption. Alphabet compaction merges letters only after checking identical transitions
-and priorities at every state of both tables. It invokes the same proved
-`check` / `checkBuchi`, with a proof lifting equality to the original alphabet.
+recurrent maximal priority parities. An executable SCC traversal proposes a
+rank for each reachable product vertex. `rankClosedCheck_sound` checks that
+all outgoing edges stay in the indexed set and ranks never decrease. The
+resulting rank-order relation is reflexive, transitive and includes every
+edge, regardless of the SCC routine's correctness. Recurrent priority marks
+are collected per vertex; the final search compares vertices rather than
+all pairs of valuation-labelled edges. No state isomorphism is assumed.
+
+`VertexIndex.index_exact` certifies the stored finite position table. The same
+index is reused across priority thresholds. Priorities are collected from
+each automaton separately. Alphabet compaction merges letters only after
+checking identical transitions and priorities at every state of both tables.
+It invokes the same proved `check` / `checkBuchi`, with a proof lifting equality
+to the original alphabet.
 Class equality uses branch-pruned Shannon comparison after propagating
 propositional constants. Deterministic mixed, single-atom and
 single-complement assignments reject unequal residuals early; `sampleAgreement_of_eq` proves equal classes always
@@ -522,7 +526,8 @@ invalid target/acceptance values and trailing data, builds the proved reference
 for that same formula and AP order, and checks language equality. Every parse,
 construction, positivity, export or comparison failure is a failing exit.
 
-The kernel checks the construction, finite-export and checker proofs. Axiom
+The kernel checks the construction, finite-export and checker proofs. Offline
+execution also trusts the Lean compiler/runtime. Axiom
 audits permit only `propext`, `Classical.choice` and `Quot.sound`. Decoding,
 serialization, hashing, C memory safety and the BDD library remain trusted.
 Successful offline checks validate C only on the enumerated formulas, admission

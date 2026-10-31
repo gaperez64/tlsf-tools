@@ -35,10 +35,7 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Impl.uses_exact
 #print axioms Tlsf.Dpa.Impl.Assembly.prepareParity_exact
 #print axioms Tlsf.Dpa.Impl.Assembly.prepareBuchi_exact
-#print axioms Tlsf.Dpa.Validation.sparseClosedCheck_sound
 #print axioms Tlsf.Dpa.Impl.compileBasis_presentation
-#print axioms Tlsf.Dpa.Impl.AcceptancePlan.expanded_source
-#print axioms Tlsf.Dpa.Impl.AcceptancePlan.expanded_valid
 #print axioms Tlsf.Dpa.Impl.equivalentOn_exact
 #print axioms Tlsf.Dpa.Impl.State.representative_exact
 #print axioms Tlsf.Dpa.Impl.protected_exact
@@ -46,4 +43,6 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Impl.associationAgreement_sound
 #print axioms Tlsf.Dpa.Impl.protectionSet_exact
 #print axioms Tlsf.Dpa.Impl.Assembly.productStep_exact
-#print axioms Tlsf.Dpa.Validation.SparseMatrix.index_exact
+#print axioms Tlsf.Dpa.Validation.VertexIndex.index_exact
+#print axioms Tlsf.Dpa.Validation.rankClosedCheck_sound
+#print axioms Tlsf.Dpa.Validation.graph_successors

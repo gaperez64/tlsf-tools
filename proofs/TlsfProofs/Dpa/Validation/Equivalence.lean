@@ -3,9 +3,10 @@ import TlsfProofs.Dpa.Zielonka
 
 /-! Language comparison of finite complete deterministic max-odd automata.
 For each pair of opposite-parity priority thresholds, search the product for
-a reachable closed walk visiting both thresholds. Floyd closure is computed
-and checked for reflexivity, edge inclusion and transitivity. The soundness
-proof uses those checked properties, not a state correspondence. -/
+a reachable closed walk visiting both thresholds. The SCC traversal proposes
+vertex ranks. An independent edge-order check certifies a reflexive, transitive
+overapproximation of reachability. The soundness proof uses that certificate,
+not a state correspondence or correctness of the SCC algorithm. -/
 namespace Tlsf.Dpa.Validation
 variable {na nb alphabet : Nat}
 abbrev Vertex (na nb : Nat) := Fin na × Fin nb
@@ -26,130 +27,131 @@ theorem mem_arcs (e : Arc na nb alphabet) : e ∈ arcs na nb alphabet := by
   rcases e with ⟨⟨a,b⟩,c⟩
   simp [arcs, vertices]
 
-def activeArcs (vs : List (Vertex na nb)) (alphabet : Nat) : List (Arc na nb alphabet) :=
-  vs.flatMap (fun v => (List.finRange alphabet).map (fun a => (v,a)))
-
-theorem mem_activeArcs (e : Arc na nb alphabet) (h : e.1 ∈ vs) : e ∈ activeArcs vs alphabet := by
-  rcases e with ⟨v,a⟩
-  simp [activeArcs, h]
-
-/-- A data value prevents function eta expansion from recomputing earlier
-Floyd layers at every matrix lookup in compiled code. -/
-structure FrozenMatrix (na nb : Nat) where
-  cells : Array Bool
-
-def FrozenMatrix.get (R : FrozenMatrix na nb) : Matrix na nb :=
-  fun x y => R.cells.getD ((x.1.val * nb + x.2.val) * (na*nb) + y.1.val * nb + y.2.val) false
-
-def tabulate (R : Matrix na nb) : FrozenMatrix na nb :=
-  let vs := vertices na nb
-  ⟨(vs.flatMap (fun x => vs.map (R x))).toArray⟩
-
-@[noinline] def closure (edge : Matrix na nb) : FrozenMatrix na nb :=
-  (vertices na nb).foldl
-    (fun R z => tabulate (fun x y => R.get x y || (R.get x z && R.get z y)))
-    (tabulate (fun x y => decide (x = y) || edge x y))
-
-def closedCheck (edge R : Matrix na nb) : Bool :=
-  (vertices na nb).all (fun x => R x x && (vertices na nb).all (fun y =>
-    (!edge x y || R x y) && (vertices na nb).all (fun z => !(R x y && R y z) || R x z)))
-
 structure Closed (edge R : Matrix na nb) : Prop where
   refl : ∀ x, R x x = true
   edge : ∀ x y, edge x y = true → R x y = true
   trans : ∀ x y z, R x y = true → R y z = true → R x z = true
 
-theorem closedCheck_sound (edge R : Matrix na nb) (h : closedCheck edge R = true) :
-    Closed edge R := by
-  have imp (a b : Bool) : (!a || b) = true ↔ (a = true → b = true) := by
-    cases a <;> cases b <;> decide
-  simp only [closedCheck, List.all_eq_true, Bool.and_eq_true, imp] at h
-  exact ⟨fun x => (h x (mem_vertices x)).1,
-    fun x y he => ((h x (mem_vertices x)).2 y (mem_vertices y)).1 he,
-    fun x y z hxy hyz => ((h x (mem_vertices x)).2 y (mem_vertices y)).2
-      z (mem_vertices z) ⟨hxy, hyz⟩⟩
-
-/-- A sparse relation is universal from unlisted sources and false from a
-listed source to an unlisted target. Closedness is checked on the listed
-subgraph, including the obligation that no edge leaves it. This extends to a
-closed relation on the full product without a Cartesian matrix. -/
-structure SparseMatrix (na nb : Nat) where
+/-- A certified finite index for the reachable product vertices. -/
+structure VertexIndex (na nb : Nat) where
   states : List (Vertex na nb)
-  cells : Array Bool
   width : Nat
   width_eq : width = states.length
   positions : Vector (Vector Nat nb) na
   positions_eq : ∀ i j, positions[i][j] = states.idxOf (i, j)
 
-def SparseMatrix.index (R : SparseMatrix na nb) (x : Vertex na nb) : Nat :=
+def VertexIndex.index (R : VertexIndex na nb) (x : Vertex na nb) : Nat :=
   R.positions[x.1][x.2]
 
-theorem SparseMatrix.index_exact (R : SparseMatrix na nb) (x : Vertex na nb) :
+theorem VertexIndex.index_exact (R : VertexIndex na nb) (x : Vertex na nb) :
     R.index x = R.states.idxOf x := by
   exact R.positions_eq x.1 x.2
 
-def SparseMatrix.active (R : SparseMatrix na nb) (x : Vertex na nb) : Bool :=
+def VertexIndex.active (R : VertexIndex na nb) (x : Vertex na nb) : Bool :=
   decide (R.index x < R.width)
 
-def SparseMatrix.get (R : SparseMatrix na nb) : Matrix na nb := fun x y =>
-  if R.active x then R.active y &&
-    R.cells.getD (R.index x * R.width + R.index y) false
-  else true
-
-def sparseTabulate (vs : List (Vertex na nb)) (R : Matrix na nb) : SparseMatrix na nb :=
+def sparseIndex (vs : List (Vertex na nb)) : VertexIndex na nb :=
   { states := vs
-    cells := (vs.flatMap (fun x => vs.map (R x))).toArray
     width := vs.length
     width_eq := rfl
     positions := Vector.ofFn (fun i => Vector.ofFn (fun j => vs.idxOf (i, j)))
     positions_eq := by intro i j; simp [Fin.getElem_fin] }
 
-@[noinline] def sparseClosure (edge : Matrix na nb) (vs : List (Vertex na nb)) :
-    SparseMatrix na nb :=
-  vs.foldl (fun R z => { R with cells := (vs.flatMap (fun x => vs.map
-    (fun y => R.get x y || (R.get x z && R.get z y)))).toArray })
-    (sparseTabulate vs (fun x y => decide (x = y) || edge x y))
-
-def sparseClosedCheck (edge : Matrix na nb) (R : SparseMatrix na nb) : Bool :=
-  R.states.all (fun x => R.get x x &&
-    ((vertices na nb).all (fun y => !edge x y || R.active y) &&
-    R.states.all (fun y => (!edge x y || R.get x y) &&
-      R.states.all (fun z => !(R.get x y && R.get y z) || R.get x z))))
-
-theorem SparseMatrix.active_exact (R : SparseMatrix na nb) (x : Vertex na nb) :
+theorem VertexIndex.active_exact (R : VertexIndex na nb) (x : Vertex na nb) :
     R.active x = true ↔ x ∈ R.states := by
   simp only [active, decide_eq_true_eq, R.index_exact, R.width_eq, List.idxOf_lt_length_iff]
 
-theorem SparseMatrix.target_active (R : SparseMatrix na nb) (x y : Vertex na nb)
+/-- Iterative Kosaraju traversal. Its result is only a candidate ordering;
+the checker independently certifies every edge before using the relation. -/
+def finishDfs (adj : Array (Array Nat)) : Nat → List (Nat × Bool) →
+    Array Bool → Array Nat → Array Nat
+  | 0, _, _, order => order
+  | _+1, [], _, order => order
+  | fuel+1, (v, closing) :: todo, seen, order =>
+    if closing then finishDfs adj fuel todo seen (order.push v)
+    else if v < seen.size then
+      if seen[v]! then finishDfs adj fuel todo seen order
+      else finishDfs adj fuel
+        ((adj.getD v #[]).toList.map (fun w => (w, false)) ++ (v, true) :: todo)
+        (seen.set! v true) order
+    else finishDfs adj fuel todo seen order
+
+def paintDfs (adj : Array (Array Nat)) (colour : Nat) :
+    Nat → List Nat → Array Nat → Array Nat
+  | 0, _, labels => labels
+  | _+1, [], labels => labels
+  | fuel+1, v :: todo, labels =>
+    if v < labels.size then
+      if labels[v]! < labels.size then paintDfs adj colour fuel todo labels
+      else paintDfs adj colour fuel ((adj.getD v #[]).toList ++ todo)
+        (labels.set! v colour)
+    else paintDfs adj colour fuel todo labels
+
+def componentRanks (adj : Array (Array Nat)) : Array Nat :=
+  let n := adj.size
+  let fuel := adj.foldl (fun total row => total + row.size) (2*n+1)
+  let order := finishDfs adj fuel ((List.range n).map (fun v => (v, false)))
+    (Array.replicate n false) #[]
+  let reverse := (List.range n).foldl (fun rows u =>
+    (adj.getD u #[]).foldl (fun rows v =>
+      if v < n then rows.modify v (fun row => row.push u) else rows) rows)
+    (Array.replicate n (#[] : Array Nat))
+  ((order.toList.reverse).foldl (fun state v =>
+    if state.1.getD v n < n then state else
+      (paintDfs reverse state.2 fuel [v] state.1, state.2+1))
+    (Array.replicate n n, 0)).1
+
+structure RankedMatrix (na nb : Nat) where
+  base : VertexIndex na nb
+  labels : Array Nat
+
+def RankedMatrix.states (R : RankedMatrix na nb) := R.base.states
+def RankedMatrix.active (R : RankedMatrix na nb) := R.base.active
+def RankedMatrix.rank (R : RankedMatrix na nb) (x : Vertex na nb) : Nat :=
+  R.labels.getD (R.base.index x) 0
+
+def RankedMatrix.get (R : RankedMatrix na nb) : Matrix na nb := fun x y =>
+  if R.active x then R.active y && decide (R.rank x ≤ R.rank y) else true
+
+theorem RankedMatrix.active_exact (R : RankedMatrix na nb) (x : Vertex na nb) :
+    R.active x = true ↔ x ∈ R.states := R.base.active_exact x
+
+theorem RankedMatrix.target_active (R : RankedMatrix na nb) (x y : Vertex na nb)
     (hx : x ∈ R.states) (h : R.get x y = true) : y ∈ R.states := by
   have ha := (R.active_exact x).mpr hx
   simp only [get, ha, ↓reduceIte, Bool.and_eq_true] at h
   exact (R.active_exact y).mp h.1
 
-theorem sparseClosedCheck_sound (edge : Matrix na nb) (R : SparseMatrix na nb)
-    (h : sparseClosedCheck edge R = true) : Closed edge R.get := by
-  have imp (a b : Bool) : (!a || b) = true ↔ (a = true → b = true) := by
-    cases a <;> cases b <;> decide
-  simp only [sparseClosedCheck, List.all_eq_true, Bool.and_eq_true, imp] at h
+def rankClosedCheck (next : Vertex na nb → List (Vertex na nb))
+    (R : RankedMatrix na nb) : Bool :=
+  R.states.all (fun x => (next x).all (fun y =>
+    R.active y && decide (R.rank x ≤ R.rank y)))
+
+/-- Any certified ordering gives a closed overapproximation of reachability.
+This proof assumes nothing about the SCC algorithm or its fuel. -/
+theorem rankClosedCheck_sound (edge : Matrix na nb)
+    (next : Vertex na nb → List (Vertex na nb)) (R : RankedMatrix na nb)
+    (hn : ∀ x y, edge x y = true → y ∈ next x)
+    (h : rankClosedCheck next R = true) : Closed edge R.get := by
+  simp only [rankClosedCheck, List.all_eq_true, Bool.and_eq_true, decide_eq_true_eq] at h
   constructor
   · intro x
-    by_cases hx : x ∈ R.states
-    · exact (h x hx).1
-    · have ha : R.active x = false := Bool.eq_false_iff.mpr (fun hh => hx ((R.active_exact x).mp hh))
-      simp [SparseMatrix.get, ha]
+    cases ha : R.active x <;> simp [RankedMatrix.get, ha]
   · intro x y he
-    by_cases hx : x ∈ R.states
-    · have hy := (R.active_exact y).mp ((h x hx).2.1 y (mem_vertices y) he)
-      exact ((h x hx).2.2 y hy).1 he
-    · have ha : R.active x = false := Bool.eq_false_iff.mpr (fun hh => hx ((R.active_exact x).mp hh))
-      simp [SparseMatrix.get, ha]
+    cases ha : R.active x with
+    | false => simp [RankedMatrix.get, ha]
+    | true =>
+      have hh := h x ((R.active_exact x).mp ha) y (hn x y he)
+      simp only [RankedMatrix.get, ha, ↓reduceIte, Bool.and_eq_true, decide_eq_true_eq]
+      exact hh
   · intro x y z hxy hyz
-    by_cases hx : x ∈ R.states
-    · have hy := R.target_active x y hx hxy
-      have hz := R.target_active y z hy hyz
-      exact ((h x hx).2.2 y hy).2 z hz ⟨hxy, hyz⟩
-    · have ha : R.active x = false := Bool.eq_false_iff.mpr (fun hh => hx ((R.active_exact x).mp hh))
-      simp [SparseMatrix.get, ha]
+    cases ha : R.active x with
+    | false => simp [RankedMatrix.get, ha]
+    | true =>
+      simp only [RankedMatrix.get, ha, ↓reduceIte, Bool.and_eq_true, decide_eq_true_eq] at hxy
+      simp only [RankedMatrix.get, hxy.1, ↓reduceIte, Bool.and_eq_true, decide_eq_true_eq] at hyz
+      simp only [RankedMatrix.get, ha, ↓reduceIte, Bool.and_eq_true, decide_eq_true_eq]
+      exact ⟨hyz.1, Nat.le_trans hxy.2 hyz.2⟩
 
 variable (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphabet) (Fin nb))
 
@@ -176,35 +178,51 @@ def rightPriority (e : Arc na nb alphabet) : Nat := (B.step e.1.2 e.2).2
 def graph (allow : Arc na nb alphabet → Bool) : Matrix na nb :=
   fun x y => (List.finRange alphabet).any (fun a => allow (x,a) && decide (target A B (x,a) = y))
 
+def successors (allow : Arc na nb alphabet → Bool) (x : Vertex na nb) : List (Vertex na nb) :=
+  ((List.finRange alphabet).filter (fun a => allow (x,a))).map (fun a => target A B (x,a))
+
+theorem graph_successors (allow : Arc na nb alphabet → Bool) (x y : Vertex na nb)
+    (h : graph A B allow x y = true) : y ∈ successors A B allow x := by
+  obtain ⟨a, ha, hh⟩ := List.any_eq_true.mp h
+  obtain ⟨hb, ht⟩ := Bool.and_eq_true_iff.mp hh
+  have he : target A B (x,a) = y := of_decide_eq_true ht
+  exact List.mem_map.mpr ⟨a, List.mem_filter.mpr ⟨ha,hb⟩, he⟩
+
+def rankedClosure (allow : Arc na nb alphabet → Bool) (base : VertexIndex na nb) :
+    RankedMatrix na nb :=
+  let adj := base.states.toArray.map (fun x =>
+    (successors A B allow x).toArray.map base.index)
+  ⟨base, componentRanks adj⟩
+
 def bounded (p q : Nat) (e : Arc na nb alphabet) : Bool :=
   decide (leftPriority A e ≤ p ∧ rightPriority B e ≤ q)
 
-def badWalk (R C : Matrix na nb) (p q : Nat) (e f : Arc na nb alphabet) : Bool :=
-  R (A.initial, B.initial) e.1 && bounded A B p q e && bounded A B p q f &&
-    decide (leftPriority A e = p) && decide (rightPriority B f = q) &&
-    C (target A B e) f.1 && C (target A B f) e.1
+def cycleMark (C : Matrix na nb) (p q : Nat) (left : Bool) (x : Vertex na nb) : Bool :=
+  (List.finRange alphabet).any (fun a =>
+    bounded A B p q (x,a) &&
+    decide (if left then leftPriority A (x,a) = p else rightPriority B (x,a) = q) &&
+    C (target A B (x,a)) x)
 
-def thresholdCheck (R : Matrix na nb) (vs : List (Vertex na nb)) (p q : Nat) : Bool :=
+def thresholdCheck (R : RankedMatrix na nb) (p q : Nat) : Bool :=
   if p % 2 = q % 2 then true else
-    let edge := graph A B (bounded A B p q)
-    let C := sparseClosure edge vs
-    sparseClosedCheck edge C &&
-      (activeArcs vs alphabet).all (fun e =>
-        if R (A.initial, B.initial) e.1 then
-          (activeArcs vs alphabet).all (fun f => !badWalk A B R C.get p q e f)
-        else true)
+    let C := rankedClosure A B (bounded A B p q) R.base
+    let left := R.states.filter (fun x =>
+      R.get (A.initial, B.initial) x && cycleMark A B C.get p q true x)
+    let right := R.states.filter (cycleMark A B C.get p q false)
+    rankClosedCheck (successors A B (bounded A B p q)) C &&
+      left.all (fun x => right.all (fun y => !(C.get x y && C.get y x)))
 
-def leftPriorities : List Nat := ((arcs na nb alphabet).map (leftPriority A)).eraseDups
+def leftPriorities : List Nat := ((List.finRange na).flatMap (fun s =>
+  (List.finRange alphabet).map (fun a => (A.step s a).2))).eraseDups
 
-def rightPriorities : List Nat := ((arcs na nb alphabet).map (rightPriority B)).eraseDups
+def rightPriorities : List Nat := ((List.finRange nb).flatMap (fun s =>
+  (List.finRange alphabet).map (fun a => (B.step s a).2))).eraseDups
 
 /-- Full finite-graph language check, with independently checked closures. -/
 def check : Bool :=
-  let edge := graph A B (fun _ => true)
-  let R := sparseClosure edge (reachablePairs A B)
-  (R.active (A.initial, B.initial) && sparseClosedCheck edge R) &&
-    (leftPriorities (nb := nb) A).all (fun p => (rightPriorities (na := na) B).all
-      (thresholdCheck A B R.get R.states p))
+  let R := rankedClosure A B (fun _ => true) (sparseIndex (reachablePairs A B))
+  (R.active (A.initial, B.initial) && rankClosedCheck (successors A B (fun _ => true)) R) &&
+    (leftPriorities A).all (fun p => (rightPriorities B).all (thresholdCheck A B R p))
 
 variable {A B}
 
@@ -310,18 +328,19 @@ finite alphabet. State cardinalities and transition structures may differ. -/
 theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphabet) (Fin nb))
     (h : check A B = true) : ∀ w, A.Accepts w ↔ B.Accepts w := by
   intro w
-  let S := sparseClosure (graph A B (fun _ => true)) (reachablePairs A B)
+  let S := rankedClosure A B (fun _ => true) (sparseIndex (reachablePairs A B))
   let R := S.get
   obtain ⟨hR,hchecks⟩ := Bool.and_eq_true_iff.mp h
   obtain ⟨hinit,hclosed⟩ := Bool.and_eq_true_iff.mp hR
   have hinitmem : (A.initial, B.initial) ∈ S.states := (S.active_exact _).mp hinit
-  have hr : Closed (graph A B (fun _ => true)) R := sparseClosedCheck_sound _ _ hclosed
-  have hlmem (n : Nat) : A.priorities w n ∈ leftPriorities (nb := nb) A := by
+  have hr : Closed (graph A B (fun _ => true)) R :=
+    rankClosedCheck_sound _ _ _ (graph_successors A B (fun _ => true)) hclosed
+  have hlmem (n : Nat) : A.priorities w n ∈ leftPriorities A := by
     apply List.mem_eraseDups.mpr
-    exact List.mem_map.mpr ⟨observed A B w n, mem_arcs _, rfl⟩
-  have hrmem (n : Nat) : B.priorities w n ∈ rightPriorities (na := na) B := by
+    exact List.mem_flatMap.mpr ⟨A.run w n, by simp, List.mem_map.mpr ⟨w n, by simp, rfl⟩⟩
+  have hrmem (n : Nat) : B.priorities w n ∈ rightPriorities B := by
     apply List.mem_eraseDups.mpr
-    exact List.mem_map.mpr ⟨observed A B w n, mem_arcs _, rfl⟩
+    exact List.mem_flatMap.mpr ⟨B.run w n, by simp, List.mem_map.mpr ⟨w n, by simp, rfl⟩⟩
   obtain ⟨p,hp,hop,N,hN⟩ := recurrent_max _ _ hlmem
   obtain ⟨q,hq,hoq,M,hM⟩ := recurrent_max _ _ hrmem
   have hpar : p % 2 = q % 2 := by
@@ -329,8 +348,9 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     intro hne
     have ht := (List.all_eq_true.mp ((List.all_eq_true.mp hchecks) p hp)) q hq
     simp only [thresholdCheck, hne, ↓reduceIte, Bool.and_eq_true] at ht
-    let C := (sparseClosure (graph A B (bounded A B p q)) S.states).get
-    have hc : Closed (graph A B (bounded A B p q)) C := sparseClosedCheck_sound _ _ ht.1
+    let C := (rankedClosure A B (bounded A B p q) S.base).get
+    have hc : Closed (graph A B (bounded A B p q)) C :=
+      rankClosedCheck_sound _ _ _ (graph_successors A B (bounded A B p q)) ht.1
     have hab (k : Nat) (hk : max N M ≤ k) : bounded A B p q (observed A B w k) = true := by
       apply decide_eq_true
       exact ⟨hN k (by omega), hM k (by omega)⟩
@@ -347,8 +367,8 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     have hrf : R (A.initial,B.initial) f.1 = true := by
       have hh := closed_run (fun _ => true) R hr w 0 j (by omega) (by intros; rfl)
       simpa only [observed, ← hfj, pairRun, Parity.run] using hh
-    have he := mem_activeArcs e (S.target_active _ _ hinitmem hre)
-    have hf := mem_activeArcs f (S.target_active _ _ hinitmem hrf)
+    have he := S.target_active _ _ hinitmem hre
+    have hf := S.target_active _ _ hinitmem hrf
     have hef : C (target A B e) f.1 = true := by
       have hh := closed_run (bounded A B p q) C hc w (i+1) j hj
         (fun t ht => hab t (by omega))
@@ -363,15 +383,31 @@ theorem check_sound (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphab
     have hbf : bounded A B p q f = true := hfj ▸ hab j (by omega)
     have hpe : leftPriority A e = p := by rw [← hei]; exact hpi
     have hqf : rightPriority B f = q := by rw [← hfj]; exact hqj
-    have hbad : badWalk A B R C p q e f = true := by
-      simp only [badWalk, hre, hbe, hbf, hpe, hqf, decide_true, hef, hfe, Bool.and_self]
-    have hnoe := (List.all_eq_true.mp ht.2) e he
-    change (if R (A.initial, B.initial) e.1 = true then
-      (activeArcs S.states alphabet).all (fun f => !badWalk A B R C p q e f) else true) = true at hnoe
-    have hnoe' : (activeArcs S.states alphabet).all (fun f => !badWalk A B R C p q e f) = true := by
-      simpa only [hre, ↓reduceIte] using hnoe
-    have hno := (List.all_eq_true.mp hnoe') f hf
-    rw [hbad] at hno
+    have heEdge : C e.1 (target A B e) = true :=
+      hc.edge _ _ (graph_contains _ e hbe)
+    have hfEdge : C f.1 (target A B f) = true :=
+      hc.edge _ _ (graph_contains _ f hbf)
+    have hex : C (target A B e) e.1 = true :=
+      hc.trans _ _ _ hef (hc.trans _ _ _ hfEdge hfe)
+    have hfx : C (target A B f) f.1 = true :=
+      hc.trans _ _ _ hfe (hc.trans _ _ _ heEdge hef)
+    have heMark : cycleMark A B C p q true e.1 = true := by
+      apply List.any_eq_true.mpr
+      exact ⟨e.2, by simp, by simp [hbe, hpe, hex]⟩
+    have hfMark : cycleMark A B C p q false f.1 = true := by
+      apply List.any_eq_true.mpr
+      exact ⟨f.2, by simp, by simp [hbf, hqf, hfx]⟩
+    have heLeft : e.1 ∈ S.states.filter (fun x =>
+        R (A.initial, B.initial) x && cycleMark A B C p q true x) :=
+      List.mem_filter.mpr ⟨he, by simp [hre, heMark]⟩
+    have hfRight : f.1 ∈ S.states.filter (cycleMark A B C p q false) :=
+      List.mem_filter.mpr ⟨hf, hfMark⟩
+    have hnoe := (List.all_eq_true.mp ht.2) e.1 heLeft
+    have hno := (List.all_eq_true.mp hnoe) f.1 hfRight
+    have heToF : C e.1 f.1 = true := hc.trans _ _ _ heEdge hef
+    have hfToE : C f.1 e.1 = true := hc.trans _ _ _ hfEdge hfe
+    change !(C e.1 f.1 && C f.1 e.1) = true at hno
+    rw [heToF, hfToE] at hno
     contradiction
   exact (maxOdd_recurrent_max _ p hop ⟨N,hN⟩).trans
     ((by rw [hpar] : p % 2 = 1 ↔ q % 2 = 1).trans

@@ -319,8 +319,13 @@ theorem factor_success (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) 
 /-- A static reference cost balances colour-product size against the size of
 each component's residual domain. It has no bearing on language correctness. -/
 def planCost (p : AcceptancePlan ap) : Nat :=
-  let basis := p.expanded.basis
+  let basis := p.basis
   4 ^ basis.length + (basis.map (fun e => 2 ^ (Dpa.subformulas e.formula).length)).sum
+
+/-- Minimize the colour basis first; syntax cost only breaks ties. -/
+def preferPlan (p q : AcceptancePlan ap) : Bool :=
+  decide (p.basis.length < q.basis.length ∨
+    (p.basis.length = q.basis.length ∧ planCost p ≤ planCost q))
 
 /-- Choose between two proved presentations before running any component. -/
 def factoringPlan (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
@@ -329,7 +334,7 @@ def factoringPlan (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin a
   match canonicalPlan atomRank t with
   | some p =>
     match canonicalPlan atomRank f with
-    | some q => some (if planCost p ≤ planCost q then p else q)
+    | some q => some (if preferPlan p q then p else q)
     | none => some p
   | none => canonicalPlan atomRank f
 
@@ -347,7 +352,7 @@ theorem factoringPlan_success (rank atomRank : Formula (Fin ap) → Nat)
         fun w n => (class_language he w n).trans (hspec.2.2 w n)⟩
     | some q =>
       obtain ⟨hqv, hqe⟩ := canonicalPlan_spec atomRank f hf q hq
-      by_cases cost : planCost p ≤ planCost q
+      by_cases cost : preferPlan p q = true
       · exact ⟨p, by simp [factoringPlan, ht, hp, hq, cost], hv,
           fun w n => (class_language he w n).trans (hspec.2.2 w n)⟩
       · exact ⟨q, by simp [factoringPlan, ht, hp, hq, cost], hqv,
