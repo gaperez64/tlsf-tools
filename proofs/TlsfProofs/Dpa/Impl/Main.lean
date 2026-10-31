@@ -12,6 +12,7 @@ import TlsfProofs.Dpa.Impl.RefinedComponent
 import TlsfProofs.Dpa.Impl.TagTrace
 import TlsfProofs.Dpa.Impl.RefinedAcceptance
 import TlsfProofs.Dpa.Impl.RefinedConverse
+import TlsfProofs.Dpa.Impl.SupportedTrace
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -593,6 +594,50 @@ theorem shared_trace_false_seeds_witness (w : Word (Fin 2))
     (fun n => (defaultTraceClassifier_spec _ _ _ _ _ _ TagCache.empty_valid n).2)
     (by simp [gf, NNF, a]) (by decide +kernel) w hf hnever
 
+private def supportedF : Formula (Fin 2) := .eventually a
+private def supportedG : Formula (Fin 2) := .globally b
+private def supportedOrder : Formula (Fin 2) :=
+  .disj (.conj a supportedF) (.conj (.neg a) supportedG)
+private def supportedShared : Formula (Fin 2) :=
+  .disj (.conj a supportedF) (.conj b supportedF)
+private def supportedAbsorbed : Formula (Fin 2) := .disj a (.conj a gf)
+private def supportedRun (f : Formula (Fin 2)) :
+    Option (Option (Formula (Fin 2)) × TagCache 2) :=
+  (rhoSupported transportRank f).exec (defaultTags transportRank (fun _ => false) 32 true) {}
+
+private def supportedChecks : List (String × Bool × Bool) := [
+  ("supported-absorbed-atom-not-queried", decide
+    ((reduceSupported [gf, a] supportedAbsorbed).reads classBits = []), true),
+  ("supported-AP-succeeds-with-zero-tag-fuel", decide
+    (((reduceSupported [gf, a] supportedAbsorbed).exec
+      (defaultTags transportRank (fun _ => false) 0 true) {}).map
+        (fun r => r.1.isSome) = some true), true),
+  ("supported-low-before-high", decide
+    ((reduceSupported [a, supportedF, supportedG] supportedOrder).reads classBits =
+      [supportedG, supportedF]), true),
+  ("supported-shared-subgraph-queries-once", decide
+    ((reduceSupported [a, b, supportedF] supportedShared).reads classBits = [supportedF]), true),
+  ("supported-equivalent-mapped-hit-skips-query", decide
+    ((mapSupported reduceAtomProgram [] supportedF [(.conj .tt supportedF, supportedF)]).reads
+      classBits = []), true),
+  ("supported-incomplete-alphabet-fails", decide
+    ((reduceSupported [] supportedF).eval classBits = none), true),
+  ("supported-constant-precedes-invalid-memo", decide
+    ((mapSupported reduceAtomProgram [] (.tt : Formula (Fin 2)) [(.tt, .ff)]).eval classBits =
+      some (.tt, [(.tt, .ff)])), true),
+  ("supported-empty-tag-fuel-fails-on-modal-query", decide
+    (((reduceSupported [supportedF] supportedF).exec
+      (defaultTags transportRank (fun _ => false) 0 true) {}).isSome = false), true),
+  ("supported-GF-retry-five-exact-calls", decide
+    (((rhoSupported transportRank gf).reads classBits).length = 5), true),
+  ("supported-GF-retry-preserves-eventuality", decide
+    (((rhoSupported transportRank gf).eval classBits).map
+      (fun r => equivalent r (unfoldSyntax supportedF)) = some true), true),
+  ("supported-shared-default-execution-succeeds", (supportedRun gf).isSome, true),
+  ("supported-default-result-matches-final-classifier", decide
+    ((supportedRun gf).map (fun result => result.1.any (fun r =>
+      equivalent r (rhoTagged (cacheClassifier result.2) gf))) = some true), true)]
+
 private def refinedProtected : Formula (Fin 2) := .conj absorbedNext refinedProtector
 
 private def refinedChecks : List (String × Bool × Bool) := [
@@ -772,14 +817,17 @@ theorem refined_checks : refinedChecks.all (fun (_, actual, expected) => actual 
 theorem trace_checks : traceChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem supported_checks : supportedChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 theorem terminal_checks : terminalChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ terminalChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ supportedChecks ++ terminalChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + terminalChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + supportedChecks.length + terminalChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

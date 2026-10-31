@@ -1235,6 +1235,28 @@ persistent shared-cache interpreter, including startup; a universal GF
 witness exercises that corollary. These are not yet language theorems for
 recursive refined Π₂ input tags or a compilation of C's concrete queries.
 
+**Task T9, supported extraction query programs.**
+`Impl/SupportedTrace.lean` adds `mapSupported`: constants precede cache
+lookups; only essential Shannon variables execute atom programs; low runs
+before high; and equivalent mapped subgraphs share their result within
+one substitution epoch. `mapSupported_spec` proves canonical substitution
+and mapped-cache preservation, and `mapSupported_success` proves success
+for any complete ordered alphabet. `reduceSupported_spec` identifies the
+REDUCE result with `reduceTagged`, including Boolean absorption.
+
+`extractSupported` composes that program with the proved protected DROP_X
+loop and unfolding. `rhoSupported` adds the exact finite query and retry,
+including the final finite query on the idempotently unfolded retry.
+`rhoSupported_spec` proves equality with the class of `rhoTagged` for a
+congruent classifier; `rhoSupported_default` realizes each successful
+shared-default-cache execution by its final sound, lower-bound classifier.
+The executable/kernel diagnostics check skipped absorbed atoms, low/high
+order, equivalent memo hits, shared subgraphs, explicit failure, and the
+actual five external exact queries of the GF retry fixture. These programs
+use exact queries: they do **not** claim C's quick-predicate or persistent
+remainder-cache history. DROP_X and unfolding reuse their existing class
+refinements rather than compiling those C cache traversals.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1243,14 +1265,14 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 331 dependency reports contain only the three permitted axioms. The
+All 347 dependency reports contain only the three permitted axioms. The
 `terminal_checks` diagnostic and all six universal refined-language/shared-trace
-witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other fourteen
+witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other fifteen
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (84 Lake jobs). All 236
+library and `dpaImplChecks` with warnings as errors (86 Lake jobs). All 248
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-198 references / 156 anchored C/Lean targets pass. Both documentation gates
+199 references / 157 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
@@ -1270,8 +1292,10 @@ forward acceptance, finite/safety/structural co-safety equivalences, and
 preservation of protected first passes and false seeds for structural Π₂
 inputs. T9 proves the false-seed converse, structural Π₂ accepting-run
 equality with refined classifiers, both one-colour parity orientations, and
-active-obligation satisfaction. Compilation of the concrete C traversal and
-the recursive refined Π₂ input domain remain open. Items 2–4 remain open; item 5 is
+active-obligation satisfaction. It also compiles the supported exact-query
+REDUCE traversal, mapped-cache reuse and extraction retry into `TagProgram`.
+C's quick-predicate/remainder-cache history, full component-query compilation
+and the recursive refined Π₂ input domain remain open. Items 2–4 remain open; item 5 is
 deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
@@ -1282,16 +1306,18 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining default-tag bridge is **compilation of C's extraction
-into the proved query interpreter**: identify REDUCE's actual supported-atom
-traversal, its quick tag tests, memo hits and finite retry with a `TagProgram`
-whose evaluation gives the class of `rhoTagged`. `defaultTags_preserves`,
-`defaultTags_read` and `TagProgram.default_realizes` now prove read stability
-and a single sound classifier for an entire dependent default-tag trace.
-They do not identify which trace C executes. Traversing raw syntactic
-occurrences would also query absorbed atoms and can change cache history;
-the fresh-query diagnostic and an arbitrary trace are not substitutes for
-the supported traversal and the actual cached predicate decisions.
+The smallest remaining default-tag bridge is **C's actual cached predicate
+decisions**: compile `dpa_has_tags`'s quick lower/upper returns and undecided
+exact calls, plus persistent remainder-cache hits, and compose them with
+`rhoSupported` and the component's ordered guards. `rhoSupported_default`
+now identifies a successful supported exact-query execution with the class
+of `rhoTagged`. C may skip those exact calls, changing which class/atom
+cells exist when later bounds are computed. `TagProgram.default_realizes`
+replays the exact reads of the compiled program, but it cannot identify
+quick answers that made no exact read. Replacing those shortcuts with extra
+queries, traversing absorbed syntax, or using a fresh-query diagnostic does
+not preserve C's cache history. The program therefore remains a refinement
+of the exact-query path, not a certificate for the concrete C execution.
 
 The smallest remaining acceptance lemma is **eventual false extracted seeds
 for recursive refined Π₂ inputs on the compiled default-tag run**.

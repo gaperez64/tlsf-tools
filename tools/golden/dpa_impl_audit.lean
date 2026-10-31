@@ -338,3 +338,20 @@ Every reported dependency set must be contained in
 #print axioms shared_trace_pi2_language_witness
 #print axioms Tlsf.Dpa.Impl.runTagged_pi2_parity
 #print axioms Tlsf.Dpa.Impl.runTagged_pi2_active_obligation
+
+#print axioms Tlsf.Dpa.Impl.TagProgram.eval_bind
+#print axioms Tlsf.Dpa.Impl.lookupMapped_spec
+#print axioms Tlsf.Dpa.Impl.mappedIte_substitution
+#print axioms Tlsf.Dpa.Impl.mapSupported_spec
+#print axioms Tlsf.Dpa.Impl.mappedCofactor_dependsOn
+#print axioms Tlsf.Dpa.Impl.mappedSkip_dependsOn
+#print axioms Tlsf.Dpa.Impl.mapSupported_success
+#print axioms Tlsf.Dpa.Impl.reduceAtomProgram_eval
+#print axioms Tlsf.Dpa.Impl.reduceSupported_spec
+#print axioms Tlsf.Dpa.Impl.reduceSupported_default
+#print axioms Tlsf.Dpa.Impl.extractSupported_spec
+#print axioms Tlsf.Dpa.Impl.extractSupported_success
+#print axioms Tlsf.Dpa.Impl.rhoSupported_spec
+#print axioms Tlsf.Dpa.Impl.rhoSupported_success
+#print axioms Tlsf.Dpa.Impl.rhoSupported_default
+#print axioms supported_checks
