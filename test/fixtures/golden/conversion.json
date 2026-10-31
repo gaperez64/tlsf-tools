@@ -1,0 +1,6 @@
+[
+  [
+    "ast-export",
+    "formula: (G((x <-> X(a))) && G((y <-> X(b))))\nstring: G (x <-> X a) && G (y <-> X b)\ninputs: a b\noutputs: x y\ncluster 0: G((x <-> X(a)))\nstring: G (x <-> X a)\n  inputs: a\n  outputs: x\ncluster 1: G((y <-> X(b)))\nstring: G (y <-> X b)\n  inputs: b\n  outputs: y\n"
+  ]
+]

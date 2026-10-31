@@ -1,0 +1,14 @@
+[
+  [
+    "tlsf",
+    "INFO {\n  TITLE:       \"rt\";\n  DESCRIPTION: \"route-safe\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    a;\n    b;\n  }\n\n  OUTPUTS {\n    x;\n    y;\n  }\n\n    GUARANTEE {\n      (G ((!(a) || x)) && G ((!(b) || X (y))));\n    }\n\n}\n"
+  ],
+  [
+    "original",
+    "G ((a -> x) && (b -> X y))"
+  ],
+  [
+    "normalized",
+    "G (!a || x) && G (!b || X y)"
+  ]
+]

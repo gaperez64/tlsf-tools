@@ -1,0 +1,1698 @@
+[
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "override provenance",
+    [
+      0,
+      "INFO {\n  TITLE:       \"expand test\";\n  DESCRIPTION: \"params, buses, bounded quantifiers, SIZEOF\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    r_0;\n    r_1;\n    r_2;\n    r_3;\n  }\n\n  OUTPUTS {\n    g_0;\n    g_1;\n    g_2;\n    g_3;\n  }\n\n    ASSUME {\n      (((G ((r_0 -> F (!(r_0)))) && G ((r_1 -> F (!(r_1))))) && G ((r_2 -> F (!(r_2))))) && G ((r_3 -> F (!(r_3)))));\n    }\n\n    GUARANTEE {\n      (((G ((r_0 -> F (g_0))) && G ((r_1 -> F (g_1)))) && G ((r_2 -> F (g_2)))) && G ((r_3 -> F (g_3))));\n      G ((((g_0 || g_1) || g_2) || g_3));\n    }\n\n}\n",
+      "",
+      {
+        "schema": "tlsf-tools.frontend-provenance.v1",
+        "format_version": 1,
+        "source_sha256": "94cc31396ff654bba20c241a36d84ae1f479d6726965b9941ec50696b0739e53",
+        "parameters": [
+          {
+            "id": 1,
+            "name": "n",
+            "value": 4
+          }
+        ],
+        "signals": [
+          {
+            "name": "r_0",
+            "direction": "input",
+            "declaration_id": "input:1",
+            "source_name": "r",
+            "dimensions": 1,
+            "index_tuple": [
+              0
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "r_1",
+            "direction": "input",
+            "declaration_id": "input:1",
+            "source_name": "r",
+            "dimensions": 1,
+            "index_tuple": [
+              1
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "r_2",
+            "direction": "input",
+            "declaration_id": "input:1",
+            "source_name": "r",
+            "dimensions": 1,
+            "index_tuple": [
+              2
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "r_3",
+            "direction": "input",
+            "declaration_id": "input:1",
+            "source_name": "r",
+            "dimensions": 1,
+            "index_tuple": [
+              3
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "g_0",
+            "direction": "output",
+            "declaration_id": "output:1",
+            "source_name": "g",
+            "dimensions": 1,
+            "index_tuple": [
+              0
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "g_1",
+            "direction": "output",
+            "declaration_id": "output:1",
+            "source_name": "g",
+            "dimensions": 1,
+            "index_tuple": [
+              1
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "g_2",
+            "direction": "output",
+            "declaration_id": "output:1",
+            "source_name": "g",
+            "dimensions": 1,
+            "index_tuple": [
+              2
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          },
+          {
+            "name": "g_3",
+            "direction": "output",
+            "declaration_id": "output:1",
+            "source_name": "g",
+            "dimensions": 1,
+            "index_tuple": [
+              3
+            ],
+            "bounds": [
+              0,
+              3
+            ],
+            "width": 4,
+            "width_kind": "range",
+            "width_expression": "(n - 1)",
+            "index_role": "element"
+          }
+        ],
+        "conjuncts": [
+          {
+            "block": "ASSUME",
+            "source_formula_id": "ASSUME:1",
+            "source_node_id": 4,
+            "generated_position": 0,
+            "formula": "G ((r_0 -> F (!(r_0))))",
+            "bindings": [
+              {
+                "binder_id": 1,
+                "name": "i",
+                "value": 0
+              }
+            ],
+            "signals": [
+              "r_0"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "ASSUME",
+            "source_formula_id": "ASSUME:1",
+            "source_node_id": 4,
+            "generated_position": 1,
+            "formula": "G ((r_1 -> F (!(r_1))))",
+            "bindings": [
+              {
+                "binder_id": 1,
+                "name": "i",
+                "value": 1
+              }
+            ],
+            "signals": [
+              "r_1"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "ASSUME",
+            "source_formula_id": "ASSUME:1",
+            "source_node_id": 4,
+            "generated_position": 2,
+            "formula": "G ((r_2 -> F (!(r_2))))",
+            "bindings": [
+              {
+                "binder_id": 1,
+                "name": "i",
+                "value": 2
+              }
+            ],
+            "signals": [
+              "r_2"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "ASSUME",
+            "source_formula_id": "ASSUME:1",
+            "source_node_id": 4,
+            "generated_position": 3,
+            "formula": "G ((r_3 -> F (!(r_3))))",
+            "bindings": [
+              {
+                "binder_id": 1,
+                "name": "i",
+                "value": 3
+              }
+            ],
+            "signals": [
+              "r_3"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "GUARANTEE",
+            "source_formula_id": "GUARANTEE:1",
+            "source_node_id": 15,
+            "generated_position": 0,
+            "formula": "G ((r_0 -> F (g_0)))",
+            "bindings": [
+              {
+                "binder_id": 12,
+                "name": "i",
+                "value": 0
+              }
+            ],
+            "signals": [
+              "r_0",
+              "g_0"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "GUARANTEE",
+            "source_formula_id": "GUARANTEE:1",
+            "source_node_id": 15,
+            "generated_position": 1,
+            "formula": "G ((r_1 -> F (g_1)))",
+            "bindings": [
+              {
+                "binder_id": 12,
+                "name": "i",
+                "value": 1
+              }
+            ],
+            "signals": [
+              "r_1",
+              "g_1"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "GUARANTEE",
+            "source_formula_id": "GUARANTEE:1",
+            "source_node_id": 15,
+            "generated_position": 2,
+            "formula": "G ((r_2 -> F (g_2)))",
+            "bindings": [
+              {
+                "binder_id": 12,
+                "name": "i",
+                "value": 2
+              }
+            ],
+            "signals": [
+              "r_2",
+              "g_2"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "GUARANTEE",
+            "source_formula_id": "GUARANTEE:1",
+            "source_node_id": 15,
+            "generated_position": 3,
+            "formula": "G ((r_3 -> F (g_3)))",
+            "bindings": [
+              {
+                "binder_id": 12,
+                "name": "i",
+                "value": 3
+              }
+            ],
+            "signals": [
+              "r_3",
+              "g_3"
+            ],
+            "unresolved_signal_reference": false
+          },
+          {
+            "block": "GUARANTEE",
+            "source_formula_id": "GUARANTEE:2",
+            "source_node_id": 22,
+            "generated_position": 0,
+            "formula": "G ((((g_0 || g_1) || g_2) || g_3))",
+            "bindings": [],
+            "signals": [
+              "g_0",
+              "g_1",
+              "g_2",
+              "g_3"
+            ],
+            "unresolved_signal_reference": false
+          }
+        ],
+        "ambiguous": false
+      }
+    ]
+  ],
+  [
+    "plain override",
+    [
+      0,
+      "INFO {\n  TITLE:       \"param demo\";\n  DESCRIPTION: \"demo\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nGLOBAL {\n\n  PARAMETERS {\n    n = 2;\n    k = 4;\n  }\n\n  DEFINITIONS {\n    always_grant = G (g);\n  }\n\n}\n\nMAIN {\n\n  INPUTS {\n    r;\n  }\n\n  OUTPUTS {\n    g;\n  }\n\n    GUARANTEE {\n      G ((r -> F (g)));\n    }\n\n}\n",
+      "",
+      null
+    ]
+  ],
+  [
+    "unknown override",
+    [
+      1,
+      "",
+      "expand: unknown parameter 'missing'\n",
+      null
+    ]
+  ],
+  [
+    "duplicate override",
+    [
+      0,
+      "INFO {\n  TITLE:       \"expand test\";\n  DESCRIPTION: \"params, buses, bounded quantifiers, SIZEOF\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    r_0;\n    r_1;\n    r_2;\n    r_3;\n    r_4;\n  }\n\n  OUTPUTS {\n    g_0;\n    g_1;\n    g_2;\n    g_3;\n    g_4;\n  }\n\n    ASSUME {\n      ((((G ((r_0 -> F (!(r_0)))) && G ((r_1 -> F (!(r_1))))) && G ((r_2 -> F (!(r_2))))) && G ((r_3 -> F (!(r_3))))) && G ((r_4 -> F (!(r_4)))));\n    }\n\n    GUARANTEE {\n      ((((G ((r_0 -> F (g_0))) && G ((r_1 -> F (g_1)))) && G ((r_2 -> F (g_2)))) && G ((r_3 -> F (g_3)))) && G ((r_4 -> F (g_4))));\n      G (((((g_0 || g_1) || g_2) || g_3) || g_4));\n    }\n\n}\n",
+      "",
+      null
+    ]
+  ],
+  [
+    "malformed TLSF",
+    [
+      1,
+      "",
+      "1:20: parse error: syntax error, unexpected TOK_IDENT\n",
+      null
+    ]
+  ],
+  [
+    "reference expansion exit",
+    0
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "direct expansion exit",
+    0
+  ],
+  [
+    "direct expansion bytes",
+    "INFO {\n  TITLE:       \"expand test\";\n  DESCRIPTION: \"params, buses, bounded quantifiers, SIZEOF\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    r_0;\n    r_1;\n    r_2;\n    r_3;\n  }\n\n  OUTPUTS {\n    g_0;\n    g_1;\n    g_2;\n    g_3;\n  }\n\n    ASSUME {\n      (((G ((r_0 -> F (!(r_0)))) && G ((r_1 -> F (!(r_1))))) && G ((r_2 -> F (!(r_2))))) && G ((r_3 -> F (!(r_3)))));\n    }\n\n    GUARANTEE {\n      (((G ((r_0 -> F (g_0))) && G ((r_1 -> F (g_1)))) && G ((r_2 -> F (g_2)))) && G ((r_3 -> F (g_3))));\n      G ((((g_0 || g_1) || g_2) || g_3));\n    }\n\n}\n"
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "typed width IDs",
+    [
+      1
+    ]
+  ],
+  [
+    "complete width binding",
+    true
+  ],
+  [
+    "direct provenance fields",
+    {
+      "schema": "tlsf-tools.frontend-provenance.v1",
+      "format_version": 1,
+      "source_sha256": "94cc31396ff654bba20c241a36d84ae1f479d6726965b9941ec50696b0739e53",
+      "parameters": [
+        {
+          "id": 1,
+          "name": "n",
+          "value": 4
+        }
+      ],
+      "signals": [
+        {
+          "name": "r_0",
+          "direction": "input",
+          "declaration_id": "input:1",
+          "source_name": "r",
+          "dimensions": 1,
+          "index_tuple": [
+            0
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "r_1",
+          "direction": "input",
+          "declaration_id": "input:1",
+          "source_name": "r",
+          "dimensions": 1,
+          "index_tuple": [
+            1
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "r_2",
+          "direction": "input",
+          "declaration_id": "input:1",
+          "source_name": "r",
+          "dimensions": 1,
+          "index_tuple": [
+            2
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "r_3",
+          "direction": "input",
+          "declaration_id": "input:1",
+          "source_name": "r",
+          "dimensions": 1,
+          "index_tuple": [
+            3
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "g_0",
+          "direction": "output",
+          "declaration_id": "output:1",
+          "source_name": "g",
+          "dimensions": 1,
+          "index_tuple": [
+            0
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "g_1",
+          "direction": "output",
+          "declaration_id": "output:1",
+          "source_name": "g",
+          "dimensions": 1,
+          "index_tuple": [
+            1
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "g_2",
+          "direction": "output",
+          "declaration_id": "output:1",
+          "source_name": "g",
+          "dimensions": 1,
+          "index_tuple": [
+            2
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        },
+        {
+          "name": "g_3",
+          "direction": "output",
+          "declaration_id": "output:1",
+          "source_name": "g",
+          "dimensions": 1,
+          "index_tuple": [
+            3
+          ],
+          "bounds": [
+            0,
+            3
+          ],
+          "width": 4,
+          "width_kind": "range",
+          "width_expression": "(n - 1)",
+          "index_role": "element"
+        }
+      ],
+      "conjuncts": [
+        {
+          "block": "ASSUME",
+          "source_formula_id": "ASSUME:1",
+          "source_node_id": 4,
+          "generated_position": 0,
+          "formula": "G ((r_0 -> F (!(r_0))))",
+          "bindings": [
+            {
+              "binder_id": 1,
+              "name": "i",
+              "value": 0
+            }
+          ],
+          "signals": [
+            "r_0"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "ASSUME",
+          "source_formula_id": "ASSUME:1",
+          "source_node_id": 4,
+          "generated_position": 1,
+          "formula": "G ((r_1 -> F (!(r_1))))",
+          "bindings": [
+            {
+              "binder_id": 1,
+              "name": "i",
+              "value": 1
+            }
+          ],
+          "signals": [
+            "r_1"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "ASSUME",
+          "source_formula_id": "ASSUME:1",
+          "source_node_id": 4,
+          "generated_position": 2,
+          "formula": "G ((r_2 -> F (!(r_2))))",
+          "bindings": [
+            {
+              "binder_id": 1,
+              "name": "i",
+              "value": 2
+            }
+          ],
+          "signals": [
+            "r_2"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "ASSUME",
+          "source_formula_id": "ASSUME:1",
+          "source_node_id": 4,
+          "generated_position": 3,
+          "formula": "G ((r_3 -> F (!(r_3))))",
+          "bindings": [
+            {
+              "binder_id": 1,
+              "name": "i",
+              "value": 3
+            }
+          ],
+          "signals": [
+            "r_3"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "GUARANTEE",
+          "source_formula_id": "GUARANTEE:1",
+          "source_node_id": 15,
+          "generated_position": 0,
+          "formula": "G ((r_0 -> F (g_0)))",
+          "bindings": [
+            {
+              "binder_id": 12,
+              "name": "i",
+              "value": 0
+            }
+          ],
+          "signals": [
+            "r_0",
+            "g_0"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "GUARANTEE",
+          "source_formula_id": "GUARANTEE:1",
+          "source_node_id": 15,
+          "generated_position": 1,
+          "formula": "G ((r_1 -> F (g_1)))",
+          "bindings": [
+            {
+              "binder_id": 12,
+              "name": "i",
+              "value": 1
+            }
+          ],
+          "signals": [
+            "r_1",
+            "g_1"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "GUARANTEE",
+          "source_formula_id": "GUARANTEE:1",
+          "source_node_id": 15,
+          "generated_position": 2,
+          "formula": "G ((r_2 -> F (g_2)))",
+          "bindings": [
+            {
+              "binder_id": 12,
+              "name": "i",
+              "value": 2
+            }
+          ],
+          "signals": [
+            "r_2",
+            "g_2"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "GUARANTEE",
+          "source_formula_id": "GUARANTEE:1",
+          "source_node_id": 15,
+          "generated_position": 3,
+          "formula": "G ((r_3 -> F (g_3)))",
+          "bindings": [
+            {
+              "binder_id": 12,
+              "name": "i",
+              "value": 3
+            }
+          ],
+          "signals": [
+            "r_3",
+            "g_3"
+          ],
+          "unresolved_signal_reference": false
+        },
+        {
+          "block": "GUARANTEE",
+          "source_formula_id": "GUARANTEE:2",
+          "source_node_id": 22,
+          "generated_position": 0,
+          "formula": "G ((((g_0 || g_1) || g_2) || g_3))",
+          "bindings": [],
+          "signals": [
+            "g_0",
+            "g_1",
+            "g_2",
+            "g_3"
+          ],
+          "unresolved_signal_reference": false
+        }
+      ],
+      "ambiguous": false
+    }
+  ],
+  [
+    "real solve exit",
+    0
+  ],
+  [
+    "real solve/export/check",
+    [
+      0,
+      "aag 3 1 2 1 0\n2\n4 4 1\n6 1\n4\ni0 u0\no0 controllable_c0\n",
+      [
+        "aag 3 3 0 7 0\n2\n4\n6\n2\n2\n2\n2\n2\n2\n2\ni0 l0\ni1 u0\ni2 controllable_c0\no0 inv\no1 goal_0\no2 y_0_0\no3 y_0_1\no4 x_0_0_0\no5 x_0_1_0\no6 move_0\n",
+        {
+          "format": "tlsf-gr1-certificate-v1",
+          "status": "realizable",
+          "side": "system",
+          "reduction_semantics": "exact",
+          "circuit": {
+            "path": "<WORK>/certificate.aag",
+            "kind": "ASCII AIGER combinational"
+          },
+          "fixpoint": "Z = nu Z. AND_j mu Y. OR_i nu X. cpre((Z & goal_j) | Y | (X & !fair_i))",
+          "counts": {
+            "goals": 1,
+            "justice_records": 1,
+            "fairness_assumptions": 0,
+            "state_variables": 1,
+            "original_game_latches": 1,
+            "sampling_latches": 0,
+            "uncontrollable_inputs": 1,
+            "controllable_inputs": 1,
+            "predicates": 7,
+            "aig_inputs": 3,
+            "aig_latches": 0,
+            "aig_ands": 0,
+            "levels_per_goal": [
+              2
+            ]
+          },
+          "outputs": [
+            {
+              "name": "inv",
+              "kind": "winning_region"
+            },
+            {
+              "name": "goal_0",
+              "kind": "goal",
+              "goal": 0
+            },
+            {
+              "name": "y_0_0",
+              "kind": "mu_level",
+              "goal": 0,
+              "level": 0
+            },
+            {
+              "name": "y_0_1",
+              "kind": "mu_level",
+              "goal": 0,
+              "level": 1
+            },
+            {
+              "name": "x_0_0_0",
+              "kind": "nu_level",
+              "goal": 0,
+              "level": 0,
+              "fairness": 0
+            },
+            {
+              "name": "x_0_1_0",
+              "kind": "nu_level",
+              "goal": 0,
+              "level": 1,
+              "fairness": 0
+            },
+            {
+              "name": "move_0",
+              "kind": "move_relation",
+              "goal": 0
+            }
+          ],
+          "goals": [
+            {
+              "goal": 0,
+              "justice_record": 0,
+              "record_member": 0
+            }
+          ],
+          "variables": {
+            "state": [
+              {
+                "certificate_input": 0,
+                "name": "l0",
+                "game_latch": 0,
+                "game_literal": 6,
+                "next_game_literal": 6,
+                "reset": 1,
+                "solver_added": false
+              }
+            ],
+            "uncontrollable": [
+              {
+                "certificate_input": 1,
+                "game_input": 0,
+                "game_literal": 2,
+                "name": "u0"
+              }
+            ],
+            "controllable": [
+              {
+                "certificate_input": 2,
+                "game_input": 1,
+                "game_literal": 4,
+                "name": "controllable_c0"
+              }
+            ]
+          },
+          "sampling_semantics": "Each solver-added reset-0 latch stores the preceding letter's input-dependent acceptance literal: next(sample)=source. The corresponding GF predicate is replaced by sample because GF p iff GF X p.",
+          "goal_counter_latches": [
+            {
+              "strategy_latch": 1,
+              "name": "__tlsf_gr1_goal_counter_0",
+              "goal": 0,
+              "reset": 0,
+              "effective_initial": true,
+              "advance_to_goal": 0
+            }
+          ],
+          "goal_counter_semantics": "Strategy latches after the game/sampling latches are one-hot goal counters. All reset to 0; all-zero is interpreted as goal 0, then goal j advances to (j+1) mod goals exactly when inv & goal_j holds.",
+          "rank_semantics": "For goal j the selected rank is the least lexicographic (k,i) whose x_j_k_i contains the state; y_j_k is the union of the fairness disjuncts at mu level k.",
+          "move_semantics": "move_j is the pre-Skolem most-permissive relation over state, uncontrollable inputs and controllable inputs: advance safely inside inv at goal_j; otherwise move to goal/lower rank or stay in the selected x_j_k_i while fair_i is false."
+        },
+        "aag 3 3 0 2 0\n2\n4\n6\n2\n1\ni0 l0\ni1 curr_0\ni2 u0\no0 controllable_c0\no1 curr_next_0\n",
+        {
+          "format": "tlsf-gr1-policy-v1",
+          "side": "system",
+          "reduction_semantics": "exact",
+          "circuit": {
+            "path": "<WORK>/policy.aag",
+            "kind": "ASCII AIGER combinational"
+          },
+          "counts": {
+            "game_state_variables": 1,
+            "original_game_latches": 1,
+            "sampling_latches": 0,
+            "goals": 1,
+            "uncontrollable_inputs": 1,
+            "controllable_outputs": 1,
+            "aig_inputs": 3,
+            "aig_outputs": 2,
+            "aig_ands": 0
+          },
+          "inputs": {
+            "state": [
+              {
+                "policy_input": 0,
+                "game_latch": 0,
+                "name": "l0"
+              }
+            ],
+            "counter": [
+              {
+                "policy_input": 1,
+                "goal": 0,
+                "name": "curr_0",
+                "reset": 0,
+                "effective_initial": true
+              }
+            ],
+            "uncontrollable": [
+              {
+                "policy_input": 2,
+                "game_input": 0,
+                "name": "u0"
+              }
+            ]
+          },
+          "outputs": {
+            "controllable": [
+              {
+                "policy_output": 0,
+                "game_input": 1,
+                "name": "controllable_c0"
+              }
+            ],
+            "counter_next": [
+              {
+                "policy_output": 1,
+                "goal": 0,
+                "name": "curr_next_0"
+              }
+            ]
+          },
+          "counter_semantics": "All curr bits reset to zero; all-zero is interpreted as curr_0. Every transition produces exactly one hot next bit, advancing from j to (j+1) mod goals iff goal_j holds, otherwise staying."
+        }
+      ],
+      0,
+      "VERIFIED",
+      [
+        [
+          "certificate",
+          "VERIFIED"
+        ],
+        [
+          "closed_loop",
+          "SKIPPED"
+        ]
+      ]
+    ]
+  ],
+  [
+    "real direct exit",
+    0
+  ],
+  [
+    "real direct side",
+    "0"
+  ],
+  [
+    "real direct artifacts",
+    [
+      "aag 3 3 0 7 0\n2\n4\n6\n2\n2\n2\n2\n2\n2\n2\ni0 l0\ni1 u0\ni2 controllable_c0\no0 inv\no1 goal_0\no2 y_0_0\no3 y_0_1\no4 x_0_0_0\no5 x_0_1_0\no6 move_0\n",
+      {
+        "format": "tlsf-gr1-certificate-v1",
+        "status": "realizable",
+        "side": "system",
+        "reduction_semantics": "exact",
+        "circuit": {
+          "path": "<WORK>/certificate.aag",
+          "kind": "ASCII AIGER combinational"
+        },
+        "fixpoint": "Z = nu Z. AND_j mu Y. OR_i nu X. cpre((Z & goal_j) | Y | (X & !fair_i))",
+        "counts": {
+          "goals": 1,
+          "justice_records": 1,
+          "fairness_assumptions": 0,
+          "state_variables": 1,
+          "original_game_latches": 1,
+          "sampling_latches": 0,
+          "uncontrollable_inputs": 1,
+          "controllable_inputs": 1,
+          "predicates": 7,
+          "aig_inputs": 3,
+          "aig_latches": 0,
+          "aig_ands": 0,
+          "levels_per_goal": [
+            2
+          ]
+        },
+        "outputs": [
+          {
+            "name": "inv",
+            "kind": "winning_region"
+          },
+          {
+            "name": "goal_0",
+            "kind": "goal",
+            "goal": 0
+          },
+          {
+            "name": "y_0_0",
+            "kind": "mu_level",
+            "goal": 0,
+            "level": 0
+          },
+          {
+            "name": "y_0_1",
+            "kind": "mu_level",
+            "goal": 0,
+            "level": 1
+          },
+          {
+            "name": "x_0_0_0",
+            "kind": "nu_level",
+            "goal": 0,
+            "level": 0,
+            "fairness": 0
+          },
+          {
+            "name": "x_0_1_0",
+            "kind": "nu_level",
+            "goal": 0,
+            "level": 1,
+            "fairness": 0
+          },
+          {
+            "name": "move_0",
+            "kind": "move_relation",
+            "goal": 0
+          }
+        ],
+        "goals": [
+          {
+            "goal": 0,
+            "justice_record": 0,
+            "record_member": 0
+          }
+        ],
+        "variables": {
+          "state": [
+            {
+              "certificate_input": 0,
+              "name": "l0",
+              "game_latch": 0,
+              "game_literal": 6,
+              "next_game_literal": 6,
+              "reset": 1,
+              "solver_added": false
+            }
+          ],
+          "uncontrollable": [
+            {
+              "certificate_input": 1,
+              "game_input": 0,
+              "game_literal": 2,
+              "name": "u0"
+            }
+          ],
+          "controllable": [
+            {
+              "certificate_input": 2,
+              "game_input": 1,
+              "game_literal": 4,
+              "name": "controllable_c0"
+            }
+          ]
+        },
+        "sampling_semantics": "Each solver-added reset-0 latch stores the preceding letter's input-dependent acceptance literal: next(sample)=source. The corresponding GF predicate is replaced by sample because GF p iff GF X p.",
+        "goal_counter_latches": [
+          {
+            "strategy_latch": 1,
+            "name": "__tlsf_gr1_goal_counter_0",
+            "goal": 0,
+            "reset": 0,
+            "effective_initial": true,
+            "advance_to_goal": 0
+          }
+        ],
+        "goal_counter_semantics": "Strategy latches after the game/sampling latches are one-hot goal counters. All reset to 0; all-zero is interpreted as goal 0, then goal j advances to (j+1) mod goals exactly when inv & goal_j holds.",
+        "rank_semantics": "For goal j the selected rank is the least lexicographic (k,i) whose x_j_k_i contains the state; y_j_k is the union of the fairness disjuncts at mu level k.",
+        "move_semantics": "move_j is the pre-Skolem most-permissive relation over state, uncontrollable inputs and controllable inputs: advance safely inside inv at goal_j; otherwise move to goal/lower rank or stay in the selected x_j_k_i while fair_i is false."
+      },
+      "aag 3 3 0 2 0\n2\n4\n6\n2\n1\ni0 l0\ni1 curr_0\ni2 u0\no0 controllable_c0\no1 curr_next_0\n",
+      {
+        "format": "tlsf-gr1-policy-v1",
+        "side": "system",
+        "reduction_semantics": "exact",
+        "circuit": {
+          "path": "<WORK>/policy.aag",
+          "kind": "ASCII AIGER combinational"
+        },
+        "counts": {
+          "game_state_variables": 1,
+          "original_game_latches": 1,
+          "sampling_latches": 0,
+          "goals": 1,
+          "uncontrollable_inputs": 1,
+          "controllable_outputs": 1,
+          "aig_inputs": 3,
+          "aig_outputs": 2,
+          "aig_ands": 0
+        },
+        "inputs": {
+          "state": [
+            {
+              "policy_input": 0,
+              "game_latch": 0,
+              "name": "l0"
+            }
+          ],
+          "counter": [
+            {
+              "policy_input": 1,
+              "goal": 0,
+              "name": "curr_0",
+              "reset": 0,
+              "effective_initial": true
+            }
+          ],
+          "uncontrollable": [
+            {
+              "policy_input": 2,
+              "game_input": 0,
+              "name": "u0"
+            }
+          ]
+        },
+        "outputs": {
+          "controllable": [
+            {
+              "policy_output": 0,
+              "game_input": 1,
+              "name": "controllable_c0"
+            }
+          ],
+          "counter_next": [
+            {
+              "policy_output": 1,
+              "goal": 0,
+              "name": "curr_next_0"
+            }
+          ]
+        },
+        "counter_semantics": "All curr bits reset to zero; all-zero is interpreted as curr_0. Every transition produces exactly one hot next bit, advancing from j to (j+1) mod goals iff goal_j holds, otherwise staying."
+      }
+    ]
+  ],
+  [
+    "real auto method",
+    [
+      0,
+      "VERIFIED",
+      [
+        [
+          "certificate",
+          "VERIFIED"
+        ],
+        [
+          "closed_loop",
+          "SKIPPED"
+        ]
+      ]
+    ]
+  ],
+  [
+    "real closed-loop method",
+    [
+      0,
+      "VERIFIED",
+      [
+        [
+          "certificate",
+          "SKIPPED"
+        ],
+        [
+          "closed_loop",
+          "VERIFIED"
+        ]
+      ]
+    ]
+  ],
+  [
+    "real both method",
+    [
+      0,
+      "VERIFIED",
+      [
+        [
+          "certificate",
+          "VERIFIED"
+        ],
+        [
+          "closed_loop",
+          "VERIFIED"
+        ]
+      ]
+    ]
+  ],
+  [
+    "real region method",
+    [
+      0,
+      "REGION_VERIFIED",
+      []
+    ]
+  ],
+  [
+    "unreal solve exit",
+    1
+  ],
+  [
+    "unreal solve/export/check",
+    [
+      1,
+      "",
+      [
+        "aag 3 3 0 13 0\n2\n4\n6\n1\n0\n0\n2\n3\n1\n1\n1\n1\n1\n1\n4\n5\ni0 la\ni1 a\ni2 controllable_o\no0 inv\no1 system_winning\no2 goal_0\no3 fair_0\no4 fair_1\no5 z_0\no6 y_0_0\no7 x_0_0_0_0\no8 x_0_0_0_1\no9 x_0_0_1_0\no10 x_0_0_1_1\no11 move_0\no12 move_1\n",
+        {
+          "format": "tlsf-gr1-certificate-v1",
+          "status": "unrealizable",
+          "side": "environment",
+          "reduction_semantics": "exact",
+          "system_strategy_semantics": "mealy",
+          "strategy_semantics": "moore",
+          "duality_delay_steps": 1,
+          "environment_counter_strategy_exported": true,
+          "witness_condition": "nonempty intersection of the delayed environment counter-strategy language with the specification complement",
+          "circuit": {
+            "path": "<WORK>/certificate.aag",
+            "kind": "ASCII AIGER combinational"
+          },
+          "fixpoint": "L = mu Z. OR_j nu Y. AND_i mu X. dpre((Z | !goal_j) & Y & (X | fair_i))",
+          "counts": {
+            "goals": 1,
+            "fairness_assumptions": 2,
+            "fairness_counters": 2,
+            "state_variables": 1,
+            "original_game_latches": 1,
+            "sampling_latches": 0,
+            "uncontrollable_inputs": 1,
+            "controllable_inputs": 1,
+            "outer_levels": 1,
+            "predicates": 13,
+            "aig_inputs": 3,
+            "aig_latches": 0,
+            "aig_ands": 0
+          },
+          "rank_semantics": "The least outer level and least goal identify the co-Buchi goal. For the active fairness counter, the least inner X level must decrease until fair_i holds. Outer-rank decreases permit only finitely many goal changes.",
+          "move_semantics": "move_i is the pre-Skolem relation bad | target(next). The exported uncontrollable policy is Skolemized only after universal quantification of every current controllable input."
+        },
+        "aag 3 3 0 3 0\n2\n4\n6\n3\n3\n2\ni0 la\ni1 curr_0\ni2 curr_1\no0 a\no1 curr_next_0\no2 curr_next_1\n",
+        {
+          "format": "tlsf-gr1-policy-v1",
+          "side": "environment",
+          "reduction_semantics": "exact",
+          "system_strategy_semantics": "mealy",
+          "strategy_semantics": "moore",
+          "duality_delay_steps": 1,
+          "circuit": {
+            "path": "<WORK>/policy.aag",
+            "kind": "ASCII AIGER combinational"
+          },
+          "counts": {
+            "game_state_variables": 1,
+            "original_game_latches": 1,
+            "sampling_latches": 0,
+            "goals": 1,
+            "fairness_counters": 2,
+            "controllable_inputs": 1,
+            "uncontrollable_outputs": 1,
+            "aig_inputs": 3,
+            "aig_outputs": 3,
+            "aig_ands": 0
+          },
+          "inputs": {
+            "state": [
+              {
+                "policy_input": 0,
+                "game_latch": 0,
+                "name": "la"
+              }
+            ],
+            "counter": [
+              {
+                "policy_input": 1,
+                "fairness": 0,
+                "name": "curr_0",
+                "reset": 0,
+                "effective_initial": true
+              },
+              {
+                "policy_input": 2,
+                "fairness": 1,
+                "name": "curr_1",
+                "reset": 0,
+                "effective_initial": false
+              }
+            ],
+            "controllable": []
+          },
+          "outputs": {
+            "uncontrollable": [
+              {
+                "policy_output": 0,
+                "game_input": 0,
+                "name": "a"
+              }
+            ],
+            "counter_next": [
+              {
+                "policy_output": 1,
+                "fairness": 0,
+                "name": "curr_next_0"
+              },
+              {
+                "policy_output": 2,
+                "fairness": 1,
+                "name": "curr_next_1"
+              }
+            ]
+          },
+          "counter_semantics": "The all-zero state means fairness counter 0. At a state where fair_i holds the counter advances to (i+1) modulo the number of fairness assumptions. The uncontrollable outputs do not read the current controllable letter."
+        }
+      ],
+      0,
+      "VERIFIED",
+      [
+        [
+          "certificate",
+          "VERIFIED"
+        ],
+        [
+          "closed_loop",
+          "SKIPPED"
+        ]
+      ]
+    ]
+  ],
+  [
+    "unreal direct exit",
+    0
+  ],
+  [
+    "unreal direct side",
+    "1"
+  ],
+  [
+    "unreal direct artifacts",
+    [
+      "aag 3 3 0 13 0\n2\n4\n6\n1\n0\n0\n2\n3\n1\n1\n1\n1\n1\n1\n4\n5\ni0 la\ni1 a\ni2 controllable_o\no0 inv\no1 system_winning\no2 goal_0\no3 fair_0\no4 fair_1\no5 z_0\no6 y_0_0\no7 x_0_0_0_0\no8 x_0_0_0_1\no9 x_0_0_1_0\no10 x_0_0_1_1\no11 move_0\no12 move_1\n",
+      {
+        "format": "tlsf-gr1-certificate-v1",
+        "status": "unrealizable",
+        "side": "environment",
+        "reduction_semantics": "exact",
+        "system_strategy_semantics": "mealy",
+        "strategy_semantics": "moore",
+        "duality_delay_steps": 1,
+        "environment_counter_strategy_exported": true,
+        "witness_condition": "nonempty intersection of the delayed environment counter-strategy language with the specification complement",
+        "circuit": {
+          "path": "<WORK>/certificate.aag",
+          "kind": "ASCII AIGER combinational"
+        },
+        "fixpoint": "L = mu Z. OR_j nu Y. AND_i mu X. dpre((Z | !goal_j) & Y & (X | fair_i))",
+        "counts": {
+          "goals": 1,
+          "fairness_assumptions": 2,
+          "fairness_counters": 2,
+          "state_variables": 1,
+          "original_game_latches": 1,
+          "sampling_latches": 0,
+          "uncontrollable_inputs": 1,
+          "controllable_inputs": 1,
+          "outer_levels": 1,
+          "predicates": 13,
+          "aig_inputs": 3,
+          "aig_latches": 0,
+          "aig_ands": 0
+        },
+        "rank_semantics": "The least outer level and least goal identify the co-Buchi goal. For the active fairness counter, the least inner X level must decrease until fair_i holds. Outer-rank decreases permit only finitely many goal changes.",
+        "move_semantics": "move_i is the pre-Skolem relation bad | target(next). The exported uncontrollable policy is Skolemized only after universal quantification of every current controllable input."
+      },
+      "aag 3 3 0 3 0\n2\n4\n6\n3\n3\n2\ni0 la\ni1 curr_0\ni2 curr_1\no0 a\no1 curr_next_0\no2 curr_next_1\n",
+      {
+        "format": "tlsf-gr1-policy-v1",
+        "side": "environment",
+        "reduction_semantics": "exact",
+        "system_strategy_semantics": "mealy",
+        "strategy_semantics": "moore",
+        "duality_delay_steps": 1,
+        "circuit": {
+          "path": "<WORK>/policy.aag",
+          "kind": "ASCII AIGER combinational"
+        },
+        "counts": {
+          "game_state_variables": 1,
+          "original_game_latches": 1,
+          "sampling_latches": 0,
+          "goals": 1,
+          "fairness_counters": 2,
+          "controllable_inputs": 1,
+          "uncontrollable_outputs": 1,
+          "aig_inputs": 3,
+          "aig_outputs": 3,
+          "aig_ands": 0
+        },
+        "inputs": {
+          "state": [
+            {
+              "policy_input": 0,
+              "game_latch": 0,
+              "name": "la"
+            }
+          ],
+          "counter": [
+            {
+              "policy_input": 1,
+              "fairness": 0,
+              "name": "curr_0",
+              "reset": 0,
+              "effective_initial": true
+            },
+            {
+              "policy_input": 2,
+              "fairness": 1,
+              "name": "curr_1",
+              "reset": 0,
+              "effective_initial": false
+            }
+          ],
+          "controllable": []
+        },
+        "outputs": {
+          "uncontrollable": [
+            {
+              "policy_output": 0,
+              "game_input": 0,
+              "name": "a"
+            }
+          ],
+          "counter_next": [
+            {
+              "policy_output": 1,
+              "fairness": 0,
+              "name": "curr_next_0"
+            },
+            {
+              "policy_output": 2,
+              "fairness": 1,
+              "name": "curr_next_1"
+            }
+          ]
+        },
+        "counter_semantics": "The all-zero state means fairness counter 0. At a state where fair_i holds the counter advances to (i+1) modulo the number of fairness assumptions. The uncontrollable outputs do not read the current controllable letter."
+      }
+    ]
+  ],
+  [
+    "solve malformed",
+    [
+      2,
+      "",
+      "./tlsfsolve: failed to parse aag game\n"
+    ]
+  ],
+  [
+    "solve node cap",
+    [
+      2,
+      "",
+      "tlsfsolve: OxiDD solver failed\ntlsfsolve: failure kind=1 phase=construction operation=var id=2 index=0\ntlsfsolve: allocation failure: rebuild with diagnostics (-Db_ndebug=false),\ntlsfsolve: rerun with scripts/diagnose_tlsfsolve.py, and attach its bundle\ntlsfsolve: to a bug report; see docs/tlsfsolve-diagnostics.md\n"
+    ]
+  ],
+  [
+    "check malformed",
+    [
+      4,
+      "INVALID\n",
+      "tlsfcertcheck: malformed ASCII AIGER '<WORK>/malformed.aag'\n"
+    ]
+  ],
+  [
+    "check node cap",
+    [
+      2,
+      "",
+      "./tlsfcertcheck: invalid --node-cap\n"
+    ]
+  ]
+]

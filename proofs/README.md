@@ -542,7 +542,7 @@ trusted. The §9 constructor and admission results have not been extended to
 the general Π₂/Σ₂ grammar. General admission remains opt-in through
 `allow_unproved`; default admission is unchanged.
 
-The repeatable search is `test/unit/dpa_pi2_converse.py`. The recorded run
+The repeatable search is `tools/golden/dpa_pi2_converse.py`. The recorded run
 compared both language inclusions with Spot 2.16 through the existing
 `dpa_equivalence.cpp` harness and `--allow-unproved`:
 
@@ -568,7 +568,8 @@ this checkout, reproduce the corpus/checks with:
 
 ```sh
 meson compile -C build -j1 dpa_equivalence
-python3 test/unit/dpa_pi2_converse.py build/test/unit/dpa_equivalence \
+python3 tools/golden/build_legacy.py build
+python3 tools/golden/dpa_pi2_converse.py build/golden-legacy \
   --output /tmp/tlsf-task-j-search
 ```
 
