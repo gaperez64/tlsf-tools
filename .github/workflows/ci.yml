@@ -218,7 +218,7 @@ jobs:
         run: |
           # Cover the complete library and research executables.
           meson setup build-cov -Db_coverage=true -Dresearch_tools=true
-          meson test -C build-cov
+          meson test -C build-cov --print-errorlogs
           summary=$(gcovr --root . \
             --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
             --exclude '.*aiger\.c' \

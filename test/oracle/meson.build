@@ -38,9 +38,21 @@ if python3.found()
            '--builddir', meson.project_build_root()],
     timeout: 120)
 endif
-foreach suite : ['native_lift_differential', 'native_reduction', 'native_reduction_language', 'native_reduction_strict']
+# These scripts locate their helpers under --builddir. Declare those targets
+# explicitly so `meson test` also works without a preceding full build.
+native_lift_test_deps = [native_lift_exe]
+if research_tools
+  native_lift_test_deps += [exe['tlsfcertcheck']]
+endif
+foreach suite, helpers : {
+  'native_lift_differential': native_lift_test_deps,
+  'native_reduction': [native_reduction_exe],
+  'native_reduction_language': [native_reduction_exe, exe['tlsf2ltl']],
+  'native_reduction_strict': [native_reduction_exe],
+}
   test(suite, python3,
     args: [files('test_' + suite + '.py'), '--builddir', meson.project_build_root()],
+    depends: helpers,
     timeout: 1800, is_parallel: false)
 endforeach
 
@@ -63,7 +75,8 @@ if research_tools
     endforeach
     test('decomposition_exactness_golden', python3,
       args: [files('test_decomposition_exactness.py'), exe['tlsf2ltl'],
-             exe['tlsfresidual'], exe['tlsfcompose'], phase_b_probe, cases], timeout: 60)
+             exe['tlsfresidual'], exe['tlsfcompose'], phase_b_probe, cases],
+      depends: [native_reduction_exe, exe['tlsfsolve']], timeout: 60)
     test('oxidd_semantic_oracle', python3,
       args: [files('check_oxidd_oracle.py'), exe['tlsfsolve']], timeout: 120)
     test('native_oracle_8b158d7', python3,
@@ -119,5 +132,6 @@ if research_tools
   endif
   test('gr1_monitor_game', python3,
     args: [files('test_gr1_monitor_game.py'), '--builddir', meson.project_build_root()],
+    depends: [native_reduction_exe, exe['tlsf2ltl'], exe['tlsfsolve'], exe['tlsfcertcheck']],
     timeout: 600, is_parallel: false)
 endif
