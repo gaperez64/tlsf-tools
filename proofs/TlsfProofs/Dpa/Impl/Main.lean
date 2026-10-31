@@ -1,5 +1,6 @@
 import TlsfProofs.Dpa.Validation.Construction
 import TlsfProofs.Dpa.Validation.Checks
+import TlsfProofs.Dpa.Validation.Finite
 
 /-! Executable and kernel-checked reference-construction regressions. -/
 open Tlsf Tlsf.Dpa Tlsf.Dpa.Impl
@@ -32,7 +33,24 @@ private def checks : List (String × Bool) := [
   ("positive-round-acceptance", positiveb (fun v : Fin 2 → Bool => v 0 && v 1)),
   ("negative-round-rejected", !positiveb (fun v : Fin 2 → Bool => !v 0))]
 
+private def finiteProbe (f : Formula (Fin 2)) (buchi : Bool) : Bool :=
+  match construct rank rank f with
+  | none => false
+  | some r =>
+    if buchi then positiveb r.skeleton && (r.exportBuchi 64).isSome
+    else (r.exportParity 64).isSome
+
 private def runtimeChecks : List (String × Bool) := [
+  ("finite-GF-parity", finiteProbe gf false),
+  ("finite-FG-parity", finiteProbe fg false),
+  ("finite-true-parity", finiteProbe .tt false),
+  ("finite-false-parity", finiteProbe .ff false),
+  ("finite-GF-buchi", finiteProbe gf true),
+  ("finite-true-buchi", finiteProbe .tt true),
+  ("finite-false-buchi", finiteProbe .ff true),
+  ("finite-FG-buchi-positivity-failure", !finiteProbe fg true),
+  ("finite-resource-failure", match construct rank rank (.eventually a) with
+    | none => false | some r => (r.exportParity 0).isNone),
   ("zero-colour-tree", decide ((buildTree (fun _ : Fin 0 → Bool => true)
     (fullColours 0)).advance [] Fin.elim0 = ([], 0)))]
 

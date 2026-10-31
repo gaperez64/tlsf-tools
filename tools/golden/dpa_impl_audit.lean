@@ -1,6 +1,7 @@
 import TlsfProofs.Dpa.Validation.Construction
 import TlsfProofs.Dpa.Impl.Main
 import TlsfProofs.Dpa.Validation.Equivalence
+import TlsfProofs.Dpa.Validation.Finite
 
 #print axioms Tlsf.Dpa.Impl.uncached_construction_language
 #print axioms Tlsf.Dpa.Impl.referencePlan_success
@@ -17,3 +18,6 @@ import TlsfProofs.Dpa.Validation.Equivalence
 #print axioms Tlsf.Dpa.Validation.check_language
 #print axioms Tlsf.Dpa.Validation.checkBuchi_sound
 #print axioms Tlsf.Dpa.Validation.equivalence_checks
+#print axioms Tlsf.Dpa.Validation.exportParity_language
+#print axioms Tlsf.Dpa.Validation.exportBuchi_language
+#print axioms Tlsf.Dpa.Impl.uncached_finite_construction_language

@@ -479,7 +479,7 @@ artifact, C output, or successful validation.
 | Executable Zielonka construction and parity language | `maximalOppositeb_exact`, `buildTree`, `tree_maxOdd`, `Assembly.parity_language` |
 | Executable positive Büchi round monitor | `positiveb_exact`, `completedRounds_language`, `Assembly.buchi_language` |
 | Composition from executable research admission | `uncached_construction_language` |
-| Finite closed reference-table export | Open; symbolic representatives must be merged using proved Boolean equality |
+| Finite closed reference-table export | `Validation.exportParity_language`, `Validation.exportBuchi_language`, `Impl.uncached_finite_construction_language`; checked closure with Boolean-class merging, explicit exploration limit |
 | Executable parity and state-based Büchi language-equivalence checker | `Validation.check_language`, `Validation.checkBuchi_sound`; proved sound, independent of state isomorphism |
 | Canonical C dump, parsing, full formula inventory and offline validation | Open; zero translation-validation verdicts recorded |
 | Hash goldens and C regression gate | Open; existing language fixtures remain regression evidence |
@@ -668,16 +668,24 @@ C-admission connection remain open. Milestone 2 (sound finite-automaton
 checkers) is proved. Milestones 3–4 and enablement are unimplemented. No
 formula has been silently enabled or declared validated.
 
-The next proof target is **sound finite export**: if an executable exporter
-returns a closed finite table for `r.parity` (or `r.buchi`), the table must
-recognize exactly that machine's language. The exporter must merge formula
-representatives by the proved Boolean class equality and preserve priorities
-under that relation. A syntactic BFS is insufficient: equivalent formulas can
-keep growing syntactically, while `finite_component_states` bounds semantic
-classes only. This proof must precede using the finite checker against a C dump.
-Afterward the offline driver must retain the formula and AP order, validate
-every required case in both admissions, and bind successful results to
-canonical C hashes before the reduction's admission can change.
+TV2 adds **sound finite export** in `Validation/Finite.lean`. The exporter
+merges component all/rejecting fields by the proved Boolean class equality;
+tree paths and round residual/incoming bits stay in the state key. It checks
+initial correspondence and closure on every state and letter, including
+terminal loops, independently of BFS discovery. `exportParity_language` and
+`exportBuchi_language` prove the returned complete table has the symbolic
+machine's language. `uncached_finite_construction_language` composes those
+results with the formula theorem; the Buchi conclusion explicitly requires
+`positiveb`. Resource exhaustion returns no table and must fail validation.
+This is a soundness result for successful exports, not a proof that a fixed
+resource limit suffices for every admitted formula. The C admission inventory
+and its connection to reference admission remain obligations before enablement.
+
+Finite-export milestone checks: **30 executable checks / zero failures**,
+including constants, GF, FG, positive Buchi exports and resource exhaustion.
+All 18 theorem dependency audits use only the permitted axioms. The offline
+driver must retain formula and AP order, validate every required case in both
+admissions, and bind successes to canonical C hashes before admission changes.
 
 The final clean rebuild removed all old `.lake` artifacts, rebuilt 72 jobs
 successfully with warnings as errors, and reran all 21 executable checks

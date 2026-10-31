@@ -18,3 +18,4 @@ import TlsfProofs.Dpa.Impl.Selection
 import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Validation.Construction
 import TlsfProofs.Dpa.Validation.Equivalence
+import TlsfProofs.Dpa.Validation.Finite
