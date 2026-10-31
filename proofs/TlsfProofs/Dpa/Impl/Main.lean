@@ -435,20 +435,23 @@ private def defaultTagChecks : List (String × Bool × Bool) := [
   ("default-tags-started-writes-exact", decide
     ((defaultTags transportRank (fun _ => false) 32 true (.globally a) {}).map
       (fun r => r.2.atoms.length) = some 1), true),
-  ("default-tags-phase-change-keeps-class-hit", decide
+  ("default-tags-phase-change-clears-class-hit", decide
     ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 false absorbedNext {}
-         let (bits, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext s
-         pure (fragmentMask bits, s.atoms.length)) = some (26, 0)), true),
+         let (bits, s) ← startDefaultTags transportRank (fun _ => false) 32 absorbedNext s
+         pure (fragmentMask bits, s.atoms.length)) = some (31, 1)), true),
+  ("default-tags-start-retains-exact-atoms", decide
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 false absorbedGlobal {}
+         pure (s.start.atoms.length, s.start.classes.length)) = some (1, 0)), true),
   ("default-tags-syntax-atom-cache-reuse", decide
     ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext {}
          let (bits, s) ← defaultTags transportRank (fun _ => false) 32 true
            (.conj absorbedNext b) s
          pure (fragmentMask bits, s.atoms.length)) = some (31, 1)), true),
   ("default-tags-equivalent-class-hit", decide
-    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 false absorbedNext {}
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext {}
          let (bits, s) ← defaultTags transportRank (fun _ => false) 32 true
            (.conj .tt absorbedNext) s
-         pure (fragmentMask bits, s.atoms.length)) = some (26, 0)), true),
+         pure (fragmentMask bits, s.atoms.length)) = some (31, 1)), true),
   ("default-tags-low-first", decide
     (defaultTagMask false (.conj (.globally a) (.eventually b)) = some 24), true),
   ("default-tags-high-first", decide

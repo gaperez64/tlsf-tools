@@ -23,6 +23,7 @@ ANCHORS = {
     'src/lib/dpa.c': {
         'uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);',
         'c->max_priority = (c->components.n + 2) | 1u;',
+        'if (!c->started) {',
         's->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};',
     },
     'src/lib/dpa_dela.c': {

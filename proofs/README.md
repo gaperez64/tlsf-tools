@@ -1061,17 +1061,18 @@ retains every structural class bit, and justifies each returned bit by
 membership or the corresponding operator transfer from recursively justified
 canonical operand support. It does not substitute a language-equivalent
 formula or assert structural membership of the original atom.
-`defaultTags_phase_change` composes pre-start and post-start calls with the
-same caches. A class-cache hit may retain weaker pre-start bits after start;
-neither cache invalidation nor equality with the strongest recursive tag
-is assumed. The checks exhibit X with mask 26 before start, mask 31 on a
-fresh post-start call, and mask 26 on a post-start class-cache hit.
+`TagCache.start` models C's class-tag reset at `src/lib/dpa.c:510`, retaining
+the exact atom-tag cache. `startDefaultTags_sound` and
+`defaultTags_phase_change` compose pre-start and post-start calls through
+that executable reset. The checks exhibit X with mask 26 before start and
+mask 31 with one exact atom-cache entry after startup; weaker pre-start
+class tags are cleared. Same-phase canonical class-cache hits remain covered.
 
 `freshTagBounds_valid`, `cachedTagBounds_valid` and `TagBounds.Valid.mask`
 prove persistent lower-bound hits and upper-bound misses sound for the same
 recursive predicates. Bounds are computed extensionally over support;
 numeric quick-cache sentinels and cofactor-cell storage remain decoded
-representation details. The 26 new checks cover operand absorption under
+representation details. The 27 tag checks cover operand absorption under
 G/X/U/R/W/M, frozen/structural disagreement, both child orders, cofactor
 cache writes, exact-tag hits, equivalent class keys and stale cached bounds.
 The component/extractor language theorem for these refined predicates is
@@ -1117,12 +1118,13 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 206 dependency reports contain only the three permitted axioms; the thirteen
-concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (72 Lake jobs). All 205
+All 208 dependency reports contain only the three permitted axioms. Of the thirteen
+concrete diagnostic proofs, `terminal_checks` uses `propext`, `Classical.choice`
+and `Quot.sound`; the other twelve use only `propext`. Lean 4.35.0 builds the complete
+library and `dpaImplChecks` with warnings as errors (72 Lake jobs). All 206
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-191 references / 149 anchored C/Lean targets pass. Both documentation gates
+194 references / 152 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 

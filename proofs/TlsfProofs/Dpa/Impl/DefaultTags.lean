@@ -6,7 +6,8 @@ import TlsfProofs.Dpa.Impl.Selection
 The operand calls and transfers are `src/lib/dpa_formula.c:81`; materialization
 is `:366`. Atom keys retain frozen syntax; class keys use Boolean equality.
 An absent atom cell means its initial structural tags, with exact_tags false.
-Class cache hits precede refinement, including after started changes. The
+Class cache hits precede refinement within a phase. Startup clears class
+tags at `src/lib/dpa.c:510`, retaining the frozen atom cache. The
 reference uses the supplied atom-ID order and Boolean cofactors in place of
 the reduced BDD. Either evaluation order of the two C child calls is allowed.
 
@@ -137,6 +138,13 @@ def TagCache.Valid (s : TagCache ap) : Prop :=
 
 theorem TagCache.empty_valid : ({} : TagCache ap).Valid := by
   constructor <;> intro e he <;> simp at he
+
+/-- The first successors request clears every class tag, but leaves the
+per-atom exact-tag cells intact (`src/lib/dpa.c:510`). -/
+def TagCache.start (s : TagCache ap) : TagCache ap := { s with classes := [] }
+
+theorem TagCache.start_valid {s : TagCache ap} (hs : s.Valid) : s.start.Valid := by
+  exact ⟨hs.1, fun _ he => by simp [TagCache.start] at he⟩
 
 def lookupAtomTags (a : Formula (Fin ap)) : FragmentCache ap → Option FragmentBits
   | [] => none
@@ -395,16 +403,28 @@ theorem defaultTags_sound (rank : Formula (Fin ap) → Nat)
             hatom hlow hhigh
           exact ⟨TagCache.rememberClass_valid hsc hb, hb⟩
 
-/-- In particular, a cache produced before start is valid for a later call
-after start; no invalidation or stronger post-start exactness is assumed. -/
+/-- Execute the startup reset before the first post-start tag call. -/
+def startDefaultTags (rank : Formula (Fin ap) → Nat)
+    (highFirst : Formula (Fin ap) → Bool) (fuel : Nat)
+    (f : Formula (Fin ap)) (s : TagCache ap) : Option (FragmentBits × TagCache ap) :=
+  defaultTags rank highFirst fuel true f s.start
+
+theorem startDefaultTags_sound (rank : Formula (Fin ap) → Nat)
+    (highFirst : Formula (Fin ap) → Bool) (fuel : Nat) :
+    TagComputation.Sound (startDefaultTags rank highFirst fuel) := by
+  intro f s b s' hs he
+  exact defaultTags_sound rank highFirst fuel true f s.start b s' (TagCache.start_valid hs) he
+
+/-- Compose calls across C's startup transition, including its class reset.
+Atom-cache validity persists; a pre-start class-cache hit is not reused. -/
 theorem defaultTags_phase_change (rank : Formula (Fin ap) → Nat)
     (highFirst : Formula (Fin ap) → Bool) (fuel fuel' : Nat) (f g : Formula (Fin ap))
     (s : TagCache ap) (hs : s.Valid)
     (hbefore : defaultTags rank highFirst fuel false f s = some (b, s'))
-    (hafter : defaultTags rank highFirst fuel' true g s' = some (b', s'')) :
+    (hafter : startDefaultTags rank highFirst fuel' g s' = some (b', s'')) :
     s''.Valid ∧ ClassTagSpec f b ∧ ClassTagSpec g b' := by
   obtain ⟨hs', hf⟩ := defaultTags_sound rank highFirst fuel false f s b s' hs hbefore
-  obtain ⟨hs'', hg⟩ := defaultTags_sound rank highFirst fuel' true g s' b' s'' hs' hafter
+  obtain ⟨hs'', hg⟩ := startDefaultTags_sound rank highFirst fuel' g s' b' s'' hs' hafter
   exact ⟨hs'', hf, hg⟩
 
 def operatorBits (a : Formula α) : FragmentBits :=

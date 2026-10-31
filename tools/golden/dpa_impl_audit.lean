@@ -180,6 +180,8 @@ Every reported dependency set must be contained in
 #print axioms Tlsf.Dpa.Impl.tagChildren_sound
 #print axioms Tlsf.Dpa.Impl.shannonTagSpec
 #print axioms Tlsf.Dpa.Impl.defaultTags_sound
+#print axioms Tlsf.Dpa.Impl.TagCache.start_valid
+#print axioms Tlsf.Dpa.Impl.startDefaultTags_sound
 #print axioms Tlsf.Dpa.Impl.defaultTags_phase_change
 #print axioms Tlsf.Dpa.Impl.operatorBits_exact
 #print axioms Tlsf.Dpa.Impl.atomLower_spec
