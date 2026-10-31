@@ -1282,6 +1282,38 @@ exercise quick returns without exact cache growth, undecided refinement,
 stale bounds, equivalent keys, masks, startup and extraction. Persistent
 remainder-cache reuse and the full component program remain separate.
 
+**Task T10, persistent remainders and ordered component calls.**
+`Impl/RemainderTrace.lean` adds `rhoMemo`: a persistent class-keyed hit
+returns immediately, and finite retry performs another memo lookup before
+extracting from the unfolded source. `rhoMemo_quick` proves equality with
+`rhoTagged` and preserves `RemainderCache.Realizes`, which realizes every
+stored result under every later valid cache extension in the same phase.
+The empty memo satisfies this invariant; it is maintained by each
+successful call, including hits and retry hits. No recomputation is inserted
+on a hit. `rhoMemo_quick_certificate` independently proves a permanent
+unfolded NNF-class/co-safety obligation implied by the source. That weaker
+certificate survives changes of classifier and can justify old results
+without assuming fresh-extraction equality.
+
+`Impl/ComponentTrace.lean` compiles startup's combined safety/co-safety
+mask and the ordered transition guards. `initialMemo_quick`, `rowMemo_quick`
+and `transitionMemo_quick` identify successful calls with `initialTagged`,
+`rowTagged` and `transitionTagged` on semantic states, including the marks,
+while preserving the same-phase memo invariant. Twenty-two additional
+executable/kernel checks cover memo hits with zero query fuel, retry hits,
+query order, finite renewal, sinks and suspension.
+
+The stronger memo invariant cannot be transported through startup merely
+by clearing exact class cells. The kernel-checked `startup_memo_mismatch`
+exhibits this at the decoded component boundary. Let
+`u = a | (a & G b)`, `x = X u`, `p = F(a | (a & x))`, and `f = x & p`.
+The compiled pre-start initial call caches a remainder; after reset, that
+remainder differs from a fresh `rhoTagged` under the post-start classifier.
+The actual compiled post-start initial call suspends with a false rejecting
+sentinel. This refutes unrestricted memo-reset equality, not language
+correctness or admission by C's full constructor. A reachability-sensitive
+argument must justify only remainders used by the subsequent guarded run.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1290,14 +1322,14 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 370 dependency reports contain only the three permitted axioms. The
+All 398 dependency reports contain only the three permitted axioms. The
 `terminal_checks` diagnostic and all six universal refined-language/shared-trace
-witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other sixteen
+witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other eighteen
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (88 Lake jobs). All 263
+library and `dpaImplChecks` with warnings as errors (92 Lake jobs). All 285
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-201 references / 159 anchored C/Lean targets pass. Both documentation gates
+205 references / 163 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
@@ -1319,8 +1351,9 @@ inputs. T9 proves the false-seed converse, structural Π₂ accepting-run
 equality with refined classifiers, both one-colour parity orientations, and
 active-obligation satisfaction. It also compiles the supported exact-query
 REDUCE traversal, mapped-cache reuse and extraction retry into `TagProgram`.
-T10 compiles the quick-predicate path and realizes its successful extraction
-trace. Persistent remainder-cache reuse, full component-query compilation
+T10 compiles quick predicates, persistent remainder lookup/retry, and
+ordered component calls, with same-phase refinement and permanent memo
+certificates. Startup retention, composition with the complete run/store,
 and the recursive refined Π₂ input domain remain open. Items 2–4 remain open; item 5 is
 deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
@@ -1332,16 +1365,19 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining default-tag bridge is **persistent remainder-cache
-reuse and the component's ordered guards**. `rhoSupported_quick` now
-identifies a successful supported extraction using C's quick predicates
-with the class of `rhoTagged`, without inserting extra exact queries.
-`TagProgram.quick_realizes` replays the entire predicate program through one
-sound classifier while preserving quick and exact cache cells. A persistent
-remainder hit can instead return an extraction made under an earlier
-classifier, without running that program again. Its retained frozen atoms
-and protected X syntax must be justified across later queries and startup;
-replacing a hit by recomputation changes C's cache history.
+The smallest remaining default-tag bridge is **safe use of pre-start
+remainders at the post-start run's actual guarded calls**. Within a phase,
+`rhoMemo_quick` now identifies persistent hits with the class of `rhoTagged`
+under each later realizing classifier, without inserting extra queries.
+The component-call compiler preserves that invariant. Startup retains
+remainders and quick bounds but clears exact class tags. Unrestricted
+fresh-extraction equality across reset is false (`startup_memo_mismatch`),
+so it cannot be assumed as the missing lemma. The permanent remainder
+certificate survives, but does not guarantee retention of each later
+refined co-safety constraint. Use admission/factoring and the actual ordered
+guards to prove the necessary retention at reachable extraction calls,
+then compose the calls with the complete component-store run. Replacing
+memo hits by recomputation would change C's execution and cache history.
 
 The smallest remaining acceptance lemma is **eventual false extracted seeds
 for recursive refined Π₂ inputs on the compiled default-tag run**.
@@ -1354,8 +1390,9 @@ still starts from `HasTag Pi2`, whereas `defaultTags_sound` supplies
 after Boolean absorption inside its materialized syntax; it need not have
 structural `cosafety`. Structural lower bounds therefore do not guarantee
 that an arbitrary sound classifier retains every refined co-safety atom.
-The concrete cache/query dependencies must justify those retentions; a
-fresh-query diagnostic or an arbitrary sound trace cannot do so. An
+The concrete cache/query dependencies, including old remainders retained
+through startup, must justify those retentions; a fresh-query diagnostic
+or an arbitrary sound trace cannot do so. An
 alternative structural language witness, `classTag_exact`, or an existential
 `admitted_grammar` witness cannot identify those frozen atoms or their
 protected X syntax. The forward theorem still needs structural lower
@@ -1383,7 +1420,7 @@ numbers refer to the merged worktree's formatted sources.
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
 | `src/lib/dpa_formula.c:81`, `:118`, `:127`, `:157` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
-| `src/lib/dpa_formula.c:81`, `:127`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.defaultTags_preserves`, `Impl.defaultTags_read`, `Impl.TagProgram.default_realizes`, `Impl.defaultTrace_all_language`, `Impl.cachedTagBounds_valid`, `Impl.TagBounds.Valid.mask`, `Impl.defaultTags_language_certificates`; concrete query-traversal compilation pending |
+| `src/lib/dpa_formula.c:81`, `:127`, `:157`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.defaultTags_preserves`, `Impl.defaultTags_read`, `Impl.TagProgram.default_realizes`, `Impl.defaultTrace_all_language`, `Impl.tagBounds_spec`, `Impl.hasTags_spec`, `Impl.TagProgram.execQuick_spec`, `Impl.TagProgram.quick_realizes`, `Impl.defaultTags_language_certificates`; startup/run composition pending |
 | `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
@@ -1392,9 +1429,9 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_formula.c:563`, `:583`, `:597` — grouped syntax selection, identity test and rest-first execution | `Impl.partitionSyntax_exact`, `Impl.orderedGroups_valid`, `Impl.orderedGroups_language`, `Impl.selectSyntaxPlan_success`, `Impl.runOrderedPlan_success`, `Impl.runSyntax_presentation`; decoded factored input |
 | `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
 | `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
-| `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
-| `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable`; `Impl.transitionTagged_spec`, `Impl.runTagged_satisfying_accepts`, `Impl.runTagged_finite_language`, `Impl.runTagged_safety_language`, `Impl.runTagged_cosafety_language`; full refined Π₂ converse pending |
-| `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
+| `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops`; `Impl.rhoSupported_quick`, `Impl.rhoMemo_quick`, `Impl.rhoMemo_quick_certificate`; same-phase memo realization, permanent certificates, startup retention pending |
+| `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable`; `Impl.transitionTagged_spec`, `Impl.rowMemo_quick`, `Impl.transitionMemo_quick`, `Impl.runTagged_satisfying_accepts`, `Impl.runTagged_finite_language`, `Impl.runTagged_safety_language`, `Impl.runTagged_cosafety_language`; full refined Π₂ converse pending |
+| `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant`, `Impl.initialMemo_quick`; per-call startup query program, reset retention pending |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:93` — executable interning, ordered lookup, oriented cache and stable indices | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_colours`, `Impl.internComponent_preserves_literal`, `Impl.internComponent_buchi_positive` |
 | `src/lib/dpa_dela.c:117` — executable uncached canonical plan selection and transport composition | `Impl.cofactor_eval`, `Impl.cofactor_nnf`, `Impl.cofactor_shannon`, `Impl.canonicalPlan_domain`, `Impl.canonicalPlan_spec`, `Impl.transported_canonical_source`, `Impl.admitted_canonical_presentation`; uncached reference |

@@ -14,6 +14,8 @@ import TlsfProofs.Dpa.Impl.RefinedAcceptance
 import TlsfProofs.Dpa.Impl.RefinedConverse
 import TlsfProofs.Dpa.Impl.SupportedTrace
 import TlsfProofs.Dpa.Impl.QuickTrace
+import TlsfProofs.Dpa.Impl.RemainderTrace
+import TlsfProofs.Dpa.Impl.ComponentTrace
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -694,6 +696,96 @@ private def quickChecks : List (String × Bool × Bool) := [
     ((quickRho absorbedNext).map (fun r => r.1.any (fun f =>
       equivalent f (rhoTagged (quickClassifier r.2) absorbedNext))) = some true), true)]
 
+private def memoRho (f : Formula (Fin 2)) (memo : RemainderCache 2 := [])
+    (fuel : Nat := 32) (s : QuickCache 2 := {}) :=
+  (rhoMemo transportRank f memo).execQuick transportRank (fun _ => false) fuel true s
+
+private def memoRow (a r : Formula (Fin 2)) (memo : RemainderCache 2 := []) :=
+  (rowMemo transportRank a r memo).execQuick transportRank (fun _ => false) 32 true {}
+
+private def startupProtector : Formula (Fin 2) := .eventually (.disj a (.conj a absorbedNext))
+private def startupFormula : Formula (Fin 2) := .conj absorbedNext startupProtector
+
+/-- This follows both compiled initial calls, retaining the old remainder
+memo while resetting class tags. It refutes unrestricted memo equality at
+reset; it does not assert a language counterexample or constructor admission. -/
+private def startupMemoProbe : Option (Bool × Bool × Nat) := do
+  let (some (old, memo), s) ← (initialMemo transportRank startupFormula []).execQuick
+    transportRank (fun _ => false) 32 false {} | none
+  let (some (state, _), t) ← (initialMemo transportRank startupFormula memo).execQuick
+    transportRank (fun _ => false) 32 true s.start | none
+  pure (equivalent old.rejecting (rhoTagged (quickClassifier t) startupFormula),
+    equivalent state.rejecting .ff, memo.length)
+
+theorem startup_memo_mismatch : startupMemoProbe = some (false, true, 1) := by
+  decide +kernel
+
+private def memoChecks : List (String × Bool × Bool) := [
+  ("memo-GF-first-miss-caches-retry-and-source", decide
+    ((memoRho gf).map (fun r => r.1.map (fun (_, memo) => memo.length)) = some (some 2)), true),
+  ("memo-GF-result-realized", decide
+    ((memoRho gf).map (fun r => r.1.any (fun (f, _) =>
+      equivalent f (rhoTagged (quickClassifier r.2) gf))) = some true), true),
+  ("memo-equivalent-key-hit-needs-no-fuel", decide
+    ((do let (some (f, memo), s) ← memoRho gf | none
+         let (some (g, out), _) ← memoRho (.conj .tt gf) memo 0 s | none
+         pure (equivalent f g, out.length)) = some (true, 2)), true),
+  ("memo-hit-keeps-query-caches", decide
+    ((do let (some (_, memo), s) ← memoRho gf | none
+         let (_, t) ← memoRho gf memo 0 s
+         pure (s.tags.classes.length == t.tags.classes.length &&
+           s.tags.atoms.length == t.tags.atoms.length && s.bounds.length == t.bounds.length)) = some true), true),
+  ("memo-hit-program-has-no-predicates", decide
+    ((rhoMemo transportRank gf [(gf, supportedF)]).reads classBits = []), true),
+  ("memo-unfolded-hit-has-no-finite-predicate", decide
+    ((rhoUnfoldedMemo transportRank (unfoldSyntax gf)
+      [(unfoldSyntax gf, unfoldSyntax supportedF)]).reads classBits = []), true),
+  ("memo-retry-hit-skips-second-extraction", decide
+    (((rhoMemo transportRank gf [(unfoldSyntax gf, unfoldSyntax supportedF)]).reads classBits).map
+      (fun f => (equivalent f gf, equivalent f .tt)) = [(true, false), (false, true)]), true),
+  ("memo-first-miss-has-five-predicates", decide
+    (((rhoMemo transportRank gf []).reads classBits).length = 5), true),
+  ("memo-failure-does-not-become-success", decide
+    ((memoRho gf [] 0).isSome = false), true),
+  ("memo-unfolded-no-second-retry", decide
+    ((memoRho (unfoldSyntax gf)).map (fun r => r.1.map (fun (_, memo) => memo.length)) =
+      some (some 1)), true),
+  ("memo-startup-keeps-remainder-hit", decide
+    ((do let (some (f, memo), s) ← memoRho gf | none
+         let (some (g, out), _) ← memoRho gf memo 0 s.start | none
+         pure (equivalent f g, out.length)) = some (true, 2)), true),
+  ("memo-startup-equality-can-fail-while-component-suspends", decide
+    (startupMemoProbe = some (false, true, 1)), true),
+  ("component-program-false-sink-skips-queries", decide
+    ((rowMemo transportRank (.ff : Formula (Fin 2)) supportedF []).reads classBits = []), true),
+  ("component-program-true-sink-skips-queries", decide
+    ((rowMemo transportRank (.tt : Formula (Fin 2)) supportedF []).reads classBits = []), true),
+  ("component-program-safety-precedes-cosafety", decide
+    ((rowMemo transportRank (.globally a) supportedF []).reads classBits =
+      [unfoldSyntax (.globally a)]), true),
+  ("component-program-cosafety-suspends", decide
+    ((memoRow supportedF supportedG).map (fun r => r.1.any (fun (e, memo) =>
+      !e.mark && equivalent e.target.rejecting .ff && decide (memo.length = 0))) = some true), true),
+  ("component-program-continue-keeps-old-obligation", decide
+    ((memoRow gf supportedF).map (fun r => r.1.any (fun (e, memo) =>
+      !e.mark && equivalent e.target.rejecting supportedF && decide (memo.length = 0))) = some true), true),
+  ("component-program-seed-hit-after-two-guards", decide
+    ((rowMemo transportRank gf .ff [(gf, unfoldSyntax supportedF)]).reads classBits =
+      [unfoldSyntax gf, unfoldSyntax gf]), true),
+  ("component-program-retains-finite-remainder", decide
+    ((memoRow gf a).map (fun r => r.1.any (fun (e, _) =>
+      e.mark && equivalent e.target.rejecting (.conj a (unfoldSyntax supportedF)))) = some true), true),
+  ("component-program-false-renewal-takes-sink", decide
+    ((memoRow (.conj a gf) (.neg a)).map (fun r => r.1.any (fun (e, _) =>
+      !e.mark && equivalent e.target.all .ff)) = some true), true),
+  ("component-startup-single-combined-mask", decide
+    ((initialMemo transportRank supportedF []).reads classBits = [unfoldSyntax supportedF]), true),
+  ("component-startup-program-realized", decide
+    (((initialMemo transportRank gf []).execQuick transportRank (fun _ => false) 32 true {}).map
+      (fun r => r.1.any (fun (s, _) =>
+        equivalent s.all (initialTagged (quickClassifier r.2) gf).all &&
+        equivalent s.rejecting (initialTagged (quickClassifier r.2) gf).rejecting)) = some true), true)]
+
 private def refinedProtected : Formula (Fin 2) := .conj absorbedNext refinedProtector
 
 private def refinedChecks : List (String × Bool × Bool) := [
@@ -879,14 +971,17 @@ theorem supported_checks : supportedChecks.all (fun (_, actual, expected) => act
 theorem quick_checks : quickChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem memo_checks : memoChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 theorem terminal_checks : terminalChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ supportedChecks ++ quickChecks ++ terminalChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ supportedChecks ++ quickChecks ++ memoChecks ++ terminalChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + supportedChecks.length + quickChecks.length + terminalChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + supportedChecks.length + quickChecks.length + memoChecks.length + terminalChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

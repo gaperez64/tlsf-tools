@@ -25,4 +25,6 @@ import TlsfProofs.Dpa.Impl.RefinedAcceptance
 import TlsfProofs.Dpa.Impl.RefinedConverse
 import TlsfProofs.Dpa.Impl.SupportedTrace
 import TlsfProofs.Dpa.Impl.QuickTrace
+import TlsfProofs.Dpa.Impl.RemainderTrace
+import TlsfProofs.Dpa.Impl.ComponentTrace
 import TlsfProofs.Dpa.Impl.Terminal

@@ -364,8 +364,9 @@ theorem rhoSupported_default (rank : Formula (Fin ap) → Nat)
     (rhoSupported rank f) s hs he
   exact ⟨hsound, hlower, rhoSupported_spec _ (fun _ _ h => cacheClassifier_congr last h) rank hr⟩
 
-/-- Exact calls visible to the query interpreter, excluding internal operand
-queries of `defaultTags`. Used by offline traversal diagnostics. -/
+/-- Query instruction sites under a supplied classifier, excluding internal
+operand calls of `defaultTags`. The exact interpreter executes an exact call
+at each site; the quick interpreter may answer a predicate without one. -/
 def TagProgram.reads (tags : TagClassifier ap) : TagProgram ap α → List (Formula (Fin ap))
   | .done _ => []
   | .query f cont => f :: (cont (tags f)).reads tags
