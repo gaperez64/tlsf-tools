@@ -611,60 +611,45 @@ None of §9 uses support blocking (#81), external suspension/round robin (#82),
 local-tree/reset/stuttering reductions (#83), `State.inDifferentSccs`, or
 lookahead. Undecided products retain §5's original global tree and update.
 
-## 10. Task T executable refinement status
+## 10. Executable reference and translation validation
 
-`proofs/TlsfProofs/Dpa/Impl/` now contains core-only executable class equality,
-exact support, all five structural tags, syntactic protection, simultaneous
-DROP_X, bounded elision, unfolding, retry and the ordered component table.
-Simulation theorems reduce its infinite runs to `general_pi2_language`.
-NNF dualization respects canonical class equality and maps Σ₂ support to Π₂
-support, so the dual run also has the exact Σ₂ language. The fresh oriented
-component has both one-set numeric parity languages. Canonical research
-admission has the support-union domain and Shannon recursion; the grouping
-test uses the folded class's equality with the Boolean identity.
+The core-only executable reference in `proofs/TlsfProofs/Dpa/Impl/` performs
+class equality, support and structural tags, syntactic protection, simultaneous
+DROP_X, elision, unfolding, retry, complete component progression, pure
+factoring, fresh-coordinate assembly and Zielonka export. Its component and
+product languages compose in `uncached_construction_language`. The positive
+Buchi round monitor has the same language when `positiveb` succeeds.
 
-The executable checks include the review-k/l protected remainders and
-review-i's identity group, Büchi round/state split, and store/cache branches:
-149 checks pass both by kernel reduction and in
-`lake exe dpaImplChecks`. The offline dependency audit is
-`tools/golden/dpa_impl_audit.lean`; its dependencies are restricted to
-`propext`, `Classical.choice`, and `Quot.sound`.
+`Validation/Finite.lean` provides checked finite tables. BFS merges Boolean
+equivalent all/rejecting fields while retaining the tree or round state.
+A separate closure check covers every state and letter, including terminal
+loops. `exportParity_language` and `exportBuchi_language` prove successful
+exports preserve the symbolic language. Exploration limits cause validation
+failure; no fixed limit is proved sufficient for every admitted formula.
+`Normalize.lean` proves Boolean simplification below modalities, including the
+frozen-operand absorption examples. No C cache, trace or call-order model is
+used or required.
 
-`Impl/Store.lean` also proves the executable component-store invariant:
-insertion-order equal-class and cached-dual hits, fresh Π₂/Σ₂ orientation,
-and preservation of existing indices, complete streams, and literals. The
-stored coordinates agree with the abstract fixed product. Büchi Π₂ calls
-return positive literals and do not share cached duals.
+`Validation/Equivalence.lean` proves `check_language` and `checkBuchi_sound` for
+complete deterministic automata with arbitrary state counts. Checked alphabet
+compaction preserves these results. The `dpaValidate` executable parses the
+canonical C dump, checks the exact formula and AP order, builds a certified
+finite reference, explicitly checks Buchi positivity and invokes the language
+checker. `validate_parity_sound` and `validate_buchi_sound` connect successful
+verdicts directly to formula satisfaction.
 
-`Impl/Assembly.lean` now compiles explicit valid Boolean/Shannon construction
-plans, preserving intermediate index bounds and acceptance truth across
-store extensions. `assemble_presentation` and its Shannon and grouped
-instances give `ProductPresentation` for the returned store and indexed
-acceptance. Grouping uses the canonical folded-class identity guard, including
-the nonempty identity case. `Impl/Cache.lean` executes acceptance-cache hits,
-the top-atom call and either C Shannon argument order; `Impl/Grouping.lean`
-selects the frozen-syntax plans and executes recursive rest operands before
-the groups. `Impl/Transport.lean` proves decoded NNF/pending-X transport.
-Task T5 adds the actual recursive factoring traversal in `Impl/Factoring.lean`,
-including safety/co-safety early exits, smart constructors, inspection of
-newly exposed Boolean roots, recursive distributions and threaded per-term
-memo writes/hits. Its weight bound proves sufficient recursion fuel.
-`admitted_transport_factoring_presentation` composes these algorithms into a
-product presentation for each executable research-admitted input, with no
-assumed intermediate syntax or factoring-language premise.
+Offline regeneration is `tools/golden/translation_validate.py`; it needs Lean
+4.35.0 and never runs in CI. It covers every monitor constructor reached by
+the 217-spec corpus, DPA equivalence formulas, language-golden formulas and
+review-k/l/i examples, under both admission policies and acceptance kinds.
+Canonical hashes bind the validated artifacts to the C-only CI regression.
+Failures are retained and minimized, and prevent enabling general admission.
+See `proofs/README.md` and the translation golden report for current counts.
 
-This does not yet provide recursive default-tag refinement, the executable
-terminal shortcut, a C-ordered tree/export, or the C↔Lean BFS goldens.
-Task T2 proves the state-based positive-Boolean Büchi
-round encoding in `Impl/Buchi.lean`: the executable Shannon residual/reset
-monitor has infinitely many completed rounds iff its positive acceptance
-holds on recurrent colours. The incoming-mark state split, one-step delay,
-initial mark, and C's 0/1 max-odd priorities preserve that language, including
-constant acceptance. This proof does not require colours of a conjunction
-to occur simultaneously. The Π₂-positive `buchi_syntax` selector and decoded
-C representation remain separate obligations. General admission stays
-research-only. The smallest remaining default-tag lemma and why structural
-frozen tags do not imply it are recorded in
-`proofs/README.md`.
+The trusted boundary includes decoding, C memory safety, the BDD library and
+hashing. C correctness is validated only on the enumerated formulas, AP
+orders, policies and acceptance kinds. Other inputs remain trusted C code;
+bounded lasso goldens alone do not prove language equality.
 
-VERDICT: done (targeted Stage 2 grammar); Task T enablement remains open
+VERDICT: targeted Stage 2 grammar proved; general-admission enablement gated
+by the complete translation-validation report.

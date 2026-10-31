@@ -440,7 +440,9 @@ as `F G a` need not have a deterministic Buchi recognizer.
 component all/rejecting fields using proved Boolean class equality. Tree paths
 and round residual/incoming bits remain in the key. Independently of discovery,
 it checks initial correspondence and every state/letter transition, including
-terminal loops. `exportParity_language` and `exportBuchi_language` prove that
+terminal loops. Coordinates are materialized before storing each representative;
+`prepareParity_exact` and `prepareBuchi_exact` prove this is exactly the same
+state, with no cache or trace semantics. `exportParity_language` and `exportBuchi_language` prove that
 any returned closed finite table has exactly the symbolic machine's language.
 Resource exhaustion returns no table and is a validation failure. No theorem
 claims a fixed exploration limit succeeds for every admitted formula.
@@ -475,7 +477,10 @@ reflexivity, edge inclusion and transitivity. It requires no state isomorphism.
 Alphabet compaction merges letters only after checking identical transitions
 and priorities at every state of both tables. It invokes the same proved
 `check` / `checkBuchi`, with a proof lifting equality to the original alphabet.
-Reference transition tables are materialized once; `freeze_exact` and
+Class equality propagates propositional constants and short-circuits the
+truth comparison. Support is tested by simplified Shannon cofactors;
+`reduceProp_class`, `cofactor_unused` and `uses_exact` prove these optimizations
+preserve classes and support. Reference transition tables are materialized once; `freeze_exact` and
 `freezeBuchi_exact` prove this preserves the machines exactly.
 
 ### Dump protocol and trusted boundary
@@ -505,7 +510,8 @@ and is not run in CI. It inventories every monitor constructor reached by the
 217-spec corpus under both policies, including constructors in failed
 reductions, and includes the DPA equivalence formulas, all language-golden
 formulas and review-k/l/i examples. It checks both parity and Buchi where C
-admits that kind; unsupported cases are reported separately. Every validation
+admits that kind; unsupported cases are reported separately and their canonical decline dumps
+are also hash-guarded. Every validation
 failure is retained with its formula and a minimized reproducer. General
 admission must stay disabled while any failure remains.
 

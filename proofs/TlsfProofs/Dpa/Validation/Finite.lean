@@ -55,27 +55,29 @@ theorem Representatives.parity_language (r : Representatives S)
 
 /-- Breadth-first discovery, in increasing letter order. The certificate is
 checked separately, so no exploration implementation is in the proof boundary. -/
-def discover (step : S → Fin alphabet → S) (eqb : S → S → Bool) :
+def discover (step : S → Fin alphabet → S) (eqb : S → S → Bool) (prepare : S → S) :
     Nat → Nat → Array S → Array S
   | 0, _, states => states
   | fuel+1, cursor, states =>
     if h : cursor < states.size then
       let next := (List.finRange alphabet).foldl (fun xs a =>
-        let t := step states[cursor] a
+        let t := prepare (step states[cursor] a)
         if xs.any (eqb t) then xs else xs.push t) states
-      discover step eqb fuel (cursor+1) next
+      discover step eqb prepare fuel (cursor+1) next
     else states
 
-def exportParity (A : Parity (Fin alphabet) S) (eqb : S → S → Bool) (fuel : Nat) :
+def exportParity (A : Parity (Fin alphabet) S) (eqb : S → S → Bool) (fuel : Nat)
+    (prepare : S → S := id) :
     Option (Representatives S) :=
-  let states := discover (fun s a => (A.step s a).1) eqb fuel 0 #[A.initial]
+  let states := discover (fun s a => (A.step s a).1) eqb prepare fuel 0 #[prepare A.initial]
   if hn : 0 < states.size then
     let r : Representatives S := ⟨states, hn⟩
     if r.closed A eqb then some r else none
   else none
 
 theorem exportParity_closed (A : Parity (Fin alphabet) S) (eqb : S → S → Bool)
-    (fuel : Nat) (r : Representatives S) (h : exportParity A eqb fuel = some r) :
+    (fuel : Nat) (r : Representatives S) (prepare : S → S)
+    (h : exportParity A eqb fuel prepare = some r) :
     r.closed A eqb = true := by
   unfold exportParity at h
   dsimp only at h
@@ -89,9 +91,10 @@ theorem exportParity_language (A : Parity (Fin alphabet) S) (eqb : S → S → B
     (key : S → K) (he : ∀ s t, eqb s t = true ↔ key s = key t)
     (hs : ∀ s t a, key s = key t →
       key (A.step s a).1 = key (A.step t a).1 ∧ (A.step s a).2 = (A.step t a).2)
-    (fuel : Nat) (r : Representatives S) (h : exportParity A eqb fuel = some r)
+    (fuel : Nat) (r : Representatives S) (prepare : S → S)
+    (h : exportParity A eqb fuel prepare = some r)
     (w : Nat → Fin alphabet) : (r.parity A eqb).Accepts w ↔ A.Accepts w :=
-  r.parity_language A eqb key he hs (exportParity_closed A eqb fuel r h) w
+  r.parity_language A eqb key he hs (exportParity_closed A eqb fuel r prepare h) w
 
 def Representatives.buchi (r : Representatives S) (A : Buchi (Fin alphabet) S)
     (eqb : S → S → Bool) : Buchi (Fin alphabet) (Fin r.states.size) where
@@ -103,7 +106,8 @@ theorem exportBuchi_language (A : Buchi (Fin alphabet) S) (eqb : S → S → Boo
     (key : S → K) (he : ∀ s t, eqb s t = true ↔ key s = key t)
     (hs : ∀ s t a, key s = key t →
       key (A.step s a) = key (A.step t a) ∧ A.accepting s = A.accepting t)
-    (fuel : Nat) (r : Representatives S) (h : exportParity A.toParity eqb fuel = some r)
+    (fuel : Nat) (r : Representatives S) (prepare : S → S)
+    (h : exportParity A.toParity eqb fuel prepare = some r)
     (w : Nat → Fin alphabet) : (r.buchi A eqb).Accepts w ↔ A.Accepts w := by
   have hc : ∀ s t a, key s = key t →
       key (A.toParity.step s a).1 = key (A.toParity.step t a).1 ∧
@@ -112,7 +116,7 @@ theorem exportBuchi_language (A : Buchi (Fin alphabet) S) (eqb : S → S → Boo
     have ht := hs s t a hh
     exact ⟨ht.1, by simp only [Buchi.toParity, ht.2]⟩
   exact ((r.buchi A eqb).toParity_language w).symm.trans
-    ((exportParity_language A.toParity eqb key he hc fuel r h w).trans (A.toParity_language w))
+    ((exportParity_language A.toParity eqb key he hc fuel r prepare h w).trans (A.toParity_language w))
 
 end Tlsf.Dpa.Validation
 
@@ -183,8 +187,22 @@ theorem Assembly.finiteParitySource_congr (r : Assembly ap)
   have hp := r.productStep_congr s.1 t.1 (decode a) hh.1
   simp [Assembly.finiteParitySource, Assembly.parity, Assembly.parityKey, hp.1, hp.2, hh.2]
 
+/-- Materialize all coordinates before storing the pair. Returning a data pair
+keeps the vector outside the coordinate function in compiled code. This does
+not memoize construction calls or model any C cache. Closure still checks the
+prepared representatives independently. -/
+@[noinline] def Assembly.prepareParity (r : Assembly ap) (s : Configuration r × List Nat) :
+    Configuration r × List Nat :=
+  let coordinates := Vector.ofFn s.1
+  (fun i => coordinates[i], s.2)
+
+theorem Assembly.prepareParity_exact (r : Assembly ap) (s : Configuration r × List Nat) :
+    r.prepareParity s = s := by
+  cases s
+  simp [Assembly.prepareParity, Vector.getElem_ofFn]
+
 def Assembly.exportParity (r : Assembly ap) (fuel : Nat) :=
-  Validation.exportParity r.finiteParitySource r.paritySame fuel
+  Validation.exportParity r.finiteParitySource r.paritySame fuel r.prepareParity
 
 theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
     (table : Validation.Representatives (Configuration r × List Nat))
@@ -192,7 +210,7 @@ theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
     (table.parity r.finiteParitySource r.paritySame).Accepts w ↔
       r.parity.Accepts (fun n => decode (w n)) := by
   have he := Validation.exportParity_language r.finiteParitySource r.paritySame r.parityKey
-    r.paritySame_exact r.finiteParitySource_congr fuel table h w
+    r.paritySame_exact r.finiteParitySource_congr fuel table r.prepareParity h w
   have hr (n : Nat) : r.finiteParitySource.run w n =
       r.parity.run (fun n => decode (w n)) n := by
     induction n with
@@ -229,8 +247,19 @@ theorem Assembly.finiteBuchiSource_congr (r : Assembly ap)
   have hp := r.productStep_congr s.1 t.1 (decode a) hh.1
   simp [Assembly.finiteBuchiSource, Assembly.buchi, Assembly.buchiKey, hp.1, hp.2, hh.2]
 
+@[noinline] def Assembly.prepareBuchi (r : Assembly ap)
+    (s : Configuration r × RoundState r.store.length) :
+    Configuration r × RoundState r.store.length :=
+  let coordinates := Vector.ofFn s.1
+  (fun i => coordinates[i], s.2)
+
+theorem Assembly.prepareBuchi_exact (r : Assembly ap)
+    (s : Configuration r × RoundState r.store.length) : r.prepareBuchi s = s := by
+  cases s
+  simp [Assembly.prepareBuchi, Vector.getElem_ofFn]
+
 def Assembly.exportBuchi (r : Assembly ap) (fuel : Nat) :=
-  Validation.exportParity r.finiteBuchiSource.toParity r.buchiSame fuel
+  Validation.exportParity r.finiteBuchiSource.toParity r.buchiSame fuel r.prepareBuchi
 
 theorem Assembly.exportBuchi_language (r : Assembly ap) (fuel : Nat)
     (table : Validation.Representatives (Configuration r × RoundState r.store.length))
@@ -238,7 +267,7 @@ theorem Assembly.exportBuchi_language (r : Assembly ap) (fuel : Nat)
     (table.buchi r.finiteBuchiSource r.buchiSame).Accepts w ↔
       r.buchi.Accepts (fun n => decode (w n)) := by
   have he := Validation.exportBuchi_language r.finiteBuchiSource r.buchiSame r.buchiKey
-    r.buchiSame_exact r.finiteBuchiSource_congr fuel table h w
+    r.buchiSame_exact r.finiteBuchiSource_congr fuel table r.prepareBuchi h w
   have hr (n : Nat) : r.finiteBuchiSource.run w n =
       r.buchi.run (fun n => decode (w n)) n := by
     induction n with

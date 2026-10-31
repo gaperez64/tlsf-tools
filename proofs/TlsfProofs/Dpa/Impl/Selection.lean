@@ -18,27 +18,6 @@ namespace Tlsf.Dpa.Impl
 open Formula
 variable {ap : Nat}
 
-/-- Boolean cofactor: modal operands remain frozen. Negated AP constants are
-allowed by `NNF`; the canonical class removes their syntax when tested. -/
-def cofactor (a : Formula (Fin ap)) (value : Bool) : Formula (Fin ap) → Formula (Fin ap)
-  | .tt => .tt
-  | .ff => .ff
-  | .neg f => .neg (cofactor a value f)
-  | .conj f g => .conj (cofactor a value f) (cofactor a value g)
-  | .disj f g => .disj (cofactor a value f) (cofactor a value g)
-  | .impl f g => .impl (cofactor a value f) (cofactor a value g)
-  | .equiv f g => .equiv (cofactor a value f) (cofactor a value g)
-  | f => if f = a then (if value then .tt else .ff) else f
-
-theorem cofactor_eval (a f : Formula (Fin ap)) (value : Bool) (σ : Assignment ap) :
-    propEval σ (cofactor a value f) = propEval (setAtom σ a value) f := by
-  induction f with
-  | tt | ff => rfl
-  | neg _ ih => simp only [cofactor, propEval, ih]
-  | conj _ _ ih ih' | disj _ _ ih ih' | impl _ _ ih ih' | equiv _ _ ih ih' =>
-    simp only [cofactor, propEval, ih, ih']
-  | _ => simp only [cofactor]; split <;> cases value <;> simp_all [propEval, setAtom]
-
 theorem cofactor_nnf (a f : Formula (Fin ap)) (value : Bool) (hf : NNF f) :
     NNF (cofactor a value f) := by
   induction f with

@@ -30,3 +30,8 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Validation.freezeBuchi_exact
 #print axioms Tlsf.Dpa.Validation.validate_parity_sound
 #print axioms Tlsf.Dpa.Validation.validate_buchi_sound
+#print axioms Tlsf.Dpa.Impl.reduceProp_class
+#print axioms Tlsf.Dpa.Impl.cofactor_unused
+#print axioms Tlsf.Dpa.Impl.uses_exact
+#print axioms Tlsf.Dpa.Impl.Assembly.prepareParity_exact
+#print axioms Tlsf.Dpa.Impl.Assembly.prepareBuchi_exact

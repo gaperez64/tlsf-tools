@@ -96,7 +96,7 @@ def validate_one(build, validator, text, timeout):
     try:
         result = run([build / "test/unit/dpa_dump", source], timeout=timeout)
         if result.returncode == 77:
-            return "declined", "unsupported", None
+            return "declined", "unsupported", sha(result.stdout.encode())
         if result.returncode:
             return "fail", f"C dump failure ({result.returncode}): {result.stderr.strip()}", None
         target.write_text(result.stdout)
@@ -195,8 +195,8 @@ def main():
                 records.append(row)
                 for group in case["sets"]:
                     counts[f"{group}/{mode}/{kind}"][status] += 1
-                if status == "pass":
-                    goldens.append(f"{digest}\tpass\t{text}\n")
+                if status in ("pass", "declined"):
+                    goldens.append(f"{digest}\t{status}\t{text}\n")
                 if status == "fail":
                     print("FAIL", mode, kind, case["prefix"], reason, flush=True)
                     failures.append(row)
@@ -234,7 +234,9 @@ def main():
                                           {ROOT / "test/unit/dpa_dump.c",
                                            Path(__file__).resolve(),
                                            ROOT / "tools/golden/tv_inventory.cc"})},
-                      "corpus_sources": data["corpus_sources"], "validated_artifacts": len(goldens)}
+                      "corpus_sources": data["corpus_sources"],
+                      "validated_artifacts": sum(r["status"] == "pass" for r in records),
+                      "golden_artifacts": len(goldens)}
         (DEST / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     print(json.dumps(report, indent=2), flush=True)
     if failures:

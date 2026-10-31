@@ -2,9 +2,9 @@
 
 Task TV replaces the attempted cache/call-order refinement with translation
 validation. The uncached executable Lean construction has a composed language
-theorem, and finite parity/Büchi language checkers are proved sound. Finite
-reference export, canonical C dumps and the complete offline validation corpus
-remain open; production admission is unchanged. The historical measurements
+theorem, checked finite parity/Büchi exports, sound language checkers and a
+canonical C-dump validator. The full offline corpus gates admission changes;
+production admission is unchanged at this milestone. The historical measurements
 below remain historical evidence. See `proofs/README.md` for the current gates.
 
 Keep syntactic X protection in both modes. The default admission predicate is

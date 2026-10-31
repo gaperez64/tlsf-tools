@@ -88,6 +88,42 @@ for path in root.glob("*.json"):
         assert dict(Counter(str(row[-1]) for row in cases)) == suite["native_status_counts"], path
 for name, digest in manifest["dpa"]["files_sha256"].items():
     assert hashlib.sha256((root / "dpa" / name).read_bytes()).hexdigest() == digest, name
+translation = root / "translation"
+if translation.exists():
+    provenance = json.loads((translation / "provenance.json").read_text())
+    report = json.loads((translation / "report.json").read_text())
+    payload = (translation / "hashes.tsv").read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == provenance["hashes_sha256"]
+    rows = payload.decode().splitlines()
+    assert len(rows) == provenance["golden_artifacts"] > 0
+    assert sum(row.split("\t")[1] == "pass" for row in rows) == provenance["validated_artifacts"] > 0
+    requests = set()
+    for row in rows:
+        digest, verdict, request = row.split("\t")
+        assert re.fullmatch("[0-9a-f]{64}", digest) and verdict in ("pass", "declined")
+        assert request.startswith(("TV1 parity ", "TV1 buchi "))
+        assert request not in requests, "duplicate translation request"
+        requests.add(request)
+    assert "4.35.0" in provenance["lean"] and provenance["date"]
+    assert provenance["validation_theorems"] == [
+        "Tlsf.Dpa.Validation.validate_parity_sound",
+        "Tlsf.Dpa.Validation.validate_buchi_sound"]
+    assert report["partial_set"] is None
+    assert report["all_validated"] == (not report["failures"])
+    assert len(provenance["corpus_sources"]) == 217
+    for name, digest in provenance["source_sha256"].items():
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+    for name, digest in provenance["corpus_sources"].items():
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest
+    for failure in report["failures"]:
+        assert failure["status"] == "fail" and failure["minimized"]["disabled"]
+        request = " ".join(["TV1", failure["kind"], failure["mode"],
+                            str(len(failure["names"])), *failure["names"], failure["prefix"]])
+        assert request not in requests, "failing formula has a passing golden"
+    expected = {f"{group}/{mode}/{kind}" for group in
+                ("corpus", "equivalence", "golden", "review") for mode in
+                ("default", "general") for kind in ("parity", "buchi")}
+    assert set(report["counts"]) == expected
 size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
 assert size <= 4_629_524, ("golden directory exceeds its original size", size)
 print(f"golden provenance checked; {size} bytes <= 4629524-byte cap")

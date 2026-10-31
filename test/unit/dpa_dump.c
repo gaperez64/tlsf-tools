@@ -151,6 +151,11 @@ static int dump(FILE *in, FILE *out) {
                             aps, NULL, 0, &budget, &c);
   if (status.code == TLSF_DPA_DECLINED &&
       status.reason == TLSF_DPA_UNSUPPORTED) {
+    fprintf(out, "TV1 %s %s %u\n", kind, admission, aps);
+    for (unsigned i = 0; i < aps; ++i)
+      fprintf(out, "%s\n", names[i]);
+    prefix(out, (const TlsfAstNode *)f);
+    fputs("\ndeclined unsupported\n", out);
     result = 77;
     goto done;
   }
@@ -235,12 +240,25 @@ int main(int argc, char **argv) {
     int status = 0;
     while (getline(&line, &capacity, in) >= 0) {
       char *tab = strchr(line, '\t');
-      if (!tab || tab - line != 64 || strncmp(tab + 1, "pass\t", 5)) {
+      if (!tab || tab - line != 64) {
         status = 2;
         break;
       }
       *tab = 0;
-      char *request = tab + 6, *bytes = NULL;
+      char *separator = strchr(tab + 1, '\t');
+      if (!separator) {
+        status = 2;
+        break;
+      }
+      *separator = 0;
+      int expected = !strcmp(tab + 1, "pass")       ? 0
+                     : !strcmp(tab + 1, "declined") ? 77
+                                                    : -1;
+      if (expected < 0) {
+        status = 2;
+        break;
+      }
+      char *request = separator + 1, *bytes = NULL;
       size_t length = 0;
       FILE *source = fmemopen(request, strlen(request), "r");
       FILE *target = open_memstream(&bytes, &length);
@@ -254,7 +272,7 @@ int main(int argc, char **argv) {
       char hash[65];
       sha256_hex(bytes, length, hash);
       free(bytes);
-      if (code || strcmp(hash, line)) {
+      if (code != expected || strcmp(hash, line)) {
         fprintf(stderr, "translation golden mismatch at row %zu: %s", count + 1,
                 request);
         status = 1;
