@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pinned Stage C lift verdicts and artifacts, including unseen alpha variants."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import random
@@ -9,6 +10,7 @@ import subprocess
 import tempfile
 
 from golden import Golden
+from reduction_golden import game_language
 
 
 def stable(value):
@@ -56,9 +58,42 @@ def main():
             if result.returncode == 0:
                 evidence = json.loads(prefix.with_suffix(".evidence.json").read_text())
                 observed[label] = evidence
-                gold.check("evidence", stable(evidence))
-                for suffix in (".game.aag", ".cert.aag", ".policy.aag"):
-                    gold.check(suffix, Path(str(prefix) + suffix).read_text())
+                label_kind, expected = gold.records[gold.position]
+                gold.position += 1
+                assert label_kind == "evidence"
+                actual = stable(evidence)
+                # Monitor encoding changes alter hashes and role signatures;
+                # preserve the independently checked role equivalence classes.
+                for rows in (expected["roles"], actual["roles"]):
+                    classes = {}
+                    for role in rows:
+                        signature = role["signature"]
+                        role["signature"] = classes.setdefault(signature, len(classes))
+                for key in ("game_sha256", "certificate_sha256", "policy_sha256"):
+                    expected.pop(key)
+                    actual.pop(key)
+                assert expected == actual, (label, expected, actual)
+                for suffix, hash_key in ((".game.aag", "game_sha256"),
+                                         (".cert.aag", "certificate_sha256"),
+                                         (".policy.aag", "policy_sha256")):
+                    kind, frozen = gold.records[gold.position]
+                    gold.position += 1
+                    assert kind == suffix
+                    text = Path(str(prefix) + suffix).read_text()
+                    assert hashlib.sha256(text.encode()).hexdigest() == evidence[hash_key]
+                    if suffix == ".game.aag":
+                        game_language(frozen, text)
+                # Successful public API calls already check the target proof.
+                # Research builds also recheck the serialized exports through
+                # the CLI, which is not built with research_tools=false.
+                if (build / "tlsfcertcheck").is_file():
+                    checked = subprocess.run([str(build / "tlsfcertcheck"),
+                                              "--method", "certificate", "--certificate",
+                                              str(prefix) + ".cert.aag", "--certificate-json", str(prefix) + ".cert.json",
+                                              "--policy-json", str(prefix) + ".policy.json", str(prefix) + ".game.aag",
+                                              str(prefix) + ".policy.aag"],
+                                             capture_output=True, text=True, timeout=60)
+                    assert checked.returncode == 0 and checked.stdout.strip().endswith("VERIFIED"), (label, checked.stdout, checked.stderr)
             else:
                 gold.check("decline", result.stdout.strip())
         for index in (0, 1, 3):

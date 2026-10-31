@@ -1,4 +1,5 @@
 #include "tlsf/dpa.h"
+#include "dpa_buchi.h"
 extern "C" {
 #include "tlsf/ast.h"
 #include "tlsf/intern.h"
@@ -206,6 +207,9 @@ static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
   return out.str() + "--END--\n";
 }
 
+static bool buchi_mode = false;
+static unsigned buchi_admitted = 0, buchi_declined = 0;
+
 static void check(const std::string &text, bool allow_unproved = false,
                   bool expect_bdd_limit = false,
                   bool expect_unsupported = false) {
@@ -246,10 +250,25 @@ static void check(const std::string &text, bool allow_unproved = false,
     budget.bdd_nodes = 1u << 12;
     budget.bdd_cache = 1u << 10;
   }
-  auto status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
-                                names.data(), n_inputs, names.data() + n_inputs,
-                                names.size() - n_inputs, &budget, &c);
+  TlsfDpaStatus status;
+  char klass = 0;
+  if (buchi_mode)
+    status = dpa_buchi_create(reinterpret_cast<const TlsfAstNode *>(root),
+                              names.data(), uint32_t(names.size()), &budget, &c,
+                              &klass);
+  else
+    status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
+                             names.data(), n_inputs, names.data() + n_inputs,
+                             names.size() - n_inputs, &budget, &c);
   arena_free(a); // construction must copy everything it needs
+  if (buchi_mode && status.code == TLSF_DPA_DECLINED &&
+      status.reason == TLSF_DPA_UNSUPPORTED) {
+    CHECK(!c);
+    ++buchi_declined;
+    return;
+  }
+  if (buchi_mode)
+    ++buchi_admitted;
   if (expect_unsupported) {
     CHECK(status.code == TLSF_DPA_DECLINED &&
           status.reason == TLSF_DPA_UNSUPPORTED && !c);
@@ -310,6 +329,17 @@ static void check(const std::string &text, bool allow_unproved = false,
 
 int main(int argc, char **argv) {
   load_goldens();
+  if (argc == 2 && std::string(argv[1]) == "--buchi") {
+    buchi_mode = true;
+    for (const auto &[text, reference] : references) {
+      (void)reference;
+      check(text);
+    }
+    CHECK(buchi_admitted && buchi_declined);
+    std::cout << "Buchi goldens: " << buchi_admitted << " admitted, "
+              << buchi_declined << " declined, 512 memberships each\n";
+    return 0;
+  }
   bool research = argc == 2 && std::string(argv[1]) == "--allow-unproved";
   if (argc >= 2 && !research) {
     std::ifstream formulas(argv[1]);

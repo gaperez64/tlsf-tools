@@ -38,10 +38,11 @@ typedef struct {
 typedef struct {
   uint64_t formula_nodes, ap_count, conjuncts, max_conjunct_nodes;
   uint64_t max_temporal_depth, predicted_monitor_states;
-  /* On a Spot aborter decline, the crossed state or edge count is a lower
-   * bound (limit + 1). Spot discards the partial graph, so its other count
-   * is unavailable. monitors_completed counts only finished monitors.
-   * peak_rss_bytes is sampled only while max_rss_bytes is set. */
+  /* Counts include completed monitors and materialized states/edges of a
+   * declined DPA expansion. A state-limit decline records the first excluded
+   * state (limit + 1), a lower bound; edges count completed expansion rows.
+   * monitors_completed counts only finished monitors. peak_rss_bytes is
+   * sampled only while max_rss_bytes is set. */
   uint64_t monitors_completed, states, edges, peak_rss_bytes;
 } TlsfGr1ConstructionWork;
 
@@ -68,16 +69,15 @@ typedef struct {
 typedef struct {
   TlsfGr1ReductionSemantics semantics;
   /* Absolute CLOCK_MONOTONIC nanoseconds; zero disables the deadline.
-   * Deadline and cancellation are checked cooperatively between Spot calls.
-   * Spot translation and language-equivalence calls cannot be interrupted
-   * in-process. For hard time and memory bounds, run the reduction in a
-   * killable process, as Acacia's forked arms do. */
+   * Deadline, cancellation and RSS checks are cooperative during native DPA
+   * expansion, between individual symbolic operations. For hard time and
+   * memory bounds, retain a killable process and a cgroup boundary. */
   uint64_t deadline_mono_ns;
   int (*cancelled)(void *);
   void *cancel_ctx;
   /* Required positive caps. The artifact cap checks produced output sizes;
-   * it does not cap intermediate Spot/BuDDy allocations. The state cap bounds
-   * all one-hot monitor latches and is passed to Spot determinization. */
+   * it does not cap intermediate symbolic allocations. The state cap bounds
+   * all one-hot monitor latches and each DPA expansion's remaining states. */
   size_t max_artifact_bytes;
   uint32_t max_monitor_states;
   TlsfGr1ConstructionBudget budget;

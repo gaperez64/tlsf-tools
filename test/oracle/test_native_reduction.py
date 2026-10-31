@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 
 from golden import Golden
+from reduction_golden import native_artifacts, decline
 
 
 def generated(directory: pathlib.Path) -> list[pathlib.Path]:
@@ -115,14 +116,12 @@ def main():
                 assert result.returncode in (0, 2, 3), (source, semantics, result.stderr)
                 gold.check("status", [source.name, semantics, result.returncode])
                 if result.returncode == 0:
-                    # These are complete artifacts, including ownership,
-                    # source bindings, symmetric signatures and symbol hashes.
-                    for suffix in (".aag", ".json", ".symbols", ".metadata.json"):
-                        text = prefix.with_suffix(suffix).read_text()
-                        value = json.loads(text) if suffix.endswith("json") else text
-                        gold.check(suffix, value)
+                    try:
+                        native_artifacts(gold, prefix)
+                    except AssertionError as error:
+                        raise AssertionError(label) from error
                 else:
-                    gold.check("decline", result.stderr)
+                    decline(gold, result.stderr)
                 count += 1
                 if count % 20 == 0:
                     print(f"native reduction {count}: {source.name}", flush=True)

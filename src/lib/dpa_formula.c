@@ -616,6 +616,31 @@ uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {
     return DPA_BAD;
   return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);
 }
+// Positive Boolean closure of proved Pi2 components. Unlike the general
+// parity construction, Buchi monitors never share a component with its dual:
+// both must have their own positive Inf colour when they are weak languages.
+static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  uint32_t f = materialize(c, id), result = DPA_BAD;
+  if (dpa_poll(c) && dpa_admitted(c, f) && dpa_has_tags(c, f, DPA_PI2))
+    result = dpa_acceptance(c, f);
+  else if (dpa_poll(c)) {
+    DpaTerm *t = c->terms.items[id];
+    if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR) {
+      uint32_t lhs = buchi_syntax(c, t->lhs);
+      uint32_t rhs = buchi_syntax(c, t->rhs);
+      result = dpa_boolean(c, t->op == TLSF_AST_AND, lhs, rhs);
+    } else
+      dpa_decline(c, TLSF_DPA_UNSUPPORTED);
+  }
+  --c->recursion;
+  return dpa_poll(c) ? result : DPA_BAD;
+}
+uint32_t dpa_buchi_acceptance(TlsfDpa *c) {
+  return buchi_syntax(c, c->formula_term);
+}
+
 uint32_t dpa_formula(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                      unsigned depth) {
   if (!c->terms.n)

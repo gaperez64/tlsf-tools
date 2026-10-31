@@ -125,8 +125,7 @@ def check(source: pathlib.Path, args, directory: pathlib.Path,
                    check=True, capture_output=True, timeout=60)
     game = Game(prefix.with_suffix(".aag").read_text())
     metadata = json.loads(prefix.with_suffix(".metadata.json").read_text())
-    if expect_fallback:
-        assert metadata["fallback_monitor_count"] > 0
+    assert metadata["fallback_monitor_count"] == 0
     lowered = subprocess.run([str(args.tlsf2ltl), "--format", "ltl",
                               str(source)], check=True, capture_output=True,
                              text=True).stdout

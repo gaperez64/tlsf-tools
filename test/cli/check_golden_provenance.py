@@ -19,6 +19,36 @@ for path in root.glob("*.json"):
     records = json.loads(path.read_text())
     digest = hashlib.sha256(json.dumps(records, separators=(",", ":")).encode()).hexdigest()
     assert suite["sha256"] == digest, (path, "unconfirmed payload")
+    if "phase1_sha256" in suite:
+        restored = list(records)
+        if "phase2_declines" in suite:
+            patches = {row["case"]: row for row in suite["phase2_declines"]}
+            restored = []
+            found = set()
+            i = 0
+            while i < len(records):
+                label, value = records[i]
+                case = value[0] + ":" + value[1] if label == "status" else None
+                if case in patches:
+                    patch = patches[case]
+                    assert records[i:i+2] == patch["after"]
+                    assert patch["before"][0] == ["status", value[:2] + [0]]
+                    assert value[2] == 3 and patch["reason"]
+                    restored.extend(patch["before"])
+                    found.add(case)
+                    i += 2
+                else:
+                    restored.append(records[i])
+                    i += 1
+            assert found == patches.keys()
+        else:
+            for patch in suite["phase2_changes"]:
+                assert restored[patch["index"]] == patch["after"]
+                assert patch["before"] == ["native-admission", 0]
+                assert patch["after"] == ["native-admission", 3]
+                restored[patch["index"]] = patch["before"]
+        phase1 = hashlib.sha256(json.dumps(restored, separators=(",", ":")).encode()).hexdigest()
+        assert phase1 == suite["phase1_sha256"], (path, "non-decline expectation changed")
     if path.stem in ("native-reduction", "native-lift"):
         label = "status" if path.stem == "native-reduction" else "lift"
         cases = [row[1] for row in records if row[0] == label]

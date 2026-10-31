@@ -12,6 +12,7 @@ dpa_contract = executable('dpa_contract', 'dpa_contract.c',
   dependencies: tlsf_internal_dep)
 test('dpa_contract', dpa_contract, timeout: 120)
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
+test('dpa_buchi_goldens', dpa_equivalence, args: ['--buchi'], timeout: 120)
 test('dpa_equivalence_research', dpa_equivalence,
   args: ['--allow-unproved'], timeout: 120)
 test('dpa_limits', dpa_equivalence,
@@ -143,3 +144,7 @@ if host_machine.system() == 'linux'
          is_parallel: false)
   endforeach
 endif
+
+# Diagnostic inventory; not a test and never used by the production reducer.
+gr1_admission = executable('gr1_admission', 'gr1_admission.cpp',
+  dependencies: tlsf_internal_dep)

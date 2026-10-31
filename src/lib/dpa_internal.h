@@ -103,7 +103,7 @@ struct TlsfDpa {
   uint32_t aps, initial, formula_term;
   uint32_t acceptance, root, leftmost, max_priority;
   size_t colour_words;
-  bool root_accepts, started;
+  bool root_accepts, started, buchi;
   uint64_t epoch;
   unsigned recursion;
 };
@@ -137,6 +137,7 @@ uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r);
 uint32_t dpa_tuple(TlsfDpa *c, const uint32_t *values);
 uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f);
 uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f);
+uint32_t dpa_buchi_acceptance(TlsfDpa *c);
 uint32_t dpa_dual(TlsfDpa *c, uint32_t f);
 uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf);
 uint32_t dpa_dela_initial(TlsfDpa *c);

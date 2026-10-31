@@ -11,6 +11,7 @@ import tempfile
 
 from aag import Circuit, verify_controller
 from golden import Golden
+from reduction_golden import monitor_artifacts, decline
 from test_native_reduction_language import Game, tiny
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/gr1_monitor_game"
@@ -44,6 +45,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=build) as temp:
         directory = Path(temp)
         objectives = {}
+        frozen_inventory = {}
 
         def reduce(source, label, semantics="exact", status=0):
             print(f"monitor case: {label}", flush=True)
@@ -51,12 +53,12 @@ def main():
             result = run([reducer, source, semantics, prefix], status)
             gold.check("reduce", [label, semantics, status])
             if status:
-                gold.check("decline", result.stderr)
+                decline(gold, result.stderr)
                 return None
             data = json.loads(prefix.with_suffix(".json").read_text())
             text = prefix.with_suffix(".aag").read_text()
-            gold.check("provenance", data)
-            gold.check("game", text)
+            frozen_inventory[label] = gold.records[gold.position][1]
+            monitor_artifacts(gold, data, text)
             if data["source_origin_metadata"]["available"]:
                 assert data["source_origin_metadata"]["source_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
             path = prefix.with_suffix(".aag")
@@ -101,7 +103,9 @@ def main():
         # of the first eight monitors in both representative instances.
         component_count = fallback_count = 0
         for filename in ("arbiter_pb_2_pe_.tlsf", "arbiter_on_inpchange_pb_2_pe_.tlsf"):
-            _, inventory = reduce(FIXTURES / filename, "inventory-" + Path(filename).stem)
+            label = "inventory-" + Path(filename).stem
+            reduce(FIXTURES / filename, label)
+            inventory = frozen_inventory[label]
             names = [row["name"] for row in inventory["inputs"] + inventory["outputs"]]
             for index, monitor in enumerate(inventory["monitors"][:8]):
                 label = f"component-{Path(filename).stem}-{index}"
@@ -121,7 +125,7 @@ def main():
                 formula = objectives[str(path)][0]
                 gold.language(formula, game.input_names, words, actual)
                 component_count += 1
-        assert component_count >= 6 and fallback_count >= 1
+        assert component_count >= 6 and fallback_count == 0
 
         mutex = "!((g[0] && g[1]) || (g[0] && g[2]) || (g[1] && g[2]))"
         for label, body, symmetric in (
