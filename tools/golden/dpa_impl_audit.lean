@@ -71,3 +71,13 @@ Every reported dependency set must be contained in
 #print axioms Tlsf.Dpa.Impl.storeTruth_componentTruth
 #print axioms Tlsf.Dpa.Impl.store_productColours
 #print axioms store_checks
+#print axioms Tlsf.Dpa.Impl.ColourAcceptance.eval_extends
+#print axioms Tlsf.Dpa.Impl.assemble_spec
+#print axioms Tlsf.Dpa.Impl.assemble_presentation
+#print axioms Tlsf.Dpa.Impl.assemble_presentation_of_language
+#print axioms Tlsf.Dpa.Impl.assemble_shannon_presentation
+#print axioms Tlsf.Dpa.Impl.groupedPlan_valid
+#print axioms Tlsf.Dpa.Impl.groupedPlan_source
+#print axioms Tlsf.Dpa.Impl.groupedPlan_language
+#print axioms Tlsf.Dpa.Impl.assemble_grouped_presentation
+#print axioms assembly_checks

@@ -1,6 +1,7 @@
 import TlsfProofs.Dpa.Impl.Admission
 import TlsfProofs.Dpa.Impl.Buchi
 import TlsfProofs.Dpa.Impl.Store
+import TlsfProofs.Dpa.Impl.Assembly
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -142,6 +143,36 @@ private def storeChecks : List (String × Bool × Bool) := [
     ((internComponent false (internComponent true storedAP (.neg a)).1 (.neg a)).2 =
       ⟨0, true⟩), true)]
 
+private def mixedPlan : AcceptancePlan 2 :=
+  .binary true (.whole (.globally (.eventually a))) (.whole (.eventually (.globally b)))
+
+private def sharedPlan : AcceptancePlan 2 := .binary true (.whole a) (.whole a)
+
+private def shannonPlan : AcceptancePlan 2 := .shannon a (.whole b) (.whole (.neg b))
+
+private def assemblyChecks : List (String × Bool × Bool) := [
+  ("assembly-constant", decide ((assemble false (.constant true : AcceptancePlan 2) []).store = []), true),
+  ("assembly-folded-tautology", decide
+    ((assemble false (.whole (.disj a (.neg a))) []).acceptance = .constant true), true),
+  ("assembly-mixed-orientations", decide
+    ((assemble false mixedPlan []).acceptance =
+      .binary true (.literal ⟨0, false⟩) (.literal ⟨1, true⟩)), true),
+  ("assembly-shared-literal", decide
+    ((assemble false sharedPlan []).store.length = 1 ∧
+     (assemble false sharedPlan []).acceptance =
+       .binary true (.literal ⟨0, false⟩) (.literal ⟨0, false⟩)), true),
+  ("assembly-Shannon-cached-dual", decide
+    ((assemble false shannonPlan []).store.length = 2 ∧
+     (assemble false shannonPlan []).acceptance =
+       .ite ⟨0, false⟩ (.literal ⟨1, false⟩) (.literal ⟨1, true⟩)), true),
+  ("assembly-Shannon-old-index", decide
+    ((assemble false shannonPlan storedAP).store[0]? = storedAP[0]?), true),
+  ("assembly-group-identity", decide
+    ((assemble false (groupedPlan true [.globally b]
+      [.disj (.eventually b) (.disj a (.neg a))] [a] []) []).store.length = 1), true),
+  ("assembly-group-nonidentity", decide
+    ((assemble false (groupedPlan true [.globally b] [.eventually b] [a] []) []).store.length = 2), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -158,11 +189,14 @@ theorem buchi_checks : buchiChecks.all (fun (_, actual, expected) => actual == e
 theorem store_checks : storeChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
 
+theorem assembly_checks : assemblyChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

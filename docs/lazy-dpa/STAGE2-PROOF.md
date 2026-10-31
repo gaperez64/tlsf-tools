@@ -622,7 +622,7 @@ test uses the folded class's equality with the Boolean identity.
 
 The executable checks include the review-k/l protected remainders and
 review-i's identity group, Büchi round/state split, and store/cache branches:
-60 checks pass both by kernel reduction and in
+68 checks pass both by kernel reduction and in
 `lake exe dpaImplChecks`. The offline dependency audit is
 `tools/golden/dpa_impl_audit.lean`; its dependencies are restricted to
 `propext`, `Classical.choice`, and `Quot.sound`.
@@ -633,7 +633,16 @@ and preservation of existing indices, complete streams, and literals. The
 stored coordinates agree with the abstract fixed product. Büchi Π₂ calls
 return positive literals and do not share cached duals.
 
-This does not yet provide the recursive acceptance assembly, the C
+`Impl/Assembly.lean` now compiles explicit valid Boolean/Shannon construction
+plans, preserving intermediate index bounds and acceptance truth across
+store extensions. `assemble_presentation` and its Shannon and grouped
+instances give `ProductPresentation` for the returned store and indexed
+acceptance. Grouping uses the canonical folded-class identity guard, including
+the nonempty identity case. The reference fixes an explicit recursive call
+order; selecting the exact plan/order from C's materialized classes and
+frozen syntax is still open.
+
+This does not yet provide that C constructor selection, the C
 transport and recursive default-tag refinements, a C-ordered tree/export, or
 the C↔Lean BFS goldens. Task T2 proves the state-based positive-Boolean Büchi
 round encoding in `Impl/Buchi.lean`: the executable Shannon residual/reset
@@ -641,9 +650,10 @@ monitor has infinitely many completed rounds iff its positive acceptance
 holds on recurrent colours. The incoming-mark state split, one-step delay,
 initial mark, and C's 0/1 max-odd priorities preserve that language, including
 constant acceptance. This proof does not require colours of a conjunction
-to occur simultaneously. The acceptance assembly and syntax constructor bridges
-remain separate obligations. General admission stays
-research-only. The precise first remaining acceptance assembly lemma and why
-component language alone does not imply it are recorded in `proofs/README.md`.
+to occur simultaneously. Concrete constructor selection and the syntax
+bridge remain separate obligations. General admission stays research-only.
+The smallest remaining selection/transport lemma and why arbitrary valid
+plans and Boolean class equality do not imply it are recorded in
+`proofs/README.md`.
 
 VERDICT: done (targeted Stage 2 grammar); Task T enablement remains open
