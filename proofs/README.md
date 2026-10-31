@@ -423,1159 +423,201 @@ done
 timeout 1500 lake build
 ```
 
-## Issues #80 / #83: lazy-DPA formalization
+## Issues #80 / #83: translation validation
 
-The eight modules under `TlsfProofs/Dpa/` use namespace `Tlsf.Dpa` and infinite
-words only (`Sat none`). They formalize the conservative DESIGN §1 variant:
-no support resets, no external suspension, a complete fixed product, and an
-ordinary one-sibling global-tree update. The required reference merge is
-`aa9327a`; STAGE2 was already merged at `9702e09`.
+The C bridge now targets **translation validation**, rather than a model of
+C's caches, memo phases, constructor traces, or argument evaluation order.
+General admission remains disabled in the production reduction until the
+finite-table exporter, sound equivalence checker, complete formula inventory,
+and hash regression gate all pass. The recorded coverage is still default
+148/217 and research 155/217; it has not been recomputed in this milestone.
 
-**The requested semantic proof chain is complete for the §8 admitted grammar.**
-`tree_minEven` and `tree_maxOdd` prove the global recurrent-run theorem for
-all colour streams. `flat_eventually_false_seeds`, `flat_global_language` and
-`flat_eventual_language` discharge §6. `admitted_grammar` assembles the exact
-component/product/parity language theorem. `Refinements.lean` proves §9's
-semantic refinements and reference decision algorithms. The general Π₂ component
-converse is now proved separately by `general_pi2_converse`, with the exact
-component language in `general_pi2_language`. The §9 constructor/admission
-theorems still concern the conservative §8 grammar; no C guard is changed.
+### Proved reference construction
 
-The checked semantic class model is a Boolean function with a finite formula
-representative. `class_finite_atoms` supplies a finite atom set on which each
-function depends. Modal atoms, including a formula and its NNF dual, remain
-independent; AP negation shares its AP variable. `Uses` is exact dependence,
-so support tests disregard propositionally absorbed atoms of the current class.
-A supported protector still contributes every X subformula of its frozen
-syntax, including Xs inside Boolean operands that would absorb if materialized.
-`Positive` states modal monotonicity; `NNFClass` supplies an NNF representative.
-`GeneralConverse.lean` now proves the common finite alphabet of both fields
-(`run_subformulaBound`), injection into finite Boolean truth tables
-(`subformula_signature_injective`), and a finite list containing every
-reachable component pair on every word (`finite_component_states`). It also
-proves eventual false protected constraints and the general Π₂ component
-language by finite closed-alphabet descent (Task J below). These are semantic
-results, not a practical state bound or a proof of the C allocator/BDD bridge.
-
-`Stage1.lean` defines the shared table and proves safety/co-safety and the
-one-set parity results. `Component.lean` extends it with the general component
-facts. The GF/FG corollaries are in `Converse.lean`: they reuse the general
-accepting-seed theorem, avoiding a circular import from Stage1 to Component.
-Their comments retain the STAGE1 equation/section references. In particular,
-`gf_seed_bound` proves the upper bound sufficient for the unbounded-start
-argument; it does not claim the full two-case extractor equation (3).
-
-### Obligation map
-
-All names below are in `Tlsf.Dpa`. The requested stages were built in order:
-§5, §§6.1–6.5, §8, then §9. Remaining C bridges and ancillary obligations
-are identified explicitly; they are not premises of the language equalities.
-
-| Markdown section / claim | Lean definition or theorem | Status / scope |
-| --- | --- | --- |
-| STAGE1 §1: finite/safety/co-safety grammars, finite X depth | `finite`, `safety`, `cosafety`, `horizon`, `NNF` | Checked definitions |
-| STAGE1 §1: full canonical NNF/X-distribution C transport | Existing `Tlsf.Rewrites.nnf_sat`, `pre_xn_bool_distribute`; `finite_nnf_polarity` | Semantic identities checked; C transport bridge trusted |
-| STAGE1 §2: propositional classes, implication, exact support | `Class`, `Class.Implies`, `Uses`, `HasTag`, `support_locality`, `class_finite_atoms` | Checked; finite support per class |
-| STAGE1 §2: frozen U and simultaneous raw D | `unfoldSyntax`, `stepSyntax`, `U`, `D`, `delta`, `U_idempotent` | Checked |
-| STAGE1 §2 / STAGE2 §2: extractor, changing support, protection, retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` | Checked definitions and termination |
-| STAGE1 §2 / STAGE2 §2: ordered component table and mark 0 | `Pair`, `Edge`, `initial`, `transition`, `run`, `marks` | Checked deterministic total function; fixed-input state finiteness pending |
-| STAGE1 §3 (1): derivative and iterated derivative | `derivative`, `derivative_syntax`, `U_holds`, `derivatives_holds` | Checked for every class / infinite position |
-| STAGE1 §3: finite windows | `finite_window`, `finite_window_constant`, `bounded_constant_eval` | Checked locality and constant after h+1 letters |
-| STAGE1 §3: good prefixes | `cosafety_witness`, `class_cosafety_witness` | Checked; latter assumes `Positive` and exact co-safety support |
-| STAGE1 §3: bad prefixes | `safety_bad_prefix`, `class_safety_bad_prefix` | Checked directly; does not require an unproved propositional dual-commutation lemma |
-| STAGE1 §3: fragment closure / intersection | `U_safety`, `D_safety`, `U_cosafety`, `D_cosafety`, `tags_intersection`, `step_bounded` | Checked; standalone class-level NNF dual commutation not supplied |
-| STAGE1 §4: safety, both directions | `safety_language`, `safety_complement` | Checked for positive support-tested classes |
-| STAGE1 §4: co-safety, both directions; precedence of safety row | `cosafety_language`, `cosafety_complement` | Checked for NNF support-tested classes |
-| STAGE1 §4 (2): GF all-field fixed | `gf_derivative_fixed`, `gf_all_fixed`, `gf_not_simple` | Checked |
-| STAGE1 §4 (3): exact retry/seed case split | `gf_seed_bound`, `search_dropX_fixed` | Sufficient seed bound and protection checked; exact two-case equality pending |
-| STAGE1 §4: GF finite windows, both directions | `gf_language` | Checked, using the general accepting-renewal-seed theorem |
-| STAGE1 §4: FG finite windows and complement | `gf_complement`, `fg_language` | Checked on the identical completed dual run |
-| STAGE1 §5: one-set min-even and max-odd tables | `oneSet_min_inf`, `oneSet_min_fin`, `oneSet_max_inf`, `oneSet_max_fin`, `gf_minEven`, `fg_minEven`, `gf_maxOdd`, `fg_maxOdd` | Checked numeric parity languages; identification with the built one-colour tree's unique path pending |
-| Task J: fixed-input finite alphabet and semantic state closure | `run_subformulaBound`, `subformula_signature_injective`, `finite_reachable_pairs`, `finite_component_states` | Checked for all words and both fields, including retry and finite retention; no general language theorem follows from finiteness alone |
-| Task J: nested Π₂ failed constraints | `pi2_cosafety_failure`, `class_pi2_cosafety_failure`, `general_eventually_false_cosafety_constraints` | Checked for the full Π₂ nesting structure and arbitrary NNF classes; every sufficiently late raw position has a false co-safety consequence |
-| Task J: closed-alphabet descent and protection | `eventually_protected_of_cosafety_constraint`, `general_eventually_false_protected_constraints`, `general_eventually_false_passes` | Checked at every sufficiently late raw position and every intermediate weakening; no finite-window flush or never-false premise |
-| Task J: general component language | `general_pi2_converse`, `general_pi2_language` | General Π₂ converse and language equality proved, including retry and retained finite remainders; C admission/refinement unchanged |
-| Task T: executable canonical class decisions | `Impl.table_exact`, `Impl.equivalent_exact`, `Impl.uses_exact`, `Impl.hasTag_exact` | Checked executable truth tables and exact support, including Boolean absorption |
-| Task T7: recursive canonical finite/prefix languages | `Impl.refined_finite_class_constant`, `Impl.refined_finite_window`, `Impl.refined_safety_bad_prefix`, `Impl.refined_cosafety_witness`, `Impl.defaultTags_language_certificates` | Checked on actual frozen syntax and executable tag results; permitted axioms only |
-| Task T7: refined protected extractor and ordered component invariants | `Impl.rhoTagged_invariant`, `Impl.transitionTagged_spec`, `Impl.runTagged_all_language`, `Impl.runTagged_finite_obligation` | Checked for a supplied sound classifier, including changing classifiers between steps; shared cache trace and full accepting language remain open |
-| Task T: executable component simulation | `Impl.classTag_exact`, `Impl.rho_exact`, `Impl.initial_exact`, `Impl.transition_exact`, `Impl.run_exact`, `Impl.marks_exact` | Checked for research structural tags; C transport, IDs and caches still outside the bridge |
-| Task T: Π₂/Σ₂ orientation and numeric parity | `Impl.pi2_language`, `Impl.sigma2_language`, `Impl.dual_class_congr`, `Impl.class_sigma2_dual_pi2`, `Impl.research_component_language` | Checked for NNF whole classes accepted by research admission, including arbitrary canonical support; complete constructor/export theorem pending |
-| Task T: canonical research domain and grouping branch | `Impl.canonicalResearchCheck_exact`, `Impl.canonicalResearchCheck_shannon`, `Impl.compatibleGroups_exact` | Executable support-union predicate and folded-class identity branch checked; constructor success/product simulation pending |
-| Task T2: positive-Boolean Büchi rounds and incoming state split | `Impl.seenColours_exact`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language`, `Impl.positive_buchi_language` | Checked executable Shannon residual/reset monitor, including constant acceptance and source-state 0/1 max-odd priorities; complete constructor selection remains separate |
-| Task T2: component store, cache hits and permanent colours | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_literal`, `Impl.store_productColours` | Checked executable insertion-order lookup, equal-class and cached-dual sharing, fresh orientation, and preservation of all existing complete streams and literals |
-| Task T2: shared-store Shannon and grouped assembly | `Impl.assemble_spec`, `Impl.assemble_presentation`, `Impl.assemble_shannon_presentation`, `Impl.assemble_grouped_presentation` | Checked compilation of explicit valid construction plans into the actual indexed acceptance and `ProductPresentation`; complete C plan selection/order refinement pending |
-| STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
-| STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
-| STAGE2 §3 (2): all/rejecting invariant | `ComponentInvariant`, `initial_invariant`, `transition_invariant`, `run_invariant`, `run_remainder` | Checked for arbitrary NNF inputs, without a Π₂ converse hypothesis |
-| STAGE2 §3: false renewal / resumption unreachable | `no_false_renewal`, `no_active_resume`, `resume_unreachable` | Checked with the preceding invariant |
-| STAGE2 §3 (3): all-field exactness, including false sink | `all_field_derivative`, `all_field_exactness` | Checked |
-| STAGE2 §3 (4): satisfying words accept | `satisfying_accepts` | Checked for arbitrary NNF inputs |
-| STAGE2 §3 (5): retained obligations across renewals | `rejecting_step_preserves`, `rejecting_preserves_obligation`, `all_preserves_obligation` | Checked with explicit active-interval condition for R |
-| STAGE2 §3: accepting runs satisfy extracted seeds | `accepting_finite_obligation`, `accepting_simple_suffix`, `accepting_active_obligation`, `accepting_renewal_seed`, `accepting_active_finite_witness` | Checked; retained finite checks are not replaced by true |
-| STAGE2 §4: fixed product and α=β(Inf(i)) | `productRun`, `productColours`, `EmersonLei`, `product_projection`, `product_language`, `product_complement` | Checked; language equality explicitly requires two-sided per-component equality |
-| STAGE2 §5: all maximal opposite children, finite tree / depth | `MaximalOpposite`, `maximal_opposite_extension`, `ZTree`, `buildTree`, `child_cover`, `ZTree.path_length_le` | Checked reference builder, including empty colour universe |
-| STAGE2 §5: generic maximal-model SAT builder | `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete` | Abstract soundness/completeness checked; C query/loop refinement remains trusted |
-| STAGE2 §5: ordinary one-sibling update | `ZTree.step`, `ZTree.advance`, `ZTree.step_valid`, `ZTree.advance_valid`, `treeRun_valid`, `treePriority_le` | Checked operation, valid paths and priority bound |
-| STAGE2 §5: least recurrent anchor, stable prefix and sibling cycling | `Often`, `rotation_visits`, `ZTree.node_motion`, `ZTree.recurrent_run` | Checked by tree induction: infinitely many root rotations, or a stable child suffix |
-| STAGE2 §5: recurrent-set acceptance | `recurrent_eventually_subset`, `recurrent_shift`, `ZTree.recurrent_run`, `tree_minEven` | Checked: min-even iff α(S), for every colour stream, including m=0, empty marks and constant α |
-| STAGE2 §5: max-odd export P−p | `parity_export`, `tree_export`, `tree_maxOdd` | Checked: max-odd iff α(S); every ordinary exported priority is positive |
-| STAGE2 §6.1: failed clause, raw constraint (6), exact progression (7) | `failed_clause`, `failed_flat_clause`, `global_all_implies`, `U_rawAll`, `BadFlatConstraint`, `initial_badFlat`, `flat_residual_step`, `badFlat_step` | Checked for the actual raw all-field and exactly retained finite residual |
-| STAGE2 §6.2: flush old false finite candidates | `flush_false_window`, `flatCandidates_split`, `flatCandidates_bound`, `badFlat_flush` | Checked: old candidates become Boolean false; remaining supported X tails belong to selected bodies |
-| STAGE2 §6.3 (8): protect a constraint / lose a protector | `badFlat_remove`, `removeBody_shorter`, `minimal_protectors`, `flat_constraint_protected`, `minimal_extractPass_constraint` | Checked throughout every intermediate removal pass; a lost H strictly reduces the proof constraint |
-| STAGE2 §6.4 (9): eventually all extracted seeds false | `neverBot_finite_obligation`, `flat_eventually_false_seeds` | Checked: violating G(q) and never-false A imply an eventually false ρ(raw); finite first-pass results are excluded, disabling retry |
-| STAGE2 §6.5: full G(q) converse | `flat_global_language` | Checked: Inf(marks G(q)) iff satisfaction of G(q); no false-seed premise remains |
-| STAGE2 §6.5: dual F(r) | `flatR_dual`, `flat_eventual_language` | Checked: Fin(marks G(bar(r))) iff satisfaction of F(r), on the identical complete run |
-| STAGE2 §8: assembled admitted grammar | `ProductPresentation`, `admitted_product`, `presentation_parity`, `admitted_grammar` | Checked: a fixed finite component product and covered global tree recognize every admitted formula in both parity orientations |
-| STAGE2 §9.1: C's canonical-class grouping condition | `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `nonempty_cosafety_identity`, `compatibleGroups_sat`, `compatibleGroups_admitted`, `compatibleGroups_parity` | Checked: finite operands join co-safety exactly when its folded canonical class differs from the Boolean identity; grammar closure and both parity languages |
-| STAGE2 §9.1: canonical admission and grouped constructor success | `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `canonicalCheck_product`, `factoring_grouped_parity` | Checked conservative support domain, actual recursive canonical calls on remaining operands and both groups, failure propagation, original fallback, exact success domain and language preservation; factoring equivalence is explicit; C representation/status bridge trusted |
-| STAGE2 §9.2: G/∧ and F/∨ distributions | `distribute_G_conj`, `distribute_F_disj`, `distribute_G_context`, `distribute_F_context` | Checked for every infinite word and arbitrary syntax context, including under frozen modalities; C traversal bridge trusted |
-| STAGE2 §9.3: terminally decided products | `terminal_all_marks`, `terminal_recurrent_colour`, `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` | Checked constant substitution in fixed β, complemented occurrences, absorbing priorities P/P−1 and arbitrary entering/finite-prefix priorities |
-| STAGE2 §9.4: current-AP care traversal | `restrictCurrent`, `unfoldCare`, `unfolding_care_exact`, `unfolding_syntax_care_exact`, `unfolding_care_root`, `care_finite_return`, `care_frozen_next`, `care_shannon`, `care_modal_shannon` | Checked syntax/class reference care, current AP branch recombination and frozen X; imperative DAG order/memo-key bridge trusted |
-| STAGE2 §9.5: fragment bounds with exact fallback | `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounds_intersection`, `bounded_tag_test_exact`, `support_pruning_tag`, `cached_lower_refinement`, `exact_tests_preserve_order` | Checked structural syntax bounds, actual support/cofactor intersection, arbitrary masks, stable lower caches, exact fallback and safety-first order; C bitset/cache bridge trusted |
-
-### Task J: general Π₂ converse proved
-
-**Focused follow-up outcome: proved.** `TlsfProofs/Dpa/GeneralConverse.lean`
-now proves `general_eventually_false_passes` in a stronger form: the all-field
-need not stay propositionally nonfalse. The default build checks the theorem.
+`Tlsf.Dpa.Impl.uncached_construction_language` states:
 
 ```lean
-theorem general_eventually_false_passes
-    (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)
-    (w : Word (Fin ap)) (hfalse : ¬Holds w 0 x) :
-    ∃ N, ∀ n, N ≤ n →
-      ¬Holds w n (extractPass (rawAll x w n))
+transportedResearchCheck rank f = true →
+  ∃ r, construct rank atomRank f = some r ∧
+    (∀ w, r.parity.Accepts w ↔ Sat none w f 0) ∧
+    (positiveb r.skeleton = true → ∀ w, r.buchi.Accepts w ↔ Sat none w f 0)
 ```
 
-`general_eventually_false_protected_constraints` proves the structural target
-as well: every sufficiently late raw position has a false co-safety consequence
-C whose supported X atoms remain protected in every NNF weakening y between
-raw and C. `extractPass_protected_constraint` preserves it through every
-simultaneous deletion, with protection recomputed at each pass.
-
-The proof has two parts:
-
-1. **Π₂ induction.** `pi2_cosafety_failure` extends the failed-clause argument
-   through conjunction, disjunction, X, G, R and W, taking co-safety formulas as
-   leaves. `class_pi2_cosafety_failure` lifts it to arbitrary NNF Boolean
-   classes using the checked false-clause construction. A false co-safety
-   consequence persists semantically under exact derivatives; it need never
-   become propositionally false. This gives
-   `general_eventually_false_cosafety_constraints` and the intermediate
-   `general_eventually_false_reductions`.
-2. **Smallest closed alphabet.** Among all false co-safety raw consequences
-   at all times, choose one with a smallest finite subformula-closed alphabet
-   B (`BadCosafetyConstraint`). Exact raw steps preserve B. A maximal X in B
-   disappears after one step, contradicting minimality. Every supported X
-   therefore lies below a maximal non-X modal atom H. Minimality forces H to
-   be supported by C and by every intermediate weakening y: otherwise the
-   false-cofactor argument removes H, giving a strictly smaller closed
-   alphabet and another semantically false consequence. The same alphabet
-   works at every later time, which proves
-   `eventually_protected_of_cosafety_constraint`. No pigeonhole, numerical
-   threshold, alternating-automaton correspondence or propositional flush is
-   required.
-
-`false_pass_disables_retry` then rules out retry at the relevant positions on
-a never-false all-field, and `converse_of_eventually_false_passes` applies the
-accepting-renewal theorem with its retained nonconstant finite remainders.
-The resulting unconditional theorem `general_pi2_converse` proves
-`GeneralPi2Converse`; `general_pi2_language` states
-`Inf (marks x w) ↔ Holds w 0 x` for every NNF class with `HasTag Pi2 x`.
-
-`false_cosafety_need_not_flush` remains valid: `F a` on the all-false word is
-semantically false and every finite derivative is propositionally nonfalse.
-The successful proof uses semantic falsity and closed-alphabet descent.
-
-**Remaining boundary.** There is no remaining general Π₂ component-language
-gap in the Lean model. The research-mode alignment below closes the two
-operational mismatches found in review; the C representation refinement remains
-trusted. Task T below adds executable component simulation and general
-canonical-support Σ₂ dual classification. The §9 complete constructor and
-admission results have not been extended to the general Π₂/Σ₂ grammar.
-General admission remains opt-in through
-`allow_unproved`; default admission is unchanged.
-
-The repeatable search is `tools/golden/dpa_pi2_converse.py`. The recorded run
-compared both language inclusions with Spot 2.16 through the existing
-`dpa_equivalence.cpp` harness and `--allow-unproved`:
-
-- 7,058 small/targeted formulas, including duals. The exhaustive part enumerates
-  mixed Π₂ formulas with at most six grammar nodes over positive a,b, modulo
-  commutativity of ∧/∨; direct safety/co-safety cases are omitted. The targeted
-  families cover disappearing F/U/M protectors, delayed finite obligations,
-  `GF(a ∧ X b)`, `G(a → F(X b ∧ XX c))`, R/W, and mixed literal signs.
-- 4,000 deeper cases, including duals, from seed 80002931: 2,000 generated Π₂
-  formulas of 7–18 grammar nodes over a,b,c and their negations (a signed literal
-  counts as one leaf), alternating G/co-safety bodies with general Π₂ bodies.
-- **11,058 equivalences; zero mismatches, declines, or timeouts.** The corpus
-  SHA-256 is `498e422a7bec503f9040f2115461984fa0100c9df9d6ce541ad9bb1e2bcac9d9`.
-  Metadata and source fingerprints are in `../docs/lazy-dpa/TASK-J-SEARCH.json`.
-  These tests exercise C's canonicalization, factoring and complete DPA; they
-  do not test every unnormalized class permitted by the Lean proposition.
-
-For this run, the four current `src/lib/dpa*.c` translation units and the
-current harness were compiled serially with GCC 15.3.1 (`make -j1`), linking
-existing OxiDD and unchanged library infrastructure from the sibling
-`tlsf-proofs/build`. No C compilation overlapped Lean. With a normal build of
-this checkout, reproduce the corpus/checks with:
-
-```sh
-meson compile -C build -j1 dpa_equivalence
-python3 tools/golden/build_legacy.py build
-python3 tools/golden/dpa_pi2_converse.py build/golden-legacy \
-  --output /tmp/tlsf-task-j-search
-```
-
-The bounded negative search is implementation evidence only; it is independent
-of the new kernel proof. The proof-only Task J follow-up did not rerun the
-C/Spot search; the research-mode alignment below does.
-
-Validation: `LEAN_NUM_THREADS=1 lake build` succeeds with zero warnings. The
-`\b(sorry|admit|axiom|native_decide)\b` scan of every Lean source is empty.
-The dependency audit of the new general converse/language, protected-constraint
-and first-pass results, together with `admitted_grammar`, contains
-only `propext`, `Classical.choice` and `Quot.sound`.
-
-### Extractor correspondence in both modes after review
-
-`src/lib/dpa_formula.c:891` walks the retained NNF syntax to collect X
-subformulas; `src/lib/dpa_formula.c:914` starts that walk only at supported
-non-X modal atoms of the current reduced class (F/U/M in research mode).
-This implements `subformulas` and `Protected` at
-`TlsfProofs/Dpa/Classes.lean:503` and `:520`. Boolean materialization of a
-protector's operands cannot remove a protected X. Only X atoms are interned,
-with their operands frozen. `src/lib/dpa_formula.c:938` still performs
-REDUCE, repeated simultaneous DROP_X with protection recomputed after each
-removal, unfolding, and the finite-result retry in that order, matching
-`reduce`, `dropX`, `extractPass`, and `rho` at
-`TlsfProofs/Dpa/Classes.lean:578`–`:596`. Stepping and the ordered transition
-table at `src/lib/dpa_dela.c:5`, including renewal with retained finite
-remainders, are unchanged.
-
-In research mode, `src/lib/dpa_formula.c:81` intersects the structural tags
-of frozen atoms over exact class support. It does not recursively materialize
-modal operands to refine those tags, during admission or expansion. Thus the
-Π₂ branch of `src/lib/dpa_formula.c:189` tests `HasTag Pi2` on
-`Class.ofFormula` of the transported NNF syntax: `HasTag` is at
-`TlsfProofs/Dpa/Classes.lean:489` and `Pi2` at
-`TlsfProofs/Dpa/Converse.lean:35`. The Σ₂ branch uses the structural dual
-classification; component orientation and sharing at `src/lib/dpa_dela.c:93`
-select the corresponding Π₂ run. These are the syntax/tag and extractor
-algorithms assumed by `general_pi2_language` at
-`TlsfProofs/Dpa/GeneralConverse.lean:862`. This correspondence still trusts
-the C-to-Lean representation bridge described below.
-
-The regressions in `test/unit/dpa_stage2.c` check the exact initial rejecting
-class for `G(F(a | (a & X F b)) | X F b)`, which must be
-`a | F(a | (a & X F b)) | X F b`, not true. They also exercise both operands
-of U/M protectors. `G(F a | (F a & F(G b)))` and its NNF dual decline in
-research mode: absorption inside a frozen operand alone cannot establish
-`HasTag Pi2`. Default admission still accepts its existing canonical fragment,
-so some formulas accepted by default can now decline in research mode.
-Absorption in the outer class support remains available in both modes.
-
-The syntactic-protection change also applies with `allow_unproved=false`.
-**The default admission predicate is unchanged, but the automata can differ.**
-The default theorems use the same extractor: `initial` and `transition` in
-`Stage1.lean` call `rho`; `marks` and `run` refer to that table.
-`flat_global_language`, the GF/FG corollaries and `admitted_grammar` in
-`Converse.lean` consequently concern `Classes.lean`'s syntactic `Protected`,
-`dropX`, `extractPass` and `rho`. There is no mode-parameterized extractor in
-Lean. Safety/co-safety runs bypass extraction by `simple_run`; this does not
-make the complete admitted fragment insensitive to protection. The flat
-converse explicitly uses `flat_constraint_protected` and
-`minimal_extractPass_constraint` during simultaneous X removal.
-
-For example, `G(F(a | (a & X X b)) | X X b)` is in `Admitted`: the F body
-and `X X b` are finite windows, so its body is `FlatQ`. The supported F atom
-protects `X X b` syntactically although its operand materializes to `a`.
-The Lean initial rejecting class is `a | F(a | (a & X X b)) | X X b`,
-not true. HEAD `ea89484` implements this extractor in both modes; parent
-`b149ef5` instead loses this protection when it materializes the F operand.
-The existing theorems do not establish correspondence for that older
-extractor. Keep the syntactic walk in both modes, subject to the same trusted
-C representation/tag/constructor bridge as the other correspondence claims.
-This is not a new certification of the whole C implementation.
-
-The example expands to **4 states on the parent and 5 on HEAD** in either
-mode. At `max_states=4`, the parent completes and HEAD declines with
-`TLSF_DPA_STATE_LIMIT`; both unrestricted automata pass Spot equivalence.
-`default_syntactic_protection` in `test/unit/dpa_stage2.c` pins the initial
-rejecting field, the five-state result and the four-state budget decline in
-both modes. The equivalence suite also checks the example and its negation.
-See [the default-effect audit](../docs/lazy-dpa/DEFAULT-PROTECTION.md) for
-the paired measurements and their resource limits.
-
-The matched existing equivalence invocations (110 fixtures and 72 random
-cases) pass on both revisions with all 182 state counts unchanged. The 24
-inventory names recoverable from `STAGE2-INVENTORY.md` decline as unsupported
-by default on both; all admit in research mode and hit expansion budgets
-(five host, two BDD, seventeen deadlines). The complete 69-objective rerun is
-pending the missing external name list, especially its 45 default-admitted
-objectives; the historical admission totals are not a new measurement.
-
-Validation of this alignment, with builds and tests serialized in a 5 GiB
-cgroup and no OOM events:
-
-- All **378 Meson tests pass**, including the failure-path gates,
-  `dpa_equivalence_research` (107 Spot equivalences and three expected admission
-  declines) and `dpa_random_research` (72 Spot equivalences).
-- The full `dpa_pi2_converse.py` run checks **11,060 Spot equivalences**:
-  7,060 small/targeted cases and 4,000 deeper cases, including duals, with
-  seed 80002931. There are no mismatches, declines or timeouts. Corpus SHA-256:
-  `7cd9a574eb6145e889651d9b321729d253972cc449262cc31cbfda91c2854cee`.
-- A clean `LEAN_NUM_THREADS=1 lake build`, with Lean invocations serialized
-  by `flock`, passes all 19 jobs with zero warnings.
-- CI's pinned clang-format **22.1.8** passes on every changed C/C++ source
-  and header. The final C build check and Meson test run are warning-free;
-  the initial full GCC 15.3.1 compile reports existing warnings in unrelated
-  lexer, AST and GR(1) code. The changed DPA C code emits none.
-
-Before general admission can become the default, the reviewer's remaining
-obligations are:
-
-- Close the C-to-model correspondence for nested tags and protection,
-  preserving stepping, extraction, retry, renewal, and acceptance. The
-  operational algorithms now align; a verified representation refinement is
-  still required.
-- Extend the conservative constructor/admission results to general Π₂/Σ₂,
-  including NNF dual classification and component sharing, and instantiate
-  the existing product/parity results.
-- Validate that implementation and policy change against the required C/Spot
-  and failure-path gates.
-
-### Task T: executable representation and research component
-
-`TlsfProofs/Dpa/Impl/Classes.lean` provides executable truth tables over an
-explicit finite ordered list of modal atoms. `table_exact` proves that, on
-that alphabet, equality of the emitted vectors is exactly equality of the
-semantic `Class` values. `equivalent_exact` supplies an executable equality
-test for any two formulas by covering both alphabets. `uses_exact` proves that
-the executable support test is exactly `Uses`; `hasTag_exact` lifts any
-executable atom predicate to the semantic `HasTag`. These tests account for
-Boolean absorption and keep frozen modal operands and temporal duals
-independent. Duplicate atoms are removed before enumeration.
-
-Run the diagnostic executable from `proofs/`, using the Task T resource limits:
-
-```sh
-mkdir -p ../build-scratch-t/tmp
-systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  env TMPDIR="$PWD/../build-scratch-t/tmp" LEAN_NUM_THREADS=1 \
-  lake exe dpaImplChecks
-```
-
-The 106 checks exercise absorption, constants, essential and absent support,
-frozen operands, independent duals, both U/M protector operands, nested X,
-protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
-and nonconstant finite retention at renewal. They also cover canonical dual
-congruence, Σ₂ orientation with absorbed unsupported syntax, mixed Π₂/Σ₂
-canonical admission and review-i's nonempty co-safety identity case. Ten
-additional Büchi checks cover alternating conjuncts/disjuncts, a missing
-conjunct, constant true/false (including zero colours), the initial bit,
-the incoming-mark delay, source priorities, and the state split. Eleven store
-checks cover fresh Π₂/Σ₂ orientation, absorbed equal-class hits, cached-dual
-hits, repeated Σ₂ insertion, append indices, preservation of old entries,
-weak-dual sharing in parity mode, its separation in Büchi mode, and lookup
-order when an earlier cached-dual hit precedes a later equal-class hit. Eight
-assembly checks cover constant acceptance, canonical tautology folding,
-mixed Π₂/Σ₂ literals, shared leaves, a Shannon branch sharing a cached dual,
-old indices, and both grouped identity branches. Twenty-eight transport checks
-cover ID sorting, duplicate/constant folding, accumulated X through Boolean
-nodes, resets under frozen modal operands, preservation of frozen absorption,
-all temporal duals, implication/equivalence polarities, and strong-next rejection
-inside an absorbed branch. The X-distribution check explicitly distinguishes
-language preservation from frozen-class equality. Ten canonical selection
-checks cover constant/whole fast paths, mixed Π₂/Σ₂ Shannon plans in both
-variable orders, skipped absorbed variables, absorbed unsupported syntax,
-unsupported declines, and frozen cofactor operands.
-`class_checks`, `component_checks`, `dual_admission_checks`, `buchi_checks`,
-`store_checks`, `assembly_checks`, `transport_checks`, and `selection_checks`
-check these same executable definitions by kernel reduction.
-
-**Task T3, item 1 proved at the decoded-syntax boundary.**
-`Impl/Transport.lean` follows `formula_impl` at `src/lib/dpa_formula.c:394`
-directly, with C's negation flag and pending X count. It does not call
-`to_nnf` or use `nnf_sat` to stand in for the traversal. `termBoolean_language`
-and `termBoolean_nnf` model ID sorting, duplicate elimination and constant
-folding in `term` at `src/lib/dpa_formula.c:254`. The rank parameter is the
-permanent ID in an append-only term arena; the proofs work for every rank.
-`termUnary_language` covers the X/F/G constant branch, and
-`wrapNext_language` proves C's repeated wrapping at `src/lib/dpa_formula.c:388`.
-The direct successful-traversal invariant is:
-
-```lean
-Impl.transport_language (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap))
-  (negate : Bool) (pending : Nat) (t : Formula (Fin ap))
-  (ht : Impl.transport rank f negate pending = some t) (w : Word (Fin ap)) (j : Nat) :
-  Sat none w t j ↔
-    (if negate then ¬Sat none w f (j + pending) else Sat none w f (j + pending))
-```
-
-Boolean children inherit `pending`; modal children restart at zero before
-wrapping the frozen result. All implication/equivalence branches follow C's
-operand/polarity choices. `transport_domain` identifies exactly the expanded
-syntax without strong-next, before resource/invalid-input failures.
-`transport_nnf` supplies NNF for every successful result.
-`transport_class_language` gives `NNFClass (Class.ofFormula t)` and its original
-input language at every word/position, matching materialization's frozen
-modal operands at `src/lib/dpa_formula.c:366`. The result is language equality:
-X(p ∧ q) and X p ∧ X q are still different classes over independent frozen
-atoms. C hash-consed IDs, pointer memoization, AP-name resolution and bounded
-successful-execution refinement remain representation obligations; no numeric
-C ID equality or automaton-constructor theorem is claimed here.
-
-`Impl/Tags.lean` proves all five executable structural classifiers exact,
-including `pi2b_exact` and `sigma2b_exact`. `classTag_exact` identifies their
-canonical-support intersection with `HasTag`; `researchAdmitted_exact` covers
-the research whole-class fast path. It does not identify this fast path with
-the full Boolean acceptance recursion. As in current C, absorption inside a
-frozen operand does not grant a research tag.
-
-`Impl/Extractor.lean` proves `protected_exact`, `reduce_exact`, `dropX_exact`,
-`elide_exact`, `extractPass_exact`, and `rho_exact`. The executable fuel is the
-length of its actual syntax's modal-atom list. `semantic_elideFuel_unique`
-proves agreement with the semantic model's representative-dependent fuel:
-both reach the same stable result. Retry uses canonical equality and the
-exact finite-support predicate.
-
-`Impl/Component.lean` proves `initial_exact`, `transition_exact`, `run_exact`,
-and `marks_exact`. Every transition row is covered, including retained finite
-remainders. Its main executable component theorem is:
-
-```lean
-Impl.pi2_language (f : Formula (Fin ap)) (hn : NNF f)
-  (hpi : Impl.classTag .pi2 f = true) (w : Word (Fin ap)) :
-  Inf (Impl.marks f w) ↔ Sat none w f 0
-```
-
-`pi2_complement` gives Fin acceptance on the same run. `pi2_parity` and
-`pi2_complement_parity` give Stage 1's one-set numeric min-even/max-odd
-languages. These do not identify that numeric table with C's global tree or
-its terminal shortcuts. All new main theorem dependency audits contain only
-`propext`, `Classical.choice`, and `Quot.sound` (some use fewer).
-
-`Impl/Dual.lean` proves `dual_class_congr`: NNF dualization respects semantic
-class equality. `class_sigma2_dual_pi2` proves that exact Σ₂ support becomes
-exact Π₂ support under dualization; it does not assume the chosen syntax is
-itself Σ₂. The key substitution is
-`dualAssignment σ a = !propEval σ (dual a)`, with
-`propEval σ (dual f) = !propEval (dualAssignment σ) f` for NNF f. Support
-locality and the structural dual grammar then prove the classification.
-Thus `sigma2_language` gives `FinMarks (Impl.marks (Impl.dual f) w) ↔ Sat none
-w f 0` for every NNF f with `Impl.classTag .sigma2 f = true`.
-
-`research_component_language` covers every NNF whole class accepted by
-`researchAdmitted`: C's Π₂-first orientation, followed by Fin acceptance on
-the Σ₂ dual, has both one-set numeric parity languages equal to the formula.
-`Impl/Admission.lean` checks the full canonical research support-union
-predicate and its Shannon recursion, and proves the executable grouping
-decision equal to §9.1's corrected reference. This includes the folded-class
-identity branch, rather than a test of list nonemptiness.
-
-**Task T2, item 1 proved.** `Impl/Buchi.lean` models the Shannon walk of
-`src/lib/dpa_dela.c:203`, the residual/reset and target completion bit at
-`:272`, the source-state priority at `:278`, and the initial incoming bit at
-`src/lib/dpa.c:300`. Canonical true/false tests enumerate the finite colour
-truth table; the BDD canonicity boundary is unchanged. `seenColours_exact`
-proves substitution of all colours on an edge. `roundRun_residual` identifies
-every residual with the original acceptance after substitution of the colours
-seen since the last reset. For every positive Boolean acceptance β and every
-colour stream (without any bounded-gap assumption):
-
-```lean
-Impl.completedRounds_language (β : Impl.ColourDag m)
-  (hp : Impl.PositiveColours β.eval) (colours : Nat → Fin m → Bool) :
-  Inf (Impl.completedRounds β colours) ↔ EmersonLei β.eval colours
-```
-
-The proof uses a common last-occurrence bound for nonrecurring colours in one
-direction and eventual visits to all recurring colours in the other. It does
-not test β on individual edges. `PositiveAcceptance.positive` discharges hp
-for constants, positive component colours, and conjunction/disjunction, the
-grammar used by `src/lib/dpa_formula.c:622` (dual sharing is disabled at
-`src/lib/dpa_dela.c:99`). `incoming_state_split` proves equal residuals with
-different incoming bits have the same next state but different source
-priorities. `incomingMarks_inf` proves the one-step delay and finite initial
-bit preserve Inf. `incomingMarks_language`, `buchiPriority_language` and
-`positive_buchi_language` give the state-based Büchi and actual 0/1 max-odd
-languages. Constant true/false and an empty colour alphabet are included.
-No counterexample, C change, narrowing, or coverage impact was needed.
-This closes the round-monitor obligation, independently of the still-open
-syntax transport and constructor correspondence.
-
-`Impl/Store.lean` now models the component loop at `src/lib/dpa_dela.c:93`.
-`StoreValid` requires NNF Π₂-oriented stored formulas and a cached temporal
-dual related in the direction in which the pair was constructed. It does
-not require a temporal dual to be Boolean complementation, or syntactic
-double-dual identity before constant normalization. `lookupComponent_represents`
-checks the exact insertion-order equal-class / cached-dual tests.
-`internComponent_valid`, `internComponent_represents` and
-`internComponent_language` prove invariant preservation and exact literal
-language after either cache hit or fresh Π₂/Σ₂ insertion. The result's index
-is in bounds. `internComponent_preserves_index`,
-`internComponent_preserves_colours` and `internComponent_preserves_literal`
-preserve every previous coordinate, its entire complete stream, and its
-oriented recurrent truth. `internComponent_buchi_positive` proves that
-Büchi mode's Π₂ insertions return positive literals, including cache hits.
-`store_productColours` identifies these permanent coordinates with the
-abstract fixed product; `storeTruth_componentTruth` identifies their truth
-vectors in a valid store. Selection of the full constructor remains separate.
-
-`Impl/Assembly.lean` compiles explicit successful construction plans containing
-constants, whole classes, binary Boolean combinations and Shannon branches.
-Canonical constant classes return constant acceptance without adding a
-component, as in `src/lib/dpa_dela.c:117`. `assemble_spec` proves store growth,
-validity, index bounds and exact acceptance language throughout this recursion.
-`ColourAcceptance.eval_extends` is the intermediate acceptance invariant:
-later insertions cannot change the truth of earlier branches. Consequently
-`assemble_presentation` gives `ProductPresentation` for the actual returned
-store and indexed acceptance. `assemble_shannon_presentation` instantiates
-this result for a source class's Boolean cofactor decomposition.
-`groupedPlan` uses the executable folded-class identity test; its language
-theorem reduces to `compatibleGroups_language`. `assemble_grouped_presentation`
-proves a concrete shared-store presentation for safety/co-safety/finite
-groups and valid recursive rest plans, for either Boolean operator and both
-identity branches. This closes the assembly lemma from the previous boundary.
-
-`Impl/Selection.lean` now selects the **uncached canonical fallback** at
-`src/lib/dpa_dela.c:117`. `cofactor_eval` proves the executable Boolean
-cofactors exact, without descending into frozen modalities; `cofactor_nnf`
-preserves NNF. `cofactor_shannon` reconstructs the original class.
-`selectCanonicalPlan` checks constants, whole-class admission, and then the
-first essential atom in the supplied variable order. `canonicalPlan` supplies
-the syntax's finite alphabet sorted by permanent atom ID. `orderAtoms_mem`
-and `orderAtoms_sorted` prove the structural sorting reference preserves
-membership and gives increasing ranks. The proof covers
-every rank/order, including variables removed by canonical absorption.
-
-`canonicalPlan_domain` proves success exactly when `canonicalResearchCheck`
-accepts. `canonicalPlan_spec` proves `AcceptancePlan.Valid` and source-class
-equality for the plan returned by this executable selector; neither is an
-assumption about an arbitrary plan. `transported_canonical_source` proves
-that selected plan valid and its source language equal to the original input
-at every word and position. `transported_canonical_presentation` composes
-that result with shared-store assembly to give `ProductPresentation` for
-the original input formula and the compiled selected plan.
-`admitted_canonical_presentation` supplies the actual successful selector
-result from executable research admission, without assuming a valid plan or
-choosing fresh existential components.
-
-`Impl/Cache.lean` now executes the canonical constructor with the acceptance
-cache in its C position, before whole-class admission. `lookupAcceptance_spec`
-proves class-key hits, and `AcceptanceCache.Valid.extends` preserves both
-index bounds and languages as the store grows. `runCanonical_refines` proves
-successful construction, store extension, store/cache validity, index bounds
-and exact input language for every selected canonical plan. Its `highFirst`
-parameter allows either order of C's nested Shannon child arguments; the top
-atom's component call always comes first. The executable `calls` list records
-component calls in that order, including component-store hits and excluding
-acceptance-cache hits. `runCanonical_hit` proves a hit leaves the complete
-state unchanged and makes no component calls. Unread constant-cache writes
-are omitted, and canonical cache keys use the same decoded class equality
-as the rest of the model.
-
-`cached_uncached_language` refines the earlier uncached assembly, interpreting
-each acceptance in its own actual store rather than equating different colour
-numberings. `runCanonical_presentation` supplies `ProductPresentation` for the
-cached constructor on the complete canonical research domain;
-`transported_cached_presentation` supplies the original input language after
-transport. The diagnostic checks cover both child orders with different
-store numbering, a shared nontrivial cofactor, equivalent cache-key syntax,
-cache reuse after growth and constants taking precedence over cache entries.
-`Impl/Grouping.lean` now supplies the grouped syntax selector and C's
-rest-before-groups store-call order. `partitionSyntax_exact` identifies the
-executable structural-bit partition with the abstract partition, retaining
-operand order and multiplicity. `selectSyntaxPlan_success` proves that the
-selected `OrderedPlan` is valid and has exactly the frozen input's language,
-on the exhaustive research leaf guard. Its executable structural size gives
-a sufficient recursion bound. `orderedGroups` tests the actual folded
-co-safety class against the identity, executes recursive rest operands first,
-and permits either argument order for the two canonical group calls.
-`runOrderedPlan_success` and `runSyntax_presentation` thread the same acceptance
-cache and component store throughout. Boolean acceptance folding is compared
-extensionally; raw BDD node identities remain a representation assumption.
-
-`runFactored_presentation` combines the original research-admission guard,
-the grouped leaf guard and original-class fallback into a concrete product
-presentation. Its **explicit hypotheses** are NNF of both original and
-factored syntax and language equality of the supplied factored syntax with
-the original. This theorem takes the factored syntax separately; the Task T5
-traversal below now discharges these hypotheses. Checks cover
-both group argument orders, both Boolean operators, the review-i identity
-case, finite-before-safety partitioning, constant fast paths, fallback after
-an absorbed unsupported leaf, and unsupported declines.
-
-**Task T5, item 1 proved at the decoded-syntax boundary.**
-`Impl/Factoring.lean` models `src/lib/dpa_formula.c:524`, using the smart
-constructors of `src/lib/dpa_formula.c:254`. The executable retains compatible
-safety/co-safety syntax, factors children left before right, inspects the
-returned child's root, and recursively factors newly distributed G/∧ and F/∨
-syntax. `factorTerm_spec` proves that every successful bounded traversal
-returns NNF syntax with exactly the original infinite-word language at every
-position. The result is language equality, not canonical-class equality:
-distribution changes independent frozen modal atoms.
-
-`factorWeight` assigns weight 1 to leaves, twice the child's weight to unary
-nodes, and the sum of child weights plus 1 to binary nodes. Smart constructors
-do not increase those bounds. `factorDistribution_spec` proves strict weight
-decrease on a newly distributed term, and `factorTerm_success` proves that
-weight plus 1 is sufficient fuel, including recursion on returned syntax.
-Ordinary node count need not decrease. These statements concern successful
-decoded execution; they do not assert that C's resource budget always suffices.
-
-`factorCachedTerm` additionally threads the per-term memo through every child
-call, including writes before later sibling calls and recursion on distributed
-syntax. `lookupFactored_spec` uses frozen syntax keys, not Boolean class
-equality. `FactorMemo.remember_valid`, `factorCachedTerm_sound` and
-`factorCachedTerm_success` prove preservation of the memo invariant, NNF,
-language and the weight bound; empty memos satisfy the invariant.
-Numeric term IDs, the result-plus-one sentinel and the faithful decoding of
-hash-consed arena/memo cells remain representation assumptions.
-
-`runFactoring_presentation` now computes that memoized traversal and supplies
-its output to `runFactored_presentation`, retaining the original-class admission
-guard and fallback at `src/lib/dpa_formula.c:610`. The input theorem is
-`admitted_transport_factoring_presentation`: whenever the executable
-`transportedResearchCheck rank f` accepts, `runTransported` succeeds and its
-actual returned store/acceptance give `ProductPresentation f`. No assumed
-factored syntax, NNF proof or factoring-language hypothesis remains. This
-connects transport, factoring, grouped selection and cached construction;
-the concrete parity export and positive Büchi syntax selector remain separate.
-The new checks exercise both early exits, both distributions, newly exposed
-Boolean roots, all temporal binary reconstructions, constants, insufficient
-fuel, memo hits/misses and sibling reuse, and the composed input pipeline.
-
-**Task T6, recursive tag/cache invariant proved at the decoded boundary.**
-`Impl/DefaultTags.lean` models default-mode `tags_impl` at
-`src/lib/dpa_formula.c:81`: constants, class-cache hits, atom exact-tag hits,
-the pre-start safety/co-safety exit, recursive materialized operands, the
-five operator transfers, and cached Shannon cofactors. Atom keys retain
-frozen syntax; class keys use executable Boolean equality. The supplied
-permanent-ID order selects the first essential atom; either evaluation
-order of the two C child calls is allowed. Fuel bounds successful calls;
-this milestone does not prove a sufficient fuel bound for every input.
-
-`defaultTags_sound` proves that every successful call preserves both caches,
-retains every structural class bit, and justifies each returned bit by
-`RefinedClass` on the actual frozen input. `RefinedAtom` records structural
-membership or the corresponding operator transfer from recursively justified
-canonical operand support. It does not substitute a language-equivalent
-formula or assert structural membership of the original atom.
-`TagCache.start` models C's class-tag reset at `src/lib/dpa.c:510`, retaining
-the exact atom-tag cache. `startDefaultTags_sound` and
-`defaultTags_phase_change` compose pre-start and post-start calls through
-that executable reset. The checks exhibit X with mask 26 before start and
-mask 31 with one exact atom-cache entry after startup; weaker pre-start
-class tags are cleared. Same-phase canonical class-cache hits remain covered.
-
-`freshTagBounds_valid`, `cachedTagBounds_valid` and `TagBounds.Valid.mask`
-prove persistent lower-bound hits and upper-bound misses sound for the same
-recursive predicates. Bounds are computed extensionally over support;
-numeric quick-cache sentinels and cofactor-cell storage remain decoded
-representation details. The 27 tag checks cover operand absorption under
-G/X/U/R/W/M, frozen/structural disagreement, both child orders, cofactor
-cache writes, exact-tag hits, equivalent class keys and stale cached bounds.
-The T7 results below supply finite/prefix certificates and local extractor/
-component invariants for these predicates; the complete cache-trace and
-accepting-language bridge remains open.
-
-**Task T6, terminal product shortcut proved at the decoded boundary.**
-`Impl/Terminal.lean` executes `terminal_condition` at
-`src/lib/dpa_dela.c:170`, including canonical class-key memo hits, epoch
-isolation, known-target branch selection, and both argument orders when
-unknown colours retain both children. `terminalCondition_spec` proves that
-the returned residual denotes substitution of exactly the available
-terminal target pairs. Nonterminal and unavailable pairs remain symbolic;
-the rejecting field does not provide a truth constant. Fresh epochs may
-reuse a memo containing arbitrary older entries. Numeric epoch uniqueness,
-BDD interning and owned state IDs remain representation assumptions.
-
-`terminalShortcut_product_language` derives the constant-substitution
-hypothesis of `terminal_product_decided` from the executable constant test.
-It covers arbitrary Boolean acceptance, including complemented coordinates.
-`terminalShortcut_parity` compares the resulting absorbing suffix with the
-abstract tree's max-odd export. `terminalExport_input_language` additionally
-executes the ordinary/reserved-state transition and the absorbing loop at
-`src/lib/dpa.c:536`, deriving the suffix rather than assuming it. Given an
-actual successful shortcut, a product presentation, and identification of
-available target pairs with component runs after the current letter, both
-its max-odd stream and its P−p min-even stream recognize the input language.
-All earlier priorities are irrelevant to this argument. The ordinary joint
-transition/target-pair simulation remains a premise; this is not the full
-pipeline theorem. `productTerminalShortcut_buchi` proves that the mode guard
-disables the shortcut in Büchi mode, as C does.
-
-The 30 terminal checks cover both constants, empty colour support, partial
-and unknown targets, complemented acceptance, canonical all-field tests,
-same-epoch hits, stale epochs, equivalent class keys, shared cofactors,
-both child orders, reserved priorities, entry into a sink, its loop and the
-Büchi-mode guard.
-
-**Task T7, refined language certificates and local invariants.**
-`Impl/RefinedLanguage.lean` proves `refined_finite_class_constant`: a class
-with the recursive finite predicate becomes its actual truth constant after
-`horizon f + 1` letters, even when absorbed syntax contains unbounded
-modalities. `derivatives_support_eq` lifts derivative facts only from actual
-support atoms; `refined_finite_window` gives the corresponding word-prefix
-locality. `refined_safety_bad_prefix` and `refined_cosafety_witness` give
-finite bad/good certificates for NNF classes with recursively canonical
-operands. `refined_U`, `refined_D` and `refined_finite_U_fixed` prove closure
-and finite unfolding identity for the finite/safety/co-safety bits.
-`defaultTags_language_certificates` applies these results directly to every
-successful executable default-tag result and its actual input syntax.
-
-`Impl/RefinedExtractor.lean` supplies the executable tag-parameterized
-`rhoTagged`. It uses the same frozen-support protection, DROP_X loop,
-canonical equality and finite retry as the earlier executable extractor.
-`rhoTagged_invariant` proves NNF, unfoldedness, the refined co-safety
-predicate, and implication from the unfolded all-field. A satisfied input
-therefore gives a genuine finite good certificate for the returned obligation
-(`rhoTagged_satisfied_witness`). The interface requires sound positive tag
-answers; it does not assume structural tags on recursively refined atoms.
-`rhoTagged_research` identifies its structural-classifier specialization
-with the existing research extractor exactly.
-
-`Impl/RefinedComponent.lean` executes the ordered table with this interface.
-`transitionTagged_spec` proves preservation of `TaggedInvariant` and exact
-all-field progression, including finite retention and exclusion of a false
-renewal from invariant states. `runTagged_all_language` proves all-field
-language equality at every position. The supplied classifier may change at
-every letter. `runTagged_satisfied_obligation` gives finite good certificates
-for active obligations on satisfying words; `runTagged_finite_obligation`
-justifies retained finite obligations whenever the all-field never becomes
-false. `runTagged_research` identifies the structural specialization with
-the existing executable research run. These are local invariants, **not**
-an accepting-run language theorem for the changing default classifier.
-
-The 20 new checks cover nonstructural finite/co-safety hits, retained frozen
-co-safety atoms, protected and unprotected X, GF retry, suspension, simultaneous
-X/AP stepping, safety/co-safety rows, finite retention and the explicit false
-renewal row. Two universal kernel witnesses instantiate the finite-window
-and component invariants on actual recursive classifier computations.
-The diagnostic classifier recomputes fresh tag queries; it is explicitly
-not the simulation of C's shared evolving cache.
-
-**Task T8, persistent default-tag query traces.**
-`Impl/TagTrace.lean` proves `defaultTags_preserves`: a successful call
-preserves every atom/class lookup that was present on entry. This needs no
-cache uniqueness or exactness assumption beyond the executable lookup rules.
-`defaultTags_read` identifies the returned bits with the final cache's
-classifier, including constants and equivalent class keys, and proves that
-later calls in the same phase cannot change that answer.
-`TagProgram.default_realizes` executes a finite dependent query program
-using the actual `defaultTags` definition and supplies one classifier that
-replays the entire trace. Its positive answers are sound and it contains
-every structural class bit. `defaultTrace` composes persistent traces across
-C's startup class reset, retaining atom cells; `defaultTrace_all_language`
-discharges the classifier-soundness hypotheses of `runTagged_all_language`
-for the resulting cache-classifier stream. Failed traces remain explicit;
-the total classifier stream uses structural fallback after failure, which
-does not assert that C would continue after a failed computation.
-
-The ten checks exercise repeated reads, equivalent keys, sibling queries,
-both Shannon child orders, retained atom cells, the startup reset, later
-cache hits, constant precedence, and explicit query failure. A universal
-word/position witness applies the all-field theorem to this persistent
-trace. This interpreter is not yet a compiler for C's REDUCE traversal,
-quick tag tests or remainder-memo reads, and no accepting-run equivalence
-for that C execution is claimed.
-
-**Task T8, refined acceptance progress and protected first passes.**
-`Impl/RefinedAcceptance.lean` proves `runTagged_satisfying_accepts`: for
-arbitrary changing classifiers with sound positive answers and structural
-lower bounds, every satisfying word gives infinitely many marks. No Π₂
-input hypothesis is needed for this direction. The proof excludes a
-permanently unmarked suffix: a co-safety suspension on a satisfying word
-eventually makes the all-field true; otherwise an active co-safety
-obligation progresses to true and its finite lower bit forces renewal.
-`defaultTrace_satisfying_accepts` discharges both classifier hypotheses
-using the persistent default-tag traces above.
-
-`runTagged_accepting_never_bot` and `runTagged_accepting_safety` prove the
-corresponding rejection/safety obligations. `runTagged_finite_language`
-and `runTagged_safety_language` establish accepting-run equivalence for
-recursively refined finite and safety inputs; `runTagged_cosafety_language`
-establishes it for structural co-safety classes. The co-safety theorem
-permits recursively refined safety answers at the later marked step.
-`defaultTrace_finite_language` and a universal word witness instantiate
-finite accepting-run equivalence on the actual nonstructural absorption
-fixture with the shared cache-classifier stream.
-
-`extractPassTagged_protected_constraint` connects the existing closed-alphabet
-descent to the actual tagged REDUCE and protected DROP_X loop: every
-structural co-safety protected constraint survives, even when extra refined
-co-safety atoms are retained. `runTagged_eventually_false_passes` and
-`runTagged_eventually_false_seeds` apply this result at the tagged run's
-actual raw all-fields for **structural Π₂** inputs. The latter uses the
-refined finite-window theorem to exclude the actual finite-retry branch
-on false first passes of never-false runs. A universal shared-trace witness
-instantiates that seed result. These statements do not yet extend the
-closed-alphabet descent to refined Π₂ input tags or prove that accepting
-runs satisfy every active obligation across refined co-safety suspensions.
-
-**Task T9, false-seed converse with refined suspensions.**
-`Impl/RefinedConverse.lean` proves `runTagged_converse_of_false_seeds`
-for arbitrary changing sound classifiers. On a false-input accepting run,
-true and safety rows are impossible. Once new seeds are false, the first
-marked renewal installs a false rejecting field. A false-field invariant
-then survives ordinary progress, co-safety suspension to the false sentinel,
-and resumption from a false seed. A later finite renewal would contradict
-the refined finite-window/never-false obligation theorem. This avoids any
-assumption that refined co-safety answers persist across calls.
-
-`runTagged_pi2_language` combines that converse with T8's eventual-false-seed
-lemma and forward acceptance. It proves full accepting-run equality for
-**structural Π₂ inputs with refined runtime classifiers**, including both
-one-colour parity orientations (`runTagged_pi2_parity`) and satisfaction of
-every active obligation (`runTagged_pi2_active_obligation`).
-`defaultTrace_pi2_language` discharges soundness and lower bounds with the
-persistent shared-cache interpreter, including startup; a universal GF
-witness exercises that corollary. These are not yet language theorems for
-recursive refined Π₂ input tags or a compilation of C's concrete queries.
-
-**Task T9, supported extraction query programs.**
-`Impl/SupportedTrace.lean` adds `mapSupported`: constants precede cache
-lookups; only essential Shannon variables execute atom programs; low runs
-before high; and equivalent mapped subgraphs share their result within
-one substitution epoch. `mapSupported_spec` proves canonical substitution
-and mapped-cache preservation, and `mapSupported_success` proves success
-for any complete ordered alphabet. `reduceSupported_spec` identifies the
-REDUCE result with `reduceTagged`, including Boolean absorption.
-
-`extractSupported` composes that program with the proved protected DROP_X
-loop and unfolding. `rhoSupported` adds the exact finite query and retry,
-including the final finite query on the idempotently unfolded retry.
-`rhoSupported_spec` proves equality with the class of `rhoTagged` for a
-congruent classifier; `rhoSupported_default` realizes each successful
-shared-default-cache execution by its final sound, lower-bound classifier.
-The executable/kernel diagnostics check skipped absorbed atoms, low/high
-order, equivalent memo hits, shared subgraphs, explicit failure, and the
-five external queries of the GF retry fixture under the exact reference
-interpreter. This T9 interpreter does **not** claim C's quick-predicate or
-persistent remainder-cache history. DROP_X and unfolding reuse their existing class
-refinements rather than compiling those C cache traversals.
-
-**Task T10, quick-predicate query compilation.**
-`Impl/QuickTrace.lean` adds predicate instructions to `TagProgram` and
-`execQuick`, which executes C's cached lower/upper tests and calls
-`defaultTags` only for an undecided mask. `tagBounds_spec` proves the
-recursive supported traversal, including low-before-high order, descendant
-cache cells, constant cells and persistent cache hits. Startup clears class
-tags while retaining quick bounds and atom cells, as C does.
-
-`TagProgram.execQuick_spec` realizes exact-bit reads and predicate reads
-separately throughout every later cache extension. `quick_realizes` supplies
-one sound, structural-lower-bound classifier for an entire predicate-only
-program. Its classifier combines cached lower answers with cached exact
-answers; a previously cached exact class need not contain a later quick
-lower bit. Identifying the two classifiers would require an extra cache
-invariant and is deliberately avoided.
-
-`rhoSupported_quick` composes supported REDUCE, mapped-cache reuse,
-protected extraction and finite retry with that predicate interpreter.
-The successful result equals the class of `rhoTagged` under the final
-realizing classifier. The exact-query reference interpreter remains
-available for T9's statements. Fifteen additional executable/kernel checks
-exercise quick returns without exact cache growth, undecided refinement,
-stale bounds, equivalent keys, masks, startup and extraction. Persistent
-remainder-cache reuse and the full component program remain separate.
-
-**Task T10, persistent remainders and ordered component calls.**
-`Impl/RemainderTrace.lean` adds `rhoMemo`: a persistent class-keyed hit
-returns immediately, and finite retry performs another memo lookup before
-extracting from the unfolded source. `rhoMemo_quick` proves equality with
-`rhoTagged` and preserves `RemainderCache.Realizes`, which realizes every
-stored result under every later valid cache extension in the same phase.
-The empty memo satisfies this invariant; it is maintained by each
-successful call, including hits and retry hits. No recomputation is inserted
-on a hit. `rhoMemo_quick_certificate` independently proves a permanent
-unfolded NNF-class/co-safety obligation implied by the source. That weaker
-certificate survives changes of classifier and can justify old results
-without assuming fresh-extraction equality.
-
-`Impl/ComponentTrace.lean` compiles startup's combined safety/co-safety
-mask and the ordered transition guards. `initialMemo_quick`, `rowMemo_quick`
-and `transitionMemo_quick` identify successful calls with `initialTagged`,
-`rowTagged` and `transitionTagged` on semantic states, including the marks,
-while preserving the same-phase memo invariant. Twenty-two additional
-executable/kernel checks cover memo hits with zero query fuel, retry hits,
-query order, finite renewal, sinks and suspension.
-
-The stronger memo invariant cannot be transported through startup merely
-by clearing exact class cells. The kernel-checked `startup_memo_mismatch`
-exhibits this at the decoded component boundary. Let
-`u = a | (a & G b)`, `x = X u`, `p = F(a | (a & x))`, and `f = x & p`.
-The compiled pre-start initial call caches a remainder; after reset, that
-remainder differs from a fresh `rhoTagged` under the post-start classifier.
-The actual compiled post-start initial call suspends with a false rejecting
-sentinel. This refutes unrestricted memo-reset equality, not language
-correctness or admission by C's full constructor. A reachability-sensitive
-argument must justify only remainders used by the subsequent guarded run.
-
-The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
-
-```sh
-systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  env TMPDIR="$PWD/../build-scratch-t/tmp" LEAN_NUM_THREADS=1 \
-  lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
-```
-
-All 398 dependency reports contain only the three permitted axioms. The
-`terminal_checks` diagnostic and all six universal refined-language/shared-trace
-witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other eighteen
-concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (92 Lake jobs). All 285
-executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
-reference guard now scans the executable modules as well as this README:
-205 references / 163 anchored C/Lean targets pass. Both documentation gates
-and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
-declined formulas, with 512 memberships per admitted formula.
-
-**Current boundary for Task T/T2/T3/T4/T5/T6/T7/T8/T9/T10.** These are proved executable
-transport, component, decision and canonical-cache milestones. Task T3 item 1
-is proved at the decoded-syntax boundary; its item 2 canonical selector now
-includes acceptance-cache hits and either per-execution Shannon child order.
-Task T4 item 1's cache/order and grouped syntax selection are now composed
-with the decoded transport and memoized factoring traversal. Task T5 item 1
-is proved. T6 proves the recursive default tag/cache invariant and the
-terminal shortcut at the decoded boundary. T7 fixes the startup reset and
-axiom account, and supplies refined finite/prefix certificates, a protected
-extractor contract and ordered component invariants. T7 item 0 is complete;
-item 1 remains partial. T8 proves persistence and realization of dependent
-default-tag query traces, the resulting all-field language corollary,
-forward acceptance, finite/safety/structural co-safety equivalences, and
-preservation of protected first passes and false seeds for structural Π₂
-inputs. T9 proves the false-seed converse, structural Π₂ accepting-run
-equality with refined classifiers, both one-colour parity orientations, and
-active-obligation satisfaction. It also compiles the supported exact-query
-REDUCE traversal, mapped-cache reuse and extraction retry into `TagProgram`.
-T10 compiles quick predicates, persistent remainder lookup/retry, and
-ordered component calls, with same-phase refinement and permanent memo
-certificates. Startup retention, composition with the complete run/store,
-and the recursive refined Π₂ input domain remain open. Items 2–4 remain open; item 5 is
-deliberately not enabled.
-The executable is a diagnostic, not a BFS automaton exporter; there is no matching
-C dump or new C↔Lean automaton golden. The 30 existing golden files remain
-unchanged at 2,986,929 bytes, including 541 DPA membership records; zero new
-automaton goldens were generated. Recorded corpus coverage remains 148/217
-by default and 155/217 with research admission; these milestones did not
-rerun or change that corpus inventory. No new language counterexample or
-narrowing of C was found. The frozen-operand absorption example was already
-declined in research mode by the earlier review-l alignment.
-
-The smallest remaining default-tag bridge is **safe use of pre-start
-remainders at the post-start run's actual guarded calls**. Within a phase,
-`rhoMemo_quick` now identifies persistent hits with the class of `rhoTagged`
-under each later realizing classifier, without inserting extra queries.
-The component-call compiler preserves that invariant. Startup retains
-remainders and quick bounds but clears exact class tags. Unrestricted
-fresh-extraction equality across reset is false (`startup_memo_mismatch`),
-so it cannot be assumed as the missing lemma. The permanent remainder
-certificate survives, but does not guarantee retention of each later
-refined co-safety constraint. Use admission/factoring and the actual ordered
-guards to prove the necessary retention at reachable extraction calls,
-then compose the calls with the complete component-store run. Replacing
-memo hits by recomputation would change C's execution and cache history.
-
-The smallest remaining acceptance lemma is **eventual false extracted seeds
-for recursive refined Π₂ inputs on the compiled default-tag run**.
-`runTagged_converse_of_false_seeds` now discharges the accepting-run step,
-including discarded obligations, without requiring tag persistence. Its
-structural Π₂ instance reuses `general_pi2_converse`'s protected-constraint
-descent through T8's actual tagged extractor and retry lemmas. The descent
-still starts from `HasTag Pi2`, whereas `defaultTags_sound` supplies
-`HasTag (RefinedAtom .pi2)`. A refined frozen operand can be co-safety only
-after Boolean absorption inside its materialized syntax; it need not have
-structural `cosafety`. Structural lower bounds therefore do not guarantee
-that an arbitrary sound classifier retains every refined co-safety atom.
-The concrete cache/query dependencies, including old remainders retained
-through startup, must justify those retentions; a fresh-query diagnostic
-or an arbitrary sound trace cannot do so. An
-alternative structural language witness, `classTag_exact`, or an existential
-`admitted_grammar` witness cannot identify those frozen atoms or their
-protected X syntax. The forward theorem still needs structural lower
-bounds, since soundness alone permits suppressing finite renewals.
-Cached NNF duals cannot be replaced by `Class.compl`.
-
-Further independent bridges remain: C's lexicographically ordered tree/export;
-the single end-to-end parity/Büchi theorem; and the offline BFS automaton
-goldens for corpus conjuncts and equivalence cases.
-The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
-state split, component-store preservation and explicit-plan assembly are now
-proved above. The separate Π₂-positive `buchi_syntax` selector remains
-necessary to identify the reduction's positive acceptance
-with the transported input. The generic parity-oriented grouped selector
-above does not assert positivity of its acceptance in Büchi mode.
-C code, production admission, and the remaining trusted
-boundary below remain unchanged.
-
-### C ↔ Lean correspondence
-
-These are semantic correspondences, not a C verification certificate. Line
-numbers refer to the merged worktree's formatted sources.
-
-| C implementation | Lean model / result |
+The executable definitions used by this theorem perform syntax transport,
+pure factoring, canonical plan selection (with original-formula fallback),
+fresh component assembly, complete product progression, exhaustive Zielonka
+construction, and max-odd export. They reuse `pi2_language`,
+`sigma2_language`, `general_pi2_language`, `tree_minEven`, `tree_maxOdd`, and
+`completedRounds_language`. Zielonka maximality, subset and equality tests now
+compute over finite colour vectors. `buildTree` and the executable use the
+same definitions as the theorems; no classical decision procedure runs in the
+construction. The round monitor exports its incoming mark as state acceptance.
+
+Parity uses the general research domain. The Büchi conclusion requires
+positive acceptance, checked executably by `positiveb`. This restriction is
+necessary: general parity admission includes `F G a`, which has no complete
+deterministic Büchi recognizer. C's reduction uses a positive Π₂ grammar.
+The automatic bridge from that grammar to a positive compiled acceptance
+still needs to be connected to the offline inventory.
+
+The current machines use executable formula representatives as their symbolic
+state type. `finite_component_states` proves finiteness of their semantic
+component coordinates; exporting a closed finite table by merging Boolean
+equivalent representatives, with a proof about the exported table, remains
+required. The language theorem alone does not certify a finite serialized
+artifact, C output, or successful validation.
+
+### Obligation table
+
+| Obligation | Result / status |
 | --- | --- |
-| `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
-| `src/lib/dpa_formula.c:81`, `:118`, `:127`, `:157` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
-| `src/lib/dpa_formula.c:81`, `:127`, `:157`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.defaultTags_preserves`, `Impl.defaultTags_read`, `Impl.TagProgram.default_realizes`, `Impl.defaultTrace_all_language`, `Impl.tagBounds_spec`, `Impl.hasTags_spec`, `Impl.TagProgram.execQuick_spec`, `Impl.TagProgram.quick_realizes`, `Impl.defaultTags_language_certificates`; startup/run composition pending |
-| `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
-| `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
-| `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
-| `src/lib/dpa_formula.c:254`, `:388`, `:394`, `:366` — smart constructors, pending-X transport, frozen materialization | `Impl.termBoolean_language`, `Impl.termUnary_language`, `Impl.wrapNext_language`, `Impl.transport_domain`, `Impl.transport_language`, `Impl.transport_nnf`, `Impl.transport_class_language`; numeric syntax-ID/memo refinement pending |
-| `src/lib/dpa_formula.c:524`, `:610` — recursive factoring, memo reuse and original-class branch guard | `Impl.factorDistribution_spec`, `Impl.factorTerm_spec`, `Impl.factorTerm_success`, `Impl.factorCachedTerm_sound`, `Impl.factorCachedTerm_success`, `Impl.runFactoring_presentation`, `Impl.admitted_transport_factoring_presentation`; decoded syntax/memo |
-| `src/lib/dpa_formula.c:563`, `:583`, `:597` — grouped syntax selection, identity test and rest-first execution | `Impl.partitionSyntax_exact`, `Impl.orderedGroups_valid`, `Impl.orderedGroups_language`, `Impl.selectSyntaxPlan_success`, `Impl.runOrderedPlan_success`, `Impl.runSyntax_presentation`; decoded factored input |
-| `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
-| `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
-| `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops`; `Impl.rhoSupported_quick`, `Impl.rhoMemo_quick`, `Impl.rhoMemo_quick_certificate`; same-phase memo realization, permanent certificates, startup retention pending |
-| `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable`; `Impl.transitionTagged_spec`, `Impl.rowMemo_quick`, `Impl.transitionMemo_quick`, `Impl.runTagged_satisfying_accepts`, `Impl.runTagged_finite_language`, `Impl.runTagged_safety_language`, `Impl.runTagged_cosafety_language`; full refined Π₂ converse pending |
-| `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant`, `Impl.initialMemo_quick`; per-call startup query program, reset retention pending |
-| `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
-| `src/lib/dpa_dela.c:93` — executable interning, ordered lookup, oriented cache and stable indices | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_colours`, `Impl.internComponent_preserves_literal`, `Impl.internComponent_buchi_positive` |
-| `src/lib/dpa_dela.c:117` — executable uncached canonical plan selection and transport composition | `Impl.cofactor_eval`, `Impl.cofactor_nnf`, `Impl.cofactor_shannon`, `Impl.canonicalPlan_domain`, `Impl.canonicalPlan_spec`, `Impl.transported_canonical_source`, `Impl.admitted_canonical_presentation`; uncached reference |
-| `src/lib/dpa_dela.c:117` — acceptance cache, top-atom call and either Shannon argument order | `Impl.lookupAcceptance_spec`, `Impl.AcceptanceCache.Valid.extends`, `Impl.runCanonical_hit`, `Impl.runCanonical_refines`, `Impl.cached_uncached_language`, `Impl.runCanonical_presentation`, `Impl.transported_cached_presentation`; canonical execution |
-| `src/lib/dpa_dela.c:117`; `src/lib/dpa_formula.c:583` — shared-store acceptance assembly from explicit valid plans | `Impl.assemble_spec`, `Impl.assemble_presentation`, `Impl.assemble_shannon_presentation`, `Impl.assemble_grouped_presentation`; uncached reference plans |
-| `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
-| `src/lib/dpa_dela.c:203`, `:272`, `:278`; `src/lib/dpa.c:300` — seen-colour residual, reset, incoming state split and initial bit | `Impl.seenColours_exact`, `Impl.roundRun_residual`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language` |
-| `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `Impl.terminalCondition_spec`, `Impl.terminalShortcut_product_language`, `Impl.terminalShortcut_parity`, `Impl.terminalExport_input_language`; available-target simulation premise; `terminal_product_decided`, `terminal_absorption` |
-| `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
-| `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
-| `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority`, `ZTree.recurrent_run`, `tree_minEven` |
-| `src/lib/dpa.c:246`; `src/lib/dpa_zielonka.c:231` — odd P and P−p | `exportBound`, `exportBound_odd`, `exportBound_large`, `parity_export`, `tree_maxOdd` |
+| Executable transport, factoring and admission-success selection | `referencePlan_success`, `factor_success`, `canonicalPlan_spec` |
+| Complete Π₂ / dual Σ₂ component languages | `pi2_language`, `sigma2_language` |
+| Fresh-coordinate assembly and fixed Boolean product | `assemble_presentation`, `Assembly.colours_exact`, `product_language` |
+| Executable Zielonka construction and parity language | `maximalOppositeb_exact`, `buildTree`, `tree_maxOdd`, `Assembly.parity_language` |
+| Executable positive Büchi round monitor | `positiveb_exact`, `completedRounds_language`, `Assembly.buchi_language` |
+| Composition from executable research admission | `uncached_construction_language` |
+| Finite closed reference-table export | Open; symbolic representatives must be merged using proved Boolean equality |
+| Executable parity and state-based Büchi language-equivalence checker | Open; must compare languages without requiring state isomorphism |
+| Canonical C dump, parsing, full formula inventory and offline validation | Open; zero translation-validation verdicts recorded |
+| Hash goldens and C regression gate | Open; existing language fixtures remain regression evidence |
+| Enable general admission and regenerate declined cases | Blocked on every preceding validation obligation |
 
-### Trusted gaps and evidence boundary
+### Trusted boundary
 
-- **BDD representation.** There is no verified refinement from OxiDD identities,
-  complemented edges, interning, cofactors, support walks, or Shannon DAGs to
-  the extensional Boolean functions used here. Allocation, host budgets,
-  cancellation and failure propagation are also outside these Lean results.
-- **Canonical NNF representation.** The executable decoded-syntax traversal
-  now proves NNF and the exact original language, including C's smart
-  constructors, constant folding, pending X placement and recursive factoring.
-  Factoring's memo contents, writes and hits preserve the proved semantic
-  invariant. Its rank parameter
-  abstracts permanent syntax IDs; hash-consing, pointer-memo keys, AP-name
-  lookup, resource bounds and a representation refinement of successful C
-  executions remain outside this theorem.
-  Research-mode tags now inspect structural frozen syntax, and the protected
-  walk inspects all syntactic X subformulas of supported modal atoms, as in
-  `Protected`. Their imperative syntax IDs, support traversal and memo epochs
-  still require representation refinement. Default admission retains its
-  canonical operand refinement and conservative component theorem boundary.
-- **Maximal-model builder.** The abstract upward-blocking completeness result
-  and a terminating exhaustive semantic reference tree builder are proved.
-  The C BDD/SAT query loop, model extraction, termination on successful bounded
-  execution, and lexicographic child order are not refined. The reference tree
-  uses its fixed Boolean-vector enumeration order; a C correspondence must
-  map child occurrences to C's sorted-list lexicographic order.
-- **Spot equivalence tests.** They provide implementation evidence only. They
-  are not hypotheses, external oracles or substitutes for any Lean theorem.
-  Task J's serial C build and bounded Spot research search are recorded above.
+The Lean kernel checks the reference language proofs. Dependency audits permit
+only `propext`, `Classical.choice`, and `Quot.sound`; classical reasoning in
+proofs does not replace executable algorithms. There are no external Lean
+packages or proof shortcuts. Terminal optimization results
+`terminal_product_decided` and `terminal_absorption` remain in
+`Dpa/Refinements.lean`; the uncached reference does not need that optimization.
 
-- **Refinement algorithms.** §9 is proved for semantic reference algorithms:
-  the canonical admission decision tree, exhaustive Boolean syntax leaf guard,
-  recursive grouped construction with canonical-class identity tests, terminal
-  truth substitution, current-AP restriction and tag bounds. `canonicalCheck`
-  tests exact support for the proved `Admitted` component grammar;
-  `canonicalCheck_shannon` proves the original supported-atom/cofactor recursion,
-  and `canonicalCheck_product` constructs a correct semantic product even for
-  canonically absorbed unsupported syntax. The syntax constructor returns an
-  optional formula denoting its acceptance language, rather than C colour IDs.
-  Its `whole` parameter supplies C's whole-class fast-path test; the success and
-  language results hold for every such test. Its structural fuel bound is
-  `sizeOf(factored)+1` and is proved sufficient, not assumed to succeed.
-  Identifying these with the C shared DAGs, owned IDs, AP order,
-  memo epochs/cubes, cancellation, budgets and failure statuses remains a C
-  refinement obligation. Resource failures are excluded from the admission
-  success equivalence, as in the Markdown. These concrete constructor/language
-  results concern conservative admission. `check_admission_exact` remains
-  mode-independent. `general_pi2_language` now supplies the general Π₂
-  component theorem separately; the §9 constructor/admission model has not
-  been extended to `allow_unproved` Π₂/Σ₂.
+Once the offline pipeline is complete, C correctness will be validated **only
+on the enumerated formulas, admission modes, AP orders, and dumped acceptance
+kinds**, with an exact canonical hash guarding each validated artifact in CI.
+For other inputs, the C implementation, BDD library, decoding and memory safety
+remain trusted. At present no C automaton has passed this proposed Lean
+translation-validation pipeline, so the C-to-reference boundary remains open
+for all inputs. Existing bounded lasso goldens do not establish unbounded
+language equality.
 
-Ancillary obligations retained from the earlier audit are the literal STAGE1
-GF extractor case-split equality and identification of the one-set priority
-table with the built one-colour tree path. The language theorems use the proved
-sufficient GF seed bound and full global tree theorem, respectively; neither
-ancillary statement is used as an unproved premise. The fixed-input finite
-reachable-class closure is now proved by `finite_component_states`.
+Round-10 review found a decoded-trace discrepancy from unfolding's quick-cache
+writes. It reported no admitted-formula language counterexample or reachable
+startup soundness issue. Production parity and Büchi reset before initializing
+remainders; no C startup fix or narrowing is justified by that review.
 
-### Findings in the natural-language proofs
+### Pruning and regeneration
 
-The requested §§5–9 language claims hold on the stated proved domain.
-The §9.1 grouping rule needed correction, and its earlier Lean admission
-audit omitted a constructor-success obligation:
+Removed the cache/trace-only modules `TagTrace`, `QuickTrace`, `RemainderTrace`,
+`SupportedTrace`, `ComponentTrace`, `Cache`, `Grouping`, `DefaultTags`, the
+refined-cache component chain, and the memoized terminal export model.
+`Store.lean` now appends fresh reference coordinates; it performs no lookup,
+sharing or cache reuse. Pure factoring remains; its cached variants are gone.
+The former trace diagnostics and axiom audit were replaced by reference
+construction checks and an audit of the retained language chain.
+Before pruning, `proofs/**/*.lean` (excluding `.lake`) contained **18,290 lines
+in 45 files**. Final counts and validation results are recorded at the end of
+this section.
 
-- **§9.1 grouping condition.** Both the Markdown's former “C is nonempty”
-  rule and Lean's former `C ≠ []` branch differed from C at
-  `src/lib/dpa_formula.c:597`. C compares the folded canonical co-safety
-  class with the outer operator's Boolean identity. For conjunction,
-  `τ = F q ∨ (p ∨ ¬p)` is a co-safety operand whose class is true, despite
-  `[τ]` being nonempty (`nonempty_cosafety_identity`). With safety operand
-  `G s`, finite operand `p`, and remaining operand `GF r`, C therefore joins
-  `p` to `G s`; the old rule joined it to `τ`. Both preserve language but
-  choose different components. The reference and STAGE2-PROOF §9.1 now use
-  C's canonical-class comparison for both Boolean operators.
-- **§9.1 constructor success.** The former `factoredAdmission` returned
-  `true` unconditionally after a successful grouping guard. Its theorem
-  proved only the outer control-flow identity, not success of C's
-  `syntax_acceptance` call at `src/lib/dpa_formula.c:617`. The replacement
-  propagates optional failures from recursive remaining syntax and canonical
-  acceptance of both grouped classes. `syntaxAcceptance_success` proves all
-  these calls succeed under the exhaustive leaf guard; original admission,
-  exact factoring and that guard imply successful grouped construction with
-  the original language (`factoring_grouped_success`), including an exact
-  complete product and both parity orientations (`factoring_grouped_parity`).
-  `factoring_admission_exact` also covers the original fallback and rejection.
-  Thus there is no counterexample under all three hypotheses in the
-  conservative semantic model. Original admission alone cannot justify
-  visiting canonically absorbed unsupported syntax; the leaf guard remains
-  necessary for this implication. Language preservation explicitly requires
-  factoring equivalence, while success-domain preservation does not.
+Offline regeneration belongs under `tools/golden/`, requires Lean 4.35.0,
+and must not run in CI. No translation-validation regeneration command is
+available yet. Do not regenerate or claim validated hashes until the finite
+exporter and equivalence checker are connected. Current reference checks:
 
-The other distinctions concern proof organization and C correspondence:
+```sh
+mkdir -p build-scratch-t/tmp
+export TMPDIR="$PWD/build-scratch-t/tmp" LEAN_NUM_THREADS=1
+cd proofs
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  env LEAN_NUM_THREADS=1 lake build
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  env LEAN_NUM_THREADS=1 lake exe dpaImplChecks
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  env LEAN_NUM_THREADS=1 lake env lean ../tools/golden/dpa_impl_audit.lean
+```
 
-- §5 is proved by tree induction. Infinite depth-zero anchors force ordinary
-  rotation through every child (`rotation_visits`); otherwise a finite prefix
-  leaves a stable child, to which the induction applies. Finite colour support
-  supplies a common last-occurrence cutoff for colours outside S. This proves
-  the stated recurrent-set argument, including constant acceptance and m=0.
-- §§6.1–6.4 follow (6)–(9). The proof chooses a least-size failed clause among
-  all reachable proof constraints. Equation (8) would strictly reduce this size,
-  so every selected H survives every intermediate extraction pass after the
-  old finite candidates have flushed. This is the finite-descent argument
-  without choosing a numerical bound for the last protector loss. The
-  per-window h+1 flush is proved by `flush_false_window`; `badFlat_flush`
-  also handles arbitrary finite class remainders via the checked bad-prefix
-  theorem. No candidate is discarded by the automaton, and no finite marked
-  remainder is replaced by true.
-- The general Π₂ component theorem is now checked by closed-alphabet descent
-  (Task J above). The canonical frozen-operand/support distinction and
-  imperative §9 bridge remain as described above; no C verification is claimed.
+### Source map
 
-### Validation
+These locations identify semantic reference algorithms and the C operations
+that the future dump validator must cover. They assert no cache, trace, store
+order or compiler refinement. BDD allocation, failure handling and decoding
+remain outside the language theorems.
 
-Run the project with `LEAN_NUM_THREADS=1 $HOME/.elan/bin/lake build` from
-`proofs/`. `TlsfProofs.lean` imports `Dpa.Refinements`, whose dependency chain
-checks the original six Dpa modules and then the §9 module in the requested
-order. The existing Lake settings
-keep warnings as errors, one Lean worker thread, and asynchronous elaboration
-disabled. No meson build or C tests run alongside Lean.
+| Source | Relevant definitions / boundary |
+| --- | --- |
+| `TlsfProofs/Dpa/Classes.lean:489` | `def HasTag (tag : Formula (Fin ap) → Prop) (x : Class ap) : Prop` |
+| `TlsfProofs/Dpa/Classes.lean:503` | `def subformulas : Formula α → List (Formula α)` |
+| `TlsfProofs/Dpa/Classes.lean:520` | `def Protected (x : Class ap) (t : Formula (Fin ap)) : Prop` |
+| `TlsfProofs/Dpa/Classes.lean:578` | `noncomputable def reduce (x : Class ap) : Class ap` |
+| `TlsfProofs/Dpa/Classes.lean:596` | `noncomputable def rho (x : Class ap) : Class ap` |
+| `TlsfProofs/Dpa/Converse.lean:35` | `inductive Pi2 : Formula α → Prop where` |
+| `TlsfProofs/Dpa/GeneralConverse.lean:862` | `theorem general_pi2_language (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)` |
+| `src/lib/dpa.c:246` | `c->max_priority = (c->components.n + 2) | 1u;` |
+| `src/lib/dpa.c:300` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
+| `src/lib/dpa.c:510` | `if (!c->started) {` |
+| `src/lib/dpa.c:536` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
+| `src/lib/dpa_dela.c:5` | `static uint32_t transition(TlsfDpa *c, uint32_t a, uint32_t r) {` |
+| `src/lib/dpa_dela.c:72` | `uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {` |
+| `src/lib/dpa_dela.c:93` | `static uint32_t component(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_dela.c:99` | `if (!c->buchi && p->dual == f)` |
+| `src/lib/dpa_dela.c:117` | `uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_dela.c:170` | `static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,` |
+| `src/lib/dpa_dela.c:203` | `static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {` |
+| `src/lib/dpa_dela.c:222` | `static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {` |
+| `src/lib/dpa_dela.c:257` | `result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);` |
+| `src/lib/dpa_dela.c:272` | `if (c->buchi) {` |
+| `src/lib/dpa_dela.c:278` | `priority = round->rejecting;` |
+| `src/lib/dpa_dela.c:308` | `uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {` |
+| `src/lib/dpa_dela.c:327` | `uint32_t dpa_dela_initial(TlsfDpa *c) {` |
+| `src/lib/dpa_formula.c:3` | `uint32_t dpa_class(TlsfDpa *c, Bdd owned) {` |
+| `src/lib/dpa_formula.c:50` | `uint32_t dpa_boolean(TlsfDpa *c, bool conjunction, uint32_t a, uint32_t b) {` |
+| `src/lib/dpa_formula.c:57` | `uint32_t dpa_ite(TlsfDpa *c, uint32_t v, uint32_t hi, uint32_t lo) {` |
+| `src/lib/dpa_formula.c:64` | `bool dpa_children(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:81` | `static unsigned tags_impl(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:118` | `unsigned dpa_tags(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:127` | `static void tag_bounds(TlsfDpa *c, uint32_t f, unsigned *lo, unsigned *hi) {` |
+| `src/lib/dpa_formula.c:157` | `bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask) {` |
+| `src/lib/dpa_formula.c:189` | `bool dpa_admitted(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:207` | `uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
+| `src/lib/dpa_formula.c:254` | `static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
+| `src/lib/dpa_formula.c:366` | `static uint32_t materialize(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:388` | `static uint32_t wrap_next(TlsfDpa *c, uint32_t f, unsigned next) {` |
+| `src/lib/dpa_formula.c:394` | `static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,` |
+| `src/lib/dpa_formula.c:505` | `static bool check_admission(TlsfDpa *c, uint32_t f, uint64_t epoch) {` |
+| `src/lib/dpa_formula.c:524` | `static uint32_t factor_term(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_formula.c:552` | `static bool groupable(TlsfDpa *c, uint32_t id, uint64_t epoch) {` |
+| `src/lib/dpa_formula.c:563` | `static void group_operands(TlsfDpa *c, uint32_t id, TlsfAstKind op,` |
+| `src/lib/dpa_formula.c:583` | `static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_formula.c:597` | `if (cosafety != (uint32_t)conjunction)` |
+| `src/lib/dpa_formula.c:610` | `uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:617` | `return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);` |
+| `src/lib/dpa_formula.c:622` | `static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_formula.c:654` | `static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,` |
+| `src/lib/dpa_formula.c:700` | `static uint32_t unfold_atom_care(TlsfDpa *c, DpaAtom *atom, uint32_t cube,` |
+| `src/lib/dpa_formula.c:761` | `static uint32_t unfold_class_care(TlsfDpa *c, uint32_t f, uint32_t cube,` |
+| `src/lib/dpa_formula.c:817` | `uint32_t dpa_unfold(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:876` | `uint32_t dpa_step_dag(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:891` | `static void protected_term(TlsfDpa *c, uint32_t id, bool *protect,` |
+| `src/lib/dpa_formula.c:914` | `static void protected_x(TlsfDpa *c, uint32_t f, bool *protect, uint64_t epoch) {` |
+| `src/lib/dpa_formula.c:938` | `uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:971` | `uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_zielonka.c:27` | `static void model(TlsfDpa *c, uint32_t f, uint64_t *set) {` |
+| `src/lib/dpa_zielonka.c:39` | `static uint32_t outside(TlsfDpa *c, const uint64_t *set,` |
+| `src/lib/dpa_zielonka.c:48` | `static bool before(TlsfDpa *c, const uint64_t *a, const uint64_t *b) {` |
+| `src/lib/dpa_zielonka.c:66` | `static uint32_t tree(TlsfDpa *c, const uint64_t *set) {` |
+| `src/lib/dpa_zielonka.c:153` | `static uint32_t path(TlsfDpa *c, uint32_t node, uint32_t parent, uint32_t pos) {` |
+| `src/lib/dpa_zielonka.c:177` | `static uint32_t leftmost(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_zielonka.c:187` | `void dpa_tree_init(TlsfDpa *c) {` |
+| `src/lib/dpa_zielonka.c:198` | `uint32_t dpa_tree_step(TlsfDpa *c, uint32_t *leaf, const uint64_t *colours) {` |
+| `src/lib/dpa_zielonka.c:231` | `return c->max_priority - priority;` |
 
-A successful build certifies the stated semantic theorems and their explicit
-hypotheses; it does not verify the implementation bridges listed above.
+### Milestone validation (2026-10-31)
 
-On 2026-10-31 the full `lake build` succeeded with zero warnings. A whole-word
-scan of Lean sources for prohibited proof placeholders/declarations and native
-decision shortcuts returned no matches. Dependency audits of the derivative,
-safety/co-safety/GF/FG languages, forward inclusion, accepting renewal seeds,
-product language, full tree min-even/max-odd equivalence, flat G/F languages,
-eventual false seeds, admitted grammar and §9 refinements contain only `propext`,
-`Classical.choice` and `Quot.sound`. The existing 5 GiB cgroup was retained,
-`LEAN_NUM_THREADS=1` was set for every build, and only one Lean process ran at
-a time. All seven Dpa modules were also re-elaborated serially with warnings
-treated as errors. The new grouping, canonical support, recursive constructor,
-success-domain and grouped product/parity theorems were included in the
-dependency audit.
+Full Lake library/executable build: 68 jobs passed, warnings treated as errors.
+Executable reference checks: 11 passed, zero failed. Eleven dependency audits
+contain only the three permitted axioms. The prohibited-token scan, proof-source
+reference gate and golden-provenance gate passed. Lean source after this pruning
+milestone: **12,308 lines in 33 files** (before: 18,290 / 45). Existing
+goldens: **2,986,929 bytes**; no translation-validation goldens have been added.
+The smallest next obligation is a sound finite-product graph equivalence check;
+a language proof for symbolic runs alone cannot establish equality of a C dump.

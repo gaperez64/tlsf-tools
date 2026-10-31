@@ -1,5 +1,5 @@
 import TlsfProofs.Dpa.Impl.Transport
-import TlsfProofs.Dpa.Impl.Grouping
+import TlsfProofs.Dpa.Impl.Selection
 
 /-!
 # Recursive factoring of frozen syntax
@@ -11,10 +11,8 @@ inspects the *returned* child, which can expose a new Boolean node.
 
 `factorWeight` charges twice the operand weight for unary nodes and the sum
 plus one for binary nodes. Distribution strictly decreases this measure,
-even though it can increase ordinary syntax size. Fuel models a recursion
-limit; the proved sufficient bound is used by `factor` and `factorCached`.
-The latter threads the actual recursive memo writes and hits. C's term IDs,
-hash-consing and faithful memo-table decoding remain representation boundaries.
+even though it can increase ordinary syntax size. Fuel is a recursion bound; `factor_success` proves the bound sufficient.
+The reference uses no memo table or call trace.
 -/
 namespace Tlsf.Dpa.Impl
 open Formula
@@ -317,316 +315,50 @@ theorem factor_success (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) 
     ∃ t, factor rank f = some t ∧ FactorSpec f t :=
   factorTerm_success rank _ f hf (by omega)
 
-/-- The nonempty cells of C's per-term `factored` memo. Keys are frozen
-syntax, never canonical Boolean classes. The C `result + 1` sentinel encoding
-is decoded here, as are the term IDs themselves. -/
-abbrev FactorMemo (ap : Nat) := List (Formula (Fin ap) × Formula (Fin ap))
+/-- Prefer the factored plan, falling back to the admitted original. -/
+def factoringPlan (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
+    Option (AcceptancePlan ap) := do
+  let t ← factor rank f
+  match canonicalPlan atomRank t with
+  | some p => some p
+  | none => canonicalPlan atomRank f
 
-def FactorMemo.Valid (memo : FactorMemo ap) : Prop :=
-  ∀ f t, (f, t) ∈ memo → FactorSpec f t
-
-theorem FactorMemo.empty_valid : FactorMemo.Valid ([] : FactorMemo ap) := by
-  intro f t ht; simp at ht
-
-def lookupFactored (f : Formula (Fin ap)) : FactorMemo ap → Option (Formula (Fin ap))
-  | [] => none
-  | (a, b) :: memo => if f = a then some b else lookupFactored f memo
-
-theorem lookupFactored_spec (memo : FactorMemo ap) (hm : memo.Valid)
-    (f t : Formula (Fin ap)) (ht : lookupFactored f memo = some t) : FactorSpec f t := by
-  induction memo with
-  | nil => simp [lookupFactored] at ht
-  | cons entry memo ih =>
-    obtain ⟨a, b⟩ := entry
-    simp only [lookupFactored] at ht
-    split at ht
-    · rename_i he
-      subst a
-      cases Option.some.inj ht
-      exact hm f t (by simp)
-    · exact ih (fun a b hab => hm a b (by simp [hab])) ht
-
-theorem FactorMemo.remember_valid (memo : FactorMemo ap) (hm : memo.Valid)
-    (h : FactorSpec f t) : FactorMemo.Valid ((f, t) :: memo) := by
-  intro a b hab
-  rcases List.mem_cons.mp hab with he | he
-  · obtain ⟨rfl, rfl⟩ := Prod.mk.inj he; exact h
-  · exact hm a b he
-
-abbrev FactorAction (ap : Nat) :=
-  Formula (Fin ap) → FactorMemo ap → Option (Formula (Fin ap) × FactorMemo ap)
-
-def FactorAction.Sound (recur : FactorAction ap) : Prop :=
-  ∀ f memo t out, NNF f → memo.Valid → recur f memo = some (t, out) →
-    FactorSpec f t ∧ out.Valid
-
-def factorCachedUnary (rank : Formula (Fin ap) → Nat) (recur : FactorAction ap)
-    (op : UnaryTerm) (f : Formula (Fin ap)) (memo : FactorMemo ap) :
-    Option (Formula (Fin ap) × FactorMemo ap) := do
-  let (body, memo) ← recur f memo
-  match factorDistribution rank op body with
-  | some d => recur d memo
-  | none => pure (termUnary op body, memo)
-
-def factorCachedBinary (rank : Formula (Fin ap) → Nat) (recur : FactorAction ap)
-    (op : FactorBinary) (f g : Formula (Fin ap)) (memo : FactorMemo ap) :
-    Option (Formula (Fin ap) × FactorMemo ap) := do
-  let (a, memo) ← recur f memo
-  let (b, memo) ← recur g memo
-  pure (op.apply rank a b, memo)
-
-def rememberFactored (f : Formula (Fin ap))
-    (result : Option (Formula (Fin ap) × FactorMemo ap)) :
-    Option (Formula (Fin ap) × FactorMemo ap) := do
-  let (t, memo) ← result
-  pure (t, (f, t) :: memo)
-
-def factorCachedStep (rank : Formula (Fin ap) → Nat) (recur : FactorAction ap)
-    (f : Formula (Fin ap)) (memo : FactorMemo ap) :
-    Option (Formula (Fin ap) × FactorMemo ap) :=
-  match lookupFactored f memo with
-  | some t => some (t, memo)
+theorem factoringPlan_success (rank atomRank : Formula (Fin ap) → Nat)
+    (f : Formula (Fin ap)) (hf : NNF f) (hc : canonicalResearchCheck f = true) :
+    ∃ p, factoringPlan rank atomRank f = some p ∧ p.Valid ∧
+      ∀ w n, Sat none w p.source n ↔ Sat none w f n := by
+  obtain ⟨t, ht, hspec⟩ := factor_success rank f hf
+  cases hp : canonicalPlan atomRank t with
+  | some p =>
+    obtain ⟨hv, he⟩ := canonicalPlan_spec atomRank t hspec.1 p hp
+    exact ⟨p, by simp [factoringPlan, ht, hp], hv,
+      fun w n => (class_language he w n).trans (hspec.2.2 w n)⟩
   | none =>
-    if safetyb f || cosafetyb f then some (f, memo) else
-    rememberFactored f (match f with
-      | .conj f g => factorCachedBinary rank recur (.boolean true) f g memo
-      | .disj f g => factorCachedBinary rank recur (.boolean false) f g memo
-      | .next f => factorCachedUnary rank recur .next f memo
-      | .eventually f => factorCachedUnary rank recur .eventual f memo
-      | .globally f => factorCachedUnary rank recur .global f memo
-      | .until f g => factorCachedBinary rank recur .until f g memo
-      | .release f g => factorCachedBinary rank recur .release f g memo
-      | .weakUntil f g => factorCachedBinary rank recur .weakUntil f g memo
-      | .strongRelease f g => factorCachedBinary rank recur .strongRelease f g memo
-      | _ => some (f, memo))
-
-/-- Stateful factoring, including memo writes after each completed recursive
-call and reuse by later siblings. Children are evaluated left before right,
-as in `src/lib/dpa_formula.c:524`. Unlike C's bounded arena, this decoded
-model has no allocation failure. -/
-def factorCachedTerm (rank : Formula (Fin ap) → Nat) : Nat → FactorAction ap
-  | 0, _, _ => none
-  | fuel + 1, f, memo => factorCachedStep rank (factorCachedTerm rank fuel) f memo
-
-private theorem factorCachedUnary_spec (rank : Formula (Fin ap) → Nat)
-    (recur : FactorAction ap) (hr : recur.Sound) (op : UnaryTerm)
-    (f : Formula (Fin ap)) (hf : NNF f) (memo : FactorMemo ap) (hm : memo.Valid)
-    (t : Formula (Fin ap)) (out : FactorMemo ap)
-    (ht : factorCachedUnary rank recur op f memo = some (t, out)) :
-    FactorSpec (op.apply f) t ∧ out.Valid := by
-  simp only [factorCachedUnary, bind, Option.bind_eq_some_iff] at ht
-  obtain ⟨⟨body, mid⟩, hb, ht⟩ := ht
-  obtain ⟨bs, bm⟩ := hr f memo body mid hf hm hb
-  cases hd : factorDistribution rank op body with
-  | none =>
-    simp only [hd, pure, Option.some.injEq, Prod.mk.injEq] at ht
-    obtain ⟨rfl, rfl⟩ := ht
-    exact ⟨unary_spec op bs, bm⟩
-  | some d =>
-    have ds := distributed_body_spec rank op bs hd
-    obtain ⟨ts, tm⟩ := hr d mid t out ds.1 bm (by simpa only [hd] using ht)
-    exact ⟨ds.trans ts, tm⟩
-
-private theorem factorCachedBinary_spec (rank : Formula (Fin ap) → Nat)
-    (recur : FactorAction ap) (hr : recur.Sound) (op : FactorBinary)
-    (f g : Formula (Fin ap)) (hf : NNF f) (hg : NNF g)
-    (memo : FactorMemo ap) (hm : memo.Valid) (t : Formula (Fin ap)) (out : FactorMemo ap)
-    (ht : factorCachedBinary rank recur op f g memo = some (t, out)) :
-    FactorSpec (op.raw f g) t ∧ out.Valid := by
-  simp only [factorCachedBinary, bind, pure, Option.bind_eq_some_iff,
-    Option.some.injEq, Prod.mk.injEq] at ht
-  obtain ⟨⟨a, mid⟩, ha, ⟨b, last⟩, hb, rfl, rfl⟩ := ht
-  obtain ⟨aspec, am⟩ := hr f memo a mid hf hm ha
-  obtain ⟨bspec, bm⟩ := hr g mid b last hg am hb
-  exact ⟨binary_spec rank op aspec bspec, bm⟩
-
-private theorem rememberFactored_spec (f t : Formula (Fin ap)) (out : FactorMemo ap)
-    (result : Option (Formula (Fin ap) × FactorMemo ap))
-    (hr : ∀ g memo, result = some (g, memo) → FactorSpec f g ∧ memo.Valid)
-    (ht : rememberFactored f result = some (t, out)) : FactorSpec f t ∧ out.Valid := by
-  simp only [rememberFactored, bind, pure, Option.bind_eq_some_iff,
-    Option.some.injEq, Prod.mk.injEq] at ht
-  obtain ⟨⟨g, memo⟩, hg, rfl, rfl⟩ := ht
-  obtain ⟨gs, gm⟩ := hr g memo hg
-  exact ⟨gs, memo.remember_valid gm gs⟩
-
-theorem factorCachedStep_sound (rank : Formula (Fin ap) → Nat) (recur : FactorAction ap)
-    (hr : recur.Sound) : FactorAction.Sound (factorCachedStep rank recur) := by
-  intro f memo t out hf hm ht
-  unfold factorCachedStep at ht
-  cases he : lookupFactored f memo with
-  | some g =>
-    simp only [he, Option.some.injEq, Prod.mk.injEq] at ht
-    obtain ⟨rfl, rfl⟩ := ht
-    exact ⟨lookupFactored_spec memo hm f _ he, hm⟩
-  | none =>
-    simp only [he] at ht
-    split at ht
-    · obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj ht)
-      exact ⟨FactorSpec.refl hf, hm⟩
-    · apply rememberFactored_spec f t out _ ?_ ht
-      intro g last hg
-      cases f with
-      | conj f g => exact factorCachedBinary_spec rank recur hr (.boolean true) f g hf.1 hf.2 memo hm _ last hg
-      | disj f g => exact factorCachedBinary_spec rank recur hr (.boolean false) f g hf.1 hf.2 memo hm _ last hg
-      | next f => exact factorCachedUnary_spec rank recur hr .next f hf memo hm _ last hg
-      | eventually f => exact factorCachedUnary_spec rank recur hr .eventual f hf memo hm _ last hg
-      | globally f => exact factorCachedUnary_spec rank recur hr .global f hf memo hm _ last hg
-      | «until» f g => exact factorCachedBinary_spec rank recur hr .until f g hf.1 hf.2 memo hm _ last hg
-      | release f g => exact factorCachedBinary_spec rank recur hr .release f g hf.1 hf.2 memo hm _ last hg
-      | weakUntil f g => exact factorCachedBinary_spec rank recur hr .weakUntil f g hf.1 hf.2 memo hm _ last hg
-      | strongRelease f g => exact factorCachedBinary_spec rank recur hr .strongRelease f g hf.1 hf.2 memo hm _ last hg
-      | _ =>
-        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj hg)
-        exact ⟨FactorSpec.refl hf, hm⟩
-
-theorem factorCachedTerm_sound (rank : Formula (Fin ap) → Nat) (fuel : Nat) :
-    FactorAction.Sound (factorCachedTerm rank fuel) := by
-  induction fuel with
-  | zero => intro f memo t out hf hm ht; simp [factorCachedTerm] at ht
-  | succ fuel ih => exact factorCachedStep_sound rank _ ih
-
-private theorem factorCachedUnary_success (rank : Formula (Fin ap) → Nat)
-    (recur : FactorAction ap) (op : UnaryTerm) (f : Formula (Fin ap)) (hf : NNF f)
-    (memo : FactorMemo ap) (hm : memo.Valid)
-    (hr : ∀ g mid, NNF g → mid.Valid → factorWeight g < 2 * factorWeight f →
-      ∃ t out, recur g mid = some (t, out) ∧ FactorSpec g t ∧ out.Valid) :
-    ∃ t out, factorCachedUnary rank recur op f memo = some (t, out) ∧
-      FactorSpec (op.apply f) t ∧ out.Valid := by
-  obtain ⟨body, mid, hb, bs, bm⟩ := hr f memo hf hm (by have hp := factorWeight_pos f; omega)
-  cases hd : factorDistribution rank op body with
-  | none => exact ⟨_, mid, by simp [factorCachedUnary, hb, hd], unary_spec op bs, bm⟩
-  | some d =>
-    have ds := factorDistribution_spec rank op body d bs.1 hd
-    have bw := bs.2.1
-    obtain ⟨t, out, ht, ts, tm⟩ := hr d mid ds.1 bm (by omega)
-    exact ⟨t, out, by simp [factorCachedUnary, hb, hd, ht],
-      (distributed_body_spec rank op bs hd).trans ts, tm⟩
-
-private theorem factorCachedBinary_success (rank : Formula (Fin ap) → Nat)
-    (recur : FactorAction ap) (op : FactorBinary) (f g : Formula (Fin ap))
-    (hf : NNF f) (hg : NNF g) (memo : FactorMemo ap) (hm : memo.Valid)
-    (hr : ∀ a mid, NNF a → mid.Valid → factorWeight a < factorWeight f + factorWeight g + 1 →
-      ∃ t out, recur a mid = some (t, out) ∧ FactorSpec a t ∧ out.Valid) :
-    ∃ t out, factorCachedBinary rank recur op f g memo = some (t, out) ∧
-      FactorSpec (op.raw f g) t ∧ out.Valid := by
-  obtain ⟨a, mid, ha, aspec, am⟩ := hr f memo hf hm (by omega)
-  obtain ⟨b, out, hb, bspec, bm⟩ := hr g mid hg am (by omega)
-  exact ⟨_, out, by simp [factorCachedBinary, ha, hb], binary_spec rank op aspec bspec, bm⟩
-
-private theorem rememberFactored_success (f : Formula (Fin ap))
-    (result : Option (Formula (Fin ap) × FactorMemo ap))
-    (hr : ∃ t out, result = some (t, out) ∧ FactorSpec f t ∧ out.Valid) :
-    ∃ t out, rememberFactored f result = some (t, out) ∧ FactorSpec f t ∧ out.Valid := by
-  obtain ⟨t, out, ht, ts, tm⟩ := hr
-  exact ⟨t, (f, t) :: out, by simp [rememberFactored, ht], ts, out.remember_valid tm ts⟩
-
-theorem factorCachedStep_success (rank : Formula (Fin ap) → Nat) (recur : FactorAction ap)
-    (f : Formula (Fin ap)) (hf : NNF f) (memo : FactorMemo ap) (hm : memo.Valid)
-    (hr : ∀ g mid, NNF g → mid.Valid → factorWeight g < factorWeight f →
-      ∃ t out, recur g mid = some (t, out) ∧ FactorSpec g t ∧ out.Valid) :
-    ∃ t out, factorCachedStep rank recur f memo = some (t, out) ∧ FactorSpec f t ∧ out.Valid := by
-  unfold factorCachedStep
-  cases he : lookupFactored f memo with
-  | some t => exact ⟨t, memo, rfl, lookupFactored_spec memo hm f t he, hm⟩
-  | none =>
-    simp only
-    split
-    · exact ⟨f, memo, rfl, FactorSpec.refl hf, hm⟩
-    · apply rememberFactored_success
-      cases f with
-      | conj f g => exact factorCachedBinary_success rank recur (.boolean true) f g hf.1 hf.2 memo hm hr
-      | disj f g => exact factorCachedBinary_success rank recur (.boolean false) f g hf.1 hf.2 memo hm hr
-      | next f => exact factorCachedUnary_success rank recur .next f hf memo hm hr
-      | eventually f => exact factorCachedUnary_success rank recur .eventual f hf memo hm hr
-      | globally f => exact factorCachedUnary_success rank recur .global f hf memo hm hr
-      | «until» f g => exact factorCachedBinary_success rank recur .until f g hf.1 hf.2 memo hm hr
-      | release f g => exact factorCachedBinary_success rank recur .release f g hf.1 hf.2 memo hm hr
-      | weakUntil f g => exact factorCachedBinary_success rank recur .weakUntil f g hf.1 hf.2 memo hm hr
-      | strongRelease f g => exact factorCachedBinary_success rank recur .strongRelease f g hf.1 hf.2 memo hm hr
-      | _ => exact ⟨_, memo, rfl, FactorSpec.refl hf, hm⟩
-
-theorem factorCachedTerm_success (rank : Formula (Fin ap) → Nat) (fuel : Nat)
-    (f : Formula (Fin ap)) (hf : NNF f) (memo : FactorMemo ap) (hm : memo.Valid)
-    (hw : factorWeight f < fuel) :
-    ∃ t out, factorCachedTerm rank fuel f memo = some (t, out) ∧ FactorSpec f t ∧ out.Valid := by
-  induction fuel generalizing f memo with
-  | zero => omega
-  | succ fuel ih =>
-    exact factorCachedStep_success rank _ f hf memo hm
-      (fun g mid hg hm hgw => ih g hg mid hm (by omega))
-
-def factorCached (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
-    FactorMemo ap → Option (Formula (Fin ap) × FactorMemo ap) :=
-  factorCachedTerm rank (factorWeight f + 1) f
-
-theorem factorCached_success (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap))
-    (hf : NNF f) (memo : FactorMemo ap) (hm : memo.Valid) :
-    ∃ t out, factorCached rank f memo = some (t, out) ∧ FactorSpec f t ∧ out.Valid :=
-  factorCachedTerm_success rank _ f hf memo hm (by omega)
-
-/-- Unlike `runFactored`, this pipeline actually computes the factored
-syntax. The original admission check and fallback still use the original
-materialized class (`src/lib/dpa_formula.c:610`). -/
-def runFactoring (rank : Formula (Fin ap) → Nat)
-    (highFirst safetyFirst : Formula (Fin ap) → Bool) (buchi : Bool)
-    (original : Formula (Fin ap)) (s : AcceptanceState ap) : Option (CachedAssembly ap) :=
-  if canonicalResearchCheck original then do
-    let (factored, _) ← factorCached rank original []
-    runFactored rank highFirst safetyFirst buchi original factored s
-  else none
-
-theorem runFactoring_presentation (rank : Formula (Fin ap) → Nat)
-    (highFirst safetyFirst : Formula (Fin ap) → Bool) (buchi : Bool)
-    (original : Formula (Fin ap)) (ho : NNF original)
-    (hc : canonicalResearchCheck original = true) (s : AcceptanceState ap) (hs : s.Valid) :
-    ∃ r, runFactoring rank highFirst safetyFirst buchi original s = some r ∧
-      r.Spec s original ∧ ProductPresentation original (storeClasses r.state.store) r.assembly.skeleton := by
-  obtain ⟨factored, memo, ef, sf, _⟩ := factorCached_success rank original ho [] FactorMemo.empty_valid
-  obtain ⟨r, er, sr, pr⟩ := runFactored_presentation rank highFirst safetyFirst buchi
-    original factored ho sf.1 sf.2.2 hc s hs
-  exact ⟨r, by simp [runFactoring, hc, ef, er], sr, pr⟩
-
-def runTransported (rank : Formula (Fin ap) → Nat)
-    (highFirst safetyFirst : Formula (Fin ap) → Bool) (buchi : Bool)
-    (f : Formula (Fin ap)) (s : AcceptanceState ap) : Option (CachedAssembly ap) := do
-  let original ← transport rank f false 0
-  runFactoring rank highFirst safetyFirst buchi original s
-
-/-- Input transport, actual recursive factoring, grouped selection and cached
-rest-first construction. Neither NNF of the transported/factored syntax nor
-factoring's language equality is a hypothesis. This is a product presentation,
-not yet the concrete parity export or the positive Büchi syntax selector. -/
-theorem runTransported_presentation (rank : Formula (Fin ap) → Nat)
-    (highFirst safetyFirst : Formula (Fin ap) → Bool) (buchi : Bool)
-    (f original : Formula (Fin ap)) (ht : transport rank f false 0 = some original)
-    (hc : canonicalResearchCheck original = true) (s : AcceptanceState ap) (hs : s.Valid) :
-    ∃ r, runTransported rank highFirst safetyFirst buchi f s = some r ∧
-      r.Spec s f ∧ ProductPresentation f (storeClasses r.state.store) r.assembly.skeleton := by
-  obtain ⟨r, er, sr, _⟩ := runFactoring_presentation rank highFirst safetyFirst buchi
-    original (transport_nnf rank f false 0 original ht) hc s hs
-  have sl : r.Spec s f := sr.language (fun w => by
-    simpa only [Bool.false_eq_true, ↓reduceIte, Nat.add_zero] using
-      transport_language rank f false 0 original ht w 0)
-  exact ⟨r, by simp [runTransported, ht, er], sl, sl.presentation⟩
+    obtain ⟨p, he⟩ := canonicalPlan_success atomRank f hc
+    obtain ⟨hv, hc⟩ := canonicalPlan_spec atomRank f hf p he
+    exact ⟨p, by simp [factoringPlan, ht, hp, he], hv, fun w n => class_language hc w n⟩
 
 def transportedResearchCheck (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) : Bool :=
   (transport rank f false 0).any canonicalResearchCheck
 
-/-- A successful executable input-admission verdict supplies the actual
-transport and factoring results; no externally supplied intermediate syntax
-or language-preservation premise remains. -/
-theorem admitted_transport_factoring_presentation (rank : Formula (Fin ap) → Nat)
-    (highFirst safetyFirst : Formula (Fin ap) → Bool) (buchi : Bool)
-    (f : Formula (Fin ap)) (ha : transportedResearchCheck rank f = true)
-    (s : AcceptanceState ap) (hs : s.Valid) :
-    ∃ r, runTransported rank highFirst safetyFirst buchi f s = some r ∧
-      r.Spec s f ∧ ProductPresentation f (storeClasses r.state.store) r.assembly.skeleton := by
+def referencePlan (rank atomRank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
+    Option (AcceptancePlan ap) := do
+  let t ← transport rank f false 0
+  factoringPlan rank atomRank t
+
+/-- Input admission supplies all intermediate results of the uncached construction. -/
+theorem referencePlan_success (rank atomRank : Formula (Fin ap) → Nat)
+    (f : Formula (Fin ap)) (ha : transportedResearchCheck rank f = true) :
+    ∃ p, referencePlan rank atomRank f = some p ∧ p.Valid ∧
+      ∀ w n, Sat none w p.source n ↔ Sat none w f n := by
   unfold transportedResearchCheck at ha
   cases ht : transport rank f false 0 with
   | none => simp [ht] at ha
-  | some original =>
-    exact runTransported_presentation rank highFirst safetyFirst buchi f original ht
-      (by simpa only [ht, Option.any_some] using ha) s hs
+  | some t =>
+    obtain ⟨p, hp, hv, hl⟩ := factoringPlan_success rank atomRank t
+      (transport_nnf rank f false 0 t ht) (by simpa [ht] using ha)
+    refine ⟨p, by simp [referencePlan, ht, hp], hv, ?_⟩
+    intro w n
+    exact (hl w n).trans (by simpa using transport_language rank f false 0 t ht w n)
 
 end Tlsf.Dpa.Impl

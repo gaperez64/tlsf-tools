@@ -1,24 +1,9 @@
 import TlsfProofs.Dpa.Impl.Store
 import TlsfProofs.Dpa.Impl.Admission
 
-/-!
-# Shared-store Boolean and Shannon assembly
-
-Successful construction steps of `src/lib/dpa_dela.c:117` and
-`src/lib/dpa_formula.c:583` are represented by an explicit acceptance plan:
-constants, admitted whole classes, Boolean grouping, and Shannon branching.
-Compilation executes the store lookup/update, threads the resulting stores,
-and constructs indexed acceptance, rather than asking for an existential
-product presentation. Every intermediate acceptance has an index bound, so
-later insertions preserve its entire meaning.
-
-This module proves assembly of a valid plan. Selecting the exact plan from
-C's materialized classes, grouping, memoized DAG and argument evaluation
-order remains separate; in particular, this is not the complete C grouped
-constructor or its transport/default-tag refinement. The reference compiles
-the high child before the low child, with soundness independent of the
-original store's contents or existing sharing.
--/
+/-! Uncached assembly of a Boolean acceptance plan. Each occurrence gets a
+fresh component coordinate; extension lemmas preserve earlier coordinates.
+No sharing, cache, argument evaluation order or C trace is modeled. -/
 namespace Tlsf.Dpa.Impl
 open Formula
 variable {ap : Nat}
@@ -89,19 +74,19 @@ def assemble (buchi : Bool) : AcceptancePlan ap → ComponentStore ap → Assemb
     if equivalent f .ff then ⟨s, .constant false⟩
     else if equivalent f .tt then ⟨s, .constant true⟩
     else
-      let r := internComponent buchi s f
+      let r := appendComponent buchi s f
       ⟨r.1, .literal r.2⟩
   | .binary op f g, s =>
     let left := assemble buchi f s
     let right := assemble buchi g left.store
     ⟨right.store, .binary op left.acceptance right.acceptance⟩
   | .shannon a high low, s =>
-    let test := internComponent buchi s a
+    let test := appendComponent buchi s a
     let h := assemble buchi high test.1
     let l := assemble buchi low h.store
     ⟨l.store, .ite test.2 h.acceptance l.acceptance⟩
 
-/-- The recursive invariant needed to preserve shared literals through both
+/-- The recursive invariant needed to preserve earlier literals through both
 branches. It applies to every valid existing store, not just the empty one. -/
 theorem assemble_spec (buchi : Bool) (p : AcceptancePlan ap) (hp : p.Valid)
     (s : ComponentStore ap) (hs : StoreValid s) :
@@ -126,10 +111,10 @@ theorem assemble_spec (buchi : Bool) (p : AcceptancePlan ap) (hp : p.Valid)
         intro w
         simpa [ColourAcceptance.eval, AcceptancePlan.source, Sat, InRange] using
           (class_language ((equivalent_exact f .tt).mp hf) w 0).symm
-      · exact ⟨internComponent_prefix buchi s f,
-          internComponent_valid buchi s hs f hp.1 hp.2,
-          internComponent_bound buchi s f,
-          internComponent_language buchi s hs f hp.1 hp.2⟩
+      · exact ⟨appendComponent_prefix buchi s f,
+          appendComponent_valid buchi s hs f hp.1 hp.2,
+          appendComponent_bound buchi s f,
+          appendComponent_language buchi s hs f hp.1 hp.2⟩
   | binary op f g ihf ihg =>
     obtain ⟨ef, vf, bf, lf⟩ := ihf hp.1 s hs
     obtain ⟨eg, vg, bg, lg⟩ := ihg hp.2 (assemble buchi f s).store vf
@@ -142,22 +127,22 @@ theorem assemble_spec (buchi : Bool) (p : AcceptancePlan ap) (hp : p.Valid)
       simp only [Bool.false_eq_true, ↓reduceIte, Bool.and_eq_true, Bool.or_eq_true,
         lf w, lg w, AcceptancePlan.source, Sat, InRange, true_and]
   | shannon a high low ihh ihl =>
-    have et : StoreExtends s (internComponent buchi s a).1 := internComponent_prefix buchi s a
-    have vt := internComponent_valid buchi s hs a hp.1.1 hp.1.2
-    have bt := internComponent_bound buchi s a
-    have lt := internComponent_language buchi s hs a hp.1.1 hp.1.2
-    obtain ⟨eh, vh, bh, lh⟩ := ihh hp.2.1 (internComponent buchi s a).1 vt
+    have et : StoreExtends s (appendComponent buchi s a).1 := appendComponent_prefix buchi s a
+    have vt := appendComponent_valid buchi s hs a hp.1.1 hp.1.2
+    have bt := appendComponent_bound buchi s a
+    have lt := appendComponent_language buchi s hs a hp.1.1 hp.1.2
+    obtain ⟨eh, vh, bh, lh⟩ := ihh hp.2.1 (appendComponent buchi s a).1 vt
     obtain ⟨el, vl, bl, ll⟩ := ihl hp.2.2
-      (assemble buchi high (internComponent buchi s a).1).store vh
+      (assemble buchi high (appendComponent buchi s a).1).store vh
     refine ⟨et.trans (eh.trans el), vl,
       ⟨Nat.lt_of_lt_of_le bt (eh.trans el).length_le, bh.mono _ el.length_le, bl⟩, ?_⟩
     intro w
-    have heTest := (eh.trans el).literal w (internComponent buchi s a).2 bt
-    have heHigh := (assemble buchi high (internComponent buchi s a).1).acceptance.eval_extends el bh w
+    have heTest := (eh.trans el).literal w (appendComponent buchi s a).2 bt
+    have heHigh := (assemble buchi high (appendComponent buchi s a).1).acceptance.eval_extends el bh w
     dsimp only [assemble, ColourAcceptance.eval]
     rw [heTest, heHigh]
-    cases hc : (internComponent buchi s a).2.eval
-      (storeTruth (internComponent buchi s a).1 w) with
+    cases hc : (appendComponent buchi s a).2.eval
+      (storeTruth (appendComponent buchi s a).1 w) with
     | false =>
       have ha : ¬Sat none w a 0 := by
         intro ha
@@ -319,7 +304,7 @@ theorem groupedPlan_language (op : Bool) (S C B : List (Formula (Fin ap)))
   rw [groupedPlan_source]
   exact compatibleGroups_language op S C B _ w n
 
-/-- The grouped acceptance now has a concrete shared-store product
+/-- The grouped acceptance now has a concrete uncached product
 presentation, for both grouping branches and either Boolean operation. -/
 theorem assemble_grouped_presentation (buchi : Bool) (s : ComponentStore ap) (hv : StoreValid s)
     (op : Bool) (S C B : List (Formula (Fin ap))) (rest : List (AcceptancePlan ap))

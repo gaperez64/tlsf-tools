@@ -1,33 +1,24 @@
 import TlsfProofs.Dpa.Impl.Dual
 
-/-!
-# Executable component interning and stable colour coordinates
-
-`src/lib/dpa_dela.c:93` scans in insertion order, first comparing the stored
-oriented formula, then (outside Büchi mode) its cached NNF dual. A miss
-appends one Π₂-oriented component and returns its possibly complemented
-colour. A colour's index is its insertion position, never its formula ID.
-
-Equality tests are the executable canonical-class tests of `Classes.lean`.
-The invariant relates the cached temporal dual to the stored formula's NNF
-dual, not to its Boolean function complement. The theorem covers arbitrary
-valid input stores, including both cache hits and fresh Σ₂ orientation.
--/
+/-! Uncached component coordinates for the reference construction.
+Every occurrence appends a fresh, Π₂-oriented component. The append lemmas
+justify the indices in the compiled Boolean acceptance; they assert no C
+allocation, cache, lookup, or call-order correspondence. -/
 namespace Tlsf.Dpa.Impl
 open Formula
 variable {ap : Nat}
 
 structure StoredComponent (ap : Nat) where
   formula : Formula (Fin ap)
-  cachedDual : Formula (Fin ap)
+  dualFormula : Formula (Fin ap)
   deriving DecidableEq
 
 abbrev ComponentStore (ap : Nat) := List (StoredComponent ap)
 
 def StoredComponent.Valid (e : StoredComponent ap) : Prop :=
-  NNF e.formula ∧ classTag .pi2 e.formula = true ∧ NNF e.cachedDual ∧
-    (Class.ofFormula e.cachedDual = Class.ofFormula (dual e.formula) ∨
-      Class.ofFormula e.formula = Class.ofFormula (dual e.cachedDual))
+  NNF e.formula ∧ classTag .pi2 e.formula = true ∧ NNF e.dualFormula ∧
+    (Class.ofFormula e.dualFormula = Class.ofFormula (dual e.formula) ∨
+      Class.ofFormula e.formula = Class.ofFormula (dual e.dualFormula))
 
 def StoreValid (s : ComponentStore ap) : Prop := ∀ e, e ∈ s → e.Valid
 
@@ -61,68 +52,18 @@ structure ColourLiteral where
 def ColourLiteral.eval (l : ColourLiteral) (v : Nat → Bool) : Bool :=
   if l.complement then !v l.index else v l.index
 
-def ColourLiteral.shift (l : ColourLiteral) : ColourLiteral := ⟨l.index+1, l.complement⟩
-
-def lookupComponent (shareDual : Bool) (f : Formula (Fin ap)) :
-    ComponentStore ap → Option ColourLiteral
-  | [] => none
-  | e::s =>
-    if equivalent e.formula f then some ⟨0, false⟩
-    else if shareDual && equivalent e.cachedDual f then some ⟨0, true⟩
-    else (lookupComponent shareDual f s).map ColourLiteral.shift
-
 def freshComponent (f : Formula (Fin ap)) : StoredComponent ap :=
   ⟨orientedFormula f, if classTag .pi2 f then dual f else f⟩
 
-def internComponent (buchi : Bool) (s : ComponentStore ap) (f : Formula (Fin ap)) :
+def appendComponent (_buchi : Bool) (s : ComponentStore ap) (f : Formula (Fin ap)) :
     ComponentStore ap × ColourLiteral :=
-  match lookupComponent (!buchi) f s with
-  | some l => (s, l)
-  | none => (s ++ [freshComponent f], ⟨s.length, complemented f⟩)
+  (s ++ [freshComponent f], ⟨s.length, complemented f⟩)
 
-/-- Canonical class relation returned by the actual lookup, with its index. -/
+/-- Canonical class relation returned by the fresh occurrence, with its index. -/
 def LiteralRepresents (s : ComponentStore ap) (l : ColourLiteral)
     (f : Formula (Fin ap)) : Prop :=
   ∃ e, s[l.index]? = some e ∧
-    Class.ofFormula (if l.complement then e.cachedDual else e.formula) = Class.ofFormula f
-
-theorem lookupComponent_represents (s : ComponentStore ap) (shareDual : Bool)
-    (f : Formula (Fin ap)) (l : ColourLiteral)
-    (hl : lookupComponent shareDual f s = some l) : LiteralRepresents s l f := by
-  induction s generalizing l with
-  | nil => simp [lookupComponent] at hl
-  | cons e s ih =>
-    simp only [lookupComponent] at hl
-    split at hl
-    · rename_i h
-      cases Option.some.inj hl
-      exact ⟨e, rfl, (equivalent_exact e.formula f).mp h⟩
-    · split at hl
-      · rename_i h
-        cases Option.some.inj hl
-        exact ⟨e, rfl, (equivalent_exact e.cachedDual f).mp (Bool.and_eq_true_iff.mp h).2⟩
-      · cases ht : lookupComponent shareDual f s with
-        | none => simp [ht] at hl
-        | some k =>
-          simp only [ht, Option.map_some, Option.some.injEq] at hl
-          subst l
-          obtain ⟨p, hp, hc⟩ := ih k ht
-          exact ⟨p, by simpa [ColourLiteral.shift] using hp, hc⟩
-
-theorem lookupComponent_positive (s : ComponentStore ap) (f : Formula (Fin ap))
-    (l : ColourLiteral) (hl : lookupComponent false f s = some l) : l.complement = false := by
-  induction s generalizing l with
-  | nil => simp [lookupComponent] at hl
-  | cons e s ih =>
-    simp only [lookupComponent, Bool.false_and, Bool.false_eq_true, ↓reduceIte] at hl
-    split at hl
-    · cases Option.some.inj hl; rfl
-    · cases ht : lookupComponent false f s with
-      | none => simp [ht] at hl
-      | some k =>
-        simp only [ht, Option.map_some, Option.some.injEq] at hl
-        subst l
-        exact ih k ht
+    Class.ofFormula (if l.complement then e.dualFormula else e.formula) = Class.ofFormula f
 
 theorem freshComponent_valid (f : Formula (Fin ap)) (hn : NNF f)
     (ha : researchAdmitted f = true) : (freshComponent f).Valid := by
@@ -137,58 +78,43 @@ theorem freshComponent_valid (f : Formula (Fin ap)) (hn : NNF f)
     exact ⟨hn, trivial, dual_nnf f hn, Or.inl trivial⟩
 
 /-- Appending never changes an existing coordinate, including terminal ones. -/
-theorem internComponent_prefix (buchi : Bool) (s : ComponentStore ap)
-    (f : Formula (Fin ap)) : ∃ added, (internComponent buchi s f).1 = s ++ added := by
-  unfold internComponent
-  cases lookupComponent (!buchi) f s with
-  | none => exact ⟨[freshComponent f], rfl⟩
-  | some l => exact ⟨[], by simp⟩
+theorem appendComponent_prefix (buchi : Bool) (s : ComponentStore ap)
+    (f : Formula (Fin ap)) : ∃ added, (appendComponent buchi s f).1 = s ++ added := by
+  exact ⟨[freshComponent f], rfl⟩
 
-theorem internComponent_preserves_index (buchi : Bool) (s : ComponentStore ap)
+theorem appendComponent_preserves_index (buchi : Bool) (s : ComponentStore ap)
     (f : Formula (Fin ap)) (i : Nat) (hi : i < s.length) :
-    (internComponent buchi s f).1[i]? = s[i]? := by
-  obtain ⟨added, he⟩ := internComponent_prefix buchi s f
+    (appendComponent buchi s f).1[i]? = s[i]? := by
+  obtain ⟨added, he⟩ := appendComponent_prefix buchi s f
   rw [he, List.getElem?_append_left hi]
 
-theorem internComponent_valid (buchi : Bool) (s : ComponentStore ap) (hs : StoreValid s)
+theorem appendComponent_valid (buchi : Bool) (s : ComponentStore ap) (hs : StoreValid s)
     (f : Formula (Fin ap)) (hn : NNF f) (ha : researchAdmitted f = true) :
-    StoreValid (internComponent buchi s f).1 := by
-  unfold internComponent
-  cases lookupComponent (!buchi) f s with
-  | some l => exact hs
-  | none =>
-    intro e he
-    rcases List.mem_append.mp he with he | he
-    · exact hs e he
-    · have he' := List.mem_singleton.mp he
-      subst e
-      exact freshComponent_valid f hn ha
+    StoreValid (appendComponent buchi s f).1 := by
+  intro e he
+  rcases List.mem_append.mp he with he | he
+  · exact hs e he
+  · have he' := List.mem_singleton.mp he
+    subst e
+    exact freshComponent_valid f hn ha
 
-theorem internComponent_represents (buchi : Bool) (s : ComponentStore ap)
+theorem appendComponent_represents (buchi : Bool) (s : ComponentStore ap)
     (f : Formula (Fin ap)) :
-    LiteralRepresents (internComponent buchi s f).1 (internComponent buchi s f).2 f := by
-  unfold internComponent
-  cases hl : lookupComponent (!buchi) f s with
-  | some l => exact lookupComponent_represents s (!buchi) f l hl
-  | none =>
-    refine ⟨freshComponent f, ?_, ?_⟩
-    · simp
-    · cases hp : classTag .pi2 f <;>
-        simp [complemented, freshComponent, orientedFormula, hp]
+    LiteralRepresents (appendComponent buchi s f).1 (appendComponent buchi s f).2 f := by
+  refine ⟨freshComponent f, ?_, ?_⟩
+  · simp [appendComponent]
+  · cases hp : classTag .pi2 f <;>
+      simp [appendComponent, complemented, freshComponent, orientedFormula, hp]
 
-theorem internComponent_bound (buchi : Bool) (s : ComponentStore ap)
+theorem appendComponent_bound (buchi : Bool) (s : ComponentStore ap)
     (f : Formula (Fin ap)) :
-    (internComponent buchi s f).2.index < (internComponent buchi s f).1.length := by
-  obtain ⟨_, he, _⟩ := internComponent_represents buchi s f
+    (appendComponent buchi s f).2.index < (appendComponent buchi s f).1.length := by
+  obtain ⟨_, he, _⟩ := appendComponent_represents buchi s f
   exact (List.getElem?_eq_some_iff.mp he).choose
 
-theorem internComponent_buchi_positive (s : ComponentStore ap) (f : Formula (Fin ap))
-    (hp : classTag .pi2 f = true) : (internComponent true s f).2.complement = false := by
-  unfold internComponent
-  simp only [Bool.not_true]
-  cases hl : lookupComponent false f s with
-  | some l => exact lookupComponent_positive s f l hl
-  | none => simp [complemented, hp]
+theorem appendComponent_buchi_positive (s : ComponentStore ap) (f : Formula (Fin ap))
+    (hp : classTag .pi2 f = true) : (appendComponent true s f).2.complement = false := by
+  simp [appendComponent, complemented, hp]
 
 /-- Executable fixed-coordinate product colours, with false outside the store. -/
 def storeColours (s : ComponentStore ap) (w : Word (Fin ap)) (n i : Nat) : Bool :=
@@ -210,7 +136,7 @@ theorem class_language {f g : Formula (Fin ap)}
     Sat none w f j ↔ Sat none w g j := by
   rw [← ofFormula_holds f, ← ofFormula_holds g, he]
 
-/-- Any literal in a valid store, including a cached-dual hit, denotes the
+/-- Any literal in a valid store, including a dual orientation, denotes the
 input language on the store's complete runs. -/
 theorem literal_language (s : ComponentStore ap) (hs : StoreValid s)
     (l : ColourLiteral) (f : Formula (Fin ap)) (hl : LiteralRepresents s l f)
@@ -226,38 +152,38 @@ theorem literal_language (s : ComponentStore ap) (hs : StoreValid s)
       storeTruth, decide_eq_true_eq, ht] using class_language hc w 0
   | true =>
     simp only [hb, ↓reduceIte] at hc
-    have hd : Sat none w e.cachedDual 0 ↔ ¬Sat none w e.formula 0 := by
+    have hd : Sat none w e.dualFormula 0 ↔ ¬Sat none w e.formula 0 := by
       rcases hv.2.2.2 with h | h
       · exact (class_language h w 0).trans (dual_language e.formula w 0)
-      · have hh := (class_language h w 0).trans (dual_language e.cachedDual w 0)
+      · have hh := (class_language h w 0).trans (dual_language e.dualFormula w 0)
         simpa only [Classical.not_not] using (not_congr hh).symm
     simpa only [ColourLiteral.eval, hb, ↓reduceIte, storeTruth,
       Bool.not_eq_true', decide_eq_false_iff_not, ht] using
       hd.symm.trans (class_language hc w 0)
 
-theorem internComponent_language (buchi : Bool) (s : ComponentStore ap) (hs : StoreValid s)
+theorem appendComponent_language (buchi : Bool) (s : ComponentStore ap) (hs : StoreValid s)
     (f : Formula (Fin ap)) (hn : NNF f) (ha : researchAdmitted f = true)
     (w : Word (Fin ap)) :
-    (internComponent buchi s f).2.eval (storeTruth (internComponent buchi s f).1 w) = true ↔
+    (appendComponent buchi s f).2.eval (storeTruth (appendComponent buchi s f).1 w) = true ↔
       Sat none w f 0 :=
-  literal_language _ (internComponent_valid buchi s hs f hn ha) _ _
-    (internComponent_represents buchi s f) w
+  literal_language _ (appendComponent_valid buchi s hs f hn ha) _ _
+    (appendComponent_represents buchi s f) w
 
 /-- Existing literals keep both their coordinate and their entire colour
 stream, rather than only an existentially equivalent language. -/
-theorem internComponent_preserves_colours (buchi : Bool) (s : ComponentStore ap)
+theorem appendComponent_preserves_colours (buchi : Bool) (s : ComponentStore ap)
     (f : Formula (Fin ap)) (w : Word (Fin ap)) (i : Nat) (hi : i < s.length) (n : Nat) :
-    storeColours (internComponent buchi s f).1 w n i = storeColours s w n i := by
-  simp only [storeColours, internComponent_preserves_index buchi s f i hi]
+    storeColours (appendComponent buchi s f).1 w n i = storeColours s w n i := by
+  simp only [storeColours, appendComponent_preserves_index buchi s f i hi]
 
-theorem internComponent_preserves_literal (buchi : Bool) (s : ComponentStore ap)
+theorem appendComponent_preserves_literal (buchi : Bool) (s : ComponentStore ap)
     (f : Formula (Fin ap)) (w : Word (Fin ap)) (l : ColourLiteral) (hl : l.index < s.length) :
-    l.eval (storeTruth (internComponent buchi s f).1 w) = l.eval (storeTruth s w) := by
-  have he : storeTruth (internComponent buchi s f).1 w l.index = storeTruth s w l.index := by
+    l.eval (storeTruth (appendComponent buchi s f).1 w) = l.eval (storeTruth s w) := by
+  have he : storeTruth (appendComponent buchi s f).1 w l.index = storeTruth s w l.index := by
     unfold storeTruth
     congr 2
     funext n
-    exact internComponent_preserves_colours buchi s f w l.index hl n
+    exact appendComponent_preserves_colours buchi s f w l.index hl n
   simp only [ColourLiteral.eval, he]
 
 theorem StoreExtends.literal {s t : ComponentStore ap} (h : StoreExtends s t)

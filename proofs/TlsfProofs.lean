@@ -15,16 +15,5 @@ import TlsfProofs.Dpa.Impl.Store
 import TlsfProofs.Dpa.Impl.Assembly
 import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
-import TlsfProofs.Dpa.Impl.Cache
-import TlsfProofs.Dpa.Impl.Grouping
 import TlsfProofs.Dpa.Impl.Factoring
-import TlsfProofs.Dpa.Impl.DefaultTags
-import TlsfProofs.Dpa.Impl.RefinedComponent
-import TlsfProofs.Dpa.Impl.TagTrace
-import TlsfProofs.Dpa.Impl.RefinedAcceptance
-import TlsfProofs.Dpa.Impl.RefinedConverse
-import TlsfProofs.Dpa.Impl.SupportedTrace
-import TlsfProofs.Dpa.Impl.QuickTrace
-import TlsfProofs.Dpa.Impl.RemainderTrace
-import TlsfProofs.Dpa.Impl.ComponentTrace
-import TlsfProofs.Dpa.Impl.Terminal
+import TlsfProofs.Dpa.Validation.Construction
