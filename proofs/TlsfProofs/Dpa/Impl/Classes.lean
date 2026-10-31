@@ -336,32 +336,43 @@ theorem associationAgreement_sound (f g : Formula (Fin ap))
       fun ⟨x, hx, hv⟩ => ⟨x, (hm x).mpr hx, hv⟩⟩
 
 def equivalent (f g : Formula (Fin ap)) : Bool :=
+  if f = g then true else
   let f := reduceProp f
   let g := reduceProp g
+  if f = g then true else
   let atoms := (modalAtoms f ++ modalAtoms g).eraseDups
   sampleAgreement atoms f g && (associationAgreement f g || equivalentOn atoms f g)
 
 theorem equivalent_exact (f g : Formula (Fin ap)) :
     equivalent f g = true ↔ Class.ofFormula f = Class.ofFormula g := by
   unfold equivalent
-  dsimp only
-  have hf : (Class.ofFormula (reduceProp f)).DependsOn
-      (modalAtoms (reduceProp f) ++ modalAtoms (reduceProp g)).eraseDups := by
-    intro σ τ h
-    exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
-  have hg : (Class.ofFormula (reduceProp g)).DependsOn
-      (modalAtoms (reduceProp f) ++ modalAtoms (reduceProp g)).eraseDups := by
-    intro σ τ h
-    exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
-  rw [Bool.and_eq_true, Bool.or_eq_true, equivalentOn_exact _ _ _ hf hg]
-  constructor
-  · intro h
-    have he := h.2.elim (associationAgreement_sound _ _) id
-    simpa only [reduceProp_class] using he
-  · intro h
-    have he : Class.ofFormula (reduceProp f) = Class.ofFormula (reduceProp g) := by
-      simpa only [reduceProp_class] using h
-    exact ⟨sampleAgreement_of_eq _ _ _ he, Or.inr he⟩
+  split
+  · rename_i he
+    simp only [true_iff]
+    exact congrArg Class.ofFormula he
+  · dsimp only
+    split
+    · rename_i he
+      simp only [true_iff]
+      exact (reduceProp_class f).symm.trans
+        ((congrArg Class.ofFormula he).trans (reduceProp_class g))
+    · have hf : (Class.ofFormula (reduceProp f)).DependsOn
+          (modalAtoms (reduceProp f) ++ modalAtoms (reduceProp g)).eraseDups := by
+        intro σ τ h
+        exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
+      have hg : (Class.ofFormula (reduceProp g)).DependsOn
+          (modalAtoms (reduceProp f) ++ modalAtoms (reduceProp g)).eraseDups := by
+        intro σ τ h
+        exact propEval_local _ σ τ (fun a ha => h a (by simp [ha]))
+      rw [Bool.and_eq_true, Bool.or_eq_true, equivalentOn_exact _ _ _ hf hg]
+      constructor
+      · intro h
+        have he := h.2.elim (associationAgreement_sound _ _) id
+        simpa only [reduceProp_class] using he
+      · intro h
+        have he : Class.ofFormula (reduceProp f) = Class.ofFormula (reduceProp g) := by
+          simpa only [reduceProp_class] using h
+        exact ⟨sampleAgreement_of_eq _ _ _ he, Or.inr he⟩
 
 theorem cofactor_unused (f a : Formula (Fin ap)) :
     Class.ofFormula (cofactor a false f) = Class.ofFormula (cofactor a true f) ↔

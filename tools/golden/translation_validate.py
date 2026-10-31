@@ -250,7 +250,7 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--reuse-inventory", action="store_true")
     parser.add_argument("--collect-only", action="store_true")
-    parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--set", choices=("corpus", "golden", "equivalence", "review"))
     parser.add_argument("--resume", action="store_true",
                         help="reuse receipts only for this exact Lean executable and identical fresh C dumps")

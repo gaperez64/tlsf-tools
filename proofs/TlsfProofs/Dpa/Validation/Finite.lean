@@ -124,7 +124,7 @@ namespace Tlsf.Dpa.Impl
 variable {ap : Nat}
 
 def State.same (s t : State ap) : Bool :=
-  equivalent s.all t.all && equivalent s.rejecting t.rejecting
+  equivalent s.rejecting t.rejecting && equivalent s.all t.all
 
 def State.representative (s : State ap) : State ap :=
   ⟨reduceProp s.all, reduceProp s.rejecting⟩
@@ -136,8 +136,8 @@ theorem State.representative_exact (s : State ap) : s.representative.denote = s.
 theorem State.same_exact (s t : State ap) : s.same t = true ↔ s.denote = t.denote := by
   simp only [State.same, Bool.and_eq_true, equivalent_exact]
   constructor
-  · rintro ⟨ha, hr⟩; cases s; cases t; simp_all [State.denote]
-  · intro h; exact ⟨congrArg Pair.all h, congrArg Pair.rejecting h⟩
+  · rintro ⟨hr, ha⟩; cases s; cases t; simp_all [State.denote]
+  · intro h; exact ⟨congrArg Pair.rejecting h, congrArg Pair.all h⟩
 
 theorem State.transition_congr (s t : State ap) (v : Letter (Fin ap))
     (h : s.denote = t.denote) :
@@ -162,6 +162,7 @@ theorem Assembly.productStep_congr (r : Assembly ap) (s t : Configuration r)
     (v : Letter (Fin ap)) (h : r.configurationKey s = r.configurationKey t) :
     r.configurationKey (r.productStep s v).1 = r.configurationKey (r.productStep t v).1 ∧
       (r.productStep s v).2 = (r.productStep t v).2 := by
+  simp only [Assembly.productStep_exact]
   constructor
   · funext i; exact (State.transition_congr _ _ v (congrFun h i)).1
   · funext i; exact (State.transition_congr _ _ v (congrFun h i)).2
@@ -175,7 +176,7 @@ def decode (a : Alphabet ap) : Letter (Fin ap) := (colourVectors ap)[a.val]
   ⟨source.initial, fun s a => source.step s (decode a)⟩
 
 def Assembly.paritySame (r : Assembly ap) (s t : Configuration r × List Nat) : Bool :=
-  r.configurationSame s.1 t.1 && decide (s.2 = t.2)
+  decide (s.2 = t.2) && r.configurationSame s.1 t.1
 
 def Assembly.parityKey (r : Assembly ap) (s : Configuration r × List Nat) :=
   (r.configurationKey s.1, s.2)
@@ -184,6 +185,7 @@ theorem Assembly.paritySame_exact (r : Assembly ap) (s t : Configuration r × Li
     r.paritySame s t = true ↔ r.parityKey s = r.parityKey t := by
   simp only [Assembly.paritySame, Bool.and_eq_true, Assembly.configurationSame_exact,
     decide_eq_true_eq, Assembly.parityKey, Prod.mk.injEq]
+  exact and_comm
 
 theorem Assembly.finiteParitySource_congr (r : Assembly ap)
     (s t : Configuration r × List Nat) (a : Alphabet ap)
@@ -240,7 +242,7 @@ theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
 
 def Assembly.buchiSame (r : Assembly ap)
     (s t : Configuration r × RoundState r.store.length) : Bool :=
-  r.configurationSame s.1 t.1 && decide (s.2 = t.2)
+  decide (s.2 = t.2) && r.configurationSame s.1 t.1
 
 def Assembly.buchiKey (r : Assembly ap) (s : Configuration r × RoundState r.store.length) :=
   (r.configurationKey s.1, s.2)
@@ -250,6 +252,7 @@ theorem Assembly.buchiSame_exact (r : Assembly ap)
     r.buchiSame s t = true ↔ r.buchiKey s = r.buchiKey t := by
   simp only [Assembly.buchiSame, Bool.and_eq_true, Assembly.configurationSame_exact,
     decide_eq_true_eq, Assembly.buchiKey, Prod.mk.injEq]
+  exact and_comm
 
 theorem Assembly.finiteBuchiSource_congr (r : Assembly ap)
     (s t : Configuration r × RoundState r.store.length) (a : Alphabet ap)

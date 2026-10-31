@@ -46,6 +46,21 @@ theorem protected_exact (f t : Formula (Fin ap)) :
   · rintro ⟨a, ha, hm, ht⟩
     exact ⟨a, uses_in_bound (fun σ τ hh => propEval_local f σ τ hh) ha, ⟨hm, ht⟩, ha⟩
 
+/-- A finite presentation of the current protection predicate, constructed
+once per elision pass, before traversing the formula's X occurrences. -/
+def protectionSet (f : Formula (Fin ap)) : List (Formula (Fin ap)) :=
+  ((modalAtoms f).eraseDups.filter (fun a => nonXModalb a && uses f a)).flatMap subformulas
+
+theorem protectionSet_exact (f t : Formula (Fin ap)) :
+    t ∈ protectionSet f ↔ Protected (Class.ofFormula f) t := by
+  simp only [protectionSet, List.mem_flatMap, List.mem_filter,
+    List.mem_eraseDups, Bool.and_eq_true, nonXModalb_exact, uses_exact]
+  constructor
+  · rintro ⟨a, ⟨_, hm, ha⟩, ht⟩
+    exact ⟨a, ha, hm, ht⟩
+  · rintro ⟨a, ha, hm, ht⟩
+    exact ⟨a, ⟨uses_in_bound (fun σ τ hh => propEval_local f σ τ hh) ha, hm, ha⟩, ht⟩
+
 /-- Simultaneous substitution; frozen modal operands are not traversed. -/
 def replace (p : Formula (Fin ap) → Bool) : Formula (Fin ap) → Formula (Fin ap)
   | .tt => .tt | .ff => .ff
@@ -89,16 +104,17 @@ theorem reduce_exact (f : Formula (Fin ap)) :
   rw [hp]
   rfl
 
-def dropX (f : Formula (Fin ap)) : Formula (Fin ap) :=
-  replace (fun a => isXb a && !protectedb f a) f
+@[noinline] def dropX (f : Formula (Fin ap)) : Formula (Fin ap) :=
+  let protectedTerms := protectionSet f
+  replace (fun a => isXb a && !decide (a ∈ protectedTerms)) f
 
 theorem dropX_exact (f : Formula (Fin ap)) :
     Class.ofFormula (dropX f) = Dpa.dropX (Class.ofFormula f) := by
   rw [dropX, replace_exact]
-  have hp : (fun a : Formula (Fin ap) => (isXb a && !protectedb f a) = true) =
+  have hp : (fun a : Formula (Fin ap) => (isXb a && !decide (a ∈ protectionSet f)) = true) =
       (fun a => isX a ∧ ¬Protected (Class.ofFormula f) a) := by
     funext a
-    simp [Bool.eq_false_iff, isXb_exact, protected_exact]
+    simp [Bool.eq_false_iff, isXb_exact, protectionSet_exact]
   rw [hp]
   rfl
 

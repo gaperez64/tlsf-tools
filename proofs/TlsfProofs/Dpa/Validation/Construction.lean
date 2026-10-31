@@ -13,9 +13,17 @@ abbrev Configuration (r : Assembly ap) := Fin r.store.length → State ap
 def Assembly.productInitial (r : Assembly ap) : Configuration r :=
   fun i => initial r.store[i.val].formula
 
-def Assembly.productStep (r : Assembly ap) (s : Configuration r) (v : Letter (Fin ap)) :
+@[noinline] def Assembly.productStep (r : Assembly ap) (s : Configuration r) (v : Letter (Fin ap)) :
     Configuration r × ColourSet r.store.length :=
-  (fun i => (transition v (s i)).target, fun i => (transition v (s i)).mark)
+  let edges := Vector.ofFn (fun i => transition v (s i))
+  (fun i => edges[i].target, fun i => edges[i].mark)
+
+theorem Assembly.productStep_exact (r : Assembly ap) (s : Configuration r)
+    (v : Letter (Fin ap)) :
+    r.productStep s v =
+      (fun i => (transition v (s i)).target, fun i => (transition v (s i)).mark) := by
+  apply Prod.ext <;> funext i <;>
+    simp [Assembly.productStep, Fin.getElem_fin]
 
 def Assembly.productRun (r : Assembly ap) (w : Word (Fin ap)) : Nat → Configuration r
   | 0 => r.productInitial
@@ -29,13 +37,13 @@ theorem Assembly.productRun_projection (r : Assembly ap) (w : Word (Fin ap))
     r.productRun w n i = run r.store[i.val].formula w n := by
   induction n with
   | zero => rfl
-  | succ n ih => simp only [Assembly.productRun, Assembly.productStep, run, ih]
+  | succ n ih => simp only [Assembly.productRun, Assembly.productStep_exact, run, ih]
 
 theorem Assembly.colours_exact (r : Assembly ap) (w : Word (Fin ap)) :
     r.colours w = productColours (storeClasses r.store) w := by
   funext n i
   rw [store_productColours]
-  simp only [Assembly.colours, Assembly.productStep, Assembly.productRun_projection,
+  simp only [Assembly.colours, Assembly.productStep_exact, Assembly.productRun_projection,
     storeColours, List.getElem?_eq_getElem i.isLt, marks]
 
 def Assembly.tree (r : Assembly ap) : ZTree r.skeleton (fullColours r.store.length) :=

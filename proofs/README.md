@@ -499,6 +499,11 @@ decides every remaining equality. Support is tested by simplified Shannon cofact
 `reduceProp_class`, `cofactor_unused` and `uses_exact` prove these optimizations
 preserve classes and support. Protection tests distinct modal atoms and checks
 syntactic containment before support, with the same proved predicate.
+`protectionSet_exact` presents protection as a finite set built once for each
+elision pass. Cheap tree/round keys precede Boolean field comparisons; exact
+syntax equality returns before constructing an atom list.
+`productStep_exact` proves that materializing all component edges once preserves
+the product step, including its target and colour projections.
 Reference transition tables are materialized once; `freeze_exact` and
 `freezeBuchi_exact` prove this preserves the machines exactly.
 
