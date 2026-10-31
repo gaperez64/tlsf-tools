@@ -1,0 +1,29 @@
+{
+  "small_and_targeted": 7058,
+  "deep": 4000,
+  "total": 11058,
+  "equivalent": 11058,
+  "declined": [],
+  "timeout": [],
+  "failures": [],
+  "seed": 80002931,
+  "corpus_sha256": "498e422a7bec503f9040f2115461984fa0100c9df9d6ce541ad9bb1e2bcac9d9",
+  "elapsed_s": 12.197,
+  "outcome": "partial; no counterexample found; general converse remains unproved",
+  "base_commit": "e3ff8fbd38e47a3da6a0e664dbf37bd22aacfb96",
+  "spot_version": "2.16",
+  "compiler": "GCC 15.3.1 20260722 (Red Hat 15.3.1-1)",
+  "build": "Current four Dpa C translation units (-std=c23 -O1) and current harness (-std=c++20 -O1), make -j1; reused matching arena/AST/AST API/OxiDD runtime infrastructure from sibling tlsf-proofs/build/libtlsf.a and its OxiDD archive. No C compilation concurrent with Lean.",
+  "command": "python3 test/unit/dpa_pi2_converse.py /tmp/tlsf-task-j/dpa_equivalence --output /tmp/tlsf-task-j/repro",
+  "source_sha256": {
+    "src/lib/dpa.c": "ce7436c8978437fcc6bfbcbe3aed5115da9aea188201f6fc09828a566c3dcfe2",
+    "src/lib/dpa_formula.c": "12094889be2ad86e66309f9d692612c9b438584a8f5338f2c42b14b3eb0d5598",
+    "src/lib/dpa_dela.c": "94268127bc749547fc896ff1cff8c34ec14aa9bd33608c5599a88950067453b6",
+    "src/lib/dpa_zielonka.c": "853aa04bab3f17f2326c8891b47f884527f5c83e65405e9d52225ba3ee79b059",
+    "src/lib/dpa_internal.h": "ad1f6a63440b325d9a109755e55c099f9f822344772031a240f3ba3ab266b8dd",
+    "include/tlsf/dpa.h": "38213f1f856014b34c5934e3a340631241248aa13b87feda5c0427d4610101e5",
+    "test/unit/dpa_equivalence.cpp": "9d386669e0df5f6d87560636ec8906145d104c5919089f162a8c9af3be3b1b02",
+    "test/unit/dpa_pi2_converse.py": "299ab5834a1d2e6c1bd9d29ea32d22f39cbea8a90bb5ffe41d0b6cca5161f2e8"
+  },
+  "executable_sha256": "65c422dfacf5f567119c9463e6e4059a95f3c6e44ae81f1e08fa2949ec9d172a"
+}

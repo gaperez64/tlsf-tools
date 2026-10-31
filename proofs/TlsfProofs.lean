@@ -7,3 +7,4 @@ import TlsfProofs.Cluster
 import TlsfProofs.Examples
 import TlsfProofs.Rewrites
 import TlsfProofs.Dpa.Refinements
+import TlsfProofs.Dpa.GeneralConverse

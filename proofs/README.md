@@ -382,7 +382,7 @@ timeout 1500 lake build
 
 ## Issues #80 / #83: lazy-DPA formalization
 
-The seven modules under `TlsfProofs/Dpa/` use namespace `Tlsf.Dpa` and infinite
+The eight modules under `TlsfProofs/Dpa/` use namespace `Tlsf.Dpa` and infinite
 words only (`Sat none`). They formalize the conservative DESIGN §1 variant:
 no support resets, no external suspension, a complete fixed product, and an
 ordinary one-sibling global-tree update. The required reference merge is
@@ -403,9 +403,12 @@ function depends. Modal atoms, including a formula and its NNF dual, remain
 independent; AP negation shares its AP variable. `Uses` is exact dependence,
 so support tests and protection disregard propositionally absorbed operands.
 `Positive` states modal monotonicity; `NNFClass` supplies an NNF representative.
-A global finite-closure/cardinality theorem for *all reachable classes of a
-fixed input* is still outstanding. This is distinct from the proved finite
-support of each individual class.
+`GeneralConverse.lean` now proves the common finite alphabet of both fields
+(`run_subformulaBound`), injection into finite Boolean truth tables
+(`subformula_signature_injective`), and a finite list containing every
+reachable component pair on every word (`finite_component_states`). This is
+semantic finite closure for a fixed input, not a practical state bound or a
+proof of the C allocator/BDD bridge.
 
 `Stage1.lean` defines the shared table and proves safety/co-safety and the
 one-set parity results. `Component.lean` extends it with the general component
@@ -441,6 +444,8 @@ are identified explicitly; they are not premises of the language equalities.
 | STAGE1 §4: GF finite windows, both directions | `gf_language` | Checked, using the general accepting-renewal-seed theorem |
 | STAGE1 §4: FG finite windows and complement | `gf_complement`, `fg_language` | Checked on the identical completed dual run |
 | STAGE1 §5: one-set min-even and max-odd tables | `oneSet_min_inf`, `oneSet_min_fin`, `oneSet_max_inf`, `oneSet_max_fin`, `gf_minEven`, `fg_minEven`, `gf_maxOdd`, `fg_maxOdd` | Checked numeric parity languages; identification with the built one-colour tree's unique path pending |
+| Task J: fixed-input finite alphabet and semantic state closure | `run_subformulaBound`, `subformula_signature_injective`, `finite_reachable_pairs`, `finite_component_states` | Checked for all words and both fields, including retry and finite retention; no general language theorem follows from finiteness alone |
+| Task J: protected constraints and retry reduction | `extractPass_protected_constraint`, `false_pass_disables_retry`, `converse_of_eventually_false_passes`, `generalPi2Converse_of_false_passes`, `false_passes_of_protected_constraints` | Checked reductions with explicit hypotheses; eventual false passes / existence of protected constraints remain unproved |
 | STAGE1 §6: general case excluded | `GeneralPi2Converse` | Documented proposition only; no general converse theorem |
 | STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
 | STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
@@ -470,6 +475,101 @@ are identified explicitly; they are not premises of the language equalities.
 | STAGE2 §9.3: terminally decided products | `terminal_all_marks`, `terminal_recurrent_colour`, `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` | Checked constant substitution in fixed β, complemented occurrences, absorbing priorities P/P−1 and arbitrary entering/finite-prefix priorities |
 | STAGE2 §9.4: current-AP care traversal | `restrictCurrent`, `unfoldCare`, `unfolding_care_exact`, `unfolding_syntax_care_exact`, `unfolding_care_root`, `care_finite_return`, `care_frozen_next`, `care_shannon`, `care_modal_shannon` | Checked syntax/class reference care, current AP branch recombination and frozen X; imperative DAG order/memo-key bridge trusted |
 | STAGE2 §9.5: fragment bounds with exact fallback | `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounds_intersection`, `bounded_tag_test_exact`, `support_pruning_tag`, `cached_lower_refinement`, `exact_tests_preserve_order` | Checked structural syntax bounds, actual support/cofactor intersection, arbitrary masks, stable lower caches, exact fallback and safety-first order; C bitset/cache bridge trusted |
+
+### Task J: general Π₂ converse remains open
+
+**Outcome: partial.** No counterexample was found. The general admission guard
+stays off; `GeneralPi2Converse` is still a proposition, not a proved result.
+The new partial results are in `TlsfProofs/Dpa/GeneralConverse.lean` and are
+imported by the default build. They do not change the admitted grammar.
+
+The smallest remaining lemma for the failed-constraint route is the following
+statement, currently **unproved** (the displayed declaration has no Lean body):
+
+```lean
+theorem general_eventually_false_passes
+    (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)
+    (w : Word (Fin ap)) (hfalse : ¬Holds w 0 x)
+    (hnever : ∀ n, (run x w n).all ≠ Class.bot) :
+    ∃ N, ∀ n, N ≤ n →
+      ¬Holds w n (extractPass (rawAll x w n))
+```
+
+`generalPi2Converse_of_false_passes` checks that exactly this statement would
+prove `GeneralPi2Converse`. It is sufficient to consider the **first**
+extraction pass: `false_pass_disables_retry` proves that a false first pass
+cannot be finite on a never-false all-field, so the retry guard is false.
+`converse_of_eventually_false_passes` then uses the already checked accepting
+renewal theorem, including retained nonconstant finite remainders. It requires
+no additional assumption about rounds or witnesses.
+
+A more structural sufficient target is existence, at every sufficiently late
+raw position, of a false `ProtectedConstraint raw C`. This consists of a
+co-safety consequence C whose supported X atoms stay protected in every NNF
+weakening y between raw and C. `extractPass_protected_constraint` proves that
+such a C survives every simultaneous deletion with recomputed protection;
+`false_passes_of_protected_constraints` gives the statement above from these
+constraints. Existence of the constraints is **not** proved or assumed by any
+unconditional result.
+
+The two obvious shortcuts leave a real gap:
+
+- The flat §6 descent removes a selected eventuality and waits for its old
+  finite candidates to become propositionally false. For nested F/U/M, an
+  abandoned candidate can itself be an unfulfilled eventuality. The checked
+  `false_cosafety_need_not_flush` gives `F a` on the all-false word: it is
+  semantically false, but every finite derivative is propositionally nonfalse.
+  Thus replacing the finite-window flush by a co-safety flush is invalid.
+  This example is an obstruction to the proof step, not a counterexample to
+  the component language.
+- Sickert–Esparza (LICS 2020, arXiv:2005.00472), Lemmas 28–31, concern one
+  fixed annotated weak alternating automaton with the two-level acceptance
+  ordering. The new finite-alphabet/state theorems supply finiteness, but do
+  not construct the correspondence between its annotated states and Boolean
+  formula classes. Flipping a transient X state's acceptance in a fixed
+  automaton does not itself justify recomputing protection from a changing
+  class support. One must relate each extraction cohort to that fixed run
+  interpretation, retain rejecting X states under F/U/M protectors, and show
+  that loss/reappearance of protectors cannot repeatedly discard the same
+  failed obligation. Applying Lemma 31 without that correspondence is circular.
+
+The repeatable search is `test/unit/dpa_pi2_converse.py`. The recorded run
+compared both language inclusions with Spot 2.16 through the existing
+`dpa_equivalence.cpp` harness and `--allow-unproved`:
+
+- 7,058 small/targeted formulas, including duals. The exhaustive part enumerates
+  mixed Π₂ formulas with at most six grammar nodes over positive a,b, modulo
+  commutativity of ∧/∨; direct safety/co-safety cases are omitted. The targeted
+  families cover disappearing F/U/M protectors, delayed finite obligations,
+  `GF(a ∧ X b)`, `G(a → F(X b ∧ XX c))`, R/W, and mixed literal signs.
+- 4,000 deeper cases, including duals, from seed 80002931: 2,000 generated Π₂
+  formulas of 7–18 grammar nodes over a,b,c and their negations (a signed literal
+  counts as one leaf), alternating G/co-safety bodies with general Π₂ bodies.
+- **11,058 equivalences; zero mismatches, declines, or timeouts.** The corpus
+  SHA-256 is `498e422a7bec503f9040f2115461984fa0100c9df9d6ce541ad9bb1e2bcac9d9`.
+  Metadata and source fingerprints are in `../docs/lazy-dpa/TASK-J-SEARCH.json`.
+  These tests exercise C's canonicalization, factoring and complete DPA; they
+  do not test every unnormalized class permitted by the Lean proposition.
+
+For this run, the four current `src/lib/dpa*.c` translation units and the
+current harness were compiled serially with GCC 15.3.1 (`make -j1`), linking
+existing OxiDD and unchanged library infrastructure from the sibling
+`tlsf-proofs/build`. No C compilation overlapped Lean. With a normal build of
+this checkout, reproduce the corpus/checks with:
+
+```sh
+meson compile -C build -j1 dpa_equivalence
+python3 test/unit/dpa_pi2_converse.py build/test/unit/dpa_equivalence \
+  --output /tmp/tlsf-task-j-search
+```
+
+The bounded negative search is evidence only. Neither outcome A nor B has
+been established; no general admission is justified by these partial results.
+
+Validation: `LEAN_NUM_THREADS=1 lake build` succeeds with zero warnings. The
+`\b(sorry|admit|axiom|native_decide)\b` scan of every Lean source is empty.
+The dependency audit of the new bridge results and `admitted_grammar` contains
+only `propext`, `Classical.choice` and `Quot.sound`. No changes were committed.
 
 ### C ↔ Lean correspondence
 
@@ -518,7 +618,7 @@ numbers refer to the merged worktree's formatted sources.
   map child occurrences to C's sorted-list lexicographic order.
 - **Spot equivalence tests.** They provide implementation evidence only. They
   are not hypotheses, external oracles or substitutes for any Lean theorem.
-  No C build or Spot tests were run for this formalization change.
+  Task J's serial C build and bounded Spot research search are recorded above.
 
 - **Refinement algorithms.** §9 is proved for semantic reference algorithms:
   the canonical admission decision tree, exhaustive Boolean syntax leaf guard,
