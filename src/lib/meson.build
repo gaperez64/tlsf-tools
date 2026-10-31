@@ -37,6 +37,7 @@ lib_sources = files(
   'decompose.c',
   'diagnostic.c',
   'expand.c',
+  'env_witness.c',
   'gr.c',
   'intern.c',
   'liveness_class.c',

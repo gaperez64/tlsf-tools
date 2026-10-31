@@ -4,6 +4,7 @@ import TlsfProofs.Objective
 import TlsfProofs.Passes
 import TlsfProofs.Definition
 import TlsfProofs.Cluster
+import TlsfProofs.Pruning
 import TlsfProofs.Examples
 import TlsfProofs.Rewrites
 import TlsfProofs.Dpa.Refinements

@@ -76,6 +76,11 @@ if spot_python_found
 endif
 
 if research_tools
+  if python3.found() and ltlsynt.found()
+    test('assumption_pruning_guards', python3,
+      args: [files('test_assumption_pruning.py'), exe['tlsf2ltl'],
+             exe['tlsfresidual'], exe['tlsfcompose'], ltlsynt], timeout: 90)
+  endif
   if spot_python_found
     test('disjoint_assumptions_equivalent', spot_python,
       args: [files('test_disjoint_assumptions.py'), exe['tlsf2ltl'],

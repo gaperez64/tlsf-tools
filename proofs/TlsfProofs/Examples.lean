@@ -1,4 +1,4 @@
-import TlsfProofs.Cluster
+import TlsfProofs.Pruning
 
 namespace Tlsf.Examples
 open Formula
@@ -32,6 +32,60 @@ theorem issue79_original :
 theorem issue79_pruned : ¬Realizable isInput (conj (GF P) (FG (neg P))) := by
   rintro ⟨s, hs⟩
   exact recurrence_conflict .p _ (hs (fun _ => zero))
+
+def issue79Kept : List (Entry Signal) :=
+  [⟨.guarantee, conj (GF P) (FG (neg P))⟩]
+
+def issue79Dropped : List (Entry Signal) :=
+  [⟨.assume, conj (GF Q) (FG (neg Q))⟩]
+
+theorem issue79_env_unsat : ¬EnvSat issue79Dropped := by
+  rintro ⟨d, _, _, ha⟩
+  exact recurrence_conflict .q d
+    (ha ⟨.assume, conj (GF Q) (FG (neg Q))⟩ (by simp [issue79Dropped]) rfl)
+
+-- Without EnvSat the other pruning hypotheses hold, but the verdict changes
+-- for either ordinary or strict semantics.
+theorem pruning_without_envSat_changes_verdict (s : Bool) :
+    ∃ K D : List (Entry Signal), Prunable isInput K D ∧ ¬EnvSat D ∧
+      Realizable isInput (objectiveFormula s (K ++ D)) ∧
+      ¬Realizable isInput (objectiveFormula s K) := by
+  refine ⟨issue79Kept, issue79Dropped, ?_, issue79_env_unsat, ?_, ?_⟩
+  · constructor
+    · intro e he
+      simp only [issue79Dropped, List.mem_singleton] at he
+      subst e
+      trivial
+    · intro e he a ha
+      simp only [issue79Dropped, List.mem_singleton] at he
+      subst e
+      have hq : a = .q := by simpa [Formula.atoms] using ha
+      subst a
+      rfl
+    · intro e he a ha
+      simp only [issue79Kept, List.mem_singleton] at he
+      subst e
+      simp only [Formula.atoms, List.mem_append, List.mem_singleton, or_self] at ha
+      subst a
+      simp [DroppedAtom, issue79Dropped, Formula.atoms]
+  · rw [objective_inf]
+    refine ⟨fun _ _ => zero, fun i e he hn j hj => ?_⟩
+    simp only [issue79Kept, issue79Dropped, List.cons_append, List.nil_append,
+      List.mem_cons, List.not_mem_nil, or_false] at he
+    rcases he with rfl | rfl
+    · have hh : j = 0 ∧ Environment (issue79Kept ++ issue79Dropped) none
+          (play isInput (fun _ _ => zero) i) := hj.2.2
+      exact False.elim (recurrence_conflict .q _
+        (hh.2.2 ⟨.assume, conj (GF Q) (FG (neg Q))⟩
+          (by simp [issue79Kept, issue79Dropped]) rfl))
+    · exact False.elim (hn trivial)
+  · rw [objective_inf]
+    rintro ⟨σ, hσ⟩
+    exact recurrence_conflict .p _
+      (hσ (fun _ => zero) ⟨.guarantee, conj (GF P) (FG (neg P))⟩
+        (by simp [issue79Kept]) (by simp [Env]) 0
+        (by simp [Enabled, Initial, Environment, Section, issue79Kept, AllFuture,
+          InRange]))
 
 def decoder (role : Role := .guarantee) (value : Formula Signal := Q) : Definition Signal :=
   ⟨.p, value, role, false⟩
