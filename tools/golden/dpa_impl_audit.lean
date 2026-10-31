@@ -283,3 +283,24 @@ Every reported dependency set must be contained in
 #print axioms refined_window_witness
 #print axioms refined_obligation_witness
 #print axioms refined_checks
+
+#print axioms Tlsf.Dpa.Impl.lookupClassTags_congr
+#print axioms Tlsf.Dpa.Impl.TagCache.Extends.refl
+#print axioms Tlsf.Dpa.Impl.TagCache.Extends.trans
+#print axioms Tlsf.Dpa.Impl.TagCache.Extends.rememberAtom
+#print axioms Tlsf.Dpa.Impl.TagCache.Extends.rememberClass
+#print axioms Tlsf.Dpa.Impl.defaultAtomTags_preserves
+#print axioms Tlsf.Dpa.Impl.tagChildren_preserves
+#print axioms Tlsf.Dpa.Impl.defaultTags_preserves
+#print axioms Tlsf.Dpa.Impl.cacheClassifier_spec
+#print axioms Tlsf.Dpa.Impl.cacheClassifier_sound
+#print axioms Tlsf.Dpa.Impl.cacheClassifier_lower
+#print axioms Tlsf.Dpa.Impl.cacheClassifier_congr
+#print axioms Tlsf.Dpa.Impl.defaultTags_read
+#print axioms Tlsf.Dpa.Impl.TagProgram.default_exec
+#print axioms Tlsf.Dpa.Impl.TagProgram.default_realizes
+#print axioms Tlsf.Dpa.Impl.defaultTrace_valid
+#print axioms Tlsf.Dpa.Impl.defaultTraceClassifier_spec
+#print axioms Tlsf.Dpa.Impl.defaultTrace_all_language
+#print axioms shared_trace_language_witness
+#print axioms trace_checks

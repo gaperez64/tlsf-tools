@@ -9,6 +9,7 @@ import TlsfProofs.Dpa.Impl.Grouping
 import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Impl.DefaultTags
 import TlsfProofs.Dpa.Impl.RefinedComponent
+import TlsfProofs.Dpa.Impl.TagTrace
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -506,6 +507,54 @@ private theorem diagnosticTags_sound : TagClassifier.Sound diagnosticTags := by
       TagCache.empty_valid he).2.2 t ht
 
 private def refinedProtector : Formula (Fin 2) := .eventually absorbedNext
+
+private def queryTrace (f : Formula (Fin 2)) : TagProgram 2 Unit := .query f (fun _ => .done ())
+
+private def repeatTrace : TagProgram 2 (Nat × Nat × Nat) :=
+  .query absorbedNext (fun first =>
+    .query (.conj absorbedNext b) (fun middle =>
+      .query (.conj .tt absorbedNext) (fun last =>
+        .done (fragmentMask first, fragmentMask middle, fragmentMask last))))
+
+private def sharedTrace (highFirst : Bool) : Option ((Nat × Nat × Nat) × TagCache 2) :=
+  repeatTrace.exec (defaultTags transportRank (fun _ => highFirst) 32 true) {}
+
+private def phasedTrace (n : Nat) : Option (TagCache 2) :=
+  defaultTrace transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+    (fun k => queryTrace (if k == 0 then absorbedNext else .conj absorbedNext b)) {} n
+
+private def traceChecks : List (String × Bool × Bool) := [
+  ("trace-repeat-and-equivalent-key", decide
+    ((sharedTrace false).map Prod.fst = some (31, 31, 31)), true),
+  ("trace-high-first", decide
+    ((sharedTrace true).map Prod.fst = some (31, 31, 31)), true),
+  ("trace-frozen-cache-shared", decide
+    ((sharedTrace false).map (fun r => r.2.atoms.length) = some 1), true),
+  ("trace-final-classifier-replays", decide
+    ((sharedTrace false).map (fun r => repeatTrace.eval (cacheClassifier r.2)) = some (31, 31, 31)), true),
+  ("trace-startup-clears-weak-class", decide
+    ((phasedTrace 0).map (fun s => fragmentMask (cacheClassifier s absorbedNext)) = some 31), true),
+  ("trace-later-query-retains-answer", decide
+    ((phasedTrace 1).map (fun s => fragmentMask (cacheClassifier s absorbedNext)) = some 31), true),
+  ("trace-later-cache-hit-no-growth", decide
+    ((do let s ← phasedTrace 1; let t ← phasedTrace 2
+         pure (s.atoms.length == t.atoms.length && s.classes.length == t.classes.length)) = some true), true),
+  ("trace-untouched-structural-fallback", decide
+    (fragmentMask (cacheClassifier ({} : TagCache 2) absorbedNext) = 26), true),
+  ("trace-constant-before-arbitrary-cell", decide
+    (fragmentMask (cacheClassifier {classes := [(.tt, fun _ => false)] : TagCache 2} .tt) = 31), true),
+  ("trace-query-failure-is-explicit", (repeatTrace.exec
+    (defaultTags transportRank (fun _ => false) 0 true) {}).isSome, false)]
+
+/-- A universal language witness uses the persistent trace, not the fresh
+diagnostic classifier. Its soundness premise is discharged by the interpreter. -/
+theorem shared_trace_language_witness (w : Word (Fin 2)) (n : Nat) :
+    Sat none w (runTagged
+      (defaultTraceClassifier transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+        (fun _ => queryTrace (.conj absorbedNext b)) {}) absorbedNext w n).all n ↔
+      Sat none w absorbedNext 0 :=
+  defaultTrace_all_language _ _ _ _ _ _ TagCache.empty_valid
+    (by simp [absorbedNext, absorbedOperand, NNF, a, b]) w n
 private def refinedProtected : Formula (Fin 2) := .conj absorbedNext refinedProtector
 
 private def refinedChecks : List (String × Bool × Bool) := [
@@ -682,14 +731,17 @@ theorem default_tag_checks : defaultTagChecks.all (fun (_, actual, expected) => 
 theorem refined_checks : refinedChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem trace_checks : traceChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 theorem terminal_checks : terminalChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ terminalChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ terminalChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + terminalChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + terminalChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

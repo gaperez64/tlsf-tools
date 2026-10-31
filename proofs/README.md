@@ -1157,6 +1157,31 @@ and component invariants on actual recursive classifier computations.
 The diagnostic classifier recomputes fresh tag queries; it is explicitly
 not the simulation of C's shared evolving cache.
 
+**Task T8, persistent default-tag query traces.**
+`Impl/TagTrace.lean` proves `defaultTags_preserves`: a successful call
+preserves every atom/class lookup that was present on entry. This needs no
+cache uniqueness or exactness assumption beyond the executable lookup rules.
+`defaultTags_read` identifies the returned bits with the final cache's
+classifier, including constants and equivalent class keys, and proves that
+later calls in the same phase cannot change that answer.
+`TagProgram.default_realizes` executes a finite dependent query program
+using the actual `defaultTags` definition and supplies one classifier that
+replays the entire trace. Its positive answers are sound and it contains
+every structural class bit. `defaultTrace` composes persistent traces across
+C's startup class reset, retaining atom cells; `defaultTrace_all_language`
+discharges the classifier-soundness hypotheses of `runTagged_all_language`
+for the resulting cache-classifier stream. Failed traces remain explicit;
+the total classifier stream uses structural fallback after failure, which
+does not assert that C would continue after a failed computation.
+
+The ten checks exercise repeated reads, equivalent keys, sibling queries,
+both Shannon child orders, retained atom cells, the startup reset, later
+cache hits, constant precedence, and explicit query failure. A universal
+word/position witness applies the all-field theorem to this persistent
+trace. This interpreter is not yet a compiler for C's REDUCE traversal,
+quick tag tests or remainder-memo reads, and no accepting-run equivalence
+is claimed.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1165,18 +1190,19 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 278 dependency reports contain only the three permitted axioms. The
+All 298 dependency reports contain only the three permitted axioms. The
 `terminal_checks` diagnostic and the two universal refined-language witnesses
-use `propext`, `Classical.choice` and `Quot.sound`; the other thirteen concrete
+use `propext`, `Classical.choice` and `Quot.sound`; the persistent-trace language
+witness uses the same three, and `trace_checks` uses only `propext`. The other thirteen concrete
 diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (78 Lake jobs). All 226
+library and `dpaImplChecks` with warnings as errors (80 Lake jobs). All 236
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-194 references / 152 anchored C/Lean targets pass. Both documentation gates
+196 references / 154 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3/T4/T5/T6/T7.** These are proved executable
+**Current boundary for Task T/T2/T3/T4/T5/T6/T7/T8.** These are proved executable
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
@@ -1186,8 +1212,10 @@ is proved. T6 proves the recursive default tag/cache invariant and the
 terminal shortcut at the decoded boundary. T7 fixes the startup reset and
 axiom account, and supplies refined finite/prefix certificates, a protected
 extractor contract and ordered component invariants. T7 item 0 is complete;
-item 1 remains partial because the shared cache-trace simulation and full
-accepting-run language theorem are open. Items 2–4 remain open; item 5 is
+item 1 remains partial. T8 proves persistence and realization of dependent
+default-tag query traces and the resulting all-field language corollary;
+compilation of the concrete C traversal and full accepting-run language
+remain open. Items 2–4 remain open; item 5 is
 deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
@@ -1198,16 +1226,16 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining default-tag bridge is **realization of one complete
-extraction trace by the supplied classifier**: for every successful decoded
-C/default-cache extraction, identify a sound per-call classifier whose
-retained atoms and finite retry decisions produce the actual result of
-`rhoTagged`, preserving the returned cache invariant. `defaultTags_sound`
-justifies each answer, including startup reset, but does not yet prove
-read stability of cached answers as later queries grow the atom/class caches.
-Independent sound answers do not by themselves identify the ordered trace
-or a single classifier for every repeated query. The fresh-query diagnostic
-is not a substitute for this simulation.
+The smallest remaining default-tag bridge is **compilation of C's extraction
+into the proved query interpreter**: identify REDUCE's actual supported-atom
+traversal, its quick tag tests, memo hits and finite retry with a `TagProgram`
+whose evaluation gives the class of `rhoTagged`. `defaultTags_preserves`,
+`defaultTags_read` and `TagProgram.default_realizes` now prove read stability
+and a single sound classifier for an entire dependent default-tag trace.
+They do not identify which trace C executes. Traversing raw syntactic
+occurrences would also query absorbed atoms and can change cache history;
+the fresh-query diagnostic and an arbitrary trace are not substitutes for
+the supported traversal and the actual cached predicate decisions.
 
 Next, prove the accepting-run language theorem for the resulting tagged
 component, using the classifier's structural lower bounds as well as its
