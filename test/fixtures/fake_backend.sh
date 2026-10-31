@@ -1,8 +1,8 @@
 #!/bin/sh
-# Minimal ltlsynt stand-in for the test suite: parses --ins=/--outs= and emits a
+# Deterministic backend protocol stub: parses --ins=/--outs= and emits a
 # trivial REALIZABLE strategy (every output driven to constant true) as ASCII
 # AIGER.  This exercises wrapper merge paths deterministically without
-# depending on a real ltlsynt (CI has none).
+# calling an external synthesis tool.
 ins=""
 outs=""
 for a in "$@"; do

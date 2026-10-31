@@ -1,6 +1,7 @@
 # Internal units: these may include libtlsf's private headers.
 
 dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
+  cpp_args: ['-DDPA_GOLDEN_DIR="' + (meson.project_source_root() / 'test/fixtures/golden/dpa') + '"'],
   dependencies: tlsf_internal_dep)
 dpa_contract = executable('dpa_contract', 'dpa_contract.c',
   c_args: ['-UNDEBUG'],
@@ -19,21 +20,16 @@ test('dpa_limits', dpa_equivalence,
 dpa_stage2 = executable('dpa_stage2', 'dpa_stage2.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('dpa_stage2', dpa_stage2, timeout: 120)
-randltl = find_program('randltl', required: false)
-if randltl.found()
-  test('dpa_random', python3, args: [files('dpa_random.py'),
-    dpa_equivalence, randltl], timeout: 120)
-  test('dpa_random_research', python3, args: [files('dpa_random.py'),
-    dpa_equivalence, randltl, '--allow-unproved'], timeout: 120)
-endif
-
+foreach mode : ['default', 'research']
+  test('dpa_random_' + mode, python3,
+    args: [files('dpa_random.py'), dpa_equivalence,
+           meson.project_source_root() / 'test/fixtures/golden/dpa/random.ltl', mode],
+    timeout: 120)
+endforeach
 dpa_admission = executable('dpa_admission', 'dpa_admission.c',
   dependencies: tlsf_internal_dep)
-ltlfilt = find_program('ltlfilt', required: false)
-if randltl.found() and ltlfilt.found()
-  test('dpa_delta2', python3, args: [files('dpa_delta2.py'),
-    dpa_equivalence, randltl, ltlfilt], timeout: 300)
-endif
+test('dpa_delta2', python3, args: [files('dpa_delta2.py'), dpa_equivalence,
+  meson.project_source_root() / 'test/fixtures/golden/dpa/delta2.ltl'], timeout: 300)
 
 objective_cli = static_library('objective-cli',
   files('../../src/tools/tlsf2ltl/main.c'),

@@ -1,4 +1,4 @@
-fake_ltlsynt = files('fake_ltlsynt.sh')
+fake_backend = files('fake_backend.sh')
 fake_automata_generator = files('fake_automata_generator.py')
 # Kept beside cases/ so the corpus-wide oracles do not pick it up.
 arbiter_simple = files('arbiter_simple.tlsf')

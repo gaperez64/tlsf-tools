@@ -382,8 +382,8 @@ def expect_rejected(action: Callable[[], None], description: str) -> None:
     raise AssertionError(f"mutated certificate was accepted: {description}")
 
 
-def _bdd_values(circuit: ParsedAag, inputs, latches, buddy_module):
-    values = [buddy_module.bddfalse] * (circuit.maxvar + 1)
+def _bdd_values(circuit: ParsedAag, inputs, latches, bdds):
+    values = [bdds.bddfalse] * (circuit.maxvar + 1)
     for lit, value in zip(circuit.inputs, inputs):
         values[lit // 2] = value
     for (cur, _next, _reset), value in zip(circuit.latches, latches):
@@ -391,9 +391,9 @@ def _bdd_values(circuit: ParsedAag, inputs, latches, buddy_module):
 
     def lit_value(lit: int):
         if lit == 0:
-            return buddy_module.bddfalse
+            return bdds.bddfalse
         if lit == 1:
-            return buddy_module.bddtrue
+            return bdds.bddtrue
         value = values[lit // 2]
         return -value if lit & 1 else value
 
@@ -404,8 +404,9 @@ def _bdd_values(circuit: ParsedAag, inputs, latches, buddy_module):
 
 def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
                             strategy_text: str) -> int:
-    """Universal one-step oracle over all inv states, using BuDDy."""
-    import buddy
+    """Universal one-step oracle over all inv states, using stdlib ROBDDs."""
+    from bdd import Bdds
+    bdds = Bdds()
 
     strategy = differential.parse_aag(strategy_text)
     sidecar = certificate.sidecar
@@ -423,12 +424,11 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
     if len(strategy.latches) != nstate + goals:
         raise AssertionError("strategy/certificate latch mapping mismatch")
 
-    buddy.bdd_init(1_000_000, 100_000)
     try:
-        buddy.bdd_setvarnum(nstate + len(nu_indices))
-        state = [buddy.bdd_ithvar(k) for k in range(nstate)]
+        bdds.bdd_setvarnum(nstate + len(nu_indices))
+        state = [bdds.bdd_ithvar(k) for k in range(nstate)]
         uexpr = {
-            game_index: buddy.bdd_ithvar(nstate + bit)
+            game_index: bdds.bdd_ithvar(nstate + bit)
             for bit, game_index in enumerate(nu_indices)
         }
         strategy_input_index = {
@@ -437,7 +437,7 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
         strategy_output = dict(zip(strategy.output_names, strategy.outputs))
 
         def compile_certificate(state_expr, game_inputs):
-            inputs = [buddy.bddfalse] * len(certificate.aag.inputs)
+            inputs = [bdds.bddfalse] * len(certificate.aag.inputs)
             for item in sidecar["variables"]["state"]:
                 inputs[item["certificate_input"]] = state_expr[
                     item["game_latch"]]
@@ -446,7 +446,7 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
                     inputs[item["certificate_input"]] = game_inputs[
                         item["game_input"]]
             _values, lit = _bdd_values(
-                certificate.aag, inputs, [], buddy)
+                certificate.aag, inputs, [], bdds)
             return {
                 name: lit(output_lit)
                 for name, output_lit in zip(
@@ -454,14 +454,14 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
             }
 
         def compile_strategy(goal):
-            inputs = [buddy.bddfalse] * len(strategy.inputs)
+            inputs = [bdds.bddfalse] * len(strategy.inputs)
             for game_index, expression in uexpr.items():
                 name = game.input_names[game_index]
                 inputs[strategy_input_index[name]] = expression
-            counters = [buddy.bddtrue if j == goal else buddy.bddfalse
+            counters = [bdds.bddtrue if j == goal else bdds.bddfalse
                         for j in range(goals)]
             _values, lit = _bdd_values(
-                strategy, inputs, [*state, *counters], buddy)
+                strategy, inputs, [*state, *counters], bdds)
             controllable = {
                 game_index: lit(strategy_output[game.input_names[game_index]])
                 for game_index in nc_indices
@@ -475,27 +475,27 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
             return controllable, next_state, next_counters
 
         def compile_game(controllable):
-            game_inputs = [buddy.bddfalse] * len(game.inputs)
+            game_inputs = [bdds.bddfalse] * len(game.inputs)
             for game_index, expression in uexpr.items():
                 game_inputs[game_index] = expression
             for game_index, expression in controllable.items():
                 game_inputs[game_index] = expression
             _values, lit = _bdd_values(
-                game, game_inputs, state[:original_nlat], buddy)
+                game, game_inputs, state[:original_nlat], bdds)
             next_state = [
                 lit(item["next_game_literal"])
                 for item in sidecar["variables"]["state"]
             ]
             _next_values, next_lit = _bdd_values(
-                game, game_inputs, next_state[:original_nlat], buddy)
-            bad = buddy.bddfalse
+                game, game_inputs, next_state[:original_nlat], bdds)
+            bad = bdds.bddfalse
             for bad_lit in game.bad:
                 bad |= lit(bad_lit)
             if not game.bad and len(game.outputs) == 1:
                 bad |= lit(game.outputs[0])
             return game_inputs, lit, next_lit, next_state, bad
 
-        # Reset membership is checked directly, independent of BuDDy.
+        # Reset membership is checked directly, by direct circuit evaluation.
         reset_inputs = [False] * len(certificate.aag.inputs)
         for item in sidecar["variables"]["state"]:
             reset_inputs[item["certificate_input"]] = bool(item["reset"])
@@ -518,9 +518,9 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
 
             at_goal = current[f"goal_{goal}"]
             for j, actual in enumerate(counter_next):
-                expected = ((-at_goal if j == goal else buddy.bddfalse) |
+                expected = ((-at_goal if j == goal else bdds.bddfalse) |
                             (at_goal if j == (goal + 1) % goals
-                             else buddy.bddfalse))
+                             else bdds.bddfalse))
                 violation |= inv & (actual ^ expected)
 
             covered = at_goal
@@ -542,19 +542,19 @@ def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
                         fair_next = (game_next[sample["game_latch"]]
                                      if sample else game_next_lit(fair_lit))
                     else:
-                        fair_next = buddy.bddtrue
+                        fair_next = bdds.bddtrue
                     allowed = lower_next | (successor[name] & -fair_next)
                     violation |= inv & -at_goal & layer & -allowed
                     covered |= current[name]
                     lower_next |= successor[name]
             violation |= inv & -at_goal & -covered
-            if violation != buddy.bddfalse:
+            if violation != bdds.bddfalse:
                 raise AssertionError(
                     f"symbolic one-step certificate check failed for goal {goal}")
             checks += 1
         return checks
     finally:
-        buddy.bdd_done()
+        bdds.bdd_done()
 
 
 def check_large_game(solver: pathlib.Path, path: pathlib.Path) -> int:
@@ -603,6 +603,10 @@ def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
         exact_checks += check_exact(model, fixpoint, certificate, expected_real)
         real += 1
         one_step_checks += check_one_step(model, certificate, result.stdout)
+        if real <= 8:
+            # Exercise the same symbolic oracle used by the large corpus on
+            # cases also covered by exhaustive state/input enumeration.
+            assert check_one_step_symbolic(parsed, certificate, result.stdout) == sidecar["counts"]["goals"]
 
         if mutated == 0:
             original = certificate.overrides.copy()

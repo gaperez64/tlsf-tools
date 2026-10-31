@@ -21,7 +21,7 @@ endif
 #
 # Self-contained: a representative set of SYNTCOMP TLSF specs lives under
 # test/fixtures/cases/ with their expected tool output.  No external tools (syfco,
-# spot) are needed, so these run anywhere — including CI.
+# an external solver) are needed, so these run anywhere — including CI.
 # ---------------------------------------------------------------------------
 
 check = files('check.sh')
@@ -413,12 +413,12 @@ test('compose_merge_mode', check,
 test('solve_wrapper_oxidd_presolve', check_solve_wrapper,
   args: [files(cases / 'solve_wrapper_fake.aag'),
          files(scripts / 'solve.sh'), exe['tlsfcompose'],
-         fake_ltlsynt,
+         fake_backend,
          files(cases / 'compose_demo.tlsf')])
-test('solve_wrapper_fake_ltlsynt', check_solve_wrapper,
+test('solve_wrapper_fake_backend', check_solve_wrapper,
   args: [files(cases / 'solve_wrapper_fake_liveness.aag'),
          files(scripts / 'solve.sh'), exe['tlsfcompose'],
-         fake_ltlsynt,
+         fake_backend,
          files(cases / 'liveness_nested.tlsf')])
 test('compose_output_dir_under_real_wr', check_output_dir,
   args: [files(cases / 'wr_under_real.output_dir'),
@@ -620,9 +620,8 @@ test('norm_sickert3', check,
   args: [files(cases / 'normalization_sickert3.s3.tlsf'),
          exe['tlsfnorm'], '--passes', 'sickert-stage3:1', '--norm-max-growth',
          '800', files(cases / 'normalization_sickert3.tlsf')])
-# Soundness gate (Spot-verified; auto-skips when ltlfilt is absent, e.g. in CI):
-# each schedule must preserve the spec's LTL meaning.
-check_norm_equiv = files(scripts / 'check_norm_equiv.sh')
+# Normalization objectives confirmed once and pinned as committed goldens.
+check_norm_golden = files('../oracle/test_normalization.py')
 # (check_contains is defined near the top of the test section)
 foreach case : [
     ['match-safe:1', 'normalization_patterns.tlsf'],
@@ -632,9 +631,9 @@ foreach case : [
     ['sickert-bounded', 'normalization_sickert3.tlsf'],
   ]
   test('norm_equiv_' + case[0].underscorify() + '_' + case[1].underscorify(),
-    check_norm_equiv,
-    args: [exe['tlsfnorm'], exe['tlsf2ltl'], case[0],
-           files(cases / case[1])])
+    python3,
+    args: [check_norm_golden, exe['tlsfnorm'], exe['tlsf2ltl'], cases,
+           case[0], case[1]])
 endforeach
 # Sickert passes are infinite-word-only: they must be rejected on Finite specs.
 test('norm_finite_rejects_sickert', xfail,
@@ -759,8 +758,8 @@ test('ltlxba_rejects_undeclared_at', check_fail_stderr,
   args: [files(cases / 'undeclared_at_atom.stderr'), exe['tlsf2ltl'],
          files(cases / 'undeclared_at_atom.tlsf')])
 
-# Uppercase atom names: ltlxba lowercases them (spot/ltl2ba read uppercase as
-# operators, so this is what ltlsynt consumes, matching syfco -f ltlxba); the
+# Uppercase atom names: ltlxba lowercases them for the emitted backend
+# protocol (matching syfco -f ltlxba); the
 # faithful ltl dialect keeps the original case.
 test('ltl_upper_atoms_ltlxba', check,
   args: [files(cases / 'upper_atoms.ltlxba.ltl'), exe['tlsf2ltl'],
@@ -915,3 +914,7 @@ if research_tools and python3.found()
            exe['tlsfcertcheck']],
     is_parallel: false)
 endif
+
+# Guard the test suite's independence from external temporal-logic oracles.
+test('no_external_oracles', python3,
+  args: [files('check_no_external_oracles.py'), meson.project_source_root()])

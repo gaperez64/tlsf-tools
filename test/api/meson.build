@@ -8,9 +8,10 @@ foreach name : ['decompose_cpp', 'visitor_cpp', 'convert']
   test(name, executable(name, name + '.cpp', dependencies: tlsf_dep))
 endforeach
 
-if spot_dep.found()
-  test('tlsf2spot', tlsf2spot_exe, args: [files(cases / 'cluster_split.tlsf')])
-endif
+ast_golden_exe = executable('ast_golden', 'ast_golden.cpp', dependencies: tlsf_dep)
+test('ast_conversion_golden', python3,
+  args: [files('../oracle/test_conversion.py'), ast_golden_exe,
+         files(cases / 'cluster_split.tlsf')])
 
 native_lift_exe = executable('native_lift', 'native_lift.cpp',
                              dependencies: tlsf_dep)

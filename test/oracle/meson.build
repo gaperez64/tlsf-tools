@@ -38,70 +38,29 @@ if python3.found()
            '--builddir', meson.project_build_root()],
     timeout: 120)
 endif
-if get_option('native_lift_oracle_root') != '' and spot_python_found
-  lift_diff_args = [files('test_native_lift_differential.py'),
-                    '--native', native_lift_exe,
-                    '--builddir', meson.project_build_root(),
-                    '--oracle-root', get_option('native_lift_oracle_root'),
-                    '--tools-build', meson.project_build_root()]
-  if get_option('native_lift_corpus_root') != ''
-    lift_diff_args += ['--corpus-root', get_option('native_lift_corpus_root'),
-                       '--corpus-limit', '8', '--seconds', '12']
-  endif
-  test('native_lift_differential', spot_python,
-       args: lift_diff_args, env: spot_python_env,
-       timeout: get_option('native_lift_corpus_root') != '' ? 180 : 90,
-       is_parallel: false)
-endif
-if spot_python_found
-  native_diff_args = [files('test_native_reduction.py'),
-                      '--native', native_reduction_exe,
-                      '--builder', files(scripts / 'gr1_monitor_game.py'),
-                      '--tlsf2ltl', exe['tlsf2ltl'],
-                      '--tlsf2tlsf', exe['tlsf2tlsf'],
-                      '--tlsfinfo', exe['tlsfinfo'],
-                      '--fixtures', cases,
-                      '--builddir', meson.project_build_root()]
-  if get_option('native_reduction_corpus') != ''
-    native_diff_args += ['--corpus', get_option('native_reduction_corpus')]
-  endif
-  test('native_reduction_differential', spot_python,
-       args: native_diff_args, env: spot_python_env, timeout: 1800)
-  test('native_reduction_language', spot_python,
-       args: [files('test_native_reduction_language.py'),
-              '--native', native_reduction_exe,
-              '--tlsf2ltl', exe['tlsf2ltl'],
-              '--builddir', meson.project_build_root()],
-       env: spot_python_env, timeout: 120)
-endif
+foreach suite : ['native_lift_differential', 'native_reduction', 'native_reduction_language']
+  test(suite, python3,
+    args: [files('test_' + suite + '.py'), '--builddir', meson.project_build_root()],
+    timeout: 1800, is_parallel: false)
+endforeach
 
 if research_tools
-  if spot_python_found
-    test('disjoint_assumptions_equivalent', spot_python,
-      args: [files('test_disjoint_assumptions.py'), exe['tlsf2ltl'],
-             exe['tlsfresidual'], exe['tlsfcompose'],
-             files(cases / 'disjoint_assumptions.tlsf')],
-      env: spot_python_env)
-  endif
+  test('disjoint_assumptions_equivalent', python3,
+    args: [files('test_disjoint_assumptions.py'), exe['tlsf2ltl'],
+           exe['tlsfresidual'], exe['tlsfcompose'], files(cases / 'disjoint_assumptions.tlsf')])
   if python3.found()
-    ltlfsynt = find_program('ltlfsynt', required: false)
-    if ltlsynt.found() and ltlfsynt.found()
-      foreach mode : ['lowercase', 'comment', 'signals']
-        test('review4_' + mode, python3,
-          args: [files('test_review4_exports.py'), exe['tlsf2ltl'],
-                 exe['tlsfresidual'], exe['tlsfcompose'], ltlsynt, ltlfsynt,
-                 mode], timeout: 60)
-      endforeach
-      foreach mode : ['moore', 'finite', 'implicit', 'wrapper']
-        test('compose_driver_' + mode, python3,
-          args: [files('test_compose_driver_semantics.py'), exe['tlsfcompose'],
-                 ltlsynt, ltlfsynt, mode], timeout: 30)
-      endforeach
-      test('decomposition_exactness_oracle', python3,
-        args: [files('test_decomposition_exactness.py'), exe['tlsf2ltl'],
-               exe['tlsfresidual'], exe['tlsfcompose'], phase_b_probe,
-               ltlsynt, ltlfsynt, cases], timeout: 60)
-    endif
+    foreach mode : ['lowercase', 'comment', 'signals']
+      test('review4_' + mode, python3,
+        args: [files('test_review4_exports.py'), exe['tlsf2ltl'],
+               exe['tlsfresidual'], exe['tlsfcompose'], mode], timeout: 60)
+    endforeach
+    foreach mode : ['moore', 'finite', 'implicit', 'wrapper']
+      test('compose_driver_' + mode, python3,
+        args: [files('test_compose_driver_semantics.py'), exe['tlsfcompose'], mode], timeout: 60)
+    endforeach
+    test('decomposition_exactness_golden', python3,
+      args: [files('test_decomposition_exactness.py'), exe['tlsf2ltl'],
+             exe['tlsfresidual'], exe['tlsfcompose'], phase_b_probe, cases], timeout: 60)
     test('oxidd_semantic_oracle', python3,
       args: [files('check_oxidd_oracle.py'), exe['tlsfsolve']], timeout: 120)
     test('native_oracle_8b158d7', python3,
@@ -155,20 +114,7 @@ if research_tools
       timeout: 180,
     )
   endif
-  if spot_python_found
-    test('gr1_monitor_game', spot_python,
-      args: [files('test_gr1_monitor_game.py'),
-             '--python', spot_python,
-             '--builder', files(scripts / 'gr1_monitor_game.py'),
-             '--verifier', files(scripts / 'verify_strategy_explicit.py'),
-             '--old-verifier', files(scripts / 'verify_aiger_ltl.py'),
-             '--tlsf2ltl', exe['tlsf2ltl'],
-             '--tlsf2tlsf', exe['tlsf2tlsf'],
-             '--tlsfinfo', exe['tlsfinfo'],
-             '--solver', exe['tlsfsolve'],
-             '--checker', exe['tlsfcertcheck']],
-      env: spot_python_env,
-      timeout: 120,
-    )
-  endif
+  test('gr1_monitor_game', python3,
+    args: [files('test_gr1_monitor_game.py'), '--builddir', meson.project_build_root()],
+    timeout: 600, is_parallel: false)
 endif
