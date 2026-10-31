@@ -1,4 +1,5 @@
 import TlsfProofs.Dpa.Impl.Admission
+import TlsfProofs.Dpa.Impl.Buchi
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -77,6 +78,39 @@ private def dualAndAdmissionChecks : List (String × Bool × Bool) := [
     (Impl.compatibleGroups true [.globally b] [.eventually b] [a] [] =
       [booleanFold true [.globally b], booleanFold true [.eventually b, a]]), true)]
 
+private def bothColours : ColourDag 2 :=
+  (PositiveAcceptance.conj (.colour 0) (.colour 1)).compile
+
+private def eitherColour : ColourDag 2 :=
+  (PositiveAcceptance.disj (.colour 0) (.colour 1)).compile
+
+private def alternating (n : Nat) (i : Fin 2) : Bool := decide (n % 2 = i.val)
+
+private def firstMarks (β : ColourDag 2) (count : Nat) : List Bool :=
+  (List.range count).map (completedRounds β alternating)
+
+private def buchiChecks : List (String × Bool × Bool) := [
+  ("Buchi-alternating-conjunction", decide (firstMarks bothColours 6 =
+    [false, true, false, true, false, true]), true),
+  ("Buchi-alternating-disjunction", decide (firstMarks eitherColour 4 =
+    [true, true, true, true]), true),
+  ("Buchi-missing-conjunct", decide ((List.range 4).map
+    (completedRounds bothColours (fun _ i => decide (i.val = 0))) =
+    [false, false, false, false]), true),
+  ("Buchi-constant-true", decide (firstMarks (.leaf true) 3 = [true, true, true]), true),
+  ("Buchi-constant-false", decide (firstMarks (.leaf false) 3 = [false, false, false]), true),
+  ("Buchi-initial-true", (roundInitial (.leaf true : ColourDag 0)).incoming, true),
+  ("Buchi-initial-false", (roundInitial (.leaf false : ColourDag 0)).incoming, false),
+  ("Buchi-incoming-delay", decide ((List.range 6).map (incomingMarks bothColours alternating) =
+    [true, false, true, false, true, false]), true),
+  ("Buchi-source-priority", decide ((List.range 6).map (buchiPriority bothColours alternating) =
+    [1, 0, 1, 0, 1, 0]), true),
+  ("Buchi-state-split", decide
+    ((roundTransition eitherColour ⟨eitherColour, true⟩ (alternating 0)).target =
+       (roundTransition eitherColour ⟨eitherColour, false⟩ (alternating 0)).target ∧
+     (roundTransition eitherColour ⟨eitherColour, true⟩ (alternating 0)).priority ≠
+       (roundTransition eitherColour ⟨eitherColour, false⟩ (alternating 0)).priority), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -87,11 +121,14 @@ theorem component_checks : componentChecks.all (fun (_, actual, expected) => act
 theorem dual_admission_checks : dualAndAdmissionChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
 
+theorem buchi_checks : buchiChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

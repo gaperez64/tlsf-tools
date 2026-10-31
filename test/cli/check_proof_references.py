@@ -21,10 +21,15 @@ ANCHORS = {
         'theorem general_pi2_language (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)',
     },
     'src/lib/dpa.c': {
+        'uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);',
         'c->max_priority = (c->components.n + 2) | 1u;',
         's->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};',
     },
     'src/lib/dpa_dela.c': {
+        'if (!c->buchi && p->dual == f)',
+        'static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {',
+        'if (c->buchi) {',
+        'priority = round->rejecting;',
         'result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);',
         'static uint32_t component(TlsfDpa *c, uint32_t f) {',
         'static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {',
@@ -36,6 +41,7 @@ ANCHORS = {
         'uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {',
     },
     'src/lib/dpa_formula.c': {
+        'static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {',
         'static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {',
         'uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {',
         'uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {',

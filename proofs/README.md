@@ -499,6 +499,7 @@ are identified explicitly; they are not premises of the language equalities.
 | Task T: executable component simulation | `Impl.classTag_exact`, `Impl.rho_exact`, `Impl.initial_exact`, `Impl.transition_exact`, `Impl.run_exact`, `Impl.marks_exact` | Checked for research structural tags; C transport, IDs and caches still outside the bridge |
 | Task T: Π₂/Σ₂ orientation and numeric parity | `Impl.pi2_language`, `Impl.sigma2_language`, `Impl.dual_class_congr`, `Impl.class_sigma2_dual_pi2`, `Impl.research_component_language` | Checked for NNF whole classes accepted by research admission, including arbitrary canonical support; complete constructor/export theorem pending |
 | Task T: canonical research domain and grouping branch | `Impl.canonicalResearchCheck_exact`, `Impl.canonicalResearchCheck_shannon`, `Impl.compatibleGroups_exact` | Executable support-union predicate and folded-class identity branch checked; constructor success/product simulation pending |
+| Task T2: positive-Boolean Büchi rounds and incoming state split | `Impl.seenColours_exact`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language`, `Impl.positive_buchi_language` | Checked executable Shannon residual/reset monitor, including constant acceptance and source-state 0/1 max-odd priorities; component-store/constructor bridge remains separate |
 | STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
 | STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
 | STAGE2 §3 (2): all/rejecting invariant | `ComponentInvariant`, `initial_invariant`, `transition_invariant`, `run_invariant`, `run_remainder` | Checked for arbitrary NNF inputs, without a Π₂ converse hypothesis |
@@ -761,13 +762,16 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake exe dpaImplChecks
 ```
 
-The 39 checks exercise absorption, constants, essential and absent support,
+The 49 checks exercise absorption, constants, essential and absent support,
 frozen operands, independent duals, both U/M protector operands, nested X,
 protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
 and nonconstant finite retention at renewal. They also cover canonical dual
 congruence, Σ₂ orientation with absorbed unsupported syntax, mixed Π₂/Σ₂
-canonical admission and review-i's nonempty co-safety identity case.
-`class_checks`, `component_checks` and `dual_admission_checks` check these same
+canonical admission and review-i's nonempty co-safety identity case. Ten
+additional Büchi checks cover alternating conjuncts/disjuncts, a missing
+conjunct, constant true/false (including zero colours), the initial bit,
+the incoming-mark delay, source priorities, and the state split.
+`class_checks`, `component_checks`, `dual_admission_checks` and `buchi_checks` check these same
 executable definitions by kernel reduction.
 
 `Impl/Tags.lean` proves all five executable structural classifiers exact,
@@ -818,6 +822,37 @@ predicate and its Shannon recursion, and proves the executable grouping
 decision equal to §9.1's corrected reference. This includes the folded-class
 identity branch, rather than a test of list nonemptiness.
 
+**Task T2, item 1 proved.** `Impl/Buchi.lean` models the Shannon walk of
+`src/lib/dpa_dela.c:203`, the residual/reset and target completion bit at
+`:272`, the source-state priority at `:278`, and the initial incoming bit at
+`src/lib/dpa.c:300`. Canonical true/false tests enumerate the finite colour
+truth table; the BDD canonicity boundary is unchanged. `seenColours_exact`
+proves substitution of all colours on an edge. `roundRun_residual` identifies
+every residual with the original acceptance after substitution of the colours
+seen since the last reset. For every positive Boolean acceptance β and every
+colour stream (without any bounded-gap assumption):
+
+```lean
+Impl.completedRounds_language (β : Impl.ColourDag m)
+  (hp : Impl.PositiveColours β.eval) (colours : Nat → Fin m → Bool) :
+  Inf (Impl.completedRounds β colours) ↔ EmersonLei β.eval colours
+```
+
+The proof uses a common last-occurrence bound for nonrecurring colours in one
+direction and eventual visits to all recurring colours in the other. It does
+not test β on individual edges. `PositiveAcceptance.positive` discharges hp
+for constants, positive component colours, and conjunction/disjunction, the
+grammar used by `src/lib/dpa_formula.c:622` (dual sharing is disabled at
+`src/lib/dpa_dela.c:99`). `incoming_state_split` proves equal residuals with
+different incoming bits have the same next state but different source
+priorities. `incomingMarks_inf` proves the one-step delay and finite initial
+bit preserve Inf. `incomingMarks_language`, `buchiPriority_language` and
+`positive_buchi_language` give the state-based Büchi and actual 0/1 max-odd
+languages. Constant true/false and an empty colour alphabet are included.
+No counterexample, C change, narrowing, or coverage impact was needed.
+This closes the round-monitor obligation, independently of the still-open
+store, syntax transport, and constructor correspondence.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -826,17 +861,19 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 34 dependency reports contain only the three permitted axioms; the three
+All 49 dependency reports contain only the three permitted axioms; the four
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
 library and `dpaImplChecks` with warnings as errors (52 Lake jobs). The proof
 source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-123 references / 81 anchored C/Lean targets pass. Both affected Meson gates,
-`proof_source_references` and `golden_provenance`, pass (2/2, no rebuild).
+139 references / 97 anchored C/Lean targets pass. Both documentation gates
+and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
+declined formulas, with 512 memberships per admitted formula.
 
-**Stopping boundary for Task T.** These are proved executable component and
-decision milestones. Items 1–3 are incomplete and item 4 is deliberately not
-enabled. The executable is a diagnostic, not a BFS automaton exporter; there
+**Current boundary for Task T/T2.** These are proved executable component and
+decision milestones. Task T2 item 1 is complete; its items 2–4 remain
+incomplete and item 5 is deliberately not enabled. The executable is a
+diagnostic, not a BFS automaton exporter; there
 is no matching C dump or new C↔Lean automaton golden. The 30 existing golden
 files remain unchanged at 2,986,929 bytes, including 541 DPA membership records;
 zero new automaton goldens were generated. Recorded corpus coverage remains 148/217 by default
@@ -864,14 +901,11 @@ Further independent bridges remain: C transport/smart constructors; default
 recursive canonical tag refinement; the complete grouped constructor and
 terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
-The reduction also calls `dpa_buchi_create`: its positive-Boolean
-`seen_colours` round monitor needs
-`Inf(completedRounds β colours) ↔ EmersonLei β colours`, plus the
-incoming-mark state split. The existing fixed-product/parity theorem does
-not establish that state-based Büchi encoding. Testing β on each individual
-edge is insufficient: alternating marks can satisfy a conjunction of Inf
-conditions without ever satisfying the conjunction on one edge. C code,
-production admission, and the larger trusted boundary below remain unchanged.
+The independent `dpa_buchi_create` round-monitor obligation and incoming-mark
+state split are now proved above. The component-store and syntax constructor
+bridges remain necessary to connect its constructed positive acceptance to
+the source formula. C code, production admission, and the remaining trusted
+boundary below remain unchanged.
 
 ### C ↔ Lean correspondence
 
@@ -893,6 +927,7 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
+| `src/lib/dpa_dela.c:203`, `:272`, `:278`; `src/lib/dpa.c:300` — seen-colour residual, reset, incoming state split and initial bit | `Impl.seenColours_exact`, `Impl.roundRun_residual`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language` |
 | `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
 | `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
 | `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
