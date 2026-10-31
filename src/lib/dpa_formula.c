@@ -90,9 +90,10 @@ static unsigned tags_impl(TlsfDpa *c, uint32_t f) {
   if (!dpa_children(c, f))
     return 0;
   DpaAtom *atom = c->atoms.items[cl->var];
-  if ((c->started || !(atom->tags & (c->budget.allow_unproved
-                                         ? DPA_PI2 | DPA_SIGMA2
-                                         : DPA_SAFETY | DPA_COSAFETY))) &&
+  // Research components use HasTag on the transported syntax, including at
+  // runtime. Refining frozen operands by absorption changes that predicate.
+  if (!c->budget.allow_unproved &&
+      (c->started || !(atom->tags & (DPA_SAFETY | DPA_COSAFETY))) &&
       !atom->exact_tags && atom->op != TLSF_AST_AP &&
       atom->op != TLSF_AST_KIND_COUNT) {
     unsigned tags = dpa_tags(c, materialize(c, atom->lhs));
@@ -860,41 +861,53 @@ static uint32_t substitute(TlsfDpa *c, uint32_t f, unsigned mode,
   return map_class(c, f, mode, ++c->epoch, protect);
 }
 
-// Visit current support only; inside a modal protector traverse its full DAG.
-static void protected_impl(TlsfDpa *c, uint32_t f, bool inside, bool *protect,
-                           uint64_t epoch);
-static void protected_x(TlsfDpa *c, uint32_t f, bool inside, bool *protect,
-                        uint64_t epoch) {
+// Collect syntactic X subformulas before Boolean materialization can absorb
+// them. Intern only the X atoms themselves, leaving their operands frozen.
+static void protected_term(TlsfDpa *c, uint32_t id, bool *protect,
+                           uint64_t epoch) {
   if (!dpa_enter(c))
     return;
-  protected_impl(c, f, inside, protect, epoch);
+  DpaTerm *t = c->terms.items[id];
+  if (id > 1 && t->epoch != epoch) {
+    t->epoch = epoch;
+    if (t->op == TLSF_AST_X) {
+      uint32_t x = materialize(c, id);
+      if (dpa_poll(c) && dpa_children(c, x))
+        protect[dpa_cls(c, x)->var] = true;
+    }
+    if (t->op != TLSF_AST_AP) {
+      protected_term(c, t->lhs, protect, epoch);
+      if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR || t->op >= TLSF_AST_U)
+        protected_term(c, t->rhs, protect, epoch);
+    }
+  }
   --c->recursion;
 }
-static void protected_impl(TlsfDpa *c, uint32_t f, bool inside, bool *protect,
-                           uint64_t epoch) {
-  if (!dpa_poll(c) || f < 2)
+
+// Visit only current class support; each supported non-X modal atom protects
+// every X in its frozen syntax (F/U/M after research-mode co-safety reduction).
+static void protected_x(TlsfDpa *c, uint32_t f, bool *protect, uint64_t epoch) {
+  if (!dpa_enter(c))
     return;
-  unsigned char bit = inside ? 2 : 1;
+  if (f < 2)
+    goto done;
   DpaClass *cl = dpa_cls(c, f);
-  if (cl->epoch != epoch) {
-    cl->epoch = epoch;
-    cl->visited = 0;
-  }
-  if (cl->visited & bit)
-    return;
-  cl->visited |= bit;
+  if (cl->epoch == epoch)
+    goto done;
+  cl->epoch = epoch;
   if (!dpa_children(c, f))
-    return;
+    goto done;
   DpaAtom *atom = c->atoms.items[cl->var];
-  if (atom->op == TLSF_AST_X && inside)
-    protect[cl->var] = true;
-  if (atom->op != TLSF_AST_AP && (inside || atom->op != TLSF_AST_X)) {
-    protected_x(c, materialize(c, atom->lhs), true, protect, epoch);
+  if (atom->op == TLSF_AST_F || atom->op == TLSF_AST_G ||
+      (atom->op >= TLSF_AST_U && atom->op < TLSF_AST_KIND_COUNT)) {
+    protected_term(c, atom->lhs, protect, epoch);
     if (atom->op >= TLSF_AST_U)
-      protected_x(c, materialize(c, atom->rhs), true, protect, epoch);
+      protected_term(c, atom->rhs, protect, epoch);
   }
-  protected_x(c, cl->low, inside, protect, epoch);
-  protected_x(c, cl->high, inside, protect, epoch);
+  protected_x(c, cl->low, protect, epoch);
+  protected_x(c, cl->high, protect, epoch);
+done:
+  --c->recursion;
 }
 
 uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {
@@ -907,15 +920,15 @@ uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {
   for (;;) {
     if (!dpa_poll(c))
       return DPA_BAD;
-    // Protection may materialize frozen operands; each syntax term adds at
-    // most one atom, and this walk creates no new syntax.
+    // Protection interns at most one X atom per existing syntax term and
+    // creates no new syntax.
     bool *protect =
         dpa_alloc(c, (size_t)c->atoms.n + c->terms.n, sizeof *protect);
     if (!protect) {
       dpa_release(c, protect);
       return DPA_BAD;
     }
-    protected_x(c, r, false, protect, ++c->epoch);
+    protected_x(c, r, protect, ++c->epoch);
     uint32_t next = substitute(c, r, DROP_X, protect);
     dpa_release(c, protect);
     if (next == r)

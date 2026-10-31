@@ -338,9 +338,8 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     return c->status;
   if (!c->started) {
     c->started = true;
-    // Research admission uses syntax tags. Expansion uses exact class-support
-    // tags, materializing frozen operands when a fragment test first needs
-    // them.
+    // Reset cached class tags for expansion. Research mode keeps structural
+    // tags of frozen atoms; default mode may refine their operands on demand.
     for (uint32_t i = 0; i < c->classes.n && dpa_poll(c); ++i)
       dpa_cls(c, i)->tags = 0;
     dpa_tree_init(c);

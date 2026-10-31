@@ -130,7 +130,8 @@ static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
 }
 
 static void check(const std::string &text, bool allow_unproved = false,
-                  bool expect_bdd_limit = false) {
+                  bool expect_bdd_limit = false,
+                  bool expect_unsupported = false) {
   auto parsed = spot::parse_infix_psl(text);
   CHECK(!parsed.format_errors(std::cerr));
   auto f = parsed.f;
@@ -153,6 +154,12 @@ static void check(const std::string &text, bool allow_unproved = false,
                                 names.data(), n_inputs, names.data() + n_inputs,
                                 names.size() - n_inputs, &budget, &c);
   arena_free(a); // construction must copy everything it needs
+  if (expect_unsupported) {
+    CHECK(status.code == TLSF_DPA_DECLINED &&
+          status.reason == TLSF_DPA_UNSUPPORTED && !c);
+    std::cout << "unsupported as expected: " << text << '\n';
+    return;
+  }
   if (status.code != TLSF_DPA_OK) {
     std::cerr << "declined " << text << " reason " << status.reason << '\n';
     tlsf_dpa_free(c);
@@ -218,7 +225,8 @@ static void check(const std::string &text, bool allow_unproved = false,
 }
 
 int main(int argc, char **argv) {
-  if (argc >= 2) {
+  bool research = argc == 2 && std::string(argv[1]) == "--allow-unproved";
+  if (argc >= 2 && !research) {
     std::ifstream formulas(argv[1]);
     CHECK(formulas);
     std::string line;
@@ -234,7 +242,7 @@ int main(int argc, char **argv) {
                     "G F (X a & X X X b)", "!(G F (X a & X X X b))",
                     "G F (a & X !a)", "!(G F (a & X !a))", "G (a W (b R X c))",
                     "F (a M (b U X c))", "G ((a <-> X b) & (a -> X c))"})
-    check(text);
+    check(text, research);
   for (auto text : {
            "G F a & F G b",
            "G F a | F G b",
@@ -245,7 +253,7 @@ int main(int argc, char **argv) {
            "G F a & !(G F a)",
            "(G F a -> F G b) & (F G b -> G F a)",
        })
-    check(text);
+    check(text, research);
   for (auto text : {
            "G(a -> F b)",
            "!(G(a -> F b))",
@@ -259,7 +267,7 @@ int main(int argc, char **argv) {
            "!(F((a & G (X b)) | (G c & (X a | G (b & X X c)))))",
            "G(a | F (b & X c)) <-> F(c & G (a | X b))",
        })
-    check(text);
+    check(text, research);
   for (auto text : {
            // Safety/co-safety siblings and finite initial conditions, both
            // Boolean operations, with a separate recurrence component.
@@ -302,16 +310,18 @@ int main(int argc, char **argv) {
            "G(a -> X b) & G(b -> X X c) & G(c -> X req) & "
            "G(req -> X grant) & G F !grant",
        }) {
-    check(text);
-    check("!(" + std::string(text) + ")");
+    check(text, research);
+    check("!(" + std::string(text) + ")", research);
   }
   for (auto text : {"(G F a & F G b) | (G F a & F G b & G F G F b)",
                     "!((G F a & F G b) | (G F a & F G b & G F G F b))"})
     check(text, true);
+  // Canonical operand refinement remains in the default fragment. Research
+  // admission must decline syntax outside HasTag Pi2 and its Sigma2 dual.
+  for (auto text : {"X G(a | (a & F G b))", "G(F a | (F a & F(G b)))",
+                    "!(G(F a | (F a & F(G b))))"})
+    check(text, research, false, research);
   for (auto text : {
-           // Research admission keeps the syntax tags; expansion must refine
-           // the ambiguous X bound using canonical absorption in its body.
-           "X G(a | (a & F G b))",
            "G(a -> F(b U c))",
            "G F(a U b)",
            "X ((G F a & F G b) | G F c)",
@@ -329,6 +339,9 @@ int main(int argc, char **argv) {
            "!(G ((X X a & F b) | X F c))",
            "G (F (a & X b) & X X F (b & X c))",
            "!(G (F (a & X b) & X X F (b & X c)))",
+           // Syntactic protection survives absorption inside the F operand.
+           "G(F(a | (a & X F b)) | X F b)",
+           "!(G(F(a | (a & X F b)) | X F b))",
            "G F (a & X X b) & F G (b | X c)",
            "((G F a & F G b) | (G F c & F G a)) <-> (G F b)",
        })

@@ -35,13 +35,13 @@ typedef struct {
   TlsfDpaLabelNode description;
   uint64_t epoch;
   uint32_t mapped;
-  unsigned char visited;
 } DpaClass;
 typedef struct {
   DpaKey key;
   TlsfAstKind op;
   uint32_t lhs, rhs, cls, dual, factored;
   unsigned tags;
+  uint64_t epoch;
 } DpaTerm;
 typedef struct {
   DpaKey key;

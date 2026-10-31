@@ -534,11 +534,11 @@ semantically false and every finite derivative is propositionally nonfalse.
 The successful proof uses semantic falsity and closed-alphabet descent.
 
 **Remaining boundary.** There is no remaining general Π₂ component-language
-gap in the Lean model. C's BDD/canonical frozen-operand and protected-support
-walk refinements remain trusted, as detailed below. The §9 constructor and
-admission results have not been extended to the general Π₂/Σ₂ grammar, and
-the general C admission guard stays off. No C source or admitted grammar was
-changed by this follow-up.
+gap in the Lean model. The research-mode alignment below closes the two
+operational mismatches found in review; the C representation refinement remains
+trusted. The §9 constructor and admission results have not been extended to
+the general Π₂/Σ₂ grammar. General admission remains opt-in through
+`allow_unproved`; default admission is unchanged.
 
 The repeatable search is `test/unit/dpa_pi2_converse.py`. The recorded run
 compared both language inclusions with Spot 2.16 through the existing
@@ -571,13 +571,82 @@ python3 test/unit/dpa_pi2_converse.py build/test/unit/dpa_equivalence \
 ```
 
 The bounded negative search is implementation evidence only; it is independent
-of the new kernel proof. This follow-up did not rerun the C/Spot search.
+of the new kernel proof. The proof-only Task J follow-up did not rerun the
+C/Spot search; the research-mode alignment below does.
 
 Validation: `LEAN_NUM_THREADS=1 lake build` succeeds with zero warnings. The
 `\b(sorry|admit|axiom|native_decide)\b` scan of every Lean source is empty.
 The dependency audit of the new general converse/language, protected-constraint
 and first-pass results, together with `admitted_grammar`, contains
-only `propext`, `Classical.choice` and `Quot.sound`. No changes were committed.
+only `propext`, `Classical.choice` and `Quot.sound`.
+
+### Research-mode correspondence after review
+
+`src/lib/dpa_formula.c:866` walks the retained NNF syntax to collect X
+subformulas; `src/lib/dpa_formula.c:889` starts that walk only at supported
+non-X modal atoms of the current reduced class (F/U/M in research mode).
+This implements `subformulas` and `Protected` at
+`TlsfProofs/Dpa/Classes.lean:503` and `:520`. Boolean materialization of a
+protector's operands cannot remove a protected X. Only X atoms are interned,
+with their operands frozen. `src/lib/dpa_formula.c:913` still performs
+REDUCE, repeated simultaneous DROP_X with protection recomputed after each
+removal, unfolding, and the finite-result retry in that order, matching
+`reduce`, `dropX`, `extractPass`, and `rho` at
+`TlsfProofs/Dpa/Classes.lean:578`–`:596`. Stepping and the ordered transition
+table at `src/lib/dpa_dela.c:5`, including renewal with retained finite
+remainders, are unchanged.
+
+In research mode, `src/lib/dpa_formula.c:81` intersects the structural tags
+of frozen atoms over exact class support. It does not recursively materialize
+modal operands to refine those tags, during admission or expansion. Thus the
+Π₂ branch of `src/lib/dpa_formula.c:189` tests `HasTag Pi2` on
+`Class.ofFormula` of the transported NNF syntax: `HasTag` is at
+`TlsfProofs/Dpa/Classes.lean:489` and `Pi2` at
+`TlsfProofs/Dpa/Converse.lean:35`. The Σ₂ branch uses the structural dual
+classification; component orientation and sharing at `src/lib/dpa_dela.c:93`
+select the corresponding Π₂ run. These are the syntax/tag and extractor
+algorithms assumed by `general_pi2_language` at
+`TlsfProofs/Dpa/GeneralConverse.lean:862`. This correspondence still trusts
+the C-to-Lean representation bridge described below.
+
+The regressions in `test/unit/dpa_stage2.c` check the exact initial rejecting
+class for `G(F(a | (a & X F b)) | X F b)`, which must be
+`a | F(a | (a & X F b)) | X F b`, not true. They also exercise both operands
+of U/M protectors. `G(F a | (F a & F(G b)))` and its NNF dual decline in
+research mode: absorption inside a frozen operand alone cannot establish
+`HasTag Pi2`. Default admission still accepts its existing canonical fragment,
+so some formulas accepted by default can now decline in research mode.
+Absorption in the outer class support remains available in both modes.
+
+Validation of this alignment, with builds and tests serialized in a 5 GiB
+cgroup and no OOM events:
+
+- All **378 Meson tests pass**, including the failure-path gates,
+  `dpa_equivalence_research` (107 Spot equivalences and three expected admission
+  declines) and `dpa_random_research` (72 Spot equivalences).
+- The full `dpa_pi2_converse.py` run checks **11,060 Spot equivalences**:
+  7,060 small/targeted cases and 4,000 deeper cases, including duals, with
+  seed 80002931. There are no mismatches, declines or timeouts. Corpus SHA-256:
+  `7cd9a574eb6145e889651d9b321729d253972cc449262cc31cbfda91c2854cee`.
+- A clean `LEAN_NUM_THREADS=1 lake build`, with Lean invocations serialized
+  by `flock`, passes all 19 jobs with zero warnings.
+- CI's pinned clang-format **22.1.8** passes on every changed C/C++ source
+  and header. The final C build check and Meson test run are warning-free;
+  the initial full GCC 15.3.1 compile reports existing warnings in unrelated
+  lexer, AST and GR(1) code. The changed DPA C code emits none.
+
+Before general admission can become the default, the reviewer's remaining
+obligations are:
+
+- Close the C-to-model correspondence for nested tags and protection,
+  preserving stepping, extraction, retry, renewal, and acceptance. The
+  operational algorithms now align; a verified representation refinement is
+  still required.
+- Extend the conservative constructor/admission results to general Π₂/Σ₂,
+  including NNF dual classification and component sharing, and instantiate
+  the existing product/parity results.
+- Validate that implementation and policy change against the required C/Spot
+  and failure-path gates.
 
 ### C ↔ Lean correspondence
 
@@ -587,19 +656,19 @@ numbers refer to the merged worktree's formatted sources.
 | C implementation | Lean model / result |
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
-| `src/lib/dpa_formula.c:81`, `:117`, `:126`, `:156` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
-| `src/lib/dpa_formula.c:188`, `:504`, `:551` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
-| `src/lib/dpa_formula.c:562`, `:596` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
-| `src/lib/dpa_formula.c:582`, `:616`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
-| `src/lib/dpa_formula.c:393`, `:523`, `:609` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; C traversal bridge trusted |
-| `src/lib/dpa_formula.c:638`, `:850` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
-| `src/lib/dpa_formula.c:674`, `:735`, `:791` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
-| `src/lib/dpa_formula.c:638`, `:873`, `:900` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
+| `src/lib/dpa_formula.c:81`, `:118`, `:127`, `:157` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
+| `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
+| `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
+| `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
+| `src/lib/dpa_formula.c:394`, `:524`, `:610` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; C traversal bridge trusted |
+| `src/lib/dpa_formula.c:639`, `:851` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
+| `src/lib/dpa_formula.c:675`, `:736`, `:792` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
+| `src/lib/dpa_formula.c:639`, `:866`/`:889`, `:913` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
 | `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable` |
 | `src/lib/dpa_dela.c:72`, `:292` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:198`, `:273` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
-| `src/lib/dpa_dela.c:170`, `:231`; `src/lib/dpa.c:366` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
+| `src/lib/dpa_dela.c:170`, `:231`; `src/lib/dpa.c:365` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
 | `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
 | `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
 | `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority`, `ZTree.recurrent_run`, `tree_minEven` |
@@ -614,10 +683,11 @@ numbers refer to the merged worktree's formatted sources.
 - **Canonical NNF.** The existing core proves NNF semantic identities, but the
   lazy-DPA transport, constant folding, modal-operand canonicalization and
   canonical X placement are not connected to `NNFClass` by a C refinement.
-  In particular `Protected` inspects all syntactic X subformulas of its modal
-  atoms. The C walk materializes frozen operands and follows canonical support.
-  The correspondence must relate these after operand canonicalization; it
-  cannot identify arbitrary unnormalized frozen syntax blindly.
+  Research-mode tags now inspect structural frozen syntax, and the protected
+  walk inspects all syntactic X subformulas of supported modal atoms, as in
+  `Protected`. Their imperative syntax IDs, support traversal and memo epochs
+  still require representation refinement. Default admission retains its
+  canonical operand refinement and conservative component theorem boundary.
 - **Maximal-model builder.** The abstract upward-blocking completeness result
   and a terminating exhaustive semantic reference tree builder are proved.
   The C BDD/SAT query loop, model extraction, termination on successful bounded

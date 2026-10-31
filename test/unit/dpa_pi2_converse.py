@@ -57,7 +57,8 @@ def formulas(max_size, random_count, seed):
             f"G(F(a & X b) | X({h}))", f"(({h}) R (b U X c))",
             f"(({h}) W (b M X c))",
         ])
-    small.extend(["G F(a & X b)", "G(a -> F(X b & X X c))"])
+    small.extend(["G F(a & X b)", "G(a -> F(X b & X X c))",
+                  "G(F(a | (a & X F b)) | X F b)"])
     rng = random.Random(seed)
 
     def generate(n, cosafety=False):

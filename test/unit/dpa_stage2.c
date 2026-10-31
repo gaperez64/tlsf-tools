@@ -164,10 +164,6 @@ static void admission(Arena *a) {
                     node_equiv(a, gf, fg),
                     node_or(a, node_g(a, p), node_f(a, q)),
                     node_g(a, node_or(a, p, node_and(a, p, response))),
-                    absorbed,
-                    absorbed_dual,
-                    node_not(a, absorbed),
-                    node_not(a, absorbed_dual),
                     group_absorbed,
                     node_not(a, group_absorbed),
                     group_nested,
@@ -181,6 +177,12 @@ static void admission(Arena *a) {
                       // admission is checked before G/F distribution.
                       node_g(a, node_and(a, node_g(a, p), node_f(a, q))),
                       node_f(a, node_or(a, node_f(a, p), node_g(a, q)))};
+  // Canonical operand absorption is still available to default admission.
+  // Research components require structural tags of the frozen NNF atoms.
+  Node *canonical_only[] = {
+      absorbed, absorbed_dual,
+      node_g(a, node_or(a, node_f(a, p),
+                        node_and(a, node_f(a, p), node_f(a, node_g(a, q)))))};
   const char *names[] = {"a", "b"};
   for (unsigned mode = 0; mode < 3; ++mode) {
     TlsfDpaBudget budget = {.allow_unproved = mode == 2};
@@ -202,10 +204,72 @@ static void admission(Arena *a) {
         tlsf_dpa_free(c);
       }
     }
+    for (size_t i = 0; i < sizeof canonical_only / sizeof *canonical_only; ++i)
+      for (unsigned neg = 0; neg < 2; ++neg) {
+        Node *f = neg ? node_not(a, canonical_only[i]) : canonical_only[i];
+        TlsfDpa *c = (void *)1;
+        TlsfDpaStatus status =
+            tlsf_dpa_create((TlsfAstNode *)f, names, 2, nullptr, 0,
+                            mode ? &budget : nullptr, &c);
+        if (budget.allow_unproved)
+          assert(status.code == TLSF_DPA_DECLINED &&
+                 status.reason == TLSF_DPA_UNSUPPORTED && !c);
+        else {
+          assert(status.code == TLSF_DPA_OK && c);
+          assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
+        }
+        tlsf_dpa_free(c);
+      }
+  }
+}
+
+static void syntactic_protection(Arena *a) {
+  Node *p = node_ap(a, "a"), *q = node_ap(a, "b");
+  Node *x = node_x(a, node_f(a, q));
+  Node *hidden = node_or(a, p, node_and(a, p, x));
+  Node *protectors[] = {node_f(a, hidden),    node_u(a, hidden, q),
+                        node_u(a, q, hidden), node_m(a, hidden, q),
+                        node_m(a, q, hidden), node_u(a, hidden, p)};
+  const char *names[] = {"a", "b"};
+  TlsfDpaBudget budget = {
+      .bdd_nodes = 1u << 14, .bdd_cache = 1u << 12, .allow_unproved = true};
+  for (size_t i = 0; i < sizeof protectors / sizeof *protectors; ++i) {
+    // First case is G(F(a | (a & X F b)) | X F b), the review example.
+    Node *body = node_or(a, protectors[i], x);
+    Node *root = node_g(a, body);
+    TlsfDpa *c;
+    if (i == 0) {
+      TlsfDpaStatus status = tlsf_dpa_create((TlsfAstNode *)root, names, 2,
+                                             nullptr, 0, nullptr, &c);
+      assert(status.code == TLSF_DPA_DECLINED &&
+             status.reason == TLSF_DPA_UNSUPPORTED && !c);
+    }
+    assert(
+        tlsf_dpa_create((TlsfAstNode *)root, names, 2, nullptr, 0, &budget, &c)
+            .code == TLSF_DPA_OK);
+    assert(c->components.n == 1);
+    const TlsfDpaEdge *edges;
+    size_t count;
+    assert(tlsf_dpa_successors(c, tlsf_dpa_initial(c), &edges, &count).code ==
+           TLSF_DPA_OK);
+    DpaState *state = c->states.items[c->initial];
+    DpaTuple *tuple = c->tuples.items[state->tuple];
+    DpaPair *pair = c->pairs.items[tuple->values[0]];
+    // In the last case unfolding absorbs the U protector itself. Retry must
+    // recompute protection from that support and remove the now unprotected X.
+    uint32_t expected =
+        i == 5 ? 1
+               : dpa_unfold(c, dpa_formula(c, (TlsfAstNode *)body, false, 0));
+    assert(pair->rejecting == expected);
+    if (i < 5)
+      assert(pair->rejecting != 1);
+    assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
+    tlsf_dpa_free(c);
   }
 }
 int main(void) {
   Arena *a = arena_new(4096);
+  syntactic_protection(a);
   admission(a);
   trees(a);
   wide(a);

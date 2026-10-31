@@ -1,10 +1,15 @@
 """Fixed-seed Spot-generated formulas, stratified within the admitted slice."""
+import argparse
 import pathlib
 import subprocess
-import sys
 import tempfile
 
-exe, randltl = sys.argv[1:]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("executable")
+parser.add_argument("randltl")
+parser.add_argument("--allow-unproved", action="store_true")
+args = parser.parse_args()
+exe, randltl = args.executable, args.randltl
 common = "strongX=0,not=0,equiv=0,implies=0,xor=0"
 formulas = []
 for seed, priorities, recurrence in [
@@ -21,5 +26,6 @@ for seed, priorities, recurrence in [
 with tempfile.TemporaryDirectory() as directory:
     path = pathlib.Path(directory) / "formulas.ltl"
     path.write_text("\n".join(formulas) + "\n")
-    subprocess.run([exe, str(path)], check=True)
+    subprocess.run([exe, str(path)] +
+                   (["--allow-unproved"] if args.allow_unproved else []), check=True)
 print(f"{len(formulas)} random fragment equivalences passed")
