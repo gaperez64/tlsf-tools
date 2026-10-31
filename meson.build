@@ -104,7 +104,6 @@ endif
 
 flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
-spot_dep = dependency('libspot')
 yyjson_dep = dependency('yyjson', version: '>=0.12.0',
                         fallback: ['yyjson', 'yyjson_dep'])
 git = find_program('git', required: false)
