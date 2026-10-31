@@ -10,6 +10,7 @@ import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Impl.DefaultTags
 import TlsfProofs.Dpa.Impl.RefinedComponent
 import TlsfProofs.Dpa.Impl.TagTrace
+import TlsfProofs.Dpa.Impl.RefinedAcceptance
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -555,6 +556,35 @@ theorem shared_trace_language_witness (w : Word (Fin 2)) (n : Nat) :
       Sat none w absorbedNext 0 :=
   defaultTrace_all_language _ _ _ _ _ _ TagCache.empty_valid
     (by simp [absorbedNext, absorbedOperand, NNF, a, b]) w n
+
+/-- Accepting-language equality for a nonstructural finite input, driven by
+the persistent shared trace. The finite certificate is kernel computed. -/
+theorem shared_trace_acceptance_witness (w : Word (Fin 2)) :
+    Inf (marksTagged
+      (defaultTraceClassifier transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+        (fun _ => queryTrace (.conj absorbedNext b)) {}) absorbedNext w) ↔
+      Sat none w absorbedNext 0 := by
+  apply defaultTrace_finite_language _ _ _ _ _ _ TagCache.empty_valid
+    (by simp [absorbedNext, absorbedOperand, NNF, a, b])
+  exact diagnosticTags_sound absorbedNext .finite (by decide +kernel)
+
+theorem shared_trace_false_seeds_witness (w : Word (Fin 2))
+    (hf : ¬Sat none w gf 0)
+    (hnever : ∀ n, Class.ofFormula (runTagged
+      (defaultTraceClassifier transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+        (fun _ => queryTrace (.conj absorbedNext b)) {}) gf w n).all ≠ Class.bot) :
+    ∃ N, ∀ n, N ≤ n → ¬Sat none w
+      (rhoTagged
+        (defaultTraceClassifier transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+          (fun _ => queryTrace (.conj absorbedNext b)) {} n)
+        (rawTagged
+          (defaultTraceClassifier transportRank (fun _ => false) 32 (queryTrace absorbedNext)
+            (fun _ => queryTrace (.conj absorbedNext b)) {}) gf w n)) n :=
+  runTagged_eventually_false_seeds _
+    (fun n => (defaultTraceClassifier_spec _ _ _ _ _ _ TagCache.empty_valid n).1)
+    (fun n => (defaultTraceClassifier_spec _ _ _ _ _ _ TagCache.empty_valid n).2)
+    (by simp [gf, NNF, a]) (by decide +kernel) w hf hnever
+
 private def refinedProtected : Formula (Fin 2) := .conj absorbedNext refinedProtector
 
 private def refinedChecks : List (String × Bool × Bool) := [

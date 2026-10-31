@@ -1180,7 +1180,40 @@ cache hits, constant precedence, and explicit query failure. A universal
 word/position witness applies the all-field theorem to this persistent
 trace. This interpreter is not yet a compiler for C's REDUCE traversal,
 quick tag tests or remainder-memo reads, and no accepting-run equivalence
-is claimed.
+for that C execution is claimed.
+
+**Task T8, refined acceptance progress and protected first passes.**
+`Impl/RefinedAcceptance.lean` proves `runTagged_satisfying_accepts`: for
+arbitrary changing classifiers with sound positive answers and structural
+lower bounds, every satisfying word gives infinitely many marks. No Π₂
+input hypothesis is needed for this direction. The proof excludes a
+permanently unmarked suffix: a co-safety suspension on a satisfying word
+eventually makes the all-field true; otherwise an active co-safety
+obligation progresses to true and its finite lower bit forces renewal.
+`defaultTrace_satisfying_accepts` discharges both classifier hypotheses
+using the persistent default-tag traces above.
+
+`runTagged_accepting_never_bot` and `runTagged_accepting_safety` prove the
+corresponding rejection/safety obligations. `runTagged_finite_language`
+and `runTagged_safety_language` establish accepting-run equivalence for
+recursively refined finite and safety inputs; `runTagged_cosafety_language`
+establishes it for structural co-safety classes. The co-safety theorem
+permits recursively refined safety answers at the later marked step.
+`defaultTrace_finite_language` and a universal word witness instantiate
+finite accepting-run equivalence on the actual nonstructural absorption
+fixture with the shared cache-classifier stream.
+
+`extractPassTagged_protected_constraint` connects the existing closed-alphabet
+descent to the actual tagged REDUCE and protected DROP_X loop: every
+structural co-safety protected constraint survives, even when extra refined
+co-safety atoms are retained. `runTagged_eventually_false_passes` and
+`runTagged_eventually_false_seeds` apply this result at the tagged run's
+actual raw all-fields for **structural Π₂** inputs. The latter uses the
+refined finite-window theorem to exclude the actual finite-retry branch
+on false first passes of never-false runs. A universal shared-trace witness
+instantiates that seed result. These statements do not yet extend the
+closed-alphabet descent to refined Π₂ input tags or prove that accepting
+runs satisfy every active obligation across refined co-safety suspensions.
 
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
@@ -1190,15 +1223,14 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 298 dependency reports contain only the three permitted axioms. The
-`terminal_checks` diagnostic and the two universal refined-language witnesses
-use `propext`, `Classical.choice` and `Quot.sound`; the persistent-trace language
-witness uses the same three, and `trace_checks` uses only `propext`. The other thirteen concrete
-diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (80 Lake jobs). All 236
+All 323 dependency reports contain only the three permitted axioms. The
+`terminal_checks` diagnostic and all five universal refined-language/shared-trace
+witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other fourteen
+concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
+library and `dpaImplChecks` with warnings as errors (82 Lake jobs). All 236
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-196 references / 154 anchored C/Lean targets pass. Both documentation gates
+197 references / 155 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
@@ -1213,9 +1245,11 @@ terminal shortcut at the decoded boundary. T7 fixes the startup reset and
 axiom account, and supplies refined finite/prefix certificates, a protected
 extractor contract and ordered component invariants. T7 item 0 is complete;
 item 1 remains partial. T8 proves persistence and realization of dependent
-default-tag query traces and the resulting all-field language corollary;
-compilation of the concrete C traversal and full accepting-run language
-remain open. Items 2–4 remain open; item 5 is
+default-tag query traces, the resulting all-field language corollary,
+forward acceptance, finite/safety/structural co-safety equivalences, and
+preservation of protected first passes and false seeds for structural Π₂
+inputs. Compilation of the concrete C traversal and full refined Π₂
+accepting-run language remain open. Items 2–4 remain open; item 5 is
 deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
@@ -1237,15 +1271,23 @@ occurrences would also query absorbed atoms and can change cache history;
 the fresh-query diagnostic and an arbitrary trace are not substitutes for
 the supported traversal and the actual cached predicate decisions.
 
-Next, prove the accepting-run language theorem for the resulting tagged
-component, using the classifier's structural lower bounds as well as its
-sound positive answers. Soundness alone is insufficient: an all-false
-classifier satisfies `TagClassifier.Sound` but can suppress finite renewals.
-The closed-alphabet/protected-constraint descent in `GeneralConverse` must
-be connected to the actual retained atoms and retry decisions; neither an
-alternative structural language witness nor `classTag_exact` identifies them.
-Cached NNF duals cannot be replaced by `Class.compl`, and an existential
-`admitted_grammar` witness does not identify the constructor trace.
+Next, prove the remaining accepting-run converse for the resulting compiled
+component. T8's forward theorem uses structural lower bounds as well as sound
+positive answers; soundness alone would allow an all-false classifier to
+suppress finite renewals. Its protected-constraint and false-seed theorems
+now cover the actual retained atoms and retry for structural Π₂ inputs.
+The smallest missing acceptance lemma is satisfaction of an active rejecting
+obligation on an accepting compiled run, including when a refined co-safety
+suspension discards that field. `runTagged_satisfied_obligation` assumes the
+input word is satisfying, so it cannot prove this converse; never reaching
+false alone cannot establish an arbitrary co-safety obligation. A false
+eventuality can remain propositionally nonconstant forever. The eventual
+false-constraint descent must additionally be extended from structural
+`HasTag Pi2` to the recursive refined Π₂ predicate for the full default domain.
+An arbitrary sound trace is not the compiled C execution. An alternative
+structural language witness, `classTag_exact`, or an existential
+`admitted_grammar` witness cannot supply these identifications.
+Cached NNF duals cannot be replaced by `Class.compl`.
 
 Further independent bridges remain: C's lexicographically ordered tree/export;
 the single end-to-end parity/Büchi theorem; and the offline BFS automaton
@@ -1268,7 +1310,7 @@ numbers refer to the merged worktree's formatted sources.
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
 | `src/lib/dpa_formula.c:81`, `:118`, `:127`, `:157` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
-| `src/lib/dpa_formula.c:81`, `:127`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.cachedTagBounds_valid`, `Impl.TagBounds.Valid.mask`, `Impl.defaultTags_language_certificates`; refined language certificates checked, full shared-cache component simulation pending |
+| `src/lib/dpa_formula.c:81`, `:127`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.defaultTags_preserves`, `Impl.defaultTags_read`, `Impl.TagProgram.default_realizes`, `Impl.defaultTrace_all_language`, `Impl.cachedTagBounds_valid`, `Impl.TagBounds.Valid.mask`, `Impl.defaultTags_language_certificates`; concrete query-traversal compilation pending |
 | `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
@@ -1278,7 +1320,7 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
 | `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
 | `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
-| `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable` |
+| `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable`; `Impl.transitionTagged_spec`, `Impl.runTagged_satisfying_accepts`, `Impl.runTagged_finite_language`, `Impl.runTagged_safety_language`, `Impl.runTagged_cosafety_language`; full refined Π₂ converse pending |
 | `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:93` — executable interning, ordered lookup, oriented cache and stable indices | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_colours`, `Impl.internComponent_preserves_literal`, `Impl.internComponent_buchi_positive` |
