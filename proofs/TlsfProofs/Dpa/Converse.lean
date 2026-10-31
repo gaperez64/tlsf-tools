@@ -41,9 +41,10 @@ inductive Pi2 : Formula α → Prop where
   | release (h : Pi2 f) (h' : Pi2 g) : Pi2 (.release f g)
   | weakUntil (h : Pi2 f) (h' : Pi2 g) : Pi2 (.weakUntil f g)
 
-/-- The open core of issue #80 for the DESIGN §1 variant: the converse
+/-- The general core of issue #80 for the DESIGN §1 variant: the converse
 inclusion for every syntactic Π₂ component, with no support resets, external
-suspension or lookahead. This proposition is not used as a proved theorem. -/
+suspension or lookahead. `GeneralConverse.lean` proves this proposition as
+`general_pi2_converse`; the conservative results below are independent. -/
 def GeneralPi2Converse : Prop :=
   ∀ ap (x : Class ap), NNFClass x → HasTag Pi2 x →
     ∀ w : Word (Fin ap), Inf (marks x w) → Holds w 0 x

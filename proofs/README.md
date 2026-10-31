@@ -393,9 +393,10 @@ ordinary one-sibling global-tree update. The required reference merge is
 all colour streams. `flat_eventually_false_seeds`, `flat_global_language` and
 `flat_eventual_language` discharge §6. `admitted_grammar` assembles the exact
 component/product/parity language theorem. `Refinements.lean` proves §9's
-semantic refinements and reference decision algorithms. The intended general
-Π₂/Σ₂ grammar of §1 remains outside this result: `GeneralPi2Converse` is
-still a documented proposition only, and is not a hypothesis of these results.
+semantic refinements and reference decision algorithms. The general Π₂ component
+converse is now proved separately by `general_pi2_converse`, with the exact
+component language in `general_pi2_language`. The §9 constructor/admission
+theorems still concern the conservative §8 grammar; no C guard is changed.
 
 The checked semantic class model is a Boolean function with a finite formula
 representative. `class_finite_atoms` supplies a finite atom set on which each
@@ -406,9 +407,10 @@ so support tests and protection disregard propositionally absorbed operands.
 `GeneralConverse.lean` now proves the common finite alphabet of both fields
 (`run_subformulaBound`), injection into finite Boolean truth tables
 (`subformula_signature_injective`), and a finite list containing every
-reachable component pair on every word (`finite_component_states`). This is
-semantic finite closure for a fixed input, not a practical state bound or a
-proof of the C allocator/BDD bridge.
+reachable component pair on every word (`finite_component_states`). It also
+proves eventual false protected constraints and the general Π₂ component
+language by finite closed-alphabet descent (Task J below). These are semantic
+results, not a practical state bound or a proof of the C allocator/BDD bridge.
 
 `Stage1.lean` defines the shared table and proves safety/co-safety and the
 one-set parity results. `Component.lean` extends it with the general component
@@ -445,8 +447,9 @@ are identified explicitly; they are not premises of the language equalities.
 | STAGE1 §4: FG finite windows and complement | `gf_complement`, `fg_language` | Checked on the identical completed dual run |
 | STAGE1 §5: one-set min-even and max-odd tables | `oneSet_min_inf`, `oneSet_min_fin`, `oneSet_max_inf`, `oneSet_max_fin`, `gf_minEven`, `fg_minEven`, `gf_maxOdd`, `fg_maxOdd` | Checked numeric parity languages; identification with the built one-colour tree's unique path pending |
 | Task J: fixed-input finite alphabet and semantic state closure | `run_subformulaBound`, `subformula_signature_injective`, `finite_reachable_pairs`, `finite_component_states` | Checked for all words and both fields, including retry and finite retention; no general language theorem follows from finiteness alone |
-| Task J: protected constraints and retry reduction | `extractPass_protected_constraint`, `false_pass_disables_retry`, `converse_of_eventually_false_passes`, `generalPi2Converse_of_false_passes`, `false_passes_of_protected_constraints` | Checked reductions with explicit hypotheses; eventual false passes / existence of protected constraints remain unproved |
-| STAGE1 §6: general case excluded | `GeneralPi2Converse` | Documented proposition only; no general converse theorem |
+| Task J: nested Π₂ failed constraints | `pi2_cosafety_failure`, `class_pi2_cosafety_failure`, `general_eventually_false_cosafety_constraints` | Checked for the full Π₂ nesting structure and arbitrary NNF classes; every sufficiently late raw position has a false co-safety consequence |
+| Task J: closed-alphabet descent and protection | `eventually_protected_of_cosafety_constraint`, `general_eventually_false_protected_constraints`, `general_eventually_false_passes` | Checked at every sufficiently late raw position and every intermediate weakening; no finite-window flush or never-false premise |
+| Task J: general component language | `general_pi2_converse`, `general_pi2_language` | General Π₂ converse and language equality proved, including retry and retained finite remainders; C admission/refinement unchanged |
 | STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
 | STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
 | STAGE2 §3 (2): all/rejecting invariant | `ComponentInvariant`, `initial_invariant`, `transition_invariant`, `run_invariant`, `run_remainder` | Checked for arbitrary NNF inputs, without a Π₂ converse hypothesis |
@@ -476,62 +479,66 @@ are identified explicitly; they are not premises of the language equalities.
 | STAGE2 §9.4: current-AP care traversal | `restrictCurrent`, `unfoldCare`, `unfolding_care_exact`, `unfolding_syntax_care_exact`, `unfolding_care_root`, `care_finite_return`, `care_frozen_next`, `care_shannon`, `care_modal_shannon` | Checked syntax/class reference care, current AP branch recombination and frozen X; imperative DAG order/memo-key bridge trusted |
 | STAGE2 §9.5: fragment bounds with exact fallback | `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounds_intersection`, `bounded_tag_test_exact`, `support_pruning_tag`, `cached_lower_refinement`, `exact_tests_preserve_order` | Checked structural syntax bounds, actual support/cofactor intersection, arbitrary masks, stable lower caches, exact fallback and safety-first order; C bitset/cache bridge trusted |
 
-### Task J: general Π₂ converse remains open
+### Task J: general Π₂ converse proved
 
-**Outcome: partial.** No counterexample was found. The general admission guard
-stays off; `GeneralPi2Converse` is still a proposition, not a proved result.
-The new partial results are in `TlsfProofs/Dpa/GeneralConverse.lean` and are
-imported by the default build. They do not change the admitted grammar.
-
-The smallest remaining lemma for the failed-constraint route is the following
-statement, currently **unproved** (the displayed declaration has no Lean body):
+**Focused follow-up outcome: proved.** `TlsfProofs/Dpa/GeneralConverse.lean`
+now proves `general_eventually_false_passes` in a stronger form: the all-field
+need not stay propositionally nonfalse. The default build checks the theorem.
 
 ```lean
 theorem general_eventually_false_passes
     (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)
-    (w : Word (Fin ap)) (hfalse : ¬Holds w 0 x)
-    (hnever : ∀ n, (run x w n).all ≠ Class.bot) :
+    (w : Word (Fin ap)) (hfalse : ¬Holds w 0 x) :
     ∃ N, ∀ n, N ≤ n →
       ¬Holds w n (extractPass (rawAll x w n))
 ```
 
-`generalPi2Converse_of_false_passes` checks that exactly this statement would
-prove `GeneralPi2Converse`. It is sufficient to consider the **first**
-extraction pass: `false_pass_disables_retry` proves that a false first pass
-cannot be finite on a never-false all-field, so the retry guard is false.
-`converse_of_eventually_false_passes` then uses the already checked accepting
-renewal theorem, including retained nonconstant finite remainders. It requires
-no additional assumption about rounds or witnesses.
+`general_eventually_false_protected_constraints` proves the structural target
+as well: every sufficiently late raw position has a false co-safety consequence
+C whose supported X atoms remain protected in every NNF weakening y between
+raw and C. `extractPass_protected_constraint` preserves it through every
+simultaneous deletion, with protection recomputed at each pass.
 
-A more structural sufficient target is existence, at every sufficiently late
-raw position, of a false `ProtectedConstraint raw C`. This consists of a
-co-safety consequence C whose supported X atoms stay protected in every NNF
-weakening y between raw and C. `extractPass_protected_constraint` proves that
-such a C survives every simultaneous deletion with recomputed protection;
-`false_passes_of_protected_constraints` gives the statement above from these
-constraints. Existence of the constraints is **not** proved or assumed by any
-unconditional result.
+The proof has two parts:
 
-The two obvious shortcuts leave a real gap:
+1. **Π₂ induction.** `pi2_cosafety_failure` extends the failed-clause argument
+   through conjunction, disjunction, X, G, R and W, taking co-safety formulas as
+   leaves. `class_pi2_cosafety_failure` lifts it to arbitrary NNF Boolean
+   classes using the checked false-clause construction. A false co-safety
+   consequence persists semantically under exact derivatives; it need never
+   become propositionally false. This gives
+   `general_eventually_false_cosafety_constraints` and the intermediate
+   `general_eventually_false_reductions`.
+2. **Smallest closed alphabet.** Among all false co-safety raw consequences
+   at all times, choose one with a smallest finite subformula-closed alphabet
+   B (`BadCosafetyConstraint`). Exact raw steps preserve B. A maximal X in B
+   disappears after one step, contradicting minimality. Every supported X
+   therefore lies below a maximal non-X modal atom H. Minimality forces H to
+   be supported by C and by every intermediate weakening y: otherwise the
+   false-cofactor argument removes H, giving a strictly smaller closed
+   alphabet and another semantically false consequence. The same alphabet
+   works at every later time, which proves
+   `eventually_protected_of_cosafety_constraint`. No pigeonhole, numerical
+   threshold, alternating-automaton correspondence or propositional flush is
+   required.
 
-- The flat §6 descent removes a selected eventuality and waits for its old
-  finite candidates to become propositionally false. For nested F/U/M, an
-  abandoned candidate can itself be an unfulfilled eventuality. The checked
-  `false_cosafety_need_not_flush` gives `F a` on the all-false word: it is
-  semantically false, but every finite derivative is propositionally nonfalse.
-  Thus replacing the finite-window flush by a co-safety flush is invalid.
-  This example is an obstruction to the proof step, not a counterexample to
-  the component language.
-- Sickert–Esparza (LICS 2020, arXiv:2005.00472), Lemmas 28–31, concern one
-  fixed annotated weak alternating automaton with the two-level acceptance
-  ordering. The new finite-alphabet/state theorems supply finiteness, but do
-  not construct the correspondence between its annotated states and Boolean
-  formula classes. Flipping a transient X state's acceptance in a fixed
-  automaton does not itself justify recomputing protection from a changing
-  class support. One must relate each extraction cohort to that fixed run
-  interpretation, retain rejecting X states under F/U/M protectors, and show
-  that loss/reappearance of protectors cannot repeatedly discard the same
-  failed obligation. Applying Lemma 31 without that correspondence is circular.
+`false_pass_disables_retry` then rules out retry at the relevant positions on
+a never-false all-field, and `converse_of_eventually_false_passes` applies the
+accepting-renewal theorem with its retained nonconstant finite remainders.
+The resulting unconditional theorem `general_pi2_converse` proves
+`GeneralPi2Converse`; `general_pi2_language` states
+`Inf (marks x w) ↔ Holds w 0 x` for every NNF class with `HasTag Pi2 x`.
+
+`false_cosafety_need_not_flush` remains valid: `F a` on the all-false word is
+semantically false and every finite derivative is propositionally nonfalse.
+The successful proof uses semantic falsity and closed-alphabet descent.
+
+**Remaining boundary.** There is no remaining general Π₂ component-language
+gap in the Lean model. C's BDD/canonical frozen-operand and protected-support
+walk refinements remain trusted, as detailed below. The §9 constructor and
+admission results have not been extended to the general Π₂/Σ₂ grammar, and
+the general C admission guard stays off. No C source or admitted grammar was
+changed by this follow-up.
 
 The repeatable search is `test/unit/dpa_pi2_converse.py`. The recorded run
 compared both language inclusions with Spot 2.16 through the existing
@@ -563,12 +570,13 @@ python3 test/unit/dpa_pi2_converse.py build/test/unit/dpa_equivalence \
   --output /tmp/tlsf-task-j-search
 ```
 
-The bounded negative search is evidence only. Neither outcome A nor B has
-been established; no general admission is justified by these partial results.
+The bounded negative search is implementation evidence only; it is independent
+of the new kernel proof. This follow-up did not rerun the C/Spot search.
 
 Validation: `LEAN_NUM_THREADS=1 lake build` succeeds with zero warnings. The
 `\b(sorry|admit|axiom|native_decide)\b` scan of every Lean source is empty.
-The dependency audit of the new bridge results and `admitted_grammar` contains
+The dependency audit of the new general converse/language, protected-constraint
+and first-pass results, together with `admitted_grammar`, contains
 only `propext`, `Classical.choice` and `Quot.sound`. No changes were committed.
 
 ### C ↔ Lean correspondence
@@ -637,15 +645,16 @@ numbers refer to the merged worktree's formatted sources.
   refinement obligation. Resource failures are excluded from the admission
   success equivalence, as in the Markdown. These concrete constructor/language
   results concern conservative admission. `check_admission_exact` remains
-  mode-independent; extending the concrete model to `allow_unproved` Π₂/Σ₂
-  does not supply the missing general component language theorem.
+  mode-independent. `general_pi2_language` now supplies the general Π₂
+  component theorem separately; the §9 constructor/admission model has not
+  been extended to `allow_unproved` Π₂/Σ₂.
 
-Ancillary obligations retained from the earlier audit are the fixed-input
-finite reachable-class closure theorem, the literal STAGE1 GF extractor
-case-split equality, and identification of the one-set priority table with
-the built one-colour tree path. The language theorems use the proved finite
-support, sufficient GF seed bound and full global tree theorem, respectively;
-none of those ancillary statements is used as an unproved premise.
+Ancillary obligations retained from the earlier audit are the literal STAGE1
+GF extractor case-split equality and identification of the one-set priority
+table with the built one-colour tree path. The language theorems use the proved
+sufficient GF seed bound and full global tree theorem, respectively; neither
+ancillary statement is used as an unproved premise. The fixed-input finite
+reachable-class closure is now proved by `finite_component_states`.
 
 ### Findings in the natural-language proofs
 
@@ -696,9 +705,9 @@ The other distinctions concern proof organization and C correspondence:
   also handles arbitrary finite class remainders via the checked bad-prefix
   theorem. No candidate is discarded by the automaton, and no finite marked
   remainder is replaced by true.
-- The canonical frozen-operand/support distinction and imperative §9 bridge
-  remain as described above. No additional language theorem for arbitrary
-  Π₂/Σ₂, or verification of the C implementation, is claimed.
+- The general Π₂ component theorem is now checked by closed-alphabet descent
+  (Task J above). The canonical frozen-operand/support distinction and
+  imperative §9 bridge remain as described above; no C verification is claimed.
 
 ### Validation
 
