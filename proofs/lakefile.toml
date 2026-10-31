@@ -8,7 +8,7 @@ weakLeanArgs = ["-j1", "-s2048", "-DElab.async=false"]
 leanOptions = { warningAsError = true }
 
 [[lean_exe]]
-name = "dpaImplClasses"
+name = "dpaImplChecks"
 root = "TlsfProofs.Dpa.Impl.Main"
 weakLeanArgs = ["-j1", "-s2048", "-DElab.async=false"]
 leanOptions = { warningAsError = true }

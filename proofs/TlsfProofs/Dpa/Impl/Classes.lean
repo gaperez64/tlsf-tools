@@ -3,7 +3,7 @@ import TlsfProofs.Dpa.Classes
 /-!
 # Executable propositional classes
 
-`src/lib/dpa_formula.c:3` interns Boolean functions, and `:66` obtains their
+`src/lib/dpa_formula.c:3` interns Boolean functions, and `:64` obtains their
 reduced Shannon children. This reference uses exhaustive truth tables instead
 of a BDD manager. The ordered finite atom list is explicit; the table is
 canonical for that list. Frozen modal formulas are independent variables,
@@ -87,7 +87,7 @@ theorem equivalent_exact (f g : Formula (Fin ap)) :
   · intro σ τ h
     exact propEval_local g σ τ (fun a ha => h a (by simp [ha]))
 
-/-- C's reduced BDD support (`dpa_children`/`tags_impl`, lines 66/81).
+/-- C's reduced BDD support (`dpa_children`/`tags_impl`, lines 64/81).
 Only essential variables survive, including under Boolean absorption. -/
 def uses (f a : Formula (Fin ap)) : Bool :=
   (assignments (modalAtoms f).eraseDups).any (fun σ =>

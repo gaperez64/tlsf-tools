@@ -734,7 +734,7 @@ obligations are:
 - Validate that implementation and policy change against the required C/Spot
   and failure-path gates.
 
-### Task T: executable representation (first milestone)
+### Task T: executable representation and research component
 
 `TlsfProofs/Dpa/Impl/Classes.lean` provides executable truth tables over an
 explicit finite ordered list of modal atoms. `table_exact` proves that, on
@@ -751,14 +751,53 @@ Run the diagnostic executable from `proofs/`, using the Task T resource limits:
 ```sh
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   env TMPDIR="$PWD/../build-scratch-t/tmp" LEAN_NUM_THREADS=1 \
-  lake exe dpaImplClasses
+  lake exe dpaImplChecks
 ```
 
-Its twelve checks exercise absorption, constants, essential and absent support,
-frozen operands and independent duals. `class_checks` also checks these same
-executable definitions by kernel reduction. This is a representation milestone,
-not an automaton exporter or a completed C refinement. No C code, admission
-policy or golden expectation changes in this milestone.
+The 29 checks exercise absorption, constants, essential and absent support,
+frozen operands, independent duals, both U/M protector operands, nested X,
+protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
+and nonconstant finite retention at renewal. `class_checks` and
+`component_checks` check these same executable definitions by kernel reduction.
+
+`Impl/Tags.lean` proves all five executable structural classifiers exact,
+including `pi2b_exact` and `sigma2b_exact`. `classTag_exact` identifies their
+canonical-support intersection with `HasTag`; `researchAdmitted_exact` covers
+the research whole-class fast path. It does not identify this fast path with
+the full Boolean acceptance recursion. As in current C, absorption inside a
+frozen operand does not grant a research tag.
+
+`Impl/Extractor.lean` proves `protected_exact`, `reduce_exact`, `dropX_exact`,
+`elide_exact`, `extractPass_exact`, and `rho_exact`. The executable fuel is the
+length of its actual syntax's modal-atom list. `semantic_elideFuel_unique`
+proves agreement with the semantic model's representative-dependent fuel:
+both reach the same stable result. Retry uses canonical equality and the
+exact finite-support predicate.
+
+`Impl/Component.lean` proves `initial_exact`, `transition_exact`, `run_exact`,
+and `marks_exact`. Every transition row is covered, including retained finite
+remainders. Its main executable component theorem is:
+
+```lean
+Impl.pi2_language (f : Formula (Fin ap)) (hn : NNF f)
+  (hpi : Impl.classTag .pi2 f = true) (w : Word (Fin ap)) :
+  Inf (Impl.marks f w) ↔ Sat none w f 0
+```
+
+`pi2_complement` gives Fin acceptance on the same run. `pi2_parity` and
+`pi2_complement_parity` give Stage 1's one-set numeric min-even/max-odd
+languages. These do not identify that numeric table with C's global tree or
+its terminal shortcuts. All new main theorem dependency audits contain only
+`propext`, `Classical.choice`, and `Quot.sound` (some use fewer).
+
+This is a proved executable component milestone, not an automaton exporter or
+a completed C refinement. C transport/smart constructors, default recursive
+canonical tag refinement, class-level dual orientation, component sharing,
+grouped construction and the C-ordered global tree still need their executable
+bridges. In particular the reduction calls `dpa_buchi_create`, whose
+`seen_colours` round monitor also needs a simulation/language theorem before
+changing production admission. No C code, admission policy or golden
+expectation changes in these milestones.
 
 ### C ↔ Lean correspondence
 
