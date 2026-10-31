@@ -12,8 +12,9 @@ finite group goes (`src/lib/dpa_formula.c:597`).
 
 This module selects a concrete ordered plan from that syntax. Its canonical
 leaves execute the cached constructor; binary syntax nodes have no acceptance
-cache of their own. The frozen input here is the result of factoring; the
-imperative `factor_term` recursion is a separate bridge.
+cache of their own. The frozen input here is the result of factoring.
+`Impl/Factoring.lean` supplies the recursive traversal and composes it with
+this constructor.
 -/
 namespace Tlsf.Dpa.Impl
 open Formula

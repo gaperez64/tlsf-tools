@@ -516,9 +516,12 @@ Therefore `G(a∧b)=Ga∧Gb` and `F(a∨b)=Fa∨Fb`. Already compatible safety/c
 syntax is retained as one monitor; distributing inside it is unnecessary.
 Structural congruence permits
 replacement inside any NNF syntax context, including frozen modal operands.
-Hash-consing/memoization changes no formula. The recursion terminates because
-each distribution moves G/F onto strict Boolean subterms; ordinary recursive
-calls descend the syntax DAG. These are the **infinite-word semantic identities
+Hash-consing/memoization changes no formula. The executable proof in
+`Impl/Factoring.lean` uses leaf weight 1, unary weight twice the operand weight,
+and binary weight the operand sum plus 1. Smart construction respects these
+bounds and each distribution strictly decreases weight. The sufficient fuel
+bound also covers recursion on factored children and newly constructed terms;
+ordinary syntax size need not decrease. These are the **infinite-word semantic identities
 used for canonicalization in Stage 1 §1**, with component correctness and the
 final parity language supplied by **Stage 1 §4, §6 here, and §§4–5 here**.
 The original admission guard is evaluated first, as above.
@@ -622,7 +625,7 @@ test uses the folded class's equality with the Boolean identity.
 
 The executable checks include the review-k/l protected remainders and
 review-i's identity group, Büchi round/state split, and store/cache branches:
-68 checks pass both by kernel reduction and in
+149 checks pass both by kernel reduction and in
 `lake exe dpaImplChecks`. The offline dependency audit is
 `tools/golden/dpa_impl_audit.lean`; its dependencies are restricted to
 `propext`, `Classical.choice`, and `Quot.sound`.
@@ -638,22 +641,30 @@ plans, preserving intermediate index bounds and acceptance truth across
 store extensions. `assemble_presentation` and its Shannon and grouped
 instances give `ProductPresentation` for the returned store and indexed
 acceptance. Grouping uses the canonical folded-class identity guard, including
-the nonempty identity case. The reference fixes an explicit recursive call
-order; selecting the exact plan/order from C's materialized classes and
-frozen syntax is still open.
+the nonempty identity case. `Impl/Cache.lean` executes acceptance-cache hits,
+the top-atom call and either C Shannon argument order; `Impl/Grouping.lean`
+selects the frozen-syntax plans and executes recursive rest operands before
+the groups. `Impl/Transport.lean` proves decoded NNF/pending-X transport.
+Task T5 adds the actual recursive factoring traversal in `Impl/Factoring.lean`,
+including safety/co-safety early exits, smart constructors, inspection of
+newly exposed Boolean roots, recursive distributions and threaded per-term
+memo writes/hits. Its weight bound proves sufficient recursion fuel.
+`admitted_transport_factoring_presentation` composes these algorithms into a
+product presentation for each executable research-admitted input, with no
+assumed intermediate syntax or factoring-language premise.
 
-This does not yet provide that C constructor selection, the C
-transport and recursive default-tag refinements, a C-ordered tree/export, or
-the C↔Lean BFS goldens. Task T2 proves the state-based positive-Boolean Büchi
+This does not yet provide recursive default-tag refinement, the executable
+terminal shortcut, a C-ordered tree/export, or the C↔Lean BFS goldens.
+Task T2 proves the state-based positive-Boolean Büchi
 round encoding in `Impl/Buchi.lean`: the executable Shannon residual/reset
 monitor has infinitely many completed rounds iff its positive acceptance
 holds on recurrent colours. The incoming-mark state split, one-step delay,
 initial mark, and C's 0/1 max-odd priorities preserve that language, including
 constant acceptance. This proof does not require colours of a conjunction
-to occur simultaneously. Concrete constructor selection and the syntax
-bridge remain separate obligations. General admission stays research-only.
-The smallest remaining selection/transport lemma and why arbitrary valid
-plans and Boolean class equality do not imply it are recorded in
+to occur simultaneously. The Π₂-positive `buchi_syntax` selector and decoded
+C representation remain separate obligations. General admission stays
+research-only. The smallest remaining default-tag lemma and why structural
+frozen tags do not imply it are recorded in
 `proofs/README.md`.
 
 VERDICT: done (targeted Stage 2 grammar); Task T enablement remains open

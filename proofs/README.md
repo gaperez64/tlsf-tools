@@ -999,12 +999,51 @@ extensionally; raw BDD node identities remain a representation assumption.
 the grouped leaf guard and original-class fallback into a concrete product
 presentation. Its **explicit hypotheses** are NNF of both original and
 factored syntax and language equality of the supplied factored syntax with
-the original. This theorem does not compute or verify C's `factor_term`.
-The grouped selection milestone therefore stops at decoded factored syntax;
-it does not close the complete input-to-constructor bridge. Checks cover
+the original. This theorem takes the factored syntax separately; the Task T5
+traversal below now discharges these hypotheses. Checks cover
 both group argument orders, both Boolean operators, the review-i identity
 case, finite-before-safety partitioning, constant fast paths, fallback after
 an absorbed unsupported leaf, and unsupported declines.
+
+**Task T5, item 1 proved at the decoded-syntax boundary.**
+`Impl/Factoring.lean` models `src/lib/dpa_formula.c:524`, using the smart
+constructors of `src/lib/dpa_formula.c:254`. The executable retains compatible
+safety/co-safety syntax, factors children left before right, inspects the
+returned child's root, and recursively factors newly distributed G/∧ and F/∨
+syntax. `factorTerm_spec` proves that every successful bounded traversal
+returns NNF syntax with exactly the original infinite-word language at every
+position. The result is language equality, not canonical-class equality:
+distribution changes independent frozen modal atoms.
+
+`factorWeight` assigns weight 1 to leaves, twice the child's weight to unary
+nodes, and the sum of child weights plus 1 to binary nodes. Smart constructors
+do not increase those bounds. `factorDistribution_spec` proves strict weight
+decrease on a newly distributed term, and `factorTerm_success` proves that
+weight plus 1 is sufficient fuel, including recursion on returned syntax.
+Ordinary node count need not decrease. These statements concern successful
+decoded execution; they do not assert that C's resource budget always suffices.
+
+`factorCachedTerm` additionally threads the per-term memo through every child
+call, including writes before later sibling calls and recursion on distributed
+syntax. `lookupFactored_spec` uses frozen syntax keys, not Boolean class
+equality. `FactorMemo.remember_valid`, `factorCachedTerm_sound` and
+`factorCachedTerm_success` prove preservation of the memo invariant, NNF,
+language and the weight bound; empty memos satisfy the invariant.
+Numeric term IDs, the result-plus-one sentinel and the faithful decoding of
+hash-consed arena/memo cells remain representation assumptions.
+
+`runFactoring_presentation` now computes that memoized traversal and supplies
+its output to `runFactored_presentation`, retaining the original-class admission
+guard and fallback at `src/lib/dpa_formula.c:610`. The input theorem is
+`admitted_transport_factoring_presentation`: whenever the executable
+`transportedResearchCheck rank f` accepts, `runTransported` succeeds and its
+actual returned store/acceptance give `ProductPresentation f`. No assumed
+factored syntax, NNF proof or factoring-language hypothesis remains. This
+connects transport, factoring, grouped selection and cached construction;
+the concrete parity export and positive Büchi syntax selector remain separate.
+The new checks exercise both early exits, both distributions, newly exposed
+Boolean roots, all temporal binary reconstructions, constants, insufficient
+fuel, memo hits/misses and sibling reuse, and the composed input pipeline.
 
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
@@ -1014,23 +1053,23 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 141 dependency reports contain only the three permitted axioms; the ten
+All 163 dependency reports contain only the three permitted axioms; the eleven
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (66 Lake jobs). All 127
+library and `dpaImplChecks` with warnings as errors (68 Lake jobs). All 149
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-171 references / 129 anchored C/Lean targets pass. Both documentation gates
+179 references / 137 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3/T4.** These are proved executable
+**Current boundary for Task T/T2/T3/T4/T5.** These are proved executable
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
-Task T4 item 1's cache/order and grouped syntax selection are proved at
-the decoded factored-syntax boundary. The concrete factoring prerequisite
-still prevents claiming the entire input-to-constructor bridge. Its items
-2–4 remain open and item 5 is deliberately not enabled. The executable is a diagnostic, not a BFS automaton exporter; there is no matching
+Task T4 item 1's cache/order and grouped syntax selection are now composed
+with the decoded transport and memoized factoring traversal. Task T5 item 1
+is proved; items 2–5 remain open and item 6 is deliberately not enabled.
+The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
 unchanged at 2,986,929 bytes, including 541 DPA membership records; zero new
 automaton goldens were generated. Recorded corpus coverage remains 148/217
@@ -1039,29 +1078,29 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining constructor lemma is **the successful C-style
-`factor_term` traversal returns NNF frozen syntax with the original language**,
-then composing that traversal with `runFactored_presentation` and transport.
-The new grouped selector supplies the partition and recursive plans, and its
-cached executor supplies the actual rest-first colour allocation. It still
-takes the decoded factored syntax separately. The existing distribution
-lemmas prove individual G-over-conjunction and F-over-disjunction rewrites in
-arbitrary language contexts; they do not model the actual recursive traversal,
-its safety/co-safety early exits, smart constructors, newly exposed Boolean
-nodes and memo reuse. Moreover temporal distribution changes independent
-frozen atoms, so neither equality of canonical classes nor a replacement by
-`nnf_sat` proves this traversal. A sufficient structural termination argument
-must also cover recursive calls on newly constructed distributed syntax.
+The smallest remaining constructor lemma is **soundness of the default
+recursive canonical tag refinement and its caches** at
+`src/lib/dpa_formula.c:81`: each returned fragment bit must be justified by
+the recursively materialized operands, preserving the cache invariant across
+the pre-start safety/co-safety early exit and the `started` phase change.
+The current `classTag_exact` theorem intersects structural frozen-atom tags
+in research mode; it does not recurse inside modal operands. Reusing it for
+default mode is invalid because Boolean absorption inside a materialized
+operand can improve its tag while changing the independent frozen-atom
+class. Nor is a syntax induction alone a proof of the canonical-support
+recursion or its cached phase-dependent early exits. The resulting refined
+predicates must justify the component/extractor run on the actual frozen
+syntax, not merely exhibit an alternative language-equivalent formula.
 Cached NNF duals cannot be replaced by `Class.compl`, and an existential
 `admitted_grammar` witness does not identify the constructor trace.
 
 Further independent bridges remain: default recursive canonical tag
-refinement; concrete factoring and the terminal product shortcut; C's lexicographically ordered tree/export; and
+refinement; the terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
 state split, component-store preservation and explicit-plan assembly are now
-proved above. The concrete factoring bridge and the separate Π₂-positive
-`buchi_syntax` selector remain necessary to identify the reduction's positive acceptance
+proved above. The separate Π₂-positive `buchi_syntax` selector remains
+necessary to identify the reduction's positive acceptance
 with the transported input. The generic parity-oriented grouped selector
 above does not assert positivity of its acceptance in Büchi mode.
 C code, production admission, and the remaining trusted
@@ -1080,7 +1119,7 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
 | `src/lib/dpa_formula.c:254`, `:388`, `:394`, `:366` — smart constructors, pending-X transport, frozen materialization | `Impl.termBoolean_language`, `Impl.termUnary_language`, `Impl.wrapNext_language`, `Impl.transport_domain`, `Impl.transport_language`, `Impl.transport_nnf`, `Impl.transport_class_language`; numeric syntax-ID/memo refinement pending |
-| `src/lib/dpa_formula.c:524`, `:610` — factoring and branch guard | `distribute_G_context`, `distribute_F_context`, `Impl.runFactored_presentation`; concrete `factor_term` traversal pending |
+| `src/lib/dpa_formula.c:524`, `:610` — recursive factoring, memo reuse and original-class branch guard | `Impl.factorDistribution_spec`, `Impl.factorTerm_spec`, `Impl.factorTerm_success`, `Impl.factorCachedTerm_sound`, `Impl.factorCachedTerm_success`, `Impl.runFactoring_presentation`, `Impl.admitted_transport_factoring_presentation`; decoded syntax/memo |
 | `src/lib/dpa_formula.c:563`, `:583`, `:597` — grouped syntax selection, identity test and rest-first execution | `Impl.partitionSyntax_exact`, `Impl.orderedGroups_valid`, `Impl.orderedGroups_language`, `Impl.selectSyntaxPlan_success`, `Impl.runOrderedPlan_success`, `Impl.runSyntax_presentation`; decoded factored input |
 | `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
 | `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
@@ -1108,7 +1147,9 @@ numbers refer to the merged worktree's formatted sources.
   cancellation and failure propagation are also outside these Lean results.
 - **Canonical NNF representation.** The executable decoded-syntax traversal
   now proves NNF and the exact original language, including C's smart
-  constructors, constant folding and pending X placement. Its rank parameter
+  constructors, constant folding, pending X placement and recursive factoring.
+  Factoring's memo contents, writes and hits preserve the proved semantic
+  invariant. Its rank parameter
   abstracts permanent syntax IDs; hash-consing, pointer-memo keys, AP-name
   lookup, resource bounds and a representation refinement of successful C
   executions remain outside this theorem.

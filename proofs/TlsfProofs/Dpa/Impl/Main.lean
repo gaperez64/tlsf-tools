@@ -6,6 +6,7 @@ import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
 import TlsfProofs.Dpa.Impl.Cache
 import TlsfProofs.Dpa.Impl.Grouping
+import TlsfProofs.Dpa.Impl.Factoring
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -341,6 +342,70 @@ private def groupingChecks : List (String × Bool × Bool) := [
       (fun r => r.state.store.length) = some 1), true),
   ("grouping-unsupported-decline", (groupedRun true absorbedFrozen).isSome, false)]
 
+private def distributedG : Formula (Fin 2) :=
+  .globally (.conj (.eventually a) (.eventually b))
+
+private def factoredG : Formula (Fin 2) :=
+  .conj (.globally (.eventually a)) (.globally (.eventually b))
+
+private def distributedF : Formula (Fin 2) :=
+  .eventually (.disj (.globally a) (.globally b))
+
+private def factoredF : Formula (Fin 2) :=
+  .disj (.eventually (.globally a)) (.eventually (.globally b))
+
+private def factoringChecks : List (String × Bool × Bool) := [
+  ("factor-safety-early-exit", decide
+    (factorTerm transportRank 1 (.globally (.conj a b)) = some (.globally (.conj a b))), true),
+  ("factor-cosafety-early-exit", decide
+    (factorTerm transportRank 1 (.eventually (.disj a b)) = some (.eventually (.disj a b))), true),
+  ("factor-G-distribution", decide (factor transportRank distributedG = some factoredG), true),
+  ("factor-F-distribution", decide (factor transportRank distributedF = some factoredF), true),
+  ("factor-newly-exposed-Boolean", decide
+    (factor transportRank (.globally distributedG) = some
+      (.conj (.globally (.globally (.eventually a)))
+        (.globally (.globally (.eventually b))))), true),
+  ("factor-X-rebuilds-without-distribution", decide
+    (factor transportRank (.next distributedG) = some (.next factoredG)), true),
+  ("factor-U-children", decide
+    (factor transportRank (.until distributedG distributedF) = some (.until factoredG factoredF)), true),
+  ("factor-R-children", decide
+    (factor transportRank (.release distributedG distributedF) = some (.release factoredG factoredF)), true),
+  ("factor-W-children", decide
+    (factor transportRank (.weakUntil distributedG distributedF) = some (.weakUntil factoredG factoredF)), true),
+  ("factor-M-children", decide
+    (factor transportRank (.strongRelease distributedG distributedF) =
+      some (.strongRelease factoredG factoredF)), true),
+  ("factor-smart-constant", decide
+    (factor transportRank (.globally (.conj (.eventually a) (.conj .ff gf))) = some .ff), true),
+  ("factor-insufficient-fuel", (factorTerm transportRank 1 distributedG).isSome, false),
+  ("factor-memo-hit", decide
+    (factorCachedTerm transportRank 1 distributedG [(distributedG, factoredG)] =
+      some (factoredG, [(distributedG, factoredG)])), true),
+  ("factor-memo-frozen-syntax-key", decide
+    (lookupFactored (.disj a (.conj a b)) [(a, a)] = none), true),
+  ("factor-memo-miss", decide
+    ((factorCached transportRank distributedG []).map Prod.fst = some factoredG), true),
+  ("factor-cached-early-no-write", decide
+    (factorCached transportRank (.globally (.conj a b)) [] =
+      some (.globally (.conj a b), [])), true),
+  ("factor-sibling-memo-reuse", decide
+    ((factorCached transportRank (.until distributedG (.next distributedG)) []).map
+      (fun (_, memo) => (memo.filter (fun e => e.1 == distributedG)).length) = some 1), true),
+  ("factor-cached-zero-fuel", decide
+    (factorCachedTerm transportRank 0 distributedG [(distributedG, factoredG)] = none), true),
+  ("factor-cached-newly-exposed-Boolean", decide
+    ((factorCached transportRank (.globally distributedG) []).map Prod.fst = some
+      (.conj (.globally (.globally (.eventually a)))
+        (.globally (.globally (.eventually b))))), true),
+  ("factor-changes-frozen-class", equivalent distributedG factoredG, false),
+  ("factor-original-admission-still-required", decide
+    (runFactoring transportRank (fun _ => true) (fun _ => true) false
+      absorbedFrozen emptyAcceptance = none), true),
+  ("factor-transport-to-constructor", (runTransported transportRank (fun _ => true)
+    (fun _ => true) false (.neg (.eventually
+      (.disj (.neg (.eventually a)) (.neg (.eventually b))))) emptyAcceptance).isSome, true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -372,11 +437,14 @@ theorem cache_checks : cacheChecks.all (fun (_, actual, expected) => actual == e
 theorem grouping_checks : groupingChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem factoring_checks : factoringChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

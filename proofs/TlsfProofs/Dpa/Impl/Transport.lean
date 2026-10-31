@@ -24,7 +24,7 @@ namespace Tlsf.Dpa.Impl
 open Formula
 variable {ap : Nat}
 
-private def orderedBoolean (op : Bool) (a b : Formula (Fin ap)) : Formula (Fin ap) :=
+def orderedBoolean (op : Bool) (a b : Formula (Fin ap)) : Formula (Fin ap) :=
   if a = b then a else
   match a with
   | .ff => if op then .ff else b

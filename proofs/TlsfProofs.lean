@@ -17,3 +17,4 @@ import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
 import TlsfProofs.Dpa.Impl.Cache
 import TlsfProofs.Dpa.Impl.Grouping
+import TlsfProofs.Dpa.Impl.Factoring
