@@ -453,7 +453,9 @@ compute over finite colour vectors. `buildTree` and the executable use the
 same definitions as the theorems; no classical decision procedure runs in the
 construction. The round monitor exports its incoming mark as state acceptance.
 
-Parity uses the general research domain. The Büchi conclusion requires
+Parity uses the executable canonical structural research domain. Its full
+connection to C admission, including factoring and default-only frozen-operand
+absorption examples, has not been certified. The Büchi conclusion requires
 positive acceptance, checked executably by `positiveb`. This restriction is
 necessary: general parity admission includes `F G a`, which has no complete
 deterministic Büchi recognizer. C's reduction uses a positive Π₂ grammar.
@@ -552,7 +554,7 @@ remain outside the language theorems.
 | `TlsfProofs/Dpa/Classes.lean:596` | `noncomputable def rho (x : Class ap) : Class ap` |
 | `TlsfProofs/Dpa/Converse.lean:35` | `inductive Pi2 : Formula α → Prop where` |
 | `TlsfProofs/Dpa/GeneralConverse.lean:862` | `theorem general_pi2_language (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)` |
-| `src/lib/dpa.c:246` | `c->max_priority = (c->components.n + 2) | 1u;` |
+| `src/lib/dpa.c:246` | `c->max_priority = (c->components.n + 2) \| 1u;` |
 | `src/lib/dpa.c:300` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
 | `src/lib/dpa.c:510` | `if (!c->started) {` |
 | `src/lib/dpa.c:536` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
@@ -657,3 +659,35 @@ regressions finish in under one second after storing Floyd layers as array
 data. Lean sources now total **12,660 lines in 35 files**, compared with
 18,290 / 45 before pruning. Translation-validation corpus: **0 pass / 0 fail /
 not run**. Existing goldens remain 2,986,929 bytes.
+
+Final source census for this delivery: **18,699 → 12,679 tracked Lean lines**
+(including the offline audit), or **18,290 → 12,660** under `proofs/` alone.
+The full requested first milestone remains partial: the symbolic language
+composition is proved, but a certified finite exported automaton and the full
+C-admission connection remain open. Milestone 2 (sound finite-automaton
+checkers) is proved. Milestones 3–4 and enablement are unimplemented. No
+formula has been silently enabled or declared validated.
+
+The next proof target is **sound finite export**: if an executable exporter
+returns a closed finite table for `r.parity` (or `r.buchi`), the table must
+recognize exactly that machine's language. The exporter must merge formula
+representatives by the proved Boolean class equality and preserve priorities
+under that relation. A syntactic BFS is insufficient: equivalent formulas can
+keep growing syntactically, while `finite_component_states` bounds semantic
+classes only. This proof must precede using the finite checker against a C dump.
+Afterward the offline driver must retain the formula and AP order, validate
+every required case in both admissions, and bind successful results to
+canonical C hashes before the reduction's admission can change.
+
+The final clean rebuild removed all old `.lake` artifacts, rebuilt 72 jobs
+successfully with warnings as errors, and reran all 21 executable checks
+without failures. No deleted module was needed.
+
+Final serial C/CI regression run: **8/8 passed** (`dpa_contract`,
+`dpa_equivalence`, `dpa_buchi_goldens`, `dpa_equivalence_research`,
+`dpa_stage2`, `proof_source_references`, `no_external_oracles`, and
+`golden_provenance`). No C implementation or golden expectation changed.
+Coverage remains recorded as default **148 → 148/217** and research
+**155 → 155/217**, not remeasured; enabling and its required fresh coverage
+measurement have not occurred. All milestones in this delivery are committed,
+with the requested trailers, and nothing is pushed.
