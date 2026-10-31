@@ -213,3 +213,157 @@ After recording clean CI coverage, the relocated tools-only full-language DPA
 oracle was built separately and passed the handwritten, 72-formula random and
 360-formula Delta₂ corpora, with a 60-second cap per batch. It remains outside
 Meson and CI.
+
+## Phase 2: native reduction monitors (Task R)
+
+The reduction now uses the in-house DPA component construction. Safety and
+co-safety use Stage 1; recurrence uses the proved Stage 2 breakpoint grammar
+and `HasTag Pi2`. Positive Boolean combinations use a deterministic Büchi
+round: remember the residual positive acceptance formula after setting colours
+seen in the round to true, then reset on completion. Infinitely many completed
+rounds are equivalent to the original positive Boolean formula over infinitely
+recurring colours. The incoming round mark is remembered in the state, as
+required by the existing one-hot game encoder. The finite initial mark can be
+chosen accepting to avoid an extra latch in common safety/response monitors.
+The general parity construction retains its existing behavior.
+
+C++ remains for the existing JSON/provenance, containers and signature code.
+Formula values now own native AST views. Propositional comparisons use the
+in-house symbolic classes; temporal provenance comparisons use the proved DPA
+and an exact max-odd SCC emptiness check. Normalized provenance preserves
+semantic constants and `G(a R b) = G(b)`, while recording the original
+construction formula separately. Exact/strict encoding and the lifting
+implementations are unchanged. The production reducer always passes the
+zero-initialized, proved admission policy. The diagnostic inventory alone
+measures `allow_unproved`; it does not enable it in the reducer.
+
+The public API and four profiling stages remain unchanged. State limits bound
+DPA discovery and all one-hot latches. A failed state expansion reports the
+first excluded state as a lower bound; edge counts report materialized complete
+rows, so an edge limit can be crossed by one complete row. Deadlines,
+cancellation and RSS checks run cooperatively during symbolic work. Completed
+monitors retain only their exported label DAG and names, releasing each
+symbolic manager before constructing the next conjunct. The legacy
+`fallback_monitor_count` metadata field remains present and is zero.
+
+No library/default-Meson dependency, include or test oracle requires Spot.
+Meson no longer
+queries `libspot`, and `tlsf.pc` no longer requires it. The standalone example
+is no longer registered with Meson. Existing external-driver commands and
+historical format/route names remain product data for phase 3.
+
+### Explicit expectation changes
+
+Only **14 native reduction cases** (the seven specifications below, in both
+exact and strict mode) change successful expectations to
+`TLSF_GR1_REDUCE_UNSUPPORTED`. Successful reference artifacts were not
+regenerated. `provenance.json` archives each replaced group, its reason and its
+old monitor sizes. The provenance gate reconstructs the complete phase-1
+payload and checks its original SHA-256, which also proves that every other
+expectation is unchanged. Legacy backend diagnostics are checked by status
+and category: native grammar/AP diagnostics replace the retired hierarchy and
+parser wording, while their historical messages remain in the payload.
+
+| Specification | Declined conjunct | Old monitor states | Reason |
+| --- | --- | ---: | --- |
+| `bounded_until.tlsf` | `G(go -> (p U q))` | 3 | U in a G body is outside the proved finite-window/F(window) grammar. |
+| `definition-future.tlsf` | `G(p <-> F q)` | 4 | NNF polarity mixes F and G obligations in the body. |
+| `delayed-definition-future.tlsf` | `G(X p <-> F q)` | 6 | The same mixed body, with a delayed output. |
+| `ident_m_function.tlsf` | `G(b U (a & b))` | 3 | Until/strong-release beneath G is outside the proved body grammar. |
+| `normalization_sickert2.tlsf` | `G(req -> (a U G F p))` | 5 | Nested U/GF is outside proved admission; research admission also declines it without the required syntactic Pi2 tag. |
+| `precedence_v12.tlsf` | `(a U b) W c` | 5 | Weak until contains a liveness obligation, outside the proved components. |
+| `route_norm_xgf.tlsf` | `X G F g` | 2 | X surrounds a recurrence component; default admission does not admit that wrapper. |
+
+The decomposition suite changes **nine admission expectations** from success
+to unsupported, retaining all independently recorded realizability verdicts:
+`G(p <-> F q)` (four observations, old size 4), `G(X p <-> F q)` (one,
+old size 6), `G(X X p <-> F q)` (one, old size **9**), and
+`G(F q -> F p)` (three, old size **4**). These changes and the original payload
+hash are also archived in `provenance.json`. Their mixed-polarity G bodies are
+outside the proved grammar. No other golden expectation changes.
+
+The wider inventory also declines the spare, currently unregistered
+`test/oracle/env_lift_capacity.tlsf`: its master clause is
+`G(r_m -> X((AND_i !g_i) U g_m))`, whose old monitor had **4 states**. The
+unbounded until beneath G/X is outside the proved body grammar. This does not
+change a registered golden; the active capacity test uses `env_lift_one.tlsf`.
+
+### Corpus inventory
+
+The inventory contains **217 checked-in TLSF files**: every file under `bench/`
+and `test/`, including the spare capacity fixture. Both binaries use the same
+sources, exact semantics, a 10,000-state cap, a 16 MiB artifact cap, and a
+20-second process deadline. There are no censored timeouts. The baseline binary
+is the phase-1 build at `cf33da9`; the rewritten binary is from a fresh build
+configured with `PKG_CONFIG_PATH` unset, where `pkg-config --exists libspot`
+fails.
+
+| Corpus | Specs | Before | Proved default | Research admission/expansion |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/` | 6 | 1 | 1 | 1 |
+| `test/fixtures/cases/` | 198 | 142 | 135 | 141 |
+| `test/fixtures/gr1_monitor_game/` | 6 | 6 | 6 | 6 |
+| `test/fixtures/arbiter_simple.tlsf` | 1 | 1 | 1 | 1 |
+| `test/oracle/` | 6 | 6 | 5 | 6 |
+| **Total** | **217** | **156** | **148** | **155** |
+
+The default loses **8/156 previously handled specs (5.1%)**. Research admission
+recovers seven of those eight, leaving only `normalization_sickert2.tlsf`
+declined; it remains disabled in production. Before/after invalid-input counts
+remain **15**; unsupported counts change **46 -> 54**. Excluding the unused
+capacity fixture, the static inventory is **155 -> 148 / 216**.
+The frozen exact/strict reduction suite is **320 -> 306 / 436 successes**,
+with **100 unsupported** and **30 invalid-input** outcomes after the rewrite.
+All six monitor-game specifications and all 13 lift dispositions remain intact.
+
+Across the **148 retained successes**, total monitor states change
+**1,215 -> 1,231**. The per-specification state counts, declines, source hashes
+and research results are recorded in `tools/analysis/nospot-phase2.json`.
+Reproduce the inventory, one heavy job at a time:
+
+```sh
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  python3 tools/analysis/gr1_corpus.py BUILD OUTPUT.json
+# Pass the same 217 paths to the diagnostic, not to the production reducer:
+find bench test -name '*.tlsf' -print0 | sort -z | \
+  systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+    xargs -0 BUILD/test/unit/gr1_admission
+```
+
+The added `dpa_buchi_goldens` test checks all 541 frozen DPA formulas: **313**
+admitted formulas each pass all **512** reference words (**160,256** additional
+Büchi membership checks); **228** are declined. It also independently enumerates
+all valuations of every expanded state's transition partition. Existing native
+language memberships, component memberships, native verdicts, certificate and
+controller mutation checks remain registered. Native snapshot comparisons now
+allow state encodings to differ while checking their word languages, ownership,
+source bindings, roles and symmetric signatures against the unchanged payloads.
+
+### Phase-2 validation recorded on 2026-10-31
+
+The fresh research/coverage build passed **386/386 tests**, including the new
+Büchi corpus check, with no timeouts. The complete source-tree clang-format
+**22.1.8** check passed. Coverage counters were removed after compilation and
+before the full suite. The CI source filters, with the current build directory
+selected to exclude the retired baseline build's counters, report:
+
+| CI metric | Phase 1 | Phase 2 |
+| --- | --- | --- |
+| Lines | 82.0% (23,741/28,945) | **82.2% (24,205/29,430)** |
+| Functions | 95.8% (1,356/1,415) | **96.0% (1,388/1,446)** |
+| Branches | 58.3% (19,729/33,828) | **58.7% (20,374/34,707)** |
+
+A second fresh build used **`research_tools=false`, C++23**, and no
+`PKG_CONFIG_PATH`. All targets compiled, and **5/5 focused tests** passed:
+C reduction limits, all 436 reduction goldens, all 13 lift cases, source layout,
+and the no-external-oracle/dependency guard. `ldd` on the C++23 public client
+contains neither the former backend nor its BDD runtime. Generated `tlsf.pc`
+requires only `yyjson` privately, with the existing OxiDD/platform/C++ link
+libraries. `bench/bench.sh --build build-r --runs 3 --check` passed all six
+benchmark inputs without a regression.
+
+All compilation, tests, inventory, benchmark and coverage work ran serially in
+`systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0`, with at most
+two build/test workers. The complete golden directory, including archived
+phase-1 expectations and this note, is **2947504 bytes**, below its original
+**4,629,524-byte** cap. No successful golden data was regenerated.
