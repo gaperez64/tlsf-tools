@@ -464,7 +464,8 @@ are identified explicitly; they are not premises of the language equalities.
 | STAGE2 §6.5: full G(q) converse | `flat_global_language` | Checked: Inf(marks G(q)) iff satisfaction of G(q); no false-seed premise remains |
 | STAGE2 §6.5: dual F(r) | `flatR_dual`, `flat_eventual_language` | Checked: Fin(marks G(bar(r))) iff satisfaction of F(r), on the identical complete run |
 | STAGE2 §8: assembled admitted grammar | `ProductPresentation`, `admitted_product`, `presentation_parity`, `admitted_grammar` | Checked: a fixed finite component product and covered global tree recognize every admitted formula in both parity orientations |
-| STAGE2 §9.1: grouping and unchanged admission | `booleanFold_sat`, `compatibleGroups_sat`, `compatibleGroups_admitted`, `compatibleGroups_parity`, `check_admission_exact`, `groupable_all_leaves`, `factoring_admission_exact` | Checked semantic grouping, grammar closure, both parity languages, original decision domain and fallback; imperative DAG/memo/status bridge trusted |
+| STAGE2 §9.1: C's canonical-class grouping condition | `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `nonempty_cosafety_identity`, `compatibleGroups_sat`, `compatibleGroups_admitted`, `compatibleGroups_parity` | Checked: finite operands join co-safety exactly when its folded canonical class differs from the Boolean identity; grammar closure and both parity languages |
+| STAGE2 §9.1: canonical admission and grouped constructor success | `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `canonicalCheck_product`, `factoring_grouped_parity` | Checked conservative support domain, actual recursive canonical calls on remaining operands and both groups, failure propagation, original fallback, exact success domain and language preservation; factoring equivalence is explicit; C representation/status bridge trusted |
 | STAGE2 §9.2: G/∧ and F/∨ distributions | `distribute_G_conj`, `distribute_F_disj`, `distribute_G_context`, `distribute_F_context` | Checked for every infinite word and arbitrary syntax context, including under frozen modalities; C traversal bridge trusted |
 | STAGE2 §9.3: terminally decided products | `terminal_all_marks`, `terminal_recurrent_colour`, `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` | Checked constant substitution in fixed β, complemented occurrences, absorbing priorities P/P−1 and arbitrary entering/finite-prefix priorities |
 | STAGE2 §9.4: current-AP care traversal | `restrictCurrent`, `unfoldCare`, `unfolding_care_exact`, `unfolding_syntax_care_exact`, `unfolding_care_root`, `care_finite_return`, `care_frozen_next`, `care_shannon`, `care_modal_shannon` | Checked syntax/class reference care, current AP branch recombination and frozen X; imperative DAG order/memo-key bridge trusted |
@@ -479,7 +480,9 @@ numbers refer to the merged worktree's formatted sources.
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
 | `src/lib/dpa_formula.c:81`, `:117`, `:126`, `:156` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
-| `src/lib/dpa_formula.c:188`, `:504`, `:551` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `groupable_all_leaves`, `factoring_admission_exact` |
+| `src/lib/dpa_formula.c:188`, `:504`, `:551` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
+| `src/lib/dpa_formula.c:562`, `:596` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
+| `src/lib/dpa_formula.c:582`, `:616`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
 | `src/lib/dpa_formula.c:393`, `:523`, `:609` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; C traversal bridge trusted |
 | `src/lib/dpa_formula.c:638`, `:850` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
 | `src/lib/dpa_formula.c:674`, `:735`, `:791` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
@@ -519,11 +522,23 @@ numbers refer to the merged worktree's formatted sources.
 
 - **Refinement algorithms.** §9 is proved for semantic reference algorithms:
   the canonical admission decision tree, exhaustive Boolean syntax leaf guard,
-  grouped formula folds, terminal truth substitution, current-AP restriction
-  and tag bounds. Identifying these with the C shared DAGs, owned IDs, AP order,
+  recursive grouped construction with canonical-class identity tests, terminal
+  truth substitution, current-AP restriction and tag bounds. `canonicalCheck`
+  tests exact support for the proved `Admitted` component grammar;
+  `canonicalCheck_shannon` proves the original supported-atom/cofactor recursion,
+  and `canonicalCheck_product` constructs a correct semantic product even for
+  canonically absorbed unsupported syntax. The syntax constructor returns an
+  optional formula denoting its acceptance language, rather than C colour IDs.
+  Its `whole` parameter supplies C's whole-class fast-path test; the success and
+  language results hold for every such test. Its structural fuel bound is
+  `sizeOf(factored)+1` and is proved sufficient, not assumed to succeed.
+  Identifying these with the C shared DAGs, owned IDs, AP order,
   memo epochs/cubes, cancellation, budgets and failure statuses remains a C
   refinement obligation. Resource failures are excluded from the admission
-  success equivalence, as in the Markdown.
+  success equivalence, as in the Markdown. These concrete constructor/language
+  results concern conservative admission. `check_admission_exact` remains
+  mode-independent; extending the concrete model to `allow_unproved` Π₂/Σ₂
+  does not supply the missing general component language theorem.
 
 Ancillary obligations retained from the earlier audit are the fixed-input
 finite reachable-class closure theorem, the literal STAGE1 GF extractor
@@ -534,10 +549,38 @@ none of those ancillary statements is used as an unproved premise.
 
 ### Findings in the natural-language proofs
 
-No mathematical counterexample, invalid step or missing hypothesis was found
-in the requested §§5–9 semantic claims. No corrected language statement was
-needed. The remaining distinctions below concern proof organization and C
-correspondence, rather than a weakening of the result:
+The requested §§5–9 language claims hold on the stated proved domain.
+The §9.1 grouping rule needed correction, and its earlier Lean admission
+audit omitted a constructor-success obligation:
+
+- **§9.1 grouping condition.** Both the Markdown's former “C is nonempty”
+  rule and Lean's former `C ≠ []` branch differed from C at
+  `src/lib/dpa_formula.c:596`. C compares the folded canonical co-safety
+  class with the outer operator's Boolean identity. For conjunction,
+  `τ = F q ∨ (p ∨ ¬p)` is a co-safety operand whose class is true, despite
+  `[τ]` being nonempty (`nonempty_cosafety_identity`). With safety operand
+  `G s`, finite operand `p`, and remaining operand `GF r`, C therefore joins
+  `p` to `G s`; the old rule joined it to `τ`. Both preserve language but
+  choose different components. The reference and STAGE2-PROOF §9.1 now use
+  C's canonical-class comparison for both Boolean operators.
+- **§9.1 constructor success.** The former `factoredAdmission` returned
+  `true` unconditionally after a successful grouping guard. Its theorem
+  proved only the outer control-flow identity, not success of C's
+  `syntax_acceptance` call at `src/lib/dpa_formula.c:616`. The replacement
+  propagates optional failures from recursive remaining syntax and canonical
+  acceptance of both grouped classes. `syntaxAcceptance_success` proves all
+  these calls succeed under the exhaustive leaf guard; original admission,
+  exact factoring and that guard imply successful grouped construction with
+  the original language (`factoring_grouped_success`), including an exact
+  complete product and both parity orientations (`factoring_grouped_parity`).
+  `factoring_admission_exact` also covers the original fallback and rejection.
+  Thus there is no counterexample under all three hypotheses in the
+  conservative semantic model. Original admission alone cannot justify
+  visiting canonically absorbed unsupported syntax; the leaf guard remains
+  necessary for this implication. Language preservation explicitly requires
+  factoring equivalence, while success-domain preservation does not.
+
+The other distinctions concern proof organization and C correspondence:
 
 - §5 is proved by tree induction. Infinite depth-zero anchors force ordinary
   rotation through every child (`rotation_visits`); otherwise a finite prefix
@@ -577,4 +620,7 @@ product language, full tree min-even/max-odd equivalence, flat G/F languages,
 eventual false seeds, admitted grammar and §9 refinements contain only `propext`,
 `Classical.choice` and `Quot.sound`. The existing 5 GiB cgroup was retained,
 `LEAN_NUM_THREADS=1` was set for every build, and only one Lean process ran at
-a time. No commits were created.
+a time. All seven Dpa modules were also re-elaborated serially with warnings
+treated as errors. The new grouping, canonical support, recursive constructor,
+success-domain and grouped product/parity theorems were included in the
+dependency audit.

@@ -32,9 +32,34 @@ theorem booleanFold_cosafety (op : Bool) (hc : ∀ f, f ∈ fs → cosafety f) :
   | nil => cases op <;> trivial
   | cons f fs ih => cases op <;> exact ⟨hc f (by simp),ih (fun g hg => hc g (by simp [hg]))⟩
 
-def compatibleGroups (op : Bool) (S C B T : List (Formula α)) : List (Formula α) :=
-  if C = [] then booleanFold op (S++B) :: booleanFold op C :: T
+def booleanIdentity (op : Bool) : Formula α := if op then .tt else .ff
+
+/-- C compares the materialized co-safety class with the Boolean identity,
+not the operand list with the empty list. -/
+def compatibleGroups (op : Bool) (S C B T : List (Formula (Fin ap))) : List (Formula (Fin ap)) :=
+  if Class.ofFormula (booleanFold op C) = Class.ofFormula (booleanIdentity op) then
+    booleanFold op (S++B) :: booleanFold op C :: T
   else booleanFold op S :: booleanFold op (C++B) :: T
+
+theorem compatibleGroups_identity (op : Bool) (S C B T : List (Formula (Fin ap)))
+    (h : Class.ofFormula (booleanFold op C) = Class.ofFormula (booleanIdentity op)) :
+    compatibleGroups op S C B T = booleanFold op (S++B) :: booleanFold op C :: T := by
+  simp only [compatibleGroups,h,↓reduceIte]
+
+theorem compatibleGroups_nonidentity (op : Bool) (S C B T : List (Formula (Fin ap)))
+    (h : Class.ofFormula (booleanFold op C) ≠ Class.ofFormula (booleanIdentity op)) :
+    compatibleGroups op S C B T = booleanFold op S :: booleanFold op (C++B) :: T := by
+  simp only [compatibleGroups,h,↓reduceIte]
+
+/-- A nonempty co-safety list can fold to the conjunction identity. -/
+theorem nonempty_cosafety_identity (p q : Fin ap) :
+    cosafety (.disj (.eventually (.ap q)) (.disj (.ap p) (.neg (.ap p)))) ∧
+      Class.ofFormula (booleanFold true [.disj (.eventually (.ap q)) (.disj (.ap p) (.neg (.ap p)))]) =
+        Class.ofFormula (booleanIdentity true) := by
+  refine ⟨⟨trivial,⟨trivial,trivial⟩⟩,?_⟩
+  apply Class.ext; intro σ
+  change propEval σ _ = propEval σ _
+  cases hp : σ (.ap p) <;> simp [booleanFold,booleanIdentity,propEval,hp]
 
 theorem booleanFold_append_sat (op : Bool) (xs ys : List (Formula α)) (w : Word α) (n : Nat) :
     Sat none w (booleanFold op (xs++ys)) n ↔
@@ -45,12 +70,14 @@ theorem booleanFold_append_sat (op : Bool) (xs ys : List (Formula α)) (w : Word
   | cons f fs ih => cases op <;> simp [booleanFold,Sat,InRange,ih,and_assoc,or_assoc]
 
 /-- Associativity, commutativity and identity justify grouping at either
-outer Boolean operator. The finite group is assigned to C when C is nonempty. -/
-theorem compatibleGroups_sat (op : Bool) (S C B T : List (Formula α)) (w : Word α) (n : Nat) :
+outer Boolean operator. Finite operands join C exactly when its folded
+canonical class differs from the identity. -/
+theorem compatibleGroups_sat (op : Bool) (S C B T : List (Formula (Fin ap))) (w : Word (Fin ap)) (n : Nat) :
     Sat none w (booleanFold op (compatibleGroups op S C B T)) n ↔
       Sat none w (booleanFold op (S++C++B++T)) n := by
-  cases op <;> by_cases hC : C = [] <;>
-    simp [compatibleGroups,hC,booleanFold,Sat,InRange,booleanFold_append_sat,and_assoc,or_assoc]
+  unfold compatibleGroups
+  split <;> cases op <;>
+    simp [booleanFold,Sat,InRange,booleanFold_append_sat,and_assoc,or_assoc,and_left_comm,or_left_comm]
 
 /-- Grouped components have both language inclusions by Stage 1, and their
 fixed product/global parity construction is exact by §8. -/
@@ -120,15 +147,396 @@ theorem groupable_all_leaves (leaf : Formula α → Bool) (f : Formula α) :
   | conj f g ih ih' | disj f g ih ih' => simp [groupableSyntax,booleanLeaves,ih,ih',or_imp,forall_and]
   | _ => simp [groupableSyntax,booleanLeaves]
 
-/-- On successful resource-bounded execution, failure of the grouping guard
-falls back to the original admission recursion; it never expands its domain. -/
-def factoredAdmission (d : AdmissionDecision) (groupable : Bool) : Bool :=
-  if d.check then (if groupable then true else d.check) else false
+/-- Conservative canonical-support admission: every supported atom has a
+proved component grammar. Unsupported syntax absorbed by the Boolean class
+is irrelevant. This is the semantic success domain of canonical acceptance;
+the C decision-DAG/NNF representation bridge is still required. -/
+def canonicalCheck (f : Formula (Fin ap)) : Bool :=
+  decide (HasTag Admitted (Class.ofFormula f))
 
-theorem factoring_admission_exact (d : AdmissionDecision) (groupable : Bool) :
-    factoredAdmission d groupable = true ↔ d.domain := by
-  rw [← check_admission_exact]
-  cases h : d.check <;> cases groupable <;> simp [factoredAdmission,h]
+/-- A successful canonical call recognizes its input class. The returned
+formula denotes that acceptance language, rather than a C colour ID. -/
+def canonicalAcceptance (f : Formula (Fin ap)) : Option (Formula (Fin ap)) :=
+  if canonicalCheck f then some f else none
+
+theorem canonicalCheck_safety (h : safety f) : canonicalCheck f = true := by
+  exact decide_eq_true (fun a ha => Admitted.safety (formula_safety_tag f h a ha))
+
+theorem canonicalCheck_cosafety (h : cosafety f) : canonicalCheck f = true := by
+  exact decide_eq_true (fun a ha => Admitted.cosafety (formula_cosafety_tag f h a ha))
+
+theorem boolean_uses (op : Bool) (f g : Formula (Fin ap))
+    (h : Uses (Class.ofFormula (if op then .conj f g else .disj f g)) a) :
+    Uses (Class.ofFormula f) a ∨ Uses (Class.ofFormula g) a := by
+  apply Classical.byContradiction; intro hn
+  have hf : ¬Uses (Class.ofFormula f) a := fun ha => hn (Or.inl ha)
+  have hg : ¬Uses (Class.ofFormula g) a := fun ha => hn (Or.inr ha)
+  obtain ⟨σ,b,hb⟩ := h
+  apply hb
+  have he := not_uses hf σ b
+  have he' := not_uses hg σ b
+  cases op <;> change propEval _ _ = propEval _ _ at he he' ⊢ <;>
+    simp only [Bool.false_eq_true,↓reduceIte,propEval,he,he']
+
+theorem canonicalCheck_boolean (op : Bool) (hf : canonicalCheck f = true)
+    (hg : canonicalCheck g = true) :
+    canonicalCheck (if op then .conj f g else .disj f g) = true := by
+  simp only [canonicalCheck,decide_eq_true_eq] at hf hg ⊢
+  exact fun a ha => (boolean_uses op f g ha).elim (hf a) (hg a)
+
+theorem canonicalCheck_admitted (h : Admitted f) : canonicalCheck f = true := by
+  induction h with
+  | safety hs => exact canonicalCheck_safety hs
+  | cosafety hc => exact canonicalCheck_cosafety hc
+  | global hq =>
+    apply decide_eq_true; intro a ha
+    have hm := uses_in_bound (fun σ τ hh => propEval_local _ σ τ hh) ha
+    have he := List.mem_singleton.mp hm
+    exact he ▸ Admitted.global hq
+  | eventual hr =>
+    apply decide_eq_true; intro a ha
+    have hm := uses_in_bound (fun σ τ hh => propEval_local _ σ τ hh) ha
+    have he := List.mem_singleton.mp hm
+    exact he ▸ Admitted.eventual hr
+  | conj _ _ ih ih' => exact canonicalCheck_boolean true ih ih'
+  | disj _ _ ih ih' => exact canonicalCheck_boolean false ih ih'
+
+theorem canonicalCheck_fold (op : Bool) (hf : ∀ f, f ∈ fs → canonicalCheck f = true) :
+    canonicalCheck (booleanFold op fs) = true := by
+  induction fs with
+  | nil => apply canonicalCheck_safety; cases op <;> trivial
+  | cons f fs ih => exact canonicalCheck_boolean op (hf f (by simp)) (ih (fun g hg => hf g (by simp [hg])))
+
+theorem groupable_canonical (f : Formula (Fin ap))
+    (h : groupableSyntax canonicalCheck f = true) : canonicalCheck f = true := by
+  induction f with
+  | conj f g ih ih' => exact canonicalCheck_boolean true (ih (Bool.and_eq_true_iff.mp h).1) (ih' (Bool.and_eq_true_iff.mp h).2)
+  | disj f g ih ih' => exact canonicalCheck_boolean false (ih (Bool.and_eq_true_iff.mp h).1) (ih' (Bool.and_eq_true_iff.mp h).2)
+  | _ => exact h
+
+/-- Only siblings with the selected operator are flattened. -/
+def flattenOperands (op : Bool) : Formula α → List (Formula α)
+  | .conj f g => if op then flattenOperands op f ++ flattenOperands op g else [.conj f g]
+  | .disj f g => if op then [.disj f g] else flattenOperands op f ++ flattenOperands op g
+  | f => [f]
+
+theorem flattenOperands_sat (op : Bool) (f : Formula α) (w : Word α) (n : Nat) :
+    Sat none w (booleanFold op (flattenOperands op f)) n ↔ Sat none w f n := by
+  induction f with
+  | conj f g ih ih' | disj f g ih ih' =>
+    cases op <;> simp [flattenOperands,booleanFold_append_sat,ih,ih',booleanFold,Sat,InRange]
+  | _ => cases op <;> simp [flattenOperands,booleanFold,Sat,InRange]
+
+theorem flattenOperands_guard (op : Bool) (f : Formula α)
+    (h : groupableSyntax leaf f = true) (hg : g ∈ flattenOperands op f) :
+    groupableSyntax leaf g = true := by
+  induction f with
+  | conj f f' ih ih' | disj f f' ih ih' =>
+    cases op <;> simp only [flattenOperands,Bool.false_eq_true,↓reduceIte] at hg
+    all_goals first
+      | exact (List.mem_singleton.mp hg) ▸ h
+      | exact (List.mem_append.mp hg).elim (ih (Bool.and_eq_true_iff.mp h).1) (ih' (Bool.and_eq_true_iff.mp h).2)
+  | _ => exact (List.mem_singleton.mp hg) ▸ h
+
+theorem flattenOperands_size [SizeOf α] (op : Bool) (f : Formula α) (hg : g ∈ flattenOperands op f) :
+    sizeOf g ≤ sizeOf f := by
+  induction f with
+  | conj f f' ih ih' | disj f f' ih ih' =>
+    cases op <;> simp only [flattenOperands,Bool.false_eq_true,↓reduceIte] at hg
+    all_goals first
+      | exact (List.mem_singleton.mp hg) ▸ Nat.le_refl _
+      | rcases List.mem_append.mp hg with hg | hg
+        · have hh := ih hg; simp only [Formula.conj.sizeOf_spec,Formula.disj.sizeOf_spec]; omega
+        · have hh := ih' hg; simp only [Formula.conj.sizeOf_spec,Formula.disj.sizeOf_spec]; omega
+  | _ => exact (List.mem_singleton.mp hg) ▸ Nat.le_refl _
+
+structure OperandGroups (ap : Nat) where
+  S : List (Formula (Fin ap))
+  C : List (Formula (Fin ap))
+  B : List (Formula (Fin ap))
+  T : List (Formula (Fin ap))
+
+/-- Finite, then safety, then co-safety, exactly the order of C's syntax tags. -/
+def partitionOperands (fs : List (Formula (Fin ap))) : OperandGroups ap :=
+  ⟨fs.filter (fun f => decide (¬finite f ∧ safety f)),
+   fs.filter (fun f => decide (¬finite f ∧ ¬safety f ∧ cosafety f)),
+   fs.filter (fun f => decide (finite f)),
+   fs.filter (fun f => decide (¬finite f ∧ ¬safety f ∧ ¬cosafety f))⟩
+
+theorem partitionOperands_mem (fs : List (Formula (Fin ap))) :
+    f ∈ (partitionOperands fs).S ++ (partitionOperands fs).C ++
+      (partitionOperands fs).B ++ (partitionOperands fs).T ↔ f ∈ fs := by
+  by_cases hf : finite f <;> by_cases hs : safety f <;> by_cases hc : cosafety f <;>
+    simp [partitionOperands,List.mem_filter,hf,hs,hc]
+
+theorem partitionOperands_sat (op : Bool) (fs : List (Formula (Fin ap))) (w : Word (Fin ap)) (n : Nat) :
+    Sat none w (booleanFold op ((partitionOperands fs).S ++ (partitionOperands fs).C ++
+      (partitionOperands fs).B ++ (partitionOperands fs).T)) n ↔ Sat none w (booleanFold op fs) n := by
+  simp only [booleanFold_sat,partitionOperands_mem]
+
+theorem partitionOperands_groups_check (op : Bool) (fs : List (Formula (Fin ap))) :
+    ∀ g, g ∈ compatibleGroups op (partitionOperands fs).S (partitionOperands fs).C
+      (partitionOperands fs).B [] → canonicalCheck g = true := by
+  have hs : ∀ f, f ∈ (partitionOperands fs).S → safety f := by
+    intro f hf; exact (List.mem_filter.mp hf).2 |> of_decide_eq_true |> And.right
+  have hc : ∀ f, f ∈ (partitionOperands fs).C → cosafety f := by
+    intro f hf; exact (of_decide_eq_true (List.mem_filter.mp hf).2).2.2
+  have hb : ∀ f, f ∈ (partitionOperands fs).B → finite f := by
+    intro f hf; exact of_decide_eq_true (List.mem_filter.mp hf).2
+  unfold compatibleGroups
+  split <;> intro g hg <;> simp only [List.mem_cons,List.not_mem_nil,or_false] at hg
+  · rcases hg with rfl | rfl
+    · apply canonicalCheck_safety; apply booleanFold_safety
+      intro f hf; exact (List.mem_append.mp hf).elim (hs f) (fun h => finite_implies_safety f (hb f h))
+    · exact canonicalCheck_cosafety (booleanFold_cosafety op hc)
+  · rcases hg with rfl | rfl
+    · exact canonicalCheck_safety (booleanFold_safety op hs)
+    · apply canonicalCheck_cosafety; apply booleanFold_cosafety
+      intro f hf; exact (List.mem_append.mp hf).elim (hc f) (fun h => finite_implies_cosafety f (hb f h))
+
+/-- Construct the remaining syntax recursively, then call canonical acceptance
+on both grouped classes. Any failing call propagates `none`. -/
+def groupedAcceptance (recur : Formula (Fin ap) → Option (Formula (Fin ap)))
+    (op : Bool) (fs : List (Formula (Fin ap))) : Option (Formula (Fin ap)) := do
+  let p := partitionOperands fs
+  let rest ← p.T.mapM recur
+  let groups ← (compatibleGroups op p.S p.C p.B []).mapM canonicalAcceptance
+  pure (booleanFold op (groups ++ rest))
+
+/-- `whole` models C's whole-class fast path. Fuel is a structural recursion
+bound, not a host budget; sizeOf(f)+1 suffices. -/
+def syntaxAcceptance (whole : Formula (Fin ap) → Bool) : Nat → Formula (Fin ap) → Option (Formula (Fin ap))
+  | 0, _ => none
+  | fuel+1, f =>
+    if whole f then canonicalAcceptance f else
+    match f with
+    | .conj _ _ => groupedAcceptance (syntaxAcceptance whole fuel) true (flattenOperands true f)
+    | .disj _ _ => groupedAcceptance (syntaxAcceptance whole fuel) false (flattenOperands false f)
+    | _ => canonicalAcceptance f
+
+def ConstructionResult (f g : Formula (Fin ap)) : Prop :=
+  canonicalCheck g = true ∧ ∀ w n, Sat none w g n ↔ Sat none w f n
+
+theorem canonicalAcceptance_list (fs : List (Formula (Fin ap)))
+    (h : ∀ f, f ∈ fs → canonicalCheck f = true) :
+    fs.mapM canonicalAcceptance = some fs := by
+  induction fs with
+  | nil => rfl
+  | cons f fs ih =>
+    simp [List.mapM_cons,canonicalAcceptance,h f (by simp),ih (fun g hg => h g (by simp [hg]))]
+
+theorem mapM_construction (call : Formula (Fin ap) → Option (Formula (Fin ap)))
+    (op : Bool) (fs : List (Formula (Fin ap)))
+    (h : ∀ f, f ∈ fs → ∃ g, call f = some g ∧ ConstructionResult f g) :
+    ∃ gs, fs.mapM call = some gs ∧ (∀ g, g ∈ gs → canonicalCheck g = true) ∧
+      ∀ w n, Sat none w (booleanFold op gs) n ↔ Sat none w (booleanFold op fs) n := by
+  induction fs with
+  | nil => exact ⟨[],rfl,by simp,fun _ _ => Iff.rfl⟩
+  | cons f fs ih =>
+    obtain ⟨g,hg,hcheck,hlang⟩ := h f (by simp)
+    obtain ⟨gs,he,hchecks,hlangs⟩ := ih (fun f hf => h f (by simp [hf]))
+    refine ⟨g::gs,by simp [List.mapM_cons,hg,he],?_,?_⟩
+    · intro f hf; exact (List.mem_cons.mp hf).elim (fun hh => hh ▸ hcheck) (hchecks f)
+    · intro w n; cases op <;> simp [booleanFold,Sat,InRange,hlang,hlangs]
+
+theorem groupedAcceptance_success (call : Formula (Fin ap) → Option (Formula (Fin ap)))
+    (op : Bool) (fs : List (Formula (Fin ap)))
+    (h : ∀ f, f ∈ (partitionOperands fs).T → ∃ g, call f = some g ∧ ConstructionResult f g) :
+    ∃ g, groupedAcceptance call op fs = some g ∧ ConstructionResult (booleanFold op fs) g := by
+  let p := partitionOperands fs
+  let groups := compatibleGroups op p.S p.C p.B []
+  have hc : ∀ g, g ∈ groups → canonicalCheck g = true := partitionOperands_groups_check op fs
+  obtain ⟨rest,he,hr,hl⟩ := mapM_construction call op p.T h
+  refine ⟨booleanFold op (groups++rest),?_,canonicalCheck_fold op ?_,?_⟩
+  · change (do
+      let r ← p.T.mapM call
+      let g ← groups.mapM canonicalAcceptance
+      pure (booleanFold op (g++r))) = _
+    rw [he,canonicalAcceptance_list groups hc]
+    rfl
+  · intro f hf; exact (List.mem_append.mp hf).elim (hc f) (hr f)
+  · intro w n
+    have hg : groups ++ p.T = compatibleGroups op p.S p.C p.B p.T := by
+      dsimp [groups]; unfold compatibleGroups; split <;> rfl
+    calc
+      _ ↔ Sat none w (booleanFold op (groups++p.T)) n := by
+        cases op <;> simp only [booleanFold_append_sat,hl,Bool.false_eq_true,↓reduceIte]
+      _ ↔ Sat none w (booleanFold op (p.S++p.C++p.B++p.T)) n := hg ▸ compatibleGroups_sat op p.S p.C p.B p.T w n
+      _ ↔ _ := partitionOperands_sat op fs w n
+
+/-- The exhaustive leaf guard suffices for every recursive canonical call,
+including both grouped classes and canonically absorbed syntax branches. -/
+theorem syntaxAcceptance_success (whole : Formula (Fin ap) → Bool) (fuel : Nat)
+    (f : Formula (Fin ap)) (hsize : sizeOf f < fuel)
+    (hguard : groupableSyntax canonicalCheck f = true) :
+    ∃ g, syntaxAcceptance whole fuel f = some g ∧ ConstructionResult f g := by
+  induction fuel generalizing f with
+  | zero => omega
+  | succ fuel ih =>
+    have hf := groupable_canonical f hguard
+    by_cases hw : whole f = true
+    · exact ⟨f,by simp [syntaxAcceptance,hw,canonicalAcceptance,hf],hf,fun _ _ => Iff.rfl⟩
+    · cases f with
+      | conj a b =>
+        have hrec : ∀ f, f ∈ (partitionOperands (flattenOperands true (.conj a b))).T →
+            ∃ g, syntaxAcceptance whole fuel f = some g ∧ ConstructionResult f g := by
+          intro f hm
+          have hmem := (List.mem_filter.mp hm).1
+          apply ih f
+          · simp only [flattenOperands,↓reduceIte] at hmem
+            rcases List.mem_append.mp hmem with hm | hm
+            · have hh := flattenOperands_size true a hm
+              simp only [Formula.conj.sizeOf_spec] at hsize; omega
+            · have hh := flattenOperands_size true b hm
+              simp only [Formula.conj.sizeOf_spec] at hsize; omega
+          · exact flattenOperands_guard true (.conj a b) hguard hmem
+        obtain ⟨g,he,hc,hl⟩ := groupedAcceptance_success _ true _ hrec
+        exact ⟨g,by simp [syntaxAcceptance,hw,he],hc,fun w n => (hl w n).trans (flattenOperands_sat true (.conj a b) w n)⟩
+      | disj a b =>
+        have hrec : ∀ f, f ∈ (partitionOperands (flattenOperands false (.disj a b))).T →
+            ∃ g, syntaxAcceptance whole fuel f = some g ∧ ConstructionResult f g := by
+          intro f hm
+          have hmem := (List.mem_filter.mp hm).1
+          apply ih f
+          · simp only [flattenOperands,Bool.false_eq_true,↓reduceIte] at hmem
+            rcases List.mem_append.mp hmem with hm | hm
+            · have hh := flattenOperands_size false a hm
+              simp only [Formula.disj.sizeOf_spec] at hsize; omega
+            · have hh := flattenOperands_size false b hm
+              simp only [Formula.disj.sizeOf_spec] at hsize; omega
+          · exact flattenOperands_guard false (.disj a b) hguard hmem
+        obtain ⟨g,he,hc,hl⟩ := groupedAcceptance_success _ false _ hrec
+        exact ⟨g,by simp [syntaxAcceptance,hw,he],hc,fun w n => (hl w n).trans (flattenOperands_sat false (.disj a b) w n)⟩
+      | _ => exact ⟨_,by simp [syntaxAcceptance,hw,canonicalAcceptance,hf],hf,fun _ _ => Iff.rfl⟩
+
+/-- The grouped branch runs the syntax constructor, with failure propagated.
+The original guard and fallback are evaluated on the original formula. -/
+def factoredAdmission (whole : Formula (Fin ap) → Bool) (original factored : Formula (Fin ap)) :
+    Option (Formula (Fin ap)) :=
+  if canonicalCheck original then
+    if groupableSyntax canonicalCheck factored then syntaxAcceptance whole (sizeOf factored+1) factored
+    else canonicalAcceptance original
+  else none
+
+theorem factoring_admission_exact (whole : Formula (Fin ap) → Bool) (original factored : Formula (Fin ap)) :
+    (factoredAdmission whole original factored).isSome = true ↔ canonicalCheck original = true := by
+  by_cases ho : canonicalCheck original = true
+  · by_cases hg : groupableSyntax canonicalCheck factored = true
+    · obtain ⟨g,he,_⟩ := syntaxAcceptance_success whole (sizeOf factored+1) factored (by omega) hg
+      simp [factoredAdmission,ho,hg,he]
+    · simp [factoredAdmission,ho,hg,canonicalAcceptance]
+  · simp [factoredAdmission,ho]
+
+/-- Original admission, exact factoring, and the successful leaf guard give
+success of the actual grouped branch with the original infinite-word language. -/
+theorem factoring_grouped_success (whole : Formula (Fin ap) → Bool) (original factored : Formula (Fin ap))
+    (ho : canonicalCheck original = true)
+    (heq : ∀ w n, Sat none w factored n ↔ Sat none w original n)
+    (hg : groupableSyntax canonicalCheck factored = true) :
+    ∃ g, syntaxAcceptance whole (sizeOf factored+1) factored = some g ∧
+      factoredAdmission whole original factored = some g ∧ ConstructionResult original g := by
+  obtain ⟨g,he,hcheck,hlang⟩ := syntaxAcceptance_success whole (sizeOf factored+1) factored (by omega) hg
+  exact ⟨g,he,by simp [factoredAdmission,ho,hg,he],hcheck,fun w n => (hlang w n).trans (heq w n)⟩
+
+theorem factoring_language (whole : Formula (Fin ap) → Bool) (original factored g : Formula (Fin ap))
+    (heq : ∀ w n, Sat none w factored n ↔ Sat none w original n)
+    (h : factoredAdmission whole original factored = some g) : ConstructionResult original g := by
+  by_cases ho : canonicalCheck original = true
+  · by_cases hg : groupableSyntax canonicalCheck factored = true
+    · obtain ⟨g',_,hf,hr⟩ := factoring_grouped_success whole original factored ho heq hg
+      rw [h] at hf
+      exact Option.some.inj hf ▸ hr
+    · simp [factoredAdmission,ho,hg,canonicalAcceptance] at h
+      subst g; exact ⟨ho,fun _ _ => Iff.rfl⟩
+  · simp [factoredAdmission,ho] at h
+
+/-- Replace unsupported, unproved atoms by false while retaining arbitrary
+Boolean complementation. Exact support makes this invisible on admitted inputs. -/
+def admittedProjection : Formula (Fin ap) → Formula (Fin ap)
+  | .tt => .tt | .ff => .ff | .ap p => .ap p
+  | .neg f => .neg (admittedProjection f)
+  | .conj f g => .conj (admittedProjection f) (admittedProjection g)
+  | .disj f g => .disj (admittedProjection f) (admittedProjection g)
+  | .impl f g => .disj (.neg (admittedProjection f)) (admittedProjection g)
+  | .equiv f g => .conj (.disj (.neg (admittedProjection f)) (admittedProjection g))
+      (.disj (.neg (admittedProjection g)) (admittedProjection f))
+  | a => if Admitted a then a else .ff
+
+theorem admittedProjection_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
+    propEval σ (admittedProjection f) = propEval (fun a => if Admitted a then σ a else false) f := by
+  induction f with
+  | tt | ff => rfl
+  | ap p => simp [admittedProjection,propEval,show Admitted (.ap p) from .safety trivial]
+  | neg f ih => simp only [admittedProjection,propEval,ih]
+  | conj f g ih ih' | disj f g ih ih' | impl f g ih ih' => simp only [admittedProjection,propEval,ih,ih']
+  | equiv f g ih ih' =>
+    simp only [admittedProjection,propEval,ih,ih']
+    cases propEval (fun a => if Admitted a then σ a else false) f <;>
+      cases propEval (fun a => if Admitted a then σ a else false) g <;> rfl
+  | _ => simp only [admittedProjection]; split <;> simp_all [propEval]
+
+theorem admittedProjection_class (h : canonicalCheck f = true) :
+    Class.ofFormula (admittedProjection f) = Class.ofFormula f := by
+  have ht : HasTag Admitted (Class.ofFormula f) := of_decide_eq_true h
+  apply Class.ext; intro σ
+  change propEval σ (admittedProjection f) = propEval σ f
+  rw [admittedProjection_eval]
+  apply support_locality (Class.ofFormula f)
+  intro a ha; simp only [ht a ha,↓reduceIte]
+
+theorem neg_presentation (h : ProductPresentation f xs β) :
+    ProductPresentation (.neg f) xs (fun z => !(β z)) := by
+  refine ⟨h.1,fun w => ?_⟩
+  have hw := h.2 w
+  cases hb : β (componentTruth xs w) <;> simp_all [Sat,InRange]
+
+theorem admittedProjection_product (f : Formula (Fin ap)) :
+    ∃ (m : Nat) (xs : Fin m → Class ap) (β : Skeleton m), ProductPresentation (admittedProjection f) xs β := by
+  induction f with
+  | tt | ff | ap _ => exact admitted_product (.safety trivial)
+  | neg f ih =>
+    obtain ⟨m,xs,β,h⟩ := ih
+    exact ⟨m,xs,fun z => !(β z),neg_presentation h⟩
+  | conj f g ih ih' | disj f g ih ih' | impl f g ih ih' | equiv f g ih ih' =>
+    obtain ⟨m,xs,β,h⟩ := ih
+    obtain ⟨n,ys,γ,h'⟩ := ih'
+    first
+    | exact ⟨_,_,_,combine_presentation h h' true⟩
+    | exact ⟨_,_,_,combine_presentation h h' false⟩
+    | exact ⟨_,_,_,combine_presentation (neg_presentation h) h' false⟩
+    | exact ⟨_,_,_,combine_presentation (combine_presentation (neg_presentation h) h' false)
+        (combine_presentation (neg_presentation h') h false) true⟩
+  | _ =>
+    simp only [admittedProjection]
+    split
+    · exact admitted_product ‹Admitted _›
+    · exact admitted_product (.safety trivial)
+
+/-- Canonical support admission supplies an exact complete product even if
+the original syntax contains an absorbed unsupported branch or complements. -/
+theorem canonicalCheck_product (h : canonicalCheck f = true) :
+    ∃ (m : Nat) (xs : Fin m → Class ap) (β : Skeleton m), ProductPresentation f xs β := by
+  obtain ⟨m,xs,β,hp⟩ := admittedProjection_product f
+  refine ⟨m,xs,β,hp.1,fun w => (hp.2 w).trans ?_⟩
+  rw [← ofFormula_holds,admittedProjection_class h,ofFormula_holds]
+
+/-- Successful grouped construction, exact complete product, and both parity
+languages, all referring to the returned construction's language. -/
+theorem factoring_grouped_parity (whole : Formula (Fin ap) → Bool) (original factored : Formula (Fin ap))
+    (ho : canonicalCheck original = true)
+    (heq : ∀ w n, Sat none w factored n ↔ Sat none w original n)
+    (hg : groupableSyntax canonicalCheck factored = true) :
+    ∃ (g : Formula (Fin ap)) (m : Nat) (xs : Fin m → Class ap) (β : Skeleton m)
+      (tree : ZTree β (fullColours m)),
+      syntaxAcceptance whole (sizeOf factored+1) factored = some g ∧
+      factoredAdmission whole original factored = some g ∧ ProductPresentation g xs β ∧
+      ∀ w, (MinEven (treePriority tree (productColours xs w)) ↔ Sat none w original 0) ∧
+        (MaxOdd (fun n => exportBound m - treePriority tree (productColours xs w) n) ↔ Sat none w original 0) := by
+  obtain ⟨g,hs,hf,hc,hl⟩ := factoring_grouped_success whole original factored ho heq hg
+  obtain ⟨m,xs,β,hp⟩ := canonicalCheck_product hc
+  let tree := buildTree β (fullColours m)
+  exact ⟨g,m,xs,β,tree,hs,hf,hp,fun w =>
+    ⟨((presentation_parity hp tree w).1).trans (hl w 0),((presentation_parity hp tree w).2).trans (hl w 0)⟩⟩
 
 /-! ## §9.2: temporal distributions under arbitrary syntax contexts. -/
 theorem distribute_G_context (c : Tlsf.Rewrites.Context (Fin ap)) (a b : Formula (Fin ap)) :
@@ -454,6 +862,17 @@ theorem tags_shannon_intersection {x low high : Class ap} {a : Formula (Fin ap)}
         apply hv
         rw [expand,expand,show setAtom σ t v a = σ a by simp [setAtom,Ne.symm hta'],not_uses hnl,not_uses hnh]
       exact hs.elim (htl t) (hth t)
+
+/-- The concrete support checker obeys the original canonical top-atom /
+low-cofactor / high-cofactor admission recursion. Whole-class fast paths
+are justified separately by `canonicalCheck_admitted`. -/
+theorem canonicalCheck_shannon {f low high : Formula (Fin ap)} {a : Formula (Fin ap)}
+    (ha : Uses (Class.ofFormula f) a)
+    (hl : ∀ σ, propEval σ low = propEval (setAtom σ a false) f)
+    (hh : ∀ σ, propEval σ high = propEval (setAtom σ a true) f) :
+    canonicalCheck f = true ↔ Admitted a ∧ canonicalCheck low = true ∧ canonicalCheck high = true := by
+  simp only [canonicalCheck,decide_eq_true_eq]
+  exact tags_shannon_intersection ha hl hh
 
 
 /-- §9.1's grouped construction has the original formula's infinite-word

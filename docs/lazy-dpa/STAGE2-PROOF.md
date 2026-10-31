@@ -452,8 +452,11 @@ partial row. The claims below concern successful construction.
 At an outer ∧ or ∨, flatten only siblings with that same operator ⋄.
 Partition the operands with sound syntax tags into safety S, co-safety C,
 finite B, and remaining operands T. Finite operands are collected separately
-because they belong to both grammars. If C is nonempty, join B to C;
-otherwise join B to S. Use ⋄'s identity for an empty group. Each grouped
+because they belong to both grammars. Fold C to its canonical Boolean class c,
+using ⋄'s identity e (true for ∧, false for ∨) for an empty group. If c ≠ e,
+join B to C; otherwise join B to S. This is a class comparison, not a test
+that C's operand list is nonempty: a nonempty C can fold to e by Boolean
+absorption or a tautology/contradiction. Each grouped
 operand has exactly the conjunction/disjunction of its former siblings as
 its language: associativity, commutativity, and the identity law prove the
 formula equality. Both `s` and `c` are closed under both Boolean operators,
