@@ -11,6 +11,9 @@ subdir('fixtures')
 subdir('unit')
 subdir('api')
 subdir('cli')
+if research_tools
+  gr1_one_step = executable('gr1_one_step', 'gr1_one_step.c', dependencies: oxidd_dep)
+endif
 subdir('oracle')
 
 if python3.found()

@@ -1,0 +1,310 @@
+{
+  "native-reduction": {
+    "status": "independently confirmed",
+    "cases": 436,
+    "native_status_counts": {
+      "3": 86,
+      "0": 320,
+      "2": 30
+    },
+    "reference": "Spot 2.16 Python reducer",
+    "comparator_revision": "7b44d9f",
+    "independent_checks": [
+      "supported/declined disposition",
+      "circuit functions or reachable bisimulation",
+      "ownership and symbol map",
+      "legacy provenance projection"
+    ],
+    "native_snapshot": [
+      "AAG serialization",
+      "extended typed provenance fields",
+      "metadata",
+      "decline diagnostics and exact exit codes"
+    ],
+    "reference_revision": "7b44d9f",
+    "comparator_sha256": "7bd99b9d33c2e5132ff97c960aab2853f55f74acebfd696ab7d2df31bd0685e8",
+    "case_status_sha256": "7572be43304f51dce7b77aca47bdf734efb52be72eda4d5643c575a447a06687",
+    "sha256": "96b8e3fd7d287cec2d4412f7a42b7c56fe1e385a7da829562a7ea8df6f49287c",
+    "runtime": {
+      "spot_version": "2.16",
+      "libspot_sha256": "55c40a77a92d9977f88091e478e65bc91753299ba857243633e16575abe7e3b4",
+      "libbddx_sha256": "78e1474d3c03a3c35198d0809940ff12cd996dad4b63dd6adba7603f78c895ef"
+    }
+  },
+  "native-lift": {
+    "status": "independently confirmed",
+    "cases": 13,
+    "native_status_counts": {
+      "0": 7,
+      "3": 6
+    },
+    "reference": "retired acacia_lift prototype",
+    "comparator_revision": "7b44d9f",
+    "runtime": {
+      "spot_version": "2.16",
+      "libspot_sha256": "55c40a77a92d9977f88091e478e65bc91753299ba857243633e16575abe7e3b4",
+      "libbddx_sha256": "78e1474d3c03a3c35198d0809940ff12cd996dad4b63dd6adba7603f78c895ef",
+      "prototype_tree_sha256": "0e74ebab07ac60f4d05861fee7f58eab71ae780f28350b17aa1664fe28547f57",
+      "prototype_environment_adjustment": "local libbddx hash allowlist with tested conservative 1024-variable cap"
+    },
+    "independent_checks": [
+      "lifted/declined disposition and decline stage",
+      "seed values",
+      "role partition",
+      "predicate arities",
+      "proof method and verdict",
+      "certificate and policy Boolean functions"
+    ],
+    "native_snapshot": [
+      "AAG serialization",
+      "game AAG",
+      "evidence hashes and exact role signatures",
+      "decline diagnostic spelling"
+    ],
+    "reference_revision": "b615c3c4c2dc1a2b13c035b62b115c0d1148a977",
+    "comparator_sha256": "83ad8fc85ab3a852e95bd136cca40bec2f995fedfc8f45ef24f87e7576e0bbff",
+    "case_status_sha256": "5eb9be38ff115f9b28ad9078b73b3f17fe30553503333e4ee468a877b9679643",
+    "sha256": "0692d3a9331cec302c2161ef2acdddea3e38159a7ffdd003923823aee6ca0a9a"
+  },
+  "review4-lowercase": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [],
+    "sha256": "e58f0a40da4332b22d749693ef9a5fecfca001211678a322c8de2f4d1175cdd0",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "review4-comment": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "artifacts"
+    ],
+    "sha256": "19f092578456402b577b52c7c3a9a467ba9a0337d8dda4a8d083391b3d0d9d17",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "review4-signals": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "artifacts"
+    ],
+    "sha256": "8ced3f9f9f2a3af1d5a6a493e674cdc66b86cbac60725a228c5f1fa87d24772b",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "compose-moore": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "artifacts"
+    ],
+    "sha256": "cd69ce1d16454cfbb328b8a0909e48e49349ef96be548fa048fa33dc23e07397",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "compose-finite": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "artifacts"
+    ],
+    "sha256": "2d70f533a82a5a60b5c11cc8171fbea4619000a86a92b88377567baabfbb55bf",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "compose-implicit": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "artifacts"
+    ],
+    "sha256": "3f9e8fae994549c81215761ba67fa923f7d4c5a671375cb4bce649ac7a71c872",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "compose-wrapper": {
+    "status": "native snapshot",
+    "independent_checks": [],
+    "native_snapshot": [],
+    "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "decomposition": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "native-admission"
+    ],
+    "sha256": "1ed2a1ae0ec975a8cce9bbdf8d6043d344964d2269149a35fb849ff8c188b953",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "disjoint-assumptions": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts",
+      "Spot 2.16 lasso memberships (bounded language evidence)"
+    ],
+    "native_snapshot": [
+      "original",
+      "residual"
+    ],
+    "sha256": "81554b06acd1a9cd9554206dca8a3d2ebbbf8f700bd4b7bb56506e3eff244ab5",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "native-language": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 lasso memberships (bounded language evidence)"
+    ],
+    "native_snapshot": [],
+    "sha256": "a4901274b988b11f2756c09a7488acf9ca70d28a5f6ccfe766f030628e726009"
+  },
+  "monitor-game": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts",
+      "Spot 2.16 lasso memberships (bounded language evidence)"
+    ],
+    "native_snapshot": [
+      "decline",
+      "game",
+      "provenance",
+      "reduce",
+      "solver"
+    ],
+    "sha256": "edebd97eb5fa6084830e730a9d56601ed5cecae745176c8d6cb28124cbe2bf20",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "norm-match-safe-1": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 normalized formula equivalence"
+    ],
+    "native_snapshot": [
+      "original",
+      "tlsf"
+    ],
+    "sha256": "9abd221b6e672cc16fc983e8908a546ca1918bc84fab6f5d5a48022d767c6264",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "norm-route-safe-1": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 normalized formula equivalence"
+    ],
+    "native_snapshot": [
+      "original",
+      "tlsf"
+    ],
+    "sha256": "fd57ca44ee842d2b15b6897b3511f83ac549f19a0806f875c257004f8c3e5be7",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "norm-sickert-stage2-2": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 normalized formula equivalence"
+    ],
+    "native_snapshot": [
+      "original",
+      "tlsf"
+    ],
+    "sha256": "fd7f412801d733ea5a17d1c9900db7d9fddfccc7afe722ce5252c106e1908c7a",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "norm-sickert-stage3-1": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 normalized formula equivalence"
+    ],
+    "native_snapshot": [
+      "original",
+      "tlsf"
+    ],
+    "sha256": "8cf41999771a34568beb31635cbffe909de3044d6cfb3816f6fe4e8291d82f08",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "norm-sickert-bounded": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 normalized formula equivalence"
+    ],
+    "native_snapshot": [
+      "original",
+      "tlsf"
+    ],
+    "sha256": "8cf41999771a34568beb31635cbffe909de3044d6cfb3816f6fe4e8291d82f08",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence"
+  },
+  "conversion": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 AST/string formula equivalence"
+    ],
+    "native_snapshot": [
+      "export serialization and cluster partitions"
+    ],
+    "sha256": "b0cc70522d131850168cfc4c9b0e528c2cb7b90713a5229c69f287bc04e07309"
+  },
+  "native-api-8b158d7": {
+    "status": "native snapshot",
+    "independent_checks": [],
+    "native_snapshot": [
+      "check malformed",
+      "check node cap",
+      "complete width binding",
+      "direct expansion bytes",
+      "direct expansion exit",
+      "direct provenance fields",
+      "duplicate override",
+      "malformed TLSF",
+      "override provenance",
+      "plain override",
+      "real auto method",
+      "real both method",
+      "real closed-loop method",
+      "real direct artifacts",
+      "real direct exit",
+      "real direct side",
+      "real region method",
+      "real solve exit",
+      "real solve/export/check",
+      "reference expansion exit",
+      "solve malformed",
+      "solve node cap",
+      "typed width IDs",
+      "unknown override",
+      "unreal direct artifacts",
+      "unreal direct exit",
+      "unreal direct side",
+      "unreal solve exit",
+      "unreal solve/export/check"
+    ],
+    "sha256": "89376a9a77c44676a13679a1f4cd838e8fdb9e40c6618c050cf2edd6db62db33",
+    "confirmation_source": "phase 1 pre-change recording; see README validation and review evidence",
+    "historical_confirmation": "passing pre-change differential against 8b158d7; fresh native snapshots cannot renew this evidence"
+  },
+  "dpa": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 ASTs and lasso memberships"
+    ],
+    "native_snapshot": [],
+    "files_sha256": {
+      "delta2.ltl": "37383570aa255750cf47b089381f766efe988fe3d15989813284e8c78d348002",
+      "limits.tsv": "5a6452a828f3584db6520a228cc76b30af925bfda9db8257164df9a9dac07758",
+      "membership.tsv": "f7d6d355df13a7869006c8fde7422993c6e4c44ef6551686e75fe389f11df788",
+      "random.ltl": "dbf98d2cc11c27f6778d82115cd81891c22128f85f72dc3996d52512ff941838",
+      "words.txt": "d96a3010290f73d0e5136a5caa6bfd2a48c9288c37bc3fa4513e97685f917614"
+    }
+  }
+}

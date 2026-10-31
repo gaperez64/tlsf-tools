@@ -382,179 +382,40 @@ def expect_rejected(action: Callable[[], None], description: str) -> None:
     raise AssertionError(f"mutated certificate was accepted: {description}")
 
 
-def _bdd_values(circuit: ParsedAag, inputs, latches, bdds):
-    values = [bdds.bddfalse] * (circuit.maxvar + 1)
-    for lit, value in zip(circuit.inputs, inputs):
-        values[lit // 2] = value
-    for (cur, _next, _reset), value in zip(circuit.latches, latches):
-        values[cur // 2] = value
+SYMBOLIC_HELPER = pathlib.Path(__file__).parents[2] / "build-oxidd/test/gr1_one_step"
 
-    def lit_value(lit: int):
-        if lit == 0:
-            return bdds.bddfalse
-        if lit == 1:
-            return bdds.bddtrue
-        value = values[lit // 2]
-        return -value if lit & 1 else value
 
-    for lhs, rhs0, rhs1 in circuit.gates:
-        values[lhs // 2] = lit_value(rhs0) & lit_value(rhs1)
-    return values, lit_value
+def aag_text(aag: ParsedAag) -> str:
+    """Serialize the independent parser's data, including mutated predicates."""
+    lines = [f"aag {aag.maxvar} {len(aag.inputs)} {len(aag.latches)} "
+             f"{len(aag.outputs)} {len(aag.gates)} {len(aag.bad)} 0 "
+             f"{len(aag.justice)} {len(aag.fairness)}"]
+    lines += [str(lit) for lit in aag.inputs]
+    lines += [" ".join(map(str, latch)) for latch in aag.latches]
+    lines += [str(lit) for lit in aag.outputs + aag.bad]
+    lines += [str(len(group)) for group in aag.justice]
+    lines += [str(lit) for group in aag.justice for lit in group]
+    lines += [str(lit) for lit in aag.fairness]
+    lines += [" ".join(map(str, gate)) for gate in aag.gates]
+    lines += [f"i{k} {name}" for k, name in enumerate(aag.input_names)]
+    lines += [f"o{k} {name}" for k, name in enumerate(aag.output_names)]
+    return "\n".join(lines) + "\n"
 
 
 def check_one_step_symbolic(game: ParsedAag, certificate: Certificate,
                             strategy_text: str) -> int:
-    """Universal one-step oracle over all inv states, using stdlib ROBDDs."""
-    from bdd import Bdds
-    bdds = Bdds()
-
-    strategy = differential.parse_aag(strategy_text)
-    sidecar = certificate.sidecar
-    nstate = sidecar["counts"]["state_variables"]
-    original_nlat = sidecar["counts"]["original_game_latches"]
-    goals = sidecar["counts"]["goals"]
-    nu_indices = [
-        k for k, name in enumerate(game.input_names)
-        if not name.startswith("controllable_")
-    ]
-    nc_indices = [
-        k for k, name in enumerate(game.input_names)
-        if name.startswith("controllable_")
-    ]
-    if len(strategy.latches) != nstate + goals:
-        raise AssertionError("strategy/certificate latch mapping mismatch")
-
-    try:
-        bdds.bdd_setvarnum(nstate + len(nu_indices))
-        state = [bdds.bdd_ithvar(k) for k in range(nstate)]
-        uexpr = {
-            game_index: bdds.bdd_ithvar(nstate + bit)
-            for bit, game_index in enumerate(nu_indices)
-        }
-        strategy_input_index = {
-            name: k for k, name in enumerate(strategy.input_names)
-        }
-        strategy_output = dict(zip(strategy.output_names, strategy.outputs))
-
-        def compile_certificate(state_expr, game_inputs):
-            inputs = [bdds.bddfalse] * len(certificate.aag.inputs)
-            for item in sidecar["variables"]["state"]:
-                inputs[item["certificate_input"]] = state_expr[
-                    item["game_latch"]]
-            for role in ("uncontrollable", "controllable"):
-                for item in sidecar["variables"][role]:
-                    inputs[item["certificate_input"]] = game_inputs[
-                        item["game_input"]]
-            _values, lit = _bdd_values(
-                certificate.aag, inputs, [], bdds)
-            return {
-                name: lit(output_lit)
-                for name, output_lit in zip(
-                    certificate.aag.output_names, certificate.aag.outputs)
-            }
-
-        def compile_strategy(goal):
-            inputs = [bdds.bddfalse] * len(strategy.inputs)
-            for game_index, expression in uexpr.items():
-                name = game.input_names[game_index]
-                inputs[strategy_input_index[name]] = expression
-            counters = [bdds.bddtrue if j == goal else bdds.bddfalse
-                        for j in range(goals)]
-            _values, lit = _bdd_values(
-                strategy, inputs, [*state, *counters], bdds)
-            controllable = {
-                game_index: lit(strategy_output[game.input_names[game_index]])
-                for game_index in nc_indices
-            }
-            next_state = [lit(next_lit)
-                          for _cur, next_lit, _reset
-                          in strategy.latches[:nstate]]
-            next_counters = [lit(next_lit)
-                             for _cur, next_lit, _reset
-                             in strategy.latches[nstate:]]
-            return controllable, next_state, next_counters
-
-        def compile_game(controllable):
-            game_inputs = [bdds.bddfalse] * len(game.inputs)
-            for game_index, expression in uexpr.items():
-                game_inputs[game_index] = expression
-            for game_index, expression in controllable.items():
-                game_inputs[game_index] = expression
-            _values, lit = _bdd_values(
-                game, game_inputs, state[:original_nlat], bdds)
-            next_state = [
-                lit(item["next_game_literal"])
-                for item in sidecar["variables"]["state"]
-            ]
-            _next_values, next_lit = _bdd_values(
-                game, game_inputs, next_state[:original_nlat], bdds)
-            bad = bdds.bddfalse
-            for bad_lit in game.bad:
-                bad |= lit(bad_lit)
-            if not game.bad and len(game.outputs) == 1:
-                bad |= lit(game.outputs[0])
-            return game_inputs, lit, next_lit, next_state, bad
-
-        # Reset membership is checked directly, by direct circuit evaluation.
-        reset_inputs = [False] * len(certificate.aag.inputs)
-        for item in sidecar["variables"]["state"]:
-            reset_inputs[item["certificate_input"]] = bool(item["reset"])
-        inv_lit = certificate.outputs["inv"]
-        if not certificate.aag.eval_lit(inv_lit, reset_inputs, 0):
-            raise AssertionError("reset state is outside inv")
-
-        checks = 0
-        for goal in range(goals):
-            controllable, strategy_next, counter_next = compile_strategy(goal)
-            game_inputs, game_lit, game_next_lit, game_next, bad = compile_game(
-                controllable)
-            current = compile_certificate(state, game_inputs)
-            successor = compile_certificate(game_next, game_inputs)
-            inv = current["inv"]
-            violation = inv & (bad | -successor["inv"])
-            for actual, expected in zip(strategy_next, game_next):
-                violation |= inv & (actual ^ expected)
-            violation |= inv & -current[f"move_{goal}"]
-
-            at_goal = current[f"goal_{goal}"]
-            for j, actual in enumerate(counter_next):
-                expected = ((-at_goal if j == goal else bdds.bddfalse) |
-                            (at_goal if j == (goal + 1) % goals
-                             else bdds.bddfalse))
-                violation |= inv & (actual ^ expected)
-
-            covered = at_goal
-            levels = sidecar["counts"]["levels_per_goal"][goal]
-            nfair = sidecar["counts"]["fairness_assumptions"] or 1
-            lower_next = successor[f"goal_{goal}"]
-            for k in range(levels):
-                for i in range(nfair):
-                    name = f"x_{goal}_{k}_{i}"
-                    layer = current[name] & -covered
-                    if sidecar["counts"]["fairness_assumptions"]:
-                        fair_lit = game.fairness[i]
-                        # M1 games are state-based.  Sampling-latch games are
-                        # handled by finding the documented fairness sample.
-                        sample = next((item for item in sidecar["variables"]["state"]
-                                       if item.get("source") == {
-                                           "kind": "fairness", "index": i}),
-                                      None)
-                        fair_next = (game_next[sample["game_latch"]]
-                                     if sample else game_next_lit(fair_lit))
-                    else:
-                        fair_next = bdds.bddtrue
-                    allowed = lower_next | (successor[name] & -fair_next)
-                    violation |= inv & -at_goal & layer & -allowed
-                    covered |= current[name]
-                    lower_next |= successor[name]
-            violation |= inv & -at_goal & -covered
-            if violation != bdds.bddfalse:
-                raise AssertionError(
-                    f"symbolic one-step certificate check failed for goal {goal}")
-            checks += 1
-        return checks
-    finally:
-        bdds.bdd_done()
+    """Universal check in a standalone C process linked only to OxiDD."""
+    assert not certificate.overrides, "serialize mutations into the certificate AAG"
+    with tempfile.TemporaryDirectory(prefix="tlsf-one-step-") as directory:
+        root = pathlib.Path(directory)
+        paths = [root / name for name in ("game.aag", "strategy.aag", "certificate.aag", "certificate.json")]
+        for path, text in zip(paths, (aag_text(game), strategy_text,
+                                     aag_text(certificate.aag), json.dumps(certificate.sidecar))):
+            path.write_text(text)
+        result = subprocess.run([str(SYMBOLIC_HELPER), *map(str, paths)],
+                                text=True, capture_output=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        return int(result.stdout)
 
 
 def check_large_game(solver: pathlib.Path, path: pathlib.Path) -> int:
@@ -569,6 +430,22 @@ def check_large_game(solver: pathlib.Path, path: pathlib.Path) -> int:
         game, Certificate(cert_aag, sidecar), result.stdout)
 
 
+def check_wide_game(solver: pathlib.Path) -> tuple[int, int]:
+    # 2**36 augmented states: exercise the universal check beyond enumeration.
+    # The controller echoes a delayed environment bit. Two input-based goals
+    # and fairness assumptions also exercise acceptance sampling and ranks.
+    builder = differential.AagBuilder(["u", "controllable_c"], [0] * 32)
+    u, c = builder.inputs
+    text = builder.finish([u, *builder.latches[:-1]],
+                          builder.lxor(c, builder.latches[0]), True,
+                          [c, c ^ 1], [u, u ^ 1])
+    result, aag, sidecar = run_solver(solver, text)
+    assert result.returncode == 0, result.stderr
+    checks = check_one_step_symbolic(differential.parse_aag(text),
+                                    Certificate(aag, sidecar), result.stdout)
+    return sidecar["counts"]["state_variables"], checks
+
+
 def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
     rng = random.Random(seed)
     real = 0
@@ -579,6 +456,7 @@ def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
     mutated = 0
     bad_records = 0
     rank_mutation_rejected = False
+    symbolic_mutations = 0
     for index in range(games):
         text = differential.make_random_game(rng, index)
         parsed = differential.parse_aag(text)
@@ -623,6 +501,20 @@ def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
                 "weaken move relation")
             certificate.overrides = original
             mutated += 2
+            for name in ("inv", "move_0"):
+                outputs = certificate.aag.outputs.copy()
+                outputs[certificate.aag.output_names.index(name)] = 0
+                mutant = Certificate(dataclasses.replace(certificate.aag, outputs=outputs), sidecar)
+                expect_rejected(lambda: check_one_step_symbolic(parsed, mutant, result.stdout), name)
+                symbolic_mutations += 1
+            strategy = differential.parse_aag(result.stdout)
+            for bit in (0, model.nstate):
+                latches = strategy.latches.copy()
+                cur, nxt, reset = latches[bit]
+                latches[bit] = (cur, nxt ^ 1, reset)
+                text = aag_text(dataclasses.replace(strategy, latches=latches))
+                expect_rejected(lambda: check_one_step_symbolic(parsed, certificate, text), "strategy latch")
+                symbolic_mutations += 1
 
         if not rank_mutation_rejected:
             for goal, levels in enumerate(fixpoint.x):
@@ -638,6 +530,15 @@ def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
                     rank_mutation_rejected = True
                     mutated += 1
                 certificate.overrides = original
+                if rank_mutation_rejected:
+                    outputs = certificate.aag.outputs.copy()
+                    names = certificate.aag.output_names
+                    for i in range(len(levels[0])):
+                        a, b = (names.index(f"x_{goal}_{k}_{i}") for k in (0, 1))
+                        outputs[a], outputs[b] = outputs[b], outputs[a]
+                    mutant = Certificate(dataclasses.replace(certificate.aag, outputs=outputs), sidecar)
+                    expect_rejected(lambda: check_one_step_symbolic(parsed, mutant, result.stdout), "swapped rank levels")
+                    symbolic_mutations += 1
                 break
     if input_acceptance == 0:
         raise AssertionError("generator did not exercise sampling latches")
@@ -652,21 +553,27 @@ def run_suite(solver: pathlib.Path, games: int, seed: int) -> dict[str, int]:
         "exact_predicate_evaluations": exact_checks,
         "one_step_checks": one_step_checks,
         "mutations_rejected": mutated,
+        "symbolic_mutations_rejected": symbolic_mutations,
     }
 
 
 def main() -> int:
+    global SYMBOLIC_HELPER
     parser = argparse.ArgumentParser()
     parser.add_argument("--solver", type=pathlib.Path, required=True)
+    parser.add_argument("--one-step-helper", type=pathlib.Path)
     parser.add_argument("--games", type=int, default=240)
     parser.add_argument("--seed", type=int, default=0xC3A71F1C)
     parser.add_argument("--large-game", type=pathlib.Path, action="append",
                         default=[])
     args = parser.parse_args()
+    SYMBOLIC_HELPER = (args.one_step_helper or args.solver.resolve().parent / "test/gr1_one_step").resolve()
     fields = []
     if args.games:
         summary = run_suite(args.solver.resolve(), args.games, args.seed)
         fields.extend(f"{key}={value}" for key, value in summary.items())
+    wide_states, wide_checks = check_wide_game(args.solver.resolve())
+    fields.extend((f"wide_state_variables={wide_states}", f"wide_symbolic_goal_checks={wide_checks}"))
     large_checks = sum(check_large_game(args.solver.resolve(), path)
                        for path in args.large_game)
     if args.large_game:

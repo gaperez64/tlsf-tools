@@ -918,3 +918,8 @@ endif
 # Guard the test suite's independence from external temporal-logic oracles.
 test('no_external_oracles', python3,
   args: [files('check_no_external_oracles.py'), meson.project_source_root()])
+
+if python3.found()
+  test('golden_provenance', python3,
+    args: [files('check_golden_provenance.py'), meson.project_source_root()])
+endif

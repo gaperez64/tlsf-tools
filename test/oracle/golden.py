@@ -12,6 +12,9 @@ class Golden:
         self.records = json.loads((ROOT / (name + ".json")).read_text())
         self.position = 0
 
+    def source(self, path):
+        """Offline recorders may use the source for independent confirmation."""
+
     def enabled(self, label):
         skipped = json.loads((ROOT / "skipped.json").read_text())
         return not any(row.get("suite") == self.name and row.get("case") == label for row in skipped)

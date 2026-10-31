@@ -3,13 +3,16 @@
 
 Run from the repository root, with no build/test running concurrently:
   systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-    python3 tools/golden/regenerate.py --build build --spot ~/spot-2.16-install
+    python3 tools/golden/regenerate.py --build build --spot ~/spot-2.16-install \
+      --bindings-site build/reference/spot-python --oracle-root build/reference/prototype
 
-Every reference call has a deadline. Timeouts are recorded in skipped.json;
-ordinary failures stop regeneration. Review all changes before committing.
+Run prepare_legacy.py first for the retired references (see the golden README).
+Every reference call has a deadline. Mandatory confirmations fail on timeouts;
+other timeouts are recorded in skipped.json. Review changes before committing.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +22,9 @@ import subprocess
 import sys
 import tempfile
 import types
+
+from confirm import Confirmation, INDEPENDENT
+from provenance import describe, required
 
 ROOT = Path(__file__).resolve().parents[2]
 DEST = ROOT / "test/fixtures/golden"
@@ -50,26 +56,50 @@ def reference(formula, names, words):
 class Recorder:
     def __init__(self, name):
         self.name, self.records = name, []
+        self.confirmation = Confirmation(name, OPTIONS) if name in INDEPENDENT else None
+        self.pending = []
+        self.validations = set()
+
+    def source(self, path):
+        self.confirm_pending()
+        if self.confirmation:
+            target = self.confirmation.directory / Path(path).name
+            target.write_bytes(Path(path).read_bytes())
+            self.confirmation.current_source = target
+
+    def confirm_pending(self):
+        if self.confirmation and self.pending:
+            self.confirmation.confirm(self.pending)
+            self.pending = []
 
     def enabled(self, label):
         return True
 
     def timeout(self, label):
+        if self.confirmation:
+            raise RuntimeError(f"{self.name}: timeout cannot be independently confirmed: {label}")
         SKIPPED.append({"suite": self.name, "case": label, "reason": "60s native generation timeout"})
         print(f"skip {self.name}: {label}: 60s timeout", flush=True)
 
     def check(self, label, value):
+        if self.confirmation:
+            if label in ("status", "lift"):
+                self.confirm_pending()
+            self.pending.append([label, value])
         if self.name.startswith("norm-") and label == "normalized":
             original = next(v for key, v in self.records if key == "original")
             result = run([OPTIONS.spot / "bin/ltlfilt", "--equivalent-to=" + original, "-f", value], check=True)
             assert result.stdout.strip(), (self.name, result.stderr)
+            self.validations.add("equivalence")
         if label == "ast-export":
             lines = value.splitlines()
             for index, line in enumerate(lines):
                 if line.startswith("string: "):
                     formula = lines[index - 1].split(": ", 1)[1]
-                    run([OPTIONS.spot / "bin/ltlfilt", "--equivalent-to=" + formula,
-                         "-f", line.removeprefix("string: ")], check=True)
+                    result = run([OPTIONS.spot / "bin/ltlfilt", "--equivalent-to=" + formula,
+                                  "-f", line.removeprefix("string: ")], check=True)
+                    assert result.stdout.strip(), (self.name, formula)
+                    self.validations.add("equivalence")
         self.records.append([label, value])
 
     def verdict(self, formula, inputs, outputs, finite=False, moore=False):
@@ -87,6 +117,7 @@ class Recorder:
             SKIPPED.append({"suite": self.name, "formula": formula, "reason": "60s reference timeout"})
             raise
         assert result.returncode in (0, 1), (args, result.stderr)
+        self.validations.add("verdict")
         expected = (result.returncode == 0) != dual
         self.records.append(["verdict", [formula, inputs, outputs, finite, moore], expected])
         return expected
@@ -98,10 +129,32 @@ class Recorder:
     def language(self, formula, names, words, actual):
         _tree, expected = reference(formula, names, words)
         assert actual == expected, (self.name, formula, actual, expected)
+        self.validations.add("language")
         self.check("language", [formula, names, words, expected])
 
     def finish(self):
-        (DEST / (self.name + ".json")).write_text(json.dumps(self.records, indent=2) + "\n")
+        self.confirm_pending()
+        assert required(self.name) <= self.validations, (self.name, "missing independent checks")
+        if self.name in INDEPENDENT:
+            assert self.confirmation, f"{self.name}: refusing unconfirmed recording"
+            provenance = self.confirmation.provenance()
+        else:
+            provenance = describe(self.name, self.records)
+        if self.name == "native-api-8b158d7":
+            # This independent historical differential was frozen in phase 1.
+            # A fresh native snapshot cannot renew that historical evidence.
+            previous = json.loads((DEST / (self.name + ".json")).read_text())
+            assert self.records == previous, "restore the pinned historical differential before changing this suite"
+            provenance["historical_confirmation"] = "passing pre-change differential against 8b158d7"
+        provenance["sha256"] = hashlib.sha256(
+            json.dumps(self.records, separators=(",", ":")).encode()).hexdigest()
+        path = DEST / "provenance.json"
+        suites = json.loads(path.read_text()) if path.exists() else {}
+        suites[self.name] = provenance
+        path.write_text(json.dumps(suites, indent=2) + "\n")
+        payload = ("[\n" + ",\n".join(json.dumps(row, separators=(",", ":"))
+                                      for row in self.records) + "\n]\n") if self.records else "[]\n"
+        (DEST / (self.name + ".json")).write_text(payload)
 
 
 def script(name, *args):
@@ -155,6 +208,15 @@ def dpa():
     for name, formulas in (("random.ltl", random_formulas), ("delta2.ltl", delta)):
         (target / name).write_text("\n".join(f for f in formulas if f not in timed_out) + "\n")
 
+    path = DEST / "provenance.json"
+    suites = json.loads(path.read_text()) if path.exists() else {}
+    suites["dpa"] = {"status": "independently confirmed",
+                     "independent_checks": ["Spot 2.16 ASTs and lasso memberships"],
+                     "native_snapshot": [],
+                     "files_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                      for p in sorted(target.iterdir()) if p.is_file()}}
+    path.write_text(json.dumps(suites, indent=2) + "\n")
+
 
 def main():
     global OPTIONS
@@ -162,7 +224,15 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--spot", type=Path, required=True)
     parser.add_argument("--only", choices=("dpa", "exports", "native", "language", "monitor", "lift", "norm", "api", "step1"))
+    parser.add_argument("--bindings-site", type=Path,
+                        help="Python bindings built against the selected Spot 2.16")
+    parser.add_argument("--oracle-root", type=Path,
+                        help="archive root containing the retired acacia_lift prototype")
     OPTIONS = parser.parse_args()
+    for name in ("bindings_site", "oracle_root"):
+        value = getattr(OPTIONS, name)
+        if value:
+            setattr(OPTIONS, name, value.expanduser().resolve())
     OPTIONS.build = OPTIONS.build.resolve()
     OPTIONS.spot = OPTIONS.spot.expanduser().resolve()
     OPTIONS.reference = OPTIONS.build / "golden-reference"

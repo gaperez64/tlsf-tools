@@ -1,14 +1,5 @@
 [
-  [
-    "tlsf",
-    "INFO {\n  TITLE:       \"s3\";\n  DESCRIPTION: \"sickert stage 3\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    a;\n    c;\n  }\n\n  OUTPUTS {\n    b;\n  }\n\n    GUARANTEE {\n      (G (F ((!(c) || (a U b)))) || F (G (a)));\n    }\n\n}\n"
-  ],
-  [
-    "original",
-    "G F (c -> a W b)"
-  ],
-  [
-    "normalized",
-    "G F (!c || a U b) || F G a"
-  ]
+["tlsf","INFO {\n  TITLE:       \"s3\";\n  DESCRIPTION: \"sickert stage 3\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    a;\n    c;\n  }\n\n  OUTPUTS {\n    b;\n  }\n\n    GUARANTEE {\n      (G (F ((!(c) || (a U b)))) || F (G (a)));\n    }\n\n}\n"],
+["original","G F (c -> a W b)"],
+["normalized","G F (!c || a U b) || F G a"]
 ]

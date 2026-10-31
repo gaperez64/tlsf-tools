@@ -47,6 +47,7 @@ def main():
         for label, text in cases:
             source = directory / (label + ".tlsf")
             source.write_text(text)
+            gold.source(source)
             prefix = directory / label
             result = subprocess.run([str(build / "test/api/native_lift"), str(source), str(prefix), "12"],
                                     text=True, capture_output=True, timeout=20)

@@ -74,7 +74,7 @@ if research_tools
     )
     test('gr1_certificate', python3,
       args: [files('test_gr1_certificate.py'),
-             '--solver', exe['tlsfsolve'], '--games', '240'],
+             '--solver', exe['tlsfsolve'], '--one-step-helper', gr1_one_step, '--games', '240'],
       timeout: 180,
     )
     test('gr1_certcheck', python3,
