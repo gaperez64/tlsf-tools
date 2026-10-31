@@ -104,49 +104,12 @@ endif
 
 flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
-# Optional: used by wrapper/benchmark tests that shell out to ltlsynt.
-ltlsynt = find_program('ltlsynt', required: false)
-spot_dep = dependency('libspot')
 yyjson_dep = dependency('yyjson', version: '>=0.12.0',
                         fallback: ['yyjson', 'yyjson_dep'])
 git = find_program('git', required: false)
 git_version = find_program('scripts/git-version.py')
 bash = find_program('bash', required: false)
 python3 = find_program('python3')
-spot_python = python3
-spot_python_env = environment()
-spot_python_found = false
-if python3.found()
-  spot_python_found = run_command(
-    python3,
-    '-c',
-    'import spot',
-    check: false,
-  ).returncode() == 0
-endif
-# The param-lift monitor tools can fall back to the locally installed Spot
-# bindings when the generic Python cannot import them.  Keep the selected
-# interpreter and its environment together so a not-found fallback is never
-# used merely because an earlier probe succeeded.
-if not spot_python_found
-  spot_python_fallback = find_program('python3.13', required: false)
-  spot_python_fallback_env = environment()
-  spot_python_fallback_env.set(
-    'PYTHONPATH', '/usr/local/lib64/python3.13/site-packages')
-  spot_python_fallback_env.set('LD_LIBRARY_PATH', '/usr/local/lib:/usr/local/lib64')
-  if spot_python_fallback.found() and run_command(
-      spot_python_fallback,
-      '-c',
-      'import spot',
-      env: spot_python_fallback_env,
-      check: false,
-    ).returncode() == 0
-    spot_python = spot_python_fallback
-    spot_python_env = spot_python_fallback_env
-    spot_python_found = true
-  endif
-endif
-
 # OxiDD is a required part of libtlsf. All generated artifacts live in the
 # build tree and are dependencies of every consumer, including source exports.
 oxidd_dir = meson.current_source_dir() / 'external/oxidd'

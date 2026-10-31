@@ -1,8 +1,10 @@
 """Bounded research search for the general Pi_2 converse (issue #80).
 
 Run manually; this does not enable general admission or replace a proof:
-  python3 test/unit/dpa_pi2_converse.py /path/to/dpa_equivalence --output /tmp/pi2
-The executable must be built from this checkout. It compares both inclusions
+  python3 tools/golden/dpa_pi2_converse.py /path/to/dpa_equivalence --output /tmp/pi2
+TOOLS ONLY: REQUIRES Spot 2.16. Build the historical executable first with
+  python3 tools/golden/build_legacy.py build
+Use build/golden-legacy as the executable. It compares both inclusions
 with Spot, writes a witness on mismatch, and uses allow_unproved explicitly.
 """
 import argparse

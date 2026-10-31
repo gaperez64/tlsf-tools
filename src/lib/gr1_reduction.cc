@@ -4,28 +4,13 @@
 extern "C" {
 #include "sha256.h"
 #include "classify.h"
+#include "dpa_buchi.h"
 #include "print_ltlxba.h"
 #include "tlsf/spec.h"
 }
 
 #include "yyjson_cpp.hh"
-#include <spot/misc/optionmap.hh>
-#include <spot/tl/apcollect.hh>
-#include <spot/tl/hierarchy.hh>
-#include <spot/tl/parse.hh>
-#include <spot/tl/print.hh>
-#include <spot/tl/relabel.hh>
-#include <spot/tl/simplify.hh>
-#include <spot/twa/bddprint.hh>
-#include <spot/twaalgos/complete.hh>
-#include <spot/twaalgos/contains.hh>
-#include <spot/twaalgos/determinize.hh>
-#include <spot/twaalgos/isdet.hh>
-#include <spot/twaalgos/powerset.hh>
-#include <spot/twaalgos/remfin.hh>
-#include <spot/twaalgos/sbacc.hh>
-#include <spot/twaalgos/translate.hh>
-
+#include "gr1_formula.hh"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -53,8 +38,6 @@ extern "C" {
 #include <sys/resource.h>
 
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
-void reduction_test_monitor(const char *, spot::twa_graph_ptr &);
-void reduction_test_formula(const char *, spot::formula &);
 void reduction_test_source(const TlsfSpec *);
 void reduction_test_provenance(TlsfGr1Reduction *, TlsfGr1ReductionSemantics);
 char reduction_test_class(char, TlsfGr1ReductionSemantics);
@@ -63,7 +46,8 @@ void reduction_test_rejecting(std::vector<bool> &);
 
 namespace {
 namespace json = tlsf_json;
-using Formula = spot::formula;
+using Formula = gr1_formula::Formula;
+using Op = gr1_formula::Op;
 
 uint64_t stats_clock(clockid_t clock) noexcept {
   timespec ts{};
@@ -186,13 +170,13 @@ struct Shape {
 };
 Shape shape(Formula formula, uint64_t depth = 0) {
   switch (formula.kind()) {
-  case spot::op::X:
-  case spot::op::F:
-  case spot::op::G:
-  case spot::op::U:
-  case spot::op::R:
-  case spot::op::W:
-  case spot::op::M:
+  case Op::X:
+  case Op::F:
+  case Op::G:
+  case Op::U:
+  case Op::R:
+  case Op::W:
+  case Op::M:
     depth = checked_add(depth, 1, "budget-structure");
     break;
   default:
@@ -222,8 +206,8 @@ void precheck(const std::vector<Formula> &assumptions,
           checked_add(w.formula_nodes, s.nodes, "budget-structure");
       w.max_conjunct_nodes = std::max(w.max_conjunct_nodes, s.nodes);
       w.max_temporal_depth = std::max(w.max_temporal_depth, s.temporal_depth);
-      // A cheap structural estimate, not a Spot guarantee. Saturate instead
-      // of wrapping when a deeply nested formula is encountered.
+      // A cheap structural estimate, not an automaton guarantee. Saturate
+      // instead of wrapping when a deeply nested formula is encountered.
       const uint64_t factor = uint64_t{1}
                               << std::min<uint64_t>(s.temporal_depth, 20);
       const uint64_t estimate =
@@ -246,16 +230,30 @@ void precheck(const std::vector<Formula> &assumptions,
 }
 
 template <typename F>
-auto spot_call(const Limits &limits, const char *stage, F &&call) {
+auto checked_call(const Limits &limits, const char *stage, F &&call) {
   limits.check(stage);
   auto result = call();
   limits.check(stage);
   return result;
 }
 
+// G(a R b) = G(b). Preserve the construction formula separately, but remove
+// this inessential support from the normalized provenance, as before.
+Formula monitor_normal_form(Formula formula) {
+  if (formula.children().empty())
+    return formula;
+  std::vector<Formula> children;
+  for (auto child : formula)
+    children.push_back(monitor_normal_form(child));
+  Formula result = Formula::make(formula.kind(), children);
+  if (result.kind() == Op::G && result[0].kind() == Op::R)
+    return Formula::G(result[0][1]);
+  return result;
+}
+
 std::string canonical_formula_text(Formula formula) {
   auto kind = formula.kind();
-  if (kind == spot::op::And || kind == spot::op::Or) {
+  if (kind == Op::And || kind == Op::Or) {
     std::vector<std::string> children;
     for (Formula child : formula)
       children.push_back(canonical_formula_text(child));
@@ -263,23 +261,23 @@ std::string canonical_formula_text(Formula formula) {
     std::string text = "(";
     for (size_t i = 0; i < children.size(); ++i) {
       if (i)
-        text += kind == spot::op::And ? " & " : " | ";
+        text += kind == Op::And ? " & " : " | ";
       text += children[i];
     }
     return text + ")";
   }
   const char *prefix = nullptr;
   switch (kind) {
-  case spot::op::G:
+  case Op::G:
     prefix = "G";
     break;
-  case spot::op::F:
+  case Op::F:
     prefix = "F";
     break;
-  case spot::op::X:
+  case Op::X:
     prefix = "X";
     break;
-  case spot::op::Not:
+  case Op::Not:
     prefix = "!";
     break;
   default:
@@ -289,25 +287,22 @@ std::string canonical_formula_text(Formula formula) {
     return std::string(prefix) + "(" + canonical_formula_text(formula[0]) + ")";
   const char *binary = nullptr;
   switch (kind) {
-  case spot::op::Xor:
-    binary = "xor";
-    break;
-  case spot::op::Implies:
+  case Op::Implies:
     binary = "->";
     break;
-  case spot::op::Equiv:
+  case Op::Equiv:
     binary = "<->";
     break;
-  case spot::op::U:
+  case Op::U:
     binary = "U";
     break;
-  case spot::op::R:
+  case Op::R:
     binary = "R";
     break;
-  case spot::op::W:
+  case Op::W:
     binary = "W";
     break;
-  case spot::op::M:
+  case Op::M:
     binary = "M";
     break;
   default:
@@ -316,11 +311,25 @@ std::string canonical_formula_text(Formula formula) {
   if (binary) {
     std::string lhs = canonical_formula_text(formula[0]);
     std::string rhs = canonical_formula_text(formula[1]);
-    if ((kind == spot::op::Xor || kind == spot::op::Equiv) && lhs > rhs)
+    if (kind == Op::Equiv && lhs > rhs)
       std::swap(lhs, rhs);
     return "(" + lhs + " " + binary + " " + rhs + ")";
   }
-  return spot::str_psl(formula);
+  if (formula.is_tt())
+    return "1";
+  if (formula.is_ff())
+    return "0";
+  const auto &name = formula.ap_name();
+  bool plain = !name.empty() &&
+               (std::isalpha((unsigned char)name[0]) || name[0] == '_') &&
+               std::all_of(name.begin(), name.end(), [](unsigned char c) {
+                 return std::isalnum(c) || c == '_';
+               });
+  if (name == "true" || name == "false" ||
+      (name.size() == 1 &&
+       std::string("XFGURWM").find(name[0]) != std::string::npos))
+    plain = false;
+  return plain ? name : json::serialize(json::value(name));
 }
 
 struct FileCloser {
@@ -331,32 +340,12 @@ struct FileCloser {
 };
 using File = std::unique_ptr<FILE, FileCloser>;
 
-std::string printed_ltl(TlsfSpec *spec) {
+Formula lowered_formula(TlsfSpec *spec) {
   ClassifiedSpec *classes = classify_spec(spec);
-  if (!classes)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
-                  "classification failed");
-  Node *root = build_spec_formula(spec, classes, PRINT_ALL);
+  Node *root = classes ? build_spec_formula(spec, classes, PRINT_ALL) : nullptr;
   if (!root)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
-                  "formula build failed");
-  char *buffer = nullptr;
-  size_t length = 0;
-  File stream(open_memstream(&buffer, &length));
-  if (!stream)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
-                  "out of memory");
-  bool ok = print_ltl(stream.get(), root, LTL_FMT_LTL, false, false, false);
-  if (fflush(stream.get()) != 0 || !ok) {
-    stream.reset();
-    free(buffer);
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "lower",
-                  "formula output failed");
-  }
-  stream.reset();
-  std::unique_ptr<char, void (*)(void *)> owned(buffer, free);
-  std::string result(buffer, length);
-  return result;
+    throw std::bad_alloc();
+  return gr1_formula::from_node(root);
 }
 
 std::string canonicalize(const std::string &text,
@@ -400,11 +389,10 @@ std::string canonicalize(const std::string &text,
 }
 
 void conjuncts(Formula formula, std::vector<Formula> &out) {
-  if (formula.kind() == spot::op::And) {
+  if (formula.kind() == Op::And) {
     for (Formula child : formula)
       conjuncts(child, out);
-  } else if (formula.kind() == spot::op::G &&
-             formula[0].kind() == spot::op::And) {
+  } else if (formula.kind() == Op::G && formula[0].kind() == Op::And) {
     for (Formula child : formula[0])
       conjuncts(Formula::G(child), out);
   } else if (!formula.is_tt()) {
@@ -412,18 +400,38 @@ void conjuncts(Formula formula, std::vector<Formula> &out) {
   }
 }
 
+struct Automaton {
+  struct Edge {
+    unsigned dst;
+    uint32_t label;
+    bool acc;
+  };
+  std::unique_ptr<TlsfDpa, decltype(&tlsf_dpa_free)> context{nullptr,
+                                                             tlsf_dpa_free};
+  std::vector<std::vector<Edge>> rows;
+  std::unordered_map<uint32_t, TlsfDpaLabelNode> labels;
+  std::vector<std::string> names;
+  size_t num_states() const { return rows.size(); }
+  size_t num_edges() const {
+    size_t n = 0;
+    for (const auto &row : rows)
+      n += row.size();
+    return n;
+  }
+  unsigned get_init_state_number() const { return 0; }
+  auto &out(unsigned state) { return rows.at(state); }
+  const auto &out(unsigned state) const { return rows.at(state); }
+};
+
 struct Monitor {
   bool assumption;
   Formula formula;
   char mp_class;
-  spot::twa_graph_ptr automaton;
-  std::vector<bool> accepting;
-  std::vector<bool> rejecting;
+  std::shared_ptr<Automaton> automaton;
+  std::vector<bool> accepting, rejecting;
   std::vector<uint32_t> latches;
   std::string role;
-  bool fallback_used = false;
-  // Captured from the conjunct passed to make_monitor, before publication
-  // matches it against frontend source conjuncts.
+  bool fallback_used = false; // retained metadata field; construction is direct
   std::string construction_formula;
 };
 
@@ -495,142 +503,209 @@ std::vector<bool> rejecting_states(const Monitor &monitor,
   return live;
 }
 
+// All states are reachable and all edges have satisfiable labels. A complete
+// DBA is universal iff its nonaccepting subgraph is acyclic. Its language is
+// safety iff that subgraph is acyclic after removing states with no accepting
+// continuation: every rejecting word must eventually have a bad prefix.
+bool rejecting_cycle(const Monitor &monitor, const Limits &limits,
+                     bool live_only) {
+  const auto &automaton = *monitor.automaton;
+  auto included = [&](unsigned state) {
+    return !monitor.accepting[state] &&
+           (!live_only || !monitor.rejecting[state]);
+  };
+  std::vector<size_t> indegree(automaton.num_states());
+  size_t count = 0;
+  for (unsigned state = 0; state < automaton.num_states(); ++state) {
+    limits.check("monitor-scc");
+    if (!included(state))
+      continue;
+    ++count;
+    for (auto edge : automaton.out(state))
+      if (included(edge.dst))
+        ++indegree[edge.dst];
+  }
+  std::vector<unsigned> pending;
+  for (unsigned state = 0; state < automaton.num_states(); ++state)
+    if (included(state) && !indegree[state])
+      pending.push_back(state);
+  size_t removed = 0;
+  while (!pending.empty()) {
+    limits.check("monitor-scc");
+    unsigned state = pending.back();
+    pending.pop_back();
+    ++removed;
+    for (auto edge : automaton.out(state))
+      if (included(edge.dst) && !--indegree[edge.dst])
+        pending.push_back(edge.dst);
+  }
+  return removed != count;
+}
+
+void dpa_result(TlsfDpaStatus status, const Limits &limits, const char *stage) {
+  limits.check(stage);
+  if (status.code == TLSF_DPA_OK)
+    return;
+  auto code = status.code == TLSF_DPA_DECLINED ? TLSF_GR1_REDUCE_LIMIT
+                                               : TLSF_GR1_REDUCE_ERROR;
+  if (status.reason == TLSF_DPA_UNSUPPORTED)
+    code = TLSF_GR1_REDUCE_UNSUPPORTED;
+  if (status.reason == TLSF_DPA_CANCELLED)
+    code = TLSF_GR1_REDUCE_CANCELLED;
+  if (status.reason == TLSF_DPA_DEADLINE)
+    code = TLSF_GR1_REDUCE_DEADLINE;
+  throw Failure(code, code, stage,
+                code == TLSF_GR1_REDUCE_UNSUPPORTED
+                    ? "outside proved DPA Buchi fragment"
+                    : "DPA construction declined (reason " +
+                          std::to_string(status.reason) + ")");
+}
+TlsfDpaBudget dpa_budget(const Limits &limits) {
+  TlsfDpaBudget budget{};
+  budget.deadline_mono_ns = limits.options.deadline_mono_ns;
+  budget.cancelled = [](void *opaque) -> int {
+    const auto &l = *static_cast<const Limits *>(opaque);
+    if (l.options.cancelled && l.options.cancelled(l.options.cancel_ctx))
+      return 1;
+    rusage usage{};
+    if (l.options.budget.max_rss_bytes && getrusage(RUSAGE_SELF, &usage) == 0) {
+#ifdef __APPLE__
+      uint64_t peak = uint64_t(usage.ru_maxrss);
+#else
+      uint64_t peak = uint64_t(usage.ru_maxrss) * 1024u;
+#endif
+      if (peak > l.options.budget.max_rss_bytes)
+        return 1;
+    }
+    return 0;
+  };
+  budget.cancel_ctx = const_cast<Limits *>(&limits);
+  return budget;
+}
+
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+void reduction_test_monitor(const char *, std::shared_ptr<Automaton> &);
+void reduction_test_formula(const char *, Formula &);
+#endif
+
 Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
   limits.check("monitor");
-  char klass =
-      spot_call(limits, "mp-class", [&] { return spot::mp_class(formula); });
+  std::set<std::string> support;
+  auto collect = [&](auto &self, Formula f) -> void {
+    if (f.kind() == Op::ap)
+      support.insert(f.ap_name());
+    for (auto child : f)
+      self(self, child);
+  };
+  collect(collect, formula);
+  std::vector<const char *> names;
+  for (const auto &name : support)
+    names.push_back(name.c_str());
+  auto automaton = std::make_shared<Automaton>();
+  TlsfDpa *context = nullptr;
+  auto budget = dpa_budget(limits);
+  const auto &b = limits.options.budget;
+  const uint64_t remaining =
+      b.max_total_states
+          ? b.max_total_states -
+                std::min<uint64_t>(b.max_total_states, limits.work.states)
+          : UINT64_MAX;
+  const uint64_t cap = std::min<uint64_t>(
+      remaining, limits.options.max_monitor_states -
+                     std::min<uint64_t>(limits.options.max_monitor_states,
+                                        limits.work.states));
+  if (!cap) {
+    ++limits.work.states; // the excluded initial state is known to be needed
+    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                  "budget-monitor-states", "monitor state budget exhausted");
+  }
+  budget.max_states = size_t(cap);
+  char klass = 0;
+  auto status = dpa_buchi_create(
+      reinterpret_cast<const TlsfAstNode *>(formula.node()), names.data(),
+      uint32_t(names.size()), &budget, &context, &klass);
+  automaton->context.reset(context);
+  dpa_result(status, limits, "mp-class");
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
   klass = reduction_test_class(klass, limits.options.semantics);
 #endif
   if (std::string("BGSOR").find(klass) == std::string::npos)
     throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
-                  "mp-class", "not DBA reducible: " + spot::str_psl(formula));
-  spot::option_map spot_options;
-  spot_options.set("det-max-states",
-                   int(std::min<uint32_t>(limits.options.max_monitor_states,
-                                          std::numeric_limits<int>::max())));
-  spot_options.set(
-      "wdba-det-max",
-      int(std::min<uint32_t>(limits.options.max_monitor_states, 4096)));
-  spot::translator translator(&spot_options);
-  translator.set_type(spot::postprocessor::BA);
-  translator.set_pref(spot::postprocessor::Complete |
-                      spot::postprocessor::SBAcc |
-                      spot::postprocessor::Deterministic);
-  auto automaton =
-      spot_call(limits, "translate", [&] { return translator.run(&formula); });
-  if (!automaton)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "translate",
-                  "Spot translation reached its state limit");
-  bool fallback_used = false;
-  const bool initially_deterministic = spot_call(
-      limits, "determinism", [&] { return spot::is_deterministic(automaton); });
-  // The raw nondeterministic graph may be larger than its final monitor.
-  // The aborter bounds that fallback output; completed monitors are checked
-  // below.
-  const TlsfGr1ConstructionBudget &budget = limits.options.budget;
-  if (initially_deterministic &&
-      ((budget.max_total_states &&
-        automaton->num_states() > budget.max_total_states) ||
-       (budget.max_total_edges &&
-        automaton->num_edges() > budget.max_total_edges)))
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
-                  "budget-translate",
-                  "Spot translation exceeded state or edge limit");
-  if (!initially_deterministic) {
-    fallback_used = true;
-    const unsigned remaining_states =
-        budget.max_total_states
-            ? budget.max_total_states - unsigned(limits.work.states)
-            : ~0u;
-    const unsigned remaining_edges =
-        budget.max_total_edges
-            ? budget.max_total_edges - unsigned(limits.work.edges)
-            : ~0u;
-    const unsigned states =
-        std::min(limits.options.max_monitor_states, remaining_states);
-    const unsigned edges = remaining_edges;
-    spot::output_aborter aborter(states, edges);
-    auto parity = spot_call(limits, "determinize", [&] {
-      return spot::tgba_determinize(automaton, false, true, true, true,
-                                    &aborter);
-    });
-    if (!parity) {
-      // Spot does not expose the discarded graph.  Its aborter reports the
-      // crossed dimension; record the first excluded count as a lower bound.
-      std::ostringstream reason;
-      aborter.print_reason(reason);
-      const bool state_limit =
-          reason.str().find("states required") != std::string::npos;
-      const bool edge_limit =
-          reason.str().find("edges required") != std::string::npos;
-      if ((state_limit &&
-           remaining_states <= limits.options.max_monitor_states) ||
-          (edge_limit && budget.max_total_edges)) {
-        if (state_limit)
-          limits.work.states += uint64_t(states) + 1;
-        if (edge_limit)
-          limits.work.edges += uint64_t(edges) + 1;
-        throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
-                      state_limit ? "budget-monitor-states"
-                                  : "budget-monitor-edges",
-                      "Spot determinization exceeded construction budget; " +
-                          reason.str());
-      }
-      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "determinize",
-                    "Spot determinization failed; " + reason.str());
+                  "mp-class", "outside proved DPA Buchi fragment");
+  uint64_t edges_seen = 0;
+  for (uint32_t state = 0; state < tlsf_dpa_state_count(context); ++state) {
+    limits.check("monitor");
+    const TlsfDpaEdge *row = nullptr;
+    size_t count = 0;
+    status = tlsf_dpa_successors(context, state, &row, &count);
+    if (status.reason == TLSF_DPA_STATE_LIMIT) {
+      // The excluded state is not interned. Record the first excluded count
+      // as a lower bound, together with edges of completed expansion rows.
+      limits.work.states += tlsf_dpa_state_count(context) + 1;
+      limits.work.edges += edges_seen;
+      dpa_result(status, limits, "budget-monitor-states");
     }
-    auto deterministic = spot_call(limits, "parity-to-buchi", [&] {
-      return spot::rabin_to_buchi_if_realizable(parity);
-    });
-    if (!deterministic)
-      deterministic = spot_call(limits, "parity-to-buchi", [&] {
-        return spot::rabin_to_buchi_maybe(parity);
-      });
-    if (!deterministic)
-      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_UNSUPPORTED,
-                    "determinize",
-                    "Spot could not construct recurrence DBA monitor");
-    automaton = deterministic;
+    if (status.code != TLSF_DPA_OK) {
+      limits.work.states += tlsf_dpa_state_count(context);
+      limits.work.edges += edges_seen;
+    }
+    dpa_result(status, limits, "monitor");
+    edges_seen += count;
+    if (b.max_total_states &&
+        tlsf_dpa_state_count(context) >
+            b.max_total_states -
+                std::min<uint64_t>(b.max_total_states, limits.work.states)) {
+      limits.work.states += tlsf_dpa_state_count(context);
+      limits.work.edges += edges_seen;
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                    "budget-monitor-states",
+                    "DPA expansion exceeded live state budget");
+    }
+    if (b.max_total_edges &&
+        edges_seen >
+            b.max_total_edges -
+                std::min<uint64_t>(b.max_total_edges, limits.work.edges)) {
+      limits.work.states += tlsf_dpa_state_count(context);
+      limits.work.edges += edges_seen;
+      throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
+                    "budget-monitor-edges",
+                    "DPA expansion exceeded edge budget");
+    }
+    std::vector<Automaton::Edge> converted;
+    for (size_t i = 0; i < count; ++i)
+      converted.push_back(
+          {row[i].successor, row[i].label, bool(row[i].priority)});
+    automaton->rows.push_back(std::move(converted));
   }
-  automaton =
-      spot_call(limits, "sbacc", [&] { return spot::sbacc(automaton); });
-  automaton =
-      spot_call(limits, "complete", [&] { return spot::complete(automaton); });
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
   reduction_test_monitor("complete", automaton);
 #endif
-  if ((budget.max_total_states &&
-       automaton->num_states() > budget.max_total_states) ||
-      (budget.max_total_edges &&
-       automaton->num_edges() > budget.max_total_edges))
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT,
-                  "budget-monitor",
-                  "completed monitor exceeded state or edge limit");
-  if (!spot_call(limits, "determinism",
-                 [&] { return spot::is_deterministic(automaton); }) ||
-      !spot_call(limits, "completeness",
-                 [&] { return spot::is_complete(automaton); }))
-    throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR, "monitor",
-                  "Spot produced nondeterministic or incomplete monitor");
-  if (limits.options.max_monitor_states &&
-      automaton->num_states() > limits.options.max_monitor_states)
-    throw Failure(TLSF_GR1_REDUCE_LIMIT, TLSF_GR1_REDUCE_LIMIT, "monitor",
-                  "monitor state cap exceeded");
+  for (const auto &row : automaton->rows) {
+    std::vector<uint32_t> labels;
+    for (auto edge : row)
+      labels.push_back(edge.label);
+    bool partition =
+        dpa_labels_partition(context, labels.data(), labels.size());
+    dpa_result(tlsf_dpa_status(context), limits, "monitor");
+    if (!partition)
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                    "monitor", "nondeterministic or incomplete monitor");
+  }
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
   reduction_test_monitor("state-acceptance", automaton);
 #endif
-  Monitor monitor{assumption, formula, klass, automaton,     {},
-                  {},         {},      {},    fallback_used, {}};
-  for (unsigned state = 0; state < automaton->num_states(); ++state) {
-    limits.check("monitor");
+  Monitor monitor{assumption, monitor_normal_form(formula),
+                  klass,      automaton,
+                  {},         {},
+                  {},         {},
+                  false,      {}};
+  for (const auto &row : automaton->rows) {
     int mark = -1;
-    for (const auto &edge : automaton->out(state)) {
-      int current = bool(edge.acc);
-      if (mark >= 0 && mark != current)
+    for (auto edge : row) {
+      if (mark >= 0 && mark != int(edge.acc))
         throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
-                      "monitor", "Spot did not produce state-based acceptance");
-      mark = current;
+                      "monitor", "non-state-based acceptance");
+      mark = edge.acc;
     }
     if (mark < 0)
       throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
@@ -638,6 +713,24 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
     monitor.accepting.push_back(bool(mark));
   }
   monitor.rejecting = rejecting_states(monitor, limits);
+  // Preserve semantic constant monitors in provenance. Emptiness follows
+  // from the live-SCC analysis. Universality is absence of a reachable cycle
+  // consisting entirely of non-accepting states in this complete DBA.
+  bool empty = monitor.rejecting[0];
+  if (empty || !rejecting_cycle(monitor, limits, false)) {
+    monitor.formula = empty ? Formula::ff() : Formula::tt();
+    monitor.mp_class = klass = 'B';
+  }
+  if (limits.options.semantics == TLSF_GR1_STRICT) {
+    // DPA tags certify grammatical membership, not the absence of semantic
+    // safety (e.g. false U x denotes x). Strict roles require the latter.
+    if (!rejecting_cycle(monitor, limits, true))
+      monitor.mp_class = klass = klass == 'B' ? 'B' : 'S';
+    else if (klass == 'B' || klass == 'S')
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                    "mp-class", "safety tag disagrees with monitor language");
+  }
+
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
   reduction_test_rejecting(monitor.rejecting);
 #endif
@@ -648,8 +741,34 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
           if (!monitor.rejecting[edge.dst])
             throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
                           "monitor", "non-sticky safety rejecting region");
+  // Retain just the exported Boolean label DAG. A separate symbolic manager
+  // per completed monitor would multiply its reserved BDD capacity by the
+  // number of conjuncts, although encoding needs only these small rows.
+  for (uint32_t ap = 0; ap < tlsf_dpa_ap_count(context); ++ap)
+    automaton->names.emplace_back(tlsf_dpa_ap_name(context, ap));
+  auto copy_label = [&](auto &self, uint32_t id) -> void {
+    if (automaton->labels.count(id))
+      return;
+    limits.check("monitor-labels");
+    const auto *node = tlsf_dpa_label_node(context, id);
+    if (!node)
+      throw std::runtime_error("invalid DPA label");
+    automaton->labels.emplace(id, *node);
+    if (node->kind == TLSF_DPA_DECISION) {
+      self(self, node->low);
+      self(self, node->high);
+    }
+  };
+  for (const auto &row : automaton->rows)
+    for (auto edge : row)
+      copy_label(copy_label, edge.label);
+  automaton->context.reset();
   return monitor;
 }
+
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+#include "gr1_reduction_test_hooks.hh"
+#endif
 
 struct AagBuilder {
   struct Latch {
@@ -708,7 +827,7 @@ struct AagBuilder {
     return result;
   }
   uint32_t lor(uint32_t a, uint32_t b) { return land(a ^ 1u, b ^ 1u) ^ 1u; }
-  uint32_t compile(Formula f) {
+  uint32_t compile_atom(Formula f) {
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
     reduction_test_formula("transition", f);
 #endif
@@ -717,41 +836,37 @@ struct AagBuilder {
     if (f.is_ff())
       return 0;
     switch (f.kind()) {
-    case spot::op::ap: {
+    case Op::ap: {
       auto found = literals.find(f.ap_name());
       if (found == literals.end())
         throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
                       "transition", "monitor refers to undeclared AP");
       return found->second;
     }
-    case spot::op::Not:
-      return compile(f[0]) ^ 1u;
-    case spot::op::And: {
-      uint32_t result = 1;
-      for (Formula child : f)
-        result = land(result, compile(child));
-      return result;
-    }
-    case spot::op::Or: {
-      uint32_t result = 0;
-      for (Formula child : f)
-        result = lor(result, compile(child));
-      return result;
-    }
-    case spot::op::Xor: {
-      uint32_t a = compile(f[0]), b = compile(f[1]);
-      return lor(land(a, b ^ 1u), land(a ^ 1u, b));
-    }
-    case spot::op::Implies:
-      return lor(compile(f[0]) ^ 1u, compile(f[1]));
-    case spot::op::Equiv: {
-      uint32_t a = compile(f[0]), b = compile(f[1]);
-      return lor(land(a, b), land(a ^ 1u, b ^ 1u));
-    }
     default:
       throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
                     "transition", "non-Boolean monitor transition label");
     }
+  }
+  std::map<std::pair<const Automaton *, uint32_t>, uint32_t> label_cache;
+  uint32_t compile_label(const Automaton &automaton, uint32_t label) {
+    auto key = std::make_pair(&automaton, label);
+    if (auto it = label_cache.find(key); it != label_cache.end())
+      return it->second;
+    const auto &node = automaton.labels.at(label);
+    uint32_t result;
+    if (node.kind == TLSF_DPA_TRUE)
+      result = compile_atom(Formula::tt());
+    else if (node.kind == TLSF_DPA_FALSE)
+      result = compile_atom(Formula::ff());
+    else {
+      uint32_t ap = compile_atom(Formula::ap(automaton.names.at(node.ap)));
+      uint32_t low = compile_label(automaton, node.low),
+               high = compile_label(automaton, node.high);
+      result = lor(land(ap ^ 1u, low), land(ap, high));
+    }
+    label_cache.emplace(key, result);
+    return result;
   }
   std::string render(uint32_t bad, const std::vector<uint32_t> &justice,
                      const std::vector<uint32_t> &fairness) const {
@@ -834,11 +949,8 @@ Encoded encode(std::vector<Monitor> &monitors,
     for (unsigned source = 0; source < monitor.latches.size(); ++source) {
       limits.check("transitions");
       for (const auto &edge : monitor.automaton->out(source)) {
-        Formula condition = spot_call(limits, "transition-formula", [&] {
-          return spot::parse_formula(spot::bdd_format_formula(
-              monitor.automaton->get_dict(), edge.cond));
-        });
-        uint32_t literal = builder.compile(condition);
+        uint32_t literal =
+            builder.compile_label(*monitor.automaton, edge.label);
         incoming[edge.dst].push_back(
             builder.land(monitor.latches[source], literal));
       }
@@ -913,10 +1025,10 @@ Encoded encode(std::vector<Monitor> &monitors,
 
 Formula raw_formula(Formula canonical,
                     const std::map<std::string, std::string> &symbols) {
-  spot::relabeling_map replacements;
+  gr1_formula::Replacements replacements;
   for (const auto &[raw, encoded] : symbols)
-    replacements.emplace(Formula::ap(encoded), Formula::ap(raw));
-  return spot::relabel_apply(canonical, &replacements);
+    replacements.emplace(encoded, Formula::ap(raw));
+  return gr1_formula::relabel(canonical, &replacements);
 }
 
 std::pair<std::string, std::vector<unsigned>>
@@ -983,10 +1095,12 @@ std::pair<std::string, json::array> index_template(const std::string &text) {
 
 std::set<std::string> ap_names(Formula formula) {
   std::set<std::string> names;
-  spot::atomic_prop_set aps;
-  spot::atomic_prop_collect(formula, &aps);
-  for (Formula ap : aps)
-    names.insert(ap.ap_name());
+  if (formula.kind() == Op::ap)
+    names.insert(formula.ap_name());
+  for (Formula child : formula) {
+    auto part = ap_names(child);
+    names.insert(part.begin(), part.end());
+  }
   return names;
 }
 
@@ -1016,7 +1130,7 @@ std::string structural_template(Formula formula, const json::object &signals,
   }
   std::sort(ordered.begin(), ordered.end());
   std::map<unsigned, unsigned> coordinates;
-  spot::relabeling_map replacements;
+  gr1_formula::Replacements replacements;
   for (const auto &[direction, ordinal, indices, name] : ordered) {
     std::string alias = "s_" + direction + "_" + std::to_string(ordinal);
     for (unsigned value : indices) {
@@ -1024,10 +1138,10 @@ std::string structural_template(Formula formula, const json::object &signals,
       (void)inserted;
       alias += "_i" + std::to_string(it->second);
     }
-    replacements.emplace(Formula::ap(name), Formula::ap(alias));
+    replacements.emplace(name, Formula::ap(alias));
   }
-  return canonical_formula_text(spot_call(limits, "template-relabel", [&] {
-    return spot::relabel_apply(formula, &replacements);
+  return canonical_formula_text(checked_call(limits, "template-relabel", [&] {
+    return gr1_formula::relabel(formula, &replacements);
   }));
 }
 
@@ -1064,6 +1178,35 @@ json::object monitor_support(Formula formula, const Buses &buses,
   return {{"buses", supports}, {"scalars", scalars}};
 }
 
+bool formula_equal(Formula a, Formula b, const Limits &limits) {
+  if (a.key() == b.key())
+    return true;
+  a = monitor_normal_form(a);
+  b = monitor_normal_form(b);
+  if (a.key() == b.key())
+    return true;
+  auto support = ap_names(a), other = ap_names(b);
+  // Binding may conservatively be unavailable. Different temporal supports
+  // cannot be matched by syntax; skip their potentially large product. Keep
+  // Boolean/constant comparisons, which can remove inessential atoms.
+  bool both_temporal = !a.is_boolean() && !b.is_boolean();
+  if (support != other && both_temporal)
+    return false;
+  bool temporal = !(a.is_boolean() && b.is_boolean());
+  support.insert(other.begin(), other.end());
+  std::vector<const char *> names;
+  for (const auto &name : support)
+    names.push_back(name.c_str());
+  auto budget = dpa_budget(limits);
+  bool equal = false;
+  auto status = dpa_formula_equal(
+      reinterpret_cast<const TlsfAstNode *>(a.node()),
+      reinterpret_cast<const TlsfAstNode *>(b.node()), names.data(),
+      uint32_t(names.size()), &budget, temporal, &equal);
+  dpa_result(status, limits, "provenance-equivalence");
+  return equal;
+}
+
 bool boolean_eval(Formula formula,
                   const std::map<std::string, bool> &valuation) {
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
@@ -1074,27 +1217,24 @@ bool boolean_eval(Formula formula,
   if (formula.is_ff())
     return false;
   switch (formula.kind()) {
-  case spot::op::ap:
+  case Op::ap:
     return valuation.at(formula.ap_name());
-  case spot::op::Not:
+  case Op::Not:
     return !boolean_eval(formula[0], valuation);
-  case spot::op::And:
+  case Op::And:
     for (Formula child : formula)
       if (!boolean_eval(child, valuation))
         return false;
     return true;
-  case spot::op::Or:
+  case Op::Or:
     for (Formula child : formula)
       if (boolean_eval(child, valuation))
         return true;
     return false;
-  case spot::op::Xor:
-    return boolean_eval(formula[0], valuation) !=
-           boolean_eval(formula[1], valuation);
-  case spot::op::Implies:
+  case Op::Implies:
     return !boolean_eval(formula[0], valuation) ||
            boolean_eval(formula[1], valuation);
-  case spot::op::Equiv:
+  case Op::Equiv:
     return boolean_eval(formula[0], valuation) ==
            boolean_eval(formula[1], valuation);
   default:
@@ -1105,7 +1245,7 @@ bool boolean_eval(Formula formula,
 
 json::value symmetric_signature(Formula formula, const Buses &buses,
                                 const Limits &limits) {
-  if (formula.kind() != spot::op::G || !formula[0].is_boolean())
+  if (formula.kind() != Op::G || !formula[0].is_boolean())
     return nullptr;
   Formula body = formula[0];
   auto names = ap_names(body);
@@ -1122,16 +1262,14 @@ json::value symmetric_signature(Formula formula, const Buses &buses,
   for (const auto &[base, members] : relevant) {
     for (size_t i = 1; i < members.size(); ++i) {
       limits.check("symmetry");
-      spot::relabeling_map swap;
-      swap.emplace(Formula::ap(members[i - 1].first),
-                   Formula::ap(members[i].first));
-      swap.emplace(Formula::ap(members[i].first),
-                   Formula::ap(members[i - 1].first));
-      Formula swapped = spot_call(limits, "symmetry-relabel", [&] {
-        return spot::relabel_apply(body, &swap);
+      gr1_formula::Replacements swap;
+      swap.emplace(members[i - 1].first, Formula::ap(members[i].first));
+      swap.emplace(members[i].first, Formula::ap(members[i - 1].first));
+      Formula swapped = checked_call(limits, "symmetry-relabel", [&] {
+        return gr1_formula::relabel(body, &swap);
       });
-      if (!spot_call(limits, "symmetry-equivalence",
-                     [&] { return spot::are_equivalent(body, swapped); }))
+      if (!checked_call(limits, "symmetry-equivalence",
+                        [&] { return formula_equal(body, swapped, limits); }))
         return false;
     }
     for (const auto &[name, indices] : members)
@@ -1140,17 +1278,17 @@ json::value symmetric_signature(Formula formula, const Buses &buses,
   for (const std::string &scalar : names)
     if (!bus_names.count(scalar)) {
       limits.check("symmetry");
-      spot::relabeling_map when_false, when_true;
-      when_false.emplace(Formula::ap(scalar), Formula::ff());
-      when_true.emplace(Formula::ap(scalar), Formula::tt());
-      Formula lhs = spot_call(limits, "symmetry-relabel", [&] {
-        return spot::relabel_apply(body, &when_false);
+      gr1_formula::Replacements when_false, when_true;
+      when_false.emplace(scalar, Formula::ff());
+      when_true.emplace(scalar, Formula::tt());
+      Formula lhs = checked_call(limits, "symmetry-relabel", [&] {
+        return gr1_formula::relabel(body, &when_false);
       });
-      Formula rhs = spot_call(limits, "symmetry-relabel", [&] {
-        return spot::relabel_apply(body, &when_true);
+      Formula rhs = checked_call(limits, "symmetry-relabel", [&] {
+        return gr1_formula::relabel(body, &when_true);
       });
-      if (!spot_call(limits, "symmetry-equivalence",
-                     [&] { return spot::are_equivalent(lhs, rhs); }))
+      if (!checked_call(limits, "symmetry-equivalence",
+                        [&] { return formula_equal(lhs, rhs, limits); }))
         return false;
     }
   std::vector<std::pair<std::string, std::vector<BusMember>>> ordered(
@@ -1251,9 +1389,9 @@ json::value provenance(const TlsfPipeline *pipeline,
       for (const auto &value : object.at("conjuncts").as_array()) {
         const auto &item = value.as_object();
         std::string text(item.at("formula").as_string());
-        Formula parsed = spot_call(limits, "provenance-parse", [&] {
-          return raw_formula(spot::parse_formula(canonicalize(text, symbols)),
-                             symbols);
+        Formula parsed = checked_call(limits, "provenance-parse", [&] {
+          return raw_formula(
+              gr1_formula::parse_formula(canonicalize(text, symbols)), symbols);
         });
         if (item.at("block") == "REQUIRE" || item.at("block") == "ASSERT")
           parsed = Formula::G(parsed);
@@ -1322,7 +1460,7 @@ json::value provenance(const TlsfPipeline *pipeline,
   for (size_t index = 0; index < monitors.size(); ++index) {
     limits.check("provenance");
     const auto &monitor = monitors[index];
-    Formula raw = spot_call(limits, "provenance-relabel", [&] {
+    Formula raw = checked_call(limits, "provenance-relabel", [&] {
       return raw_formula(monitor.formula, symbols);
     });
     std::string text = canonical_formula_text(raw);
@@ -1357,8 +1495,9 @@ json::value provenance(const TlsfPipeline *pipeline,
       for (const auto &[candidate, item] : candidates) {
         limits.check("provenance-match");
         if (canonical_formula_text(candidate) == text ||
-            spot_call(limits, "provenance-equivalence",
-                      [&] { return spot::are_equivalent(candidate, raw); })) {
+            checked_call(limits, "provenance-equivalence", [&] {
+              return formula_equal(candidate, raw, limits);
+            })) {
           if (matched) {
             matched = nullptr;
             break;
@@ -1389,7 +1528,7 @@ json::value provenance(const TlsfPipeline *pipeline,
       }
     }
     available &= record.at("provenance_source") == "frontend";
-    if (arity_kind == "bus_wide" && raw.kind() == spot::op::G &&
+    if (arity_kind == "bus_wide" && raw.kind() == Op::G &&
         raw[0].is_boolean()) {
       json::value signature = symmetric_signature(raw, buses, limits);
       record["symmetric"] = signature.is_object();
@@ -1531,22 +1670,34 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
                       "signals", "expanded TLSF signal names are not unique");
       outputs.push_back(name);
     }
-    Formula formula = spot_call(limits, "parse-formula", [&] {
-      return spot::parse_formula(
-          canonicalize(printed_ltl(const_cast<TlsfSpec *>(spec)), symbols));
+    Formula formula = checked_call(limits, "parse-formula", [&] {
+      gr1_formula::Replacements replacements;
+      for (const auto &[raw, encoded] : symbols)
+        replacements.emplace(raw, Formula::ap(encoded));
+      return gr1_formula::relabel(lowered_formula(const_cast<TlsfSpec *>(spec)),
+                                  &replacements);
     });
-#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
-    reduction_test_formula("source", formula);
-#endif
     std::set<std::string> encoded_names;
     for (const auto &[raw, encoded] : symbols)
       encoded_names.insert(encoded);
+    // Declared names are encoded above. Retain the legacy error disposition
+    // for malformed lowered names, before the ordinary undeclared-AP guard.
+    for (const auto &name : ap_names(formula))
+      if (!encoded_names.count(name) &&
+          std::any_of(name.begin(), name.end(), [](unsigned char c) {
+            return !std::isalnum(c) && c != '_';
+          }))
+        throw Failure(TLSF_GR1_REDUCE_ERROR, TLSF_GR1_REDUCE_ERROR, "formula",
+                      "lowered formula has undeclared APs");
+#ifdef TLSF_GR1_REDUCTION_TEST_FAULT
+    reduction_test_formula("source", formula);
+#endif
     for (const auto &name : ap_names(formula))
       if (!encoded_names.count(name))
         throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
                       "formula", "lowered formula has undeclared APs");
     std::vector<Formula> assumptions, guarantees;
-    if (formula.kind() == spot::op::Implies) {
+    if (formula.kind() == Op::Implies) {
       conjuncts(formula[0], assumptions);
       conjuncts(formula[1], guarantees);
     } else {
@@ -1559,7 +1710,7 @@ tlsf_gr1_reduce_v1(const TlsfPipeline *pipeline,
     auto append = [&](Formula item, bool assumption) {
       Monitor monitor = make_monitor(item, assumption, limits);
       monitor.construction_formula =
-          spot_call(limits, "provenance-construction", [&] {
+          checked_call(limits, "provenance-construction", [&] {
             return canonical_formula_text(raw_formula(item, symbols));
           });
       work.states = checked_add(work.states, monitor.automaton->num_states(),

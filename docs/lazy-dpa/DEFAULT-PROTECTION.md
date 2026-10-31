@@ -1,5 +1,12 @@
 # Default-mode effect of syntactic X protection
 
+Task TV replaces the attempted cache/call-order refinement with translation
+validation. The uncached executable Lean construction has a composed language
+theorem, and finite parity/Büchi language checkers are proved sound. Finite
+reference export, canonical C dumps and the complete offline validation corpus
+remain open; production admission is unchanged. The historical measurements
+below remain historical evidence. See `proofs/README.md` for the current gates.
+
 Keep syntactic X protection in both modes. The default admission predicate is
 unchanged, but the automata can differ, including their priorities, state
 counts and resource-budget outcomes. This audit compares parent `b149ef5`

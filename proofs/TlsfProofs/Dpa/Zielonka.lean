@@ -11,15 +11,23 @@ The results below do not substitute a citation for the recurrent-path proof.
 namespace Tlsf.Dpa
 variable {m : Nat}
 noncomputable section
-local instance (p : Prop) : Decidable p := Classical.propDecidable p
 
 abbrev ColourSet (m : Nat) := Fin m → Bool
 
 def Subset (x y : ColourSet m) : Prop := ∀ i, x i = true → y i = true
 
+/-- Executable subset and equality tests over the finite colour alphabet. -/
+instance subsetDecidable (X Y : ColourSet m) : Decidable (Subset X Y) := by
+  unfold Subset
+  infer_instance
+
+instance colourSetDecidableEq : DecidableEq (ColourSet m) := fun X Y =>
+  decidable_of_iff (∀ i, X i = Y i) ⟨funext, fun h i => congrFun h i⟩
+
 theorem subset_refl (x : ColourSet m) : Subset x x := fun _ h => h
 theorem subset_trans (h : Subset x y) (h' : Subset y z) : Subset x z := fun i hi => h' i (h i hi)
 theorem subset_antisymm (h : Subset x y) (h' : Subset y x) : x = y := by
+  classical
   funext i; cases hx : x i <;> cases hy : y i <;> simp_all [Subset]
 
 /-- An inclusion-maximal opposite-acceptance subset of C. Such a subset is
@@ -29,6 +37,7 @@ def MaximalOpposite (α : Skeleton m) (C M : ColourSet m) : Prop :=
     ∀ N, Subset N C → α N ≠ α C → Subset M N → N = M
 
 theorem maximal_proper (h : MaximalOpposite α C M) : M ≠ C := by
+  classical
   intro he; exact h.2.1 (congrArg α he)
 
 /-- The conjunction of the builder's blocking clauses: X must not be a
@@ -45,6 +54,7 @@ theorem maximal_under_blocks (α : Skeleton m) (C X : ColourSet m)
     (hXC : Subset X C) (hopp : α X ≠ α C) (hb : Unblocked recorded X)
     (hmax : ∀ Y, Subset Y C → α Y ≠ α C → Unblocked recorded Y → Subset X Y → Y = X) :
     MaximalOpposite α C X := by
+  classical
   exact ⟨hXC, hopp, fun Y hYC ho hXY => hmax Y hYC ho (unblocked_upward hb hXY) hXY⟩
 
 /-- Abstract SAT-builder completeness. If all outputs are maximal and the
@@ -56,6 +66,7 @@ theorem maximal_builder_complete (α : Skeleton m) (C : ColourSet m)
     (hsound : ∀ M, M ∈ recorded → MaximalOpposite α C M)
     (hstop : ¬∃ X, Subset X C ∧ α X ≠ α C ∧ Unblocked recorded X)
     (M : ColourSet m) (hM : MaximalOpposite α C M) : M ∈ recorded := by
+  classical
   apply Classical.byContradiction; intro hn
   apply hstop
   refine ⟨M, hM.1, hM.2.1, ?_⟩
@@ -70,6 +81,7 @@ theorem recurrent_set_acceptance (α : Skeleton m) (C S : ColourSet m)
     (children : List (ColourSet m)) (_hSC : Subset S C)
     (hcover : α S ≠ α C → ∃ D, D ∈ children ∧ Subset S D)
     (hno : ∀ D, D ∈ children → ¬Subset S D) : α S = α C := by
+  classical
   apply Classical.byContradiction; intro hn
   obtain ⟨D, hD, hSD⟩ := hcover hn
   exact hno D hD hSD
@@ -85,9 +97,11 @@ theorem exportBound_large (m : Nat) : m+1 < exportBound m := by unfold exportBou
 min-even and max-odd. This is independent of tree or component correctness. -/
 theorem parity_export (p : Nat → Nat) (P : Nat) (hP : P % 2 = 1)
     (hp : ∀ n, p n ≤ P) : MinEven p ↔ MaxOdd (fun n => P - p n) := by
+  classical
   constructor
   · rintro ⟨k, hk, hi, N, hN⟩
     have hkP : k ≤ P := by
+      classical
       obtain ⟨n, _, he⟩ := hi 0
       have ht := hp n; omega
     refine ⟨P-k, by omega, ?_, N, ?_⟩
@@ -99,6 +113,7 @@ theorem parity_export (p : Nat → Nat) (P : Nat) (hP : P % 2 = 1)
   · rintro ⟨r, hr, hi, N, hN⟩
     dsimp only at hi hN
     have hrP : r ≤ P := by
+      classical
       obtain ⟨n, _, he⟩ := hi 0
       omega
     refine ⟨P-r, by omega, ?_, N, ?_⟩
@@ -108,6 +123,7 @@ theorem parity_export (p : Nat → Nat) (P : Nat) (hP : P % 2 = 1)
 
 /-- All ordinary exported priorities are positive under the stated depth bound. -/
 theorem exported_positive (h : p ≤ m+1) : 0 < exportBound m - p := by
+  classical
   have hb := exportBound_large m
   omega
 
@@ -117,6 +133,7 @@ def colourVectors : (m : Nat) → List (ColourSet m)
   | n+1 => (colourVectors n).flatMap (fun X => [Fin.cases false X, Fin.cases true X])
 
 theorem mem_colourVectors (X : ColourSet m) : X ∈ colourVectors m := by
+  classical
   induction m with
   | zero =>
     simp only [colourVectors, List.mem_singleton]
@@ -125,6 +142,7 @@ theorem mem_colourVectors (X : ColourSet m) : X ∈ colourVectors m := by
     let tail : ColourSet m := fun i => X i.succ
     have ht := ih tail
     have he : Fin.cases (X 0) tail = X := by
+      classical
       funext i; exact Fin.cases rfl (fun _ => rfl) i
     simp only [colourVectors, List.mem_flatMap]
     refine ⟨tail, ht, ?_⟩
@@ -134,10 +152,29 @@ theorem mem_colourVectors (X : ColourSet m) : X ∈ colourVectors m := by
     · simp only [hv] at he
       simp [← he]
 
+/-- Exhaustive finite maximality test; no classical decision procedure runs. -/
+def maximalOppositeb (α : Skeleton m) (C M : ColourSet m) : Bool :=
+  decide (Subset M C) && (α M != α C) &&
+    (colourVectors m).all (fun N =>
+      !(decide (Subset N C) && (α N != α C) && decide (Subset M N)) || decide (N = M))
+
+theorem maximalOppositeb_exact (α : Skeleton m) (C M : ColourSet m) :
+    maximalOppositeb α C M = true ↔ MaximalOpposite α C M := by
+  have imp (a b : Bool) : (!a || b) = true ↔ (a = true → b = true) := by
+    cases a <;> cases b <;> decide
+  simp only [maximalOppositeb, Bool.and_eq_true, List.all_eq_true, imp,
+    decide_eq_true_eq, bne_iff_ne]
+  constructor
+  · rintro ⟨⟨hMC, ho⟩, hall⟩
+    exact ⟨hMC, ho, fun N hNC hn hMN => hall N (mem_colourVectors N) ⟨⟨hNC, hn⟩, hMN⟩⟩
+  · rintro ⟨hMC, ho, hmax⟩
+    exact ⟨⟨hMC, ho⟩, fun N _ h => hmax N h.1.1 h.1.2 h.2⟩
+
 /-- Finite-poset maximality, stated directly over a finite candidate list. -/
 theorem list_maximal (xs : List (ColourSet m)) (P : ColourSet m → Prop)
     (hne : ∃ X, X ∈ xs ∧ P X) :
     ∃ M, M ∈ xs ∧ P M ∧ ∀ Y, Y ∈ xs → P Y → Subset M Y → Y = M := by
+  classical
   induction xs with
   | nil => obtain ⟨X, hX, _⟩ := hne; contradiction
   | cons a xs ih =>
@@ -158,6 +195,7 @@ theorem list_maximal (xs : List (ColourSet m)) (P : ColourSet m → Prop)
         · exact hmax Y hY hPY hMY
     · obtain ⟨X, hX, hPX⟩ := hne
       have he : X = a := by
+        classical
         rcases List.mem_cons.mp hX with he | hX
         · exact he
         · exact False.elim (htail ⟨X, hX, hPX⟩)
@@ -172,6 +210,7 @@ theorem list_maximal (xs : List (ColourSet m)) (P : ColourSet m → Prop)
 theorem maximal_opposite_extension (α : Skeleton m) (C S : ColourSet m)
     (hSC : Subset S C) (hopp : α S ≠ α C) :
     ∃ M, MaximalOpposite α C M ∧ Subset S M := by
+  classical
   let P := fun X => Subset X C ∧ α X ≠ α C ∧ Subset S X
   obtain ⟨M, _, hM, hmax⟩ := list_maximal (colourVectors m) P
     ⟨S, mem_colourVectors S, hSC, hopp, subset_refl S⟩
@@ -182,9 +221,11 @@ theorem maximal_opposite_extension (α : Skeleton m) (C S : ColourSet m)
 def colourCard (X : ColourSet m) : Nat := ((List.finRange m).filter X).length
 
 theorem colourCard_strict (h : Subset X C) (hne : X ≠ C) : colourCard X < colourCard C := by
+  classical
   apply filter_strict
   · intro i _ hi; exact h i hi
   · have hlost : ∃ i, C i = true ∧ X i = false := by
+      classical
       apply Classical.byContradiction; intro hn
       apply hne
       apply subset_antisymm h
@@ -196,6 +237,7 @@ theorem colourCard_strict (h : Subset X C) (hne : X ≠ C) : colourCard X < colo
     exact ⟨i, by simp, hi, hx⟩
 
 theorem colourCard_le (X : ColourSet m) : colourCard X ≤ m := by
+  classical
   have h := List.length_filter_le X (List.finRange m)
   simpa only [colourCard, List.length_finRange] using h
 
@@ -210,14 +252,14 @@ inductive ZTree (α : Skeleton m) : ColourSet m → Type where
 /-- A reference builder using exhaustive semantic vectors. This verifies the
 mathematical tree; `maximal_builder_complete` treats the abstract SAT builder. -/
 def buildTree (α : Skeleton m) (C : ColourSet m) : ZTree α C :=
-  let children := (colourVectors m).filter (fun M => decide (MaximalOpposite α C M))
+  let children := (colourVectors m).filter (maximalOppositeb α C)
   ZTree.node C children
-    (fun _ h => of_decide_eq_true (List.mem_filter.mp h).2)
-    (fun M h => List.mem_filter.mpr ⟨mem_colourVectors M, decide_eq_true h⟩)
+    (fun _ h => (maximalOppositeb_exact α C _).mp (List.mem_filter.mp h).2)
+    (fun M h => List.mem_filter.mpr ⟨mem_colourVectors M, (maximalOppositeb_exact α C M).mpr h⟩)
     (fun M _h => buildTree α M)
 termination_by colourCard C
 decreasing_by
-  have hm : MaximalOpposite α C M := of_decide_eq_true (List.mem_filter.mp _h).2
+  have hm : MaximalOpposite α C M := (maximalOppositeb_exact α C M).mp (List.mem_filter.mp _h).2
   exact colourCard_strict hm.1 (maximal_proper hm)
 
 /-- The children cover every opposite subset, including the empty subset. -/
@@ -226,6 +268,7 @@ theorem child_cover (α : Skeleton m) (C S : ColourSet m)
     (hcover : ∀ M, MaximalOpposite α C M → M ∈ children)
     (hSC : Subset S C) (hopp : α S ≠ α C) :
     ∃ D, D ∈ children ∧ Subset S D := by
+  classical
   obtain ⟨D, hD, hSD⟩ := maximal_opposite_extension α C S hSC hopp
   exact ⟨D, hcover D hD, hSD⟩
 
@@ -250,6 +293,7 @@ def ValidPath : {C : ColourSet m} → ZTree α C → List Nat → Prop
       ∃ hi : i < children.length, ValidPath (subtree children[i] (List.getElem_mem hi)) rest
 
 theorem leftmost_valid (T : ZTree α C) : ValidPath T (leftmost T) := by
+  classical
   induction T with
   | node C children hs hc subtree ih =>
     cases children with
@@ -260,6 +304,7 @@ theorem leftmost_valid (T : ZTree α C) : ValidPath T (leftmost T) := by
 /-- Strict label decrease bounds every leaf path by the number of colours. -/
 theorem path_length_le (T : ZTree α C) (path : List Nat) (hv : ValidPath T path) :
     path.length ≤ colourCard C := by
+  classical
   induction path generalizing C with
   | nil => exact Nat.zero_le _
   | cons i rest ih =>
@@ -295,6 +340,7 @@ termination_by _ _ path _ => path.length
 theorem step_valid (T : ZTree α C) (path : List Nat) (E : ColourSet m)
     (hv : ValidPath T path) (hEC : Subset E C) :
     ∃ r, step T path E = some r ∧ ValidPath T r.1 ∧ r.2 ≤ path.length := by
+  classical
   induction path generalizing C with
   | nil =>
     cases T with
@@ -326,6 +372,7 @@ def advance (T : ZTree α C) (path : List Nat) (E : ColourSet m) : List Nat × N
 theorem advance_valid (T : ZTree α C) (path : List Nat) (E : ColourSet m)
     (hv : ValidPath T path) (hEC : Subset E C) :
     ValidPath T (advance T path E).1 ∧ (advance T path E).2 ≤ colourCard C := by
+  classical
   obtain ⟨r, hr, hv', hd⟩ := step_valid T path E hv hEC
   simp only [advance, hr, Option.getD_some]
   exact ⟨hv', Nat.le_trans hd (path_length_le T path hv)⟩
@@ -341,6 +388,7 @@ def treeRun (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) : Nat
 
 theorem treeRun_valid (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) (n : Nat) :
     T.ValidPath (treeRun T colours n) := by
+  classical
   induction n with
   | zero => exact T.leftmost_valid
   | succ n ih => exact (T.advance_valid _ _ ih (fun _ _ => rfl)).1
@@ -351,6 +399,7 @@ def treePriority (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) 
 
 theorem treePriority_le (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) (n : Nat) :
     treePriority T colours n ≤ m+1 := by
+  classical
   have hd := (T.advance_valid (treeRun T colours n) (colours n)
     (treeRun_valid T colours n) (fun _ _ => rfl)).2
   have hc := colourCard_le (fullColours m)
@@ -362,6 +411,7 @@ preserves its min-even language independently of the remaining EL theorem. -/
 theorem tree_export (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) :
     MinEven (treePriority T colours) ↔
       MaxOdd (fun n => exportBound m - treePriority T colours n) := by
+  classical
   apply parity_export _ _ (exportBound_odd m)
   intro n
   have h := treePriority_le T colours n
@@ -373,16 +423,19 @@ theorem tree_export (T : ZTree α (fullColours m)) (colours : Nat → ColourSet 
 def Often (p : Nat → Prop) : Prop := ∀ N, ∃ n, N ≤ n ∧ p n
 
 theorem often_shift (p : Nat → Prop) (N : Nat) : Often (fun n => p (N+n)) ↔ Often p := by
+  classical
   constructor
   · intro h M; obtain ⟨n, hn, hp⟩ := h M; exact ⟨N+n, by omega, hp⟩
   · intro h M; obtain ⟨n, hn, hp⟩ := h (N+M); exact ⟨n-N, by omega, by simpa [Nat.add_sub_cancel' (by omega : N ≤ n)] using hp⟩
 
 theorem not_often (p : Nat → Prop) : ¬Often p ↔ ∃ N, ∀ n, N ≤ n → ¬p n := by
+  classical
   simp only [Often, Classical.not_forall, not_exists, not_and]
 
 theorem finite_eventually (xs : List α) (p : α → Nat → Prop)
     (h : ∀ a, a ∈ xs → ∃ N, ∀ n, N ≤ n → p a n) :
     ∃ N, ∀ n, N ≤ n → ∀ a, a ∈ xs → p a n := by
+  classical
   induction xs with
   | nil => exact ⟨0, by simp⟩
   | cons a xs ih =>
@@ -396,6 +449,7 @@ theorem finite_eventually (xs : List α) (p : α → Nat → Prop)
 /-- Finitely many nonrecurring colours have a common last-occurrence bound. -/
 theorem recurrent_eventually_subset (E : Nat → ColourSet m) (D : ColourSet m)
     (h : Subset (recurrentColours E) D) : ∃ N, ∀ n, N ≤ n → Subset (E n) D := by
+  classical
   obtain ⟨N, hN⟩ := finite_eventually (List.finRange m)
     (fun i n => E n i = true → D i = true) (by
       intro i _
@@ -408,6 +462,7 @@ theorem recurrent_eventually_subset (E : Nat → ColourSet m) (D : ColourSet m)
 
 theorem recurrent_subset (E : Nat → ColourSet m) (C : ColourSet m)
     (h : ∀ n, Subset (E n) C) : Subset (recurrentColours E) C := by
+  classical
   intro i hi
   have hh : Inf (fun n => E n i) := by simpa [recurrentColours] using hi
   obtain ⟨n, _, hn⟩ := hh 0
@@ -415,6 +470,7 @@ theorem recurrent_subset (E : Nat → ColourSet m) (C : ColourSet m)
 
 theorem recurrent_shift (E : Nat → ColourSet m) (N : Nat) :
     recurrentColours (fun n => E (N+n)) = recurrentColours E := by
+  classical
   funext i
   apply Bool.eq_iff_iff.mpr
   simp only [recurrentColours, decide_eq_true_eq]
@@ -422,6 +478,7 @@ theorem recurrent_shift (E : Nat → ColourSet m) (N : Nat) :
 
 theorem minEven_shift (p : Nat → Nat) (N : Nat) :
     MinEven (fun n => p (N+n)) ↔ MinEven p := by
+  classical
   constructor
   · rintro ⟨k, hk, hi, M, hM⟩
     exact ⟨k, hk, (often_shift _ N).mp hi, N+M, fun n hn => by
@@ -432,6 +489,7 @@ theorem minEven_shift (p : Nat → Nat) (N : Nat) :
 
 theorem minEven_zero_anchor (d : Nat → Nat) (ε : Nat) (h : Often (fun n => d n = 0)) :
     MinEven (fun n => d n + ε) ↔ ε % 2 = 0 := by
+  classical
   constructor
   · rintro ⟨k, hk, hi, N, hN⟩
     obtain ⟨n, hn, he⟩ := h N
@@ -450,6 +508,7 @@ def siblingDistance (l j i : Nat) : Nat := if i ≤ j then j-i else l+j-i
 
 theorem sibling_distance_step (hi : i < l) (hj : j < l) (hne : i ≠ j) :
     siblingDistance l j ((i+1)%l) < siblingDistance l j i := by
+  classical
   by_cases hlast : i+1 = l
   · rw [hlast, Nat.mod_self]
     unfold siblingDistance
@@ -465,10 +524,12 @@ theorem rotation_visits (i d : Nat → Nat) (l : Nat) (hi : ∀ n, i n < l)
     (hm : ∀ n, i (n+1) = if d n = 0 then (i n+1)%l else i n)
     (hd : Often (fun n => d n = 0)) (j : Nat) (hj : j < l) :
     Often (fun n => i n = j ∧ d n = 0) := by
+  classical
   apply Classical.byContradiction; intro hn
   obtain ⟨N, hN⟩ := not_often _ |>.mp hn
   let f := fun n => siblingDistance l j (i n)
   have hmono : ∀ n, N ≤ n → f (n+1) ≤ f n := by
+    classical
     intro n hn
     by_cases hz : d n = 0
     · have hne : i n ≠ j := fun he => hN n hn ⟨he, hz⟩
@@ -479,13 +540,16 @@ theorem rotation_visits (i d : Nat → Nat) (l : Nat) (hi : ∀ n, i n < l)
   obtain ⟨k, ⟨t, ht, htk⟩, hmin⟩ := exists_least_nat (show ∃ k, ∃ t, N ≤ t ∧ f t = k from ⟨f N, N, Nat.le_refl _, rfl⟩)
   obtain ⟨n, htn, hz⟩ := hd t
   have hle : f n ≤ f t := by
+    classical
     have hh : ∀ s, f (t+s) ≤ f t := by
+      classical
       intro s; induction s with
       | zero => exact Nat.le_refl _
       | succ s ih => exact Nat.le_trans (hmono (t+s) (by omega)) ih
     simpa [Nat.add_sub_cancel' htn] using hh (n-t)
   have hne : i n ≠ j := fun he => hN n (by omega) ⟨he, hz⟩
   have hlt : f (n+1) < k := by
+    classical
     have hh := sibling_distance_step (hi n) hj hne
     dsimp only [f] at *
     rw [hm n, ite_eq_left hz]
@@ -508,6 +572,7 @@ theorem node_motion (children : List (ColourSet m))
       (Subset E children[i] ∧ 0 < d ∧ next.headD 0 = i ∧
         step (sub children[i] (List.getElem_mem hi)) rest E = some (next.tail,d-1)) ∨
       (¬Subset E children[i] ∧ d = 0 ∧ next.headD 0 = (i+1)%children.length) := by
+  classical
   obtain ⟨hi, hrest⟩ := hv
   refine ⟨hi, ?_⟩
   by_cases hchild : Subset E children[i]
@@ -526,21 +591,25 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
     (hm : ∀ n, step T (r n) (E n) = some (r (n+1), d n))
     (hε : ε % 2 = 0 ↔ α C = true) :
     MinEven (fun n => d n + ε) ↔ α (recurrentColours E) = true := by
+  classical
   induction T generalizing E r d ε with
   | node C children hs hc sub ih =>
     have hSC := recurrent_subset E C hEC
     by_cases hz : Often (fun n => d n = 0)
     · have hno : ∀ D, D ∈ children → ¬Subset (recurrentColours E) D := by
+        classical
         intro D hD hSD
         obtain ⟨j, hj, heD⟩ := List.getElem_of_mem hD
         obtain ⟨N, hN⟩ := recurrent_eventually_subset E D hSD
         have hnonempty : children ≠ [] := by intro he; simp [he] at hD
         have hr : ∀ n, ∃ i rest, r n = i::rest := by
+          classical
           intro n; cases he : r n with
           | nil => have hh := hv n; rw [he] at hh; exact False.elim (hnonempty hh)
           | cons i rest => exact ⟨i, rest, rfl⟩
         let ix := fun n => (r n).headD 0
         have hi : ∀ n, ix n < children.length := by
+          classical
           intro n; obtain ⟨i, rest, he⟩ := hr n
           have hh := hv n; rw [he] at hh
           simpa [ix, he] using hh.1
@@ -548,6 +617,7 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
           (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hv n) (hEC n)
           (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hm n)
         have hix : ∀ n, ix (n+1) = if d n = 0 then (ix n+1)%children.length else ix n := by
+          classical
           intro n; obtain ⟨_, hh | hh⟩ := motion n
           · rw [ite_eq_right (by omega : d n ≠ 0)]; exact hh.2.2.1
           · rw [ite_eq_left hh.2.1]; exact hh.2.2
@@ -560,6 +630,7 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
       rw [minEven_zero_anchor d ε hz, hε, heq]
     · obtain ⟨N, hN⟩ := (not_often _).mp hz
       have hnonempty : children ≠ [] := by
+        classical
         intro he
         have hp := hv N
         have hh := hm N
@@ -567,6 +638,7 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
         | nil => simp [step, he, hEC N, hpEq] at hh; exact hN N (Nat.le_refl _) hh.2.symm
         | cons i rest => rw [hpEq] at hp; obtain ⟨hi, _⟩ := hp; simp [he] at hi
       have hr : ∀ n, ∃ i rest, r n = i::rest := by
+        classical
         intro n; cases he : r n with
         | nil => have hh := hv n; rw [he] at hh; exact False.elim (hnonempty hh)
         | cons i rest => exact ⟨i, rest, rfl⟩
@@ -575,6 +647,7 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
         (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hv n) (hEC n)
         (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hm n)
       have stable : ∀ n, ix (N+n) = ix N := by
+        classical
         intro n; induction n with
         | zero => rfl
         | succ n ih =>
@@ -586,19 +659,23 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
       have hD := List.getElem_mem hj
       have hopp := (hs D hD).2.1
       have hε' : (ε+1)%2=0 ↔ α D = true := by
+        classical
         cases ha : α C <;> cases hb : α D <;> simp_all <;> omega
       have hsub : ∀ n, Subset (E (N+n)) D ∧
           step (sub D hD) (r (N+n)).tail (E (N+n)) = some ((r (N+n+1)).tail, d (N+n)-1) := by
+        classical
         intro n; obtain ⟨_, hh | hh⟩ := motion (N+n)
         · have transport : ∀ M (hM : M ∈ children), M = D →
               Subset (E (N+n)) M ∧ step (sub M hM) (r (N+n)).tail (E (N+n)) =
                 some ((r (N+n+1)).tail, d (N+n)-1) →
               Subset (E (N+n)) D ∧ step (sub D hD) (r (N+n)).tail (E (N+n)) =
                 some ((r (N+n+1)).tail, d (N+n)-1) := by
+            classical
             intro M hM he hh; subst M; exact hh
           exact transport _ _ (by simp only [D, stable n]) ⟨hh.1, hh.2.2.2⟩
         · exact False.elim (hN (N+n) (by omega) hh.2.1)
       have hv' : ∀ n, ValidPath (sub D hD) (r (N+n)).tail := by
+        classical
         intro n
         obtain ⟨i, rest, he⟩ := hr (N+n)
         have hh := hv (N+n); rw [he] at hh
@@ -610,6 +687,7 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
         (fun n => d (N+n)-1) (ε+1) hv' (fun n => (hsub n).1)
         (by intro n; simpa [Nat.add_assoc] using (hsub n).2) hε'
       have he : (fun n => d (N+n)-1+(ε+1)) = (fun n => d (N+n)+ε) := by
+        classical
         funext n; have hn := hN (N+n) (by omega); omega
       rw [he, recurrent_shift] at hh
       rw [← minEven_shift (fun n => d n + ε) N]
@@ -621,6 +699,7 @@ end ZTree
 every colour stream, including empty marks, constant α and zero colours. -/
 theorem tree_minEven (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) :
     MinEven (treePriority T colours) ↔ EmersonLei α colours := by
+  classical
   apply T.recurrent_run colours (treeRun T colours)
     (fun n => (T.advance (treeRun T colours n) (colours n)).2)
     (if α (fullColours m) then 0 else 1) (treeRun_valid T colours) (fun _ _ _ => rfl)

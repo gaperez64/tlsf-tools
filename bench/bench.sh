@@ -78,7 +78,7 @@ setup_matrix_build() {
     meson setup "$dir" -Dcpu="$cpu" -Dresearch_tools=true --buildtype=release \
       >/dev/null || return 1
   fi
-  ninja -C "$dir" -j 4 >/dev/null
+  env CARGO_BUILD_JOBS=2 ninja -C "$dir" -j 2 >/dev/null
 }
 
 measure_once() {
@@ -105,8 +105,6 @@ measure_matrix_once() {
       cmd=("$build_dir/tlsfcompose" --split --route-stats "$spec") ;;
     compose_self_contained)
       cmd=("$build_dir/tlsfcompose" --split --aiger --ltlsynt /bin/false "$spec") ;;
-    compose_full)
-      cmd=("$build_dir/tlsfcompose" --split --aiger "$spec") ;;
     *)
       return 2 ;;
   esac
@@ -162,9 +160,6 @@ run_matrix() {
     "build-native:native"
   )
   local commands=(tlsf2ltl tlsfresidual_split route_stats compose_self_contained)
-  if command -v ltlsynt >/dev/null 2>&1; then
-    commands+=(compose_full)
-  fi
 
   printf 'build\tcpu\tcommand\tspecs\tmedian_ms\tp95_ms\tmax_rss_kib\tfailures\tself_contained\troute_summary\n'
   local entry dir cpu route_file

@@ -1,0 +1,4842 @@
+{
+  "baseline_commit": "cf33da9",
+  "inventory": "Every checked-in .tlsf under bench/ and test/, including the unused capacity fixture.",
+  "cli_status_codes": {
+    "0": "success",
+    "2": "invalid input or error",
+    "3": "unsupported"
+  },
+  "limits": {
+    "semantics": "exact",
+    "monitor_states": 10000,
+    "artifact_bytes": 16777216,
+    "process_seconds": 20,
+    "memory_scope_bytes": 5368709120,
+    "swap_bytes": 0,
+    "build_jobs": 2
+  },
+  "summary": {
+    "specs": 217,
+    "before_successes": 156,
+    "after_successes": 148,
+    "allow_unproved_successes": 155,
+    "new_declines": 8,
+    "allow_unproved_recovered": 7,
+    "before_unsupported": 46,
+    "after_unsupported": 54,
+    "invalid_inputs_before_and_after": 15,
+    "timeouts": 0,
+    "retained_monitor_states_before": 1215,
+    "retained_monitor_states_after": 1231
+  },
+  "validation": {
+    "research_tests_passed": 386,
+    "default_build_tests_passed": 5,
+    "clang_format": "22.1.8",
+    "default_cpp_standard": "c++23",
+    "libspot_visible_to_pkg_config": false,
+    "coverage": {
+      "line_total": 29430,
+      "line_covered": 24205,
+      "line_percent": 82.2,
+      "function_total": 1446,
+      "function_covered": 1388,
+      "function_percent": 96.0,
+      "branch_total": 34707,
+      "branch_covered": 20374,
+      "branch_percent": 58.7
+    },
+    "benchmark_runs": 3,
+    "benchmark_result": "no regressions",
+    "buchi_formulas_admitted": 313,
+    "buchi_formulas_declined": 228,
+    "buchi_reference_memberships": 160256,
+    "golden_directory_bytes": 2947504,
+    "golden_directory_cap_bytes": 4629524
+  },
+  "new_declines": [
+    {
+      "path": "test/fixtures/cases/bounded_until.tlsf",
+      "reason": "The G body contains U; the proved Stage 2 body is Boolean over finite windows and F(window).",
+      "old_monitor": {
+        "construction_formula": "G((go -> (p U q)))",
+        "state_count": 3
+      },
+      "allow_unproved_recovers": true
+    },
+    {
+      "path": "test/fixtures/cases/definition-future.tlsf",
+      "reason": "G of an equivalence with F contains both F and its G dual under polarity; it is outside the proved flat body grammar.",
+      "old_monitor": {
+        "construction_formula": "G((F(q) <-> p))",
+        "state_count": 4
+      },
+      "allow_unproved_recovers": true
+    },
+    {
+      "path": "test/fixtures/cases/delayed-definition-future.tlsf",
+      "reason": "G of an equivalence with F and X contains both F and its G dual under polarity; it is outside the proved flat body grammar.",
+      "old_monitor": {
+        "construction_formula": "G((F(q) <-> X(p)))",
+        "state_count": 6
+      },
+      "allow_unproved_recovers": true
+    },
+    {
+      "path": "test/fixtures/cases/ident_m_function.tlsf",
+      "reason": "G contains an until/strong-release obligation, outside the proved flat body grammar.",
+      "old_monitor": {
+        "construction_formula": "G((b U (a & b)))",
+        "state_count": 3
+      },
+      "allow_unproved_recovers": true
+    },
+    {
+      "path": "test/fixtures/cases/normalization_sickert2.tlsf",
+      "reason": "Until nests GF inside the G body; this is outside proved admission and also lacks the syntactic Pi2 tag required by the research monitor.",
+      "old_monitor": {
+        "construction_formula": "G((req -> (a U G(F(p)))))",
+        "state_count": 5
+      },
+      "allow_unproved_recovers": false
+    },
+    {
+      "path": "test/fixtures/cases/precedence_v12.tlsf",
+      "reason": "The weak-until component nests an until obligation; it is not safety/co-safety or a proved G(q) component.",
+      "old_monitor": {
+        "construction_formula": "((a U b) W c)",
+        "state_count": 5
+      },
+      "allow_unproved_recovers": true
+    },
+    {
+      "path": "test/fixtures/cases/route_norm_xgf.tlsf",
+      "reason": "X surrounds a recurrence component; the default proved grammar does not admit X applied to a Pi2 component.",
+      "old_monitor": {
+        "construction_formula": "X(G(F(g)))",
+        "state_count": 2
+      },
+      "allow_unproved_recovers": true
+    },
+    {
+      "path": "test/oracle/env_lift_capacity.tlsf",
+      "registered_golden": false,
+      "old_monitor": {
+        "conjunct": "G((!(r_m) | X(((!(g_0) & !(g_1) & !(g_2) & !(g_3) & !(g_4) & !(g_5) & !(g_6)) U g_m))))",
+        "state_count": 4,
+        "mp_class": "R"
+      },
+      "reason": "Unbounded until beneath G/X is outside the proved flat body grammar.",
+      "allow_unproved_recovers": true
+    }
+  ],
+  "decomposition_admission_changes": [
+    {
+      "index": 1,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G (p <-> F q)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) <-> p))",
+          "state_count": 4
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G (p <-> F q)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) <-> p))",
+          "state_count": 4
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G (p <-> F q)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) <-> p))",
+          "state_count": 4
+        }
+      ]
+    },
+    {
+      "index": 52,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G(p <-> F q)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) <-> p))",
+          "state_count": 4
+        }
+      ]
+    },
+    {
+      "index": 54,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G(X p <-> F q)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) <-> X(p)))",
+          "state_count": 6
+        }
+      ]
+    },
+    {
+      "index": 56,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G(X X p <-> F q)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) <-> X(X(p))))",
+          "state_count": 9
+        }
+      ]
+    },
+    {
+      "index": 134,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G (F q -> F p)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) -> F(p)))",
+          "state_count": 4
+        }
+      ]
+    },
+    {
+      "index": 136,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G (F q -> F p)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) -> F(p)))",
+          "state_count": 4
+        }
+      ]
+    },
+    {
+      "index": 138,
+      "before": [
+        "native-admission",
+        0
+      ],
+      "after": [
+        "native-admission",
+        3
+      ],
+      "formula": "G (F q -> F p)",
+      "reason": "Outside the proved G(q) grammar: under NNF polarity the body mixes G and F obligations.",
+      "old_monitors": [
+        {
+          "construction_formula": "G((F(q) -> F(p)))",
+          "state_count": 4
+        }
+      ]
+    }
+  ],
+  "changed_state_counts": [
+    {
+      "path": "test/fixtures/cases/compose_not_g_is_liveness.tlsf",
+      "before": 3,
+      "after": 4
+    },
+    {
+      "path": "test/fixtures/cases/definition-assumption.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/definition-guarantee-use.tlsf",
+      "before": 4,
+      "after": 5
+    },
+    {
+      "path": "test/fixtures/cases/definition-preset-use.tlsf",
+      "before": 4,
+      "after": 5
+    },
+    {
+      "path": "test/fixtures/cases/eventual_output.tlsf",
+      "before": 6,
+      "after": 7
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment.basic.tlsf",
+      "before": 19,
+      "after": 20
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment.reemit.tlsf",
+      "before": 19,
+      "after": 20
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment.tlsf",
+      "before": 7,
+      "after": 8
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment_no_inputs.reemit.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment_no_inputs.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/invariant-assumption.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/liveness_eventual.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/liveness_nested.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/liveness_until.tlsf",
+      "before": 3,
+      "after": 4
+    },
+    {
+      "path": "test/fixtures/cases/nnf_m_v12.norm.tlsf",
+      "before": 3,
+      "after": 4
+    },
+    {
+      "path": "test/fixtures/cases/nnf_m_v12.tlsf",
+      "before": 3,
+      "after": 4
+    },
+    {
+      "path": "test/fixtures/cases/normalization_sickert2.s2.tlsf",
+      "before": 5,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/notgr_spec.tlsf",
+      "before": 3,
+      "after": 4
+    },
+    {
+      "path": "test/fixtures/cases/operators.tlsf",
+      "before": 17,
+      "after": 19
+    },
+    {
+      "path": "test/fixtures/cases/policy_profitable_skip.tlsf",
+      "before": 16,
+      "after": 22
+    },
+    {
+      "path": "test/fixtures/cases/reach_blocked.tlsf",
+      "before": 4,
+      "after": 5
+    },
+    {
+      "path": "test/fixtures/cases/reach_free.tlsf",
+      "before": 2,
+      "after": 3
+    },
+    {
+      "path": "test/fixtures/cases/rewrites.tlsf",
+      "before": 32,
+      "after": 34
+    },
+    {
+      "path": "test/fixtures/cases/sections.tlsf",
+      "before": 10,
+      "after": 11
+    },
+    {
+      "path": "test/fixtures/cases/simplify_demo.tlsf",
+      "before": 19,
+      "after": 21
+    },
+    {
+      "path": "test/fixtures/cases/until_input_target.tlsf",
+      "before": 3,
+      "after": 4
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/arbiter_on_inpchange_pb_2_pe_.tlsf",
+      "before": 44,
+      "after": 48
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/round_robin_arbiter_unreal2_pb_2_pe_.tlsf",
+      "before": 26,
+      "after": 25
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/round_robin_arbiter_unreal2_pb_3_pe_.tlsf",
+      "before": 44,
+      "after": 41
+    },
+    {
+      "path": "test/oracle/env_rank_learner.tlsf",
+      "before": 74,
+      "after": 59
+    }
+  ],
+  "sources": [
+    {
+      "path": "bench/specs/robot_ltl_2.tlsf",
+      "source_sha256": "0b6b72a12fe46a3046217cdebc248b1ba30f2d21ab1b8e69df46c26bb6a4a7c2",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "bench/specs/robot_ltl_4.tlsf",
+      "source_sha256": "fba969bd38390f5442c046d7eddad35dfa38980b9edc5507f5944531ba8b3293",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "bench/specs/robot_ltl_6.tlsf",
+      "source_sha256": "756b21ee04bbedd7244b7c22298b4873734cf2194369aa856f01e01ef275ebe3",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "bench/specs/robot_ltl_8.tlsf",
+      "source_sha256": "546e97ffc435e92ca9ead480f8492b8ee526489535861ea74976c7eab322e012",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "bench/specs/small_Lights2_f1477cc5_2.tlsf",
+      "source_sha256": "54c6cca8e88175abc2aee92d41b6c6ac93158835f6af02cc165e668e0c7fc543",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 0,
+      "after_monitor_states": 0,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "bench/specs/small_ltl2dba22.tlsf",
+      "source_sha256": "a3fd44b64f07b2a0c429776d36f2d4db05b84fb8e88714bb6b23ef24c2f34ac3",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/arbiter_simple.tlsf",
+      "source_sha256": "fa5dfe0c73e17cd2448b9add33d85be1983ad7331d2d60c0df1745da9b8302ad",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Patterns_GFand_gfand01.tlsf",
+      "source_sha256": "d828ec045eb1771cfb2f997a75089d9ae7402b58d7ba2e5ebd85ad1862c4fc99",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Patterns_GFand_gfand05.tlsf",
+      "source_sha256": "eb542d73e5bf42e5bdd82123672fcbe741fc99dea181cc8682a9e1976258edd5",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Patterns_Uright_uright02.tlsf",
+      "source_sha256": "1b06f2ba0bd44641999b2d18731b06c4341dd04f56cc8e7ccfea88b46074772a",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Patterns_Uright_uright06.basic.tlsf",
+      "source_sha256": "3534f823da83c04af349cd9262618f646c0d55705d201668b56d40ebecb0e421",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Patterns_Uright_uright06.tlsf",
+      "source_sha256": "ecd8d5970ffb5a37cb06d21b251e4fd014fa6c2e1d524f4fba5e6217e6929ad2",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Random_Lydia_case_03_50_05.tlsf",
+      "source_sha256": "7fbaff2e996b066c474aab4123dc2a9e1b52ffc309c0cca3a7fe8a6182fc0c98",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.tlsf",
+      "source_sha256": "582019afeaba9ff65180a08f6094a2046bcacff8c4742abb004c3ec803ad48c0",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/aiger_unclassified_atom.tlsf",
+      "source_sha256": "b2d8bd85d090398a600bf3de952f70f92f68c56271e654fa3ced70ee3998e220",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: formula: lowered formula has undeclared APs",
+      "admission": {
+        "default": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        },
+        "research": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/aliases_v12.tlsf",
+      "source_sha256": "63a6b00bd14d68d4787eb0ce73db52b25f11e24d7428b40f3a4e1051bb6a4119",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 0,
+      "after_monitor_states": 0,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/arbiter1formula.nnfbool.tlsf",
+      "source_sha256": "2aae3fd62d1b2c6b866160e39a10fc7bd0a7c2a4ec575b31a4744e3050b06d7d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/arbiter1formula.norm.tlsf",
+      "source_sha256": "b1e23d9fbdbd6cb41b4d9eecee8253b92978a52f0a11a50ca9f26cc91c2ddb5c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/arbiter1formula.tlsf",
+      "source_sha256": "8cbbbf54ba3e95d8f08602742a0418e9219e282f6c7107545304ebbe8d95af78",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/arbiter2.tlsf",
+      "source_sha256": "9d7bf9783744499ca11de2f7f8f0c0edc2acc0f8ec072daabeb6d3fbbaade8a6",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/arbiter_nomutex.tlsf",
+      "source_sha256": "beb611071e572e17fc6637fa5b813d38e125ca8148f4d4cfb4c426ea24a7afd4",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/assume_delay_real.tlsf",
+      "source_sha256": "85c05ba1e684fde63e4e6140e4aff5d2ccecd487ac6b991b18e16184f8a9fe2c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/bad_expand.tlsf",
+      "source_sha256": "b02f9ff5ad23b82b1604d0a72799abbb886bfe608d9638a73a919e70d5184859",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: parameter 'k' has no value (use --param)",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/bad_infix_m.tlsf",
+      "source_sha256": "f56c9d4a9d7b68326467901cbe21be8486e40d2bd30af1e23af1c7f0530178b1",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: parse: 10:17: parse error: syntax error, unexpected TOK_IDENT, expecting TOK_RBRACE",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/bad_syntax.tlsf",
+      "source_sha256": "32f0f14073d75219d4208ad57f192d701ffd47b81782dd55289fcf5180048213",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: parse: 1:20: parse error: syntax error, unexpected TOK_IDENT",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/big_setminus.tlsf",
+      "source_sha256": "5e2bd3e106b36e5d87efb350079dfd1bc4d75fdcd686749fa7e663cae4d29374",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: parse: 7:28: parse error: syntax error, unexpected TOK_SET_DIFF",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/bounded_resp.tlsf",
+      "source_sha256": "3d653c2f578a23a995f05a76e26da59fabe3ece352599366af4dc4d75a875906",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/bounded_until.tlsf",
+      "source_sha256": "fbce4137ccc20d754c19de9f560d2c3cc7d116f3819f32f97f12ab31548b4abc",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 6,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/bounded_wuntil.tlsf",
+      "source_sha256": "e1a74ea53b19e522f126ebfcd566373919a2370605183e1fa4bb617d64d84751",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/cluster_assume.tlsf",
+      "source_sha256": "891b57370af07f0527406cc71af5465c9d66961187e341af5ca43c64fa9ba69d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 10,
+      "after_monitor_states": 10,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 10
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 10
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/cluster_prune.tlsf",
+      "source_sha256": "43600f363322403bc425195744ac05a4e74c7ea95cd6e35ab0bf9f4b14ca0ee2",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/cluster_prune_safe.tlsf",
+      "source_sha256": "a21a1ee7c5d744d2e7cc35d8dabb289fc100033de4c87550178e62e0336c4905",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/cluster_split.tlsf",
+      "source_sha256": "400ded915fa557c580df2e2d6223bbb88f850a08e3b4f9842905b5ad23637094",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 8,
+      "after_monitor_states": 8,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/collapse_demo.tlsf",
+      "source_sha256": "bbc538636e6eeb56b4529a5cfa41e3b296586d03ede3f803a6659efca572394d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 1,
+      "after_monitor_states": 1,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/compose_conflict.tlsf",
+      "source_sha256": "385d9d750bf13019abac2ef6834bd57ce8e27a0f0bd9652aa07dba1ef57554f9",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/compose_cycle.tlsf",
+      "source_sha256": "ccef34684a29d9d151adf1471750c66db1eb5fa41d6536ea6dd7c1a3ecfbe71c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/compose_demo.tlsf",
+      "source_sha256": "777403d352504b29d649155f7bac86fc114295eef59fbfd87b2c96515a6f7b0e",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/compose_not_g_is_liveness.tlsf",
+      "source_sha256": "c39769bb6be55a61fd436ca9be476ca4e8dcfe2c267277187fbf76a55eda29a0",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/compose_partial.tlsf",
+      "source_sha256": "b6fb4c1c4335431f595fef9061dbf3a03b447cad296a70e13e7a6bc96c811ed2",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/composition_alloc.tlsf",
+      "source_sha256": "1f01013327c100c617520103dff25d01fd6fed7a85af2d665765c0a5d9fb441f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/conv_mealy_moore.tlsf",
+      "source_sha256": "ad11470bcb0766cf13a9da9066bf7e78019b1547d9b2879b3b1f3ce34c46aaec",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/conv_moore_mealy.tlsf",
+      "source_sha256": "4c94a8f319cfb6bb08e5752a6d3e5121a401f7751055e091ce882d1e53329869",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/dbuchi_switch.tlsf",
+      "source_sha256": "a0b38560d934b8e18c96260450653887915802b6130ccd538077284f8601100a",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/dbuchi_switch_finite.tlsf",
+      "source_sha256": "c45921aaa153e61f401e8f9c658b83c7b925f05696c01e45b82e8a02235d6096",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ddef_demo.tlsf",
+      "source_sha256": "0652af3c770ed95f626b56ce91930cd46edb45a176bbaeca4b8acb931191cffe",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ddef_strong_fin.tlsf",
+      "source_sha256": "97ca4351f86f262ad34819fe5e1d1e5fb6def7ad76e33dddedeb3fc50ddc6dee",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/def_demo.tlsf",
+      "source_sha256": "a6e093af003be7bbe7c722649198d489583e11dd0e71ffa5c36a551d341060cc",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-assumption.tlsf",
+      "source_sha256": "5773bfb139696096e3f1bbf818cd9edf1ee9477be9370bda6fab1125fa4efd8c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-future.tlsf",
+      "source_sha256": "96ddb34a5309aa37a51c8b5fb8c1aed3d0b368f0b3d6bfa19e996d4ed680d8d2",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 4,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-guarantee-use.tlsf",
+      "source_sha256": "9dd49d35bc98924992f33e06a858edb4b3690252c243113003fcfb17a1fadc50",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-preset-use.tlsf",
+      "source_sha256": "c6ba951b1290a47305eb5d578716339b5ec61521916b15eec3ba2683ccb0f1a6",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-preset.tlsf",
+      "source_sha256": "ac9903004daad878888bf279c8702b954145d96cf92f421e1bb99bb7b89fa6fe",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-register-use.tlsf",
+      "source_sha256": "a447027e08797a9036848765879b56db571cbeae24a1a59bd44e267d7bafc155",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/definition-strict-assert.tlsf",
+      "source_sha256": "a4964d83c576641aaaefddd8dc217b0fdeca9453dc50c13686e2cfbe6fbc0939",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/defs.reemit.tlsf",
+      "source_sha256": "4ba9870c8ef987d5b4428397b6db33acd3bbbf835d6cb15b3ae819789d12d0e6",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/defs.subst.tlsf",
+      "source_sha256": "80c5ff1e93175b5ed1bb6468a0b1e3f5878a895958d919c7eec4bdd517821826",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/defs.tlsf",
+      "source_sha256": "57f5e070475791e9311d6eeed6db8993f9776dd4177d6b9478a7006c22670174",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/delayed-definition-finite.tlsf",
+      "source_sha256": "ffd8652cfb7b6ebaf2e5520528bb6e55ca983b19d32444fff996efe11a6cef10",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/delayed-definition-future.tlsf",
+      "source_sha256": "bd136df5a555681818a8f8a37e3d821bda671ff6e92bfa422c85ff94aaeb8284",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 6,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/delayed_global.tlsf",
+      "source_sha256": "aab2321e5633b3f19ff896a5877a0a235c64f2ffa8e6c78cb8387dc52774c4b2",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/disjoint_assumptions.tlsf",
+      "source_sha256": "90c32b996cad351ac607b736a0c1d4241a019aa802325642b33c1994a3312260",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 2
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/enum_demo.basic.tlsf",
+      "source_sha256": "d16db65386ed88d900c6bc4c44ec7177365cbbaadaa7e8ae8c13b619a545b7f3",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 1,
+      "after_monitor_states": 1,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/enum_demo.tlsf",
+      "source_sha256": "b5fa57cd1a0acfcff14fe303b8728ba8504b862900a873d100b54b19d00b4b2a",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 8,
+      "after_monitor_states": 8,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/enum_wildcards_strict.tlsf",
+      "source_sha256": "f2c2b8968911c49fbb478b0295fbbe38649b046188d26f6d484d862d03c3007d",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/err_divzero.tlsf",
+      "source_sha256": "60a722ebc52b21c2133a2ea35baf68d1f00edf30ac5c20dc5ba1e10ae0304e9a",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: division by zero",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/err_enum_width.tlsf",
+      "source_sha256": "d446b767a806f2201e82fbd064bc42b7205aecf302c6b8829f2615f61a384f93",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: parse: 2: enum 'Bad' has inconsistent valuation widths",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/err_recursion.tlsf",
+      "source_sha256": "4706016111b922d81b46f1b0c603a372cc1ef4460bd4028e12913eac40dd90a8",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: recursion too deep",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/err_sizeof.tlsf",
+      "source_sha256": "56595bb3b47beb916485e45d1068b34345e8bccca6182c6a3f04ee146f9aaa8f",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: SIZEOF of unknown signal 'nope'",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/eventual_output.tlsf",
+      "source_sha256": "0e43e288a496dbdc7f7585c07ece50e3b5d2ab2c2829e48e75343a64491cfaa7",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/expand_demo.basic.tlsf",
+      "source_sha256": "e292a75bd24c8e97dd77bbf34f334d7e5b7268dfe4eaae2555b18e755745b5cb",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/expand_demo.reemit.tlsf",
+      "source_sha256": "e00da25751349b662766f6db66b4813b32f960090b71b4ba67b275862a7b0f98",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/expand_demo.tlsf",
+      "source_sha256": "94cc31396ff654bba20c241a36d84ae1f479d6726965b9941ec50696b0739e53",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment.basic.tlsf",
+      "source_sha256": "e7e3bd711ffbc62804db7908f56286438ea1a791e22ffab151d3588d5fca6837",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 19,
+      "after_monitor_states": 20,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 20
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 20
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment.reemit.tlsf",
+      "source_sha256": "2dfc6126a9b9b60c4322c75f3bd86f31b8c3c080c65da324782cf1fd752e1cc8",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 19,
+      "after_monitor_states": 20,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 20
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 20
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment.tlsf",
+      "source_sha256": "57006ba3be89c16f131afa452a0aad41be04fd0707d00471e91d64ac85ea2065",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 8,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment_no_inputs.reemit.tlsf",
+      "source_sha256": "8237669e0b2dbabb3bb553b7b7c477146a9391d00a8c13c848e746e410a2008c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fair_environment_no_inputs.tlsf",
+      "source_sha256": "ec27032061e25053a555ce3778cd92339b59e3b87179b028d078d9a53b370da8",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fdelay_blocked.tlsf",
+      "source_sha256": "b52b7d9a37f7b6c9334866d1e76a9667eb646aff20ce8644b05907f4f1c09e4e",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fdelay_demo.tlsf",
+      "source_sha256": "e76fd1ae42b874d366501ed372c824a0d49e23d077dbdca925f544eb216643c4",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/fdelay_strong_fin.tlsf",
+      "source_sha256": "a561077d0fe18f26c31b58e9f9e6a25607fa7e4705122e20d1a8a33aeb54800a",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/finite-cluster-end.tlsf",
+      "source_sha256": "6a3f3775919808afeaf15d4965853f871ca210868723eb2dfbce6e8d7bd168ff",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/finite-next.tlsf",
+      "source_sha256": "8856e97d28c9bf929e16551f6fa58539c918284e3512f1ec799fc43e1d208ca6",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/finite_wm.tlsf",
+      "source_sha256": "6f39f3a5abd7b7ac709ae00fec1617032963f4a593fedd2570198e675404c688",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gnext_demo.tlsf",
+      "source_sha256": "88b874feb07391a6196a3c1e8fb6f005604339143897b22d4abce6e1ac345192",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gnext_one_sided.tlsf",
+      "source_sha256": "01bc3728e45bdfd48a410e5094bc2e22cb6db99c1b579112584c842066c6fe34",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gnext_strong_fin.tlsf",
+      "source_sha256": "a7614fb244472a882fe4144aa8a60e6ea6f782c55ec37ae368bfdbdb55b17583",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gnext_unsafe.tlsf",
+      "source_sha256": "13d8e6a02ee39ca52a42621ad1309c36485d3a4ec15b9436182aead734b49cbd",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr0_spec.tlsf",
+      "source_sha256": "3facadbf6e57988543b4c5b64eda85488b867b17f0c942740983cebd792a764a",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_init.tlsf",
+      "source_sha256": "477190893e6e3c2477acf8a651eaa8a8398734c4427d7b7325afd73958511189",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 6
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_multifair.tlsf",
+      "source_sha256": "aff584dceb8a9d26c97e075715878f7816d221dc29d321b5d43efcb7dc316aaf",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 12,
+      "after_monitor_states": 12,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 12
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 12
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_preset.tlsf",
+      "source_sha256": "46d4f89058caba99db8e3503fe1c16e19cff88c31c4119921e50965907829a9b",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 3
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_recurrence.tlsf",
+      "source_sha256": "3651b5cf039f54c74cf39c0628d637ac7a497766d3f4874e002552a1210c93c7",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_response.tlsf",
+      "source_sha256": "f370034be90ae49ceacfd26507b70ba65653a66f43a7da88121966c4e51b2a99",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_spec.tlsf",
+      "source_sha256": "1c848750310a1ed1f0aa1852ec0791e599f1d827dbd4f90f6599546f18d223fc",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_streett.tlsf",
+      "source_sha256": "32772885409678e261e3192c3a8a8769c1a173b2353b76fb5936d4c59d568db7",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 2
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_strict.tlsf",
+      "source_sha256": "3fac8d11ef74480a5c1c7e4c7f5e799a25c1445677a01e079d1e8b1754e9e040",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_strict_multi.tlsf",
+      "source_sha256": "82a0bdc8f8d66483625330ceac229ebf949907eba4b774774c49ccfc749e5848",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_strict_sticky.tlsf",
+      "source_sha256": "175f3794309cdef0e12e6eda5aa94a83f48236c9dbcc99850004c2c886dadb47",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr1_weak.tlsf",
+      "source_sha256": "fbbdcabd942632e9dcb1fc3add8332ae6974edacf07ee313954a2d256768b429",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr2_spec.tlsf",
+      "source_sha256": "2156fad3db2dc0bea08acd31b57a3bcaaa804b9be225a3e931b7d92749b82301",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/gr4_spec.tlsf",
+      "source_sha256": "6860e9e84b7431947e7adab269acc2043db6060a1208ff95d3ecd37785d4cab9",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ident_m.tlsf",
+      "source_sha256": "654464d878dae950a279df789c945b68e964ff9305851c7bc61be10f6f2e9978",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ident_m_enum.tlsf",
+      "source_sha256": "461ca04e9e1d75fe6c99de228f4224116c6b6950a75be0eafb2dc9dff3aa67a5",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ident_m_formal.tlsf",
+      "source_sha256": "dbf1cd802a164bdc7a6ab06cd48d95d0fe852a531f06e72944ee60ec94d1db65",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ident_m_function.tlsf",
+      "source_sha256": "33ca51b2ab3f53deff0321be5122aabd70ce6ff1231dfeeda30110b79861b24c",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 3,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ident_m_quantifier.tlsf",
+      "source_sha256": "4d8bb159fc53f7b3bb15b8590d4196afe3ee2c8a27d9d07883d98275133f53c0",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ident_m_signal.tlsf",
+      "source_sha256": "8da068a590af2e2d2b434d34ea575a23870f6fd7871b02e4a42fc5e31e3229de",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/initial_x_assume.tlsf",
+      "source_sha256": "9c23eed94009b3a9dbada303de91e79f85b9ecb70ae083c44cc90ab3745ca000",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/input_gua_skip.tlsf",
+      "source_sha256": "f4402c8d79703c088c3ce3cab9a2d7e757ff2973e40f63b3f46fa4e37a5b2691",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 9,
+      "after_monitor_states": 9,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 9
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 9
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/inv_const.tlsf",
+      "source_sha256": "3b5cf1f9e857184baa0d79ac332499a81b2245bfb4c16854fa4e3d9db2cc1cde",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/inv_decline.tlsf",
+      "source_sha256": "1104bb58c2044f7ec9f0a840e89de3e1eeb62737a6951834a5fe3cc74436d75f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/inv_multi.tlsf",
+      "source_sha256": "89e5ffa768c647ca5a42b40200f8cf287655477382c28ca3dc2092eff0b68143",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/inv_skolem.tlsf",
+      "source_sha256": "a3200f5e614a35d086a09f1bc97ee136d9af81a9a7033de9c87bb1f364eb3d1c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/inv_valid.tlsf",
+      "source_sha256": "e50c372b44d00146e94c1f6c48bdd78263b74d147210e4ded069f44486a76197",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 1,
+      "after_monitor_states": 1,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/invariant-assumption.tlsf",
+      "source_sha256": "0da535f62a0c9e5a182dc75bf39e8244f2918a8b4f3ad1cb353af2ac161ac326",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/liveness_eventual.tlsf",
+      "source_sha256": "055976fedb6250a188feba4a5672357c7d816b44bfc9554e0f9ea317981f13b5",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/liveness_mixed.tlsf",
+      "source_sha256": "3b634ec9122c107a77229f5a31f373c82869ff6c3dec885bc9a4b09e15443c8a",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/liveness_nested.tlsf",
+      "source_sha256": "42e3da1ef93baa4591f6010853f5c1cc0447352ce35b4ef4a82757d6f558043e",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/liveness_until.tlsf",
+      "source_sha256": "2400b51506c1cde418cd3d6c16a3f8aa97566f4ef971c79da107107c7d644a7c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/meta.reemit.tlsf",
+      "source_sha256": "9e291ecc53633cd1f106101e33346ed92d8ef8fd3dc2dc5a1db83b16ee4cc5d4",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/meta.tlsf",
+      "source_sha256": "db6fd565e9c3170e8dccb786a6f17f42d76718c1ce8ad220bcff6ccf8b92aae7",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/mutual_exclusion.norm3.tlsf",
+      "source_sha256": "238203ad1f2d9fa92b50589c3158c6782572ae2b2c0ba11daef6cf7d0de5264b",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/mutual_exclusion.tlsf",
+      "source_sha256": "5c905188c53cadef5b2f5075c672a39efcf387a48591cec179ed287f8e132b4f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/next_n.tlsf",
+      "source_sha256": "abf02cc15e03dcb44bdfcfa7680cd3343c4295290f8f2df59119a9217fee5673",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/nnf_m_v12.norm.tlsf",
+      "source_sha256": "6b13fd7001fb8d3af9f72dff1761cde11b2095329deb747971f32ca1e798ba91",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/nnf_m_v12.tlsf",
+      "source_sha256": "ac669f8163eaaabb3aaecf82e3c7fc26a31c19c6eb40fcbaba6aaadfc8abc01c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_bounded_bool.tlsf",
+      "source_sha256": "db00290481260afc687223c18aa300fc1b0287a8d329c977fd2c8d34ff148773",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_match.matchsafe.tlsf",
+      "source_sha256": "38829c51deabe2989aebf9527c9269531231ac8aec301f8cdde9f0c66ebd3bfa",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_match.tlsf",
+      "source_sha256": "29cab566af2b3f7e04083228f228d258d229db47f4f9efb0210eb5fb5a292e3f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_patterns.matchsafe.tlsf",
+      "source_sha256": "3f083d7663e8d812e6365d5966bdcd2ff106d3727f3a804c6a6820fba24bbca9",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_patterns.tlsf",
+      "source_sha256": "eec89725c960318ddd24134e806291301062f8d400b5f959056e7e2459f554f1",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_pre_split.tlsf",
+      "source_sha256": "f75eccbf27a61ec8c7ff9c4d756ecf32f9f192319145ab7ef75e7a9a14af1b65",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_route.routesafe.tlsf",
+      "source_sha256": "a216b762d4674a5f09a846ccb1611a50c6a33c623e85e927b4ea92648595abf3",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_route.tlsf",
+      "source_sha256": "d9124650120e2c59bf3b8260c51e41080d97ee5abdb438144731541893796c18",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_sickert2.s2.tlsf",
+      "source_sha256": "dd803fb24c2bb0a9b3d32a592bd45a40de729fdcc39bc00d1f80394f3453332f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_sickert2.tlsf",
+      "source_sha256": "30450add3eafba110f562b6823f43490041351ddfe481a1338e8518e866f1540",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 5,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_sickert3.s3.tlsf",
+      "source_sha256": "b6cea9ea40e485d20d4d930949759bee93a21cc8ba74eab387cdc21c2ee93ca5",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_sickert3.tlsf",
+      "source_sha256": "ad5b552d3222aec7ad4f0e143fdbefffae01907addd9a15c59e76ae38a29ade7",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_xn.split.tlsf",
+      "source_sha256": "b528c0697d9f1886f9e99a08feeac288c64672b0ffdee420cbb94f2719c00a9f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 40,
+      "after_monitor_states": 40,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 40
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 40
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/normalization_xn.tlsf",
+      "source_sha256": "5789f68dba796e60712153ff86417a3cda9f648d631ac150f30de598c98c2521",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 40,
+      "after_monitor_states": 40,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 40
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 40
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/notgr_spec.tlsf",
+      "source_sha256": "f72ddf9267388cdbf47890db37f0bb981980856c415941484739ac730959f5dd",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/operators.tlsf",
+      "source_sha256": "7986cb81a590418de4a1782e05b6a802cdc9a5a595aeafa7590bd847f9f2786d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 17,
+      "after_monitor_states": 19,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 19
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 19
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/param_demo.subst.tlsf",
+      "source_sha256": "9872ea32639f780a7ead331967f14395bee73007d4fab0b64ce8c0ba80860b92",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: parameter 'k' has no value (use --param)",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/param_demo.tlsf",
+      "source_sha256": "e1dd0b6b009e9340a7060ea42c6cc474b98d5811853eba92ad6aa0708860aa2c",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: parameter 'k' has no value (use --param)",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/pattern_conflict_v12.tlsf",
+      "source_sha256": "1c56da82c008970c50a613fa4ea9578be79082eb9ca71543d8d3327968a13e82",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: Binding Error: pattern identifier 'a' has a conflicting definition",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/pattern_v12.tlsf",
+      "source_sha256": "679542ba3e0f029101288e17e88a2fea271b9864774285a334b9d80f1eab8b1e",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/persist_free.tlsf",
+      "source_sha256": "96bd93e2903bb4a14f047e9743997d5e047a1d49b856517401e47d1466952510",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/policy_profitable_skip.tlsf",
+      "source_sha256": "616c33948c37d8eb770619240cb0258fba7f2d7619acb743b669d498847a373c",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 16,
+      "after_monitor_states": 22,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 22
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 22
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/precedence_v12.tlsf",
+      "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 10,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 10
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/precheck_assume_rescues.tlsf",
+      "source_sha256": "4f86f15deea6798951de63ea8dacfad386d35e38292e33cad4fbcfe3cad08b92",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 0,
+      "after_monitor_states": 0,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/precheck_input_only.tlsf",
+      "source_sha256": "0ae7a2441d84f33427aa683ebec1320a9471d96b2509dd809be99b04c49e0106",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/precheck_outputs_rescue.tlsf",
+      "source_sha256": "ab8061b6d090190fb0457d021b3a3c3dbe705d3aeb144eda159341802bbe08bf",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/precheck_real_unknown.tlsf",
+      "source_sha256": "ecaba9ce3dbbee0b77043515c9e68e7058baa1ad135fd1d36ace1bcafdb6e795",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/precheck_temporal_assume_bail.tlsf",
+      "source_sha256": "f089155528c00e94b11313b85b0fb4a036f0e2ee521b77d26fe29ecd1571a2e3",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/primes.tlsf",
+      "source_sha256": "f694e17617d17ba7f8912a027a11e1dd94883241060ff307d9584af09ff4a3d0",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ranges.reemit.tlsf",
+      "source_sha256": "6927a9c9df6401f94077e5a72243a6e4f2e9629784b69282d7f863de0aec2a17",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/ranges.tlsf",
+      "source_sha256": "a42c40aeb5ca3f6f4e5b78440d8c05c2a6ed593210b1f8406e712bc353e11116",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/reach_blocked.tlsf",
+      "source_sha256": "183bba0c7712b558d2b61f22ca0dc08861455ad771d7ef171bdd455ae3e06d4d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/reach_free.tlsf",
+      "source_sha256": "2aac51ae087dba7902569724a6afa977ce36a7e9932ac9172e8a979a6d07f5cd",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/reaction_multi.tlsf",
+      "source_sha256": "d3f640d31e7add811d5dc2713240717fedf59c1d39f589fcb0860a4eacfe7fec",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 8,
+      "after_monitor_states": 8,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/reaction_ok.tlsf",
+      "source_sha256": "97b51835bda1e2589724aba44866d0626d6802d8629d1fb7e36c57af654467a4",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/reaction_unsafe.tlsf",
+      "source_sha256": "c6eeded41fc73aaf5ef5b1f4831197654b21f519604012752661f024a3ae66c3",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/recursion.reemit.tlsf",
+      "source_sha256": "87ccfd6edaba68327e68006814aed305c2b4ba42db76d8ae8a1d5dfe333b2540",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: parse: 15:26: parse error: syntax error, unexpected TOK_COLON",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/recursion.tlsf",
+      "source_sha256": "e293ee1349ef5ea8b8574b45ed073559ffcd4faeb390474518790ae17b12d6bb",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 9,
+      "after_monitor_states": 9,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 9
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 9
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/residual_false.tlsf",
+      "source_sha256": "7a50672ae9a225b549cedf2db9ba8f7800d49299adc4432d26c22bb229eecb33",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 1,
+      "after_monitor_states": 1,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 1
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/resp1.tlsf",
+      "source_sha256": "e821823727cbfdb050b8246f4b97d225c169922d1508b7d21005d27f628e2ed0",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/response_blocked.tlsf",
+      "source_sha256": "67edf86cff5573f4f1260bcb3243f4b92098b3acb95de2de39314f933863aa7d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/response_free.tlsf",
+      "source_sha256": "2c9999ae0dc397c4431bc67afa6e527dfca94d1b3f8e11797b3a88046dcdfd53",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/response_same_cycle.tlsf",
+      "source_sha256": "0f9e7ccb7beba2d2b868b072061d607c159725c3ae2433f9104d4102f64939c5",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/rewrites.tlsf",
+      "source_sha256": "3fa2a4e9986c0aa04611b3cea90428d7a9a812a2bae5802d319fea8f2e90fa32",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 32,
+      "after_monitor_states": 34,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 34
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 34
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/roundrobin2.tlsf",
+      "source_sha256": "ca4ee1c3e978da5d81f994686ba9a76d0793ef976bf9d069affea611eeb8f70a",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 6,
+      "after_monitor_states": 6,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 6
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/route_norm_xgf.tlsf",
+      "source_sha256": "6920008df124b6867380c7d4f1a1c0173a9768aaa8075245c0a3ca6231be9864",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 2,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/sections.tlsf",
+      "source_sha256": "9bf4c35487a2bcfd0d32eede44507068bb3c74af555d66f1c34b0c33abc2f4d5",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 10,
+      "after_monitor_states": 11,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 11
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 10
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/sections_strict.tlsf",
+      "source_sha256": "ab4679096fef1884449376895b197bc8d48a3767188ce85bbb6aa6cc156cda4d",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/server_merge.tlsf",
+      "source_sha256": "86cbf87eb5e32e67bde9443344e64a2c15df00cce013beb8b494fff208275994",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/sets_v12.reemit.tlsf",
+      "source_sha256": "572048cbd30eec69f73869940b674aa0d6240f1edc753e3b45d3cb460c205b75",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 18,
+      "after_monitor_states": 18,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 18
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 18
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/sets_v12.tlsf",
+      "source_sha256": "08efe4748a14d4e370f5c483cffe56ff7d2e09a9131534d7087a0d24fa8c9a92",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 18,
+      "after_monitor_states": 18,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 18
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 18
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/simplify_demo.tlsf",
+      "source_sha256": "921cf87143395eb79f47682444b9f7500ee29d7181848362c5c2446653e6e265",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 19,
+      "after_monitor_states": 21,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 21
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 21
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/strict_preset_liveness.tlsf",
+      "source_sha256": "87071d05530139278f71779fc4cc031d4e577b60246b779d8d65d01bde2995a2",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/strict_safety.tlsf",
+      "source_sha256": "7a3122ab4d7a94550b8b3d59fe4b1d585d0244c69f7fbf6b2087cd726004071f",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/strong_bounds_v12.tlsf",
+      "source_sha256": "ebbe3264426d7c68068bf4471f096c7d45a08bbf5f4282d9c9d86f10463feea4",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/strong_next_infinite.tlsf",
+      "source_sha256": "f660580893520c9d0de56d4c44aa2c34720730f5a042a41428bf30d69c41d4fa",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: parse: 11:13: parse error: X[!] is only valid under finite semantics",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/subst_reduce.tlsf",
+      "source_sha256": "edbc40a5247439a68bbe05d688631f1fff8e62d6057171bc103af8db7a97d068",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/target-moore-mealy.tlsf",
+      "source_sha256": "9d0dbcd9757dfcdc69da518e01e572ec98bbcfb8b924ab507675e09be1ead92f",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/template_failure.tlsf",
+      "source_sha256": "1f01013327c100c617520103dff25d01fd6fed7a85af2d665765c0a5d9fb441f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 2,
+      "after_monitor_states": 2,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 2
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/toggle_demo.tlsf",
+      "source_sha256": "1c19ce2ffb17bcef1506919a46c070a462a9590bba1d42d1aad236ffcbdf5586",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/toggle_strong_fin.tlsf",
+      "source_sha256": "a256ed8cdfe55f13e41c919b41436333274dd3bbb77649533b24b15cd77d99f3",
+      "before_cli_status": 3,
+      "after_cli_status": 3,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: semantics: unsupported non-Mealy SEMANTICS/TARGET",
+      "admission": {
+        "semantics": {
+          "code": 1,
+          "reason": 1,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/truths_demo.tlsf",
+      "source_sha256": "476b9ae91696177b91acb8afdd09ddf51d638e605d2d66593ac3ac399a379dec",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 0,
+      "after_monitor_states": 0,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/undeclared_at_atom.tlsf",
+      "source_sha256": "5d4207180aac23b18cfd0020a1e0e6602711e2a3ce4ed9f3d4998d8227f804ac",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 7: formula: lowered formula has undeclared APs",
+      "admission": {
+        "default": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        },
+        "research": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/undef_def.tlsf",
+      "source_sha256": "10960702083c2cddc8264e76d45e978277fdc8ad55c31568a5dff00a86c124b5",
+      "before_cli_status": 2,
+      "after_cli_status": 2,
+      "before_monitor_states": null,
+      "after_monitor_states": null,
+      "diagnostic": "pipeline: expand: expand: no definition 'nope'/1",
+      "admission": {
+        "invalid": {
+          "code": 2,
+          "reason": 0,
+          "states": 0
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/until_input_target.tlsf",
+      "source_sha256": "1bcaecd8392c3ca7736ae87eba35b11d0b459ec331878863fea52c3aea3e0c6a",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/upper_atoms.tlsf",
+      "source_sha256": "17b63146cbfcbccb77b1e26c7d219a66760f4c58d010703cf2e3bd17f7e9c4eb",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_assume.tlsf",
+      "source_sha256": "850e8833ed9b54fc2a3d35fcd3ff5d4ac28bac1a05c3e4f7546d9709bfbf2aaa",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 8,
+      "after_monitor_states": 8,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 8
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_distributable_impl.tlsf",
+      "source_sha256": "186715089fd5fdd3b08f196205fc514c8e1df11902e6dce2aeb790b17b1199e6",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_gated_collapse.tlsf",
+      "source_sha256": "92f13db73a99bf8ff734e34e72a986da89413beb9aa639a1ca3c5d9663fb437f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_gated_nox.tlsf",
+      "source_sha256": "b6c81d088dc803219efc3813a4ac2228cea5552eebb16d986b4b3b8a7377921f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_impl_bare_w_antecedent.tlsf",
+      "source_sha256": "ccac9838895669e670cfe9eda6ad1a440d78cda9ba272bb0e0231612e7f33522",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_r_collapse.tlsf",
+      "source_sha256": "d59fa4f0dc6b93304b1acfcb8a95c5f2ed3e68348817ee3caa5b21832c49d27f",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 4,
+      "after_monitor_states": 4,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 4
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_r_x_in_body.tlsf",
+      "source_sha256": "ccdc4563e17c005fcaa59618311ae29f8b267102da256719607a0db8b779c3bf",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_rel_resp.tlsf",
+      "source_sha256": "e9ecd54b86f33878e4d07ed8d5e61d1fabe35ca63215391616fef3527fd6e580",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_release.tlsf",
+      "source_sha256": "edd3f05dc1bacda8b155d1cc00c01c0a51894e872254ed6de1ce977ad551907e",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_resp_nox.tlsf",
+      "source_sha256": "be77791fafc6d77186cd883f9aefd5d7571c2cf83b4734dd5fd1166063b73768",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_response.tlsf",
+      "source_sha256": "727d422a4e525f7dfef816b4d6c6d94d044e8870d02793d03c37354a62ee65b7",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 5,
+      "after_monitor_states": 5,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 5
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_under_real.tlsf",
+      "source_sha256": "ca26d43f0063b239eab0e702485c59e749758e96299d7b7072f6820c6fc1df4a",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 3,
+      "after_monitor_states": 3,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 3
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/cases/wr_xdelay2.tlsf",
+      "source_sha256": "f1b7aea905ff8a69531e911744079189dd63316da831f473648bb086e6a921cf",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 7,
+      "after_monitor_states": 7,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 7
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/arbiter_on_inpchange_pb_2_pe_.tlsf",
+      "source_sha256": "8951fd16d62ef7bc0646925ee883ae3e843d17331d468b4972e0eb209aea0a38",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 44,
+      "after_monitor_states": 48,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 48
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 48
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/arbiter_pb_2_pe_.tlsf",
+      "source_sha256": "ebc0b259b3c810cb081c38e374eec7309760433f08d01652823561e85f505e12",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 24,
+      "after_monitor_states": 24,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 24
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 24
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/arbiter_pb_3_pe_.tlsf",
+      "source_sha256": "c78e19abfe2cdcf9106a42fd88689513f46dec7cae005be02d36e29a3fc68708",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 35,
+      "after_monitor_states": 35,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 35
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 35
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/arbiter_pb_4_pe_.tlsf",
+      "source_sha256": "6fe2905cb06fb73e5ae93c019978d41dc84a6c95d5a5a6a484acd7e28cefaac7",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 46,
+      "after_monitor_states": 46,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 46
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 46
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/round_robin_arbiter_unreal2_pb_2_pe_.tlsf",
+      "source_sha256": "1d2efe4a482915c316c761b9fbbf2128e38defdcbb9de3b7a2e494b32953f16d",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 26,
+      "after_monitor_states": 25,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 25
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 25
+        }
+      }
+    },
+    {
+      "path": "test/fixtures/gr1_monitor_game/round_robin_arbiter_unreal2_pb_3_pe_.tlsf",
+      "source_sha256": "71588f323b2b31357525710759d0420cdb6d137d17e4b3e16116c91606b7f577",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 44,
+      "after_monitor_states": 41,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 41
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 41
+        }
+      }
+    },
+    {
+      "path": "test/oracle/env_lift_capacity.tlsf",
+      "source_sha256": "b3638e99ab4e3af1b624a594d78052ec5c69c3dca7199af3e3c528bf5fdc76d3",
+      "before_cli_status": 0,
+      "after_cli_status": 3,
+      "before_monitor_states": 141,
+      "after_monitor_states": null,
+      "diagnostic": "reduce status 1: mp-class: outside proved DPA Buchi fragment",
+      "admission": {
+        "default": {
+          "code": 1,
+          "reason": 1,
+          "states": 137
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 141
+        }
+      }
+    },
+    {
+      "path": "test/oracle/env_lift_one.tlsf",
+      "source_sha256": "bb6c1ecd4766e2f3ef1cf8342283176eb3ecd886b81220f80ba95e6254393008",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 18,
+      "after_monitor_states": 18,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 18
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 18
+        }
+      }
+    },
+    {
+      "path": "test/oracle/env_lift_several.tlsf",
+      "source_sha256": "dd8ba39bc2f1a23d664cf9a14a01ca4310b2db733f6a16ae99042f4b77109765",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 20,
+      "after_monitor_states": 20,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 20
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 20
+        }
+      }
+    },
+    {
+      "path": "test/oracle/env_lift_zero.tlsf",
+      "source_sha256": "be65a58c4070a06308a2ddb3ea0981c9bcf78895e97b67834278282bc48edbee",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 14,
+      "after_monitor_states": 14,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 14
+        }
+      }
+    },
+    {
+      "path": "test/oracle/env_rank_learner.tlsf",
+      "source_sha256": "9f8d1621f7bbb6a5399122cceb0cefeda4026cf664a050309727426ff4995380",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 74,
+      "after_monitor_states": 59,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 59
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 59
+        }
+      }
+    },
+    {
+      "path": "test/oracle/env_real_seed.tlsf",
+      "source_sha256": "ebcd540ccd40d053f3a10c688ac4520314c570ba79ebdb8d947df78ebd5d7b40",
+      "before_cli_status": 0,
+      "after_cli_status": 0,
+      "before_monitor_states": 28,
+      "after_monitor_states": 28,
+      "diagnostic": null,
+      "admission": {
+        "default": {
+          "code": 0,
+          "reason": 0,
+          "states": 28
+        },
+        "research": {
+          "code": 0,
+          "reason": 0,
+          "states": 28
+        }
+      }
+    }
+  ],
+  "implementation_commits": [
+    "39658d6976c56b3b5f6e0f74ba71649d5e483814",
+    "b73206a1978e6518ee9ced6f3a63f9fc6ed6d164"
+  ],
+  "task_s_review": {
+    "root_cause": "Strict roles treated absence of a grammatical safety tag as proof of semantic non-safety.",
+    "fix": "On the fully expanded reachable deterministic Buchi monitor, safety holds exactly when the live nonaccepting subgraph is acyclic. Only strict-mode role classification is refined; DPA admission, the language construction, and exact-mode classes are unchanged.",
+    "new_golden_declines": [],
+    "golden_expectations_changed": false,
+    "corpus_successes": 148,
+    "corpus_specs": 217,
+    "strict_regression": {
+      "review_rows": 2,
+      "formula_family": 20,
+      "formula_pairs": 400,
+      "lassos_per_pair": 420,
+      "direct_semantic_comparisons": 168000,
+      "oracle": "Elementary LTL identities and first bad-prefix semantics; no external oracle."
+    },
+    "main_audit": {
+      "revision": "7b44d9f3add1d0f3a78c8f65ff05a0f6e3cf08ed",
+      "method": "Compile unchanged origin/main dpa.c, dpa_formula.c, dpa_dela.c and dpa_zielonka.c with their own internal header; call the ordinary DPA API, not the reduction.",
+      "same_conservative_tags": true,
+      "false_until_x_tags": {
+        "finite": false,
+        "safety": false,
+        "cosafety": true,
+        "pi2": true,
+        "sigma2": true
+      },
+      "other_caller_effect": "Ordinary DPA admission declines G(false U x), although its language is G x.",
+      "language_checks": 170,
+      "language_formulas": [
+        "false U x",
+        "x R true",
+        "true U x",
+        "x W false",
+        "false M x"
+      ],
+      "language_mismatches": 0,
+      "main_behavior_changed": false
+    },
+    "proof_references": {
+      "checked_references": 98,
+      "anchored_c_lean_targets": 64,
+      "stale_reference_mutations_rejected": 5
+    },
+    "validation": {
+      "research_tests_passed": 387,
+      "research_tests_failed": 0,
+      "frozen_reduction_cases": 436,
+      "corpus_statuses": {
+        "success": 148,
+        "unsupported": 54,
+        "invalid": 15
+      },
+      "corpus_statuses_unchanged": true,
+      "golden_directory_bytes": 2947504,
+      "clang_format": "22.1.8",
+      "memory_max_bytes": 5368709120,
+      "swap_max_bytes": 0,
+      "build_jobs": 2,
+      "post_rebuild_focused_tests_passed": 6
+    }
+  }
+}

@@ -1,9 +1,13 @@
-"""Exercise the EnvSat, locality, game-shape and resource guards on emitted LTL."""
+"""Exercise every EnvSat guard against frozen exports and reference verdicts."""
+from pathlib import Path
 import re
 import subprocess
 import sys
 
-convert, residual, compose, ltlsynt = sys.argv[1:]
+from golden import Golden
+
+convert, residual, compose = sys.argv[1:]
+gold = Golden("assumption-pruning")
 
 
 def source(sections, semantics="Mealy", target="Mealy"):
@@ -12,7 +16,9 @@ def source(sections, semantics="Mealy", target="Mealy"):
 
 
 def output(tool, text):
-    return subprocess.check_output([tool], input=text, text=True, timeout=10)
+    emitted = subprocess.check_output([tool], input=text, text=True, timeout=10)
+    gold.check(Path(tool).name, [text, emitted])
+    return emitted
 
 
 def cluster(tool, text):
@@ -26,13 +32,7 @@ def cluster(tool, text):
 
 
 def verdict(formula, inputs, outputs):
-    result = subprocess.run([ltlsynt, "--realizability", f"--ins={inputs}",
-                             f"--outs={outputs}", "-f", formula],
-                            text=True, capture_output=True, timeout=10)
-    assert result.returncode in (0, 1), result
-    expected = "REALIZABLE" if result.returncode == 0 else "UNREALIZABLE"
-    assert result.stdout.strip() == expected, result
-    return expected == "REALIZABLE"
+    return gold.verdict(formula, inputs, outputs)
 
 
 for semantics in ("Mealy", "Mealy,Strict"):
@@ -150,3 +150,4 @@ for tool in (residual, compose):
     emitted, _, inputs, _ = cluster(tool, text)
     assert "q" in inputs.split(","), emitted
 print("EnvSat inconsistent / syntax budget: retained D")
+gold.finish()

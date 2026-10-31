@@ -1,0 +1,5 @@
+[
+["tlsf","INFO {\n  TITLE:       \"p\";\n  DESCRIPTION: \"match-safe patterns\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    r;\n    s;\n  }\n\n  OUTPUTS {\n    o;\n    p;\n    q;\n  }\n\n    GUARANTEE {\n      G ((r -> X (o)));\n      G (!((o && p)));\n      G ((q <-> (r && s)));\n    }\n\n}\n"],
+["original","G (!r || X o) && G (!o || !p) && G (s && r <-> q)"],
+["normalized","G (r -> X o) && G !(o && p) && G (q <-> r && s)"]
+]

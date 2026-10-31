@@ -1,0 +1,4 @@
+[
+["verdict",["G(q <-> !Q) -> false","/./","",false,false],false],
+["verdict",["G(q <-> !q) -> false","q","",false,false],true]
+]

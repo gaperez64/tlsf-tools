@@ -1,19 +1,16 @@
 #include "tlsf/dpa.h"
+#include "dpa_buchi.h"
 extern "C" {
 #include "tlsf/ast.h"
+#include "tlsf/intern.h"
 }
-#include <spot/parseaut/public.hh>
-#include <spot/tl/parse.hh>
-#include <spot/tl/print.hh>
-#include <spot/twaalgos/contains.hh>
-#include <spot/twaalgos/isdet.hh>
-#include <spot/twaalgos/translate.hh>
-#include <spot/twaalgos/word.hh>
 #include <array>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <algorithm>
+#include <utility>
 #include <sstream>
 #include <vector>
 
@@ -26,48 +23,129 @@ extern "C" {
     }                                                                          \
   } while (0)
 
-static Node *ground(Arena *a, spot::formula f) {
-  using spot::op;
-  switch (f.kind()) {
-  case op::tt:
+struct Reference {
+  std::string tree, membership;
+};
+static std::map<std::string, Reference> references;
+static std::vector<std::pair<std::vector<unsigned>, std::vector<unsigned>>>
+    words;
+
+static Node *ground(Arena *a, InternTable *atoms, std::istream &in) {
+  std::string token;
+  CHECK(bool(in >> token));
+  if (token == "1")
     return node_true(a);
-  case op::ff:
+  if (token == "0")
     return node_false(a);
-  case op::ap:
-    return node_ap(a, f.ap_name().c_str());
-  case op::Not:
-    return node_not(a, ground(a, f[0]));
-  case op::X:
-    return node_x(a, ground(a, f[0]));
-  case op::F:
-    return node_f(a, ground(a, f[0]));
-  case op::G:
-    return node_g(a, ground(a, f[0]));
-  case op::U:
-    return node_u(a, ground(a, f[0]), ground(a, f[1]));
-  case op::R:
-    return node_r(a, ground(a, f[0]), ground(a, f[1]));
-  case op::W:
-    return node_w(a, ground(a, f[0]), ground(a, f[1]));
-  case op::M:
-    return node_m(a, ground(a, f[0]), ground(a, f[1]));
-  case op::Implies:
-    return node_impl(a, ground(a, f[0]), ground(a, f[1]));
-  case op::Equiv:
-    return node_equiv(a, ground(a, f[0]), ground(a, f[1]));
-  case op::Xor:
-    return node_not(a, node_equiv(a, ground(a, f[0]), ground(a, f[1])));
-  case op::And:
-  case op::Or: {
-    Node *result = ground(a, f[0]);
-    for (unsigned i = 1; i < f.size(); ++i)
-      result = f.is(op::And) ? node_and(a, result, ground(a, f[i]))
-                             : node_or(a, result, ground(a, f[i]));
-    return result;
+  if (token.starts_with('$'))
+    return node_ap(a, intern(atoms, token.c_str() + 1));
+  Node *left = ground(a, atoms, in);
+  if (token == "!")
+    return node_not(a, left);
+  if (token == "X")
+    return node_x(a, left);
+  if (token == "F")
+    return node_f(a, left);
+  if (token == "G")
+    return node_g(a, left);
+  Node *right = ground(a, atoms, in);
+  if (token == "&")
+    return node_and(a, left, right);
+  if (token == "|")
+    return node_or(a, left, right);
+  if (token == "i")
+    return node_impl(a, left, right);
+  if (token == "e")
+    return node_equiv(a, left, right);
+  if (token == "^")
+    return node_not(a, node_equiv(a, left, right));
+  if (token == "U")
+    return node_u(a, left, right);
+  if (token == "R")
+    return node_r(a, left, right);
+  if (token == "W")
+    return node_w(a, left, right);
+  if (token == "M")
+    return node_m(a, left, right);
+  CHECK(false);
+  return nullptr;
+}
+
+static void load_goldens() {
+  std::ifstream data(std::string(DPA_GOLDEN_DIR) + "/membership.tsv");
+  CHECK(data);
+  std::string line;
+  while (std::getline(data, line)) {
+    auto first = line.find('\t'), second = line.find('\t', first + 1);
+    CHECK(first != std::string::npos && second != std::string::npos);
+    CHECK(references
+              .emplace(line.substr(0, first),
+                       Reference{line.substr(first + 1, second - first - 1),
+                                 line.substr(second + 1)})
+              .second);
   }
-  default:
-    abort();
+  std::ifstream samples(std::string(DPA_GOLDEN_DIR) + "/words.txt");
+  CHECK(samples);
+  while (std::getline(samples, line)) {
+    auto separator = line.find(';');
+    CHECK(separator != std::string::npos);
+    auto masks = [](const std::string &text) {
+      std::istringstream in(text);
+      std::vector<unsigned> values;
+      unsigned value;
+      while (in >> value)
+        values.push_back(value);
+      return values;
+    };
+    words.emplace_back(masks(line.substr(0, separator)),
+                       masks(line.substr(separator + 1)));
+    CHECK(!words.back().second.empty());
   }
+  CHECK(words.size() == 512 && !references.empty());
+}
+
+static bool holds(TlsfDpa *dpa, uint32_t id, unsigned letter) {
+  const auto *node = tlsf_dpa_label_node(dpa, id);
+  CHECK(node);
+  if (node->kind != TLSF_DPA_DECISION)
+    return node->kind == TLSF_DPA_TRUE;
+  CHECK(node->ap < 7);
+  return holds(dpa, letter & (1u << node->ap) ? node->high : node->low, letter);
+}
+
+static TlsfDpaEdge step(TlsfDpa *dpa, uint32_t state, unsigned letter) {
+  const TlsfDpaEdge *edges;
+  size_t count;
+  CHECK(tlsf_dpa_successors(dpa, state, &edges, &count).code == TLSF_DPA_OK);
+  TlsfDpaEdge result{};
+  unsigned matches = 0;
+  for (size_t i = 0; i < count; ++i)
+    if (holds(dpa, edges[i].label, letter)) {
+      result = edges[i];
+      ++matches;
+    }
+  CHECK(matches == 1); // independent completeness and determinism check
+  return result;
+}
+
+static bool accepts(TlsfDpa *dpa, const std::vector<unsigned> &prefix,
+                    const std::vector<unsigned> &loop) {
+  uint32_t state = tlsf_dpa_initial(dpa);
+  for (auto letter : prefix)
+    state = step(dpa, state, letter).successor;
+  std::map<std::pair<uint32_t, size_t>, size_t> seen;
+  std::vector<uint32_t> priorities;
+  size_t position = 0;
+  while (!seen.count({state, position})) {
+    seen[{state, position}] = priorities.size();
+    auto edge = step(dpa, state, loop[position]);
+    priorities.push_back(edge.priority);
+    state = edge.successor;
+    position = (position + 1) % loop.size();
+  }
+  auto first = priorities.begin() +
+               static_cast<std::ptrdiff_t>(seen.at({state, position}));
+  return *std::max_element(first, priorities.end()) % 2 == 1;
 }
 
 static std::string label(TlsfDpa *c, uint32_t id,
@@ -129,14 +207,36 @@ static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
   return out.str() + "--END--\n";
 }
 
+static bool buchi_mode = false;
+static unsigned buchi_admitted = 0, buchi_declined = 0;
+
 static void check(const std::string &text, bool allow_unproved = false,
                   bool expect_bdd_limit = false,
                   bool expect_unsupported = false) {
-  auto parsed = spot::parse_infix_psl(text);
-  CHECK(!parsed.format_errors(std::cerr));
-  auto f = parsed.f;
+  Reference reference;
+  if (expect_bdd_limit) {
+    // TLSF parses the limits corpus through the in-house parser below.
+    std::ifstream limits(std::string(DPA_GOLDEN_DIR) + "/limits.tsv");
+    CHECK(limits);
+    std::string line;
+    while (std::getline(limits, line)) {
+      auto tab = line.find('\t');
+      if (line.substr(0, tab) == text)
+        reference.tree = line.substr(tab + 1);
+    }
+    CHECK(!reference.tree.empty());
+  } else {
+    CHECK(references.count(text));
+    reference = references.at(text);
+  }
   Arena *a = arena_new(4096);
-  Node *root = ground(a, f);
+  std::istringstream tree(reference.tree);
+  InternTable *atoms = intern_table_new(a);
+  CHECK(atoms);
+  Node *root = ground(a, atoms, tree);
+  intern_table_free(atoms);
+  std::string remaining;
+  CHECK(!(tree >> remaining));
   // Inputs first, outputs second; retain unused declarations on both sides.
   constexpr std::array names = {"unused_in", "req",   "a", "unused_out",
                                 "c",         "grant", "b"};
@@ -150,10 +250,25 @@ static void check(const std::string &text, bool allow_unproved = false,
     budget.bdd_nodes = 1u << 12;
     budget.bdd_cache = 1u << 10;
   }
-  auto status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
-                                names.data(), n_inputs, names.data() + n_inputs,
-                                names.size() - n_inputs, &budget, &c);
+  TlsfDpaStatus status;
+  char klass = 0;
+  if (buchi_mode)
+    status = dpa_buchi_create(reinterpret_cast<const TlsfAstNode *>(root),
+                              names.data(), uint32_t(names.size()), &budget, &c,
+                              &klass);
+  else
+    status = tlsf_dpa_create(reinterpret_cast<const TlsfAstNode *>(root),
+                             names.data(), n_inputs, names.data() + n_inputs,
+                             names.size() - n_inputs, &budget, &c);
   arena_free(a); // construction must copy everything it needs
+  if (buchi_mode && status.code == TLSF_DPA_DECLINED &&
+      status.reason == TLSF_DPA_UNSUPPORTED) {
+    CHECK(!c);
+    ++buchi_declined;
+    return;
+  }
+  if (buchi_mode)
+    ++buchi_admitted;
   if (expect_unsupported) {
     CHECK(status.code == TLSF_DPA_DECLINED &&
           status.reason == TLSF_DPA_UNSUPPORTED && !c);
@@ -191,40 +306,40 @@ static void check(const std::string &text, bool allow_unproved = false,
     exit(status.code == TLSF_DPA_DECLINED ? 77 : 1);
   }
   std::string serialized = hoa(c, n_inputs);
-  auto dict = spot::make_bdd_dict();
-  auto aut = spot::automaton_stream_parser(serialized.c_str(), "generated")
-                 .parse(dict);
-  CHECK(aut && !aut->format_errors(std::cerr) && aut->aut);
-  CHECK(aut->aut->ap().size() == names.size());
-  for (uint32_t i = 0; i < names.size(); ++i)
-    CHECK(aut->aut->ap()[i].ap_name() == names[i]);
-  auto outputs = aut->aut->get_named_prop<bdd>("synthesis-outputs");
-  CHECK(outputs);
-  bdd expected_outputs = bddtrue;
-  for (uint32_t i = n_inputs; i < names.size(); ++i)
-    expected_outputs &= bdd_ithvar(dict->varnum(spot::formula::ap(names[i])));
-  CHECK(*outputs == expected_outputs);
-  // Clear the HOA's asserted properties before independently checking them.
-  aut->aut->prop_universal(spot::trival::maybe());
-  aut->aut->prop_complete(spot::trival::maybe());
-  CHECK(spot::is_deterministic(aut->aut) && spot::is_complete(aut->aut));
-  spot::translator translate(dict);
-  auto reference = translate.run(f);
-  if (!spot::are_equivalent(aut->aut, reference)) {
-    std::ofstream("dpa-mismatch.hoa") << serialized;
-    std::ofstream("dpa-mismatch.ltl") << text << '\n';
-    auto witness = aut->aut->exclusive_word(reference);
-    if (witness)
-      std::cerr << *witness << '\n';
-    std::cerr << "language mismatch: " << text << '\n';
-    abort();
+  CHECK(serialized.find("controllable-AP: 3 4 5 6\n") != std::string::npos);
+  CHECK(serialized.find("AP: 7 \"unused_in\" \"req\" \"a\" \"unused_out\" "
+                        "\"c\" \"grant\" \"b\"\n") != std::string::npos);
+  for (uint32_t state = 0; state < tlsf_dpa_state_count(c); ++state)
+    for (unsigned letter = 0; letter < 128; ++letter)
+      (void)step(c, state, letter);
+  CHECK(reference.membership.size() == words.size());
+  for (size_t i = 0; i < words.size(); ++i) {
+    bool expected = reference.membership[i] == '1';
+    bool actual = accepts(c, words[i].first, words[i].second);
+    if (actual != expected) {
+      std::ofstream("dpa-mismatch.hoa") << serialized;
+      std::cerr << "language mismatch: " << text << " lasso " << i << '\n';
+      std::abort();
+    }
   }
-  std::cout << "equivalent: " << text << " (" << tlsf_dpa_state_count(c)
+  std::cout << "golden language: " << text << " (" << tlsf_dpa_state_count(c)
             << " states)\n";
   tlsf_dpa_free(c);
 }
 
 int main(int argc, char **argv) {
+  load_goldens();
+  if (argc == 2 && std::string(argv[1]) == "--buchi") {
+    buchi_mode = true;
+    for (const auto &[text, reference] : references) {
+      (void)reference;
+      check(text);
+    }
+    CHECK(buchi_admitted && buchi_declined);
+    std::cout << "Buchi goldens: " << buchi_admitted << " admitted, "
+              << buchi_declined << " declined, 512 memberships each\n";
+    return 0;
+  }
   bool research = argc == 2 && std::string(argv[1]) == "--allow-unproved";
   if (argc >= 2 && !research) {
     std::ifstream formulas(argv[1]);

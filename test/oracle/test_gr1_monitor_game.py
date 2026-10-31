@@ -1,650 +1,223 @@
 #!/usr/bin/env python3
-"""Direct (non-pytest) tests for per-conjunct GR(1) monitor games."""
-
-from __future__ import annotations
-
+"""Golden monitor games, native certificates and explicit controller checks."""
 import argparse
 import hashlib
 import json
-import pathlib
+from pathlib import Path
 import random
-import shlex
+import re
 import subprocess
-import sys
 import tempfile
 
-import spot
+from aag import Circuit, verify_controller
+from golden import Golden
+from reduction_golden import monitor_artifacts, decline
+from test_native_reduction_language import Game, tiny
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/gr1_monitor_game"
 
 
-HERE = pathlib.Path(__file__).resolve().parent
-TLSF_ROOT = HERE.parents[1]
-FIXTURES = TLSF_ROOT / "test/fixtures/gr1_monitor_game"
-sys.path.insert(0, str(TLSF_ROOT / "scripts"))
-
-import gr1_monitor_game as game  # noqa: E402
-import verify_strategy_explicit as explicit  # noqa: E402
+def run(command, expected=0):
+    result = subprocess.run(list(map(str, command)), text=True, capture_output=True, timeout=60)
+    assert result.returncode == expected, (command, result.stdout, result.stderr)
+    return result
 
 
-def run(command, expected=None, **kwargs):
-    proc = subprocess.run(command, text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, check=False, **kwargs)
-    if expected is not None and proc.returncode != expected:
-        raise AssertionError(
-            f"expected exit {expected}, got {proc.returncode}: {' '.join(map(str, command))}\n"
-            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
-    return proc
-
-
-def tool_args(args):
-    return ["--tlsf2ltl", args.tlsf2ltl, "--tlsf2tlsf", args.tlsf2tlsf,
-            "--tlsfinfo", args.tlsfinfo]
-
-
-def assert_gr1_layout(text, expected_bad=None):
+def mutate(text, latch=False):
     lines = text.splitlines()
-    fields = [int(value) for value in lines[0].split()[1:]]
-    fields += [0] * (9 - len(fields))
-    _maxvar, ni, nl, no, _na, nb, nc, nj, _nf = fields[:9]
-    assert no == 1 and nb == 0 and nc == 0 and nj > 0
-    assert "o0 bad" in lines
-    if expected_bad is not None:
-        assert int(lines[1 + ni + nl]) == expected_bad
-
-
-def reference_conjuncts(formula, spot):
-    """Flatten conjunctions and globally scoped conjunctions independently."""
-    if formula.kind() == spot.op_And:
-        for child in formula:
-            yield from reference_conjuncts(child, spot)
-    elif formula.kind() == spot.op_G and formula[0].kind() == spot.op_And:
-        for child in formula[0]:
-            yield from reference_conjuncts(spot.formula.G(child), spot)
-    elif not formula.is_tt():
-        yield formula
-
-
-def test_split_rule(args, spot):
-    tlsf = FIXTURES / "arbiter_pb_2_pe_.tlsf"
-    lowered = run([args.tlsf2ltl, "--format", "ltl", str(tlsf)], 0).stdout
-    formula = spot.formula(lowered)
-    assumptions, guarantees = game.split_objective(formula, spot)
-    if formula.kind() == spot.op_Implies:
-        reference_a = list(reference_conjuncts(formula[0], spot))
-        reference_g = list(reference_conjuncts(formula[1], spot))
-    else:
-        reference_a = []
-        reference_g = list(reference_conjuncts(formula, spot))
-    assert [str(f) for f in assumptions] == [str(f) for f in reference_a]
-    assert [str(f) for f in guarantees] == [str(f) for f in reference_g]
-
-    synthetic = spot.formula("(a & G(b & c)) -> G(d & (e & f))")
-    left, right = game.split_objective(synthetic, spot)
-    assert [str(f) for f in left] == ["a", "Gb", "Gc"]
-    assert [str(f) for f in right] == ["Gd", "Ge", "Gf"]
-
-
-def eval_boolean(formula, valuation, spot):
-    kind = formula.kind()
-    if formula.is_tt():
-        return True
-    if formula.is_ff():
-        return False
-    if kind == spot.op_ap:
-        return valuation[str(formula)]
-    if kind == spot.op_Not:
-        return not eval_boolean(formula[0], valuation, spot)
-    if kind == spot.op_And:
-        return all(eval_boolean(child, valuation, spot) for child in formula)
-    if kind == spot.op_Or:
-        return any(eval_boolean(child, valuation, spot) for child in formula)
-    if kind == spot.op_Xor:
-        return (eval_boolean(formula[0], valuation, spot)
-                != eval_boolean(formula[1], valuation, spot))
-    if kind == spot.op_Implies:
-        return (not eval_boolean(formula[0], valuation, spot)
-                or eval_boolean(formula[1], valuation, spot))
-    if kind == spot.op_Equiv:
-        return (eval_boolean(formula[0], valuation, spot)
-                == eval_boolean(formula[1], valuation, spot))
-    raise AssertionError(f"unexpected Boolean kind {formula}")
-
-
-def automaton_step(monitor, state, valuation, spot):
-    matches = []
-    for edge in monitor.automaton.out(state):
-        condition = spot.formula(spot.bdd_format_formula(
-            monitor.automaton.get_dict(), edge.cond))
-        if eval_boolean(condition, valuation, spot):
-            matches.append(edge.dst)
-    assert len(matches) == 1
-    return matches[0]
-
-
-def lasso_accepts_monitor(monitor, prefix, loop, spot):
-    state = monitor.automaton.get_init_state_number()
-    for valuation in prefix:
-        state = automaton_step(monitor, state, valuation, spot)
-    seen = {}
-    states = []
-    position = 0
-    while (state, position) not in seen:
-        seen[state, position] = len(states)
-        states.append(state)
-        state = automaton_step(monitor, state, loop[position], spot)
-        position = (position + 1) % len(loop)
-    cycle = states[seen[state, position]:]
-    return any(monitor.accepting[candidate] for candidate in cycle)
-
-
-def lasso_accepts_encoded(monitor, aag_text, signal_names, prefix, loop):
-    circuit = explicit.parse_aag(aag_text)
-    state = circuit.initial_state()
-    name_to_bit = {name: index for index, name in enumerate(circuit.input_names)}
-
-    def step(current, valuation):
-        bits = 0
-        for index, name in enumerate(signal_names):
-            bit = name_to_bit.get(f"uncontrollable_i{index}")
-            assert bit is not None
-            if valuation[name]:
-                bits |= 1 << bit
-        return circuit.simulate(current, bits)[0]
-
-    for valuation in prefix:
-        state = step(state, valuation)
-    seen = {}
-    states = []
-    position = 0
-    while (state, position) not in seen:
-        seen[state, position] = len(states)
-        states.append(state)
-        state = step(state, loop[position])
-        position = (position + 1) % len(loop)
-    cycle = states[seen[state, position]:]
-    acceptance_mask = sum(
-        1 << index for index, accepted in enumerate(monitor.accepting) if accepted)
-    return any(candidate & acceptance_mask for candidate in cycle)
-
-
-def test_monitor_encoding(args, spot):
-    rng = random.Random(0x20260922)
-    real_instances = [
-        FIXTURES / "arbiter_pb_2_pe_.tlsf",
-        FIXTURES / "arbiter_on_inpchange_pb_2_pe_.tlsf",
-    ]
-    checked = 0
-    parity_fallback_checked = 0
-    for tlsf in real_instances:
-        lowered = run([args.tlsf2ltl, "--format", "ltl", str(tlsf)], 0).stdout
-        formula = spot.formula(lowered)
-        assumptions, guarantees = game.split_objective(formula, spot)
-        for side, conjunct in ([*(('assumption', f) for f in assumptions),
-                                *(('guarantee', f) for f in guarantees)][:8]):
-            monitor = game.build_monitor(conjunct, side, spot)
-            assert spot.are_equivalent(monitor.automaton, conjunct), conjunct
-            preferred = spot.translate(
-                conjunct, "BA", "complete", "state-based", "deterministic")
-            if not spot.is_deterministic(preferred):
-                parity_fallback_checked += 1
-            aps = sorted(str(ap) for ap in spot.atomic_prop_collect(conjunct))
-            # Treat every AP as uncontrollable here; monitor logic is identical
-            # regardless of the game partition.
-            aag, _builder, _violated = game.encode_game(
-                [monitor], aps, [], "exact", spot)
-            assert_gr1_layout(aag, expected_bad=0)
-            for _ in range(80):
-                prefix = [dict(zip(aps, bits)) for bits in (
-                    [rng.choice((False, True)) for _ in aps]
-                    for _ in range(rng.randrange(5)))]
-                loop = [dict(zip(aps, bits)) for bits in (
-                    [rng.choice((False, True)) for _ in aps]
-                    for _ in range(rng.randrange(1, 6)))]
-                expected = lasso_accepts_monitor(
-                    monitor, prefix, loop, spot)
-                encoded = lasso_accepts_encoded(
-                    monitor, aag, aps, prefix, loop)
-                assert encoded == expected, (conjunct, prefix, loop)
-            checked += 1
-    assert checked >= 6
-    assert parity_fallback_checked >= 1
-
-
-def test_symmetric_signature(spot):
-    buses = game._bus_inventory(
-        ["g_0", "g_1", "g_2", "r_0", "r_1", "s"])
-    mutex = spot.formula("G(!(g_0 & g_1) & !(g_0 & g_2) & !(g_1 & g_2))")
-    assert game._symmetric_signature(mutex, buses, spot) == {"g": [0, 1]}
-
-    scalar_dependent = spot.formula("G(s | (!(g_0 & g_1) & !(g_0 & g_2) & !(g_1 & g_2)))")
-    assert game._symmetric_signature(scalar_dependent, buses, spot) is False
-
-    related_counts = spot.formula(
-        "G((g_0 & g_1 & g_2) <-> (r_0 & r_1))")
-    assert game._symmetric_signature(related_counts, buses, spot) is False
-
-
-def build_provenance(args, directory, tlsf):
-    output = directory / (tlsf.stem + ".aag")
-    provenance = directory / (tlsf.stem + ".json")
-    run([args.python, args.builder, *tool_args(args),
-         "--output", str(output), "--provenance-out", str(provenance),
-         str(tlsf)], 0)
-    return json.loads(provenance.read_text())
-
-
-def test_cross_n_provenance(args, directory):
-    families = {
-        "arbiter": range(2, 5),
-        "round_robin_arbiter_unreal2": range(2, 4),
-    }
-    for family, sizes in families.items():
-        for size in sizes:
-            tlsf = FIXTURES / f"{family}_pb_{size}_pe_.tlsf"
-            data = build_provenance(args, directory, tlsf)
-            assert data["schema"].endswith(".v3")
-            assert data["provenance_source"] == "frontend"
-            assert data["source_origin_metadata"]["available"] is True
-            assert data["source_origin_metadata"]["provenance_source"] == "frontend"
-            mutexes = [
-                monitor for monitor in data["monitors"]
-                if monitor.get("symmetric_signature") == {"g": [0, 1]}
-            ]
-            assert mutexes, (family, size)
-            for mutex in mutexes:
-                assert mutex["arity_kind"] == "bus_wide"
-                assert mutex["support"]["buses"]["g"] == list(range(size))
-                assert mutex["symmetric"] is True
-                assert mutex["source_origin"] is not None
-                assert mutex["provenance_source"] == "frontend"
-            local_templates = {
-                monitor["template"] for monitor in data["monitors"]
-                if monitor["arity_kind"] == "local"
-            }
-            assert any("s_input_1_i0" in template and
-                       "s_output_1_i0" in template
-                       for template in local_templates), (family, size)
-
-
-def tiny_tlsf(semantics, assumptions, guarantees):
-    return f'''INFO
-{{
-  TITLE: "monitor test"
-  DESCRIPTION: "generated test"
-  SEMANTICS: {semantics}
-  TARGET: {semantics}
-}}
-MAIN
-{{
-  INPUTS {{ i; }}
-  OUTPUTS {{ o; }}
-  ASSUMPTIONS {{ {assumptions} }}
-  GUARANTEES {{ {guarantees} }}
-}}
-'''
-
-
-def test_source_origin_fail_closed(args, directory):
-    duplicate = directory / "equivalent-duplicate.tlsf"
-    duplicate.write_text(tiny_tlsf("Mealy", "true;", "G o; G (o && true);"))
-    data = build_provenance(args, directory, duplicate)
-    assert data["source_origin_metadata"]["available"] is False
-    assert data["provenance_source"] == "suffix-heuristic"
-    assert all(monitor["source_origin"] is None
-               for monitor in data["monitors"])
-
-    numeric_scalar = directory / "numeric-scalar.tlsf"
-    numeric_scalar.write_text(
-        tiny_tlsf("Mealy", "true;", "G (i_1 -> F o);")
-        .replace("INPUTS { i; }", "INPUTS { i_1; }"))
-    data = build_provenance(args, directory, numeric_scalar)
-    assert data["source_origin_metadata"]["available"] is True
-    assert data["inputs"][0]["index_tuple"] == []
-    assert data["inputs"][0]["base_name"] == "i_1"
-    assert data["inputs"][0]["dimensions"] == 0
-
-    collision = directory / "collision.tlsf"
-    collision.write_text(
-        tiny_tlsf("Mealy", "true;", "G (a_0 -> o);")
-        .replace("INPUTS { i; }", "INPUTS { a[0..1]; a_0; }"))
-    collision_result = run(
-        [args.python, args.builder, *tool_args(args), str(collision)], 3)
-    assert "signal names are not unique" in collision_result.stderr
-
-    # A malformed frontend must also fail the independent Python inventory
-    # check, even if it incorrectly reports ambiguous=false.
-    fake = {"schema": "tlsf-tools.frontend-provenance.v1",
-            "ambiguous": False, "parameters": [], "conjuncts": [],
-            "signals": [{"name": "a_0", "direction": "input"},
-                        {"name": "a_0", "direction": "input"},
-                        {"name": "o", "direction": "output"}]}
-    checked = game.provenance([], ["a_0", "a_0"], ["o"],
-                              "exact", None, None, fake)
-    assert checked["source_origin_metadata"]["available"] is False
-
-
-def test_snapshot_binding(args, directory):
-    source = directory / "race.tlsf"
-    original = tiny_tlsf("Mealy", "true;", "G o; G p;").replace(
-        "OUTPUTS { o; }", "OUTPUTS { o; p; }")
-    source.write_text(original)
-    swapped = directory / "swapped.tlsf"
-    swapped.write_text(original.replace("G o; G p;", "G p; G o;"))
-    wrapper = directory / "race-ltl-wrapper.sh"
-    wrapper.write_text(
-        "#!/bin/sh\n"
-        f"cp {shlex.quote(str(swapped))} {shlex.quote(str(source))}\n"
-        f"exec {shlex.quote(args.tlsf2ltl)} \"$@\"\n")
-    wrapper.chmod(0o755)
-    game_path = directory / "race.aag"
-    sidecar = directory / "race.json"
-    run([args.python, args.builder, "--tlsf2ltl", str(wrapper),
-         "--tlsf2tlsf", args.tlsf2tlsf, "--tlsfinfo", args.tlsfinfo,
-         "--output", str(game_path), "--provenance-out", str(sidecar),
-         str(source)], 0)
-    data = json.loads(sidecar.read_text())
-    assert data["source_origin_metadata"]["source_sha256"] == \
-        hashlib.sha256(original.encode()).hexdigest()
-    assert source.read_text() != original
-    origin = next(item["source_origin"] for item in data["monitors"]
-                  if spot.are_equivalent(spot.formula(item["conjunct"]),
-                                         spot.formula("G o")))
-    assert origin["source_formula_id"] == "GUARANTEE:1"
-
-
-def test_symbol_namespace(args, directory):
-    def build(source: pathlib.Path, label: str):
-        target = directory / f"{label}.aag"
-        provenance = directory / f"{label}.json"
-        run([args.python, args.builder, *tool_args(args),
-             "--output", str(target), "--provenance-out", str(provenance),
-             str(source)], 0)
-        return target, json.loads(provenance.read_text())
-
-    # The original review case changed ownership when its input was renamed.
-    for label, name in (("plain", "a"), ("renamed", "controllable_a")):
-        source = directory / f"ownership-{label}.tlsf"
-        source.write_text(tiny_tlsf("Mealy", "true;", f"G !{name};")
-                          .replace("INPUTS { i; }", f"INPUTS {{ {name}; }}"))
-        target, data = build(source, f"ownership-{label}")
-        circuit = explicit.parse_aag(target.read_text())
-        assert circuit.input_names == ["uncontrollable_i0", "controllable_o0"]
-        assert data["inputs"][0]["name"] == name
-        run([args.solver, "--game-profile=gr1", str(target)], 1)
-
-    # The focused reviewer's three alpha-equivalent names all build and solve.
-    for label, name in (("baseline", "i"), ("at", "@"),
-                        ("prime", "a'")):
-        source = directory / f"odd-alpha-{label}.tlsf"
-        source.write_text(tiny_tlsf("Mealy", "true;", f"G ({name} -> o);")
-                          .replace("INPUTS { i; }", f"INPUTS {{ {name}; }}"))
-        target, data = build(source, f"odd-alpha-{label}")
-        assert data["inputs"][0]["game_symbol"] == "uncontrollable_i0"
-        assert data["inputs"][0]["name"] == name
-        assert data["source_origin_metadata"]["available"] is True
-        if label == "baseline":
-            baseline_bytes = target.read_bytes()
-        else:
-            assert target.read_bytes() == baseline_bytes
-        policy = directory / f"odd-alpha-{label}-policy.aag"
-        certificate = directory / f"odd-alpha-{label}-certificate.aag"
-        controller = directory / f"odd-alpha-{label}-controller.aag"
-        run([args.solver, "--game-profile=gr1", "--policy", str(policy),
-             "--certificate", str(certificate), str(target)], 0)
-        checked = run([args.checker, "--method", "certificate",
-                       "--certificate", str(certificate),
-                       "--emit-controller", str(controller),
-                       str(target), str(policy)], 0)
-        assert checked.stdout.splitlines()[-1] == "VERIFIED"
-        standalone = explicit.parse_aag(controller.read_text())
-        assert standalone.input_names == [name]
-        verified = run([args.python, args.verifier,
-                        "--tlsf2ltl", args.tlsf2ltl,
-                        "--tlsf2tlsf", args.tlsf2tlsf,
-                        "--tlsfinfo", args.tlsfinfo,
-                        "--tlsf", str(source),
-                        "--strategy", str(controller)], 0)
-        assert verified.stdout.strip() == "VERIFIED"
-
-    rng = random.Random(0x20260924)
-    names = ["@", "a'", "req@i", "val'", "controllable_x",
-             "uncontrollable_x", "monitor_0_state_0",
-             "assumption_safety_violated", "curr_0", "_", "_0",
-             "controllable_", "uncontrollable_", "x", "y"]
-    guarantees = ["G ({i} -> {o});", "G !{i};", "G {o};",
-                  "G ({i} -> X {o});", "G ({i} -> {o}); G !{o};",
-                  "G F {o};", "G !{i}; G {o};"]
-    verdict_counts = {0: 0, 1: 0}
-    for index in range(40):
-        edge_names = [("@", "a'"),
-                      ("controllable_x", "uncontrollable_x"),
-                      ("monitor_0_state_0", "assumption_safety_violated"),
-                      ("req@i", "val'")]
-        chosen = edge_names[index] if index < len(edge_names) else rng.sample(names, 2)
-        variants = (("i", "o"), tuple(chosen))
-        results = []
-        for variant, (i_name, o_name) in enumerate(variants):
-            source = directory / f"generated-{index}-{variant}.tlsf"
-            formula = guarantees[index % len(guarantees)].format(
-                i=i_name, o=o_name)
-            source.write_text(
-                tiny_tlsf("Mealy", "true;", formula)
-                .replace("INPUTS { i; }", f"INPUTS {{ {i_name}; }}")
-                .replace("OUTPUTS { o; }", f"OUTPUTS {{ {o_name}; }}"))
-            label = f"generated-{index}-{variant}"
-            target, data = build(source, label)
-            circuit = explicit.parse_aag(target.read_text())
-            assert circuit.input_names == ["uncontrollable_i0", "controllable_o0"]
-            assert [item["name"] for item in data["inputs"] + data["outputs"]] \
-                == [i_name, o_name]
-            assert [item["game_symbol"] for item in
-                    data["inputs"] + data["outputs"]] == circuit.input_names
-            assert data["source_origin_metadata"]["available"] is True
-            symbols = [*circuit.input_names, *circuit.latch_names,
-                       *circuit.output_names]
-            assert len(symbols) == len(set(symbols))
-            assert all(not name.startswith((game.UNCONTROLLABLE_PREFIX,
-                                            game.CONTROLLABLE_PREFIX))
-                       for name in circuit.latch_names)
-            policy = directory / f"{label}-policy.aag"
-            certificate = directory / f"{label}-certificate.aag"
-            solve = run([args.solver, "--game-profile=gr1", "--policy", str(policy),
-                         "--certificate", str(certificate), str(target)])
-            assert solve.returncode in (0, 1), solve.stderr
-            checked_result = run(
-                [args.checker, "--method", "certificate",
-                 "--certificate", str(certificate),
-                 str(target), str(policy)], 0)
-            assert "VERIFIED" in checked_result.stdout
-            if solve.returncode == 0:
-                controller = directory / f"{label}-controller.aag"
-                run([args.checker, "--method", "certificate",
-                     "--certificate", str(certificate),
-                     "--emit-controller", str(controller),
-                     str(target), str(policy)], 0)
-                standalone = explicit.parse_aag(controller.read_text())
-                assert standalone.input_names == [i_name]
-                assert standalone.output_names == [o_name]
-            if index == 15 and variant == 0 and solve.returncode == 0:
-                verified = run(
-                    [args.python, args.verifier,
-                     "--tlsf2ltl", args.tlsf2ltl,
-                     "--tlsf2tlsf", args.tlsf2tlsf,
-                     "--tlsfinfo", args.tlsfinfo,
-                     "--tlsf", str(source),
-                     "--strategy", str(controller)], 0)
-                assert verified.stdout.strip() == "VERIFIED"
-            results.append((target.read_bytes(), solve.returncode,
-                            checked_result.stdout.splitlines()[-1]))
-        assert results[0] == results[1], (index,
-            results[0][0] == results[1][0], results[0][1:], results[1][1:])
-        verdict_counts[results[0][1]] += 1
-    assert all(verdict_counts.values())
-
-
-def test_rejections_and_semantics(args, directory):
-    persistence = directory / "persistence.tlsf"
-    persistence.write_text(tiny_tlsf("Mealy", "true;", "F G o;"))
-    proc = run([args.python, args.builder, *tool_args(args), str(persistence)], 3)
-    assert "not dba-reducible" in proc.stderr and "FG" in proc.stderr
-
-    moore = directory / "moore.tlsf"
-    moore.write_text(tiny_tlsf("Moore", "true;", "G o;"))
-    proc = run([args.python, args.builder, *tool_args(args), str(moore)], 3)
-    assert "non-Mealy" in proc.stderr
-
-    # Exact is realizable by holding o=false, thereby violating the liveness
-    # assumption GF(o) and excusing the uncontrollable safety guarantee G(i).
-    # Strict mode deliberately permits only a *safety* assumption violation to
-    # excuse bad, so the environment can choose i=false and strict is unreal.
-    difference = directory / "exact-vs-strict.tlsf"
-    difference.write_text(tiny_tlsf("Mealy", "G F o;", "G i;"))
-    verdicts = {}
-    for semantics in ("exact", "strict"):
-        game_path = directory / f"difference-{semantics}.aag"
-        build = run([args.python, args.builder, *tool_args(args),
-                     "--semantics", semantics, "--output", str(game_path),
-                     str(difference)], 0)
-        if semantics == "strict":
-            assert "REAL-sound only" in build.stderr
-        text = game_path.read_text()
-        assert_gr1_layout(
-            text, expected_bad=0 if semantics == "exact" else None)
-        solved = run([args.solver, str(game_path)])
-        verdicts[semantics] = solved.returncode
-    assert verdicts == {"exact": 0, "strict": 1}, verdicts
-
-    liveness = directory / "liveness-only.tlsf"
-    liveness.write_text(tiny_tlsf("Mealy", "true;", "G F o;"))
-    game_path = directory / "liveness-only.aag"
-    run([args.python, args.builder, *tool_args(args), "--semantics", "strict",
-         "--output", str(game_path), str(liveness)], 0)
-    assert_gr1_layout(game_path.read_text(), expected_bad=0)
-    run([args.solver, "--game-profile=gr1", str(game_path)], 0)
-
-
-def mutate_first_output(text):
-    lines = text.splitlines()
-    header = [int(value) for value in lines[0].split()[1:]]
-    _m, ni, nl, no, _na = header[:5]
-    assert no > 0
-    position = 1 + ni + nl
-    lines[position] = str(int(lines[position]) ^ 1)
-    return "\n".join(lines) + "\n"
-
-
-def mutate_first_latch(text):
-    lines = text.splitlines()
-    header = [int(value) for value in lines[0].split()[1:]]
-    _m, ni, nl, _no, _na = header[:5]
-    assert nl > 0
-    position = 1 + ni
+    _m, ni, nl, *_ = map(int, lines[0].split()[1:])
+    position = 1 + ni if latch else 1 + ni + nl
     fields = lines[position].split()
-    fields[1] = str(int(fields[1]) ^ 1)
+    bit = 1 if latch else 0
+    fields[bit] = str(int(fields[bit]) ^ 1)
     lines[position] = " ".join(fields)
     return "\n".join(lines) + "\n"
 
 
-def test_explicit_checker(args, directory):
-    controller = FIXTURES / "arbiter_n2.aag"
-    tlsf = FIXTURES / "arbiter_pb_2_pe_.tlsf"
-    base = [args.python, args.verifier, "--tlsf2ltl", args.tlsf2ltl,
-            "--tlsf2tlsf", args.tlsf2tlsf, "--tlsfinfo", args.tlsfinfo,
-            "--tlsf", str(tlsf), "--strategy"]
-    good = run([*base, str(controller)], 0)
-    assert good.stdout.strip() == "VERIFIED"
-
-    old = run([args.python, args.old_verifier, "--tlsf2ltl", args.tlsf2ltl,
-               "--tlsf", str(tlsf), "--aiger", str(controller)], 0)
-    assert old.stdout.strip() == "verified"
-
-    original = controller.read_text()
-    for name, mutation in (("output", mutate_first_output),
-                           ("latch", mutate_first_latch)):
-        mutated = directory / f"mutated-{name}.aag"
-        mutated.write_text(mutation(original))
-        result = run([*base, str(mutated)], 1)
-        assert result.stdout.startswith("REFUTED\nCOUNTEREXAMPLE ")
-
-    capped = run([*base, str(controller), "--state-cap", "1"], 3)
-    assert capped.stdout.strip() == "UNKNOWN(state cap)"
-
-
-def write_aag(path, text):
-    path.write_text(text)
-    return path
-
-
-def test_explicit_checker_interface(args, directory):
-    tlsf = directory / "partition.tlsf"
-    tlsf.write_text(tiny_tlsf("Mealy", "true;", "G i; G o;"))
-    base = [args.python, args.verifier, "--tlsf2ltl", args.tlsf2ltl,
-            "--tlsf2tlsf", args.tlsf2tlsf, "--tlsfinfo", args.tlsfinfo,
-            "--tlsf", str(tlsf), "--strategy"]
-
-    cases = {
-        # Reviewer's construction: both TLSF signals are falsely declared as
-        # controllable constant-one outputs, so the old AP-only check passed.
-        "partition-swap": (
-            "aag 0 0 0 2 0\n1\n1\n"
-            "o0 controllable_i\no1 controllable_o\n",
-            "missing strategy inputs: i"),
-        "overlap": (
-            "aag 1 1 0 2 0\n2\n1\n1\n"
-            "i0 i\no0 controllable_i\no1 controllable_o\n",
-            "strategy input/output overlap: i"),
-        "missing-output": (
-            "aag 1 1 0 0 0\n2\ni0 i\n",
-            "missing strategy outputs: o"),
-        "controllable-input": (
-            "aag 1 1 0 1 0\n2\n1\n"
-            "i0 controllable_i\no0 controllable_o\n",
-            "missing strategy inputs: i"),
-        "duplicate-output": (
-            "aag 1 1 0 2 0\n2\n1\n1\n"
-            "i0 i\no0 o\no1 controllable_o\n",
-            "duplicate strategy outputs: o"),
-    }
-    for name, (text, reason) in cases.items():
-        strategy = write_aag(directory / f"{name}.aag", text)
-        result = run([*base, str(strategy)], 4)
-        assert result.stdout.strip() == "INVALID"
-        assert reason in result.stderr
-
-
-def parse_args(argv):
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--python", default=sys.executable)
-    parser.add_argument("--builder", required=True)
-    parser.add_argument("--verifier", required=True)
-    parser.add_argument("--old-verifier", required=True)
-    parser.add_argument("--tlsf2ltl", required=True)
-    parser.add_argument("--tlsf2tlsf", required=True)
-    parser.add_argument("--tlsfinfo", required=True)
-    parser.add_argument("--solver", required=True)
-    parser.add_argument("--checker", required=True)
-    return parser.parse_args(argv)
+    parser.add_argument("--builddir", required=True, type=Path)
+    build = parser.parse_args().builddir.resolve()
+    gold = Golden("monitor-game")
+    reducer = build / "test/api/native_reduction"
+    solver, checker = build / "tlsfsolve", build / "tlsfcertcheck"
+    rng = random.Random(0x20260924)
+    with tempfile.TemporaryDirectory(dir=build) as temp:
+        directory = Path(temp)
+        objectives = {}
+        frozen_inventory = {}
 
+        def reduce(source, label, semantics="exact", status=0):
+            print(f"monitor case: {label}", flush=True)
+            prefix = directory / label
+            result = run([reducer, source, semantics, prefix], status)
+            gold.check("reduce", [label, semantics, status])
+            if status:
+                decline(gold, result.stderr)
+                return None
+            data = json.loads(prefix.with_suffix(".json").read_text())
+            text = prefix.with_suffix(".aag").read_text()
+            frozen_inventory[label] = gold.records[gold.position][1]
+            monitor_artifacts(gold, data, text)
+            if data["source_origin_metadata"]["available"]:
+                assert data["source_origin_metadata"]["source_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+            path = prefix.with_suffix(".aag")
+            Path(str(path) + ".symbols").write_text(prefix.with_suffix(".symbols").read_text())
+            if semantics == "exact":
+                lowered = run([build / "tlsf2ltl", "--format", "ltl", source]).stdout.strip()
+                symbols = {row["name"]: row["game_symbol"] for row in data["inputs"] + data["outputs"]}
+                formula = re.sub(r"[A-Za-z_@][A-Za-z0-9_@']*",
+                                 lambda m: '"' + symbols[m[0]] + '"' if m[0] in symbols else m[0], lowered)
+                objectives[str(path)] = (formula, ",".join(row["game_symbol"] for row in data["inputs"]),
+                                         ",".join(row["game_symbol"] for row in data["outputs"]))
+            return path, data
 
-def main(argv):
-    args = parse_args(argv)
-    import spot
-    test_split_rule(args, spot)
-    test_monitor_encoding(args, spot)
-    test_symmetric_signature(spot)
-    with tempfile.TemporaryDirectory(
-            prefix="gr1-monitor-test-",
-            dir=pathlib.Path(args.tlsf2tlsf).resolve().parent) as temp:
-        directory = pathlib.Path(temp)
-        test_rejections_and_semantics(args, directory)
-        test_explicit_checker(args, directory)
-        test_explicit_checker_interface(args, directory)
-        test_cross_n_provenance(args, directory)
-        test_source_origin_fail_closed(args, directory)
-        test_snapshot_binding(args, directory)
-        test_symbol_namespace(args, directory)
-    print("gr1 monitor game tests: ok")
-    return 0
+        def solve(path, data, label):
+            policy, cert = directory / (label + "-policy.aag"), directory / (label + "-cert.aag")
+            result = subprocess.run([str(solver), "--game-profile=gr1", "--policy", str(policy),
+                                     "--certificate", str(cert), str(path)],
+                                    text=True, capture_output=True, timeout=60)
+            assert result.returncode in (0, 1), result.stderr
+            gold.check("solver", [label, result.returncode])
+            if str(path) in objectives:
+                assert gold.verdict(*objectives[str(path)]) == (result.returncode == 0)
+            checked = run([checker, "--method", "certificate", "--certificate", cert, path, policy])
+            assert checked.stdout.splitlines()[-1] == "VERIFIED", checked
+            if result.returncode == 0:
+                controller = directory / (label + "-controller.aag")
+                run([checker, "--method", "certificate", "--certificate", cert,
+                     "--emit-controller", controller, path, policy])
+                if len(data["inputs"]) <= 1 and len(data["outputs"]) <= 1:
+                    assert verify_controller(Circuit(path.read_text()), Circuit(controller.read_text()), data) == "VERIFIED"
+            return result.returncode
+
+        # Preserve the former cross-size, symmetry and conjunct-splitting corpus.
+        for source in sorted(FIXTURES.glob("*.tlsf")):
+            path, data = reduce(source, source.stem)
+            assert data["schema"].endswith(".v3")
+            assert data["provenance_source"] == "frontend"
+            assert data["source_origin_metadata"]["available"]
+            solve(path, data, source.stem)
+
+        # Preserve the old per-conjunct encoding checks: 80 words for each
+        # of the first eight monitors in both representative instances.
+        component_count = fallback_count = 0
+        for filename in ("arbiter_pb_2_pe_.tlsf", "arbiter_on_inpchange_pb_2_pe_.tlsf"):
+            label = "inventory-" + Path(filename).stem
+            reduce(FIXTURES / filename, label)
+            inventory = frozen_inventory[label]
+            names = [row["name"] for row in inventory["inputs"] + inventory["outputs"]]
+            for index, monitor in enumerate(inventory["monitors"][:8]):
+                label = f"component-{Path(filename).stem}-{index}"
+                conjunct = monitor["conjunct"]
+                source = directory / (label + ".tlsf")
+                source.write_text("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { " +
+                                  "; ".join(names) + "; } OUTPUTS { unused_component; } GUARANTEES { " +
+                                  conjunct.replace("&", "&&").replace("|", "||") + "; } }")
+                path, _ = reduce(source, label)
+                metadata = json.loads(path.with_suffix(".metadata.json").read_text())
+                fallback_count += metadata["fallback_monitor_count"]
+                game = Game(path.read_text())
+                words = [([rng.randrange(1 << len(game.inputs)) for _ in range(rng.randrange(5))],
+                          [rng.randrange(1 << len(game.inputs)) for _ in range(rng.randrange(1, 6))])
+                         for _ in range(80)]
+                actual = "".join("1" if game.accepts(prefix, loop) else "0" for prefix, loop in words)
+                formula = objectives[str(path)][0]
+                gold.language(formula, game.input_names, words, actual)
+                component_count += 1
+        assert component_count >= 6 and fallback_count == 0
+
+        mutex = "!((g[0] && g[1]) || (g[0] && g[2]) || (g[1] && g[2]))"
+        for label, body, symmetric in (
+                ("symmetric-mutex", mutex, True),
+                ("scalar-dependent", "s || " + mutex, False),
+                ("related-counts", "(g[0] && g[1] && g[2]) <-> (r[0] && r[1])", False)):
+            source = directory / (label + ".tlsf")
+            source.write_text("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
+                              "INPUTS { r[2]; s; } OUTPUTS { g[3]; } GUARANTEES { G(" + body + "); } }")
+            _, data = reduce(source, label)
+            assert any(bool(m.get("symmetric_signature")) for m in data["monitors"]) == symmetric
+
+        source = directory / "split-rule.tlsf"
+        source.write_text("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
+                          "INPUTS { a; b; c; } OUTPUTS { d; e; f; } "
+                          "ASSUMPTIONS { a; G(b && c); } GUARANTEES { G(d && (e && f)); } }")
+        _, data = reduce(source, "split-rule")
+        assert sum(m["side"] == "assumption" for m in data["monitors"]) == 3
+        assert sum(m["side"] == "guarantee" for m in data["monitors"]) == 3
+
+        # Independently check the committed controller, two corruptions, and
+        # all former invalid ownership/interface examples.
+        source = FIXTURES / "arbiter_pb_2_pe_.tlsf"
+        path, data = reduce(source, "closed-loop")
+        game = Circuit(path.read_text())
+        controller = (FIXTURES / "arbiter_n2.aag").read_text()
+        assert verify_controller(game, Circuit(controller), data) == "VERIFIED"
+        for latch in (False, True):
+            assert verify_controller(game, Circuit(mutate(controller, latch)), data) == "REFUTED"
+        assert verify_controller(game, Circuit(controller), data, state_cap=1) == "UNKNOWN"
+        partition = directory / "partition.tlsf"
+        partition.write_text(tiny("i", "o", "true;", "G i; G o;"))
+        path, data = reduce(partition, "partition")
+        invalid = [
+            "aag 0 0 0 2 0\n1\n1\no0 controllable_i\no1 controllable_o\n",
+            "aag 1 1 0 2 0\n2\n1\n1\ni0 i\no0 controllable_i\no1 controllable_o\n",
+            "aag 1 1 0 0 0\n2\ni0 i\n",
+            "aag 1 1 0 1 0\n2\n1\ni0 controllable_i\no0 controllable_o\n",
+            "aag 1 1 0 2 0\n2\n1\n1\ni0 i\no0 o\no1 controllable_o\n",
+        ]
+        for text in invalid:
+            assert verify_controller(Circuit(path.read_text()), Circuit(text), data) == "INVALID"
+
+        for label, source_text, status in (
+                ("persistence", tiny("i", "o", "true;", "F G o;"), 3),
+                ("moore", tiny("i", "o", "true;", "G o;").replace("Mealy", "Moore"), 3),
+                ("duplicate", tiny("i", "o", "true;", "G o; G (o && true);"), 0),
+                ("numeric-scalar", tiny("i_1", "o", "true;", "G (i_1 -> F o);"), 0),
+                ("collision", tiny("a[0..1]; a_0", "o", "true;", "G (a_0 -> o);"), 3)):
+            source = directory / (label + ".tlsf")
+            source.write_text(source_text)
+            reduced = reduce(source, label, status=status)
+            if label == "duplicate":
+                assert not reduced[1]["source_origin_metadata"]["available"]
+                assert all(row["source_origin"] is None for row in reduced[1]["monitors"])
+            if label == "numeric-scalar":
+                assert reduced[1]["inputs"][0]["index_tuple"] == []
+                assert reduced[1]["inputs"][0]["dimensions"] == 0
+
+        source = directory / "exact-vs-strict.tlsf"
+        source.write_text(tiny("i", "o", "G F o;", "G i;"))
+        for semantics, expected in (("exact", 0), ("strict", 1)):
+            path, data = reduce(source, "difference-" + semantics, semantics)
+            assert solve(path, data, "difference-" + semantics) == expected
+        source.write_text(tiny("i", "o", "true;", "G F o;"))
+        path, data = reduce(source, "liveness-only", "strict")
+        assert solve(path, data, "liveness-only") == 0
+
+        names = ["@", "a'", "req@i", "val'", "controllable_x", "uncontrollable_x",
+                 "monitor_0_state_0", "assumption_safety_violated", "curr_0", "_", "_0",
+                 "controllable_", "uncontrollable_", "x", "y"]
+        guarantees = ["G ({i} -> {o});", "G !{i};", "G {o};", "G ({i} -> X {o});",
+                      "G ({i} -> {o}); G !{o};", "G F {o};", "G !{i}; G {o};"]
+        edge_names = [("@", "a'"), ("controllable_x", "uncontrollable_x"),
+                      ("monitor_0_state_0", "assumption_safety_violated"), ("req@i", "val'")]
+        for index in range(40):
+            chosen = edge_names[index] if index < len(edge_names) else rng.sample(names, 2)
+            variants = []
+            for variant, (i, o) in enumerate((("i", "o"), chosen)):
+                label = f"alpha-{index}-{variant}"
+                source = directory / (label + ".tlsf")
+                source.write_text(tiny(i, o, "true;", guarantees[index % len(guarantees)].format(i=i, o=o)))
+                path, data = reduce(source, label)
+                game = Game(path.read_text())
+                assert game.input_names == ["uncontrollable_i0", "controllable_o0"]
+                assert [row["name"] for row in data["inputs"] + data["outputs"]] == [i, o]
+                assert data["source_origin_metadata"]["available"]
+                variants.append((path.read_bytes(), solve(path, data, label)))
+            assert variants[0] == variants[1]
+    gold.finish()
+    print("golden monitor games, certificates, controller mutations and 40 alpha pairs passed")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    main()
