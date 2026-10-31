@@ -503,6 +503,45 @@ std::vector<bool> rejecting_states(const Monitor &monitor,
   return live;
 }
 
+// All states are reachable and all edges have satisfiable labels. A complete
+// DBA is universal iff its nonaccepting subgraph is acyclic. Its language is
+// safety iff that subgraph is acyclic after removing states with no accepting
+// continuation: every rejecting word must eventually have a bad prefix.
+bool rejecting_cycle(const Monitor &monitor, const Limits &limits,
+                     bool live_only) {
+  const auto &automaton = *monitor.automaton;
+  auto included = [&](unsigned state) {
+    return !monitor.accepting[state] &&
+           (!live_only || !monitor.rejecting[state]);
+  };
+  std::vector<size_t> indegree(automaton.num_states());
+  size_t count = 0;
+  for (unsigned state = 0; state < automaton.num_states(); ++state) {
+    limits.check("monitor-scc");
+    if (!included(state))
+      continue;
+    ++count;
+    for (auto edge : automaton.out(state))
+      if (included(edge.dst))
+        ++indegree[edge.dst];
+  }
+  std::vector<unsigned> pending;
+  for (unsigned state = 0; state < automaton.num_states(); ++state)
+    if (included(state) && !indegree[state])
+      pending.push_back(state);
+  size_t removed = 0;
+  while (!pending.empty()) {
+    limits.check("monitor-scc");
+    unsigned state = pending.back();
+    pending.pop_back();
+    ++removed;
+    for (auto edge : automaton.out(state))
+      if (included(edge.dst) && !--indegree[edge.dst])
+        pending.push_back(edge.dst);
+  }
+  return removed != count;
+}
+
 void dpa_result(TlsfDpaStatus status, const Limits &limits, const char *stage) {
   limits.check(stage);
   if (status.code == TLSF_DPA_OK)
@@ -678,34 +717,18 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
   // from the live-SCC analysis. Universality is absence of a reachable cycle
   // consisting entirely of non-accepting states in this complete DBA.
   bool empty = monitor.rejecting[0];
-  std::vector<size_t> indegree(automaton->num_states());
-  size_t nonaccepting = 0;
-  for (unsigned state = 0; state < automaton->num_states(); ++state) {
-    limits.check("monitor-scc");
-    if (monitor.accepting[state])
-      continue;
-    ++nonaccepting;
-    for (auto edge : automaton->out(state))
-      if (!monitor.accepting[edge.dst])
-        ++indegree[edge.dst];
-  }
-  std::vector<unsigned> pending;
-  for (unsigned state = 0; state < automaton->num_states(); ++state)
-    if (!monitor.accepting[state] && !indegree[state])
-      pending.push_back(state);
-  size_t removed = 0;
-  while (!pending.empty()) {
-    limits.check("monitor-scc");
-    unsigned state = pending.back();
-    pending.pop_back();
-    ++removed;
-    for (auto edge : automaton->out(state))
-      if (!monitor.accepting[edge.dst] && !--indegree[edge.dst])
-        pending.push_back(edge.dst);
-  }
-  if (empty || removed == nonaccepting) {
+  if (empty || !rejecting_cycle(monitor, limits, false)) {
     monitor.formula = empty ? Formula::ff() : Formula::tt();
     monitor.mp_class = klass = 'B';
+  }
+  if (limits.options.semantics == TLSF_GR1_STRICT) {
+    // DPA tags certify grammatical membership, not the absence of semantic
+    // safety (e.g. false U x denotes x). Strict roles require the latter.
+    if (!rejecting_cycle(monitor, limits, true))
+      monitor.mp_class = klass = klass == 'B' ? 'B' : 'S';
+    else if (klass == 'B' || klass == 'S')
+      throw Failure(TLSF_GR1_REDUCE_UNSUPPORTED, TLSF_GR1_REDUCE_ERROR,
+                    "mp-class", "safety tag disagrees with monitor language");
   }
 
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT

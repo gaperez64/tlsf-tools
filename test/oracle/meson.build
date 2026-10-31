@@ -38,7 +38,7 @@ if python3.found()
            '--builddir', meson.project_build_root()],
     timeout: 120)
 endif
-foreach suite : ['native_lift_differential', 'native_reduction', 'native_reduction_language']
+foreach suite : ['native_lift_differential', 'native_reduction', 'native_reduction_language', 'native_reduction_strict']
   test(suite, python3,
     args: [files('test_' + suite + '.py'), '--builddir', meson.project_build_root()],
     timeout: 1800, is_parallel: false)

@@ -8,6 +8,8 @@ extern "C" {
 // Production selects the proved default. States remember the prior mark.
 // The ordinary DPA successor/label APIs apply; edge priorities are 0/1 and
 // every row has the same priority as its source state's acceptance mark.
+// klass reports grammatical tags, not the smallest semantic language class.
+// In particular, a non-safety tag does not establish semantic non-safety.
 TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
                                const char *const *names, uint32_t count,
                                const TlsfDpaBudget *budget, TlsfDpa **out,

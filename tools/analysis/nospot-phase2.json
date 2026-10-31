@@ -4777,5 +4777,66 @@
   "implementation_commits": [
     "39658d6976c56b3b5f6e0f74ba71649d5e483814",
     "b73206a1978e6518ee9ced6f3a63f9fc6ed6d164"
-  ]
+  ],
+  "task_s_review": {
+    "root_cause": "Strict roles treated absence of a grammatical safety tag as proof of semantic non-safety.",
+    "fix": "On the fully expanded reachable deterministic Buchi monitor, safety holds exactly when the live nonaccepting subgraph is acyclic. Only strict-mode role classification is refined; DPA admission, the language construction, and exact-mode classes are unchanged.",
+    "new_golden_declines": [],
+    "golden_expectations_changed": false,
+    "corpus_successes": 148,
+    "corpus_specs": 217,
+    "strict_regression": {
+      "review_rows": 2,
+      "formula_family": 20,
+      "formula_pairs": 400,
+      "lassos_per_pair": 420,
+      "direct_semantic_comparisons": 168000,
+      "oracle": "Elementary LTL identities and first bad-prefix semantics; no external oracle."
+    },
+    "main_audit": {
+      "revision": "7b44d9f3add1d0f3a78c8f65ff05a0f6e3cf08ed",
+      "method": "Compile unchanged origin/main dpa.c, dpa_formula.c, dpa_dela.c and dpa_zielonka.c with their own internal header; call the ordinary DPA API, not the reduction.",
+      "same_conservative_tags": true,
+      "false_until_x_tags": {
+        "finite": false,
+        "safety": false,
+        "cosafety": true,
+        "pi2": true,
+        "sigma2": true
+      },
+      "other_caller_effect": "Ordinary DPA admission declines G(false U x), although its language is G x.",
+      "language_checks": 170,
+      "language_formulas": [
+        "false U x",
+        "x R true",
+        "true U x",
+        "x W false",
+        "false M x"
+      ],
+      "language_mismatches": 0,
+      "main_behavior_changed": false
+    },
+    "proof_references": {
+      "checked_references": 98,
+      "anchored_c_lean_targets": 64,
+      "stale_reference_mutations_rejected": 5
+    },
+    "validation": {
+      "research_tests_passed": 387,
+      "research_tests_failed": 0,
+      "frozen_reduction_cases": 436,
+      "corpus_statuses": {
+        "success": 148,
+        "unsupported": 54,
+        "invalid": 15
+      },
+      "corpus_statuses_unchanged": true,
+      "golden_directory_bytes": 2947504,
+      "clang_format": "22.1.8",
+      "memory_max_bytes": 5368709120,
+      "swap_max_bytes": 0,
+      "build_jobs": 2,
+      "post_rebuild_focused_tests_passed": 6
+    }
+  }
 }
