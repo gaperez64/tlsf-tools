@@ -89,14 +89,16 @@ structure Dump (ap : Nat) where
   acceptance : Array Bool
   edges : Array (Fin size × Nat)
 
-def Dump.parity (d : Dump ap) : Parity (Alphabet ap) (Fin d.size) where
-  initial := ⟨0, d.nonempty⟩
-  step i a := d.edges.getD (i.val * (colourVectors ap).length + a.val) (⟨0, d.nonempty⟩, 0)
+@[noinline] def Dump.parity (d : Dump ap) : Parity (Alphabet ap) (Fin d.size) :=
+  let width := (colourVectors ap).length
+  { initial := ⟨0, d.nonempty⟩
+    step := fun i a => d.edges.getD (i.val * width + a.val) (⟨0, d.nonempty⟩, 0) }
 
-def Dump.buchi (d : Dump ap) : Buchi (Alphabet ap) (Fin d.size) where
-  initial := ⟨0, d.nonempty⟩
-  step i a := (d.parity.step i a).1
-  accepting i := d.acceptance.getD i.val false
+@[noinline] def Dump.buchi (d : Dump ap) : Buchi (Alphabet ap) (Fin d.size) :=
+  let source := d.parity
+  { initial := ⟨0, d.nonempty⟩
+    step := fun i a => (source.step i a).1
+    accepting := fun i => d.acceptance.getD i.val false }
 
 private def readDump (r : Request) : Parser (Dump r.names.size) := do
   expect "TV1"

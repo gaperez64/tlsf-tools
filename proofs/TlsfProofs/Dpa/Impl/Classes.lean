@@ -207,8 +207,12 @@ def equivalentOn : List (Formula (Fin ap)) → Formula (Fin ap) → Formula (Fin
     let f := reduceProp f
     let g := reduceProp g
     if f = g then true else
-      equivalentOn atoms (cofactor a false f) (cofactor a false g) &&
-        equivalentOn atoms (cofactor a true f) (cofactor a true g)
+      let f0 := cofactor a false f
+      let g0 := cofactor a false g
+      let f1 := cofactor a true f
+      let g1 := cofactor a true g
+      if f0 = f1 ∧ g0 = g1 then equivalentOn atoms f0 g0 else
+        equivalentOn atoms f0 g0 && equivalentOn atoms f1 g1
 
 theorem equivalentOn_exact (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap))
     (hf : (Class.ofFormula f).DependsOn atoms) (hg : (Class.ofFormula g).DependsOn atoms) :
@@ -231,9 +235,15 @@ theorem equivalentOn_exact (atoms : List (Formula (Fin ap))) (f g : Formula (Fin
     · rename_i he
       simp only [true_iff]
       exact (reduceProp_class f).symm.trans ((congrArg Class.ofFormula he).trans (reduceProp_class g))
-    · rw [Bool.and_eq_true, ih _ _ (cofactor_depends _ _ false hf') (cofactor_depends _ _ false hg'),
-        ih _ _ (cofactor_depends _ _ true hf') (cofactor_depends _ _ true hg'), cofactor_pair_exact]
-      rw [reduceProp_class, reduceProp_class]
+    · split
+      · rename_i he
+        rw [ih _ _ (cofactor_depends _ _ false hf') (cofactor_depends _ _ false hg')]
+        have hc := cofactor_pair_exact a (reduceProp f) (reduceProp g)
+        rw [← he.1, ← he.2, and_self] at hc
+        exact hc.trans (by rw [reduceProp_class, reduceProp_class])
+      · rw [Bool.and_eq_true, ih _ _ (cofactor_depends _ _ false hf') (cofactor_depends _ _ false hg'),
+          ih _ _ (cofactor_depends _ _ true hf') (cofactor_depends _ _ true hg'), cofactor_pair_exact]
+        rw [reduceProp_class, reduceProp_class]
 
 def equivalent (f g : Formula (Fin ap)) : Bool :=
   let f := reduceProp f
