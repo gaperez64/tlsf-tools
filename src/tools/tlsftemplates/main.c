@@ -7,6 +7,7 @@
 #include "cli.h"
 #include "tlsf/cover.h"
 #include "tlsf/expand.h"
+#include "tlsf/pipeline.h"
 #include "obligation_census.h"
 #include "recognize.h"
 #include "tlsf/spec.h"
@@ -277,9 +278,10 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  ConstraintCover *cov = cover_build(spec, split);
+  ConstraintCover *cov = tlsf_pipeline_build_cover(
+      spec,
+      &(TlsfPipelineOptions){.split = split, .tool_name = "tlsftemplates"});
   if (!cov) {
-    fprintf(stderr, "tlsftemplates: out of memory\n");
     spec_free(spec);
     return 1;
   }

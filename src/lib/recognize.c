@@ -255,7 +255,7 @@ static bool mutex_leaves(ConstraintCover *cov, ApSet *members, const Node *n) {
   if (n->kind == NODE_NOT && n->arg->kind == NODE_AND) {
     const Node *p = n->arg;
     int32_t li = ap_idx(cov, p->lhs), ri = ap_idx(cov, p->rhs);
-    if (li < 0 || ri < 0)
+    if (li < 0 || ri < 0 || li == ri)
       return false;
     apset_set(members, (uint32_t)li);
     apset_set(members, (uint32_t)ri);

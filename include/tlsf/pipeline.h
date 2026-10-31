@@ -56,6 +56,12 @@ typedef struct {
   size_t frontend_provenance_size;
 } TlsfPipeline;
 
+/* Adapt an already-expanded spec to its target, then build its cover. Call
+ * exactly once per spec: target adaptation mutates the section formulas.
+ * Uses only opts->split, tool_name and error; null opts selects defaults. */
+[[nodiscard]] ConstraintCover *
+tlsf_pipeline_build_cover(TlsfSpec *spec, const TlsfPipelineOptions *opts);
+
 [[nodiscard]] TlsfPipeline *tlsf_pipeline_load(FILE *fp,
                                                const TlsfPipelineOptions *opts);
 [[nodiscard]] TlsfPipeline *

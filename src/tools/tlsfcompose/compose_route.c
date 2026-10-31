@@ -54,6 +54,17 @@ bool compose_route_select_sections(TlsfSpec *spec, const Node *root,
       .root = root,
   };
 
+  // The AIG games and their OxiDD solvers are infinite-word, input-first
+  // (Mealy). Retiming SEMANTICS to TARGET has already happened, so TARGET
+  // decides the effective move order here. Never feed an output-first or
+  // finite objective to these encodings.
+  if (finite || spec->info.target == TARGET_MOORE) {
+    out->label = finite ? "ltlfsynt fallback" : "ltlsynt fallback (Moore)";
+    out->reason_override = finite ? "finite-word game requires ltlfsynt"
+                                  : "Moore target requires output-first play";
+    return true;
+  }
+
   const Node *strict_env_init = nullptr, *strict_env_require = nullptr;
   const Node *strict_sys_init = nullptr, *strict_sys_assert = nullptr;
   bool use_section_strict =

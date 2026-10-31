@@ -1,6 +1,8 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
 if python3.found()
+  test('proof_source_references', python3,
+    args: [files('check_proof_references.py'), meson.project_source_root()])
   test('bench_matrix_setup_failure', python3,
     args: [files('check_bench_matrix.py'),
            meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
@@ -41,6 +43,21 @@ if research_tools
              exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsfnorm'],
              files(cases / 'definition-assumption.tlsf'),
              files(cases / 'finite-next.tlsf')])
+    foreach name : ['definition-future', 'definition-preset',
+                    'definition-strict-assert', 'definition-guarantee-use',
+                    'definition-preset-use', 'delayed-definition-future',
+                    'finite-cluster-end', 'sections', 'definition-register-use',
+                    'invariant-assumption', 'nondefinition-sections',
+                    'finite-registers', 'target-moore-mealy', 'phase-b-support',
+                    'finite-adaptation', 'temporal-guards', 'scheduler-guards',
+                    'implicit-input-invariant', 'implicit-input-adaptation',
+                    'finite-adaptation-doc']
+      test('exactness_' + name, python3,
+        args: [files('check_exactness_guards.py'), exe['tlsf2ltl'],
+               exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsftemplates'],
+               exe['tlsfbenchgraph'], phase_b_probe,
+               cases, name])
+    endforeach
   endif
   test('tlsfbenchgraph_schema', files('check_benchgraph_schema.sh'),
     args: [exe['tlsfbenchgraph'],
@@ -298,7 +315,8 @@ test('tmpl_param', check_wl,
          '--certify', '--solve', '--format', 'csnf',
          files(cases / 'param_demo.tlsf')])
 # match-normalize (PR3/PR4): equivalence-preserving recognition normalization
-# lifts a guarded-next to solved and a mutex to certified.
+# recognizes a guarded-next candidate and certifies a mutex. The shared output
+# keeps the guarded-next block unsolved.
 test('tmpl_match_normalize', check,
   args: [files(cases / 'normalization_patterns.tmpl_matchsafe.txt'),
          exe['tlsftemplates'], '--certify', '--solve', '--format', 'text',
@@ -487,10 +505,10 @@ if python3.found()
            '--mem-mb', '512', '--timeout', '5', '--quiet',
            files(cases / 'def_demo.tlsf'),
            files(cases / 'reaction_ok.tlsf')])
-  # norm_sweep (PR11): match-safe:1 is soundness-eligible and lifts a block to
-  # solved on the crafted pattern spec.
+  # match-safe:1 exposes next/mutex candidates and certifies the mutex. The
+  # next block stays a candidate because that mutex also constrains its output.
   test('norm_sweep_match_safe', check_contains,
-    args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+1',
+    args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+0',
            files(scripts / 'norm_sweep.py'),
            '--tlsfbenchgraph', exe['tlsfbenchgraph'],
            files(cases / 'normalization_patterns.tlsf'),

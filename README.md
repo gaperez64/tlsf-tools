@@ -248,19 +248,25 @@ independent — several small `ltlsynt`/`strix` calls instead of one giant one.
 
 ```sh
 mkdir out && tlsfcompose --split --output-dir out/ spec.tlsf
-sh out/compose.sh                                  # ltlsynt per cluster -> verdict
-# or drive a backend yourself, per cluster (strip the 'c ' header lines to a
-# file and read it with -F; a large cluster overflows ltlsynt's --formula= arg):
-grep -v '^c ' out/cluster.0.ltl > out/cluster.0.f
-ltlsynt --ins=… --outs=… -F out/cluster.0.f
+sh out/compose.sh                                  # semantics-aware Spot verdicts
+# Or, for infinite-word Mealy targets, use the quoted Spot formula and
+# the exact --ins/--outs expressions written in compose.sh:
+ltlsynt --ins=… --outs=… -F out/cluster.0.spot
 ```
+
+The Spot formula files quote atoms so names such as `Grant` remain one atom;
+the driver's anchored regex partitions preserve case and match complete names.
+Infinite Moore games use `cluster.k.mealy`, which also delays environment
+inputs. Only the exact `c ins=` and `c outs=` metadata lines are comments in
+`cluster.k.ltl`; a formula such as `c -> p` remains valid.
 
 `--output-dir` also writes `controllers.aag`, a mergeable AIGER strategy for
 the certified part. Trusted OxiDD-eligible residual outcomes are handled in
 process with one persistent BDD session: exact routes and strengthened/UNDER
 routes can emit `cluster.k.aag`, while weakened/OVER routes can stop early on
 trusted UNREAL. The remaining clusters stay as `cluster.k.ltl`.
-`scripts/solve.sh` automates the full flow:
+`scripts/solve.sh` automates controller export for infinite-word Mealy targets;
+it refuses finite games and Moore targets:
 
 ```sh
 scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
@@ -362,13 +368,23 @@ reaction logic, and liveness schedulers (response/round-robin/arbiter). Stateful
 safety games and GR(1)-style reactivity need a real solver, not a syntactic
 certificate, and stay `candidate`.
 
+Decoder expressions and delayed-definition register values must be temporal-free.
+A definition can be eliminated only from a system section, with no
+environment-side uses of its output. Each use must be in the defining section,
+covered by a PRESET definition, or be a GUARANTEE using an ASSERT definition.
+Non-strict semantics also allow ASSERT to use a GUARANTEE definition.
+
 `tlsfresidual` then substitutes the solved combinational outputs away and emits
 the residual over a *smaller* alphabet, **clustering** it by shared output
 (`E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)` when output sets are disjoint) into independent,
-parallelisable sub-problems. Every global assumption is kept in every
+parallelisable sub-problems under infinite-word semantics. Output-dependent
+assumptions collapse all outputs into one cluster. Finite semantics also keep
+one cluster, since controllers share the choice of where the word ends.
+Every global assumption is kept in every
 cluster, including assumptions over disjoint signals: their conjunction may be
-inconsistent. The residual decomposition is labelled **TRUST_EXACT**. The emitted cluster
-formula is the formula solved and trusted.
+inconsistent. The residual decomposition is labelled **TRUST_EXACT**. The emitted
+cluster formula is the formula solved and trusted. See [proofs/README.md](proofs/README.md)
+for the exact rules and their proof scope.
 
 `tlsfcompose` turns that into a runnable plan: `controllers.aag` carries the
 certified part; trusted OxiDD residual controllers may also appear as
@@ -410,8 +426,18 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
 - **Finite-word** (`Finite,*`) — emits `ltlxba-fin`: strong-next prints `X[!]`,
   and `W` plus any internally derived strong release are rewritten with
   LTLf-valid identities so spot's `ltlfsynt` accepts them.
-- **Mealy/Moore** — from `SEMANTICS`; a `TARGET` mismatch is converted
-  (Moore→Mealy delays inputs `i↦X i`, Mealy→Moore delays outputs `o↦X o`).
+- **Mealy/Moore** — from `SEMANTICS`; for infinite words, a `TARGET` mismatch
+  is converted (Moore→Mealy delays all environment inputs `i↦X i`, including
+  undeclared atoms; Mealy→Moore delays outputs `o↦X o`). Under finite-word
+  semantics, target adaptation is unsupported: `SEMANTICS` and `TARGET` must
+  agree. The adapting CLIs and decomposition API refuse finite mismatches;
+  `tlsf_convert` refuses all finite semantics.
+
+Generated `compose.sh` drivers use `ltlfsynt --semantics=Mealy|Moore` for finite
+residuals. Infinite Moore targets bypass OxiDD and use the standard input-delay
+encoding for `ltlsynt` realizability checks. `scripts/solve.sh`, which exports
+and merges controllers, supports only infinite-word Mealy targets and refuses
+finite games and Moore targets.
 
 Output is minimally parenthesised by the spot/ltl2ba precedence
 (`! X F G` > `U R W` > `&&` > `||` > `-> <->`). `--parenthesize` fully

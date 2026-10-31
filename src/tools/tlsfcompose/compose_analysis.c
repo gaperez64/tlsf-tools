@@ -485,10 +485,11 @@ static bool match_response(const Node *n, const Node **req,
 }
 
 static bool spec_has_input(const TlsfSpec *spec, const char *name) {
-  for (uint32_t i = 0; i < spec->input_count; i++)
-    if (!strcmp(spec->inputs[i].name, name))
-      return true;
-  return false;
+  // Undeclared atoms are environment inputs too.
+  for (uint32_t i = 0; i < spec->output_count; i++)
+    if (!strcmp(spec->outputs[i].name, name))
+      return false;
+  return true;
 }
 
 static bool mentions_env_input(const TlsfSpec *spec, const Node *n) {

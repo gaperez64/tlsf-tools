@@ -6,6 +6,9 @@
 // entry points: direct safety, W/R-safety, strict-safety, and unbounded GR(1).
 // The AST eligibility gates that decide which builder applies live in
 // compose_analysis.c; shared types in compose_internal.h.
+// These builders do not implement output-first play or finite termination.
+// compose_route_select_sections() declines them for effective Moore targets
+// and finite semantics before any safety/GR(1)/bounded route is selected.
 
 #include "compose_internal.h"
 

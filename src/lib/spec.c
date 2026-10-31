@@ -1,6 +1,7 @@
 #include "tlsf/spec.h"
 
 #include "spec_internal.h"
+#include "conversion_internal.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -49,17 +50,22 @@ static bool signal_name_in(const char *name, const SignalDecl *signals,
 }
 
 static Node *wrap_signal_aps(Arena *arena, Node *node,
-                             const SignalDecl *signals, uint32_t count) {
+                             const SignalDecl *outputs, uint32_t count,
+                             bool shift_outputs) {
   switch (node->kind) {
   case NODE_AP:
-    return signal_name_in(node->name, signals, count) ? node_x(arena, node)
-                                                      : node;
+    // Every atom outside OUTPUTS is an environment input, including implicit
+    // (undeclared) atoms, just as in residual_signal_matches().
+    return signal_name_in(node->name, outputs, count) == shift_outputs
+               ? node_x(arena, node)
+               : node;
   case NODE_NOT:
   case NODE_X:
   case NODE_X_STRONG:
   case NODE_F:
   case NODE_G:
-    node->arg = wrap_signal_aps(arena, node->arg, signals, count);
+    node->arg =
+        wrap_signal_aps(arena, node->arg, outputs, count, shift_outputs);
     return node->arg ? node : nullptr;
   case NODE_AND:
   case NODE_OR:
@@ -69,12 +75,27 @@ static Node *wrap_signal_aps(Arena *arena, Node *node,
   case NODE_R:
   case NODE_W:
   case NODE_M:
-    node->lhs = wrap_signal_aps(arena, node->lhs, signals, count);
-    node->rhs = wrap_signal_aps(arena, node->rhs, signals, count);
+    node->lhs =
+        wrap_signal_aps(arena, node->lhs, outputs, count, shift_outputs);
+    node->rhs =
+        wrap_signal_aps(arena, node->rhs, outputs, count, shift_outputs);
     return node->lhs && node->rhs ? node : nullptr;
   default:
     return node;
   }
+}
+
+bool spec_validate_target_adaptation(const TlsfSpec *s, const char *prog) {
+  if (semantics_is_finite(s->info.semantics) &&
+      semantics_is_moore(s->info.semantics) !=
+          (s->info.target == TARGET_MOORE)) {
+    fprintf(tlsf_diagnostic_stream(),
+            "%s: finite semantics/target adaptation is unsupported; "
+            "SEMANTICS and TARGET must agree\n",
+            prog);
+    return false;
+  }
+  return true;
 }
 
 bool spec_adapt_target(TlsfSpec *s) {
@@ -82,15 +103,15 @@ bool spec_adapt_target(TlsfSpec *s) {
   bool target_moore = s->info.target == TARGET_MOORE;
   if (semantics_moore == target_moore)
     return true;
-
-  const SignalDecl *signals = semantics_moore ? s->inputs : s->outputs;
-  uint32_t count = semantics_moore ? s->input_count : s->output_count;
+  if (semantics_is_finite(s->info.semantics))
+    return false;
 
 #define WRAP_LIST(list)                                                        \
   do {                                                                         \
     for (uint32_t i = 0; i < (list).count; i++) {                              \
       (list).formulas[i] =                                                     \
-          wrap_signal_aps(s->arena, (list).formulas[i], signals, count);       \
+          wrap_signal_aps(s->arena, (list).formulas[i], s->outputs,            \
+                          s->output_count, !semantics_moore);                  \
       if (!(list).formulas[i])                                                 \
         return false;                                                          \
     }                                                                          \
@@ -502,25 +523,41 @@ static bool names_equal_ignoring_case(const char *lhs, const char *rhs) {
 }
 
 bool spec_validate_lowercase_signals(const TlsfSpec *s, const char *prog) {
-  const SignalDecl *lists[2] = {s->inputs, s->outputs};
-  uint32_t counts[2] = {s->input_count, s->output_count};
-  for (uint32_t left_list = 0; left_list < 2; left_list++)
-    for (uint32_t left = 0; left < counts[left_list]; left++)
-      for (uint32_t right_list = left_list; right_list < 2; right_list++) {
-        uint32_t right_start = right_list == left_list ? left + 1 : 0;
-        for (uint32_t right = right_start; right < counts[right_list];
-             right++) {
-          const char *lhs = lists[left_list][left].name;
-          const char *rhs = lists[right_list][right].name;
-          if (strcmp(lhs, rhs) != 0 && names_equal_ignoring_case(lhs, rhs)) {
-            fprintf(tlsf_diagnostic_stream(),
-                    "%s: lowercasing would merge distinct signals '%s' and "
-                    "'%s'\n",
-                    prog, lhs, rhs);
-            return false;
-          }
-        }
+  // Use the same alphabet as conversion/cover construction: declarations
+  // (including unused ones) AND every atom in the expanded sections.
+  Arena *scratch = arena_new(4096);
+  if (!scratch) {
+    fprintf(tlsf_diagnostic_stream(), "%s: lowercase validation failed (OOM)\n",
+            prog);
+    return false;
+  }
+  ApTable aps;
+  ap_table_init(&aps, scratch);
+  conversion_seed_signals(&aps, s);
+  const FormulaList *lists[] = {&s->initially, &s->require, &s->assume,
+                                &s->preset,    &s->assert_, &s->guarantee};
+  for (size_t l = 0; l < sizeof lists / sizeof lists[0]; l++)
+    for (uint32_t i = 0; i < lists[l]->count; i++)
+      conversion_intern_aps(&aps, lists[l]->formulas[i]);
+  if (arena_failed(scratch)) {
+    fprintf(tlsf_diagnostic_stream(), "%s: lowercase validation failed (OOM)\n",
+            prog);
+    arena_free(scratch);
+    return false;
+  }
+  for (uint32_t left = 0; left < aps.count; left++)
+    for (uint32_t right = left + 1; right < aps.count; right++) {
+      const char *lhs = ap_table_name(&aps, left);
+      const char *rhs = ap_table_name(&aps, right);
+      if (strcmp(lhs, rhs) != 0 && names_equal_ignoring_case(lhs, rhs)) {
+        fprintf(tlsf_diagnostic_stream(),
+                "%s: lowercasing would merge distinct signals '%s' and '%s'\n",
+                prog, lhs, rhs);
+        arena_free(scratch);
+        return false;
       }
+    }
+  arena_free(scratch);
   return true;
 }
 

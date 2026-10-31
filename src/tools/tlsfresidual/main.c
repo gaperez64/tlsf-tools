@@ -127,6 +127,7 @@ int main(int argc, char *argv[]) {
   FILE *fp = cli_open_input(input_file, "tlsfresidual");
   if (!fp)
     return 1;
+  TlsfPipelineError error = {0};
   TlsfPipelineOptions popts = {
       .split = split,
       .certify = true,
@@ -136,12 +137,16 @@ int main(int argc, char *argv[]) {
       .overrides = overrides,
       .n_overrides = n_overrides,
       .tool_name = "tlsfresidual",
+      .error = &error,
   };
   TlsfPipeline *p = tlsf_pipeline_load(fp, &popts);
   if (input_file)
     fclose(fp);
-  if (!p)
+  if (!p) {
+    fprintf(stderr, "%s\n",
+            error.message[0] ? error.message : "tlsfresidual: pipeline failed");
     return 1;
+  }
 
   TlsfSpec *spec = p->spec;
   ConstraintCover *cov = p->cover;

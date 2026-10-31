@@ -84,6 +84,24 @@ if research_tools
       env: spot_python_env)
   endif
   if python3.found()
+    ltlfsynt = find_program('ltlfsynt', required: false)
+    if ltlsynt.found() and ltlfsynt.found()
+      foreach mode : ['lowercase', 'comment', 'signals']
+        test('review4_' + mode, python3,
+          args: [files('test_review4_exports.py'), exe['tlsf2ltl'],
+                 exe['tlsfresidual'], exe['tlsfcompose'], ltlsynt, ltlfsynt,
+                 mode], timeout: 60)
+      endforeach
+      foreach mode : ['moore', 'finite', 'implicit', 'wrapper']
+        test('compose_driver_' + mode, python3,
+          args: [files('test_compose_driver_semantics.py'), exe['tlsfcompose'],
+                 ltlsynt, ltlfsynt, mode], timeout: 30)
+      endforeach
+      test('decomposition_exactness_oracle', python3,
+        args: [files('test_decomposition_exactness.py'), exe['tlsf2ltl'],
+               exe['tlsfresidual'], exe['tlsfcompose'], phase_b_probe,
+               ltlsynt, ltlfsynt, cases], timeout: 60)
+    endif
     test('oxidd_semantic_oracle', python3,
       args: [files('check_oxidd_oracle.py'), exe['tlsfsolve']], timeout: 120)
     test('native_oracle_8b158d7', python3,

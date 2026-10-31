@@ -368,9 +368,9 @@ static bool block_is_comb(const Csnf *c, const Block *b) {
 }
 
 // Verdict-trust registry: which certifiers are under-approximations (strategy
-// commitments for a liveness obligation) vs exact (forced-value substitution).
-// See templates_internal.h.  Liveness strategy families strengthen the
-// residual; the rest substitute a value the constraint forces.
+// commitments for a liveness obligation) vs realizability-preserving under the
+// ownership and causality guards. See templates_internal.h. A free register or
+// reaction need not force a unique value on every trace.
 VerdictTrust block_trust(const Block *b) {
   static const char *const under[] = {
       "reachability",
@@ -389,13 +389,23 @@ VerdictTrust block_trust(const Block *b) {
 }
 
 // A *definition* elimination `o := theta` (from G(o <-> theta)) makes `o`
-// equal to `theta` when the environment holds. Substitution requires `o`
-// to be absent from environment-side sections.  Reaction / reachability /
+// equal to `theta` wherever the defining section applies. Substitution requires
+// `o` to be absent from environment-side sections and every use to be covered
+// by that definition's section. Reaction / reachability /
 // persistence / safety-invariant Skolem values, by contrast, pick *one*
 // satisfying value for a constraint that only partially determines `o`;
 // eliminating those is sound only when `o` is not constrained elsewhere.
 static bool is_definition_elim(const Block *b, int32_t o) {
   return b->dec_output == o && b->dec_theta;
+}
+
+// Issues #84/#86: whenever a use must hold in the section objective, its
+// definition must hold from that position on. See
+// proofs/TlsfProofs/Definition.lean (covers, elim_realizable_inf).
+static bool definition_section_covers(Role use, Role def, bool strict) {
+  return use == def || def == TLSF_ROLE_PRESET ||
+         (use == TLSF_ROLE_GUARANTEE && def == TLSF_ROLE_ASSERT) ||
+         (!strict && use == TLSF_ROLE_ASSERT && def == TLSF_ROLE_GUARANTEE);
 }
 
 // Outputs a block drives or eliminates (block_writes plus safety-invariant
@@ -409,12 +419,48 @@ static bool block_drives(const Block *b, int32_t o) {
   return false;
 }
 
+// Phase B must inspect the residual after Phase A's definitions are applied.
+// Keep the original support conservatively and close it under every committed
+// theta. In particular p := s, s := r makes a surviving G p constrain r.
+static ApSet *definition_closed_outputs(const Csnf *c,
+                                        const CsnfComposition *r) {
+  ConstraintCover *cov = c->cov;
+  uint32_t A = cov->aps.count, N = c->nconstraints;
+  ApSet *theta = ARENA_ALLOC_N(cov->arena, ApSet, r->nelim ? r->nelim : 1);
+  ApSet *support = ARENA_ALLOC_N(cov->arena, ApSet, N ? N : 1);
+  if (!theta || !support)
+    return nullptr;
+  for (uint32_t k = 0; k < r->nelim; k++) {
+    apset_init(&theta[k], cov->arena, A);
+    if (arena_failed(cov->arena))
+      return nullptr;
+    for (uint32_t o = 0; o < A; o++)
+      if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) &&
+          occurs_in(r->elim[k].value, ap_table_name(&cov->aps, o)))
+        apset_set(&theta[k], o);
+  }
+  for (uint32_t i = 0; i < N; i++) {
+    apset_init(&support[i], cov->arena, A);
+    if (arena_failed(cov->arena))
+      return nullptr;
+    apset_union(&support[i], &cov->items[i].outputs);
+    // There are at most nelim definition edges along any admitted dependency
+    // chain, regardless of their order in the AP table.
+    for (uint32_t pass = 0; pass < r->nelim; pass++)
+      for (uint32_t k = 0; k < r->nelim; k++)
+        if (apset_test(&support[i], (uint32_t)r->elim[k].output))
+          apset_union(&support[i], &theta[k]);
+  }
+  return support;
+}
+
 CsnfComposition *csnf_compose(const Csnf *c) {
   CsnfComposition *r = calloc(1, sizeof *r);
   if (!r)
     return nullptr;
   ConstraintCover *cov = c->cov;
   uint32_t A = cov->aps.count, B = c->nblocks, N = c->nconstraints;
+  bool strict = semantics_is_strict(cov->spec->info.semantics);
   r->accepted_block = calloc(B ? B : 1, sizeof(bool));
   r->residual_constraint = calloc(N ? N : 1, sizeof(bool));
   r->conflicts = calloc(B + 1, sizeof(Conflict));
@@ -431,13 +477,23 @@ CsnfComposition *csnf_compose(const Csnf *c) {
       !r->elim || !eliminated || !provider || !elim_excluded || !def_committed)
     goto fail;
   for (uint32_t b = 0; b < B; b++) {
-    r->accepted_block[b] = c->blocks[b].status == CSNF_SOLVED;
-    int32_t o = c->blocks[b].dec_output;
-    if (o >= 0 && is_definition_elim(&c->blocks[b], o))
-      for (uint32_t i = 0; i < N; i++)
-        if (cov->items[i].assumption_side &&
-            apset_test(&cov->items[i].outputs, (uint32_t)o))
-          r->accepted_block[b] = false;
+    const Block *blk = &c->blocks[b];
+    r->accepted_block[b] = blk->status == CSNF_SOLVED;
+    int32_t o = blk->dec_output;
+    if (!r->accepted_block[b] || o < 0 || !is_definition_elim(blk, o))
+      continue;
+    const Constraint *def = &cov->items[blk->cids[0]];
+    if (def->assumption_side) {
+      r->accepted_block[b] = false;
+      continue;
+    }
+    for (uint32_t i = 0; i < N; i++)
+      if (apset_test(&cov->items[i].outputs, (uint32_t)o) &&
+          (cov->items[i].assumption_side ||
+           !definition_section_covers(cov->items[i].role, def->role, strict))) {
+        r->accepted_block[b] = false;
+        break;
+      }
   }
 
   // Phase A: eliminate combinational outputs by substitution.  First break any
@@ -469,7 +525,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
         provider[o] = (int32_t)b;
   }
   // Phase A commits only *definition* eliminations (o := theta), which are
-  // sound under the environment-side guard above. Non-definition combinational
+  // sound under the section-coverage guard above. Non-definition combinational
   // providers (reaction / reachability / persistence / invariant Skolem) are
   // deferred: their `o := value` is only valid when `o` is not constrained by a
   // surviving residual, so they are tested by the Phase-B shared-output guard
@@ -505,6 +561,9 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   // twice or constrained by a surviving residual.  Definition providers
   // (committed in Phase A) are exempt -- `o := theta` is
   // equivalence-preserving.
+  ApSet *phase_b_outputs = definition_closed_outputs(c, r);
+  if (!phase_b_outputs)
+    goto fail;
   bool changed = true;
   while (changed) {
     changed = false;
@@ -531,8 +590,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
           }
         bool shared = false;
         for (uint32_t i = 0; i < N; i++)
-          if (r->residual_constraint[i] &&
-              apset_test(&cov->items[i].outputs, o)) {
+          if (r->residual_constraint[i] && apset_test(&phase_b_outputs[i], o)) {
             shared = true;
             break;
           }

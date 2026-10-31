@@ -162,12 +162,17 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
   }
 
   int64_t collapse_root = -1;
-  if (output_dependent_assumption) {
+  if (output_dependent_assumption ||
+      semantics_is_finite(cov->spec->info.semantics)) {
     // An assumption mentioning outputs couples the residual games through the
     // antecedent.  If we left the guarantee clusters independent, each cluster
     // would either drop that assumption or synthesize with another cluster's
     // output treated as locally controllable.  Both are unsound, so collapse
     // all output components and attach input-only guarantees to that component.
+    // Finite-word controllers also share the choice of where the word ends.
+    // proofs/TlsfProofs/Cluster.lean (clusters_realizable) covers infinite
+    // words only; proofs/TlsfProofs/Examples.lean (finite_split_fails) shows
+    // why finite residuals must likewise stay in one cluster.
     for (uint32_t a = 0; a < A; a++)
       if (ap_table_flags(&cov->aps, a) & AP_FLAG_OUTPUT) {
         if (collapse_root < 0)
@@ -200,10 +205,8 @@ uint32_t residual_cluster_keys(ConstraintCover *cov, const Node **rf,
     if (first >= 0)
       key[i] = uf_find(parent, (uint32_t)first);
     else if (collapse_root >= 0)
-      // If an assumption constrains outputs, independent clusters no longer
-      // have a local assumption environment.  Keep input-only guarantees in
-      // the same conservative residual cluster instead of checking them with
-      // those outputs treated as freshly controllable.
+      // Keep input-only guarantees in the same cluster when assumptions
+      // constrain outputs or finite semantics couples the choice of ending.
       key[i] = uf_find(parent, (uint32_t)collapse_root);
     else if (!cov->items[i].assumption_side)
       key[i] = A;

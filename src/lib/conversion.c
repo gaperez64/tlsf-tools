@@ -251,6 +251,8 @@ bool conversion_prepare(TlsfSpec *spec, const char *semantics,
   }
   if (expand(spec, overrides, count) != 0)
     return false;
+  if (!spec_validate_target_adaptation(spec, tool))
+    return false;
   if (!spec_adapt_target(spec)) {
     fprintf(tlsf_diagnostic_stream(),
             "%s: semantics/target adaptation failed (OOM)\n", tool);

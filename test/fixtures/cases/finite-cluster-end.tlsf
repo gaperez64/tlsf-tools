@@ -1,0 +1,6 @@
+INFO { SEMANTICS: Mealy,Finite TARGET: Mealy }
+MAIN {
+  INPUTS { q; }
+  OUTPUTS { p; r; }
+  GUARANTEES { p && !X[!] true; r && X[!] true; }
+}
