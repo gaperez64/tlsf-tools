@@ -367,3 +367,84 @@ All compilation, tests, inventory, benchmark and coverage work ran serially in
 two build/test workers. The complete golden directory, including archived
 phase-1 expectations and this note, is **2947504 bytes**, below its original
 **4,629,524-byte** cap. No successful golden data was regenerated.
+
+## Task U: merged assumption-pruning guards
+
+PR #95 (`origin/main` at `9206574235ac396aa396a7abf39cb86f1f868cc5`) is
+merged by `35109635d8e85fe9d590b806f502a5334db8530c`. Its native lasso search,
+cache tests and Lean `Pruning.lean` bridge are retained. The merged proof
+reference checker checks both the refreshed DPA anchors and the native witness
+and Lean bridge ranges.
+
+`assumption-pruning.json` freezes all **85 exports** and **63 realizability
+verdicts** from `test_assumption_pruning.py`, without dropping a scenario.
+Exports bind the complete TLSF source to the complete converted or clustered
+output, including signal partitions. Spot **2.16** `ltlsynt` independently
+confirmed each recorded verdict, including the original and both emitted
+objectives for ordinary and strict Mealy games. Cases cover inconsistent joint
+environments, winning and losing cores, INITIALLY/REQUIRE interactions,
+transient prefixes, nonconstant loops and bounded-search UNKNOWN. Transitive
+support, PRESET/ASSERT, finite/Moore retention and syntax-budget checks retain
+their native assertions and export snapshots. These serialization and retention
+fields are native snapshots, distinct from independently confirmed verdicts.
+
+The recording was generated offline on **2026-10-31**, after the merge, using
+`$HOME/spot-2.16-install`. `tool-versions.json` pins every reference executable;
+`provenance.json` records the native revision, test-source hash, payload hash,
+export/verdict counts and reference scope. The provenance test checks these
+counts and hashes. Recording requires successful reference checks before
+writing a fixture; a missing verdict confirmation cannot become a native-only
+snapshot. No cases timed out or were skipped.
+
+Reproduce with no other heavy job running:
+
+```sh
+systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+  env TMPDIR="$PWD/build-u/tmp" CARGO_BUILD_JOBS=2 \
+  python3 tools/golden/regenerate.py --build build-u \
+    --spot "$HOME/spot-2.16-install" --only pruning
+```
+
+Meson registers the converted test whenever research tools are enabled, without
+finding a reference executable. Tests only read goldens and invoke native
+binaries. The recursive `check_no_external_oracles` guard now rejects direct
+reference command execution/discovery as well as static and dynamic imports;
+it covers the new pruning script. It rejected the original #95 script and eight
+command/import mutants. Reference names in emitted product scripts remain data.
+
+PR #95 also updates the DESCRIPTION strings in `cluster_assume.tlsf` and
+`cluster_prune.tlsf`. Offline regeneration changes only their eight source-hash
+fields in the reduction goldens (two fields per specification and semantics),
+retaining every circuit, monitor, status and other expected value. It requires
+byte identity outside DESCRIPTION and four Spot `ltlfilt` equivalence checks
+(ordinary and strict objectives). The manifest archives the original sources
+and hash locations. The provenance gate reverses these replacements before
+checking both the pre-merge payload hash and the original phase-1 hash; the
+historical independent circuit confirmations therefore remain bound to the
+same expectations.
+
+
+### Task-U validation recorded on 2026-10-31
+
+A fresh **research-enabled** `build-u` was configured using
+`env -u PKG_CONFIG_PATH meson setup build-u -Dresearch_tools=true`.
+`pkg-config --exists libspot` fails with that environment, and the built C++
+public client links neither Spot nor libbddx. The full suite passed
+**390/390 tests**, with **zero** external-oracle command/import attempts:
+all six reference executables were replaced by failing PATH traps, and a
+Python import hook rejected `spot`, `buddy` and `acacia_lift`. The proof checker
+passed **105 references**, including **64 C/Lean anchor targets** and the
+Pruning witness ranges. The complete source-tree formatting check passed with
+clang-format **22.1.8**.
+
+Build and test workers were limited to two. Configure, compile, test and offline
+reference commands used `MemoryMax=5G`, `MemorySwapMax=0` systemd scopes, with
+`TMPDIR` inside `build-u`. The four offline recorder rejection checks passed,
+including rejection of unconfirmed pruning verdicts; their harness now adapts
+the phase-2 read-only decline helper for recording. The provenance gate also
+rejected a circuit mutation even after its current payload hash was renewed.
+A second pruning regeneration reproduced every golden and provenance byte.
+
+The complete golden directory, including provenance and this README, is
+**2986929 bytes (2.849 MiB)**, below the **4,629,524-byte** cap. The new
+pruning data is **32,134 bytes**. No existing reference circuit was regenerated.

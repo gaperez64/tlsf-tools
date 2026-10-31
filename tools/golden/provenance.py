@@ -26,4 +26,5 @@ def required(name):
     if name.startswith('norm-') or name == 'conversion':
         return {'equivalence'}
     return {'native-language': {'language'}, 'monitor-game': {'language', 'verdict'},
-            'decomposition': {'verdict'}, 'disjoint-assumptions': {'language', 'verdict'}}.get(name, set())
+            'decomposition': {'verdict'}, 'disjoint-assumptions': {'language', 'verdict'},
+            'assumption-pruning': {'verdict'}}.get(name, set())

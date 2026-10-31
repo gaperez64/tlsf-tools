@@ -38,6 +38,11 @@ def main():
         module = types.ModuleType("golden")
         module.Golden = regenerate.Recorder
         sys.modules["golden"] = module
+        sys.path.insert(0, str(regenerate.ROOT / "test/oracle"))
+        import reduction_golden
+        # The decline-everything mutant records raw diagnostics. The normal
+        # phase-2 helper reads existing expectations through a golden cursor.
+        reduction_golden.decline = lambda gold, text: gold.check("decline", text)
         sys.argv = [str(regenerate.ROOT / "test/oracle/test_native_reduction.py"),
                     "--builddir", str(fake_build)]
         try:
@@ -49,15 +54,16 @@ def main():
             raise AssertionError("decline-everything mutant was accepted")
         assert target.read_bytes() == original, "unconfirmed results overwrote the golden"
         assert not (regenerate.DEST / "provenance.json").exists()
-        unconfirmed = regenerate.Recorder("native-language")
-        unconfirmed.check("native-only", "unchecked output")
-        try:
-            unconfirmed.finish()
-        except AssertionError as error:
-            assert "missing independent checks" in str(error)
-        else:
-            raise AssertionError("recording without a required language check was accepted")
-        assert not (regenerate.DEST / "native-language.json").exists()
+        for suite in ("native-language", "assumption-pruning"):
+            unconfirmed = regenerate.Recorder(suite)
+            unconfirmed.check("native-only", "unchecked output")
+            try:
+                unconfirmed.finish()
+            except AssertionError as error:
+                assert "missing independent checks" in str(error)
+            else:
+                raise AssertionError("recording without a required reference check was accepted")
+            assert not (regenerate.DEST / (suite + ".json")).exists()
         options.bindings_site = None
         try:
             regenerate.Recorder("native-reduction")
@@ -65,7 +71,7 @@ def main():
             assert "--bindings-site is required" in str(error)
         else:
             raise AssertionError("recording without a reference was accepted")
-    print("offline recording gates: 3 checks passed; no unconfirmed files written")
+    print("offline recording gates: 4 checks passed; no unconfirmed files written")
 
 
 if __name__ == "__main__":

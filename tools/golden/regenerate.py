@@ -140,6 +140,13 @@ class Recorder:
             provenance = self.confirmation.provenance()
         else:
             provenance = describe(self.name, self.records)
+        if self.name == "assumption-pruning":
+            provenance["native_revision"] = run(["git", "rev-parse", "HEAD"], check=True).stdout.strip()
+            provenance["test_sha256"] = hashlib.sha256(
+                (ROOT / "test/oracle/test_assumption_pruning.py").read_bytes()).hexdigest()
+            provenance["reference"] = "Spot 2.16 ltlsynt; tool-versions.json"
+            provenance["verdicts"] = sum(row[0] == "verdict" for row in self.records)
+            provenance["exports"] = len(self.records) - provenance["verdicts"]
         if self.name == "native-api-8b158d7":
             # This independent historical differential was frozen in phase 1.
             # A fresh native snapshot cannot renew that historical evidence.
@@ -223,7 +230,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--spot", type=Path, required=True)
-    parser.add_argument("--only", choices=("dpa", "exports", "native", "language", "monitor", "lift", "norm", "api", "step1"))
+    parser.add_argument("--only", choices=("dpa", "exports", "pruning", "native", "language", "monitor", "lift", "norm", "api", "step1"))
     parser.add_argument("--bindings-site", type=Path,
                         help="Python bindings built against the selected Spot 2.16")
     parser.add_argument("--oracle-root", type=Path,
@@ -252,6 +259,11 @@ def main():
         assert "2.16" in versions[tool], versions[tool]
     (DEST / "tool-versions.json").write_text(json.dumps(versions, indent=2) + "\n")
     try:
+        if OPTIONS.only in (None, "pruning"):
+            script("test_assumption_pruning.py", build / "tlsf2ltl", build / "tlsfresidual",
+                   build / "tlsfcompose")
+            from pruning_sources import refresh
+            refresh(ROOT, DEST, OPTIONS, run)
         if OPTIONS.only in (None, "dpa"):
             dpa()
         if OPTIONS.only in (None, "exports"):

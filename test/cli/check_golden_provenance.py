@@ -1,8 +1,10 @@
 """Check reference provenance, content binding, and the owner's golden size cap."""
 from collections import Counter
+import copy
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 
 root = Path(sys.argv[1]) / "test/fixtures/golden"
@@ -17,28 +19,58 @@ for path in root.glob("*.json"):
         assert suite["cases"] == (436 if path.stem == "native-reduction" else 13)
         assert suite["native_status_counts"]["0"] > 0
     records = json.loads(path.read_text())
+    if path.stem == "assumption-pruning":
+        assert suite["status"] == "independently confirmed", path
+        assert suite["verdicts"] == sum(row[0] == "verdict" for row in records) == 63
+        assert suite["exports"] == sum(row[0] != "verdict" for row in records) == 85
+        source = root.parents[1] / "oracle/test_assumption_pruning.py"
+        assert suite["test_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
     digest = hashlib.sha256(json.dumps(records, separators=(",", ":")).encode()).hexdigest()
     assert suite["sha256"] == digest, (path, "unconfirmed payload")
+    historical = records
+    if "pruning_source_updates" in suite:
+        historical = copy.deepcopy(records)
+        for patch in suite["pruning_source_updates"]:
+            source = (root.parents[2] / patch["source"]).read_text()
+            before = patch["before_source"]
+            assert hashlib.sha256(before.encode()).hexdigest() == patch["before_sha256"]
+            assert hashlib.sha256(source.encode()).hexdigest() == patch["after_sha256"]
+            # Only the explanatory description changed, preserving every
+            # successful circuit and its original independent confirmation.
+            description = r'DESCRIPTION:\s*"[^"\n]*"'
+            assert re.sub(description, "", before) == re.sub(description, "", source)
+            assert len(patch["records"]) == 4
+            for index, label in patch["records"]:
+                assert historical[index][0] == label
+                field = historical[index][1]
+                if label == ".json":
+                    field = field["source_origin_metadata"]
+                else:
+                    assert label == ".metadata.json"
+                assert field["source_sha256"] == patch["after_sha256"]
+                field["source_sha256"] = patch["before_sha256"]
+        restored_hash = hashlib.sha256(json.dumps(historical, separators=(",", ":")).encode()).hexdigest()
+        assert restored_hash == suite["pre_pruning_sources_sha256"]
     if "phase1_sha256" in suite:
-        restored = list(records)
+        restored = list(historical)
         if "phase2_declines" in suite:
             patches = {row["case"]: row for row in suite["phase2_declines"]}
             restored = []
             found = set()
             i = 0
-            while i < len(records):
-                label, value = records[i]
+            while i < len(historical):
+                label, value = historical[i]
                 case = value[0] + ":" + value[1] if label == "status" else None
                 if case in patches:
                     patch = patches[case]
-                    assert records[i:i+2] == patch["after"]
+                    assert historical[i:i+2] == patch["after"]
                     assert patch["before"][0] == ["status", value[:2] + [0]]
                     assert value[2] == 3 and patch["reason"]
                     restored.extend(patch["before"])
                     found.add(case)
                     i += 2
                 else:
-                    restored.append(records[i])
+                    restored.append(historical[i])
                     i += 1
             assert found == patches.keys()
         else:

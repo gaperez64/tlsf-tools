@@ -24,7 +24,7 @@
     "reference_revision": "7b44d9f",
     "comparator_sha256": "7bd99b9d33c2e5132ff97c960aab2853f55f74acebfd696ab7d2df31bd0685e8",
     "case_status_sha256": "7572be43304f51dce7b77aca47bdf734efb52be72eda4d5643c575a447a06687",
-    "sha256": "c1bc7cd04f1f12268c3394260dc5ebfc88db1a02ba4fdea1407a8dd86f748292",
+    "sha256": "d989e60193044455067bac967eba69deaa592c1dd96b30c1a837732ee7aa5709",
     "runtime": {
       "spot_version": "2.16",
       "libspot_sha256": "55c40a77a92d9977f88091e478e65bc91753299ba857243633e16575abe7e3b4",
@@ -3551,7 +3551,59 @@
           ]
         ]
       }
-    ]
+    ],
+    "pre_pruning_sources_sha256": "c1bc7cd04f1f12268c3394260dc5ebfc88db1a02ba4fdea1407a8dd86f748292",
+    "pruning_source_updates": [
+      {
+        "source": "test/fixtures/cases/cluster_assume.tlsf",
+        "before_source": "INFO {\n  TITLE: \"cluster_assume\"\n  DESCRIPTION: \"pure-input assumption replicated into each output cluster\"\n  SEMANTICS: Mealy\n  TARGET: Mealy\n}\nMAIN {\n  INPUTS { a; b; }\n  OUTPUTS { x; y; }\n  ASSUME { G a; }\n  GUARANTEE {\n    G (x <-> X a);\n    G (y <-> X b);\n  }\n}\n",
+        "before_sha256": "891b57370af07f0527406cc71af5465c9d66961187e341af5ca43c64fa9ba69d",
+        "after_sha256": "651b114df545de07f66fb99b920ad531b5903bdb609da9b63d597bdba588af2a",
+        "records": [
+          [
+            144,
+            ".json"
+          ],
+          [
+            146,
+            ".metadata.json"
+          ],
+          [
+            149,
+            ".json"
+          ],
+          [
+            151,
+            ".metadata.json"
+          ]
+        ]
+      },
+      {
+        "source": "test/fixtures/cases/cluster_prune.tlsf",
+        "before_source": "INFO {\n  TITLE: \"cluster_prune\"\n  DESCRIPTION: \"global liveness assumption G F !r is kept in both clusters, including the disjoint one\"\n  SEMANTICS: Mealy\n  TARGET: Mealy\n}\nMAIN {\n  INPUTS { r; }\n  OUTPUTS { g; h; }\n  ASSUME {\n    G F (!r);\n  }\n  GUARANTEE {\n    G (r -> X g);\n    G F h;\n  }\n}\n",
+        "before_sha256": "43600f363322403bc425195744ac05a4e74c7ea95cd6e35ab0bf9f4b14ca0ee2",
+        "after_sha256": "613e44e75b124be18c929f3d5624de183384863dc09a2dee37534c4d6439d4f3",
+        "records": [
+          [
+            154,
+            ".json"
+          ],
+          [
+            156,
+            ".metadata.json"
+          ],
+          [
+            159,
+            ".json"
+          ],
+          [
+            161,
+            ".metadata.json"
+          ]
+        ]
+      }
+    ],
+    "pruning_source_confirmation": "Spot 2.16 ltlfilt equivalence, ordinary and strict; only DESCRIPTION text differs"
   },
   "native-lift": {
     "status": "independently confirmed",
@@ -4002,5 +4054,22 @@
       "random.ltl": "dbf98d2cc11c27f6778d82115cd81891c22128f85f72dc3996d52512ff941838",
       "words.txt": "d96a3010290f73d0e5136a5caa6bfd2a48c9288c37bc3fa4513e97685f917614"
     }
+  },
+  "assumption-pruning": {
+    "status": "independently confirmed",
+    "independent_checks": [
+      "Spot 2.16 synthesis verdicts"
+    ],
+    "native_snapshot": [
+      "tlsf2ltl",
+      "tlsfcompose",
+      "tlsfresidual"
+    ],
+    "native_revision": "35109635d8e85fe9d590b806f502a5334db8530c",
+    "test_sha256": "e6489790d178b04d8a7e28c34e20ec7903dc2c3c6a3a7138f8d2b1358b591140",
+    "reference": "Spot 2.16 ltlsynt; tool-versions.json",
+    "verdicts": 63,
+    "exports": 85,
+    "sha256": "41777a9a19157be066a4d27310113023930096e7fb75ab8b2b47749071723842"
   }
 }
