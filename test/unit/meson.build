@@ -3,14 +3,32 @@
 dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
   dependencies: tlsf_internal_dep)
 dpa_contract = executable('dpa_contract', 'dpa_contract.c',
-  link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite'],
+  c_args: ['-UNDEBUG'],
+  link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite',
+    '-Wl,--wrap=oxidd_bdd_not', '-Wl,--wrap=oxidd_bdd_and',
+    '-Wl,--wrap=oxidd_bdd_or', '-Wl,--wrap=oxidd_bdd_cofactor_false',
+    '-Wl,--wrap=oxidd_bdd_cofactor_true'],
   dependencies: tlsf_internal_dep)
 test('dpa_contract', dpa_contract, timeout: 120)
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
+test('dpa_limits', dpa_equivalence,
+  args: [files('dpa_limits.ltl'), '--allow-unproved', '--expect-bdd-limit'],
+  timeout: 120)
+dpa_stage2 = executable('dpa_stage2', 'dpa_stage2.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('dpa_stage2', dpa_stage2, timeout: 120)
 randltl = find_program('randltl', required: false)
 if randltl.found()
   test('dpa_random', python3, args: [files('dpa_random.py'),
     dpa_equivalence, randltl], timeout: 120)
+endif
+
+dpa_admission = executable('dpa_admission', 'dpa_admission.c',
+  dependencies: tlsf_internal_dep)
+ltlfilt = find_program('ltlfilt', required: false)
+if randltl.found() and ltlfilt.found()
+  test('dpa_delta2', python3, args: [files('dpa_delta2.py'),
+    dpa_equivalence, randltl, ltlfilt], timeout: 300)
 endif
 
 objective_cli = static_library('objective-cli',
