@@ -379,3 +379,170 @@ for module in LTL Game Objective Passes Definition Cluster Examples Rewrites; do
 done
 timeout 1500 lake build
 ```
+
+## Issues #80 / #83: lazy-DPA formalization
+
+The six modules under `TlsfProofs/Dpa/` use namespace `Tlsf.Dpa` and infinite
+words only (`Sat none`). They formalize the conservative DESIGN §1 variant:
+no support resets, no external suspension, a complete fixed product, and an
+ordinary one-sibling global-tree update. The required reference merge is
+`aa9327a`; STAGE2 was already merged at `9702e09`.
+
+**This formalization is incomplete.** In particular, it does not yet prove
+STAGE2 §5's full Emerson–Lei/parity equivalence or §6.4's eventual-false-seed
+lemma for arbitrary flat `G(q)`. Consequently there is no §8 language theorem
+for the whole Stage2 grammar. The existing Markdown verdicts are not changed
+or treated as machine-checked conclusions. None of these missing results is
+introduced as a logical assumption in a claimed complete construction theorem.
+
+The checked semantic class model is a Boolean function with a finite formula
+representative. `class_finite_atoms` supplies a finite atom set on which each
+function depends. Modal atoms, including a formula and its NNF dual, remain
+independent; AP negation shares its AP variable. `Uses` is exact dependence,
+so support tests and protection disregard propositionally absorbed operands.
+`Positive` states modal monotonicity; `NNFClass` supplies an NNF representative.
+A global finite-closure/cardinality theorem for *all reachable classes of a
+fixed input* is still outstanding. This is distinct from the proved finite
+support of each individual class.
+
+`Stage1.lean` defines the shared table and proves safety/co-safety and the
+one-set parity results. `Component.lean` extends it with the general component
+facts. The GF/FG corollaries are in `Converse.lean`: they reuse the general
+accepting-seed theorem, avoiding a circular import from Stage1 to Component.
+Their comments retain the STAGE1 equation/section references. In particular,
+`gf_seed_bound` proves the upper bound sufficient for the unbounded-start
+argument; it does not claim the full two-case extractor equation (3).
+
+### Obligation map
+
+All names below are in `Tlsf.Dpa`. “Pending” is uncompleted formalization,
+not a theorem or an identified mathematical counterexample.
+
+| Markdown section / claim | Lean definition or theorem | Status / scope |
+| --- | --- | --- |
+| STAGE1 §1: finite/safety/co-safety grammars, finite X depth | `finite`, `safety`, `cosafety`, `horizon`, `NNF` | Checked definitions |
+| STAGE1 §1: full canonical NNF/X-distribution C transport | Existing `Tlsf.Rewrites.nnf_sat`, `pre_xn_bool_distribute`; `finite_nnf_polarity` | Semantic identities checked; C transport bridge trusted |
+| STAGE1 §2: propositional classes, implication, exact support | `Class`, `Class.Implies`, `Uses`, `HasTag`, `support_locality`, `class_finite_atoms` | Checked; finite support per class |
+| STAGE1 §2: frozen U and simultaneous raw D | `unfoldSyntax`, `stepSyntax`, `U`, `D`, `delta`, `U_idempotent` | Checked |
+| STAGE1 §2 / STAGE2 §2: extractor, changing support, protection, retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` | Checked definitions and termination |
+| STAGE1 §2 / STAGE2 §2: ordered component table and mark 0 | `Pair`, `Edge`, `initial`, `transition`, `run`, `marks` | Checked deterministic total function; fixed-input state finiteness pending |
+| STAGE1 §3 (1): derivative and iterated derivative | `derivative`, `derivative_syntax`, `U_holds`, `derivatives_holds` | Checked for every class / infinite position |
+| STAGE1 §3: finite windows | `finite_window`, `finite_window_constant`, `bounded_constant_eval` | Checked locality and constant after h+1 letters |
+| STAGE1 §3: good prefixes | `cosafety_witness`, `class_cosafety_witness` | Checked; latter assumes `Positive` and exact co-safety support |
+| STAGE1 §3: bad prefixes | `safety_bad_prefix`, `class_safety_bad_prefix` | Checked directly; does not require an unproved propositional dual-commutation lemma |
+| STAGE1 §3: fragment closure / intersection | `U_safety`, `D_safety`, `U_cosafety`, `D_cosafety`, `tags_intersection`, `step_bounded` | Checked; standalone class-level NNF dual commutation not supplied |
+| STAGE1 §4: safety, both directions | `safety_language`, `safety_complement` | Checked for positive support-tested classes |
+| STAGE1 §4: co-safety, both directions; precedence of safety row | `cosafety_language`, `cosafety_complement` | Checked for NNF support-tested classes |
+| STAGE1 §4 (2): GF all-field fixed | `gf_derivative_fixed`, `gf_all_fixed`, `gf_not_simple` | Checked |
+| STAGE1 §4 (3): exact retry/seed case split | `gf_seed_bound`, `search_dropX_fixed` | Sufficient seed bound and protection checked; exact two-case equality pending |
+| STAGE1 §4: GF finite windows, both directions | `gf_language` | Checked, using the general accepting-renewal-seed theorem |
+| STAGE1 §4: FG finite windows and complement | `gf_complement`, `fg_language` | Checked on the identical completed dual run |
+| STAGE1 §5: one-set min-even and max-odd tables | `oneSet_min_inf`, `oneSet_min_fin`, `oneSet_max_inf`, `oneSet_max_fin`, `gf_minEven`, `fg_minEven`, `gf_maxOdd`, `fg_maxOdd` | Checked numeric parity languages; identification with the built one-colour tree's unique path pending |
+| STAGE1 §6: general case excluded | `GeneralPi2Converse` | Documented proposition only; no general converse theorem |
+| STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
+| STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
+| STAGE2 §3 (2): all/rejecting invariant | `ComponentInvariant`, `initial_invariant`, `transition_invariant`, `run_invariant`, `run_remainder` | Checked for arbitrary NNF inputs, without a Π₂ converse hypothesis |
+| STAGE2 §3: false renewal / resumption unreachable | `no_false_renewal`, `no_active_resume`, `resume_unreachable` | Checked with the preceding invariant |
+| STAGE2 §3 (3): all-field exactness, including false sink | `all_field_derivative`, `all_field_exactness` | Checked |
+| STAGE2 §3 (4): satisfying words accept | `satisfying_accepts` | Checked for arbitrary NNF inputs |
+| STAGE2 §3 (5): retained obligations across renewals | `rejecting_step_preserves`, `rejecting_preserves_obligation`, `all_preserves_obligation` | Checked with explicit active-interval condition for R |
+| STAGE2 §3: accepting runs satisfy extracted seeds | `accepting_finite_obligation`, `accepting_simple_suffix`, `accepting_active_obligation`, `accepting_renewal_seed`, `accepting_active_finite_witness` | Checked; retained finite checks are not replaced by true |
+| STAGE2 §4: fixed product and α=β(Inf(i)) | `productRun`, `productColours`, `EmersonLei`, `product_projection`, `product_language`, `product_complement` | Checked; language equality explicitly requires two-sided per-component equality |
+| STAGE2 §5: all maximal opposite children, finite tree / depth | `MaximalOpposite`, `maximal_opposite_extension`, `ZTree`, `buildTree`, `child_cover`, `ZTree.path_length_le` | Checked reference builder, including empty colour universe |
+| STAGE2 §5: generic maximal-model SAT builder | `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete` | Abstract soundness/completeness checked; C query/loop refinement remains trusted |
+| STAGE2 §5: ordinary one-sibling update | `ZTree.step`, `ZTree.advance`, `ZTree.step_valid`, `ZTree.advance_valid`, `treeRun_valid`, `treePriority_le` | Checked operation, valid paths and priority bound |
+| STAGE2 §5: least recurrent anchor, stable prefix and sibling cycling | No complete theorem | Pending |
+| STAGE2 §5: recurrent-set acceptance | `covered_recurrent_acceptance` | Static final step checked; the run argument establishing its hypotheses is pending |
+| STAGE2 §5: max-odd export P−p | `exportBound_odd`, `exportBound_large`, `parity_export`, `exported_positive`, `tree_export` | Checked; does not assert the missing EL/tree equality |
+| STAGE2 §6.1: choose a false clause without CNF rewriting | `failed_clause` | Checked for `FlatQ` |
+| STAGE2 §6.2: flush old false finite candidates | `flush_false_window` | Individual-window flush checked; full residual/support constraint induction pending |
+| STAGE2 §6.3 (8): protect a constraint / lose a protector | `elision_preserves_constraint`, `losing_protector`, `falseCofactor` | Propositional steps checked; integration with the whole extraction loop and selected index set pending |
+| STAGE2 §6.4 (9): eventually all extracted seeds false | `decreasing_eventually_constant` | Numerical descent principle checked; (9) itself pending |
+| STAGE2 §6.5: derive converse from (9) | `converse_of_eventually_false_seeds` | Checked conditional statement; (9) is explicitly a hypothesis, not discharged |
+| STAGE2 §§6.5–8: full flat G(q), dual F(r), admitted grammar equality | `Admitted` | Grammar defined; full component/assembled parity language theorem pending |
+| STAGE2 §9.1: grouping and unchanged admission | No complete theorem | Pending |
+| STAGE2 §9.2: G/∧ and F/∨ distributions | `distribute_G_conj`, `distribute_F_disj`; existing `Tlsf.Rewrites.context_exact` | Semantic identities/congruence checked; C factoring traversal not verified |
+| STAGE2 §9.3: terminally decided products | `false_transition`, `true_transition` | Component terminal rows checked; full partial-product replacement theorem pending |
+| STAGE2 §9.4: current-AP care traversal | Frozen `U`, `stepSyntax` | Semantics defined; C care traversal's agreement theorem pending |
+| STAGE2 §9.5: fragment bounds with exact fallback | `fragment_bounds_exact` | Abstract Boolean decision lemma checked; bitset transfer and C memoization bridge pending |
+
+### C ↔ Lean correspondence
+
+These are semantic correspondences, not a C verification certificate. Line
+numbers refer to the merged worktree's formatted sources.
+
+| C implementation | Lean model / result |
+| --- | --- |
+| `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
+| `src/lib/dpa_formula.c:81`, `:117`, `:126`, `:156` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `tags_intersection`, `fragment_bounds_exact` |
+| `src/lib/dpa_formula.c:188`, `:504`, `:551` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted` describe the target grammar; admission-recursion equivalence pending |
+| `src/lib/dpa_formula.c:393`, `:523`, `:609` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `distribute_G_conj`, `distribute_F_disj`; full bridge pending |
+| `src/lib/dpa_formula.c:638`, `:850` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
+| `src/lib/dpa_formula.c:674`, `:735`, `:791` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `U_idempotent`, `U_holds`; care equivalence pending |
+| `src/lib/dpa_formula.c:638`, `:873`, `:900` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
+| `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable` |
+| `src/lib/dpa_dela.c:72`, `:292` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
+| `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
+| `src/lib/dpa_dela.c:198`, `:273` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
+| `src/lib/dpa_dela.c:170`, `:231`; `src/lib/dpa.c:366` — terminal substitution / absorbing products | terminal component rows proved; full product optimization pending |
+| `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
+| `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
+| `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority` |
+| `src/lib/dpa.c:244`; `src/lib/dpa_zielonka.c:231` — odd P and P−p | `exportBound`, `exportBound_odd`, `exportBound_large`, `parity_export`, `tree_export` |
+
+### Trusted gaps and evidence boundary
+
+- **BDD representation.** There is no verified refinement from OxiDD identities,
+  complemented edges, interning, cofactors, support walks, or Shannon DAGs to
+  the extensional Boolean functions used here. Allocation, host budgets,
+  cancellation and failure propagation are also outside these Lean results.
+- **Canonical NNF.** The existing core proves NNF semantic identities, but the
+  lazy-DPA transport, constant folding, modal-operand canonicalization and
+  canonical X placement are not connected to `NNFClass` by a C refinement.
+  In particular `Protected` inspects all syntactic X subformulas of its modal
+  atoms. The C walk materializes frozen operands and follows canonical support.
+  The correspondence must relate these after operand canonicalization; it
+  cannot identify arbitrary unnormalized frozen syntax blindly.
+- **Maximal-model builder.** The abstract upward-blocking completeness result
+  and a terminating exhaustive semantic reference tree builder are proved.
+  The C BDD/SAT query loop, model extraction, termination on successful bounded
+  execution, and lexicographic child order are not refined. The reference tree
+  uses its fixed Boolean-vector enumeration order; a C correspondence must
+  map child occurrences to C's sorted-list lexicographic order.
+- **Spot equivalence tests.** They provide implementation evidence only. They
+  are not hypotheses, external oracles or substitutes for any Lean theorem.
+  No C build or Spot tests were run for this formalization change.
+
+The uncompleted mathematical formalizations in the obligation map are
+**remaining work**, separate from these representation/implementation gaps.
+In particular no assumption about the general Π₂ converse is used to prove
+the completed results, and no full tree or admitted-grammar equality is
+claimed using a missing result as a premise.
+
+### Findings in the natural-language proofs
+
+No counterexample or invalid mathematical step has been established by this
+work. The missing recurrent-path proof and flat-clause extraction induction
+listed above are unfinished mechanization, not findings that those Markdown
+arguments are false. The canonical frozen-operand/support distinction in the
+trusted-gap list needs care in the C ↔ Lean bridge; no word-language
+counterexample is claimed for it.
+
+### Validation
+
+Run the project with `LEAN_NUM_THREADS=1 $HOME/.elan/bin/lake build` from
+`proofs/`. `TlsfProofs.lean` imports `Dpa.Converse`, whose dependency chain
+checks all six Dpa modules in the requested order. The existing Lake settings
+keep warnings as errors, one Lean worker thread, and asynchronous elaboration
+disabled. No meson build or C tests run alongside Lean.
+
+A successful build certifies the statements present in these files, including
+the explicit hypotheses of conditional lemmas. It does not discharge the
+pending entries in the obligation map.
+
+On 2026-10-31 the full `lake build` succeeded with zero warnings. A whole-word
+scan of Lean sources for prohibited proof placeholders/declarations and native
+decision shortcuts returned no matches. Dependency audits of the derivative,
+safety/co-safety/GF/FG languages, forward inclusion, accepting renewal seeds,
+product language, valid tree update and parity export contain only `propext`,
+`Classical.choice` and `Quot.sound`.
