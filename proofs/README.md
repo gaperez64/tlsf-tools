@@ -982,8 +982,29 @@ cached constructor on the complete canonical research domain;
 transport. The diagnostic checks cover both child orders with different
 store numbering, a shared nontrivial cofactor, equivalent cache-key syntax,
 cache reuse after growth and constants taking precedence over cache entries.
-The complete grouped syntax selector and its rest-before-groups store-call
-order remain separate; the earlier `groupedPlan` compiles groups first.
+`Impl/Grouping.lean` now supplies the grouped syntax selector and C's
+rest-before-groups store-call order. `partitionSyntax_exact` identifies the
+executable structural-bit partition with the abstract partition, retaining
+operand order and multiplicity. `selectSyntaxPlan_success` proves that the
+selected `OrderedPlan` is valid and has exactly the frozen input's language,
+on the exhaustive research leaf guard. Its executable structural size gives
+a sufficient recursion bound. `orderedGroups` tests the actual folded
+co-safety class against the identity, executes recursive rest operands first,
+and permits either argument order for the two canonical group calls.
+`runOrderedPlan_success` and `runSyntax_presentation` thread the same acceptance
+cache and component store throughout. Boolean acceptance folding is compared
+extensionally; raw BDD node identities remain a representation assumption.
+
+`runFactored_presentation` combines the original research-admission guard,
+the grouped leaf guard and original-class fallback into a concrete product
+presentation. Its **explicit hypotheses** are NNF of both original and
+factored syntax and language equality of the supplied factored syntax with
+the original. This theorem does not compute or verify C's `factor_term`.
+The grouped selection milestone therefore stops at decoded factored syntax;
+it does not close the complete input-to-constructor bridge. Checks cover
+both group argument orders, both Boolean operators, the review-i identity
+case, finite-before-safety partitioning, constant fast paths, fallback after
+an absorbed unsupported leaf, and unsupported declines.
 
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
@@ -993,12 +1014,12 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 122 dependency reports contain only the three permitted axioms; the nine
+All 141 dependency reports contain only the three permitted axioms; the ten
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (64 Lake jobs). The 116 executable/kernel checks pass. The proof
-source scan has no prohibited declarations or decision shortcuts. The source
+library and `dpaImplChecks` with warnings as errors (66 Lake jobs). All 127
+executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-163 references / 121 anchored C/Lean targets pass. Both documentation gates
+171 references / 129 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
@@ -1006,9 +1027,10 @@ declined formulas, with 512 memberships per admitted formula.
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
-Task T4 item 1's grouped syntax selection and store-call order remain open.
-Its items 2–4 remain open and item 5 is deliberately not enabled. The
-executable is a diagnostic, not a BFS automaton exporter; there is no matching
+Task T4 item 1's cache/order and grouped syntax selection are proved at
+the decoded factored-syntax boundary. The concrete factoring prerequisite
+still prevents claiming the entire input-to-constructor bridge. Its items
+2–4 remain open and item 5 is deliberately not enabled. The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
 unchanged at 2,986,929 bytes, including 541 DPA membership records; zero new
 automaton goldens were generated. Recorded corpus coverage remains 148/217
@@ -1017,29 +1039,31 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining constructor lemma is **selecting and executing the
-grouped syntax branch in C's rest-before-groups order**. The canonical
-fallback, including its acceptance cache, now gives a concrete shared-store
-presentation. `groupedPlan` and `assemble_grouped_presentation` still require
-an explicit partition and recursive plans and compile the two groups before
-the recursive rest. C's syntax traversal selects and executes rest operands
-first, then calls canonical acceptance on the two folded groups in either
-argument order. Language correctness of an arbitrary grouped plan cannot
-identify those colour indices or supply the syntax-selected recursive plans.
-The smart-constructor/transport and canonical-cache prerequisites are proved
-above, but do not justify reordering those calls. Cached NNF duals cannot be
-replaced by `Class.compl`, and an existential `admitted_grammar` witness does
-not identify the constructor trace.
+The smallest remaining constructor lemma is **the successful C-style
+`factor_term` traversal returns NNF frozen syntax with the original language**,
+then composing that traversal with `runFactored_presentation` and transport.
+The new grouped selector supplies the partition and recursive plans, and its
+cached executor supplies the actual rest-first colour allocation. It still
+takes the decoded factored syntax separately. The existing distribution
+lemmas prove individual G-over-conjunction and F-over-disjunction rewrites in
+arbitrary language contexts; they do not model the actual recursive traversal,
+its safety/co-safety early exits, smart constructors, newly exposed Boolean
+nodes and memo reuse. Moreover temporal distribution changes independent
+frozen atoms, so neither equality of canonical classes nor a replacement by
+`nnf_sat` proves this traversal. A sufficient structural termination argument
+must also cover recursive calls on newly constructed distributed syntax.
+Cached NNF duals cannot be replaced by `Class.compl`, and an existential
+`admitted_grammar` witness does not identify the constructor trace.
 
-Further independent bridges remain: default recursive canonical tag refinement; the complete grouped constructor and
-terminal product shortcut; C's lexicographically ordered tree/export; and
+Further independent bridges remain: default recursive canonical tag
+refinement; concrete factoring and the terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
 state split, component-store preservation and explicit-plan assembly are now
-proved above. The concrete constructor selector and syntax bridge remain
-necessary to identify its constructed positive acceptance with the transported
-input. The transport language theorem now connects that input to the original
-formula once the concrete selector is proved.
+proved above. The concrete factoring bridge and the separate Π₂-positive
+`buchi_syntax` selector remain necessary to identify the reduction's positive acceptance
+with the transported input. The generic parity-oriented grouped selector
+above does not assert positivity of its acceptance in Büchi mode.
 C code, production admission, and the remaining trusted
 boundary below remain unchanged.
 
@@ -1056,7 +1080,8 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
 | `src/lib/dpa_formula.c:254`, `:388`, `:394`, `:366` — smart constructors, pending-X transport, frozen materialization | `Impl.termBoolean_language`, `Impl.termUnary_language`, `Impl.wrapNext_language`, `Impl.transport_domain`, `Impl.transport_language`, `Impl.transport_nnf`, `Impl.transport_class_language`; numeric syntax-ID/memo refinement pending |
-| `src/lib/dpa_formula.c:524`, `:610` — factoring | `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; concrete selector pending |
+| `src/lib/dpa_formula.c:524`, `:610` — factoring and branch guard | `distribute_G_context`, `distribute_F_context`, `Impl.runFactored_presentation`; concrete `factor_term` traversal pending |
+| `src/lib/dpa_formula.c:563`, `:583`, `:597` — grouped syntax selection, identity test and rest-first execution | `Impl.partitionSyntax_exact`, `Impl.orderedGroups_valid`, `Impl.orderedGroups_language`, `Impl.selectSyntaxPlan_success`, `Impl.runOrderedPlan_success`, `Impl.runSyntax_presentation`; decoded factored input |
 | `src/lib/dpa_formula.c:664`, `:876` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
 | `src/lib/dpa_formula.c:700`, `:761`, `:817` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
 | `src/lib/dpa_formula.c:664`, `:891`/`:914`, `:938` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
@@ -1065,8 +1090,8 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:93` — executable interning, ordered lookup, oriented cache and stable indices | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_colours`, `Impl.internComponent_preserves_literal`, `Impl.internComponent_buchi_positive` |
 | `src/lib/dpa_dela.c:117` — executable uncached canonical plan selection and transport composition | `Impl.cofactor_eval`, `Impl.cofactor_nnf`, `Impl.cofactor_shannon`, `Impl.canonicalPlan_domain`, `Impl.canonicalPlan_spec`, `Impl.transported_canonical_source`, `Impl.admitted_canonical_presentation`; uncached reference |
-| `src/lib/dpa_dela.c:117` — acceptance cache, top-atom call and either Shannon argument order | `Impl.lookupAcceptance_spec`, `Impl.AcceptanceCache.Valid.extends`, `Impl.runCanonical_hit`, `Impl.runCanonical_refines`, `Impl.cached_uncached_language`, `Impl.runCanonical_presentation`, `Impl.transported_cached_presentation`; grouped syntax execution pending |
-| `src/lib/dpa_dela.c:117`; `src/lib/dpa_formula.c:583` — shared-store acceptance assembly from explicit valid plans | `Impl.assemble_spec`, `Impl.assemble_presentation`, `Impl.assemble_shannon_presentation`, `Impl.assemble_grouped_presentation`; complete selector/order refinement pending |
+| `src/lib/dpa_dela.c:117` — acceptance cache, top-atom call and either Shannon argument order | `Impl.lookupAcceptance_spec`, `Impl.AcceptanceCache.Valid.extends`, `Impl.runCanonical_hit`, `Impl.runCanonical_refines`, `Impl.cached_uncached_language`, `Impl.runCanonical_presentation`, `Impl.transported_cached_presentation`; canonical execution |
+| `src/lib/dpa_dela.c:117`; `src/lib/dpa_formula.c:583` — shared-store acceptance assembly from explicit valid plans | `Impl.assemble_spec`, `Impl.assemble_presentation`, `Impl.assemble_shannon_presentation`, `Impl.assemble_grouped_presentation`; uncached reference plans |
 | `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
 | `src/lib/dpa_dela.c:203`, `:272`, `:278`; `src/lib/dpa.c:300` — seen-colour residual, reset, incoming state split and initial bit | `Impl.seenColours_exact`, `Impl.roundRun_residual`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language` |
 | `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |

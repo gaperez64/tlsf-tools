@@ -5,6 +5,7 @@ import TlsfProofs.Dpa.Impl.Assembly
 import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
 import TlsfProofs.Dpa.Impl.Cache
+import TlsfProofs.Dpa.Impl.Grouping
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -299,6 +300,47 @@ private def cacheChecks : List (String × Bool × Bool) := [
     ((runCanonical (fun _ => true) false [] (.disj a (.neg a))
       ⟨[], [⟨.tt, .constant false⟩]⟩ |>.map CachedAssembly.acceptance) = some (.constant true)), true)]
 
+private def groupFormula : Formula (Fin 2) :=
+  .conj (.globally b) (.conj (.eventually b) (.conj a (.conj gf fg)))
+
+private def groupIdentity : Formula (Fin 2) :=
+  .conj (.globally b)
+    (.conj (.disj (.eventually b) (.disj a (.neg a))) (.conj a (.conj gf fg)))
+
+private def groupedRun (safetyFirst : Bool) (f : Formula (Fin 2)) : Option (CachedAssembly 2) :=
+  runFactored cacheRank (fun _ => true) (fun _ => safetyFirst) false f f emptyAcceptance
+
+private def groupCallIds (r : Option (CachedAssembly 2)) : List Nat :=
+  ((r.map CachedAssembly.calls).getD []).map fun f =>
+    if equivalent f gf then 0 else if equivalent f fg then 1
+    else if equivalent f (.globally b) then 2
+    else if equivalent f (.conj (.eventually b) a) then 3
+    else if equivalent f (.conj (.globally b) a) then 4 else 5
+
+private def groupingChecks : List (String × Bool × Bool) := [
+  ("grouping-structural-partition", decide
+    (let p := partitionSyntax [a, .globally b, .eventually b, gf, fg]
+     p.S = [.globally b] ∧ p.C = [.eventually b] ∧ p.B = [a] ∧ p.T = [gf, fg]), true),
+  ("grouping-selected-plan-success", (selectSyntaxPlan (fun _ => true)
+    (syntaxSize groupFormula + 1) groupFormula).isSome, true),
+  ("grouping-run-success", (groupedRun true groupFormula).isSome, true),
+  ("grouping-rest-before-safety-cosafety", decide
+    (groupCallIds (groupedRun true groupFormula) = [0, 1, 2, 3]), true),
+  ("grouping-rest-before-cosafety-safety", decide
+    (groupCallIds (groupedRun false groupFormula) = [0, 1, 3, 2]), true),
+  ("grouping-review-i-identity", decide
+    (groupCallIds (groupedRun true groupIdentity) = [0, 1, 4]), true),
+  ("grouping-review-i-either-order", decide
+    (groupCallIds (groupedRun false groupIdentity) = [0, 1, 4]), true),
+  ("grouping-disjunction", (groupedRun false
+    (.disj (.globally b) (.disj (.eventually b) (.disj a (.disj gf fg))))).isSome, true),
+  ("grouping-constant-fast-path", decide
+    ((groupedRun true (.conj .ff groupFormula)).map CachedAssembly.calls = some []), true),
+  ("grouping-research-original-fallback", decide
+    ((groupedRun true (.disj a (.conj a absorbedFrozen))).map
+      (fun r => r.state.store.length) = some 1), true),
+  ("grouping-unsupported-decline", (groupedRun true absorbedFrozen).isSome, false)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -327,11 +369,14 @@ theorem selection_checks : selectionChecks.all (fun (_, actual, expected) => act
 theorem cache_checks : cacheChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem grouping_checks : groupingChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1
