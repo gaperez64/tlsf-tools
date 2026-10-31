@@ -621,12 +621,19 @@ admission has the support-union domain and Shannon recursion; the grouping
 test uses the folded class's equality with the Boolean identity.
 
 The executable checks include the review-k/l protected remainders and
-review-i's identity group, and the Büchi round/state split: 49 checks pass both by kernel reduction and in
+review-i's identity group, Büchi round/state split, and store/cache branches:
+60 checks pass both by kernel reduction and in
 `lake exe dpaImplChecks`. The offline dependency audit is
 `tools/golden/dpa_impl_audit.lean`; its dependencies are restricted to
 `propext`, `Classical.choice`, and `Quot.sound`.
 
-This does not yet provide the complete constructor/store invariant, the C
+`Impl/Store.lean` also proves the executable component-store invariant:
+insertion-order equal-class and cached-dual hits, fresh Π₂/Σ₂ orientation,
+and preservation of existing indices, complete streams, and literals. The
+stored coordinates agree with the abstract fixed product. Büchi Π₂ calls
+return positive literals and do not share cached duals.
+
+This does not yet provide the recursive acceptance assembly, the C
 transport and recursive default-tag refinements, a C-ordered tree/export, or
 the C↔Lean BFS goldens. Task T2 proves the state-based positive-Boolean Büchi
 round encoding in `Impl/Buchi.lean`: the executable Shannon residual/reset
@@ -634,9 +641,9 @@ monitor has infinitely many completed rounds iff its positive acceptance
 holds on recurrent colours. The incoming-mark state split, one-step delay,
 initial mark, and C's 0/1 max-odd priorities preserve that language, including
 constant acceptance. This proof does not require colours of a conjunction
-to occur simultaneously. The component-store and syntax constructor bridges
+to occur simultaneously. The acceptance assembly and syntax constructor bridges
 remain separate obligations. General admission stays
-research-only. The precise first remaining component-store lemma and why the
-fresh-component theorem does not imply it are recorded in `proofs/README.md`.
+research-only. The precise first remaining acceptance assembly lemma and why
+component language alone does not imply it are recorded in `proofs/README.md`.
 
 VERDICT: done (targeted Stage 2 grammar); Task T enablement remains open

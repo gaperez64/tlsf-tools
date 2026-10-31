@@ -500,6 +500,7 @@ are identified explicitly; they are not premises of the language equalities.
 | Task T: Π₂/Σ₂ orientation and numeric parity | `Impl.pi2_language`, `Impl.sigma2_language`, `Impl.dual_class_congr`, `Impl.class_sigma2_dual_pi2`, `Impl.research_component_language` | Checked for NNF whole classes accepted by research admission, including arbitrary canonical support; complete constructor/export theorem pending |
 | Task T: canonical research domain and grouping branch | `Impl.canonicalResearchCheck_exact`, `Impl.canonicalResearchCheck_shannon`, `Impl.compatibleGroups_exact` | Executable support-union predicate and folded-class identity branch checked; constructor success/product simulation pending |
 | Task T2: positive-Boolean Büchi rounds and incoming state split | `Impl.seenColours_exact`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language`, `Impl.positive_buchi_language` | Checked executable Shannon residual/reset monitor, including constant acceptance and source-state 0/1 max-odd priorities; component-store/constructor bridge remains separate |
+| Task T2: component store, cache hits and permanent colours | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_literal`, `Impl.store_productColours` | Checked executable insertion-order lookup, equal-class and cached-dual sharing, fresh orientation, and preservation of all existing complete streams and literals |
 | STAGE2 §1: intended Π₂ and flat families | `Pi2`, `FlatQ`, `FlatR` | Checked grammar definitions |
 | STAGE2 §3 (1): weakening, co-safety, unfoldedness | `rho_weakens`, `rho_cosafety`, `rho_unfolded`, `rho_nnfClass` | Checked; weakening assumes NNF |
 | STAGE2 §3 (2): all/rejecting invariant | `ComponentInvariant`, `initial_invariant`, `transition_invariant`, `run_invariant`, `run_remainder` | Checked for arbitrary NNF inputs, without a Π₂ converse hypothesis |
@@ -762,7 +763,7 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake exe dpaImplChecks
 ```
 
-The 49 checks exercise absorption, constants, essential and absent support,
+The 60 checks exercise absorption, constants, essential and absent support,
 frozen operands, independent duals, both U/M protector operands, nested X,
 protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
 and nonconstant finite retention at renewal. They also cover canonical dual
@@ -770,8 +771,13 @@ congruence, Σ₂ orientation with absorbed unsupported syntax, mixed Π₂/Σ�
 canonical admission and review-i's nonempty co-safety identity case. Ten
 additional Büchi checks cover alternating conjuncts/disjuncts, a missing
 conjunct, constant true/false (including zero colours), the initial bit,
-the incoming-mark delay, source priorities, and the state split.
-`class_checks`, `component_checks`, `dual_admission_checks` and `buchi_checks` check these same
+the incoming-mark delay, source priorities, and the state split. Eleven store
+checks cover fresh Π₂/Σ₂ orientation, absorbed equal-class hits, cached-dual
+hits, repeated Σ₂ insertion, append indices, preservation of old entries,
+weak-dual sharing in parity mode, its separation in Büchi mode, and lookup
+order when an earlier cached-dual hit precedes a later equal-class hit.
+`class_checks`, `component_checks`, `dual_admission_checks`, `buchi_checks` and
+`store_checks` check these same
 executable definitions by kernel reduction.
 
 `Impl/Tags.lean` proves all five executable structural classifiers exact,
@@ -851,7 +857,26 @@ bit preserve Inf. `incomingMarks_language`, `buchiPriority_language` and
 languages. Constant true/false and an empty colour alphabet are included.
 No counterexample, C change, narrowing, or coverage impact was needed.
 This closes the round-monitor obligation, independently of the still-open
-store, syntax transport, and constructor correspondence.
+syntax transport and constructor correspondence.
+
+`Impl/Store.lean` now models the component loop at `src/lib/dpa_dela.c:93`.
+`StoreValid` requires NNF Π₂-oriented stored formulas and a cached temporal
+dual related in the direction in which the pair was constructed. It does
+not require a temporal dual to be Boolean complementation, or syntactic
+double-dual identity before constant normalization. `lookupComponent_represents`
+checks the exact insertion-order equal-class / cached-dual tests.
+`internComponent_valid`, `internComponent_represents` and
+`internComponent_language` prove invariant preservation and exact literal
+language after either cache hit or fresh Π₂/Σ₂ insertion. The result's index
+is in bounds. `internComponent_preserves_index`,
+`internComponent_preserves_colours` and `internComponent_preserves_literal`
+preserve every previous coordinate, its entire complete stream, and its
+oriented recurrent truth. `internComponent_buchi_positive` proves that
+Büchi mode's Π₂ insertions return positive literals, including cache hits.
+`store_productColours` identifies these permanent coordinates with the
+abstract fixed product; `storeTruth_componentTruth` identifies their truth
+vectors in a valid store. The executable selection of the full constructor
+and assembly of its acceptance are still separate obligations.
 
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
@@ -861,12 +886,12 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 49 dependency reports contain only the three permitted axioms; the four
+All 67 dependency reports contain only the three permitted axioms; the five
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (52 Lake jobs). The proof
+library and `dpaImplChecks` with warnings as errors (54 Lake jobs). The proof
 source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-139 references / 97 anchored C/Lean targets pass. Both documentation gates
+142 references / 100 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
@@ -882,28 +907,26 @@ that corpus inventory. No new language counterexample or narrowing of C was
 found. The frozen-operand absorption example was already declined in research
 mode by the earlier review-l alignment.
 
-The smallest remaining constructor lemma is **preservation of the component
-store when a component is interned or shared**. Given a store in which every
-colour already denotes its complete oriented run, interning an admitted NNF
-class f must return a literal whose recurrent truth is `Holds w 0 f`, preserve
-the truth of all existing literals, and preserve their coordinate indices.
-The fresh-component language is proved above. The equal-class and cached
-dual branches still need an executable store invariant and simulation of the
-actual lookup/update, before the Shannon and grouped acceptance recursions
-can be assembled into `ProductPresentation`. This is not supplied by the
-existential `admitted_grammar` theorem or by a fresh-component theorem alone.
-Treating a cached NNF dual as `Class.compl` is false: modal atoms and their
-NNF duals are independent Boolean variables. `dual_class_congr` proves the
-correct substitution law, but does not prove the cache/index invariant or
-model the C term constructor's constant folding and X placement.
+The smallest remaining constructor lemma is **assembly of the shared-store
+Shannon and grouped acceptance into `ProductPresentation`**. Each recursive
+constructor call must extend its input store, preserve the bound and truth
+of every previously returned acceptance literal, and combine its returned
+acceptance with the source formula's Boolean/cofactor language. The store
+lemma above now supplies each component step and stable complete coordinates,
+but not this recursive acceptance invariant. Neither the existential
+`admitted_grammar` theorem nor fresh-component language can identify the
+actual returned acceptance. Cached NNF duals cannot be treated as
+`Class.compl`: their modal atoms remain independent Boolean variables.
+The explicit temporal-dual cache invariant avoids that shortcut, but does
+not model the C term constructor's constant folding and X placement.
 
 Further independent bridges remain: C transport/smart constructors; default
 recursive canonical tag refinement; the complete grouped constructor and
 terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation and incoming-mark
-state split are now proved above. The component-store and syntax constructor
-bridges remain necessary to connect its constructed positive acceptance to
+state split and component-store preservation are now proved above. The
+acceptance assembly and syntax constructor bridges remain necessary to connect its constructed positive acceptance to
 the source formula. C code, production admission, and the remaining trusted
 boundary below remain unchanged.
 
@@ -926,6 +949,7 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable` |
 | `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
+| `src/lib/dpa_dela.c:93` — executable interning, ordered lookup, oriented cache and stable indices | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_colours`, `Impl.internComponent_preserves_literal`, `Impl.internComponent_buchi_positive` |
 | `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
 | `src/lib/dpa_dela.c:203`, `:272`, `:278`; `src/lib/dpa.c:300` — seen-colour residual, reset, incoming state split and initial bit | `Impl.seenColours_exact`, `Impl.roundRun_residual`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language` |
 | `src/lib/dpa_dela.c:170`, `:257`; `src/lib/dpa.c:536` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |

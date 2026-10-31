@@ -1,5 +1,6 @@
 import TlsfProofs.Dpa.Impl.Admission
 import TlsfProofs.Dpa.Impl.Buchi
+import TlsfProofs.Dpa.Impl.Store
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -111,6 +112,36 @@ private def buchiChecks : List (String × Bool × Bool) := [
      (roundTransition eitherColour ⟨eitherColour, true⟩ (alternating 0)).priority ≠
        (roundTransition eitherColour ⟨eitherColour, false⟩ (alternating 0)).priority), true)]
 
+private def storedGF : ComponentStore 2 :=
+  (internComponent false [] (.globally (.eventually a))).1
+
+private def storedAP : ComponentStore 2 := (internComponent false [] a).1
+
+private def storeChecks : List (String × Bool × Bool) := [
+  ("store-fresh-pi2", decide ((internComponent false [] (.globally (.eventually a))).2 =
+    ⟨0, false⟩), true),
+  ("store-fresh-sigma2", decide ((internComponent false [] (.eventually (.globally a))).2 =
+    ⟨0, true⟩), true),
+  ("store-sigma2-oriented-run", decide
+    ((freshComponent (.eventually (.globally a))).formula = dual (.eventually (.globally a))), true),
+  ("store-equal-class-hit", decide
+    ((internComponent false storedGF (.disj (.globally (.eventually a))
+      (.conj (.globally (.eventually a)) (.next b)))).1.length = 1), true),
+  ("store-cached-dual-hit", decide
+    ((internComponent false storedGF (dual (.globally (.eventually a)))).2 = ⟨0, true⟩), true),
+  ("store-repeat-sigma2", decide
+    ((internComponent false (internComponent false [] (.eventually (.globally a))).1
+      (.eventually (.globally a))).2 = ⟨0, true⟩), true),
+  ("store-append-index", decide ((internComponent false storedAP b).2 = ⟨1, false⟩), true),
+  ("store-preserve-existing-entry", decide ((internComponent false storedAP b).1[0]? = storedAP[0]?), true),
+  ("store-parity-shares-weak-dual", decide
+    ((internComponent false storedAP (.neg a)).2 = ⟨0, true⟩), true),
+  ("store-Buchi-separates-weak-dual", decide
+    ((internComponent true storedAP (.neg a)).2 = ⟨1, false⟩), true),
+  ("store-ordered-lookup", decide
+    ((internComponent false (internComponent true storedAP (.neg a)).1 (.neg a)).2 =
+      ⟨0, true⟩), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -124,11 +155,14 @@ theorem dual_admission_checks : dualAndAdmissionChecks.all (fun (_, actual, expe
 theorem buchi_checks : buchiChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
 
+theorem store_checks : storeChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1
