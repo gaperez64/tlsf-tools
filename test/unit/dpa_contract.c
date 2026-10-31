@@ -387,7 +387,11 @@ int main(void) {
                                     node_f(a, node_or(a, p, q))));
   sweeps(bundle, false);
   sweeps(node_not(a, bundle), false);
-  sweeps(node_x(a, node_g(a, node_or(a, p, node_and(a, p, sigma)))), true);
+  sweeps(node_x(a, node_g(a, node_or(a, p, node_and(a, p, sigma)))), false);
+  // Research protection interns syntactic X atoms even when operand support
+  // would absorb them. Cover failures while collecting those hidden atoms.
+  Node *hidden = node_or(a, p, node_and(a, p, node_x(a, node_f(a, q))));
+  sweeps(node_g(a, node_f(a, hidden)), true);
   symbolic(a);
   canonical(a, p, q);
   bounds(a, p, q);

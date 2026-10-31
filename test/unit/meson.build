@@ -11,6 +11,8 @@ dpa_contract = executable('dpa_contract', 'dpa_contract.c',
   dependencies: tlsf_internal_dep)
 test('dpa_contract', dpa_contract, timeout: 120)
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
+test('dpa_equivalence_research', dpa_equivalence,
+  args: ['--allow-unproved'], timeout: 120)
 test('dpa_limits', dpa_equivalence,
   args: [files('dpa_limits.ltl'), '--allow-unproved', '--expect-bdd-limit'],
   timeout: 120)
@@ -21,6 +23,8 @@ randltl = find_program('randltl', required: false)
 if randltl.found()
   test('dpa_random', python3, args: [files('dpa_random.py'),
     dpa_equivalence, randltl], timeout: 120)
+  test('dpa_random_research', python3, args: [files('dpa_random.py'),
+    dpa_equivalence, randltl, '--allow-unproved'], timeout: 120)
 endif
 
 dpa_admission = executable('dpa_admission', 'dpa_admission.c',

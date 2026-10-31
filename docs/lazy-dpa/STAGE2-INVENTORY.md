@@ -2,6 +2,12 @@
 
 The API admits **45/69 objectives by default** and **69/69 with `allow_unproved`**. This runs `dpa_admission` on the inventory TLSF sources through the existing conversion API, without successor expansion. All 24 default declines return `TLSF_DPA_UNSUPPORTED`.
 
+The default admission predicate is unchanged by `ea89484`'s syntactic X
+protection, but default automata and budget outcomes can differ. The
+[extractor audit](DEFAULT-PROTECTION.md) explains why the default Lean theorems
+use that syntactic protection too and records the paired default-suite checks.
+Those checks are separate from this historical admission-only inventory.
+
 The stored Owl component-tree catalogue below counts 46/69. The difference is `amba_case_study_unreal_pb_3_pe_.ltl`: the converted AST retains one `G(s ∧ q)` whose safety conjunct contains W, whereas the stored trees distribute G over its conjunction. The API performs NNF and Boolean X distribution only, as specified in STAGE2-PROOF §8; it declines that combined G component. This is a syntax/transport difference, not a language disagreement.
 
 Raw per-objective results were kept with the sprint's working files, not in this repository. The following table lists every default decline; `b` denotes a finite window.

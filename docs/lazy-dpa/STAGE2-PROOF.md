@@ -39,7 +39,10 @@ suspension. It never denotes a resource failure. The extractor is exactly Stage 
 supported X atoms absent from the X-subformula sets of the current supported
 non-X modal atoms; unfold; retry on `U(x)` if the result is finite and `x≠U(x)`.
 Protection is recomputed after each removal. The surviving non-X protectors are
-F/U/M, and their entire X subformula sets are protected, including nested X tails.
+F/U/M, and their entire syntactic X subformula sets are protected, including
+nested X tails and Xs in operands that would absorb if materialized. This
+extractor is also used by the default-fragment Lean theorems; see the
+[default-effect audit](DEFAULT-PROTECTION.md).
 
 For canonical input class `x`, initialize `(U(x),false)` if `U(x)` is safety or
 co-safety, otherwise `(U(x),ρ(x))`. Constants use `(false,false)` and `(true,false)`.
@@ -452,8 +455,11 @@ partial row. The claims below concern successful construction.
 At an outer ∧ or ∨, flatten only siblings with that same operator ⋄.
 Partition the operands with sound syntax tags into safety S, co-safety C,
 finite B, and remaining operands T. Finite operands are collected separately
-because they belong to both grammars. If C is nonempty, join B to C;
-otherwise join B to S. Use ⋄'s identity for an empty group. Each grouped
+because they belong to both grammars. Fold C to its canonical Boolean class c,
+using ⋄'s identity e (true for ∧, false for ∨) for an empty group. If c ≠ e,
+join B to C; otherwise join B to S. This is a class comparison, not a test
+that C's operand list is nonempty: a nonempty C can fold to e by Boolean
+absorption or a tautology/contradiction. Each grouped
 operand has exactly the conjunction/disjunction of its former siblings as
 its language: associativity, commutativity, and the identity law prove the
 formula equality. Both `s` and `c` are closed under both Boolean operators,
