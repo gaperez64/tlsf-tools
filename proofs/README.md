@@ -382,18 +382,20 @@ timeout 1500 lake build
 
 ## Issues #80 / #83: lazy-DPA formalization
 
-The six modules under `TlsfProofs/Dpa/` use namespace `Tlsf.Dpa` and infinite
+The seven modules under `TlsfProofs/Dpa/` use namespace `Tlsf.Dpa` and infinite
 words only (`Sat none`). They formalize the conservative DESIGN §1 variant:
 no support resets, no external suspension, a complete fixed product, and an
 ordinary one-sibling global-tree update. The required reference merge is
 `aa9327a`; STAGE2 was already merged at `9702e09`.
 
-**This formalization is incomplete.** In particular, it does not yet prove
-STAGE2 §5's full Emerson–Lei/parity equivalence or §6.4's eventual-false-seed
-lemma for arbitrary flat `G(q)`. Consequently there is no §8 language theorem
-for the whole Stage2 grammar. The existing Markdown verdicts are not changed
-or treated as machine-checked conclusions. None of these missing results is
-introduced as a logical assumption in a claimed complete construction theorem.
+**The requested semantic proof chain is complete for the §8 admitted grammar.**
+`tree_minEven` and `tree_maxOdd` prove the global recurrent-run theorem for
+all colour streams. `flat_eventually_false_seeds`, `flat_global_language` and
+`flat_eventual_language` discharge §6. `admitted_grammar` assembles the exact
+component/product/parity language theorem. `Refinements.lean` proves §9's
+semantic refinements and reference decision algorithms. The intended general
+Π₂/Σ₂ grammar of §1 remains outside this result: `GeneralPi2Converse` is
+still a documented proposition only, and is not a hypothesis of these results.
 
 The checked semantic class model is a Boolean function with a finite formula
 representative. `class_finite_atoms` supplies a finite atom set on which each
@@ -415,8 +417,9 @@ argument; it does not claim the full two-case extractor equation (3).
 
 ### Obligation map
 
-All names below are in `Tlsf.Dpa`. “Pending” is uncompleted formalization,
-not a theorem or an identified mathematical counterexample.
+All names below are in `Tlsf.Dpa`. The requested stages were built in order:
+§5, §§6.1–6.5, §8, then §9. Remaining C bridges and ancillary obligations
+are identified explicitly; they are not premises of the language equalities.
 
 | Markdown section / claim | Lean definition or theorem | Status / scope |
 | --- | --- | --- |
@@ -451,20 +454,21 @@ not a theorem or an identified mathematical counterexample.
 | STAGE2 §5: all maximal opposite children, finite tree / depth | `MaximalOpposite`, `maximal_opposite_extension`, `ZTree`, `buildTree`, `child_cover`, `ZTree.path_length_le` | Checked reference builder, including empty colour universe |
 | STAGE2 §5: generic maximal-model SAT builder | `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete` | Abstract soundness/completeness checked; C query/loop refinement remains trusted |
 | STAGE2 §5: ordinary one-sibling update | `ZTree.step`, `ZTree.advance`, `ZTree.step_valid`, `ZTree.advance_valid`, `treeRun_valid`, `treePriority_le` | Checked operation, valid paths and priority bound |
-| STAGE2 §5: least recurrent anchor, stable prefix and sibling cycling | No complete theorem | Pending |
-| STAGE2 §5: recurrent-set acceptance | `covered_recurrent_acceptance` | Static final step checked; the run argument establishing its hypotheses is pending |
-| STAGE2 §5: max-odd export P−p | `exportBound_odd`, `exportBound_large`, `parity_export`, `exported_positive`, `tree_export` | Checked; does not assert the missing EL/tree equality |
-| STAGE2 §6.1: choose a false clause without CNF rewriting | `failed_clause` | Checked for `FlatQ` |
-| STAGE2 §6.2: flush old false finite candidates | `flush_false_window` | Individual-window flush checked; full residual/support constraint induction pending |
-| STAGE2 §6.3 (8): protect a constraint / lose a protector | `elision_preserves_constraint`, `losing_protector`, `falseCofactor` | Propositional steps checked; integration with the whole extraction loop and selected index set pending |
-| STAGE2 §6.4 (9): eventually all extracted seeds false | `decreasing_eventually_constant` | Numerical descent principle checked; (9) itself pending |
-| STAGE2 §6.5: derive converse from (9) | `converse_of_eventually_false_seeds` | Checked conditional statement; (9) is explicitly a hypothesis, not discharged |
-| STAGE2 §§6.5–8: full flat G(q), dual F(r), admitted grammar equality | `Admitted` | Grammar defined; full component/assembled parity language theorem pending |
-| STAGE2 §9.1: grouping and unchanged admission | No complete theorem | Pending |
-| STAGE2 §9.2: G/∧ and F/∨ distributions | `distribute_G_conj`, `distribute_F_disj`; existing `Tlsf.Rewrites.context_exact` | Semantic identities/congruence checked; C factoring traversal not verified |
-| STAGE2 §9.3: terminally decided products | `false_transition`, `true_transition` | Component terminal rows checked; full partial-product replacement theorem pending |
-| STAGE2 §9.4: current-AP care traversal | Frozen `U`, `stepSyntax` | Semantics defined; C care traversal's agreement theorem pending |
-| STAGE2 §9.5: fragment bounds with exact fallback | `fragment_bounds_exact` | Abstract Boolean decision lemma checked; bitset transfer and C memoization bridge pending |
+| STAGE2 §5: least recurrent anchor, stable prefix and sibling cycling | `Often`, `rotation_visits`, `ZTree.node_motion`, `ZTree.recurrent_run` | Checked by tree induction: infinitely many root rotations, or a stable child suffix |
+| STAGE2 §5: recurrent-set acceptance | `recurrent_eventually_subset`, `recurrent_shift`, `ZTree.recurrent_run`, `tree_minEven` | Checked: min-even iff α(S), for every colour stream, including m=0, empty marks and constant α |
+| STAGE2 §5: max-odd export P−p | `parity_export`, `tree_export`, `tree_maxOdd` | Checked: max-odd iff α(S); every ordinary exported priority is positive |
+| STAGE2 §6.1: failed clause, raw constraint (6), exact progression (7) | `failed_clause`, `failed_flat_clause`, `global_all_implies`, `U_rawAll`, `BadFlatConstraint`, `initial_badFlat`, `flat_residual_step`, `badFlat_step` | Checked for the actual raw all-field and exactly retained finite residual |
+| STAGE2 §6.2: flush old false finite candidates | `flush_false_window`, `flatCandidates_split`, `flatCandidates_bound`, `badFlat_flush` | Checked: old candidates become Boolean false; remaining supported X tails belong to selected bodies |
+| STAGE2 §6.3 (8): protect a constraint / lose a protector | `badFlat_remove`, `removeBody_shorter`, `minimal_protectors`, `flat_constraint_protected`, `minimal_extractPass_constraint` | Checked throughout every intermediate removal pass; a lost H strictly reduces the proof constraint |
+| STAGE2 §6.4 (9): eventually all extracted seeds false | `neverBot_finite_obligation`, `flat_eventually_false_seeds` | Checked: violating G(q) and never-false A imply an eventually false ρ(raw); finite first-pass results are excluded, disabling retry |
+| STAGE2 §6.5: full G(q) converse | `flat_global_language` | Checked: Inf(marks G(q)) iff satisfaction of G(q); no false-seed premise remains |
+| STAGE2 §6.5: dual F(r) | `flatR_dual`, `flat_eventual_language` | Checked: Fin(marks G(bar(r))) iff satisfaction of F(r), on the identical complete run |
+| STAGE2 §8: assembled admitted grammar | `ProductPresentation`, `admitted_product`, `presentation_parity`, `admitted_grammar` | Checked: a fixed finite component product and covered global tree recognize every admitted formula in both parity orientations |
+| STAGE2 §9.1: grouping and unchanged admission | `booleanFold_sat`, `compatibleGroups_sat`, `compatibleGroups_admitted`, `compatibleGroups_parity`, `check_admission_exact`, `groupable_all_leaves`, `factoring_admission_exact` | Checked semantic grouping, grammar closure, both parity languages, original decision domain and fallback; imperative DAG/memo/status bridge trusted |
+| STAGE2 §9.2: G/∧ and F/∨ distributions | `distribute_G_conj`, `distribute_F_disj`, `distribute_G_context`, `distribute_F_context` | Checked for every infinite word and arbitrary syntax context, including under frozen modalities; C traversal bridge trusted |
+| STAGE2 §9.3: terminally decided products | `terminal_all_marks`, `terminal_recurrent_colour`, `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` | Checked constant substitution in fixed β, complemented occurrences, absorbing priorities P/P−1 and arbitrary entering/finite-prefix priorities |
+| STAGE2 §9.4: current-AP care traversal | `restrictCurrent`, `unfoldCare`, `unfolding_care_exact`, `unfolding_syntax_care_exact`, `unfolding_care_root`, `care_finite_return`, `care_frozen_next`, `care_shannon`, `care_modal_shannon` | Checked syntax/class reference care, current AP branch recombination and frozen X; imperative DAG order/memo-key bridge trusted |
+| STAGE2 §9.5: fragment bounds with exact fallback | `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounds_intersection`, `bounded_tag_test_exact`, `support_pruning_tag`, `cached_lower_refinement`, `exact_tests_preserve_order` | Checked structural syntax bounds, actual support/cofactor intersection, arbitrary masks, stable lower caches, exact fallback and safety-first order; C bitset/cache bridge trusted |
 
 ### C ↔ Lean correspondence
 
@@ -474,21 +478,21 @@ numbers refer to the merged worktree's formatted sources.
 | C implementation | Lean model / result |
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
-| `src/lib/dpa_formula.c:81`, `:117`, `:126`, `:156` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `tags_intersection`, `fragment_bounds_exact` |
-| `src/lib/dpa_formula.c:188`, `:504`, `:551` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted` describe the target grammar; admission-recursion equivalence pending |
-| `src/lib/dpa_formula.c:393`, `:523`, `:609` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `distribute_G_conj`, `distribute_F_disj`; full bridge pending |
+| `src/lib/dpa_formula.c:81`, `:117`, `:126`, `:156` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
+| `src/lib/dpa_formula.c:188`, `:504`, `:551` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `groupable_all_leaves`, `factoring_admission_exact` |
+| `src/lib/dpa_formula.c:393`, `:523`, `:609` — NNF/X transport and factoring | existing `Tlsf.Rewrites.nnf_sat`; `compatibleGroups_parity`, `distribute_G_context`, `distribute_F_context`; C traversal bridge trusted |
 | `src/lib/dpa_formula.c:638`, `:850` — frozen STEP / current AP decision DAG | `stepSyntax`, `D`, `derivative` |
-| `src/lib/dpa_formula.c:674`, `:735`, `:791` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `U_idempotent`, `U_holds`; care equivalence pending |
+| `src/lib/dpa_formula.c:674`, `:735`, `:791` — frozen unfolding / current-AP care | `unfoldSyntax`, `U`, `unfolding_care_exact`, `unfolding_care_root`, `care_shannon`, `care_modal_shannon` |
 | `src/lib/dpa_formula.c:638`, `:873`, `:900` — REDUCE, protected X walk, repeated DROP_X and retry | `reduce`, `Protected`, `dropX`, `elide`, `rho`, `elide_stable`, `rho_retry_stops` |
 | `src/lib/dpa_dela.c:5` — ordered table | `transition`, `transition_invariant`, `no_false_renewal`, `resume_unreachable` |
 | `src/lib/dpa_dela.c:72`, `:292` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:198`, `:273` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
-| `src/lib/dpa_dela.c:170`, `:231`; `src/lib/dpa.c:366` — terminal substitution / absorbing products | terminal component rows proved; full product optimization pending |
+| `src/lib/dpa_dela.c:170`, `:231`; `src/lib/dpa.c:366` — terminal substitution / absorbing products | `terminal_product_decided`, `absorbing_maxOdd`, `terminal_absorption` |
 | `src/lib/dpa_zielonka.c:27`, `:39`, `:66` — models, upward blockers, maximal-child enumeration | `MaximalOpposite`, `unblocked_upward`, `maximal_under_blocks`, `maximal_builder_complete`, `buildTree` |
 | `src/lib/dpa_zielonka.c:48`, `:153`, `:177`, `:187` — child ordering / paths / leftmost | `ZTree`, `ZTree.leftmost`, `ZTree.ValidPath`; C ordering/path-ID refinement pending |
-| `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority` |
-| `src/lib/dpa.c:244`; `src/lib/dpa_zielonka.c:231` — odd P and P−p | `exportBound`, `exportBound_odd`, `exportBound_large`, `parity_export`, `tree_export` |
+| `src/lib/dpa_zielonka.c:198` — deepest containing anchor, one sibling, leftmost descent | `ZTree.step`, `ZTree.step_valid`, `treeRun`, `treePriority`, `ZTree.recurrent_run`, `tree_minEven` |
+| `src/lib/dpa.c:244`; `src/lib/dpa_zielonka.c:231` — odd P and P−p | `exportBound`, `exportBound_odd`, `exportBound_large`, `parity_export`, `tree_maxOdd` |
 
 ### Trusted gaps and evidence boundary
 
@@ -513,36 +517,64 @@ numbers refer to the merged worktree's formatted sources.
   are not hypotheses, external oracles or substitutes for any Lean theorem.
   No C build or Spot tests were run for this formalization change.
 
-The uncompleted mathematical formalizations in the obligation map are
-**remaining work**, separate from these representation/implementation gaps.
-In particular no assumption about the general Π₂ converse is used to prove
-the completed results, and no full tree or admitted-grammar equality is
-claimed using a missing result as a premise.
+- **Refinement algorithms.** §9 is proved for semantic reference algorithms:
+  the canonical admission decision tree, exhaustive Boolean syntax leaf guard,
+  grouped formula folds, terminal truth substitution, current-AP restriction
+  and tag bounds. Identifying these with the C shared DAGs, owned IDs, AP order,
+  memo epochs/cubes, cancellation, budgets and failure statuses remains a C
+  refinement obligation. Resource failures are excluded from the admission
+  success equivalence, as in the Markdown.
+
+Ancillary obligations retained from the earlier audit are the fixed-input
+finite reachable-class closure theorem, the literal STAGE1 GF extractor
+case-split equality, and identification of the one-set priority table with
+the built one-colour tree path. The language theorems use the proved finite
+support, sufficient GF seed bound and full global tree theorem, respectively;
+none of those ancillary statements is used as an unproved premise.
 
 ### Findings in the natural-language proofs
 
-No counterexample or invalid mathematical step has been established by this
-work. The missing recurrent-path proof and flat-clause extraction induction
-listed above are unfinished mechanization, not findings that those Markdown
-arguments are false. The canonical frozen-operand/support distinction in the
-trusted-gap list needs care in the C ↔ Lean bridge; no word-language
-counterexample is claimed for it.
+No mathematical counterexample, invalid step or missing hypothesis was found
+in the requested §§5–9 semantic claims. No corrected language statement was
+needed. The remaining distinctions below concern proof organization and C
+correspondence, rather than a weakening of the result:
+
+- §5 is proved by tree induction. Infinite depth-zero anchors force ordinary
+  rotation through every child (`rotation_visits`); otherwise a finite prefix
+  leaves a stable child, to which the induction applies. Finite colour support
+  supplies a common last-occurrence cutoff for colours outside S. This proves
+  the stated recurrent-set argument, including constant acceptance and m=0.
+- §§6.1–6.4 follow (6)–(9). The proof chooses a least-size failed clause among
+  all reachable proof constraints. Equation (8) would strictly reduce this size,
+  so every selected H survives every intermediate extraction pass after the
+  old finite candidates have flushed. This is the finite-descent argument
+  without choosing a numerical bound for the last protector loss. The
+  per-window h+1 flush is proved by `flush_false_window`; `badFlat_flush`
+  also handles arbitrary finite class remainders via the checked bad-prefix
+  theorem. No candidate is discarded by the automaton, and no finite marked
+  remainder is replaced by true.
+- The canonical frozen-operand/support distinction and imperative §9 bridge
+  remain as described above. No additional language theorem for arbitrary
+  Π₂/Σ₂, or verification of the C implementation, is claimed.
 
 ### Validation
 
 Run the project with `LEAN_NUM_THREADS=1 $HOME/.elan/bin/lake build` from
-`proofs/`. `TlsfProofs.lean` imports `Dpa.Converse`, whose dependency chain
-checks all six Dpa modules in the requested order. The existing Lake settings
+`proofs/`. `TlsfProofs.lean` imports `Dpa.Refinements`, whose dependency chain
+checks the original six Dpa modules and then the §9 module in the requested
+order. The existing Lake settings
 keep warnings as errors, one Lean worker thread, and asynchronous elaboration
 disabled. No meson build or C tests run alongside Lean.
 
-A successful build certifies the statements present in these files, including
-the explicit hypotheses of conditional lemmas. It does not discharge the
-pending entries in the obligation map.
+A successful build certifies the stated semantic theorems and their explicit
+hypotheses; it does not verify the implementation bridges listed above.
 
 On 2026-10-31 the full `lake build` succeeded with zero warnings. A whole-word
 scan of Lean sources for prohibited proof placeholders/declarations and native
 decision shortcuts returned no matches. Dependency audits of the derivative,
 safety/co-safety/GF/FG languages, forward inclusion, accepting renewal seeds,
-product language, valid tree update and parity export contain only `propext`,
-`Classical.choice` and `Quot.sound`.
+product language, full tree min-even/max-odd equivalence, flat G/F languages,
+eventual false seeds, admitted grammar and §9 refinements contain only `propext`,
+`Classical.choice` and `Quot.sound`. The existing 5 GiB cgroup was retained,
+`LEAN_NUM_THREADS=1` was set for every build, and only one Lean process ran at
+a time. No commits were created.

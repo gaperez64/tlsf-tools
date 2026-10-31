@@ -368,5 +368,271 @@ theorem tree_export (T : ZTree α (fullColours m)) (colours : Nat → ColourSet 
   have hb := exportBound_large m
   omega
 
+
+/-- Unbounded recurrence; finite prefixes do not affect it. -/
+def Often (p : Nat → Prop) : Prop := ∀ N, ∃ n, N ≤ n ∧ p n
+
+theorem often_shift (p : Nat → Prop) (N : Nat) : Often (fun n => p (N+n)) ↔ Often p := by
+  constructor
+  · intro h M; obtain ⟨n, hn, hp⟩ := h M; exact ⟨N+n, by omega, hp⟩
+  · intro h M; obtain ⟨n, hn, hp⟩ := h (N+M); exact ⟨n-N, by omega, by simpa [Nat.add_sub_cancel' (by omega : N ≤ n)] using hp⟩
+
+theorem not_often (p : Nat → Prop) : ¬Often p ↔ ∃ N, ∀ n, N ≤ n → ¬p n := by
+  simp only [Often, Classical.not_forall, not_exists, not_and]
+
+theorem finite_eventually (xs : List α) (p : α → Nat → Prop)
+    (h : ∀ a, a ∈ xs → ∃ N, ∀ n, N ≤ n → p a n) :
+    ∃ N, ∀ n, N ≤ n → ∀ a, a ∈ xs → p a n := by
+  induction xs with
+  | nil => exact ⟨0, by simp⟩
+  | cons a xs ih =>
+    obtain ⟨N, hN⟩ := h a (by simp)
+    obtain ⟨M, hM⟩ := ih (fun b hb => h b (by simp [hb]))
+    refine ⟨max N M, fun n hn b hb => ?_⟩
+    rcases List.mem_cons.mp hb with he | hb
+    · subst b; exact hN n (by omega)
+    · exact hM n (by omega) b hb
+
+/-- Finitely many nonrecurring colours have a common last-occurrence bound. -/
+theorem recurrent_eventually_subset (E : Nat → ColourSet m) (D : ColourSet m)
+    (h : Subset (recurrentColours E) D) : ∃ N, ∀ n, N ≤ n → Subset (E n) D := by
+  obtain ⟨N, hN⟩ := finite_eventually (List.finRange m)
+    (fun i n => E n i = true → D i = true) (by
+      intro i _
+      by_cases hi : D i = true
+      · exact ⟨0, fun _ _ _ => hi⟩
+      · have hn : ¬Inf (fun n => E n i) := fun hh => hi (h i (by simpa [recurrentColours] using hh))
+        obtain ⟨N, hN⟩ := (not_inf_iff_fin _).mp hn
+        exact ⟨N, fun n hn he => False.elim (Bool.noConfusion ((hN n hn).symm.trans he))⟩)
+  exact ⟨N, fun n hn i => hN n hn i (by simp)⟩
+
+theorem recurrent_subset (E : Nat → ColourSet m) (C : ColourSet m)
+    (h : ∀ n, Subset (E n) C) : Subset (recurrentColours E) C := by
+  intro i hi
+  have hh : Inf (fun n => E n i) := by simpa [recurrentColours] using hi
+  obtain ⟨n, _, hn⟩ := hh 0
+  exact h n i hn
+
+theorem recurrent_shift (E : Nat → ColourSet m) (N : Nat) :
+    recurrentColours (fun n => E (N+n)) = recurrentColours E := by
+  funext i
+  apply Bool.eq_iff_iff.mpr
+  simp only [recurrentColours, decide_eq_true_eq]
+  exact often_shift (fun n => E n i = true) N
+
+theorem minEven_shift (p : Nat → Nat) (N : Nat) :
+    MinEven (fun n => p (N+n)) ↔ MinEven p := by
+  constructor
+  · rintro ⟨k, hk, hi, M, hM⟩
+    exact ⟨k, hk, (often_shift _ N).mp hi, N+M, fun n hn => by
+      have hh := hM (n-N) (by omega)
+      simpa [Nat.add_sub_cancel' (by omega : N ≤ n)] using hh⟩
+  · rintro ⟨k, hk, hi, M, hM⟩
+    exact ⟨k, hk, (often_shift _ N).mpr hi, M, fun n hn => hM (N+n) (by omega)⟩
+
+theorem minEven_zero_anchor (d : Nat → Nat) (ε : Nat) (h : Often (fun n => d n = 0)) :
+    MinEven (fun n => d n + ε) ↔ ε % 2 = 0 := by
+  constructor
+  · rintro ⟨k, hk, hi, N, hN⟩
+    obtain ⟨n, hn, he⟩ := h N
+    have hle := hN n hn
+    dsimp only at hle
+    obtain ⟨j, _, hj⟩ := hi 0
+    dsimp only at hj
+    have heq : k = ε := by omega
+    simpa [heq] using hk
+  · intro he
+    refine ⟨ε, he, ?_, 0, fun n _ => by dsimp only; omega⟩
+    intro N; obtain ⟨n, hn, he⟩ := h N; exact ⟨n, hn, by simp [he]⟩
+
+/-- Distance to a fixed sibling in the ordinary circular order. -/
+def siblingDistance (l j i : Nat) : Nat := if i ≤ j then j-i else l+j-i
+
+theorem sibling_distance_step (hi : i < l) (hj : j < l) (hne : i ≠ j) :
+    siblingDistance l j ((i+1)%l) < siblingDistance l j i := by
+  by_cases hlast : i+1 = l
+  · rw [hlast, Nat.mod_self]
+    unfold siblingDistance
+    split <;> split <;> omega
+  · have hh : i+1 < l := by omega
+    rw [Nat.mod_eq_of_lt hh]
+    unfold siblingDistance
+    split <;> split <;> omega
+
+/-- Infinite ordinary rotations cannot avoid any sibling at rotation time.
+This is the rotation part of STAGE2 §5, including one-child nodes. -/
+theorem rotation_visits (i d : Nat → Nat) (l : Nat) (hi : ∀ n, i n < l)
+    (hm : ∀ n, i (n+1) = if d n = 0 then (i n+1)%l else i n)
+    (hd : Often (fun n => d n = 0)) (j : Nat) (hj : j < l) :
+    Often (fun n => i n = j ∧ d n = 0) := by
+  apply Classical.byContradiction; intro hn
+  obtain ⟨N, hN⟩ := not_often _ |>.mp hn
+  let f := fun n => siblingDistance l j (i n)
+  have hmono : ∀ n, N ≤ n → f (n+1) ≤ f n := by
+    intro n hn
+    by_cases hz : d n = 0
+    · have hne : i n ≠ j := fun he => hN n hn ⟨he, hz⟩
+      have hh := sibling_distance_step (hi n) hj hne
+      dsimp only [f]; rw [hm n, ite_eq_left hz]; omega
+    · dsimp only [f]; rw [hm n, ite_eq_right hz]
+      exact Nat.le_refl _
+  obtain ⟨k, ⟨t, ht, htk⟩, hmin⟩ := exists_least_nat (show ∃ k, ∃ t, N ≤ t ∧ f t = k from ⟨f N, N, Nat.le_refl _, rfl⟩)
+  obtain ⟨n, htn, hz⟩ := hd t
+  have hle : f n ≤ f t := by
+    have hh : ∀ s, f (t+s) ≤ f t := by
+      intro s; induction s with
+      | zero => exact Nat.le_refl _
+      | succ s ih => exact Nat.le_trans (hmono (t+s) (by omega)) ih
+    simpa [Nat.add_sub_cancel' htn] using hh (n-t)
+  have hne : i n ≠ j := fun he => hN n (by omega) ⟨he, hz⟩
+  have hlt : f (n+1) < k := by
+    have hh := sibling_distance_step (hi n) hj hne
+    dsimp only [f] at *
+    rw [hm n, ite_eq_left hz]
+    omega
+  exact hmin _ hlt ⟨n+1, by omega, rfl⟩
+
+namespace ZTree
+
+/-- A stream of valid paths follows exactly the ordinary update. The two
+alternatives expose child retention and one-sibling rotation. -/
+theorem node_motion (children : List (ColourSet m))
+    (hs : ∀ M, M ∈ children → MaximalOpposite α C M)
+    (hc : ∀ M, MaximalOpposite α C M → M ∈ children)
+    (sub : ∀ M, M ∈ children → ZTree α M)
+    (i : Nat) (rest next : List Nat) (E : ColourSet m) (d : Nat)
+    (hv : ValidPath (.node C children hs hc sub) (i::rest))
+    (hEC : Subset E C)
+    (he : step (.node C children hs hc sub) (i::rest) E = some (next,d)) :
+    ∃ hi : i < children.length,
+      (Subset E children[i] ∧ 0 < d ∧ next.headD 0 = i ∧
+        step (sub children[i] (List.getElem_mem hi)) rest E = some (next.tail,d-1)) ∨
+      (¬Subset E children[i] ∧ d = 0 ∧ next.headD 0 = (i+1)%children.length) := by
+  obtain ⟨hi, hrest⟩ := hv
+  refine ⟨hi, ?_⟩
+  by_cases hchild : Subset E children[i]
+  · obtain ⟨⟨p,k⟩, hp, _, _⟩ := step_valid (sub children[i] (List.getElem_mem hi)) rest E hrest hchild
+    simp only [step, hEC, hi, hchild, ↓reduceIte, ↓reduceDIte, hp, Option.map_some, Option.some.injEq, Prod.mk.injEq] at he
+    obtain ⟨rfl, rfl⟩ := he.symm
+    exact Or.inl ⟨hchild, by omega, rfl, by simpa using hp⟩
+  · simp only [step, hEC, hi, hchild, ↓reduceIte, ↓reduceDIte, Option.some.injEq, Prod.mk.injEq] at he
+    exact Or.inr ⟨hchild, he.2.symm, by rw [← he.1]; rfl⟩
+
+/-- Full recurrent-run theorem, generalized to any root label, initial leaf
+and offset. The proof follows the recurrent-anchor argument of STAGE2 §5. -/
+theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
+    (r : Nat → List Nat) (d : Nat → Nat) (ε : Nat)
+    (hv : ∀ n, ValidPath T (r n)) (hEC : ∀ n, Subset (E n) C)
+    (hm : ∀ n, step T (r n) (E n) = some (r (n+1), d n))
+    (hε : ε % 2 = 0 ↔ α C = true) :
+    MinEven (fun n => d n + ε) ↔ α (recurrentColours E) = true := by
+  induction T generalizing E r d ε with
+  | node C children hs hc sub ih =>
+    have hSC := recurrent_subset E C hEC
+    by_cases hz : Often (fun n => d n = 0)
+    · have hno : ∀ D, D ∈ children → ¬Subset (recurrentColours E) D := by
+        intro D hD hSD
+        obtain ⟨j, hj, heD⟩ := List.getElem_of_mem hD
+        obtain ⟨N, hN⟩ := recurrent_eventually_subset E D hSD
+        have hnonempty : children ≠ [] := by intro he; simp [he] at hD
+        have hr : ∀ n, ∃ i rest, r n = i::rest := by
+          intro n; cases he : r n with
+          | nil => have hh := hv n; rw [he] at hh; exact False.elim (hnonempty hh)
+          | cons i rest => exact ⟨i, rest, rfl⟩
+        let ix := fun n => (r n).headD 0
+        have hi : ∀ n, ix n < children.length := by
+          intro n; obtain ⟨i, rest, he⟩ := hr n
+          have hh := hv n; rw [he] at hh
+          simpa [ix, he] using hh.1
+        have motion := fun n => node_motion children hs hc sub (ix n) (r n).tail (r (n+1)) (E n) (d n)
+          (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hv n) (hEC n)
+          (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hm n)
+        have hix : ∀ n, ix (n+1) = if d n = 0 then (ix n+1)%children.length else ix n := by
+          intro n; obtain ⟨_, hh | hh⟩ := motion n
+          · rw [ite_eq_right (by omega : d n ≠ 0)]; exact hh.2.2.1
+          · rw [ite_eq_left hh.2.1]; exact hh.2.2
+        obtain ⟨n, hn, hij, hdn⟩ := rotation_visits ix d children.length hi hix hz j hj N
+        obtain ⟨hi', hh | hh⟩ := motion n
+        · omega
+        · apply hh.1
+          simpa [hij, heD] using hN n hn
+      have heq := covered_recurrent_acceptance α C (recurrentColours E) children hc hSC hno
+      rw [minEven_zero_anchor d ε hz, hε, heq]
+    · obtain ⟨N, hN⟩ := (not_often _).mp hz
+      have hnonempty : children ≠ [] := by
+        intro he
+        have hp := hv N
+        have hh := hm N
+        cases hpEq : r N with
+        | nil => simp [step, he, hEC N, hpEq] at hh; exact hN N (Nat.le_refl _) hh.2.symm
+        | cons i rest => rw [hpEq] at hp; obtain ⟨hi, _⟩ := hp; simp [he] at hi
+      have hr : ∀ n, ∃ i rest, r n = i::rest := by
+        intro n; cases he : r n with
+        | nil => have hh := hv n; rw [he] at hh; exact False.elim (hnonempty hh)
+        | cons i rest => exact ⟨i, rest, rfl⟩
+      let ix := fun n => (r n).headD 0
+      have motion := fun n => node_motion children hs hc sub (ix n) (r n).tail (r (n+1)) (E n) (d n)
+        (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hv n) (hEC n)
+        (by obtain ⟨i, rest, he⟩ := hr n; simpa [ix, he] using hm n)
+      have stable : ∀ n, ix (N+n) = ix N := by
+        intro n; induction n with
+        | zero => rfl
+        | succ n ih =>
+          obtain ⟨_, hh | hh⟩ := motion (N+n)
+          · exact hh.2.2.1.trans ih
+          · exact False.elim (hN (N+n) (by omega) hh.2.1)
+      have hj := (motion N).1
+      let D := children[ix N]
+      have hD := List.getElem_mem hj
+      have hopp := (hs D hD).2.1
+      have hε' : (ε+1)%2=0 ↔ α D = true := by
+        cases ha : α C <;> cases hb : α D <;> simp_all <;> omega
+      have hsub : ∀ n, Subset (E (N+n)) D ∧
+          step (sub D hD) (r (N+n)).tail (E (N+n)) = some ((r (N+n+1)).tail, d (N+n)-1) := by
+        intro n; obtain ⟨_, hh | hh⟩ := motion (N+n)
+        · have transport : ∀ M (hM : M ∈ children), M = D →
+              Subset (E (N+n)) M ∧ step (sub M hM) (r (N+n)).tail (E (N+n)) =
+                some ((r (N+n+1)).tail, d (N+n)-1) →
+              Subset (E (N+n)) D ∧ step (sub D hD) (r (N+n)).tail (E (N+n)) =
+                some ((r (N+n+1)).tail, d (N+n)-1) := by
+            intro M hM he hh; subst M; exact hh
+          exact transport _ _ (by simp only [D, stable n]) ⟨hh.1, hh.2.2.2⟩
+        · exact False.elim (hN (N+n) (by omega) hh.2.1)
+      have hv' : ∀ n, ValidPath (sub D hD) (r (N+n)).tail := by
+        intro n
+        obtain ⟨i, rest, he⟩ := hr (N+n)
+        have hh := hv (N+n); rw [he] at hh
+        have hs' := stable n
+        simp only [ix, he, List.headD_cons] at hs'
+        subst i
+        simpa [he] using hh.2
+      have hh := ih D hD (fun n => E (N+n)) (fun n => (r (N+n)).tail)
+        (fun n => d (N+n)-1) (ε+1) hv' (fun n => (hsub n).1)
+        (by intro n; simpa [Nat.add_assoc] using (hsub n).2) hε'
+      have he : (fun n => d (N+n)-1+(ε+1)) = (fun n => d (N+n)+ε) := by
+        funext n; have hn := hN (N+n) (by omega); omega
+      rw [he, recurrent_shift] at hh
+      rw [← minEven_shift (fun n => d n + ε) N]
+      exact hh
+
+end ZTree
+
+/-- STAGE2 §5: min-even of the ordinary global run is exactly α(S), for
+every colour stream, including empty marks, constant α and zero colours. -/
+theorem tree_minEven (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) :
+    MinEven (treePriority T colours) ↔ EmersonLei α colours := by
+  apply T.recurrent_run colours (treeRun T colours)
+    (fun n => (T.advance (treeRun T colours n) (colours n)).2)
+    (if α (fullColours m) then 0 else 1) (treeRun_valid T colours) (fun _ _ _ => rfl)
+  · intro n
+    obtain ⟨r, hr, _, _⟩ := T.step_valid (treeRun T colours n) (colours n) (treeRun_valid T colours n) (fun _ _ => rfl)
+    simp only [treeRun, ZTree.advance, hr, Option.getD_some]
+  · cases α (fullColours m) <;> simp
+
+/-- STAGE2 §5: the exported recurring maximum is odd exactly when α(S). -/
+theorem tree_maxOdd (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) :
+    MaxOdd (fun n => exportBound m - treePriority T colours n) ↔ EmersonLei α colours :=
+  (tree_export T colours).symm.trans (tree_minEven T colours)
+
 end
 end Tlsf.Dpa
