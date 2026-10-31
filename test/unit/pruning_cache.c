@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "residual_plan.h"
-#include "residual_sat.h"
+#include "env_witness.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -9,11 +9,14 @@
 static bool answer;
 static unsigned calls;
 
-bool __wrap_residual_env_satisfiable(const SectionPatternView *dropped);
-bool __wrap_residual_env_satisfiable(const SectionPatternView *dropped) {
+EnvWitnessResult __wrap_env_witness_search(const SectionPatternView *dropped,
+                                           uint32_t work_budget);
+EnvWitnessResult __wrap_env_witness_search(const SectionPatternView *dropped,
+                                           uint32_t work_budget) {
   assert(dropped->count == 1);
+  assert(work_budget == ENV_WITNESS_WORK_BUDGET);
   ++calls;
-  return answer;
+  return answer ? ENV_WITNESS_SATISFIABLE : ENV_WITNESS_UNKNOWN;
 }
 
 static void check(bool admitted) {

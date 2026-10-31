@@ -47,7 +47,9 @@ What is proved:
 - `Pruning.lean` proves `prune_realizable` for infinite Mealy games, for both
   ordinary and strict objectives. `Prunable isIn K D` requires environment
   roles in D, input-only atoms in D, and no D atom in any K entry. `EnvSat D`
-  is an infinite witness for `Initial D && G Require D && Assume D`. A
+  is an infinite witness for `Initial D && G Require D && Assume D`.
+  `envSat_of_word` bridges satisfaction of `environmentFormula D` on any
+  infinite word (including a lasso) to `EnvSat D`. A
   residual strategy pins D inputs to that witness and replays the original
   strategy; locality transfers all K obligations. Adding D is pointwise
   weakening, including the strict safety obligation. No finite theorem is
@@ -237,9 +239,11 @@ implementation or the other CSNF template families.
 | `src/lib/residual_plan.c:44–53,72–115` | Freeze the first pruned/retained view across routing, solving and export; cache allocation failure disables pruning for the plan |
 | `src/lib/residual.c:30–59,68–77` | `Formula.atoms`, `normalize_untouched`; support collection and unused-output declaration removal |
 | `src/lib/section_pattern.c:81–114,173–225` | `sectionFormula`, `objectiveFormula`, `objective_sat`; empty sections are true, all section conjuncts are included |
-| `src/lib/residual.c:111–184,186–234` | `Prunable`, `EnvSat`, `prune_realizable`; the transitive cone includes all kept roles, asserts dropped input support/disjointness, and prunes only infinite ordinary/strict Mealy games after a positive joint check |
-| `src/lib/residual_sat.cc:17–74,78–116` | `EnvSat`; direct AST translation conjoins INITIALLY, globally wrapped REQUIRE, and ASSUMPTIONS; Spot nonemptiness is a trusted witness-existence answer; uncertainty keeps D |
-| `src/lib/residual.c:252–357` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
+| `src/lib/residual.c:111–186,188–236` | `Prunable`, `EnvSat`, `prune_realizable`; the transitive cone includes all kept roles, asserts dropped input support/disjointness, and prunes only infinite ordinary/strict Mealy games after a positive joint check |
+| `src/lib/env_witness.c:20–88` | Expanded AST/section compilation for `environmentFormula`; rejects other roles and unsupported syntax |
+| `src/lib/env_witness.c:90–188` | Lasso successor and least/greatest fixed points implement `Sat none`; REQUIRE holds at every reachable position, INITIALLY/ASSUMPTIONS at zero; `environment_sat_iff` in `proofs/TlsfProofs/Pruning.lean:11–27` |
+| `src/lib/env_witness.c:190–229`; `src/lib/env_witness.h:6–7` | Only a completed positive witness check returns SATISFIABLE; `envSat_of_word` in `proofs/TlsfProofs/Pruning.lean:29–31` supplies `EnvSat` for `prune_realizable`; incomplete search keeps D |
+| `src/lib/residual.c:254–359` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
 | `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:75–86` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
 | `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:815–819` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
@@ -362,16 +366,24 @@ but the declaration/filtering code is not verified here.
 
 Union-find and cluster-key construction must establish `Clustered`. The
 initial cluster contains every environment entry. Pruning then requires
-`Prunable` and `EnvSat` for the actual dropped set. **Spot's positive
-satisfiability answer is trusted**: Lean neither verifies Spot nor checks an
-accepting run. The C AST-to-Spot translation must denote exactly
-`Initial D && G Require D && Assume D`, using the substituted residual formulas.
-The optional check uses at most 128 source AST nodes and a 256-state/1024-edge
-translation budget; failure, exceptions, missing Spot headers, or an elapsed
-50 ms deadline retain D. Spot calls are synchronous, so the elapsed-time
-check discards overruns rather than preempting a call. Spot is currently a
-required Meson dependency; the helper has a conservative compile-time
-fallback if its translation headers are unavailable. Finite semantics and
+`Prunable` and `EnvSat` for the actual dropped set. The native checker
+searches infinite lasso words with at most four positions and eight atoms,
+under a 128-source-node syntax cap and a shared 200,000-update work budget
+(candidate, node, fixed-point and section checks). The last position returns
+to the chosen loop entry. F/U/M use least fixed points and G/R/W use greatest
+fixed points over the reachable positions. REQUIRE is checked at every
+position; INITIALLY and ASSUMPTIONS only at position zero. Only a completed
+positive check certifies the conjunction. Failed candidates are skipped;
+if no bounded witness is found, syntax is unsupported, or a budget is
+exhausted, the result is UNKNOWN and D is kept. Incompleteness therefore
+cannot change realizability.
+
+`envSat_of_word` proves that satisfaction of this conjunction with `len = none`
+on any word yields `EnvSat D`; applying `prune_realizable` then gives the
+conditional equivalence. **The C evaluator, AST/section correspondence and
+lasso-to-infinite-word interpretation remain trusted**: Lean does not execute
+C or prove the evaluator implementation. Search completeness is unnecessary.
+This check uses no external automata or SAT library. Finite semantics and
 Moore semantics/targets never use pruning. If an environment entry mentions an
 output, or the semantics is finite, the C fallback must retain one game
 before this proved pruning, including input-only system constraints. The `clusters_realizable` theorem is

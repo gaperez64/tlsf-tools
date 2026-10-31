@@ -1,7 +1,7 @@
 #include "residual.h"
 
 #include "rewrite.h"
-#include "residual_sat.h"
+#include "env_witness.h"
 
 #include <assert.h>
 
@@ -175,7 +175,9 @@ static bool cluster_assumption_mask(TlsfSpec *spec, ConstraintCover *cov,
       goto done;
   }
   // Empty D needs no solver; uncertainty always falls back to keeping D.
-  ok = !dropped.count || residual_env_satisfiable(&dropped);
+  ok =
+      !dropped.count || env_witness_search(&dropped, ENV_WITNESS_WORK_BUDGET) ==
+                            ENV_WITNESS_SATISFIABLE;
 done:
   arena_free(scratch);
   free(atoms);

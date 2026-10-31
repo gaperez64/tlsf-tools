@@ -6,6 +6,30 @@ namespace Tlsf
 def EnvSat (D : List (Entry α)) : Prop :=
   ∃ d : Word α, Initial D none d ∧ Environment D none d
 
+-- The native witness checker certifies this conjunction on an infinite word.
+-- A lasso denotes one such Word; no completeness of witness search is needed.
+def environmentFormula (D : List (Entry α)) : Formula α :=
+  .conj (sectionFormula D .initially)
+    (.conj (.globally (sectionFormula D .require)) (sectionFormula D .assume))
+
+theorem environment_sat_iff {D : List (Entry α)} {w : Word α} :
+    Sat none w (environmentFormula D) 0 ↔
+      Initial D none w ∧ Environment D none w := by
+  have req : Sat none w (.globally (sectionFormula D .require)) 0 ↔
+      AllFuture none 0 (Section D .require none w) := by
+    simp only [Sat, InRange, true_and]
+    exact future_congr (fun _ _ hk => section_sat hk)
+  have hc : ∀ f g : Formula α, Sat none w (.conj f g) 0 ↔
+      Sat none w f 0 ∧ Sat none w g 0 :=
+    fun _ _ => by simp only [Sat, InRange, true_and]
+  unfold environmentFormula
+  rw [hc, hc, section_sat (by trivial), req, section_sat (by trivial)]
+  rfl
+
+theorem envSat_of_word {D : List (Entry α)} {w : Word α}
+    (h : Sat none w (environmentFormula D) 0) : EnvSat D :=
+  ⟨w, environment_sat_iff.mp h⟩
+
 def DroppedAtom (D : List (Entry α)) (a : α) : Prop :=
   ∃ e ∈ D, a ∈ e.formula.atoms
 

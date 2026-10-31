@@ -69,6 +69,28 @@ for semantics in ("Mealy", "Mealy,Strict"):
         emitted, formula, inputs, outputs = cluster(tool, text)
         assert not re.search(r"\bq\b", formula), emitted
         assert not verdict(formula, inputs, outputs), emitted
+    # A transient prefix and a nonconstant loop both need genuine infinite
+    # witnesses; constant valuations alone cannot certify these groups.
+    for environment in (
+            "INITIALLY { q; } REQUIRE { X !q; } ASSUMPTIONS { F !q; }",
+            "REQUIRE { q <-> X !q; } ASSUMPTIONS { G F q; G F !q; }"):
+        text = source(environment + core, semantics)
+        assert not verdict(output(convert, text), "q,r,s,t", "p")
+        for tool in (residual, compose):
+            emitted, formula, inputs, outputs = cluster(tool, text)
+            assert not re.search(r"\bq\b", formula), emitted
+            assert not verdict(formula, inputs, outputs), emitted
+
+    # Satisfiable, but no lasso of at most four positions can witness it.
+    # UNKNOWN keeps the assumptions and still preserves the game's verdict.
+    text = source("ASSUMPTIONS { !q; X !q; X X !q; X X X !q; F q; }" + core,
+                  semantics)
+    assert not verdict(output(convert, text), "q,r,s,t", "p")
+    for tool in (residual, compose):
+        emitted, formula, inputs, outputs = cluster(tool, text)
+        assert "q" in inputs.split(","), emitted
+        assert not verdict(formula, inputs, outputs), emitted
+
     for environment in (
             "ASSUMPTIONS { G F q; F G !q; }",
             # INITIALLY and G REQUIRE must participate in the *joint* check.
