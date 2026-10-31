@@ -496,6 +496,8 @@ are identified explicitly; they are not premises of the language equalities.
 | Task J: closed-alphabet descent and protection | `eventually_protected_of_cosafety_constraint`, `general_eventually_false_protected_constraints`, `general_eventually_false_passes` | Checked at every sufficiently late raw position and every intermediate weakening; no finite-window flush or never-false premise |
 | Task J: general component language | `general_pi2_converse`, `general_pi2_language` | General Π₂ converse and language equality proved, including retry and retained finite remainders; C admission/refinement unchanged |
 | Task T: executable canonical class decisions | `Impl.table_exact`, `Impl.equivalent_exact`, `Impl.uses_exact`, `Impl.hasTag_exact` | Checked executable truth tables and exact support, including Boolean absorption |
+| Task T7: recursive canonical finite/prefix languages | `Impl.refined_finite_class_constant`, `Impl.refined_finite_window`, `Impl.refined_safety_bad_prefix`, `Impl.refined_cosafety_witness`, `Impl.defaultTags_language_certificates` | Checked on actual frozen syntax and executable tag results; permitted axioms only |
+| Task T7: refined protected extractor and ordered component invariants | `Impl.rhoTagged_invariant`, `Impl.transitionTagged_spec`, `Impl.runTagged_all_language`, `Impl.runTagged_finite_obligation` | Checked for a supplied sound classifier, including changing classifiers between steps; shared cache trace and full accepting language remain open |
 | Task T: executable component simulation | `Impl.classTag_exact`, `Impl.rho_exact`, `Impl.initial_exact`, `Impl.transition_exact`, `Impl.run_exact`, `Impl.marks_exact` | Checked for research structural tags; C transport, IDs and caches still outside the bridge |
 | Task T: Π₂/Σ₂ orientation and numeric parity | `Impl.pi2_language`, `Impl.sigma2_language`, `Impl.dual_class_congr`, `Impl.class_sigma2_dual_pi2`, `Impl.research_component_language` | Checked for NNF whole classes accepted by research admission, including arbitrary canonical support; complete constructor/export theorem pending |
 | Task T: canonical research domain and grouping branch | `Impl.canonicalResearchCheck_exact`, `Impl.canonicalResearchCheck_shannon`, `Impl.compatibleGroups_exact` | Executable support-union predicate and folded-class identity branch checked; constructor success/product simulation pending |
@@ -1075,8 +1077,9 @@ numeric quick-cache sentinels and cofactor-cell storage remain decoded
 representation details. The 27 tag checks cover operand absorption under
 G/X/U/R/W/M, frozen/structural disagreement, both child orders, cofactor
 cache writes, exact-tag hits, equivalent class keys and stale cached bounds.
-The component/extractor language theorem for these refined predicates is
-still required; this milestone alone does not close T6 item 1.
+The T7 results below supply finite/prefix certificates and local extractor/
+component invariants for these predicates; the complete cache-trace and
+accepting-language bridge remains open.
 
 **Task T6, terminal product shortcut proved at the decoded boundary.**
 `Impl/Terminal.lean` executes `terminal_condition` at
@@ -1110,6 +1113,50 @@ same-epoch hits, stale epochs, equivalent class keys, shared cofactors,
 both child orders, reserved priorities, entry into a sink, its loop and the
 Büchi-mode guard.
 
+**Task T7, refined language certificates and local invariants.**
+`Impl/RefinedLanguage.lean` proves `refined_finite_class_constant`: a class
+with the recursive finite predicate becomes its actual truth constant after
+`horizon f + 1` letters, even when absorbed syntax contains unbounded
+modalities. `derivatives_support_eq` lifts derivative facts only from actual
+support atoms; `refined_finite_window` gives the corresponding word-prefix
+locality. `refined_safety_bad_prefix` and `refined_cosafety_witness` give
+finite bad/good certificates for NNF classes with recursively canonical
+operands. `refined_U`, `refined_D` and `refined_finite_U_fixed` prove closure
+and finite unfolding identity for the finite/safety/co-safety bits.
+`defaultTags_language_certificates` applies these results directly to every
+successful executable default-tag result and its actual input syntax.
+
+`Impl/RefinedExtractor.lean` supplies the executable tag-parameterized
+`rhoTagged`. It uses the same frozen-support protection, DROP_X loop,
+canonical equality and finite retry as the earlier executable extractor.
+`rhoTagged_invariant` proves NNF, unfoldedness, the refined co-safety
+predicate, and implication from the unfolded all-field. A satisfied input
+therefore gives a genuine finite good certificate for the returned obligation
+(`rhoTagged_satisfied_witness`). The interface requires sound positive tag
+answers; it does not assume structural tags on recursively refined atoms.
+`rhoTagged_research` identifies its structural-classifier specialization
+with the existing research extractor exactly.
+
+`Impl/RefinedComponent.lean` executes the ordered table with this interface.
+`transitionTagged_spec` proves preservation of `TaggedInvariant` and exact
+all-field progression, including finite retention and exclusion of a false
+renewal from invariant states. `runTagged_all_language` proves all-field
+language equality at every position. The supplied classifier may change at
+every letter. `runTagged_satisfied_obligation` gives finite good certificates
+for active obligations on satisfying words; `runTagged_finite_obligation`
+justifies retained finite obligations whenever the all-field never becomes
+false. `runTagged_research` identifies the structural specialization with
+the existing executable research run. These are local invariants, **not**
+an accepting-run language theorem for the changing default classifier.
+
+The 20 new checks cover nonstructural finite/co-safety hits, retained frozen
+co-safety atoms, protected and unprotected X, GF retry, suspension, simultaneous
+X/AP stepping, safety/co-safety rows, finite retention and the explicit false
+renewal row. Two universal kernel witnesses instantiate the finite-window
+and component invariants on actual recursive classifier computations.
+The diagnostic classifier recomputes fresh tag queries; it is explicitly
+not the simulation of C's shared evolving cache.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1118,26 +1165,30 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 208 dependency reports contain only the three permitted axioms. Of the thirteen
-concrete diagnostic proofs, `terminal_checks` uses `propext`, `Classical.choice`
-and `Quot.sound`; the other twelve use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (72 Lake jobs). All 206
+All 278 dependency reports contain only the three permitted axioms. The
+`terminal_checks` diagnostic and the two universal refined-language witnesses
+use `propext`, `Classical.choice` and `Quot.sound`; the other thirteen concrete
+diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
+library and `dpaImplChecks` with warnings as errors (78 Lake jobs). All 226
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
 194 references / 152 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3/T4/T5/T6.** These are proved executable
+**Current boundary for Task T/T2/T3/T4/T5/T6/T7.** These are proved executable
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
 Task T4 item 1's cache/order and grouped syntax selection are now composed
 with the decoded transport and memoized factoring traversal. Task T5 item 1
 is proved. T6 proves the recursive default tag/cache invariant and the
-terminal shortcut at the decoded boundary. Item 1 remains partial because
-the refined tags' component/extractor language use is open. T6 items 2–4
-remain open and item 5 is deliberately not enabled.
+terminal shortcut at the decoded boundary. T7 fixes the startup reset and
+axiom account, and supplies refined finite/prefix certificates, a protected
+extractor contract and ordered component invariants. T7 item 0 is complete;
+item 1 remains partial because the shared cache-trace simulation and full
+accepting-run language theorem are open. Items 2–4 remain open; item 5 is
+deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
 unchanged at 2,986,929 bytes, including 541 DPA membership records; zero new
@@ -1147,24 +1198,30 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining default-tag lemma is **the component/extractor
-invariant for `RefinedClass` on the actual frozen syntax**. Start with the
-finite-window derivative/horizon and safety/co-safety bad-prefix lemmas
-for recursively canonical operands, then justify the ordered transition,
-finite-remainder retry and protected extractor under those predicates.
-`defaultTags_sound` now discharges the recursive computation and its cache
-preservation at `src/lib/dpa_formula.c:81`, including the pre-start exit and
-phase change. Its conclusion cannot be fed to `classTag_exact`: the latter
-asserts structural frozen-atom tags, which absorption inside a materialized
-operand need not preserve. A syntax induction alone misses canonical support;
-an alternative structural language witness does not identify the actual
-extractor's protection or finite-retention decisions.
+The smallest remaining default-tag bridge is **realization of one complete
+extraction trace by the supplied classifier**: for every successful decoded
+C/default-cache extraction, identify a sound per-call classifier whose
+retained atoms and finite retry decisions produce the actual result of
+`rhoTagged`, preserving the returned cache invariant. `defaultTags_sound`
+justifies each answer, including startup reset, but does not yet prove
+read stability of cached answers as later queries grow the atom/class caches.
+Independent sound answers do not by themselves identify the ordered trace
+or a single classifier for every repeated query. The fresh-query diagnostic
+is not a substitute for this simulation.
+
+Next, prove the accepting-run language theorem for the resulting tagged
+component, using the classifier's structural lower bounds as well as its
+sound positive answers. Soundness alone is insufficient: an all-false
+classifier satisfies `TagClassifier.Sound` but can suppress finite renewals.
+The closed-alphabet/protected-constraint descent in `GeneralConverse` must
+be connected to the actual retained atoms and retry decisions; neither an
+alternative structural language witness nor `classTag_exact` identifies them.
 Cached NNF duals cannot be replaced by `Class.compl`, and an existential
 `admitted_grammar` witness does not identify the constructor trace.
 
-Further independent bridges remain: use of the refined default tags in the
-component/extractor; C's lexicographically ordered tree/export; and
-the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
+Further independent bridges remain: C's lexicographically ordered tree/export;
+the single end-to-end parity/Büchi theorem; and the offline BFS automaton
+goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
 state split, component-store preservation and explicit-plan assembly are now
 proved above. The separate Π₂-positive `buchi_syntax` selector remains
@@ -1183,7 +1240,7 @@ numbers refer to the merged worktree's formatted sources.
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
 | `src/lib/dpa_formula.c:81`, `:118`, `:127`, `:157` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
-| `src/lib/dpa_formula.c:81`, `:127`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.cachedTagBounds_valid`, `Impl.TagBounds.Valid.mask`; refined predicates on decoded syntax, component/extractor language use pending |
+| `src/lib/dpa_formula.c:81`, `:127`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.cachedTagBounds_valid`, `Impl.TagBounds.Valid.mask`, `Impl.defaultTags_language_certificates`; refined language certificates checked, full shared-cache component simulation pending |
 | `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |

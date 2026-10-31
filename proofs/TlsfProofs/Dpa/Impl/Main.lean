@@ -8,6 +8,7 @@ import TlsfProofs.Dpa.Impl.Cache
 import TlsfProofs.Dpa.Impl.Grouping
 import TlsfProofs.Dpa.Impl.Factoring
 import TlsfProofs.Dpa.Impl.DefaultTags
+import TlsfProofs.Dpa.Impl.RefinedComponent
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -485,6 +486,78 @@ private def defaultTagChecks : List (String × Bool × Bool) := [
          let old := (cachedTagBounds {} absorbedNext []).2
          pure (fragmentMask (cachedTagBounds s absorbedNext old).1.low)) = some 26), true)]
 
+/-- Diagnostics read fresh default tag computations for each query. This
+is a sound interface instance, not a model of C's shared cache trace. -/
+private def diagnosticTags (f : Formula (Fin 2)) : FragmentBits :=
+  match defaultTags transportRank (fun _ => false) 64 true f {} with
+  | none => classBits f
+  | some (bits, _) => bits
+
+private theorem diagnosticTags_sound : TagClassifier.Sound diagnosticTags := by
+  intro f t ht
+  cases he : defaultTags transportRank (fun _ => false) 64 true f {} with
+  | none =>
+    simp only [diagnosticTags, he] at ht
+    exact refined_structural_lower f t ht
+  | some r =>
+    rcases r with ⟨bits, s⟩
+    simp only [diagnosticTags, he] at ht
+    exact (defaultTags_sound transportRank (fun _ => false) 64 true f {} bits s
+      TagCache.empty_valid he).2.2 t ht
+
+private def refinedProtector : Formula (Fin 2) := .eventually absorbedNext
+private def refinedProtected : Formula (Fin 2) := .conj absorbedNext refinedProtector
+
+private def refinedChecks : List (String × Bool × Bool) := [
+  ("refined-finite-structural-miss", classTag .finite absorbedNext, false),
+  ("refined-finite-recursive-hit", diagnosticTags absorbedNext .finite, true),
+  ("refined-co-structural-miss", classTag .cosafety refinedProtector, false),
+  ("refined-co-recursive-hit", diagnosticTags refinedProtector .cosafety, true),
+  ("refined-reduce-keeps-frozen-co", decide
+    (reduceTagged diagnosticTags refinedProtector = refinedProtector), true),
+  ("refined-research-reduce-elides-frozen", equivalent (reduce refinedProtector) .tt, true),
+  ("refined-protection-keeps-X", protectedb
+    (reduceTagged diagnosticTags refinedProtected) absorbedNext, true),
+  ("refined-drop-X-keeps-protected", equivalent
+    (dropX (reduceTagged diagnosticTags refinedProtected)) refinedProtected, true),
+  ("refined-drop-X-elides-unprotected", equivalent
+    (dropX (reduceTagged diagnosticTags absorbedNext)) .tt, true),
+  ("refined-rho-keeps-co-obligation", equivalent
+    (rhoTagged diagnosticTags refinedProtector) (unfoldSyntax refinedProtector), true),
+  ("refined-retry-on-GF", equivalent
+    (rhoTagged diagnosticTags (.globally (.eventually a))) (.disj a (.eventually a)), true),
+  ("refined-initial-suspends", decide
+    ((initialTagged diagnosticTags absorbedNext).rejecting = .ff), true),
+  ("refined-after-X-accepting-letter", (transitionTagged diagnosticTags (fun _ => true)
+    (runTagged (fun _ => diagnosticTags) absorbedNext (fun _ _ => true) 1)).mark, true),
+  ("refined-after-X-rejecting-letter", (transitionTagged diagnosticTags (fun _ => false)
+    (runTagged (fun _ => diagnosticTags) absorbedNext (fun _ _ => false) 1)).mark, false),
+  ("refined-safety-row", (transitionTagged diagnosticTags (fun _ => true)
+    (initialTagged diagnosticTags (.globally absorbedOperand))).mark, true),
+  ("refined-cosafety-row", (transitionTagged diagnosticTags (fun _ => false)
+    (initialTagged diagnosticTags (.eventually absorbedOperand))).mark, false),
+  ("refined-finite-renewal-mark", (transitionTagged diagnosticTags (fun _ => false)
+    ⟨unfoldSyntax (.globally (.eventually a)), absorbedNext⟩).mark, true),
+  ("refined-finite-renewal-retains", equivalent
+    (transitionTagged diagnosticTags (fun _ => false)
+      ⟨unfoldSyntax (.globally (.eventually a)), absorbedNext⟩).target.rejecting a, true),
+  ("refined-false-renewal-explicit-sink", decide
+    ((rowTagged diagnosticTags (.conj a (.globally (.eventually b))) (.neg a)).target.all = .ff), true),
+  ("refined-simultaneous-X-then-AP", equivalent
+    (runTagged (fun _ => diagnosticTags) absorbedNext (fun _ _ => false) 2).all .ff, true)]
+
+/-- A nonstructural finite-window witness exercises the language theorem,
+not merely the executable classifier's returned mask. -/
+theorem refined_window_witness (w v : Word (Fin 2)) (j : Nat)
+    (hw : ∀ k, j ≤ k → k ≤ j+1 → w k = v k) :
+    Sat none w absorbedNext j ↔ Sat none v absorbedNext j := by
+  have hb : diagnosticTags absorbedNext .finite = true := by decide +kernel
+  exact refined_finite_window (diagnosticTags_sound absorbedNext .finite hb) w v j hw
+
+theorem refined_obligation_witness (w : Word (Fin 2)) (n : Nat) :
+    TaggedInvariant (runTagged (fun _ => diagnosticTags) (.globally (.eventually a)) w n) :=
+  (runTagged_spec (fun _ => diagnosticTags) (fun _ => diagnosticTags_sound) (by trivial) w n).1
+
 private def terminalAnd : ColourDag 2 := .node 0 (.leaf false)
   (.node 1 (.leaf false) (.leaf true))
 private def terminalOr : ColourDag 2 := .node 0
@@ -606,14 +679,17 @@ theorem factoring_checks : factoringChecks.all (fun (_, actual, expected) => act
 theorem default_tag_checks : defaultTagChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem refined_checks : refinedChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 theorem terminal_checks : terminalChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ terminalChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ terminalChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + terminalChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + terminalChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1
