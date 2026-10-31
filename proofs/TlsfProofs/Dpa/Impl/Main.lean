@@ -7,6 +7,7 @@ import TlsfProofs.Dpa.Impl.Selection
 import TlsfProofs.Dpa.Impl.Cache
 import TlsfProofs.Dpa.Impl.Grouping
 import TlsfProofs.Dpa.Impl.Factoring
+import TlsfProofs.Dpa.Impl.DefaultTags
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -406,6 +407,80 @@ private def factoringChecks : List (String × Bool × Bool) := [
     (fun _ => true) false (.neg (.eventually
       (.disj (.neg (.eventually a)) (.neg (.eventually b))))) emptyAcceptance).isSome, true)]
 
+private def absorbedOperand : Formula (Fin 2) := .disj a (.conj a (.globally b))
+private def absorbedNext : Formula (Fin 2) := .next absorbedOperand
+private def absorbedGlobal : Formula (Fin 2) :=
+  .globally (.disj (.eventually a) (.conj (.eventually a) (.eventually (.globally b))))
+
+private def defaultTagMask (started : Bool) (f : Formula (Fin 2)) : Option Nat :=
+  (defaultTags transportRank (fun _ => false) 32 started f {}).map
+    (fun r => fragmentMask r.1)
+
+private def defaultTagChecks : List (String × Bool × Bool) := [
+  ("default-tags-false", decide (defaultTagMask false .ff = some 31), true),
+  ("default-tags-true", decide (defaultTagMask true .tt = some 31), true),
+  ("default-tags-canonical-absorption", decide
+    (defaultTagMask true absorbedOperand = some 31), true),
+  ("default-tags-prestart-safety-exit", decide
+    (defaultTagMask false absorbedNext = some 26), true),
+  ("default-tags-started-refines-X", decide
+    (defaultTagMask true absorbedNext = some 31), true),
+  ("default-tags-recursive-G-absorption", decide
+    (defaultTagMask false absorbedGlobal = some 8), true),
+  ("default-tags-frozen-structural-differs", decide (tagMask absorbedGlobal = 0), true),
+  ("default-tags-prestart-keeps-exact-false", decide
+    ((defaultTags transportRank (fun _ => false) 32 false (.globally a) {}).map
+      (fun r => r.2.atoms.length) = some 0), true),
+  ("default-tags-started-writes-exact", decide
+    ((defaultTags transportRank (fun _ => false) 32 true (.globally a) {}).map
+      (fun r => r.2.atoms.length) = some 1), true),
+  ("default-tags-phase-change-keeps-class-hit", decide
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 false absorbedNext {}
+         let (bits, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext s
+         pure (fragmentMask bits, s.atoms.length)) = some (26, 0)), true),
+  ("default-tags-syntax-atom-cache-reuse", decide
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext {}
+         let (bits, s) ← defaultTags transportRank (fun _ => false) 32 true
+           (.conj absorbedNext b) s
+         pure (fragmentMask bits, s.atoms.length)) = some (31, 1)), true),
+  ("default-tags-equivalent-class-hit", decide
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 false absorbedNext {}
+         let (bits, s) ← defaultTags transportRank (fun _ => false) 32 true
+           (.conj .tt absorbedNext) s
+         pure (fragmentMask bits, s.atoms.length)) = some (26, 0)), true),
+  ("default-tags-low-first", decide
+    (defaultTagMask false (.conj (.globally a) (.eventually b)) = some 24), true),
+  ("default-tags-high-first", decide
+    ((defaultTags transportRank (fun _ => true) 32 false
+      (.conj (.globally a) (.eventually b)) {}).map (fun r => fragmentMask r.1) = some 24), true),
+  ("default-tags-cofactor-cache-writes", decide
+    ((defaultTags transportRank (fun _ => false) 32 false
+      (.conj (.globally a) (.eventually b)) {}).map (fun r => r.2.classes.length) = some 2), true),
+  ("default-tags-refined-U", decide
+    (defaultTagMask true (.until absorbedOperand b) = some 28), true),
+  ("default-tags-refined-M", decide
+    (defaultTagMask true (.strongRelease absorbedOperand b) = some 28), true),
+  ("default-tags-refined-R", decide
+    (defaultTagMask true (.release absorbedOperand b) = some 26), true),
+  ("default-tags-refined-W", decide
+    (defaultTagMask true (.weakUntil absorbedOperand b) = some 26), true),
+  ("default-tags-zero-fuel", (defaultTags transportRank (fun _ => false) 0 true a {}).isNone, true),
+  ("default-bounds-structural-low", decide
+    (fragmentMask (freshTagBounds {} absorbedNext).low = 26), true),
+  ("default-bounds-X-upper", decide
+    (fragmentMask (freshTagBounds {} absorbedNext).high = 31), true),
+  ("default-bounds-F-upper", decide
+    (fragmentMask (freshTagBounds {} (.eventually a)).high = 28), true),
+  ("default-bounds-G-upper", decide
+    (fragmentMask (freshTagBounds {} (.globally a)).high = 26), true),
+  ("default-bounds-refined-low", decide
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext {}
+         pure (fragmentMask (freshTagBounds s absorbedNext).low)) = some 31), true),
+  ("default-bounds-cached-before-refinement", decide
+    ((do let (_, s) ← defaultTags transportRank (fun _ => false) 32 true absorbedNext {}
+         let old := (cachedTagBounds {} absorbedNext []).2
+         pure (fragmentMask (cachedTagBounds s absorbedNext old).1.low)) = some 26), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -440,11 +515,14 @@ theorem grouping_checks : groupingChecks.all (fun (_, actual, expected) => actua
 theorem factoring_checks : factoringChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem default_tag_checks : defaultTagChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

@@ -1045,6 +1045,38 @@ The new checks exercise both early exits, both distributions, newly exposed
 Boolean roots, all temporal binary reconstructions, constants, insufficient
 fuel, memo hits/misses and sibling reuse, and the composed input pipeline.
 
+**Task T6, recursive tag/cache invariant proved at the decoded boundary.**
+`Impl/DefaultTags.lean` models default-mode `tags_impl` at
+`src/lib/dpa_formula.c:81`: constants, class-cache hits, atom exact-tag hits,
+the pre-start safety/co-safety exit, recursive materialized operands, the
+five operator transfers, and cached Shannon cofactors. Atom keys retain
+frozen syntax; class keys use executable Boolean equality. The supplied
+permanent-ID order selects the first essential atom; either evaluation
+order of the two C child calls is allowed. Fuel bounds successful calls;
+this milestone does not prove a sufficient fuel bound for every input.
+
+`defaultTags_sound` proves that every successful call preserves both caches,
+retains every structural class bit, and justifies each returned bit by
+`RefinedClass` on the actual frozen input. `RefinedAtom` records structural
+membership or the corresponding operator transfer from recursively justified
+canonical operand support. It does not substitute a language-equivalent
+formula or assert structural membership of the original atom.
+`defaultTags_phase_change` composes pre-start and post-start calls with the
+same caches. A class-cache hit may retain weaker pre-start bits after start;
+neither cache invalidation nor equality with the strongest recursive tag
+is assumed. The checks exhibit X with mask 26 before start, mask 31 on a
+fresh post-start call, and mask 26 on a post-start class-cache hit.
+
+`freshTagBounds_valid`, `cachedTagBounds_valid` and `TagBounds.Valid.mask`
+prove persistent lower-bound hits and upper-bound misses sound for the same
+recursive predicates. Bounds are computed extensionally over support;
+numeric quick-cache sentinels and cofactor-cell storage remain decoded
+representation details. The 26 new checks cover operand absorption under
+G/X/U/R/W/M, frozen/structural disagreement, both child orders, cofactor
+cache writes, exact-tag hits, equivalent class keys and stale cached bounds.
+The component/extractor language theorem for these refined predicates is
+still required; this milestone alone does not close T6 item 1.
+
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
 ```sh
@@ -1053,22 +1085,24 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 163 dependency reports contain only the three permitted axioms; the eleven
+All 185 dependency reports contain only the three permitted axioms; the twelve
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (68 Lake jobs). All 149
+library and `dpaImplChecks` with warnings as errors (70 Lake jobs). All 175
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-179 references / 137 anchored C/Lean targets pass. Both documentation gates
+186 references / 144 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3/T4/T5.** These are proved executable
+**Current boundary for Task T/T2/T3/T4/T5/T6.** These are proved executable
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
 Task T4 item 1's cache/order and grouped syntax selection are now composed
 with the decoded transport and memoized factoring traversal. Task T5 item 1
-is proved; items 2–5 remain open and item 6 is deliberately not enabled.
+is proved. T6 proves the recursive default tag/cache invariant, while its
+component/extractor use and terminal shortcut remain open. T6 items 2–4
+remain open and item 5 is deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
 C dump or new C↔Lean automaton golden. The 30 existing golden files remain
 unchanged at 2,986,929 bytes, including 541 DPA membership records; zero new
@@ -1078,24 +1112,23 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining constructor lemma is **soundness of the default
-recursive canonical tag refinement and its caches** at
-`src/lib/dpa_formula.c:81`: each returned fragment bit must be justified by
-the recursively materialized operands, preserving the cache invariant across
-the pre-start safety/co-safety early exit and the `started` phase change.
-The current `classTag_exact` theorem intersects structural frozen-atom tags
-in research mode; it does not recurse inside modal operands. Reusing it for
-default mode is invalid because Boolean absorption inside a materialized
-operand can improve its tag while changing the independent frozen-atom
-class. Nor is a syntax induction alone a proof of the canonical-support
-recursion or its cached phase-dependent early exits. The resulting refined
-predicates must justify the component/extractor run on the actual frozen
-syntax, not merely exhibit an alternative language-equivalent formula.
+The smallest remaining default-tag lemma is **the component/extractor
+invariant for `RefinedClass` on the actual frozen syntax**. Start with the
+finite-window derivative/horizon and safety/co-safety bad-prefix lemmas
+for recursively canonical operands, then justify the ordered transition,
+finite-remainder retry and protected extractor under those predicates.
+`defaultTags_sound` now discharges the recursive computation and its cache
+preservation at `src/lib/dpa_formula.c:81`, including the pre-start exit and
+phase change. Its conclusion cannot be fed to `classTag_exact`: the latter
+asserts structural frozen-atom tags, which absorption inside a materialized
+operand need not preserve. A syntax induction alone misses canonical support;
+an alternative structural language witness does not identify the actual
+extractor's protection or finite-retention decisions.
 Cached NNF duals cannot be replaced by `Class.compl`, and an existential
 `admitted_grammar` witness does not identify the constructor trace.
 
-Further independent bridges remain: default recursive canonical tag
-refinement; the terminal product shortcut; C's lexicographically ordered tree/export; and
+Further independent bridges remain: use of the refined default tags in the
+component/extractor; the terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
 state split, component-store preservation and explicit-plan assembly are now
@@ -1115,6 +1148,7 @@ numbers refer to the merged worktree's formatted sources.
 | --- | --- |
 | `src/lib/dpa_formula.c:3`, `:50`, `:57`, `:64` — interned BDD classes, Boolean operations, cofactors | `Class`, `Class.meet`, `Class.join`, `Class.Implies`, `Uses`, `falseCofactor` |
 | `src/lib/dpa_formula.c:81`, `:118`, `:127`, `:157` — exact tags and cached bounds | `finite`, `safety`, `cosafety`, `HasTag`, `syntax_tag_lower`, `syntax_operator_upper`, `tags_shannon_intersection`, `bounded_tag_test_exact` |
+| `src/lib/dpa_formula.c:81`, `:127`; `src/lib/dpa_formula.c:366` — default recursive operand tags and persistent caches | `Impl.defaultTags_sound`, `Impl.defaultTags_phase_change`, `Impl.cachedTagBounds_valid`, `Impl.TagBounds.Valid.mask`; refined predicates on decoded syntax, component/extractor language use pending |
 | `src/lib/dpa_formula.c:189`, `:505`, `:552` — admission and grouping guard | `FlatQ`, `FlatR`, `Admitted`, `check_admission_exact`, `canonicalCheck_shannon`, `canonicalCheck_admitted`, `groupable_all_leaves` |
 | `src/lib/dpa_formula.c:563`, `:597` — operand partition and canonical identity comparison | `flattenOperands`, `partitionOperands`, `compatibleGroups_identity`, `compatibleGroups_nonidentity`, `compatibleGroups_sat` |
 | `src/lib/dpa_formula.c:583`, `:617`; `src/lib/dpa_dela.c:117` — syntax construction, grouped branch and canonical acceptance | `canonicalAcceptance`, `groupedAcceptance`, `syntaxAcceptance`, `factoredAdmission`, `syntaxAcceptance_success`, `factoring_admission_exact`, `factoring_grouped_success`, `factoring_language`, `factoring_grouped_parity` |
