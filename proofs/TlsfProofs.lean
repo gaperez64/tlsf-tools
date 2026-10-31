@@ -15,3 +15,4 @@ import TlsfProofs.Dpa.Impl.Store
 import TlsfProofs.Dpa.Impl.Assembly
 import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
+import TlsfProofs.Dpa.Impl.Cache

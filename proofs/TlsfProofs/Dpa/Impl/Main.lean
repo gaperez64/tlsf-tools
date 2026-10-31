@@ -4,6 +4,7 @@ import TlsfProofs.Dpa.Impl.Store
 import TlsfProofs.Dpa.Impl.Assembly
 import TlsfProofs.Dpa.Impl.Transport
 import TlsfProofs.Dpa.Impl.Selection
+import TlsfProofs.Dpa.Impl.Cache
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -261,6 +262,43 @@ private def assemblyChecks : List (String × Bool × Bool) := [
   ("assembly-group-nonidentity", decide
     ((assemble false (groupedPlan true [.globally b] [.eventually b] [a] []) []).store.length = 2), true)]
 
+private def cacheRank (f : Formula (Fin 2)) : Nat :=
+  if f = a then 0 else if f = b then 1 else if f = gf then 2 else 3
+
+private def cacheChoice : Formula (Fin 2) := .disj (.conj a gf) (.conj (.neg a) fg)
+private def cacheDag : Formula (Fin 2) := .conj (.disj a b) (.conj gf fg)
+private def emptyAcceptance : AcceptanceState 2 := ⟨[], []⟩
+
+private def cachedRun (highFirst : Bool) (f : Formula (Fin 2)) : Option (CachedAssembly 2) :=
+  runCanonical (fun _ => highFirst) false
+    (orderAtoms cacheRank (modalAtoms f).eraseDups) f emptyAcceptance
+
+private def callIds (r : Option (CachedAssembly 2)) : List Nat :=
+  ((r.map CachedAssembly.calls).getD []).map fun f =>
+    if equivalent f a then 0 else if equivalent f b then 1
+    else if equivalent f gf then 2 else if equivalent f fg then 3 else 4
+
+private def cacheChecks : List (String × Bool × Bool) := [
+  ("cache-high-first-success", (cachedRun true cacheChoice).isSome, true),
+  ("cache-low-first-success", (cachedRun false cacheChoice).isSome, true),
+  ("cache-high-first-call-order", decide (callIds (cachedRun true cacheChoice) = [0, 2, 3]), true),
+  ("cache-low-first-call-order", decide (callIds (cachedRun false cacheChoice) = [0, 3, 2]), true),
+  ("cache-colour-order-differs", decide
+    ((cachedRun true cacheChoice).map (fun r => r.state.store) ≠
+     (cachedRun false cacheChoice).map (fun r => r.state.store)), true),
+  ("cache-DAG-high-first", decide (callIds (cachedRun true cacheDag) = [0, 2, 3, 1]), true),
+  ("cache-DAG-low-first", decide (callIds (cachedRun false cacheDag) = [0, 1, 2, 3]), true),
+  ("cache-canonical-key-skips-whole-subtree", decide
+    ((cachedRun true cacheDag).bind (fun r =>
+      runCanonical (fun _ => false) false [] (.conj .tt cacheDag) r.state) =
+     (cachedRun true cacheDag).map (fun r => { r with calls := [] })), true),
+  ("cache-old-entry-after-growth", decide
+    (((cachedRun true cacheDag).bind (fun r => runCanonical (fun _ => false) false [] (.conj gf fg) r.state)
+      |>.map CachedAssembly.calls) = some []), true),
+  ("cache-constant-before-entry", decide
+    ((runCanonical (fun _ => true) false [] (.disj a (.neg a))
+      ⟨[], [⟨.tt, .constant false⟩]⟩ |>.map CachedAssembly.acceptance) = some (.constant true)), true)]
+
 /-- Kernel reduction and the executable run check the same definitions. -/
 theorem class_checks : checks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
@@ -286,11 +324,14 @@ theorem transport_checks : transportChecks.all (fun (_, actual, expected) => act
 theorem selection_checks : selectionChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem cache_checks : cacheChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1
