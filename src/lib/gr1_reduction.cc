@@ -53,8 +53,7 @@ extern "C" {
 #include <sys/resource.h>
 
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT
-void reduction_test_monitor(const char *, spot::twa_graph_ptr &);
-void reduction_test_formula(const char *, spot::formula &);
+#include "gr1_reduction_test_hooks.hh"
 void reduction_test_source(const TlsfSpec *);
 void reduction_test_provenance(TlsfGr1Reduction *, TlsfGr1ReductionSemantics);
 char reduction_test_class(char, TlsfGr1ReductionSemantics);
