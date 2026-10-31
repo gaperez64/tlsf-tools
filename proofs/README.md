@@ -478,7 +478,7 @@ artifact, C output, or successful validation.
 | Executable positive Büchi round monitor | `positiveb_exact`, `completedRounds_language`, `Assembly.buchi_language` |
 | Composition from executable research admission | `uncached_construction_language` |
 | Finite closed reference-table export | Open; symbolic representatives must be merged using proved Boolean equality |
-| Executable parity and state-based Büchi language-equivalence checker | Open; must compare languages without requiring state isomorphism |
+| Executable parity and state-based Büchi language-equivalence checker | `Validation.check_language`, `Validation.checkBuchi_sound`; proved sound, independent of state isomorphism |
 | Canonical C dump, parsing, full formula inventory and offline validation | Open; zero translation-validation verdicts recorded |
 | Hash goldens and C regression gate | Open; existing language fixtures remain regression evidence |
 | Enable general admission and regenerate declined cases | Blocked on every preceding validation obligation |
@@ -619,5 +619,41 @@ contain only the three permitted axioms. The prohibited-token scan, proof-source
 reference gate and golden-provenance gate passed. Lean source after this pruning
 milestone: **12,308 lines in 33 files** (before: 18,290 / 45). Existing
 goldens: **2,986,929 bytes**; no translation-validation goldens have been added.
-The smallest next obligation is a sound finite-product graph equivalence check;
-a language proof for symbolic runs alone cannot establish equality of a C dump.
+The finite-product equivalence checker is now proved sound. The next obligation
+is a certified finite export of the symbolic reference, followed by the dump
+parser and complete offline inventory. A language proof for symbolic runs alone
+cannot establish equality of a C dump.
+
+### Verified language checker
+
+For complete deterministic max-odd automata over the same finite alphabet,
+with arbitrary state counts:
+
+```lean
+Validation.check A B = true → A.Accepts = B.Accepts
+Validation.checkBuchi A B = true → A.Accepts = B.Accepts
+```
+
+The theorem names are `Tlsf.Dpa.Validation.check_language` and
+`Tlsf.Dpa.Validation.checkBuchi_sound`. The parity proof also exports the
+pointwise form `check_sound`. The executable tests reachable closed walks in
+the product, restricted to each opposite-parity pair of priority thresholds.
+It computes Floyd reachability with materialized matrices, then independently
+checks edge inclusion, reflexivity and transitivity before using a closure.
+The proof takes recurrent maximal priorities of any two disagreeing runs and
+finds a forbidden closed walk containing both. It neither constructs nor
+requires a state isomorphism. The Büchi checker embeds state acceptance as
+source-state priorities 0/1 and proves the embedding exact.
+
+Ten kernel-checked checker regressions cover different state counts, priority
+renaming, transient priorities, unreachable states, letter-dependent languages,
+and differing Büchi acceptance frequencies. This milestone still records zero
+C-to-Lean validation verdicts; checker regressions are not corpus validation.
+
+Checker milestone validation: full Lake build (72 jobs), **21 executable checks
+passed / zero failed**, 15 axiom reports with only permitted axioms, and 3/3
+Meson documentation/provenance/oracle gates passed. The checker’s compiled
+regressions finish in under one second after storing Floyd layers as array
+data. Lean sources now total **12,660 lines in 35 files**, compared with
+18,290 / 45 before pruning. Translation-validation corpus: **0 pass / 0 fail /
+not run**. Existing goldens remain 2,986,929 bytes.

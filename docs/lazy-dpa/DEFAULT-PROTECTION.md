@@ -1,11 +1,11 @@
 # Default-mode effect of syntactic X protection
 
-Task T now also checks the research component algorithm in an executable Lean
-model. Its simulation includes recomputed syntactic protection, simultaneous
-DROP_X and retry; the executable regressions pin the review-k/l rejecting
-classes below. This strengthens the component evidence without changing C,
-default admission, state counts, or the still-open complete constructor bridge.
-See `proofs/README.md` for the exact theorem scope and remaining obligations.
+Task TV replaces the attempted cache/call-order refinement with translation
+validation. The uncached executable Lean construction has a composed language
+theorem, and finite parity/Büchi language checkers are proved sound. Finite
+reference export, canonical C dumps and the complete offline validation corpus
+remain open; production admission is unchanged. The historical measurements
+below remain historical evidence. See `proofs/README.md` for the current gates.
 
 Keep syntactic X protection in both modes. The default admission predicate is
 unchanged, but the automata can differ, including their priorities, state

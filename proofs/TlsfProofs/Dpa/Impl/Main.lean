@@ -1,4 +1,5 @@
 import TlsfProofs.Dpa.Validation.Construction
+import TlsfProofs.Dpa.Validation.Checks
 
 /-! Executable and kernel-checked reference-construction regressions. -/
 open Tlsf Tlsf.Dpa Tlsf.Dpa.Impl
@@ -40,9 +41,9 @@ theorem construction_checks : checks.all Prod.snd = true := by decide
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, ok) in checks ++ runtimeChecks do
+  for (name, ok) in checks ++ runtimeChecks ++ Validation.equivalenceChecks do
     if !ok then
       failures := failures + 1
       out.putStrLn s!"FAIL {name}"
-  out.putStrLn s!"{checks.length + runtimeChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + runtimeChecks.length + Validation.equivalenceChecks.length} checks, {failures} failures"
   pure (if failures = 0 then 0 else 1)

@@ -1,5 +1,6 @@
 import TlsfProofs.Dpa.Validation.Construction
 import TlsfProofs.Dpa.Impl.Main
+import TlsfProofs.Dpa.Validation.Equivalence
 
 #print axioms Tlsf.Dpa.Impl.uncached_construction_language
 #print axioms Tlsf.Dpa.Impl.referencePlan_success
@@ -12,3 +13,7 @@ import TlsfProofs.Dpa.Impl.Main
 #print axioms Tlsf.Dpa.tree_minEven
 #print axioms Tlsf.Dpa.terminal_absorption
 #print axioms construction_checks
+#print axioms Tlsf.Dpa.Validation.check_sound
+#print axioms Tlsf.Dpa.Validation.check_language
+#print axioms Tlsf.Dpa.Validation.checkBuchi_sound
+#print axioms Tlsf.Dpa.Validation.equivalence_checks
