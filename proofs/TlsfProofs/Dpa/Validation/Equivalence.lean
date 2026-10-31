@@ -76,22 +76,38 @@ closed relation on the full product without a Cartesian matrix. -/
 structure SparseMatrix (na nb : Nat) where
   states : List (Vertex na nb)
   cells : Array Bool
+  width : Nat
+  width_eq : width = states.length
+  positions : Vector (Vector Nat nb) na
+  positions_eq : ∀ i j, positions[i][j] = states.idxOf (i, j)
+
+def SparseMatrix.index (R : SparseMatrix na nb) (x : Vertex na nb) : Nat :=
+  R.positions[x.1][x.2]
+
+theorem SparseMatrix.index_exact (R : SparseMatrix na nb) (x : Vertex na nb) :
+    R.index x = R.states.idxOf x := by
+  exact R.positions_eq x.1 x.2
 
 def SparseMatrix.active (R : SparseMatrix na nb) (x : Vertex na nb) : Bool :=
-  R.states.contains x
+  decide (R.index x < R.width)
 
 def SparseMatrix.get (R : SparseMatrix na nb) : Matrix na nb := fun x y =>
   if R.active x then R.active y &&
-    R.cells.getD (R.states.idxOf x * R.states.length + R.states.idxOf y) false
+    R.cells.getD (R.index x * R.width + R.index y) false
   else true
 
 def sparseTabulate (vs : List (Vertex na nb)) (R : Matrix na nb) : SparseMatrix na nb :=
-  ⟨vs, (vs.flatMap (fun x => vs.map (R x))).toArray⟩
+  { states := vs
+    cells := (vs.flatMap (fun x => vs.map (R x))).toArray
+    width := vs.length
+    width_eq := rfl
+    positions := Vector.ofFn (fun i => Vector.ofFn (fun j => vs.idxOf (i, j)))
+    positions_eq := by intro i j; simp [Fin.getElem_fin] }
 
 @[noinline] def sparseClosure (edge : Matrix na nb) (vs : List (Vertex na nb)) :
     SparseMatrix na nb :=
-  vs.foldl (fun R z => sparseTabulate vs
-    (fun x y => R.get x y || (R.get x z && R.get z y)))
+  vs.foldl (fun R z => { R with cells := (vs.flatMap (fun x => vs.map
+    (fun y => R.get x y || (R.get x z && R.get z y)))).toArray })
     (sparseTabulate vs (fun x y => decide (x = y) || edge x y))
 
 def sparseClosedCheck (edge : Matrix na nb) (R : SparseMatrix na nb) : Bool :=
@@ -101,7 +117,8 @@ def sparseClosedCheck (edge : Matrix na nb) (R : SparseMatrix na nb) : Bool :=
       R.states.all (fun z => !(R.get x y && R.get y z) || R.get x z))))
 
 theorem SparseMatrix.active_exact (R : SparseMatrix na nb) (x : Vertex na nb) :
-    R.active x = true ↔ x ∈ R.states := by simp [active]
+    R.active x = true ↔ x ∈ R.states := by
+  simp only [active, decide_eq_true_eq, R.index_exact, R.width_eq, List.idxOf_lt_length_iff]
 
 theorem SparseMatrix.target_active (R : SparseMatrix na nb) (x y : Vertex na nb)
     (hx : x ∈ R.states) (h : R.get x y = true) : y ∈ R.states := by
@@ -118,20 +135,20 @@ theorem sparseClosedCheck_sound (edge : Matrix na nb) (R : SparseMatrix na nb)
   · intro x
     by_cases hx : x ∈ R.states
     · exact (h x hx).1
-    · have ha : R.active x = false := by simpa [SparseMatrix.active] using hx
+    · have ha : R.active x = false := Bool.eq_false_iff.mpr (fun hh => hx ((R.active_exact x).mp hh))
       simp [SparseMatrix.get, ha]
   · intro x y he
     by_cases hx : x ∈ R.states
     · have hy := (R.active_exact y).mp ((h x hx).2.1 y (mem_vertices y) he)
       exact ((h x hx).2.2 y hy).1 he
-    · have ha : R.active x = false := by simpa [SparseMatrix.active] using hx
+    · have ha : R.active x = false := Bool.eq_false_iff.mpr (fun hh => hx ((R.active_exact x).mp hh))
       simp [SparseMatrix.get, ha]
   · intro x y z hxy hyz
     by_cases hx : x ∈ R.states
     · have hy := R.target_active x y hx hxy
       have hz := R.target_active y z hy hyz
       exact ((h x hx).2.2 y hy).2 z hz ⟨hxy, hyz⟩
-    · have ha : R.active x = false := by simpa [SparseMatrix.active] using hx
+    · have ha : R.active x = false := Bool.eq_false_iff.mpr (fun hh => hx ((R.active_exact x).mp hh))
       simp [SparseMatrix.get, ha]
 
 variable (A : Parity (Fin alphabet) (Fin na)) (B : Parity (Fin alphabet) (Fin nb))

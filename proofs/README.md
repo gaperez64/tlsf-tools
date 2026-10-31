@@ -485,7 +485,10 @@ reflexivity, edge inclusion and transitivity. It requires no state isomorphism.
 `sparseClosedCheck_sound` proves a sparse closure extends to a closed
 relation on the full product: no edge may leave the listed states, and
 reflexivity, edge inclusion and transitivity are checked on that subgraph.
-Floyd layers are materialized only for reachable pairs. This avoids the
+Floyd layers are materialized only for reachable pairs. A finite position
+table carries a proof that every entry equals the original list index; the
+width is also certified. Matrix lookups take constant time, and Floyd layers
+reuse this fixed index table. This avoids the
 Cartesian matrix blowup for delayed safety monitors without adding a state
 isomorphism assumption. Alphabet compaction merges letters only after checking identical transitions
 and priorities at every state of both tables. It invokes the same proved
