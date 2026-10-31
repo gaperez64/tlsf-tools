@@ -355,3 +355,27 @@ Every reported dependency set must be contained in
 #print axioms Tlsf.Dpa.Impl.rhoSupported_success
 #print axioms Tlsf.Dpa.Impl.rhoSupported_default
 #print axioms supported_checks
+
+#print axioms Tlsf.Dpa.Impl.lookupTagBounds_congr
+#print axioms Tlsf.Dpa.Impl.TagBoundsCache.Extends.refl
+#print axioms Tlsf.Dpa.Impl.TagBoundsCache.Extends.trans
+#print axioms Tlsf.Dpa.Impl.TagBoundsCache.Extends.remember
+#print axioms Tlsf.Dpa.Impl.meetBounds_valid
+#print axioms Tlsf.Dpa.Impl.tagBounds_spec
+#print axioms Tlsf.Dpa.Impl.QuickCache.empty_valid
+#print axioms Tlsf.Dpa.Impl.QuickCache.start_valid
+#print axioms Tlsf.Dpa.Impl.QuickCache.Extends.refl
+#print axioms Tlsf.Dpa.Impl.QuickCache.Extends.trans
+#print axioms Tlsf.Dpa.Impl.quickClassifier_sound
+#print axioms Tlsf.Dpa.Impl.quickClassifier_lower
+#print axioms Tlsf.Dpa.Impl.quickClassifier_congr
+#print axioms Tlsf.Dpa.Impl.hasTags_spec
+#print axioms Tlsf.Dpa.Impl.TagProgram.evalSeparate_predicateOnly
+#print axioms Tlsf.Dpa.Impl.TagProgram.execQuick_spec
+#print axioms Tlsf.Dpa.Impl.TagProgram.quick_realizes
+#print axioms Tlsf.Dpa.Impl.TagProgram.PredicateOnly.bind
+#print axioms Tlsf.Dpa.Impl.mapSupported_predicateOnly
+#print axioms Tlsf.Dpa.Impl.extractSupported_predicateOnly
+#print axioms Tlsf.Dpa.Impl.rhoSupported_predicateOnly
+#print axioms Tlsf.Dpa.Impl.rhoSupported_quick
+#print axioms quick_checks

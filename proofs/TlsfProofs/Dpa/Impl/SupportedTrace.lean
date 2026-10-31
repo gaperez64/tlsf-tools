@@ -5,9 +5,9 @@ import TlsfProofs.Dpa.Impl.RefinedConverse
 
 The traversal order is `src/lib/dpa_formula.c:664`: constants, mapped-cache
 hit, supported top variable, low child, high child, then cache the ITE.
-The REDUCE atom program below uses exact queries. C's quick predicate
-shortcuts and persistent remainder memo are still separate obligations;
-this program must not be identified with their cache history.
+The REDUCE atom program below uses predicate instructions. `exec` supplies
+the exact-query reference path; `execQuick` in `QuickTrace.lean` supplies
+C's cached predicates. Persistent remainder memoization is separate.
 -/
 namespace Tlsf.Dpa.Impl
 open Formula Class
@@ -17,12 +17,14 @@ def TagProgram.bind (p : TagProgram ap α) (k : α → TagProgram ap β) : TagPr
   match p with
   | .done a => k a
   | .query f cont => .query f (fun b => (cont b).bind k)
+  | .test f mask cont => .test f mask (fun b => (cont b).bind k)
 
 theorem TagProgram.eval_bind (tags : TagClassifier ap) (p : TagProgram ap α)
     (k : α → TagProgram ap β) : (p.bind k).eval tags = (k (p.eval tags)).eval tags := by
   induction p with
   | done _ => rfl
   | query f cont ih => exact ih (tags f)
+  | test f mask cont ih => exact ih (mask.any (tags f))
 
 abbrev MappedCache (ap : Nat) := List (Formula (Fin ap) × Formula (Fin ap))
 
@@ -229,7 +231,7 @@ theorem mapSupported_success (atomProgram : Formula (Fin ap) → TagProgram ap (
 
 def reduceAtomProgram (a : Formula (Fin ap)) : TagProgram ap (Formula (Fin ap)) :=
   if isAPb a then .done a
-  else .query a (fun bits => .done (if bits .cosafety then a else .tt))
+  else .test a [.cosafety] (fun yes => .done (if yes then a else .tt))
 
 theorem reduceAtomProgram_eval (tags : TagClassifier ap) (f a : Formula (Fin ap))
     (hu : Uses (Class.ofFormula f) a) :
@@ -244,6 +246,7 @@ theorem reduceAtomProgram_eval (tags : TagClassifier ap) (f a : Formula (Fin ap)
       Bool.not_true, Bool.false_and, Bool.false_eq_true]
     exact propEval_used_atom hu σ
   · simp only [reduceAtomProgram, ha, Bool.false_eq_true, ↓reduceIte, TagProgram.eval]
+    simp only [List.any_cons, List.any_nil, Bool.or_false]
     cases tags a .cosafety <;> simp [propEval, propEval_used_atom hu]
 
 def reduceSupported (atoms : List (Formula (Fin ap))) (f : Formula (Fin ap)) :=
@@ -300,17 +303,17 @@ theorem extractSupported_success (tags : TagClassifier ap) (rank : Formula (Fin 
 def TagClassifier.Congruent (tags : TagClassifier ap) : Prop :=
   ∀ f g, Class.ofFormula f = Class.ofFormula g → tags f = tags g
 
-/-- The exact-query retry path, including the finite query on the unfolded
+/-- The retry path, including the finite query on the unfolded
 retry whose result cannot cause another retry by unfolding idempotence. -/
 def rhoSupported (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap)) :
     TagProgram ap (Option (Formula (Fin ap))) :=
   (extractSupported rank f).bind fun first => match first with
     | none => .done none
-    | some r => .query r fun bits =>
-      if bits .finite && !equivalent f (unfoldSyntax f) then
+    | some r => .test r [.finite] fun yes =>
+      if yes && !equivalent f (unfoldSyntax f) then
         (extractSupported rank (unfoldSyntax f)).bind fun second => match second with
           | none => .done none
-          | some s => .query s (fun _ => .done (some s))
+          | some s => .test s [.finite] (fun _ => .done (some s))
       else .done (some r)
 
 theorem rhoSupported_spec (tags : TagClassifier ap) (hc : tags.Congruent)
@@ -320,7 +323,7 @@ theorem rhoSupported_spec (tags : TagClassifier ap) (hc : tags.Congruent)
   cases hf : (extractSupported rank f).eval tags with
   | none => simp [hf, TagProgram.eval] at he
   | some first =>
-    simp only [hf, TagProgram.eval] at he
+    simp only [hf, TagProgram.eval, List.any_cons, List.any_nil, Bool.or_false] at he
     have hfirst := extractSupported_spec tags rank hf
     rw [hc _ _ hfirst] at he
     simp only [rhoTagged]
@@ -344,8 +347,10 @@ theorem rhoSupported_success (tags : TagClassifier ap) (rank : Formula (Fin ap) 
   by_cases ht : (tags first .finite && !(equivalent f (unfoldSyntax f))) = true
   · obtain ⟨second, hs⟩ := extractSupported_success tags rank (unfoldSyntax f)
     exact ⟨second, by simp only [rhoSupported, TagProgram.eval_bind, hf, TagProgram.eval,
+      List.any_cons, List.any_nil, Bool.or_false,
       ht, ↓reduceIte, hs]⟩
   · exact ⟨first, by simp only [rhoSupported, TagProgram.eval_bind, hf, TagProgram.eval,
+      List.any_cons, List.any_nil, Bool.or_false,
       ht, Bool.false_eq_true, ↓reduceIte]⟩
 
 theorem rhoSupported_default (rank : Formula (Fin ap) → Nat)
@@ -364,5 +369,6 @@ queries of `defaultTags`. Used by offline traversal diagnostics. -/
 def TagProgram.reads (tags : TagClassifier ap) : TagProgram ap α → List (Formula (Fin ap))
   | .done _ => []
   | .query f cont => f :: (cont (tags f)).reads tags
+  | .test f mask cont => f :: (cont (mask.any (tags f))).reads tags
 
 end Tlsf.Dpa.Impl

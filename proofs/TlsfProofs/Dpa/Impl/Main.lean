@@ -13,6 +13,7 @@ import TlsfProofs.Dpa.Impl.TagTrace
 import TlsfProofs.Dpa.Impl.RefinedAcceptance
 import TlsfProofs.Dpa.Impl.RefinedConverse
 import TlsfProofs.Dpa.Impl.SupportedTrace
+import TlsfProofs.Dpa.Impl.QuickTrace
 import TlsfProofs.Dpa.Impl.Terminal
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
@@ -638,6 +639,61 @@ private def supportedChecks : List (String × Bool × Bool) := [
     ((supportedRun gf).map (fun result => result.1.any (fun r =>
       equivalent r (rhoTagged (cacheClassifier result.2) gf))) = some true), true)]
 
+private def quickTest (f : Formula (Fin 2)) (mask : List FragmentTag) :=
+  hasTags transportRank (fun _ => false) 32 true f mask ({} : QuickCache 2)
+
+private def quickRho (f : Formula (Fin 2)) :=
+  (rhoSupported transportRank f).execQuick transportRank (fun _ => false) 32 true {}
+
+private def quickRepeat : TagProgram 2 (Bool × Bool × Bool) :=
+  .test absorbedNext [.cosafety] fun first =>
+    .test (.conj .tt absorbedNext) [.finite] fun second =>
+      .test absorbedNext [.safety, .cosafety] fun third => .done (first, second, third)
+
+private def quickChecks : List (String × Bool × Bool) := [
+  ("quick-lower-hit-skips-exact", decide
+    ((quickTest supportedF [.cosafety]).map (fun r =>
+      (r.1, r.2.tags.atoms.length, r.2.tags.classes.length)) = some (true, 0, 0)), true),
+  ("quick-upper-miss-skips-exact", decide
+    ((quickTest supportedF [.safety]).map (fun r =>
+      (r.1, r.2.tags.atoms.length, r.2.tags.classes.length)) = some (false, 0, 0)), true),
+  ("quick-undecided-refines-frozen-operand", decide
+    ((quickTest absorbedNext [.cosafety]).map (fun r => (r.1, r.2.tags.atoms.length)) =
+      some (true, 1)), true),
+  ("quick-bounds-snapshot-stays-stale", decide
+    ((quickTest absorbedNext [.finite]).map (fun r =>
+      ((lookupTagBounds absorbedNext r.2.bounds).map (fun b => fragmentMask b.low),
+       fragmentMask (freshTagBounds r.2.tags absorbedNext).low)) = some (some 26, 31)), true),
+  ("quick-recursive-low-high-cells", decide
+    ((quickTest (.conj a supportedF) [.cosafety]).map (fun r => r.2.bounds.length) = some 4), true),
+  ("quick-empty-mask-skips-exact", decide
+    ((quickTest absorbedNext []).map (fun r => (r.1, r.2.tags.classes.length)) = some (false, 0)), true),
+  ("quick-mixed-mask-lower-wins", decide
+    ((quickTest supportedF [.safety, .cosafety]).map (fun r =>
+      (r.1, r.2.tags.classes.length)) = some (true, 0)), true),
+  ("quick-equivalent-key-repeat", decide
+    ((quickRepeat.execQuick transportRank (fun _ => false) 32 true {}).map Prod.fst =
+      some (true, true, true)), true),
+  ("quick-final-classifier-replays-predicates", decide
+    ((quickRepeat.execQuick transportRank (fun _ => false) 32 true {}).map (fun r =>
+      quickRepeat.eval (quickClassifier r.2)) = some (true, true, true)), true),
+  ("quick-constant-true-empty-tag-cache", decide
+    ((quickTest .tt [.finite]).map (fun r => (r.1, r.2.tags.classes.length)) = some (true, 0)), true),
+  ("quick-constant-false-all-tags", decide
+    ((quickTest .ff [.cosafety]).map Prod.fst = some true), true),
+  ("quick-bounds-fuel-failure-explicit", decide
+    ((hasTags transportRank (fun _ => false) 0 true a [.finite] {}).isSome = false), true),
+  ("quick-startup-retains-bounds", decide
+    ((quickTest absorbedNext [.finite]).map (fun r =>
+      (r.2.start.tags.classes.length, r.2.start.tags.atoms.length, r.2.start.bounds.length)) =
+      some (0, 1, 3)), true),
+  ("quick-GF-extraction-matches-realized-classifier", decide
+    ((quickRho gf).map (fun r => r.1.any (fun f =>
+      equivalent f (rhoTagged (quickClassifier r.2) gf))) = some true), true),
+  ("quick-absorbed-next-extraction", decide
+    ((quickRho absorbedNext).map (fun r => r.1.any (fun f =>
+      equivalent f (rhoTagged (quickClassifier r.2) absorbedNext))) = some true), true)]
+
 private def refinedProtected : Formula (Fin 2) := .conj absorbedNext refinedProtector
 
 private def refinedChecks : List (String × Bool × Bool) := [
@@ -820,14 +876,17 @@ theorem trace_checks : traceChecks.all (fun (_, actual, expected) => actual == e
 theorem supported_checks : supportedChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
+theorem quick_checks : quickChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 theorem terminal_checks : terminalChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide +kernel
 
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ supportedChecks ++ terminalChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks ++ cacheChecks ++ groupingChecks ++ factoringChecks ++ defaultTagChecks ++ refinedChecks ++ traceChecks ++ supportedChecks ++ quickChecks ++ terminalChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + supportedChecks.length + terminalChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length + cacheChecks.length + groupingChecks.length + factoringChecks.length + defaultTagChecks.length + refinedChecks.length + traceChecks.length + supportedChecks.length + quickChecks.length + terminalChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

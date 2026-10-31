@@ -24,4 +24,5 @@ import TlsfProofs.Dpa.Impl.TagTrace
 import TlsfProofs.Dpa.Impl.RefinedAcceptance
 import TlsfProofs.Dpa.Impl.RefinedConverse
 import TlsfProofs.Dpa.Impl.SupportedTrace
+import TlsfProofs.Dpa.Impl.QuickTrace
 import TlsfProofs.Dpa.Impl.Terminal

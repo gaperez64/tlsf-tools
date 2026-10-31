@@ -1252,10 +1252,35 @@ congruent classifier; `rhoSupported_default` realizes each successful
 shared-default-cache execution by its final sound, lower-bound classifier.
 The executable/kernel diagnostics check skipped absorbed atoms, low/high
 order, equivalent memo hits, shared subgraphs, explicit failure, and the
-actual five external exact queries of the GF retry fixture. These programs
-use exact queries: they do **not** claim C's quick-predicate or persistent
-remainder-cache history. DROP_X and unfolding reuse their existing class
+five external queries of the GF retry fixture under the exact reference
+interpreter. This T9 interpreter does **not** claim C's quick-predicate or
+persistent remainder-cache history. DROP_X and unfolding reuse their existing class
 refinements rather than compiling those C cache traversals.
+
+**Task T10, quick-predicate query compilation.**
+`Impl/QuickTrace.lean` adds predicate instructions to `TagProgram` and
+`execQuick`, which executes C's cached lower/upper tests and calls
+`defaultTags` only for an undecided mask. `tagBounds_spec` proves the
+recursive supported traversal, including low-before-high order, descendant
+cache cells, constant cells and persistent cache hits. Startup clears class
+tags while retaining quick bounds and atom cells, as C does.
+
+`TagProgram.execQuick_spec` realizes exact-bit reads and predicate reads
+separately throughout every later cache extension. `quick_realizes` supplies
+one sound, structural-lower-bound classifier for an entire predicate-only
+program. Its classifier combines cached lower answers with cached exact
+answers; a previously cached exact class need not contain a later quick
+lower bit. Identifying the two classifiers would require an extra cache
+invariant and is deliberately avoided.
+
+`rhoSupported_quick` composes supported REDUCE, mapped-cache reuse,
+protected extraction and finite retry with that predicate interpreter.
+The successful result equals the class of `rhoTagged` under the final
+realizing classifier. The exact-query reference interpreter remains
+available for T9's statements. Fifteen additional executable/kernel checks
+exercise quick returns without exact cache growth, undecided refinement,
+stale bounds, equivalent keys, masks, startup and extraction. Persistent
+remainder-cache reuse and the full component program remain separate.
 
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
@@ -1265,18 +1290,18 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 347 dependency reports contain only the three permitted axioms. The
+All 370 dependency reports contain only the three permitted axioms. The
 `terminal_checks` diagnostic and all six universal refined-language/shared-trace
-witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other fifteen
+witnesses use `propext`, `Classical.choice` and `Quot.sound`; the other sixteen
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (86 Lake jobs). All 248
+library and `dpaImplChecks` with warnings as errors (88 Lake jobs). All 263
 executable/kernel checks pass. The proof source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-199 references / 157 anchored C/Lean targets pass. Both documentation gates
+201 references / 159 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3/T4/T5/T6/T7/T8/T9.** These are proved executable
+**Current boundary for Task T/T2/T3/T4/T5/T6/T7/T8/T9/T10.** These are proved executable
 transport, component, decision and canonical-cache milestones. Task T3 item 1
 is proved at the decoded-syntax boundary; its item 2 canonical selector now
 includes acceptance-cache hits and either per-execution Shannon child order.
@@ -1294,7 +1319,8 @@ inputs. T9 proves the false-seed converse, structural Π₂ accepting-run
 equality with refined classifiers, both one-colour parity orientations, and
 active-obligation satisfaction. It also compiles the supported exact-query
 REDUCE traversal, mapped-cache reuse and extraction retry into `TagProgram`.
-C's quick-predicate/remainder-cache history, full component-query compilation
+T10 compiles the quick-predicate path and realizes its successful extraction
+trace. Persistent remainder-cache reuse, full component-query compilation
 and the recursive refined Π₂ input domain remain open. Items 2–4 remain open; item 5 is
 deliberately not enabled.
 The executable is a diagnostic, not a BFS automaton exporter; there is no matching
@@ -1306,18 +1332,16 @@ rerun or change that corpus inventory. No new language counterexample or
 narrowing of C was found. The frozen-operand absorption example was already
 declined in research mode by the earlier review-l alignment.
 
-The smallest remaining default-tag bridge is **C's actual cached predicate
-decisions**: compile `dpa_has_tags`'s quick lower/upper returns and undecided
-exact calls, plus persistent remainder-cache hits, and compose them with
-`rhoSupported` and the component's ordered guards. `rhoSupported_default`
-now identifies a successful supported exact-query execution with the class
-of `rhoTagged`. C may skip those exact calls, changing which class/atom
-cells exist when later bounds are computed. `TagProgram.default_realizes`
-replays the exact reads of the compiled program, but it cannot identify
-quick answers that made no exact read. Replacing those shortcuts with extra
-queries, traversing absorbed syntax, or using a fresh-query diagnostic does
-not preserve C's cache history. The program therefore remains a refinement
-of the exact-query path, not a certificate for the concrete C execution.
+The smallest remaining default-tag bridge is **persistent remainder-cache
+reuse and the component's ordered guards**. `rhoSupported_quick` now
+identifies a successful supported extraction using C's quick predicates
+with the class of `rhoTagged`, without inserting extra exact queries.
+`TagProgram.quick_realizes` replays the entire predicate program through one
+sound classifier while preserving quick and exact cache cells. A persistent
+remainder hit can instead return an extraction made under an earlier
+classifier, without running that program again. Its retained frozen atoms
+and protected X syntax must be justified across later queries and startup;
+replacing a hit by recomputation changes C's cache history.
 
 The smallest remaining acceptance lemma is **eventual false extracted seeds
 for recursive refined Π₂ inputs on the compiled default-tag run**.

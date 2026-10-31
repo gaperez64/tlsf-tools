@@ -195,10 +195,12 @@ from earlier answers, so this includes finite retry and ordered table guards. -/
 inductive TagProgram (ap : Nat) (α : Type) where
   | done (value : α)
   | query (f : Formula (Fin ap)) (next : FragmentBits → TagProgram ap α)
+  | test (f : Formula (Fin ap)) (mask : List FragmentTag) (next : Bool → TagProgram ap α)
 
 def TagProgram.eval (tags : TagClassifier ap) : TagProgram ap α → α
   | .done a => a
   | .query f k => (k (tags f)).eval tags
+  | .test f mask k => (k (mask.any (tags f))).eval tags
 
 def TagProgram.exec (q : TagComputation ap) : TagProgram ap α → TagCache ap →
     Option (α × TagCache ap)
@@ -206,6 +208,9 @@ def TagProgram.exec (q : TagComputation ap) : TagProgram ap α → TagCache ap �
   | .query f k, s => do
     let (b, s) ← q f s
     (k b).exec q s
+  | .test f mask k, s => do
+    let (b, s) ← q f s
+    (k (mask.any b)).exec q s
 
 /-- Every successful shared-cache trace has one classifier that realizes all
 its reads, not just unrelated witnesses for individual positive answers. -/
@@ -223,6 +228,15 @@ theorem TagProgram.default_exec (rank : Formula (Fin ap) → Nat)
     obtain ⟨⟨b, sb⟩, hb, he⟩ := he
     have hv := (defaultTags_sound rank highFirst fuel started f s b sb hs hb).1
     obtain ⟨hv', hx, hr⟩ := ih b sb hv he
+    refine ⟨hv', (defaultTags_preserves rank highFirst fuel started f s b sb hb).trans hx, ?_⟩
+    intro t ht
+    simp only [eval, defaultTags_read rank highFirst fuel started hb (hx.trans ht)]
+    exact hr t ht
+  | test f mask k ih =>
+    simp only [exec, bind, Option.bind_eq_some_iff] at he
+    obtain ⟨⟨b, sb⟩, hb, he⟩ := he
+    have hv := (defaultTags_sound rank highFirst fuel started f s b sb hs hb).1
+    obtain ⟨hv', hx, hr⟩ := ih (mask.any b) sb hv he
     refine ⟨hv', (defaultTags_preserves rank highFirst fuel started f s b sb hb).trans hx, ?_⟩
     intro t ht
     simp only [eval, defaultTags_read rank highFirst fuel started hb (hx.trans ht)]
