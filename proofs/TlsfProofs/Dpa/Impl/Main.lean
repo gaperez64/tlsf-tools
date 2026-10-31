@@ -3,6 +3,7 @@ import TlsfProofs.Dpa.Impl.Buchi
 import TlsfProofs.Dpa.Impl.Store
 import TlsfProofs.Dpa.Impl.Assembly
 import TlsfProofs.Dpa.Impl.Transport
+import TlsfProofs.Dpa.Impl.Selection
 
 /-! Executable diagnostics for the representation bridge. This is not yet an
 automaton exporter; its scope is deliberately explicit in the executable name. -/
@@ -94,6 +95,33 @@ private def reviewL : Formula (Fin 2) := .globally (reviewR (.next (.next b)))
 
 private def absorbedFrozen : Formula (Fin 2) :=
   .globally (.disj (.eventually a) (.conj (.eventually a) (.eventually (.globally b))))
+
+private def gf : Formula (Fin 2) := .globally (.eventually a)
+private def fg : Formula (Fin 2) := .eventually (.globally b)
+private def gfFirst (f : Formula (Fin 2)) : Nat := if f = gf then 0 else 1
+private def fgFirst (f : Formula (Fin 2)) : Nat := if f = fg then 0 else 1
+
+private def selectionChecks : List (String × Bool × Bool) := [
+  ("selection-tautology", decide
+    (canonicalPlan gfFirst (.disj a (.neg a)) = some (.constant true)), true),
+  ("selection-contradiction", decide
+    (canonicalPlan gfFirst (.conj a (.neg a)) = some (.constant false)), true),
+  ("selection-whole-GF", decide (canonicalPlan gfFirst gf = some (.whole gf)), true),
+  ("selection-mixed-GF-first", decide
+    (canonicalPlan gfFirst (.conj gf fg) =
+      some (.shannon gf (.whole (.conj .tt fg)) (.constant false))), true),
+  ("selection-mixed-FG-first", decide
+    (canonicalPlan fgFirst (.conj gf fg) =
+      some (.shannon fg (.whole (.conj gf .tt)) (.constant false))), true),
+  ("selection-skip-absorbed-variable", decide
+    (selectCanonicalPlan [absorbedFrozen, gf, fg] (.conj gf fg) =
+      selectCanonicalPlan [gf, fg] (.conj gf fg)), true),
+  ("selection-absorbed-unsupported-whole", decide
+    (canonicalPlan gfFirst (.disj a (.conj a absorbedFrozen)) =
+      some (.whole (.disj a (.conj a absorbedFrozen)))), true),
+  ("selection-unsupported-decline", decide (canonicalPlan gfFirst absorbedFrozen = none), true),
+  ("cofactor-modal-frozen", decide (cofactor a false (.eventually a) = .eventually a), true),
+  ("cofactor-supported-modal", decide (cofactor gf false (.conj gf fg) = .conj .ff fg), true)]
 
 private def componentChecks : List (String × Bool × Bool) := [
   ("GF-pi2", classTag .pi2 (.globally (.eventually a)), true),
@@ -255,11 +283,14 @@ theorem assembly_checks : assemblyChecks.all (fun (_, actual, expected) => actua
 theorem transport_checks : transportChecks.all (fun (_, actual, expected) => actual == expected) = true := by
   decide
 
+theorem selection_checks : selectionChecks.all (fun (_, actual, expected) => actual == expected) = true := by
+  decide +kernel
+
 def main : IO UInt32 := do
   let out ← IO.getStdout
   let mut failures := 0
-  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks do
+  for (name, actual, expected) in checks ++ componentChecks ++ dualAndAdmissionChecks ++ buchiChecks ++ storeChecks ++ assemblyChecks ++ transportChecks ++ selectionChecks do
     out.putStrLn s!"{name}\t{actual}"
     if actual != expected then failures := failures + 1
-  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length} checks, {failures} failures"
+  out.putStrLn s!"{checks.length + componentChecks.length + dualAndAdmissionChecks.length + buchiChecks.length + storeChecks.length + assemblyChecks.length + transportChecks.length + selectionChecks.length} checks, {failures} failures"
   return if failures == 0 then 0 else 1

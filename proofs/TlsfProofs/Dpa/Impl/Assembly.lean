@@ -64,6 +64,7 @@ inductive AcceptancePlan (ap : Nat) where
   | whole : Formula (Fin ap) → AcceptancePlan ap
   | binary : Bool → AcceptancePlan ap → AcceptancePlan ap → AcceptancePlan ap
   | shannon : Formula (Fin ap) → AcceptancePlan ap → AcceptancePlan ap → AcceptancePlan ap
+  deriving DecidableEq
 
 def AcceptancePlan.source : AcceptancePlan ap → Formula (Fin ap)
   | .constant b => if b then .tt else .ff

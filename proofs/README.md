@@ -764,7 +764,7 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake exe dpaImplChecks
 ```
 
-The 96 checks exercise absorption, constants, essential and absent support,
+The 106 checks exercise absorption, constants, essential and absent support,
 frozen operands, independent duals, both U/M protector operands, nested X,
 protector loss, the review-k/l initial remainders, retry, simultaneous STEP,
 and nonconstant finite retention at renewal. They also cover canonical dual
@@ -784,10 +784,13 @@ cover ID sorting, duplicate/constant folding, accumulated X through Boolean
 nodes, resets under frozen modal operands, preservation of frozen absorption,
 all temporal duals, implication/equivalence polarities, and strong-next rejection
 inside an absorbed branch. The X-distribution check explicitly distinguishes
-language preservation from frozen-class equality.
-`class_checks`, `component_checks`, `dual_admission_checks`, `buchi_checks` and
-`store_checks`, `assembly_checks`, and `transport_checks` check these same
-executable definitions by kernel reduction.
+language preservation from frozen-class equality. Ten canonical selection
+checks cover constant/whole fast paths, mixed Π₂/Σ₂ Shannon plans in both
+variable orders, skipped absorbed variables, absorbed unsupported syntax,
+unsupported declines, and frozen cofactor operands.
+`class_checks`, `component_checks`, `dual_admission_checks`, `buchi_checks`,
+`store_checks`, `assembly_checks`, `transport_checks`, and `selection_checks`
+check these same executable definitions by kernel reduction.
 
 **Task T3, item 1 proved at the decoded-syntax boundary.**
 `Impl/Transport.lean` follows `formula_impl` at `src/lib/dpa_formula.c:394`
@@ -934,14 +937,37 @@ proves a concrete shared-store presentation for safety/co-safety/finite
 groups and valid recursive rest plans, for either Boolean operator and both
 identity branches. This closes the assembly lemma from the previous boundary.
 
-This is still **plan compilation**, not the complete C constructor selector.
-The model explicitly visits the high Shannon child before the low child;
-C's nested calls in arguments do not fix that order in the C language.
-Their per-execution order, memoized shared DAGs, and chosen plans still need
-an executable selection/refinement, before automaton IDs can be compared.
-The earlier semantic `syntaxAcceptance` success theorem does not supply that
-selector or its colour order. No new existential components are chosen by
-the assembly theorem.
+`Impl/Selection.lean` now selects the **uncached canonical fallback** at
+`src/lib/dpa_dela.c:117`. `cofactor_eval` proves the executable Boolean
+cofactors exact, without descending into frozen modalities; `cofactor_nnf`
+preserves NNF. `cofactor_shannon` reconstructs the original class.
+`selectCanonicalPlan` checks constants, whole-class admission, and then the
+first essential atom in the supplied variable order. `canonicalPlan` supplies
+the syntax's finite alphabet sorted by permanent atom ID. `orderAtoms_mem`
+and `orderAtoms_sorted` prove the structural sorting reference preserves
+membership and gives increasing ranks. The proof covers
+every rank/order, including variables removed by canonical absorption.
+
+`canonicalPlan_domain` proves success exactly when `canonicalResearchCheck`
+accepts. `canonicalPlan_spec` proves `AcceptancePlan.Valid` and source-class
+equality for the plan returned by this executable selector; neither is an
+assumption about an arbitrary plan. `transported_canonical_source` proves
+that selected plan valid and its source language equal to the original input
+at every word and position. `transported_canonical_presentation` composes
+that result with shared-store assembly to give `ProductPresentation` for
+the original input formula and the compiled selected plan.
+`admitted_canonical_presentation` supplies the actual successful selector
+result from executable research admission, without assuming a valid plan or
+choosing fresh existential components.
+
+This is still **uncached canonical selection and plan compilation**. The
+complete C selector additionally selects grouped syntax plans and observes
+its acceptance cache. `assemble` explicitly visits the high Shannon child
+before the low child; C's nested calls in arguments do not fix that order in
+the C language. Their per-execution order and skipped store calls on cache
+hits still need refinement before automaton IDs can be compared. The earlier
+semantic `syntaxAcceptance` success theorem does not supply this selector or
+its colour order. No new existential components are chosen by these results.
 
 The repeatable dependency audit is `tools/golden/dpa_impl_audit.lean`:
 
@@ -951,23 +977,25 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   lake env lean -DwarningAsError=true ../tools/golden/dpa_impl_audit.lean
 ```
 
-All 88 dependency reports contain only the three permitted axioms; the seven
+All 106 dependency reports contain only the three permitted axioms; the eight
 concrete diagnostic proofs use only `propext`. Lean 4.35.0 builds the complete
-library and `dpaImplChecks` with warnings as errors (60 Lake jobs). The proof
+library and `dpaImplChecks` with warnings as errors (62 Lake jobs). The proof
 source scan has no prohibited declarations or decision shortcuts. The source
 reference guard now scans the executable modules as well as this README:
-158 references / 116 anchored C/Lean targets pass. Both documentation gates
+161 references / 119 anchored C/Lean targets pass. Both documentation gates
 and the existing C Büchi golden gate pass (3/3, no rebuild): 313 admitted / 228
 declined formulas, with 512 memberships per admitted formula.
 
-**Current boundary for Task T/T2/T3.** These are proved executable transport, component and
-decision milestones. Task T2 item 1 is complete. Its item 2 store and
+**Current boundary for Task T/T2/T3.** These are proved executable transport,
+component and decision milestones. Task T2 item 1 is complete. Its item 2 store and
 plan-assembly invariants are proved, but the complete C selector/order bridge
 and its items 3–4 remain incomplete; its item 5 is deliberately not enabled.
-Task T3 item 1 is proved at the decoded-syntax boundary; items 2–5 remain
-open and item 6 is not enabled. The executable is a
-diagnostic, not a BFS automaton exporter; there
-is no matching C dump or new C↔Lean automaton golden. The 30 existing golden
+Task T3 item 1 is proved at the decoded-syntax boundary. Item 2 now has
+validity and source equality for the exact uncached canonical fallback;
+its acceptance-cache/order and grouped-syntax selection remain open.
+Items 3–5 remain open and item 6 is not enabled. The executable is a
+diagnostic, not a BFS automaton exporter; there is no matching C dump or
+new C↔Lean automaton golden. The 30 existing golden
 files remain unchanged at 2,986,929 bytes, including 541 DPA membership records;
 zero new automaton goldens were generated. Recorded corpus coverage remains 148/217 by default
 and 155/217 with research admission; these milestones did not rerun or change
@@ -975,22 +1003,22 @@ that corpus inventory. No new language counterexample or narrowing of C was
 found. The frozen-operand absorption example was already declined in research
 mode by the earlier review-l alignment.
 
-The smallest remaining constructor lemma is **selection of the exact
-construction plan from C's transported, materialized class and frozen
-syntax**. It must establish `AcceptancePlan.Valid`, identify the selected
-plan's source language with the input, and refine the actual order of store
-calls and acceptance-cache hits. The smart-constructor / transport
-language prerequisite is now proved above, including constant folding and the
-pending X count through Boolean nodes with resets under frozen modal operands.
-This does not identify the acceptance plan selected from that syntax. The
-proved store/assembly invariant supplies the result once this concrete
-selection is established, but cannot be used as its premise. Cached NNF
-duals likewise cannot be replaced by `Class.compl`. Neither an existential
-`admitted_grammar` witness nor arbitrary valid plans identify the selected C
-constructor or its colour order.
+The smallest remaining constructor lemma is **refining C's acceptance-cache
+hits and per-execution store-call order for the selected canonical fallback**,
+then selecting the grouped plan from the transported frozen syntax.
+`canonicalPlan_spec` now supplies validity and source equality for the
+uncached fallback on the exact research success domain. The shared-store
+assembly theorem deliberately evaluates both uncached Shannon children
+high-first; C can skip either child through its acceptance cache and does
+not specify their argument evaluation order. A valid uncached plan alone
+therefore does not establish the actual colour indices or shared acceptance
+DAG. The smart-constructor/transport language prerequisite is proved above,
+but it cannot justify dropping cache effects or choosing a grouped plan.
+Cached NNF duals likewise cannot be replaced by `Class.compl`, and neither
+an existential `admitted_grammar` witness nor an arbitrary valid plan
+identifies the actual C constructor trace.
 
-Further independent bridges remain: default
-recursive canonical tag refinement; the complete grouped constructor and
+Further independent bridges remain: default recursive canonical tag refinement; the complete grouped constructor and
 terminal product shortcut; C's lexicographically ordered tree/export; and
 the offline BFS automaton goldens for corpus conjuncts and equivalence cases.
 The independent `dpa_buchi_create` round-monitor obligation, incoming-mark
@@ -1023,6 +1051,7 @@ numbers refer to the merged worktree's formatted sources.
 | `src/lib/dpa_dela.c:72`, `:327` — pair interning / initialization | `Pair`, `initial`, `initial_invariant` |
 | `src/lib/dpa_dela.c:93`, `:117` — component/complement acceptance | `Inf`, `FinMarks`, `complete_complement`, `product_complement` |
 | `src/lib/dpa_dela.c:93` — executable interning, ordered lookup, oriented cache and stable indices | `Impl.internComponent_valid`, `Impl.internComponent_language`, `Impl.internComponent_preserves_index`, `Impl.internComponent_preserves_colours`, `Impl.internComponent_preserves_literal`, `Impl.internComponent_buchi_positive` |
+| `src/lib/dpa_dela.c:117` — executable uncached canonical plan selection and transport composition | `Impl.cofactor_eval`, `Impl.cofactor_nnf`, `Impl.cofactor_shannon`, `Impl.canonicalPlan_domain`, `Impl.canonicalPlan_spec`, `Impl.transported_canonical_source`, `Impl.admitted_canonical_presentation`; acceptance-cache/order refinement pending |
 | `src/lib/dpa_dela.c:117`; `src/lib/dpa_formula.c:583` — shared-store acceptance assembly from explicit valid plans | `Impl.assemble_spec`, `Impl.assemble_presentation`, `Impl.assemble_shannon_presentation`, `Impl.assemble_grouped_presentation`; complete selector/order refinement pending |
 | `src/lib/dpa_dela.c:222`, `:308` — joint product and all-component progression | `productRun`, `productColours`, `product_projection`, `product_language` |
 | `src/lib/dpa_dela.c:203`, `:272`, `:278`; `src/lib/dpa.c:300` — seen-colour residual, reset, incoming state split and initial bit | `Impl.seenColours_exact`, `Impl.roundRun_residual`, `Impl.completedRounds_language`, `Impl.incoming_state_split`, `Impl.incomingMarks_language`, `Impl.buchiPriority_language` |
