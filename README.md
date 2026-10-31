@@ -380,9 +380,11 @@ the residual over a *smaller* alphabet, **clustering** it by shared output
 parallelisable sub-problems under infinite-word semantics. Output-dependent
 assumptions collapse all outputs into one cluster. Finite semantics also keep
 one cluster, since controllers share the choice of where the word ends.
-Every global assumption is kept in every
-cluster, including assumptions over disjoint signals: their conjunction may be
-inconsistent. The residual decomposition is labelled **TRUST_EXACT**. The emitted
+In infinite Mealy games (ordinary and strict), global environment entries
+outside the cluster's transitive signal cone are pruned only when Spot confirms
+that their joint `INITIALLY && G REQUIRE && ASSUMPTIONS` is satisfiable.
+Inconsistent or uncertain dropped sets are kept. Finite and Moore games keep
+every global assumption. The residual decomposition is labelled **TRUST_EXACT**. The emitted
 cluster formula is the formula solved and trusted. See [proofs/README.md](proofs/README.md)
 for the exact rules and their proof scope.
 

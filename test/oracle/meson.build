@@ -45,6 +45,9 @@ foreach suite : ['native_lift_differential', 'native_reduction', 'native_reducti
 endforeach
 
 if research_tools
+  test('assumption_pruning_guards', python3,
+    args: [files('test_assumption_pruning.py'), exe['tlsf2ltl'],
+           exe['tlsfresidual'], exe['tlsfcompose']], timeout: 90)
   test('disjoint_assumptions_equivalent', python3,
     args: [files('test_disjoint_assumptions.py'), exe['tlsf2ltl'],
            exe['tlsfresidual'], exe['tlsfcompose'], files(cases / 'disjoint_assumptions.tlsf')])

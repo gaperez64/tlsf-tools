@@ -49,12 +49,15 @@ if mode == "lowercase":
     for semantics, target in (("Mealy", "Mealy"), ("Moore", "Moore"),
                                ("Mealy,Strict", "Mealy"), ("Moore,Strict", "Moore"),
                                ("Mealy,Finite", "Mealy"), ("Moore,Finite", "Moore")):
-        source = spec(semantics, target, "OUTPUTS { p; } "
+        # Keep the case pair in the cluster's core so the satisfiable disjoint
+        # environment pruning rule cannot remove the alphabet under test.
+        source = spec(semantics, target, "OUTPUTS { p; } PRESET { q <-> Q; } "
                       "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; }")
         for tool in (residual, compose):
             kept = run(tool, source=source)
             assert kept.returncode == 0, kept
-            assert "c cluster 0 outs= ins=q,Q\nG (q <-> !Q) -> false\n" in kept.stdout, kept
+            assert "c cluster 0 outs= ins=q,Q\n" in kept.stdout, kept
+            assert "G (q <-> !Q) -> false" in kept.stdout, kept
         # Both undeclared atoms, one declared input, and an implicit-input /
         # declared-output pair, in every formula section (including unused APs).
         for declaration in ("", "INPUTS { q; }", "OUTPUTS { q; }"):

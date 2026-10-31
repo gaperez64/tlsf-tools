@@ -47,6 +47,10 @@ objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
 test('objective_alloc', objective_alloc_exe)
 
 if research_tools
+  pruning_cache = executable('pruning_cache', 'pruning_cache.c',
+    link_args: ['-Wl,--wrap=env_witness_search'],
+    dependencies: tlsf_internal_dep)
+  test('pruning_cache', pruning_cache)
   phase_b_probe = executable('phase_b_probe', 'phase_b_probe.c',
     dependencies: tlsf_internal_dep)
   residual_fault = executable('residual-fault', 'research_fault.c',
@@ -148,3 +152,6 @@ endif
 # Diagnostic inventory; not a test and never used by the production reducer.
 gr1_admission = executable('gr1_admission', 'gr1_admission.cpp',
   dependencies: tlsf_internal_dep)
+env_witness = executable('env_witness', 'env_witness.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('env_witness', env_witness)

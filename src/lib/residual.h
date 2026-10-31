@@ -35,7 +35,8 @@ bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag);
 /// Build the cluster's monolithic LTL formula from the substituted residual
 /// formulas `rf` (`rf[i] == nullptr` => skip) belonging to cluster `kk` (or all
 /// when `all`).  Fills `seen` with the APs it mentions.  nullptr on OOM.  When
-/// `prune` is true, keep every global assumption in every cluster. Pass false
+/// `prune` is true, disjoint global environment entries may be dropped in
+/// infinite Mealy games only after a positive EnvSat check. Pass false
 /// to keep all assumptions, including output-dependent ones, for the
 /// output-free realizability check.
 [[nodiscard]] Node *residual_build_cluster(TlsfSpec *spec, ConstraintCover *cov,

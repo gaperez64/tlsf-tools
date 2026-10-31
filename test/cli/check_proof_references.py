@@ -81,14 +81,17 @@ readme = (root / "proofs/README.md").read_text()
 # A shorthand location inherits the last named file in the same paragraph or
 # table. This includes `:891`/`:914` and the Lean `:578`–`:596` range.
 reference = re.compile(
-    r"`(?P<name>(?:src/[\w/]+\.[ch]|TlsfProofs/[\w/]+\.lean|print_ltlxba\.c))?"
+    r"`(?P<name>(?:src/[\w/]+\.(?:c|cc|h)|(?:proofs/)?TlsfProofs/[\w/]+\.lean|print_ltlxba\.c))?"
     r":(?P<locations>\d+(?:[–,-]\d+)*)`")
 count = anchored = 0
 seen = {name: set() for name in ANCHORS}
+covered = {}
 for block in re.split(r"\n\s*\n", readme):
     name = None
     for match in reference.finditer(block):
         name = match["name"] or name
+        if name and name.startswith("proofs/"):
+            name = name.removeprefix("proofs/")
         locations = match["locations"]
         assert name is not None, f"orphan shorthand reference: {match[0]}"
         if name.startswith("TlsfProofs/"):
@@ -99,6 +102,7 @@ for block in re.split(r"\n\s*\n", readme):
         for part in locations.split(","):
             bounds = [int(n) for n in re.split("[–-]", part)]
             assert 1 <= bounds[0] <= bounds[-1] <= len(lines), (name, locations)
+            covered.setdefault(name, set()).update(range(bounds[0] - 1, bounds[-1]))
             for line in set(bounds):
                 target = lines[line - 1].strip()
                 if name in ANCHORS:
@@ -112,5 +116,24 @@ for block in re.split(r"\n\s*\n", readme):
         count += 1
 assert count, "no proof source references found"
 assert seen == ANCHORS, "a C/Lean anchor lost its documentation reference"
+# The native witness and Lean bridge must occur within the documented ranges.
+RANGE_ANCHORS = {
+    "src/lib/env_witness.c": (
+        "static int compile_node(",
+        "static EnvWitnessResult evaluate(",
+        "EnvWitnessResult env_witness_search(",
+    ),
+    "TlsfProofs/Pruning.lean": (
+        "def environmentFormula ",
+        "theorem environment_sat_iff ",
+        "theorem envSat_of_word ",
+    ),
+}
+for name, declarations in RANGE_ANCHORS.items():
+    path = root / ("proofs/" + name if name.startswith("TlsfProofs/") else name)
+    lines = path.read_text().splitlines()
+    for declaration in declarations:
+        assert any(declaration in lines[i] for i in covered.get(name, ())), (
+            name, declaration, "missing from correspondence ranges")
 print(f"checked {count} proof source references, {anchored} C/Lean targets; "
-      "controller emission found")
+      "controller emission and native witness bridge found")

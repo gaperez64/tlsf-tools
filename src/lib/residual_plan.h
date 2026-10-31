@@ -15,6 +15,9 @@ typedef struct {
   uint32_t nconstraints;
   uint32_t nclusters;
   uint32_t ap_count;
+  // Freeze each pruning decision across routing, solving and emitted artifacts.
+  SectionPatternView *cluster_views;
+  bool *cluster_view_ready;
 } ResidualPlan;
 
 typedef struct {
