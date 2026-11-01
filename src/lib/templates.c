@@ -73,6 +73,7 @@ const Node *node_subst(Arena *a, const Node *n, const char *name,
                        const Node *value) {
 #define SUB_META(expr) copy_subst_meta(a, n, (expr), name, value)
 
+  // Sequence sibling allocations in GCC's historical right-first order.
   switch (n->kind) {
   case NODE_AP:
     return strcmp(n->name, name) == 0 ? value : n;
@@ -87,30 +88,46 @@ const Node *node_subst(Arena *a, const Node *n, const char *name,
     return SUB_META(node_f(a, (Node *)node_subst(a, n->arg, name, value)));
   case NODE_G:
     return SUB_META(node_g(a, (Node *)node_subst(a, n->arg, name, value)));
-  case NODE_AND:
-    return SUB_META(node_and(a, (Node *)node_subst(a, n->lhs, name, value),
-                             (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_OR:
-    return SUB_META(node_or(a, (Node *)node_subst(a, n->lhs, name, value),
-                            (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_IMPL:
-    return SUB_META(node_impl(a, (Node *)node_subst(a, n->lhs, name, value),
-                              (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_EQUIV:
-    return SUB_META(node_equiv(a, (Node *)node_subst(a, n->lhs, name, value),
-                               (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_U:
-    return SUB_META(node_u(a, (Node *)node_subst(a, n->lhs, name, value),
-                           (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_R:
-    return SUB_META(node_r(a, (Node *)node_subst(a, n->lhs, name, value),
-                           (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_W:
-    return SUB_META(node_w(a, (Node *)node_subst(a, n->lhs, name, value),
-                           (Node *)node_subst(a, n->rhs, name, value)));
-  case NODE_M:
-    return SUB_META(node_m(a, (Node *)node_subst(a, n->lhs, name, value),
-                           (Node *)node_subst(a, n->rhs, name, value)));
+  case NODE_AND: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_and(a, l, r));
+  }
+  case NODE_OR: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_or(a, l, r));
+  }
+  case NODE_IMPL: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_impl(a, l, r));
+  }
+  case NODE_EQUIV: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_equiv(a, l, r));
+  }
+  case NODE_U: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_u(a, l, r));
+  }
+  case NODE_R: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_r(a, l, r));
+  }
+  case NODE_W: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_w(a, l, r));
+  }
+  case NODE_M: {
+    Node *r = (Node *)node_subst(a, n->rhs, name, value);
+    Node *l = (Node *)node_subst(a, n->lhs, name, value);
+    return SUB_META(node_m(a, l, r));
+  }
   default:
     return n;
   }

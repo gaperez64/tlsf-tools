@@ -879,38 +879,42 @@ Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
     return node_x_strong(a, bound_liveness(a, n->arg, k, pos));
   case NODE_NOT:
     return node_not(a, bound_liveness(a, n->arg, k, !pos));
-  case NODE_AND:
-    return node_and(a, bound_liveness(a, n->lhs, k, pos),
-                    bound_liveness(a, n->rhs, k, pos));
-  case NODE_OR:
-    return node_or(a, bound_liveness(a, n->lhs, k, pos),
-                   bound_liveness(a, n->rhs, k, pos));
-  case NODE_IMPL:
-    return node_impl(a, bound_liveness(a, n->lhs, k, !pos),
-                     bound_liveness(a, n->rhs, k, pos));
+  case NODE_AND: {
+    // Preserve GCC's right-first node allocation order.
+    Node *r = bound_liveness(a, n->rhs, k, pos);
+    Node *l = bound_liveness(a, n->lhs, k, pos);
+    return node_and(a, l, r);
+  }
+  case NODE_OR: {
+    Node *r = bound_liveness(a, n->rhs, k, pos);
+    Node *l = bound_liveness(a, n->lhs, k, pos);
+    return node_or(a, l, r);
+  }
+  case NODE_IMPL: {
+    Node *r = bound_liveness(a, n->rhs, k, pos);
+    Node *l = bound_liveness(a, n->lhs, k, !pos);
+    return node_impl(a, l, r);
+  }
   case NODE_U:
-    if (pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs))
-      return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
-                           bound_liveness(a, n->rhs, k, pos), k);
-    return node_u(a, bound_liveness(a, n->lhs, k, pos),
-                  bound_liveness(a, n->rhs, k, pos));
-  case NODE_W: // a W b: strengthen to bounded(a U b) (sound: bounded => U => W)
-    if (pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs))
-      return bounded_until(a, bound_liveness(a, n->lhs, k, pos),
-                           bound_liveness(a, n->rhs, k, pos), k);
-    return node_w(a, bound_liveness(a, n->lhs, k, pos),
-                  bound_liveness(a, n->rhs, k, pos));
-  case NODE_R: // a R b: strengthen to bounded(b U (a&b)) (sound: => R)
-  case NODE_M: // a M b == b U (a&b); bounded form is sound
+  case NODE_W: { // a W b: strengthen to bounded(a U b) (bounded => U => W)
+    bool bounded = pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs);
+    Node *r = bound_liveness(a, n->rhs, k, pos);
+    Node *l = bound_liveness(a, n->lhs, k, pos);
+    if (bounded)
+      return bounded_until(a, l, r, k);
+    return n->kind == NODE_U ? node_u(a, l, r) : node_w(a, l, r);
+  }
+  case NODE_R:   // a R b: strengthen to bounded(b U (a&b)) (sound: => R)
+  case NODE_M: { // a M b == b U (a&b); bounded form is sound
     if (pos && aig_body_ok(n->lhs) && aig_body_ok(n->rhs)) {
       Node *bl = bound_liveness(a, n->lhs, k, pos);
       Node *br = bound_liveness(a, n->rhs, k, pos);
       return bounded_until(a, br, node_and(a, bl, br), k);
     }
-    return n->kind == NODE_R ? node_r(a, bound_liveness(a, n->lhs, k, pos),
-                                      bound_liveness(a, n->rhs, k, pos))
-                             : node_m(a, bound_liveness(a, n->lhs, k, pos),
-                                      bound_liveness(a, n->rhs, k, pos));
+    Node *r = bound_liveness(a, n->rhs, k, pos);
+    Node *l = bound_liveness(a, n->lhs, k, pos);
+    return n->kind == NODE_R ? node_r(a, l, r) : node_m(a, l, r);
+  }
   default:
     // AP / constant, or EQUIV left intact — a positive liveness operator
     // surviving inside it fails eligibility and the cluster stays on ltlsynt.

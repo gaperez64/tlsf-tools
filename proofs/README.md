@@ -187,17 +187,17 @@ branch does.
 
 | C source in this worktree | Lean correspondence |
 | --- | --- |
-| `src/lib/nnf.c:9–123` | `to_nnf`, `nnf_sat`, `nnf_exact`; weak-next polarity/finite test at lines 80–86 |
+| `src/lib/nnf.c:9–126` | `to_nnf`, `nnf_sat`, `nnf_exact`; weak-next polarity/finite test at lines 83–89 |
 | `src/lib/rewrite.c:15–38,46–181` | Structural `DecidableEq (Formula α)`, `simplify_weak_local`, `simplify_exact`; finite weak-X-false guard at lines 101–106 |
-| `src/lib/rewrite.h:36–62`; `src/lib/rewrite.c:189–235` | `Flags`, ordered `apply_local`, `apply_local_exact` |
-| `src/lib/rewrite.c:238–295` | `bottom_up`, `rw_pass`, `rw_pass_exact`; atom cases bypass local rewriting |
-| `src/lib/rewrite.c:10,297–324` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
-| `src/lib/rewrite.c:345–380` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
-| `src/lib/normalize.c:751–841` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors |
-| `src/lib/normalize.c:845–880` | `pre_spine_split`, `pre_spine_split_exact` on the core; indexed-X high-level branch excluded |
+| `src/lib/rewrite.h:36–62`; `src/lib/rewrite.c:189–245` | `Flags`, ordered `apply_local`, `apply_local_exact` |
+| `src/lib/rewrite.c:248–330` | `bottom_up`, `rw_pass`, `rw_pass_exact`; atom cases bypass local rewriting |
+| `src/lib/rewrite.c:10,332–359` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
+| `src/lib/rewrite.c:380–415` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
+| `src/lib/normalize.c:770–860` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors |
+| `src/lib/normalize.c:864–899` | `pre_spine_split`, `pre_spine_split_exact` on the core; indexed-X high-level branch excluded |
 | `src/lib/normalize.c:88–142,419–435` | Temporal RULES identities; `SickertRule.equivalence_finite` and `finite_rule_allowed` model the finite-admission projection |
-| `src/lib/normalize.c:987–1003` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
-| `src/lib/normalize.c:1341–1373` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
+| `src/lib/normalize.c:1006–1022` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
+| `src/lib/normalize.c:1381–1413` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
 | `src/lib/print_ltlxba.c:214–216,242–249` | Trusted printer correspondence: NODE_X is weak X and NODE_X_STRONG uses X[!] for finite rendering |
 
 Additional trusted gaps for #85:
@@ -207,7 +207,7 @@ Additional trusted gaps for #85:
   nodes, excluding malformed/high-level ASTs, integer nodes, bounded metadata,
   arena exhaustion and machine-size/allocation behavior.
 - `NODE_NEXT_N` in pre-weak only recurses into its body
-  (`src/lib/normalize.c:821–824`) and is outside `Formula`. The analogous
+  (`src/lib/normalize.c:840–843`) and is outside `Formula`. The analogous
   indexed-next branch in pre-spine splitting, arithmetic evaluation, bounded
   quantifiers and expansion into ordinary nexts are not C-verified here.
   `next_power` states the identities of the expanded mathematical sequence.
@@ -229,11 +229,11 @@ implementation or the other CSNF template families.
 | C source in this working tree | Lean port / correspondence obligation |
 | --- | --- |
 | `src/lib/ast_query.h:14–35,52–79`; `src/lib/cover.c:35–77` | `Formula`, `Formula.atoms`, `Boolean`, `isIn`; cover support must match the expanded formula |
-| `src/lib/templates.c:72–119` | `subst`, `setLetter`, `setWord`, `sat_subst`, `subst_absent` |
+| `src/lib/templates.c:72–136` | `subst`, `setLetter`, `setWord`, `sat_subst`, `subst_absent` |
 | `src/lib/recognize.c` (`match_definition`); `src/lib/templates_certify.c` (`certify_definition`) | `Definition.entry`, `flip`, `Admissible.outputs`, `Admissible.boolean`; the certifier rejects every temporal theta using `ast_has_temporal` |
-| `src/lib/templates.c:299–360,501–516` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
-| `src/lib/templates.c:405–409,479–497` | `Admissible.occurrences`, `covers`, `covers_trans`; the composition guard checks every affected section and rejects environment-side definitions |
-| `src/lib/templates.c:517–543` | `Admissible.distinct`, `original`, `residual`; one chosen provider per output, defining entries dropped |
+| `src/lib/templates.c:316–377,518–533` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
+| `src/lib/templates.c:422–426,496–514` | `Admissible.occurrences`, `covers`, `covers_trans`; the composition guard checks every affected section and rejects environment-side definitions |
+| `src/lib/templates.c:534–560` | `Admissible.distinct`, `original`, `residual`; one chosen provider per output, defining entries dropped |
 | `src/lib/residual.c:19–28` | `substPass`, `substPasses`; instantiate `passes = ds.length + 1` |
 | `src/lib/residual_plan.c:23–39` | `residual`, `residual_objective`; optional additional rewrites require separate semantic correctness |
 | `src/lib/residual_plan.c:44–53,72–115` | Freeze the first pruned/retained view across routing, solving and export; cache allocation failure disables pruning for the plan |
@@ -244,8 +244,8 @@ implementation or the other CSNF template families.
 | `src/lib/env_witness.c:90–188` | Lasso successor and least/greatest fixed points implement `Sat none`; REQUIRE holds at every reachable position, INITIALLY/ASSUMPTIONS at zero; `environment_sat_iff` in `proofs/TlsfProofs/Pruning.lean:11–27` |
 | `src/lib/env_witness.c:190–229`; `src/lib/env_witness.h:6–7` | Only a completed positive witness check returns SATISFIABLE; `envSat_of_word` in `proofs/TlsfProofs/Pruning.lean:29–31` supplies `EnvSat` for `prune_realizable`; incomplete search keeps D |
 | `src/lib/residual.c:254–359` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
-| `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:75–86` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
-| `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:815–819` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
+| `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:78–89` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
+| `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:834–838` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
 The textual controller `ctl o := theta` is emitted outside `src/lib`, in
@@ -314,7 +314,7 @@ value on every trace.
   solver must not treat an omitted input as a constant false valuation,
   including in input-only bodies.
 - Phase B checks support closed transitively under every committed definition
-  theta (`src/lib/templates.c:425–455,559–606`), including dependencies absent
+  theta (`src/lib/templates.c:442–472,576–623`), including dependencies absent
   from a surviving constraint's original output set. Rejected blocks remain
   residual. The `phase_b_probe` regression supplies locally solved blocks
   directly to composition, so the local free-output guard cannot mask this
