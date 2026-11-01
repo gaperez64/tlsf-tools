@@ -38,6 +38,8 @@ foreach name, tool : exe
 endforeach
 if research_tools
   if python3.found()
+    test('compose_solver_command', python3,
+      args: [files('check_compose_solver.py'), exe['tlsfcompose']])
     test('review_definition_and_finite_next', python3,
       args: [files('check_review_regressions.py'), exe['tlsf2ltl'],
              exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsfnorm'],
