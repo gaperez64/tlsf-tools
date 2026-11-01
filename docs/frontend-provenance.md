@@ -56,27 +56,25 @@ conjunct. Duplicate expanded signal names also set `ambiguous`, even when the
 declarations differ. Consumers must decline structural lifting in these cases
 and independently verify the signal inventory has unique names.
 
-`gr1_monitor_game.py --provenance-out` reads this output and matches each Spot
-monitor to a unique source conjunct by LTL equivalence. It sets
+The native GR(1) reducer reads this output and matches each monitor to a unique
+source conjunct by canonical text or native formula equivalence. It sets
 `source_origin_metadata.available` only when the frontend
 record is valid and every monitor has one unique origin. Its
 `provenance_source` is `frontend` in that case. If matching is ambiguous or the
 frontend output is unavailable, the metadata says `suffix-heuristic`; generic
 lifting must reject that fallback. The AIG output does not depend on any of
-these metadata decisions. The monitor builder reads the TLSF bytes once,
-passes that snapshot to both lowering tools and the provenance frontend, and
-checks that the frontend SHA-256 equals the snapshot hash.
+these metadata decisions. The pipeline retains the source snapshot and its
+SHA-256 alongside the frontend provenance.
 
 The native reducer records `construction_formula` as canonical text of the
 conjunct passed to monitor construction, before source matching. It
 independently parses each frontend conjunct into
 `source_conjuncts[].normalized_formula`, adding the required outer `G` for
 REQUIRE and ASSERT blocks. These two strings use the same source signal names.
-The reported `conjunct` can differ after Spot simplifies the monitor formula
-(for example, implication to disjunction). On a unique frontend match, the
-monitor also receives `source_binding`: the claimed `source_formula_id`,
-`generated_position`, and `source_node_id`. Otherwise `source_origin` is null
-and `source_binding` is absent. A consumer that needs exact linkage must
+The reported `conjunct` is monitor construction text. On a unique frontend
+match, the monitor also receives `source_binding`: the claimed
+`source_formula_id`, `generated_position`, and `source_node_id`. Otherwise
+`source_origin` is null and `source_binding` is absent. A consumer that needs exact linkage must
 require a unique source conjunct key, equality of `source_binding` with both
 `source_origin` and that conjunct, and equality of `construction_formula` with
 its `normalized_formula`. It must decline missing, inconsistent, or merely
@@ -87,21 +85,18 @@ independent structural linkage or must be declined.
 
 ## Monitor game symbol namespace
 
-`gr1_monitor_game.py` assigns expanded environment inputs
+The native GR(1) reducer assigns expanded environment inputs
 `uncontrollable_i<k>` and system outputs `controllable_o<k>`, where `k` is
-the zero-based order within that role's expanded declarations. The lowered
-LTL is tokenized according to the TLSF identifier alphabet, then its complete
-AP tokens are renamed before Spot parses it. Thus every AP in Spot, the AIG,
-policies, and certificates has a canonical structural name. TLSF spelling
-cannot change the game bytes or collide with monitor latches; the two role
-prefixes remain disjoint and internal symbols use neither prefix.
+the zero-based order within that role's expanded declarations. The reducer
+maps source signal names to canonical game symbols when encoding the AIG.
+Thus the game, policies and certificates use canonical structural names. TLSF
+spelling cannot change the game bytes or collide with monitor latches; the two
+role prefixes remain disjoint and internal symbols use neither prefix.
 
-For an AIG written with `--output game.aag`, the builder also writes
+The reduction API returns symbol-map JSON to save beside an exported AIG as
 `game.aag.symbols`. This map contains the exact game SHA-256 and ordered
 canonical-to-TLSF signal pairs. `tlsfcertcheck --emit-controller` validates
 that map against the game before restoring the original input and output
 names. Keep the map next to the game when exporting a controller. Provenance
 JSON retains the TLSF `name` and records the canonical `game_symbol` for each
-signal. `verify_strategy_explicit.py` accepts standalone raw TLSF output
-names and older game-prefixed outputs by checking the complete interface.
-Game AIG symbol bytes differ from previous versions.
+signal.

@@ -2,6 +2,10 @@
 
 > Design for [#78](https://github.com/gaperez64/tlsf-tools/issues/78), approved after two reviews in October 2026. `T/` paths are this repository and `A/` paths are Acacia-Bonsai. Relative links such as `../PLAN.md`, `../probe/` and `review-issues/` point to that sprint's working files, which are not in this repository; the review drafts became issues #79–#87.
 
+The Spot comparisons below describe the original validation plan. Since #97,
+in-repository tests use frozen goldens and native checks; they neither link nor
+run Spot. Spot graph/import details concern the external Acacia consumer.
+
 Build one bounded, lazy C23 construction: ground TLSF AST → Boolean Π₂/Σ₂ components → deterministic
 Emerson–Lei automaton (DELA) → Zielonka tree → DPA. Add one complete Δ₂ normalizer only if the
 target inventory needs it. Eager translation is BFS over that API. Rebuild its symbolic labels
