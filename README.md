@@ -1,102 +1,67 @@
 # tlsf-tools
 
-Small, fast, Unix-style command-line tools for working with
-[TLSF](https://github.com/reactive-systems/syfco) (Temporal Logic Synthesis
-Format) specifications, sharing a common C library.
+Command-line tools and a shared C library for [TLSF](https://github.com/reactive-systems/syfco)
+(Temporal Logic Synthesis Format) specifications. They expand parameters,
+definitions (including recursive cases), sets, reductions, structural pattern
+guards, buses, bounded temporal operators, `enum` types, and `SIZEOF` into ground
+TLSF or equivalent LTL.
 
-The tools fully expand parameterised TLSF (parameters, definitions including
-recursive case definitions, sets and reductions, structural pattern guards,
-bus unrolling, bounded temporal operators, `enum` types, and `SIZEOF`) and emit
-a ground TLSF spec or equivalent LTL. The optional research synthesis layer
-adds structure-aware decomposition, certified local controllers, exact
-OxiDD-backed safety/GR(1) routes, and an external residual-solving wrapper for
-`ltlsynt` or acacia-bonsai.
-
-## Stable tools
-
-| Tool | Purpose |
+| Stable tool | Purpose |
 |---|---|
 | `tlsf2ltl` | Convert expanded TLSF to LTL. |
 | `tlsf2tlsf` | Emit expanded/basic TLSF. |
 | `tlsfinfo` | Inspect metadata, signals, and GR level. |
-| `tlsfnorm` | Normalize/split/simplify TLSF before synthesis. |
+| `tlsfnorm` | Normalize, split, and simplify TLSF. |
 | `mealy2moore` | Delay AIGER strategy outputs for Moore-target specs. |
 
-## Research and diagnostic tools
+The optional research layer adds decomposition, certified local controllers,
+exact OxiDD safety/GR(1) solving, and external residual solving. Build these
+executables with `-Dresearch_tools=true`; they are excluded from stable release
+archives and the stable preprocessing API.
 
-Built with `-Dresearch_tools=true`; not included in stable release archives and
-not part of the stable preprocessing API.
-
-| Tool | Purpose |
+| Research tool | Purpose |
 |---|---|
 | `tlsftemplates` | Inspect template certificates and CSNF output. |
-| `tlsfbenchgraph` | Generate corpus-level benchmark/shape reports. |
+| `tlsfbenchgraph` | Report corpus benchmarks and structural shapes. |
 | `tlsfresidual` | Emit residual clusters after sound decomposition. |
-| `tlsfcompose` | Build a decomposed synthesis plan; merge AIGER strategy files. |
+| `tlsfcompose` | Plan decomposed synthesis and merge AIGER strategies. |
 | `tlsfsolve` | Solve [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER safety/GR(1) games with OxiDD. |
 
-The preprocessor uses equivalence-preserving normalization followed by exact
-syntactic recognizers and conservative certification. It does not use graph
-similarity or approximate matching in the synthesis path.
+## Build
 
-```mermaid
-flowchart LR
-    tlsf["TLSF file"] -->|"parse<br/>flex + bison"| raw["Raw AST"]
-    raw -->|"expand<br/>parameters, definitions, sets, buses, reductions"| ground["Ground AST"]
-    ground --> basic["tlsf2tlsf<br/>basic TLSF"]
-    ground --> ltl["tlsf2ltl<br/>LTL"]
-    ground --> norm["tlsfnorm<br/>normalized TLSF"]
-    ground --> residual["tlsfresidual<br/>residual clusters"]
-    ground --> compose["tlsfcompose<br/>clusters + controllers.aag → plan"]
-```
-
-## Building
-
-Requires C23 and C++20 compilers, [meson](https://mesonbuild.com/),
-[ninja](https://ninja-build.org/), `flex`, `bison`, Cargo (Rust 1.91+)
-and `cbindgen` (0.29.4). Meson builds OxiDD and native GR(1) in every build.
-The library, tests and CI do not require Spot.
-
-Release-quality stable build:
+Requires C23 and C++20 compilers, [Meson](https://mesonbuild.com/),
+[Ninja](https://ninja-build.org/), `flex`, `bison`, Cargo (Rust 1.91+), and
+`cbindgen` 0.29.4. Every build includes OxiDD and native GR(1); `research_tools`
+controls only optional executables. The library, tests, and CI do not require Spot.
 
 ```sh
 meson setup build --buildtype=release
 ninja -C build
-```
 
-Research/diagnostic tools, including `tlsfresidual`, `tlsfcompose`, and
-`tlsfsolve`:
-
-```sh
+# Research tools
 git submodule update --init --recursive
 meson setup build-research -Dresearch_tools=true --buildtype=release
 ninja -C build-research
 ```
 
-Sanitizers are available for development builds with
-`-Dsanitize=address,undefined`.
+Use `-Dsanitize=address,undefined` for development sanitizers. JSON support uses
+installed yyjson 0.12.0 or the pinned `subprojects/yyjson.wrap` fallback. The
+fallback installs yyjson and its pkg-config file with `libtlsf`, so static
+consumers can use `pkg-config --static --libs tlsf`.
 
-
-### Dependencies
-
-JSON support uses yyjson 0.12.0. Meson uses an installed yyjson when available
-and otherwise builds the pinned `subprojects/yyjson.wrap`. The fallback installs
-yyjson and its pkg-config file with `libtlsf`, so static consumers can resolve
-the private JSON dependency with `pkg-config --static --libs tlsf`.
-
-OxiDD (<https://github.com/OxiDD/oxidd>) and native GR(1) are always part of
-libtlsf. `research_tools` controls only the optional executable targets.
-GR(1) monitor construction tries general admission after a default unsupported
-decline. The [Lean reference and bounded translation-validation sample](proofs/README.md)
-cover both policies; runtime formulas without a validated golden rely on that
-proved reference plus the sample, rather than a proof of the C implementation.
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and [acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are
-optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
+[OxiDD](https://github.com/OxiDD/oxidd) is part of `libtlsf`.
+[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and
+[acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are optional external
+executables for `scripts/solve.sh` and benchmark flows. GR(1) tries general
+monitor admission after a default unsupported decline. The
+[Lean reference and bounded validation](proofs/README.md#automaton-translation-validation)
+cover both policies; runtime formulas without a validated golden rely on the
+proved reference and validation sample, not a proof of the C implementation.
 
 ## Usage
 
-Each tool reads a `FILE` argument or stdin, writes to stdout or `--output FILE`,
-and accepts `--version`/`--help`. Options are long (`--`) only.
+Tools read `FILE` or stdin, write stdout or `--output FILE`, and accept
+`--version` and `--help`. Options use long (`--`) names only.
 
 ```sh
 # convert
@@ -142,52 +107,16 @@ scripts/solve.sh --backend acacia --solver acacia-bonsai \
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
 
-`tlsfbenchgraph --source-features` emits a versioned TSV selector schema
-(`--schema-version`). Columns prefixed `guard_` are derived only from the
-expanded source TLSF AST: operator occurrences and maximum syntax/temporal
-depth. The mode rejects splitting and normalization options and excludes
-automata, recognizer results, and solver outcomes. Only these fields plus the
-declared interface sizes are supported for offline routing experiments.
+`tlsfbenchgraph --source-features` emits a versioned TSV (`--schema-version`).
+Only declared interface sizes and source-derived `guard_*` operator/depth
+measurements are supported selector inputs. Splitting and normalization options
+are rejected; automata, recognizer results, and solver outcomes are excluded.
+See [the automata study](AUTOMATA-STUDY.md) for bundles and selector evaluation.
 
-`tlsfsolve` reads an [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER game: uncontrollable inputs are
-ordinary inputs, controllable inputs are prefixed `controllable_`, safety games
-use a `bad` output, and GR(1) games may use AIGER 1.9 bad-state,
-`justice`, and `fairness` records. In GR(1), bad-state records are disjoined and
-take precedence over ordinary outputs. With no bad-state records, exactly one
-ordinary output retains the legacy unsafe-output meaning; zero or multiple
-outputs give a pure-justice game. Exit status 0 means realizable and writes the
-strategy AAG to stdout;
-status 1 means proven unrealizable and writes `UNREALIZABLE` to stderr; status
-2 reports an input, usage, or internal OxiDD solver failure.
-
-Native GR(1) monitor games name expanded environment
-inputs `uncontrollable_i0`, `uncontrollable_i1`, etc., and system outputs
-`controllable_o0`, `controllable_o1`, etc., in declaration order. This keeps
-the game AIG independent of TLSF signal spelling, including legal `@` and
-apostrophe identifiers. The native reduction API returns a SHA-256-bound
-symbol map back to TLSF names; save it as `game.aag.symbols`. Keep this file
-beside the game for `tlsfcertcheck --emit-controller`; provenance JSON also
-contains each TLSF name and its canonical `game_symbol`.
-
-For a large, memory-hungry game, try the `fanin-dfs` variable order with a
-smaller cache:
-
-```sh
-tlsfsolve --oxidd-var-order=fanin-dfs \
-  --oxidd-nodes=4194304 --oxidd-cache=262144 \
-  game.aag > strategy.aag
-```
-
-The order, node arena, and cache are command-line settings; the same
-OxiDD-enabled `tlsfsolve` binary can use different values on each run. The
-capacities are entry counts, not bytes, and the node cap is not a process memory
-limit. `fanin-dfs` can use more resources on some games, so retry without that
-option to use the default `input-first` order before increasing the capacities.
-Automatic GC is the default. See the
-[ordering measurements](experiments/oxidd-ordering/report.md) for detailed
-results. For a reproducible allocation failure or suspected OOM, use the
-[diagnostic guide](docs/tlsfsolve-diagnostics.md) to collect diagnostics for a
-bug report.
+For `tlsfsolve` game formats, exit codes, memory settings, diagnostic builds,
+and independent verification, see [the solver guide](docs/tlsfsolve-diagnostics.md).
+Native monitor symbols and the `game.aag.symbols` file required for controller
+export are documented in [frontend provenance](docs/frontend-provenance.md#monitor-game-symbol-namespace).
 
 ## Embeddable API
 
@@ -240,185 +169,116 @@ tree directly as a `spot::formula` and checks it against the string API.
 It requires Spot and is built by hand, outside Meson and CI; see the build
 command in the file's header.
 
-## Example pipelines
+## Synthesis and solver pipelines
 
-### 1 · Preprocess a spec, then synthesize the residual
-
-Decompose first: certify the combinational controllers and hand only the
-*residual* to a backend. Each `cluster.k.ltl` carries its own interface in
-header comments (`c ins=…`, `c outs=…`), and disjoint-output clusters are
-independent — several small `ltlsynt`/`strix` calls instead of one giant one.
+`tlsfcompose` certifies local controllers, solves eligible residuals in process,
+and writes external clusters. For file-based controller export:
 
 ```sh
 mkdir out && tlsfcompose --split --output-dir out/ spec.tlsf
-sh out/compose.sh                                  # semantics-aware external verdicts
-# Or, for infinite-word Mealy targets, use the quoted Spot formula and
-# the exact --ins/--outs expressions written in compose.sh:
+sh out/compose.sh
+# Infinite-word Mealy targets: use the exact interface expressions in compose.sh
 ltlsynt --ins=… --outs=… -F out/cluster.0.spot
-```
-
-The Spot formula files quote atoms so names such as `Grant` remain one atom;
-the driver's anchored regex partitions preserve case and match complete names.
-Infinite Moore games use `cluster.k.mealy`, which also delays environment
-inputs. Only the exact `c ins=` and `c outs=` metadata lines are comments in
-`cluster.k.ltl`; a formula such as `c -> p` remains valid.
-
-The generated driver defaults to `ltlsynt` for infinite words and `ltlfsynt`
-for finite words. Select another executable when generating it with
-`tlsfcompose --solver /path/to/solver --output-dir out/ spec.tlsf`, or set
-`TLSFCOMPOSE_SOLVER`. The CLI option takes precedence; an unset or empty
-environment variable uses the default. The executable is recorded in
-`compose.sh` and must accept the same `--ins`, `--outs`, `-F` and
-`--realizability` arguments, plus `--semantics=Mealy|Moore` for finite words.
-Use a wrapper script to adapt other interfaces or add arguments. Executable
-paths may contain spaces; the value is a single executable name or path.
-
-`--output-dir` also writes `controllers.aag`, a mergeable AIGER strategy for
-the certified part. Trusted OxiDD-eligible residual outcomes are handled in
-process with one persistent BDD session: exact routes and strengthened/UNDER
-routes can emit `cluster.k.aag`, while weakened/OVER routes can stop early on
-trusted UNREAL. The remaining clusters stay as `cluster.k.ltl`.
-`scripts/solve.sh` automates controller export for infinite-word Mealy targets;
-it refuses finite games and Moore targets:
-
-```sh
+# Or automate solving and merging:
 scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
 ```
 
-For the `ltlsynt` backend the script passes `--lowercase` so the emitted
-cluster formulas, `c ins=`, `c outs=`, and AIGER symbols agree. The `acacia`
-backend uses the same lowercase convention and calls acacia-bonsai with
-`-F/-i/-o/-s`. Pre-solved and external strategies are recombined with
-`tlsfcompose --merge`.
+`controllers.aag` contains the certified part; trusted exact/UNDER routes can
+write `cluster.k.aag`, and trusted OVER routes can stop on UNREAL. Remaining
+`cluster.k.ltl` files carry `c ins=`/`c outs=` interface comments. Only those
+exact metadata lines are comments: `c -> p` is a valid formula.
+`tlsfcompose --merge` combines local and external AIGER strategies.
 
-### 2 · One merged controller circuit (AIGER)
+Spot files quote atoms such as `Grant`; anchored interface regexes preserve
+case and match whole names. Infinite Moore checks use `cluster.k.mealy` with
+delayed environment inputs. The driver defaults to `ltlsynt` for infinite words
+and `ltlfsynt` for finite words. Select an executable with `--solver /path/to/solver`
+or `TLSFCOMPOSE_SOLVER`; the CLI wins, and an unset/empty variable uses the default.
+The value is one executable name or path (spaces allowed), recorded in
+`compose.sh`. It must accept `--ins`, `--outs`, `-F`, and `--realizability`, plus
+`--semantics=Mealy|Moore` for finite words. Use a wrapper to adapt other interfaces
+or add arguments.
 
-The supported controller flow is file-based: decompose, solve every emitted
-cluster with the backend of your choice, then merge those AIGER strategies with
-the certified part.
+`scripts/solve.sh` supports only infinite-word Mealy controller export. Its
+`ltlsynt` backend passes `--lowercase` so formulas, interfaces, and AIGER symbols
+agree; the `acacia` backend uses the same convention and calls acacia-bonsai with
+`-F/-i/-o/-s`.
 
-```sh
-scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
-```
-
-### 3 · Normalize, then feed any LTL synthesizer
-
-`tlsfnorm` re-emits clean TLSF (split conjunctions, NNF, boolean simplify);
-`tlsf2ltl` gives the formula and `tlsfinfo --expanded-ins/--expanded-outs` the
-scalar interface, so any Spot/Strix-style tool can take over. The `ltlxba`
-dialect follows the historical SyFCo/classic-ltl2ba convention of lowercasing
-atoms, so lowercase the interface to match; the faithful `ltl` dialect keeps
-the original case. Spot accepts uppercase TLSF identifiers. `tlsfcompose` and
-`tlsfresidual` keep original case by default and apply lowercasing to formulas
-and interfaces only with `--lowercase`; all lowercase exports reject collisions.
-TLSF identifiers may contain `'` and `@`, but ltl2ba and ltl3ba silently
-truncate a formula at either character, so every `ltlxba` export rejects specs
-whose signals or atoms contain them; use `--format ltl` for such specs.
+To use another Spot/Strix-style LTL synthesizer, normalize and export the scalar interface:
 
 ```sh
 tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
-lc() { tr 'A-Z' 'a-z'; }                                  # ltlxba lowercases atoms
-ins=$(tlsfinfo  --expanded-ins  spec.norm.tlsf | lc)      # scalar CSV, buses unrolled
+lc() { tr 'A-Z' 'a-z'; }  # ltlxba lowercases atoms
+ins=$(tlsfinfo --expanded-ins spec.norm.tlsf | lc)
 outs=$(tlsfinfo --expanded-outs spec.norm.tlsf | lc)
-tlsf2ltl spec.norm.tlsf > spec.norm.ltl                   # read via -F (a big
-ltlsynt --ins="$ins" --outs="$outs" -F spec.norm.ltl      # formula overflows -f)
+tlsf2ltl spec.norm.tlsf > spec.norm.ltl
+ltlsynt --ins="$ins" --outs="$outs" -F spec.norm.ltl
 ```
 
-### 4 · Census a benchmark set by type / template
+Use `-F` for large formulas that exceed `-f` argument limits. The historical
+SyFCo/classic-ltl2ba `ltlxba` dialect lowercases atoms; faithful `ltl` preserves
+case, which Spot accepts. `tlsfcompose` and `tlsfresidual` preserve case unless
+`--lowercase` is set; all lowercase exports reject collisions. TLSF permits
+`'` and `@` in identifiers, but ltl2ba/ltl3ba silently truncate at these characters.
+Every `ltlxba` export therefore rejects them; use `--format ltl`.
 
-Census the structural shapes across a corpus.
+The research reports provide corpus shapes, normalization comparisons, and
+wrapper performance:
 
 ```sh
-# per-spec shape/template metrics + an aggregate distribution (mutex/response/…)
 tlsfbenchgraph --input-dir benchmarks/tlsf --split --summary > shapes.tsv
-
-# look at one spec's certified templates (response / mutex / arbiter / …)
 tlsftemplates --certify --solve --format csnf spec.tlsf
-```
-
-### 5 · Measure route shape and wrapper performance
-
-How much does decomposition change the residual shape, and how does the wrapper
-pipeline compare with `acacia-bonsai` alone? `scripts/benchgraph.py` writes the
-[`BENCHGRAPH.md`](BENCHGRAPH.md) head-to-head section (solved counts, net gain,
-and a survival plot). `scripts/collect_route_stats.py` records route diagnostics
-without running a solver.
-
-```sh
-# full corpus speed + complexity (rerunnable; --from-data re-renders the report)
 scripts/benchgraph.py --corpus benchmarks/tlsf \
-        --tlsfcompose build-research/tlsfcompose \
-        --solver ../acacia-bonsai/build_best_decomp_mona/src/acacia-bonsai
-
-# route-only corpus census; writes rows incrementally and skips slow specs
+  --tlsfcompose build-research/tlsfcompose \
+  --solver ../acacia-bonsai/build_best_decomp_mona/src/acacia-bonsai
 scripts/collect_route_stats.py --compose build-research/tlsfcompose \
-        --timeout 5 --out route_stats.tsv benchmarks/tlsf
+  --timeout 5 --out route_stats.tsv benchmarks/tlsf
 ```
 
-## How the synthesis layer works
+The first command reports per-spec metrics and aggregate template distributions.
+`collect_route_stats.py` runs no solver, writes rows incrementally, and skips
+slow specs. [BENCHGRAPH.md](BENCHGRAPH.md) holds wrapper results; `--from-data`
+re-renders them.
 
-The preprocessor works on TLSF *structure* — the expanded constraint cover,
-before flattening to one LTL formula: each section formula keeps its role, side,
-invariant wrapping, syntactic safety/liveness class, and signal support. Over it,
-exact syntactic **template candidates** are recognized (response `G(r→F g)`,
-mutex, recurrence `G F x`, persistence `F G x`, reaction, definition,
-guarded-next, arbiter, …). `--split` first decomposes each constraint into its
-top-level `&&` conjuncts (distributing `G`/`X` along the spine,
-equivalence-preserving), which is what makes most templates visible. Optional
-equivalence-preserving normalization (`tlsfnorm` or `--match-normalize`) can
-expose more of these exact shapes before
-recognition without changing the spec's meaning.
+## Synthesis guarantees
 
-`tlsftemplates` promotes candidates to a **Certified Strategy Normal Form
-(CSNF)** along the ladder *candidate → checked → certified → solved*: a block is
-`solved` only behind a sound, conservative side condition (usually *free-output*:
-the target output occurs in no other constraint). Certified families cover the
-combinational/finite slice — decoders (`o:=θ`), set/reset/toggle/delay registers,
-reaction logic, and liveness schedulers (response/round-robin/arbiter). Stateful
-safety games and GR(1)-style reactivity need a real solver, not a syntactic
-certificate, and stay `candidate`.
+Recognition uses the expanded constraint cover, retaining each formula's role,
+side, invariant wrapping, safety/liveness class, and signal support.
+`--split` exposes top-level conjunctions by distributing `G`/`X` along the spine.
+`tlsfnorm` and `--match-normalize` can expose further exact shapes with
+equivalence-preserving rewrites. Synthesis uses no graph similarity or
+approximate matching.
 
-Decoder expressions and delayed-definition register values must be temporal-free.
-A definition can be eliminated only from a system section, with no
-environment-side uses of its output. Each use must be in the defining section,
-covered by a PRESET definition, or be a GUARANTEE using an ASSERT definition.
-Non-strict semantics also allow ASSERT to use a GUARANTEE definition.
+Template candidates include response `G(r→F g)`, mutex, recurrence `G F x`,
+persistence `F G x`, reaction, definition, guarded-next, and arbiter.
+`tlsftemplates` promotes them through candidate → checked → certified → solved
+in Certified Strategy Normal Form (CSNF). A solved block needs conservative
+side conditions, usually that its target output occurs in no other constraint.
+Certified controllers include decoders (`o:=θ`), set/reset/toggle/delay registers,
+reaction logic, and response/round-robin/arbiter schedulers. Stateful safety and
+GR(1) reactivity remain candidates requiring a solver. CSNF is DIMACS-style line
+records (`fgets`/`strtok`), not JSON.
 
-`tlsfresidual` then substitutes the solved combinational outputs away and emits
-the residual over a *smaller* alphabet, **clustering** it by shared output
-(`E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)` when output sets are disjoint) into independent,
-parallelisable sub-problems under infinite-word semantics. Output-dependent
-assumptions collapse all outputs into one cluster. Finite semantics also keep
-one cluster, since controllers share the choice of where the word ends.
-In infinite Mealy games (ordinary and strict), global environment entries
-outside the cluster's transitive signal cone are pruned only when the bounded
-native lasso search confirms that their joint
-`INITIALLY && G REQUIRE && ASSUMPTIONS` is satisfiable.
-Inconsistent or uncertain dropped sets are kept. Finite and Moore games keep
-every global assumption. The residual decomposition is labelled **TRUST_EXACT**. The emitted
-cluster formula is the formula solved and trusted. See [proofs/README.md](proofs/README.md)
-for the exact rules and their proof scope.
+Decoder and delayed-definition values must be temporal-free. Elimination needs
+a system-side definition and no environment-side use of its output. Uses must
+be in the defining section, covered by PRESET, or be GUARANTEES using ASSERT;
+non-strict semantics also permit ASSERT to use GUARANTEES definitions.
 
-`tlsfcompose` turns that into a runnable plan: `controllers.aag` carries the
-certified part; trusted OxiDD residual controllers may also appear as
-`cluster.k.aag`; each `cluster.k.ltl` carries an exact residual formula plus
-`c ins=`/`c outs=` comments; and `--merge` recombines AIGER strategy files. The
-spec is **realizable iff every cluster is**, so the certified controllers ⊕ one
-trusted controller per cluster realise the whole spec. The machine format
-(`csnf`) is DIMACS-style line records (`fgets`/`strtok`, no JSON).
+`tlsfresidual` substitutes solved combinational outputs and clusters remaining
+constraints by shared outputs. With disjoint outputs, infinite-word semantics
+allow `E → ⋀ᵢ Gᵢ ≡ ⋀ᵢ (E → Gᵢ)`; output-dependent assumptions collapse the
+clusters. Finite games keep one cluster because controllers share the word's
+end. Infinite Mealy games, including strict games, prune global environment
+entries outside a cluster's transitive signal cone only after a bounded native
+lasso search confirms their joint `INITIALLY && G REQUIRE && ASSUMPTIONS` is
+satisfiable. Inconsistent or uncertain sets stay; finite and Moore games keep
+all global assumptions. The emitted cluster formula is the exact trusted game
+(`TRUST_EXACT`); the spec is realizable iff every cluster is. See
+[the proof rules and scope](proofs/README.md).
 
-`tlsfcompose --realizability` is a fast verdict-only oracle. The always-on
-UNREAL pre-check is **TRUST_OVER**: it refutes a weakening, so UNREAL is trusted
-and REAL is never claimed. The REAL pre-check is **TRUST_UNDER**: it proves a
-strengthening, so REAL is trusted and UNREAL is never claimed. If neither fires,
-the command exits `2` with `UNKNOWN`.
-
-Route and shape diagnostics come from `tlsfbenchgraph`,
-`scripts/collect_route_stats.py`, and the per-run TSVs.  The maintained
-head-to-head wrapper numbers and benchmark diagnosis live in
-[`BENCHGRAPH.md`](BENCHGRAPH.md). Exact recognizers plus conservative
-certification are the proof — there is no approximate matching in the synthesis
-path.
+`tlsfcompose --realizability` uses a `TRUST_OVER` pre-check to refute a weakening
+(UNREAL only) and a `TRUST_UNDER` pre-check to prove a strengthening (REAL only).
+If neither succeeds, it returns `UNKNOWN` with exit 2.
 
 ## What `tlsf2ltl` emits
 
@@ -432,14 +292,14 @@ INITIALLY → ( PRESET ∧ ( (G REQUIRE ∧ ASSUME) → (G ASSERT ∧ GUARANTEE)
 assumption→guarantee implication; empty sections drop out. The
 shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
 
-- **Strict** (`Strict,*`) — the TLSF v1.1 section 3.2 form
+- Strict (`Strict,*`): the TLSF v1.1 section 3.2 form
   `INITIALLY → (PRESET ∧ (ASSERT W ¬REQUIRE) ∧
   (G REQUIRE ∧ ASSUME → GUARANTEE))`; `--overwrite-semantics Mealy`
   relaxes it to the standard implication.
-- **Finite-word** (`Finite,*`) — emits `ltlxba-fin`: strong-next prints `X[!]`,
+- Finite-word (`Finite,*`): emits `ltlxba-fin`: strong-next prints `X[!]`,
   and `W` plus any internally derived strong release are rewritten with
   LTLf-valid identities so spot's `ltlfsynt` accepts them.
-- **Mealy/Moore** — from `SEMANTICS`; for infinite words, a `TARGET` mismatch
+- **Mealy/Moore**: from `SEMANTICS`; for infinite words, a `TARGET` mismatch
   is converted (Moore→Mealy delays all environment inputs `i↦X i`, including
   undeclared atoms; Mealy→Moore delays outputs `o↦X o`). Under finite-word
   semantics, target adaptation is unsupported: `SEMANTICS` and `TARGET` must
@@ -459,7 +319,7 @@ Equivalence-preserving rewrites are exposed as flags
 (`--weak-simplify`=`-s0`, `--strong-simplify`=`-s1`, `--nnf`,
 `--no-{weak-until,release,strong-release,finally,globally}`,
 `--{push,pull}-{globally,finally,next}-{in,out}`);
-every result is `ltlfilt --equivalent-to` the input.
+The rewrites preserve equivalence (`ltlfilt --equivalent-to`).
 
 `--fair-environment` adds `G F i` and `G F !i` assumptions for every Boolean
 environment input, requiring each input to visit both values infinitely often.
@@ -475,41 +335,28 @@ safety/liveness output modes.
 > tree has no `F`, `U`, or internally derived strong-release node. A safety
 > property written with liveness operators is classified as liveness.
 
-## Source layout
+## Development
 
-```
-include/tlsf/      public API; every header here is installed
-src/lib/           libtlsf and its private headers, including the OxiDD solvers
-                   and the GR(1) checker
-src/tools/<tool>/  one directory per executable (common/ holds shared helpers)
-test/unit/         programs testing internal units
-test/api/          programs using only the installed headers
-test/cli/          checks of the executables against golden outputs
-test/oracle/       Python oracles and differentials
-test/fixtures/     fake solvers, stubs and the case corpus (cases/)
-```
+| Path | Contents |
+|---|---|
+| `include/tlsf/` | Installed public headers. |
+| `src/lib/` | Library, private headers, OxiDD solvers, GR(1) checker. |
+| `src/tools/<tool>/` | Executables; `common/` holds shared helpers. |
+| `test/unit/`, `test/api/` | Internal tests and installed-header API tests. |
+| `test/cli/`, `test/oracle/` | Golden CLI checks and Python oracles/differentials. |
+| `test/fixtures/` | Fake solvers, stubs, and `cases/` corpus. |
 
-Each area has its own `meson.build`; the executables are declared at the top
-level so they build to `build/<tool>`.
-
-## Tests, formatting, benchmarking
+Each area has a `meson.build`; top-level executable declarations put binaries
+at `build/<tool>`.
 
 ```sh
-meson test -C build                                  # fast golden-output suite
+meson test -C build
 meson setup build-cov -Dresearch_tools=true -Db_coverage=true && meson test -C build-cov
-git ls-files '*.[ch]' '*.cc' '*.cpp' '*.hh' '*.hpp' | xargs clang-format -i  # style
-clang-tidy -p build src/lib/*.c src/tools/*/*.c      # lint
-bench/bench.sh [--baseline|--check]                  # wall/RSS perf-regression guard
+git ls-files '*.[ch]' '*.cc' '*.cpp' '*.hh' '*.hpp' | xargs clang-format -i
+clang-tidy -p build src/lib/*.c src/tools/*/*.c
+bench/bench.sh [--baseline|--check]
 ```
 
-CI (`.github/workflows/ci.yml`) checks formatting, builds with gcc and clang,
-runs the suite + a valgrind no-leak check, gates line coverage at 75 %, and runs
-the `bench.sh --check` regression guard.
-
-## License
-
-[MIT](LICENSE).
-
-OxiDD sizes its worker stacks to fit a finite `RLIMIT_AS` and returns an invalid
-manager, rather than aborting, when it cannot create one; an explicit
-`OXIDD_STACK_SIZE` always wins.
+CI (`.github/workflows/ci.yml`) checks formatting, GCC/Clang builds, tests,
+Valgrind leaks, 75% line coverage, and `bench.sh --check` wall/RSS regressions.
+Licensed under [MIT](LICENSE).
