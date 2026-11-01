@@ -249,7 +249,7 @@ implementation or the other CSNF template families.
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
 The textual controller `ctl o := theta` is emitted outside `src/lib`, in
-`src/tools/tlsfcompose/main.c:1027` in this working tree. `normalize_definitions` proves
+`src/tools/tlsfcompose/main.c:1057` in this working tree. `normalize_definitions` proves
 that reconstruction by the composed letter map satisfies every such equation;
 `play_decorate` supplies its Mealy implementation.
 
