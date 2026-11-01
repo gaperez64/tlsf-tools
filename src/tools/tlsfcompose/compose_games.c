@@ -193,9 +193,10 @@ static bool wr_emit_g_body_gated(AigCtx *ctx, const Node *n, uint32_t depth,
     uint32_t a = compile_at_lag(ctx, n->lhs, depth);
     uint32_t b = compile_at_lag(ctx, n->rhs, depth);
     if (a != UINT32_MAX && b != UINT32_MAX) {
-      *bad = aig_or(
-          g, *bad,
-          aig_and(g, aig_and(g, valid, arm_gate), aig_not(aig_or(g, a, b))));
+      // Gate IDs are serialized: preserve GCC's right-first order.
+      uint32_t released = aig_or(g, a, b);
+      uint32_t armed = aig_and(g, valid, arm_gate);
+      *bad = aig_or(g, *bad, aig_and(g, armed, aig_not(released)));
       return true;
     }
     // Pattern B: G(outer_req -> ((cond -> [X](ia W/R ib)) W B)).
@@ -220,9 +221,9 @@ static bool wr_emit_g_body_gated(AigCtx *ctx, const Node *n, uint32_t depth,
     uint32_t ib = compile_at_lag(ctx, inner->rhs, depth);
     if (ia == UINT32_MAX || ib == UINT32_MAX)
       return false;
-    uint32_t sub_arm =
-        aig_and(g, aig_and(g, valid, arm_gate),
-                aig_and(g, cond, aig_not(b))); // arm when gate & cond & !B
+    uint32_t pending = aig_and(g, cond, aig_not(b));
+    uint32_t armed = aig_and(g, valid, arm_gate);
+    uint32_t sub_arm = aig_and(g, armed, pending); // gate & cond & !B
     uint32_t inner_release = inner->kind == NODE_W ? ib : aig_and(g, ia, ib);
     uint32_t inner_fail = inner->kind == NODE_W
                               ? aig_and(g, aig_not(ia), aig_not(ib))
@@ -350,8 +351,9 @@ static bool wr_emit_g_body(AigCtx *ctx, const Node *n, uint32_t depth,
       uint32_t active; // obligation active this step
       if (xdelay) {
         active = owe;
-        uint32_t owe_next = aig_or(g, aig_and(g, valid, req),
-                                   aig_and(g, owe, aig_not(release)));
+        uint32_t pending = aig_and(g, owe, aig_not(release));
+        uint32_t armed = aig_and(g, valid, req);
+        uint32_t owe_next = aig_or(g, armed, pending);
         if (!aig_set_latch_next(g, owe, owe_next))
           return false;
       } else {
@@ -837,10 +839,12 @@ Aig *build_aig_strict_safety_game(ConstraintCover *cov, const bool *seen,
     return nullptr;
   }
 
-  uint32_t env_ok = aig_and(g, guarded_current_ok(g, first, env_init_ok),
-                            guarded_current_ok(g, valid, env_global_ok));
-  uint32_t sys_ok = aig_and(g, guarded_current_ok(g, first, sys_init_ok),
-                            guarded_current_ok(g, valid, sys_global_ok));
+  uint32_t env_global = guarded_current_ok(g, valid, env_global_ok);
+  uint32_t env_init = guarded_current_ok(g, first, env_init_ok);
+  uint32_t env_ok = aig_and(g, env_init, env_global);
+  uint32_t sys_global = guarded_current_ok(g, valid, sys_global_ok);
+  uint32_t sys_init = guarded_current_ok(g, first, sys_init_ok);
+  uint32_t sys_ok = aig_and(g, sys_init, sys_global);
   uint32_t violated = aig_latch(g, AIG_FALSE, AIG_FALSE);
   uint32_t violated_next = aig_or(g, violated, aig_not(env_ok));
   if (!aig_set_latch_next(g, violated, violated_next)) {

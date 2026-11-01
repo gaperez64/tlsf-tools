@@ -1111,14 +1111,19 @@ public:
       if (auto at = memo.find(current); at != memo.end())
         return at->second;
       auto row = nodes[current];
-      int result = node(row.label, visit(row.low), visit(row.high));
+      // Preserve GCC's right-first node allocation order.
+      int high = visit(row.high);
+      int low = visit(row.low);
+      int result = node(row.label, low, high);
       memo.emplace(current, result);
       return result;
     };
     return visit(root);
   }
   int ite(int condition, int high, int low) {
-    return apply(1, apply(0, condition, high), apply(0, neg(condition), low));
+    int low_term = apply(0, neg(condition), low);
+    int high_term = apply(0, condition, high);
+    return apply(1, high_term, low_term);
   }
   std::set<int> support(int root) const {
     std::set<int> result;
@@ -1159,8 +1164,11 @@ public:
       int result;
       if (auto at = assignments.find(row.label); at != assignments.end())
         result = visit(at->second ? row.high : row.low);
-      else
-        result = node(row.label, visit(row.low), visit(row.high));
+      else {
+        int high = visit(row.high);
+        int low = visit(row.low);
+        result = node(row.label, low, high);
+      }
       memo.emplace(current, result);
       return result;
     };
@@ -1234,8 +1242,10 @@ public:
         decline(FailureCause::applicability, "instantiate",
                 "rank uses an unmapped target variable");
       uint32_t variable = at->second;
-      uint32_t result = aig_or(aig, aig_and(aig, variable, visit(row.high)),
-                               aig_and(aig, aig_not(variable), visit(row.low)));
+      // Export low first, including its guard, to keep historical gate IDs.
+      uint32_t low = aig_and(aig, aig_not(variable), visit(row.low));
+      uint32_t high = aig_and(aig, variable, visit(row.high));
+      uint32_t result = aig_or(aig, high, low);
       memo.emplace(current, result);
       return result;
     };
@@ -1592,9 +1602,11 @@ int env_instantiate_previous(EnvBdd &bdd, const EnvView &view,
   std::map<int, int> back;
   for (const auto &[_, var] : view.variables)
     if (std::includes(selected_set.begin(), selected_set.end(),
-                      var.owners.begin(), var.owners.end()))
-      back.emplace(env_variable_label(bdd, var, slots),
-                   env_variable_label(bdd, var));
+                      var.owners.begin(), var.owners.end())) {
+      int original = env_variable_label(bdd, var);
+      int normalized = env_variable_label(bdd, var, slots);
+      back.emplace(normalized, original);
+    }
   std::map<int, int> mapping;
   for (int label : bdd.support(at->second)) {
     if (!back.count(label))
@@ -1834,8 +1846,11 @@ env_summary_fit(EnvBdd &bdd, const std::vector<EnvSummaryObservation> &rows,
     int relation = 1;
     for (const auto &[label, bit] : mapping) {
       int variable = bdd.var(label);
-      int same = bdd.apply(1, bdd.apply(0, variable, bit),
-                           bdd.apply(0, bdd.neg(variable), bdd.neg(bit)));
+      int not_bit = bdd.neg(bit);
+      int not_variable = bdd.neg(variable);
+      int low = bdd.apply(0, not_variable, not_bit);
+      int high = bdd.apply(0, variable, bit);
+      int same = bdd.apply(1, high, low);
       relation = bdd.apply(0, relation, same);
     }
     std::set<int> lanes;
@@ -2050,12 +2065,16 @@ void env_emit_target_ranks(EnvBdd &bdd, const EnvView &target,
     if (!name)
       decline(FailureCause::error, "instantiate", "target latch is unnamed");
     const auto &var = target.variables.at(target.game_names.at(name));
-    literals.emplace(env_variable_label(bdd, var), aig_input(aig.get(), name));
+    uint32_t literal = aig_input(aig.get(), name);
+    int label = env_variable_label(bdd, var);
+    literals.emplace(label, literal);
   }
   for (uint32_t p = 0; p < aig_num_inputs(game); p++) {
     const char *name = aig_input_name(game, p, nullptr);
     const auto &var = target.variables.at(target.game_names.at(name));
-    literals.emplace(env_variable_label(bdd, var), aig_input(aig.get(), name));
+    uint32_t literal = aig_input(aig.get(), name);
+    int label = env_variable_label(bdd, var);
+    literals.emplace(label, literal);
   }
   std::map<std::string, int> ranks;
   auto emit = [&](const std::string &name, const std::string &kind, int outer,
