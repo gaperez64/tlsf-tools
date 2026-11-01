@@ -1,27 +1,20 @@
-# Stage 2: conservative breakpoint proof obligation
+# Breakpoint components and Boolean-product language proof
 
-**The targeted Stage 2 gate is discharged.** For the exact construction below,
-§6 proves both component inclusions for `G(q)`, where q is a positive Boolean
-combination of finite windows and `F` of finite windows, and for its `F`/`G`
-duals. Together with the Boolean-product/Zielonka theorems, this gives the
-admitted grammar at the end. The general Π₂ component theorem was subsequently
-proved in `GeneralConverse.lean`; Task T adds executable Π₂/Σ₂ component
-simulation. TV3 enables general admission in GR(1) after the full 17-second
-translation-validation sample finishes with zero failures; see §10 and
-`proofs/README.md` for the trusted boundary. C correctness on every runtime
-input is not proved.
+The flat component converse below proves `G(q)` for positive Boolean combinations
+of finite windows and F-windows, plus F/G duals. Product/Zielonka correctness
+gives the restricted grammar in §7. `GeneralConverse.lean` separately proves
+general Π₂, and executable Π₂/Σ₂ simulation is documented in
+[the proof overview](../../proofs/README.md#automaton-translation-validation).
+General GR(1) admission uses bounded translation-validation evidence; no proof
+of C correctness on every runtime input is claimed.
 
-This extends [STAGE1-PROOF.md](STAGE1-PROOF.md), using its definitions of `b`, `s`,
-`c`, NNF dualization, AP_COMBINED classes, frozen unfolding `U`, simultaneous
-stepping `Dᵥ`, and extractor `ρ` (§§1–2). Its derivative, finite-witness,
-bad-prefix, and finite-window lemmas (§3) are used below. The authoritative rules
-are [DESIGN.md §§1–2](DESIGN.md#conservative-component-exact-rules-and-proof-gate);
-the gate is its §5, row 2, and [issue #80](https://github.com/gaperez64/tlsf-tools/issues/80).
+Use [Stage 1's classes and derivative/witness lemmas](STAGE1-PROOF.md), including
+b/s/c, NNF duality, AP_COMBINED, frozen U, simultaneous Dᵥ, and extractor ρ.
 
 ## 1. Intended fragment
 
-With `b`, `s`, and `c` respectively the finite, safety, and co-safety grammars of
-Stage 1 §1, the extension after canonical NNF and Boolean X distribution is:
+Let b/s/c be Stage 1’s finite/safety/co-safety grammars. After canonical NNF
+and Boolean X distribution:
 
 ```text
 π ::= c | π ∧ π | π ∨ π | X π | G π | π R π | π W π
@@ -33,313 +26,198 @@ Thus `π=Π₂`, `σ=Σ₂`; negation exchanges them by NNF dualization. Arbitra
 combinations, including implication and equivalence, are expressed by these
 dualities and Boolean truth tables. This is a syntactic fragment, tested on
 canonical class support, without Δ₂ normalization or a language-equivalence
-oracle. Its grammar is the intended Stage 2 scope, **not an admission theorem**.
+oracle. Its grammar is the intended Stage 2 scope, not an admission theorem.
 
 ## 2. Exact component and complement
 
-For `χ∈π`, `Bχ` is a complete deterministic transition-Büchi automaton over
-`2^AP`, with set 0 and states `(A,R)` of unfolded classes. `R=false` denotes
-suspension. It never denotes a resource failure. The extractor is exactly Stage 1
-§2: replace supported non-co-safety modal atoms by true; repeatedly remove
-supported X atoms absent from the X-subformula sets of the current supported
-non-X modal atoms; unfold; retry on `U(x)` if the result is finite and `x≠U(x)`.
-Protection is recomputed after each removal. The surviving non-X protectors are
-F/U/M, and their entire syntactic X subformula sets are protected, including
-nested X tails and Xs in operands that would absorb if materialized. This
-extractor is also used by the default-fragment Lean theorems; see the
-[default-effect audit](DEFAULT-PROTECTION.md).
+Use [the canonical extractor and ordered component table](DESIGN.md#conservative-component-exact-rules-and-proof-gate).
+Bχ for Π₂ χ is complete deterministic transition-Büchi over `2^AP`; states are
+unfolded `(A,R)` and false R is suspension, never failure. Syntactic protection
+includes nested X tails and absorbed frozen operands and is recomputed after
+each elision; it also serves default theorems ([audit](DEFAULT-PROTECTION.md)).
+Renewal retains finite nonconstant `U(r)` and extracts from raw a with retry.
 
-For canonical input class `x`, initialize `(U(x),false)` if `U(x)` is safety or
-co-safety, otherwise `(U(x),ρ(x))`. Constants use `(false,false)` and `(true,false)`.
-On letter v compute raw `a=Dᵥ(A)`, `r=Dᵥ(R)`, and `a′=U(a)`; use the first row:
+Acceptance is Inf(0); for Σ₂ ψ, use χ=bar(ψ) and Fin(0) on the identical run.
+Completeness makes this exactly the complement of L(Bχ), while equality to
+L(ψ) needs component correctness. Finite modal closure/X tails, decreasing
+elision, and idempotent U prove finiteness/termination. Shannon expansion
+represents the total ordered function. No transient/support reset, external
+suspension, replacement/pruning, round robin, local alpha, tree reset, or
+stuttering is used.
 
-| Condition | Target | Mark 0? |
-| --- | --- | --- |
-| `a′=false` | `(false,false)` | no |
-| `a′=true` | `(true,false)` | yes |
-| `a′` safety | `(a′,false)` | yes |
-| `a′` co-safety | `(a′,false)` | no |
-| `U(r)=false` | `(a′,ρ(a))` | no |
-| `U(r)` finite | let `q=U(r)∧ρ(a)`; `(a′,q)` if nonfalse, otherwise `(false,false)` | yes iff `q≠false` |
-| otherwise | `(a′,U(r))` | no |
+## 3. General component invariants
 
-In particular, renewal retains a finite nonconstant remainder and extracts from
-raw `a`, with the specified retry, rather than unconditionally from `a′`.
-Acceptance is `Inf(0)`. For `ψ∈σ`, construct the complete `Bχ` for `χ=bar(ψ)`
-and use `Fin(0)` on the identical run. This recognizes the complement of
-`L(Bχ)` unconditionally; equality with `L(ψ)` requires the corresponding
-component theorem, proved for the targeted family in §6.
-
-All classes use the finite modal-subformula closure and its X tails, so there
-are finitely many classes and pairs. Extractor iterations terminate: substitutions
-only remove supported variables, and unfolding is idempotent, permitting at most
-one retry. The ordered table gives one transition for every letter. Symbolic
-Shannon expansion only represents that same function. There are no transient
-tests, support resets, external suspension, state replacement, component pruning,
-round robin, local acceptance formulas, tree resets, or stuttering updates.
-
-## 3. Component facts that do hold for general Π₂
-
-Write `⇒ₚ` for implication between propositional classes; it implies LTL
-implication, but its converse is not assumed. Put `wₙ=w[n:]`, and let `(Aₙ,Rₙ)`
-be the state before letter n. For an unfolded class x, its exact successor is
-`Δᵥx=U Dᵥx`, by Stage 1 §3. Unfolding and stepping preserve Π₂ and each of the
-finite/safety/co-safety classes.
-
-**Extraction and all/rejecting invariant.** For every x,
+Write `⇒ₚ` for propositional implication (sufficient, not necessary, for LTL
+implication), `wₙ=w[n:]`, and `(Aₙ,Rₙ)` for the state before n. Unfolded x
+steps to `Δᵥx=U Dᵥx`; U/stepping preserve Π₂ and finite/safety/co-safety.
 
 ```text
 U(x) ⇒ₚ ρ(x),                  ρ(x) is unfolded and co-safety.       (1)
 ```
 
-Indeed classes are positive in modal variables. Every true-substitution weakens
-the class, and unfolding is a monotone Boolean substitution. Without retry this
-gives (1); with retry apply the same argument to `U(x)` and use `U²=U`.
-This covers every iteration of X removal, including changed protection sets.
-It proves weakening, not equivalence of the extracted obligation with x.
-
-Initially, and at every subsequent active state,
+Positivity makes every true-substitution weakening, and U is monotone.
+This proves (1) through every protection change; retry applies it to U(x)
+using `U²=U`. Extraction is not claimed equivalent to x. Initially/while active:
 
 ```text
 Aₙ ⇒ₚ Rₙ.                                                       (2)
 ```
 
-Initialization follows from (1). Stepping (2) gives `a′⇒ₚU(r)`; (1) gives
-`a′⇒ₚρ(a)`. Thus both ordinary progression and renewal preserve (2).
-If `q=false`, these two implications force `a′=false`, so the first row would
-already have applied. The explicit false-renewal branch is consequently
-unreachable from an invariant state, and in particular cannot reject a
-satisfying word. Likewise an active state cannot take the resume row: `U(r)=false`
-would already force the first row. Once a safety/co-safety row suspends R,
-derivative closure keeps A in that class forever. Hence **resumption is
-unreachable in this baseline**. It becomes a real case with external suspension,
-which is outside this variant.
-
-It follows that the all-field is always the exact iterated derivative, including
-the false sink:
+Initialization uses (1). Stepping gives `a′⇒ₚU(r)` and (1) gives `a′⇒ₚρ(a)`,
+preserving (2) on progression/renewal. False renewal q would force a′ false,
+so the first row already applies; active resume likewise cannot occur.
+Safety/co-safety suspension persists by derivative closure. Resumption becomes
+a real obligation only with external suspension, outside this baseline.
+Thus the all-field remains the exact iterated derivative, including false:
 
 ```text
 wₙ ⊨ Aₙ  iff  w ⊨ χ.                                           (3)
 ```
 
-**Satisfying words accept.** Suppose `w⊨χ`. Equations (2)–(3) exclude the false
-sink and make every active R true on the corresponding suffix. A safety suffix
-therefore marks forever; a co-safety suffix has a finite witness to true and
-then marks forever. Otherwise, suppose there are only finitely many marks. After
-all of them the component remains active and progresses R by exact derivatives. The co-safety
-finite-witness lemma forces a derivative of this satisfied R to true, which
-requires another mark. This contradiction proves
+If `w⊨χ`, (2)–(3) exclude false and satisfy every active R. Safety suffixes
+mark forever; co-safety reaches true and then marks forever. Otherwise, finitely
+many marks would leave satisfied co-safety R progressing by exact derivatives
+forever, contradicting its finite witness to true and another mark. Hence:
 
 ```text
 L(χ) ⊆ L(Bχ).                                                  (4)
 ```
 
-This argument covers arbitrarily many deletions and rounds in this direction;
-it does not need a cohort interpretation or a support reset.
-
-**Finite remainders and witnesses across rounds.** During an active interval,
-ordinary progression takes the exact derivative of R and renewal conjoins a
-new seed to that derivative. Consequently, for any earlier active position t,
-until suspension,
+This handles arbitrary deletions/rounds without cohorts or support resets.
+During an active interval, progression differentiates R and renewal conjoins
+a seed. Monotonicity and retained `U(r)` give, for every earlier active t:
 
 ```text
 Rₙ ⇒ₚ Δ_{w[t:n]}Rₜ.                                            (5)
 ```
 
-This is an induction on transitions using monotonicity; the renewal step is
-precisely where retaining `U(r)` proves it. Also (2), (3), and derivative
-monotonicity give `Aₙ⇒ₚΔ_{w[t:n]}Rₜ` at every later position, even after
-suspension. These statements hold simultaneously for every earlier round,
-without choosing independent witnesses or disjuncts.
+Equations (2)–(3) also give `Aₙ⇒ₚΔ_{w[t:n]}Rₜ` even after suspension, for all
+earlier rounds simultaneously, without independent witnesses/disjuncts.
+On an accepting active run, the first renewal after t makes
+`E=Δ_{w[t:u]}Rₜ` finite. If false on `wᵤ`, E differentiates to false within
+its X depth plus one letters, forcing A false by (5)/(2), a contradiction.
+Thus `wₜ⊨Rₜ`; E eventually becomes propositionally true, witnessing Rₜ.
+Marks can precede delayed checks but cannot forgive failure, through arbitrary
+renewals with finite nonconstant E. E is not replaced by true at the mark.
 
-Suppose an accepting run stays active and t is any active position. There is
-a later renewal at position u. At the first such renewal,
-`E=Δ_{w[t:u]}Rₜ` is finite. If `wᵤ⊭E`, its exact derivative becomes false after
-at most its maximum X depth plus one letters. By (5) and (2), or the all-field
-implication just proved, A then becomes false, contradicting acceptance. Thus E
-is true on `wᵤ`, and `wₜ⊨Rₜ`. Moreover that finite E becomes propositionally
-true after a finite prefix, giving a genuine finite witness for Rₜ. A mark
-therefore need not finish a delayed check immediately, but cannot forgive its
-failure. This applies to finite nonconstant E, through any number of intervening
-renewals; it does not replace E by true at the marked transition.
-
-If an accepting run instead enters permanent suspension, its safety/co-safety
-suffix satisfies A: otherwise the safety bad-prefix lemma, or the co-safety
-case of Stage 1 §4, would reject. The all-field implication again implies all
-earlier R obligations. Thus accepting runs satisfy every seed they actually
-extract, including `ρ(a)` at each renewal. This proves consistency for retained
-obligations; it does **not** establish that extraction covers every rejecting
-obligation of χ.
+An accepting suspended suffix satisfies A by the safety bad-prefix/co-safety
+proof, hence also every earlier R. Accepting runs therefore satisfy all
+extracted seeds, including renewal `ρ(a)`. This establishes retained-obligation
+consistency, not coverage of every rejecting obligation of χ.
 
 ## 4. Fixed Boolean product
 
-Let `β(z₀,…,zₘ₋₁)` be the fixed Boolean skeleton, where `zᵢ` names a Π₂ formula
-`χᵢ` and a Σ₂ occurrence uses the negation of its dual's variable. Share equal
-and complementary occurrences. Advance every complete component on every
-letter, keeping sinks in the tuple. The product edge has colour set
-`Cₙ={i : component i marks on letter n}` and fixed acceptance
+Fix skeleton `β(z₀,…,zₘ₋₁)` with zᵢ naming Π₂ χᵢ; Σ₂ uses its dual's negated
+variable. Share equal/complementary occurrences and advance every complete
+component, including sinks, on every letter. Edge colours and acceptance are:
 
 ```text
+Cₙ={i : component i marks on letter n},
 α = β(Inf(0),…,Inf(m−1)),       ¬Inf(i) = Fin(i).
 ```
 
-Put `S={i : i∈Cₙ infinitely often}`. The unique product run satisfies α exactly
-when `β(1_{i∈S})` is true, by the definitions of Inf and Fin and the Boolean
-truth tables. **If** each component satisfies `L(Bχᵢ)=L(χᵢ)`, these truth values
-are exactly `w⊨χᵢ`, proving the product language equals the supplied formula.
-This implication is unconditional for components proved in Stage 1 or §6 below.
-A one-sided component inclusion is insufficient for general Boolean skeletons,
-especially those using complements.
+For `S={i : i∈Cₙ infinitely often}`, the unique run satisfies α iff
+`β(1_{i∈S})`. If every `L(Bχᵢ)=L(χᵢ)`, these are the formula's truth values,
+proving product language equality. Stage 1 and §6 supply such components.
+One-sided inclusion cannot justify arbitrary skeletons, especially complements.
+
+<a id="global-zielonka-tree-and-parity"></a>
 
 ## 5. Global Zielonka tree and parity
 
-This theorem holds for any fixed Boolean α and any colour stream, independently
-of the unresolved component theorem. Keep the full universe `K={0,…,m−1}`.
-At node label `C⊆K`, children are **all inclusion-maximal** `M⊊C` with
-`α(M)≠α(C)`, in a fixed lexicographic order; apply the same rule recursively.
-Strict label decrease makes the tree finite with depth at most m. Share equal
-subtrees without identifying distinct occurrences of their paths.
+For any fixed Boolean α/colour stream, keep `K={0,…,m−1}`. Node C has all
+inclusion-maximal `M⊊C` of opposite acceptance as lexicographically ordered
+children. Strict label decrease gives finite depth at most m. Share subtrees
+without merging distinct path occurrences.
 
-**Generic maximal-model builder.** Restrict colours outside C to false and ask
-for a model of `α(X)≠α(C)`. From a model X, repeatedly ask for a strict satisfying
-superset within C, retaining every element of X, until none exists. This
-terminates at a maximal M. Record it, conjoin `∨_{i∈C\M} i` to block all its
-subsets, and repeat until unsatisfiable. Previous blocking clauses are upward
-closed, so ascent cannot lose a previous clause, and maximality under these
-clauses is maximality for the original opposite-acceptance formula. Every
-maximal model remains available until recorded: a distinct maximal model cannot
-be a subset of an earlier one. Conversely only such models are recorded.
-Finiteness proves termination and completeness, including a possible empty
-model; at `C=∅` there is no opposite-acceptance model. Single-bit greedy ascent
-is not this algorithm and need not find an inclusion-maximal model.
+The maximal-model builder restricts outside colours false, finds a model of
+`α(X)≠α(C)`, then repeatedly finds strict satisfying supersets inside C until
+maximal M. Record M and conjoin `∨_{i∈C\M} i` to block its subsets; repeat.
+Blocking clauses are upward closed, so ascent preserves them and remains
+maximal for the original opposite-acceptance formula. Distinct maximal models
+are not subsets of earlier ones, so all remain available until recorded.
+Finiteness proves termination/completeness, including empty models; C=∅ has no
+opposite model. Single-bit greedy ascent need not find a maximal model.
 
-**Ordinary update.** Start at the leftmost leaf, with an empty path when the
-root is a leaf. For edge colour set E, take the deepest node v on the current
-path with `E⊆label(v)`. Emit `p=depth(v)+ε`, where `ε=0` if `α(K)` is true and
-`ε=1` otherwise. If v is a leaf, retain the path; otherwise advance its current
-child index by exactly one modulo the number of children and descend leftmost.
-Keep the prefix through v. Process E once, without skipping or recursively
-processing siblings. This is the design's zero-lookahead global-tree update.
+Start at the leftmost leaf (empty path for root leaf). For edge colours E,
+anchor at the deepest path node v containing E, emit `p=depth(v)+ε` with
+accepting-root ε=0/rejecting ε=1. At a leaf retain the path; otherwise keep
+the prefix through v, advance exactly one child modulo its count, and descend
+leftmost. Process E once, without skipping/reprocessing siblings.
 
-**Recurrent-set proof.** Let d be the minimum anchor depth occurring infinitely
-often. After a finite prefix no shallower anchor occurs; hence the path prefix
-through a fixed depth-d node v is permanent. Every later E is contained in
-`label(v)`, so `S⊆label(v)`.
+Let d be the minimum infinitely recurring anchor depth. Eventually no shallower
+anchors occur, fixing a depth-d node v/path prefix. Later E lies in label(v),
+so `S⊆label(v)`. If v is a leaf, an opposite-acceptance subset would extend
+to a maximal one and create a child; therefore `α(S)=α(label(v))`.
+Otherwise infinitely many depth-d anchors cycle through every child.
+No child D contains S: after the last colour outside S, all E would fit D;
+the next D visit would remain there and prevent further anchors at v.
+If S had opposite acceptance, a maximal opposite subset containing S would
+be a child, contradiction. Again `α(S)=α(label(v))`.
 
-If v is a leaf, there is no subset of its label of opposite acceptance: any
-such subset would extend, by finiteness, to a maximal one and hence a child.
-Therefore `α(S)=α(label(v))`.
-
-Otherwise the infinitely many depth-d anchors cycle through every child. No
-child label can contain S. For suppose a child D contained S. After the last
-occurrence of any colour outside S (there are finitely many colours), every
-edge E is contained in D. On the next visit to D the path could never anchor
-at v again: updates inside D retain it. This contradicts infinitely many
-depth-d anchors. If `α(S)≠α(label(v))`, however, a maximal opposite-acceptance
-subset containing S would be a child. Thus again `α(S)=α(label(v))`.
-
-Acceptance alternates at each tree edge, so the depth plus root offset is
-even exactly at accepting nodes. The minimum recurring priority is `d+ε`,
-which is even exactly when `α(S)` holds. This proves the min-even parity
-condition equivalent to the fixed Emerson–Lei condition. Empty edge marks cause
-no exception: the empty set is contained in every path label, so anchors at
-the current leaf. Constant α gives a root leaf and an empty path, with the
-correct constant priority, also when `m=0`.
-
-Finally choose P as the smallest odd integer greater than `m+1` and export
-`P−p`, as in DESIGN.md §2. Since `p≤m+1`, every ordinary exported priority is
-positive, and
+Acceptance alternates with depth, so recurring minimum `d+ε` is even iff
+α(S). Empty E anchors at the leaf; constant α yields an empty root path and
+correct constant priority, including m=0. For smallest odd `P>m+1`, every
+ordinary export `P−p` is positive, and
 
 ```text
 max Inf(P−p) = P − min Inf(p)
 ```
 
-is odd exactly when that minimum is even. Hence the exported max-odd condition
-is equivalent too. Every product transition has a priority; this proof uses
-no changing trees, uncoloured reset edges, SCC lookahead, or stuttering.
+is odd iff the minimum is even. Every edge gets a priority. No changing tree,
+uncoloured reset, SCC lookahead, or stuttering is used.
 
-## 6. Targeted converse: flat eventualities under G
+<a id="flat-converse"></a>
 
-Let `q ::= b | F b | q ∧ q | q ∨ q`, with b a finite window as in Stage 1.
-Fix `χ=G(q)`. There is a finite maximum X depth h among its finite bodies;
-there is no common bound across inputs. We prove `L(Bχ)⊆L(χ)` without changing
-the extractor, retry, renewal, or suspension rules. Components already reduced
-to safety/co-safety use Stage 1. Any outer Boolean splitting already performed
-by canonicalization uses §4; the argument below treats one remaining G atom.
+## 6. Flat converse
 
-### 6.1. A failed clause and its exact residual
+Let `q ::= b | F b | q ∧ q | q ∨ q` with finite-window b, and `χ=G(q)`.
+Finite bodies have maximum X depth h, unbounded across inputs. We prove
+`L(Bχ)⊆L(χ)` with unchanged extraction/retry/renewal/suspension. Stage 1 handles
+canonical safety/co-safety; §4 handles outer splits. Consider one remaining G.
 
-Write `K=[G(q)]`, and let `Hᵢ=[F bᵢ]` range over the distinct eventuality
-atoms of q. Every raw all-field class, before a false sink, has the form
+Put `K=[G(q)]` and `Hᵢ=[F bᵢ]` for distinct eventualities. Before false:
 
 ```text
-x₀ = K,     xₙ = D_{w[n−1]}Aₙ₋₁ = K ∧ Pₙ,     Aₙ = U(xₙ),
+x₀ = K,     xₙ = D_{w[n−1]}Aₙ₋₁ = K ∧ Pₙ,     Aₙ = U(xₙ).
 ```
 
-where Pₙ contains only H atoms and finite atoms/APs. This follows inductively
-from `U(K)=K∧U(q)`: stepping retains K and H, and unwraps only finite X atoms.
-In particular `Aₙ⇒ₚU(q)`. K is the only non-co-safety atom, and is independent
-of all variables in Pₙ.
+Induction from `U(K)=K∧U(q)` gives Pₙ containing only H and finite/AP atoms;
+stepping retains K/H and unwraps finite X. Thus `Aₙ⇒ₚU(q)`; K is the only
+non-co-safety atom and independent of Pₙ.
 
-Suppose `w⊭G(q)`, and choose t with `wₜ⊭q`. There is a propositional consequence
+If `w⊭G(q)`, choose t violating q. A false conjunction selects a false operand;
+a false disjunction combines both operands' clauses; a leaf selects itself.
+This yields a propositional consequence, without constructing CNF:
 
 ```text
 q ⇒ₚ C = B ∨ ⋁_{i∈I} Hᵢ,
 ```
 
-where B is a finite disjunction of finite leaves of q, and **every** disjunct
-is false on `wₜ`. To obtain it, at a false conjunction select a false operand;
-at a false disjunction combine the clauses obtained from both operands. At a
-leaf select that leaf. This is one false clause, without performing a CNF
-rewrite in the construction. Empty disjunctions mean false. In particular,
-for each selected i, `F bᵢ` and bᵢ are false on every suffix at or after t.
-
-Since `Aₜ⇒ₚU(C)`, from position t+1 onward the raw all-field implies the
-corresponding raw residual of C. More generally maintain, at a raw position n,
+where finite B and all selected H are false on `wₜ`; empty disjunction is false.
+Selected `F bᵢ` and bᵢ are false at every suffix from t. From `Aₜ⇒ₚU(C)`,
+raw all-fields from t+1 imply C's residual. Maintain:
 
 ```text
 xₙ ⇒ₚ Cₙ = (⋁_{i∈I} Hᵢ) ∨ Eₙ,       wₙ ⊭ Cₙ,                  (6)
-```
-
-with Eₙ finite. With I fixed, exact progression is
-
-```text
 Cₙ₊₁ = D_{w[n]}U(Cₙ)
       = (⋁_{i∈I} Hᵢ) ∨ D_{w[n]}(Eₙ ∨ ⋁_{i∈I} bᵢ).             (7)
 ```
 
-Both the implication and falsity persist by monotonicity and the derivative
-lemma. Every finite candidate in Eₙ is false on its actual suffix: an initial
-candidate comes from the false B, and a later one from a bᵢ that never holds.
+Eₙ is finite; monotonicity/derivatives preserve implication/falsity. Its initial
+candidates come from false B, later ones from never-satisfied bᵢ.
 
-### 6.2. Finite depth flushes abandoned candidates
+Removing i from this proof constraint leaves its pending candidates in Eₙ,
+but (7) introduces no more from bᵢ. Within h+1 letters old false candidates
+and initial B become propositionally false. After initialization/latest removal
+plus h+1 steps, every supported X in Cₙ is therefore a syntactic tail of a
+remaining bᵢ. Exact finite derivatives and finite-disjunction support establish
+this syntactically, not just semantically. The automaton itself is unchanged.
 
-We will occasionally remove an index from I in this **proof constraint**;
-the automaton is untouched. When Hᵢ is removed from Cₙ, its already pending
-finite candidates remain in Eₙ, but (7) creates no further candidates from bᵢ.
-After h+1 further letters those old, false finite candidates are propositionally
-false, by the finite-window lemma. The same holds for the initial B.
-
-Consequently, after h+1 letters following initialization or the latest removal,
-every supported X atom in Cₙ is an X subformula of a bᵢ with `i∈I`. Indeed (7)
-only introduces finite derivatives of these bodies; unwrapping X exposes their
-existing X tails. This statement uses exact propositional classes: a consumed
-false finite candidate has become false, rather than merely being semantically
-false. A finite disjunction cannot introduce a new supported variable.
-
-### 6.3. Losing a protector gives a smaller failed clause
-
-Inspect the first extraction pass on raw xₙ at such a position, whether or not
-the transition renews. Substituting true for K gives Pₙ. Since Cₙ contains no K,
-(6) implies `Pₙ⇒ₚCₙ` by the same
-substitution. Let y be an intermediate class in the actual X-removal loop.
-As long as every selected Hᵢ is supported in y, **all X atoms of Cₙ are
-protected**. Therefore deleting unprotected X atoms leaves Cₙ unchanged and
-preserves `y⇒ₚCₙ`. This applies to each simultaneous deletion, with protection
-recomputed exactly as specified in §2.
-
-If a selected Hⱼ is absent from support initially or after a deletion, stop
-this inspection at the first such point. Then
+At such n, inspect extraction on raw xₙ. Substituting true for K gives Pₙ,
+still implying Cₙ since Cₙ has no K. While every selected Hᵢ stays supported
+in intermediate y, all Cₙ X atoms are protected, so simultaneous elision with
+recomputed protection preserves `y⇒ₚCₙ`. At the first missing Hⱼ:
 
 ```text
 y ⇒ₚ Cₙ,     y does not depend on Hⱼ
@@ -347,84 +225,45 @@ y ⇒ₚ Cₙ,     y does not depend on Hⱼ
     hence xₙ ⇒ₚ Cₙ[Hⱼ:=false].                                (8)
 ```
 
-The last implication holds because every extraction substitution so far has
-weakened xₙ. Substitution by false in (8) is a proof step justified by support
-independence, **not an extractor operation**. Remove j from I and propagate this
-new constraint by (7). It is still false on the actual suffix, since Hⱼ was
-already false there. Wait h+1 letters before inspecting another extraction, to
-flush its remaining finite candidates as in §6.2.
+The last implication uses extraction weakening. False-substitution is a
+support-independence proof step, never an extractor operation. Remove j from I,
+propagate (7), and wait h+1 steps to flush its candidates. Falsity persists.
+H may later reappear in the all-field, but removed indices never rejoin I;
+protection losses consume finitely many loops.
 
-This is the reason repeated elision is tractable here. An H atom may reappear
-in the all-field later, but an index removed from this constraint never returns
-to I. A loss of protection therefore consumes one of finitely many selected
-eventuality loops; it cannot start an unbounded succession of new loops.
-
-### 6.4. Eventually every extracted seed is false
-
-Assume the all-field never reaches false. No xₙ can imply a finite class false
-on `wₙ`: unfolding and exact progression would force A to false after that
-class's finite horizon. This handles an initially empty I, and shows that (8)
-cannot leave I empty.
-
-Starting with (6), inspect positions after the required finite wait. At each
-position either (8) strictly decreases I, followed by another finite wait, or
-the whole X-removal pass preserves the false constraint Cₙ. There are at most
-the original `|I|` decreases, including losses during intermediate iterations.
-Thus there is N after the last decrease and its wait such that every extraction
-at `n≥N` preserves Cₙ through the entire removal loop.
-
-Let y be the final remainder of that first pass. Then `y⇒ₚCₙ`, so `U(y)` is
-false on `wₙ`. Also `Aₙ⇒ₚU(y)`, because extraction only weakened xₙ. If U(y)
-were finite, the preceding finite-horizon observation would force a false
-all-field later. Thus U(y) is not finite. **The retry condition is false**, and
-the actual result, extracted from raw xₙ, is precisely this U(y). We have proved
-the previously missing sufficient lemma for this family:
+Assume A never becomes false. No raw xₙ can imply a finite class false on wₙ,
+since exact progression would force false within its horizon. This handles
+initially empty I and prevents (8) from exhausting I. Inspection after each
+finite wait either decreases I or preserves Cₙ throughout elision. At most
+original |I| decreases occur, including intermediate losses, so beyond some N
+all extraction passes preserve Cₙ. Their final y implies Cₙ; U(y) is false on
+wₙ and `Aₙ⇒ₚU(y)`. Finite U(y) would force A false; thus retry is disabled,
+and actual raw extraction returns this U(y):
 
 ```text
 w ⊭ G(q), A never false  ⇒  ∃N ∀n≥N: wₙ ⊭ ρ(xₙ).               (9)
 ```
 
-No bound on the time of the last decrease is claimed; only the number of
-decreases and the h+1 flush time are bounded. Nor is (9) claimed for the
-general Π₂ grammar of §1. Arbitrary nested temporal bodies would invalidate
-the finite flush used here.
+Only the number of decreases and h+1 flush are bounded, not their last time.
+General nested Π₂ bodies invalidate finite flushing; (9) is not claimed there.
 
-### 6.5. Converse, finite remainders, and duals
+An accepting violating run cannot enter false or permanent suspension, whose
+accepted A suffix would contradict (3). It therefore renews infinitely often.
+Every seed is satisfied by §3, contradicting (9) at a renewal after N.
+Retaining finite `U(r)` in `q=U(r)∧ρ(xₙ)` prevents delayed failed checks from
+being forgiven. No independent round witnesses/disjuncts were chosen; overlap
+or support changes cannot avoid late false seeds. With (4),
+`L(BG(q))=L(G(q))`. For `r ::= b | G b | r∧r | r∨r`, bar(r) is q with the
+same finite depths; the complete G(bar(r)) run with Fin(0) recognizes F(r),
+proving both dual inclusions.
 
-Suppose Bχ accepts a word violating χ. It never reaches the false sink. If it
-enters safety/co-safety suspension, §3 already proves that an accepting suffix
-satisfies A, contradicting the all-field invariant. Otherwise it remains
-active. Infinitely many marks then mean infinitely many renewals, and §3
-proves that **every** renewed seed `ρ(xₙ)` is satisfied on `wₙ`. Choose a
-renewal after N in (9), a contradiction.
+<a id="admitted-grammar"></a>
 
-This uses §3's preservation of the finite nonconstant remainder in
-`q=U(r)∧ρ(xₙ)`: a mark may precede the end of a finite check, but an accepting
-run cannot forgive its failure. The failed-clause argument selects no witnesses
-or independent disjuncts across rounds. It supplies an eventual false seed on
-every sufficiently late renewal, regardless of overlap or support changes.
+## 7. Admitted grammar
 
-Together with (4), this proves `L(BG(q))=L(G(q))`. If
-`r ::= b | G b | r∧r | r∨r`, its NNF dual is a q of exactly the preceding
-grammar, since finite-window duals have the same depth. The complete component
-for `G(bar(r))`, with the identical run and acceptance Fin(0), therefore
-recognizes `F(r)`. This proves both inclusions for the requested Σ₂ duals too.
-
-## 7. Covered shapes and remaining scope
-
-The theorem covers Boolean combinations of Stage 1 safety/co-safety components,
-`G(q)` over finite windows and their flat eventualities, and the dual `F(r)`.
-
-## 8. Admitted grammar
-
-After canonical NNF and Boolean X distribution, with `p∈AP`, the proved grammar
-is exactly
+After canonical NNF and Boolean X distribution, using the b/s/c grammars from Stage 1, the proved extension is
 
 ```text
-lit ::= p | ¬p
-b   ::= true | false | lit | b ∧ b | b ∨ b | X b
-s   ::= b | s ∧ s | s ∨ s | X s | G s | s R s | s W s
-c   ::= b | c ∧ c | c ∨ c | X c | F c | c U c | c M c
 q   ::= b | F b | q ∧ q | q ∨ q
 r   ::= b | G b | r ∧ r | r ∨ r
 k   ::= s | c | G q | F r
@@ -436,76 +275,51 @@ under that duality. GF/FG finite-window components are included as special
 cases. In q/r, X occurs only inside finite b: no nested unbounded temporal
 body, X of an unbounded body, or U/M/R/W extension is inferred. Membership uses
 the canonical syntax/support and outer Boolean skeleton, without additional
-temporal distribution or a language-equivalence oracle. **Decline any component
-outside this guard**, unless canonicalization already places it inside. A
+temporal distribution or a language-equivalence oracle. Under this restricted policy, decline
+components outside the guard unless canonicalization places them inside. A
 Π₂/Σ₂ tag or finite tests do not prove the general theorem. Proof review and
 implementation/bridge validation remain separate gates.
 
-## 9. Exact factoring and current-letter care
+## 8. Exact factoring and current-letter care
 
-These transformations change the representation of the construction, within
-the admission decision of §8. `check_admission` first applies the original
-canonical-support guard to the original formula: at a nonconstant class x,
-accept it if `dpa_admitted(x)`; otherwise require its supported top atom to
-be admitted and check both Boolean cofactors. This is exactly the recursion
-of the original `dpa_acceptance`, without allocating colours. In particular,
-distribution cannot newly admit `G(G a ∧ F b)` or `F(F a ∨ G b)` by exposing
-a proved Boolean product. `allow_unproved` uses its original Π₂/Σ₂ guard in
-this same check; none of the transformations supplies the missing general
-component theorem. Resource exhaustion still declines, without publishing a
-partial row. The claims below concern successful construction.
+These changes preserve §7 admission. At nonconstant class x, `check_admission`
+accepts `dpa_admitted(x)`, otherwise requires the supported top atom and both
+cofactors admitted. This is original `dpa_acceptance` recursion without colours;
+it runs on the original formula before factoring. Distribution cannot newly
+admit `G(G a ∧ F b)` or `F(F a ∨ G b)`. `allow_unproved` retains its Π₂/Σ₂
+guard. Successful transformations do not supply missing component theorems;
+resource exhaustion declines without publishing partial rows.
 
-### 9.1. Grouping compatible obligations
+### Grouping compatible obligations
 
-At an outer ∧ or ∨, flatten only siblings with that same operator ⋄.
-Partition the operands with sound syntax tags into safety S, co-safety C,
-finite B, and remaining operands T. Finite operands are collected separately
-because they belong to both grammars. Fold C to its canonical Boolean class c,
-using ⋄'s identity e (true for ∧, false for ∨) for an empty group. If c ≠ e,
-join B to C; otherwise join B to S. This is a class comparison, not a test
-that C's operand list is nonempty: a nonempty C can fold to e by Boolean
-absorption or a tautology/contradiction. Each grouped
-operand has exactly the conjunction/disjunction of its former siblings as
-its language: associativity, commutativity, and the identity law prove the
-formula equality. Both `s` and `c` are closed under both Boolean operators,
-and `b⊆s∩c`, by Stage 1 §1. Thus the new components satisfy the **Stage 1 §4
-safety/co-safety theorem**, including both language inclusions. Remaining
-components retain their previous proof obligation (Stage 1 §4 or §6 here).
-Applying the **fixed Boolean-product theorem (§4)** to these exact component
-languages and then **§5's global Zielonka theorem** proves the same language
-for the regrouped DPA. Choosing C rather than S for the finite operands is
-only a representation choice justified by these closure properties.
+Flatten siblings of the same outer ∧/∨ operator ⋄. Sound syntax tags partition
+safety S, co-safety C, finite B (in both), and remaining T. Fold C to canonical c,
+using identity e (true for ∧, false for ∨). If `c≠e`, join B to C; otherwise
+join it to S. Compare classes, not list emptiness: nonempty C can absorb to e.
+Associativity/commutativity/identity preserve grouped languages, and closure of
+s/c under both Booleans plus `b⊆s∩c` makes Stage 1's component proof apply.
+T keeps its component proof; §§4–5 compose the same product/parity language.
+Joining finite terms to C rather than S is only a representation choice.
 
-Canonical absorption can remove an unsupported syntax operand. The original
-guard alone does not justify visiting that operand again. Before constructing
-any components, `groupable` therefore descends through **every** ∧/∨ node of
-the factored outer syntax, including canonically absorbed branches. At each
-non-Boolean leaf it applies `check_admission` to that leaf's canonical class.
-This check returns false for unsupported support without changing the context
-status or creating colours. If any leaf fails, construction uses the original
-`dpa_acceptance(c, original_class)`; no decline is cleared or context retried.
-Resource failures retain their original status and do not trigger a retry.
+Canonical absorption may hide unsupported syntax. Before creating components,
+`groupable` visits every ∧/∨ node of factored syntax, including absorbed branches,
+and checks every non-Boolean leaf's canonical class. Unsupported support returns
+false without context-status changes/colours. Failure uses original
+`dpa_acceptance(c, original_class)`; resource failures retain status without retry.
 
-Write A_m for the original canonical-support admission predicate in mode m.
-Induction on the canonical Boolean decision DAG shows `check_admission(x)`
-computes A_m(x): constants pass, admitted whole classes pass, and otherwise
-the supported top atom and both cofactors must pass. A fresh epoch memoizes
-shared classes; a false result short-circuits the traversal. Thus the initial
-check rejects exactly the original unsupported domain. If it passes but
-`groupable` fails, the original acceptance recursion succeeds by that same
-induction. If both pass, all canonical acceptance calls on remaining syntax
-leaves satisfy A_m; grouped safety/co-safety/finite classes are admitted by
-the closure argument above. Every syntax acceptance call is consequently
-supported, even when a shared or absorbed subtree is visited by flattening.
-Ignoring resource failures, the new constructor therefore succeeds exactly
-on A_m. On the proved domain, the component and product theorems cited above
-give the original infinite-word language in both paths. In `allow_unproved`
-mode this language claim remains conditional on the general component theorem
-of §6; preserving admission does not discharge that theorem.
+Let A_m be original canonical-support admission. Induction on the decision DAG
+shows `check_admission(x)=A_m(x)`: constants/whole admitted classes pass,
+otherwise top atom and both cofactors must pass. A fresh epoch memoizes shared
+classes with false short-circuiting. If admission passes but grouping fails,
+the same induction establishes original acceptance success. If both pass, every
+remaining leaf satisfies A_m and grouped s/c/b classes pass by closure, even
+for shared/absorbed syntax. Ignoring resource failures, success is exactly A_m.
+On proved components both paths preserve language; general mode needs
+`GeneralConverse.lean`, not admission preservation alone.
 
-### 9.2. The two temporal distributions
+### Temporal distributions
 
-For every infinite word w and position n,
+For every infinite w at n:
 
 ```text
 w,n ⊨ G(a ∧ b) ⇔ ∀j≥n: (w,j ⊨ a ∧ w,j ⊨ b)
@@ -514,161 +328,89 @@ w,n ⊨ F(a ∨ b) ⇔ ∃j≥n: (w,j ⊨ a ∨ w,j ⊨ b)
                 ⇔ (∃j≥n: w,j ⊨ a) ∨ (∃j≥n: w,j ⊨ b).
 ```
 
-Therefore `G(a∧b)=Ga∧Gb` and `F(a∨b)=Fa∨Fb`. Already compatible safety/co-safety
-syntax is retained as one monitor; distributing inside it is unnecessary.
-Structural congruence permits
-replacement inside any NNF syntax context, including frozen modal operands.
-Hash-consing/memoization changes no formula. The executable proof in
-`Impl/Factoring.lean` uses leaf weight 1, unary weight twice the operand weight,
-and binary weight the operand sum plus 1. Smart construction respects these
-bounds and each distribution strictly decreases weight. The sufficient fuel
-bound also covers recursion on factored children and newly constructed terms;
-ordinary syntax size need not decrease. These are the **infinite-word semantic identities
-used for canonicalization in Stage 1 §1**, with component correctness and the
-final parity language supplied by **Stage 1 §4, §6 here, and §§4–5 here**.
-The original admission guard is evaluated first, as above.
+Thus `G(a∧b)=Ga∧Gb`, `F(a∨b)=Fa∨Fb`; compatible safety/co-safety stays one
+monitor. Structural congruence permits replacements in NNF contexts, including
+frozen operands. Hash-consing/memoization preserve formulas.
+`Impl/Factoring.lean` assigns leaf weight 1, unary twice its operand, binary
+operand sum plus 1. Smart construction respects bounds; distribution strictly
+decreases weight. Fuel also covers factored/new children; ordinary size need
+not decrease. Original admission precedes these identities, with component/
+product/parity theorems supplying language correctness.
 
-### 9.3. Terminally decided products
+### Terminal products
 
-Consider a partial current-letter path through `joint`. A component DAG leaf
-fixes its target pair for every completion of that path. If that pair's
-all-field is 0 or 1, §2's transition table keeps it forever in `(0,0)` or
-`(1,0)`, with respectively no marks or a mark on every edge. Consequently its
-`Inf(i)` truth is exactly that constant, independently of the remaining word,
-the rejecting field, and the finite prefix of marks. Substitute only these
-constants in the fixed acceptance Boolean β of §4. Components whose target
-is still a decision, or whose all-field is nonterminal, remain variables.
-Complemented occurrences in β keep their Boolean polarity during substitution.
+On a partial current-letter `joint` path, component leaves fix targets for all
+completions. An all-field 0/1 stays `(0,0)`/`(1,0)` forever, never/always marking;
+its Inf(i) is that constant independently of prefix/rejecting field/future word.
+Substitute only such constants into fixed β, preserving complement polarity;
+unresolved decisions/nonterminal all-fields remain variables.
 
-If the result is the Boolean constant t, every infinite continuation has
-acceptance truth t. Replace this branch by an absorbing state identified
-by the reserved absent tuple and t. Its universal self-loop has priority P
-for t=1 and P−1 for t=0, where P is the odd export constant of §5. The
-recurring maximum is therefore odd exactly for t=1. The entering priority
-and all earlier priorities occur only finitely before this constant suffix
-and cannot change acceptance. This proves equality of the residual languages,
-using the **fixed Boolean-product theorem (§4)**, the **terminal rows of §2**,
-and **§5's max-odd parity characterization**. For an undecided β use the
-unchanged tuple and global-tree update. No arbitrary nonterminal component
-is dropped and no conditional/local acceptance tree is introduced.
+Constant result t accepts every continuation exactly when t. Replace it with
+an absorbing reserved-absent-tuple state and true loop priority P if t=1,
+P−1 otherwise. Odd P gives exactly t; entering/prefix priorities occur finitely.
+Terminal/product/parity rules establish residual equality. Undecided β keeps
+its tuple/global tree. No arbitrary nonterminal or local tree is removed/introduced.
 
-### 9.4. Unfolding under current-AP choices
+### Current-AP unfolding
 
-Let C be a consistent cube of assignments to current AP variables only.
-For syntax t the care traversal returns `U(t)|C`; a class traversal returns
-a class agreeing with `U(x)` on all valuations satisfying C. Modal variables
-retain the independent interpretation of Stage 1 §2. A known current AP is
-replaced by its chosen Boolean value; an unknown AP is retained. `[Xf]` and
-every displayed continuation in the unfolding equations remain frozen and
-are never evaluated under C. Boolean syntax uses the usual homomorphism,
-including constant short-circuiting; the modal clauses are exactly Stage 1
-§2's equations with their operand unfoldings restricted to C.
+For consistent current-AP cube C, care traversal returns `U(t)|C` for syntax,
+or a class agreeing with U(x) under C. Modal variables remain independent.
+Known APs become chosen constants, unknown APs remain; `[Xf]` and all unfolded
+continuations stay frozen. Boolean homomorphism/short-circuiting and modal
+operand unfoldings use the Stage 1 equations restricted to C.
 
-Prove the invariant simultaneously by induction on syntax and the class BDD.
-At a current AP decision p, traverse the low/high cofactors under `C∧¬p`
-and `C∧p`, restore the previous assignment, and recombine with ITE(p,high,low).
-Shannon's identity proves agreement with `U(x)` under C. At a modal decision,
-the operand induction gives its unfolded decision expression under C, and
-the cofactor induction plus ITE proves the same claim. APs precede every
-modal variable in the existing order; hence assigned APs cannot occur in a
-remaining class cofactor. For a provably finite class U fixes every supported
-AP/X atom, so returning that class directly also satisfies the invariant.
-At the root C=true, the result is propositionally equal to the original U(x).
-The memo key is `(syntax-or-class, owned ID, canonical AP cube)`; different
-partial assignments cannot share a result accidentally. Storage and recursion
-use the existing host/cancellation budgets; no linear bound is claimed.
+Simultaneous syntax/BDD induction proves agreement. At AP p, traverse low/high
+under `C∧¬p`/`C∧p`, restore assignment, and use ITE(p,high,low); Shannon identity
+proves equality. Modal decisions combine operand/cofactor inductions with ITE.
+APs precede modal variables, so assigned APs cannot remain in class cofactors.
+Finite classes contain only fixed AP/X atoms, so returning them directly is exact.
+At root C=true the result equals original U(x). Memo keys include
+`(syntax-or-class, owned ID, canonical AP cube)` to distinguish assignments.
+Host/cancel budgets apply; no linear bound is claimed. U equality preserves
+derivatives/extraction/transitions/languages. Future-X APs are never constrained;
+there is zero lookahead.
 
-This relies on **Stage 1 §2's frozen unfolding definition** and Shannon
-expansion. Equality of U leaves the **Stage 1 §3 derivative lemma**, extractor
-ρ, §2's ordered transition table, and the **component/product/parity theorems**
-unchanged. In particular current care never constrains APs exposed by a future
-X step, and introduces zero lookahead.
+### Fragment bounds and exact fallback
 
-### 9.5. Fragment bounds with exact fallback
+For original support-tag intersection T(x), cache `L(x)⊆T(x)⊆H(x)`.
+Constants have all tags; atoms' sound syntax/refined exact tags give L.
+`tags_impl` gives H: F/U/M can only yield `{co-safety,Π₂,Σ₂}`, G/R/W
+`{safety,Π₂,Σ₂}`, AP/X unrestricted (X operands need not be finite).
+For supported Boolean top v, intersect v/both-cofactor bounds, matching T's
+exact intersection. Grammar/operator induction proves syntax lower bounds;
+canonicalization can add memberships by removing support without losing old
+ones. Later atom refinement preserves cached lower-bound soundness.
 
-Write T(x) for the original exact support-tag intersection used during
-expansion. Maintain cached bit sets `L(x)⊆T(x)⊆H(x)`. Constants have all tags.
-For an atom, the sound syntax tags (or already refined exact tags) give L.
-The operator's actual tag transfer in `tags_impl` gives H: F/U/M can only
-produce `{co-safety,Π₂,Σ₂}`, G/R/W only `{safety,Π₂,Σ₂}`, and AP/X use the
-unrestricted set of tags. X's operand is not assumed finite. For a Boolean
-class with supported top atom v, intersect the respective bounds of v and
-both cofactors. This preserves both inclusions because T uses exactly that
-intersection. Soundness of the initial syntax bounds follows by structural
-induction on the **grammars of Stage 1 §1 and §1 here** and their operator
-transfer rules; Boolean canonicalization can add memberships by removing
-support but cannot invalidate those syntax memberships. Cached lower bounds
-remain sound if an atom is subsequently refined.
+Answer `T(x)∩M≠∅` true if `L(x)∩M≠∅`, false if `H(x)∩M=∅`, otherwise use
+unchanged exact `dpa_tags`. Every answer matches the original, including mixed
+safety/co-safety masks; safety keeps precedence. Reduce/finite-retry in ρ
+use the same rule, preserving substitutions/protection/retry and hence exact
+transitions for component theorems. Conservative tags alone would not suffice.
 
-For the original predicate `T(x)∩M≠∅`, return true if `L(x)∩M≠∅`, false if
-`H(x)∩M=∅`, and otherwise call the unchanged `dpa_tags` exact computation.
-Thus every answer equals the original predicate, including masks containing
-both safety and co-safety. The safety test still precedes the co-safety test
-in §2. The reduce and finite-retry tests in ρ use the same rule, preserving
-every substitution, protected-X computation, and retry. This establishes
-identity of the transition rules needed by the **Stage 1 §4 and §6 component
-theorems**; conservative tags alone would not establish that identity.
+No factoring change uses support blocking (#81), suspension/round robin (#82), local
+trees/resets/stuttering (#83), `State.inDifferentSccs`, or lookahead. Undecided
+products keep the original global tree/update.
 
-None of §9 uses support blocking (#81), external suspension/round robin (#82),
-local-tree/reset/stuttering reductions (#83), `State.inDifferentSccs`, or
-lookahead. Undecided products retain §5's original global tree and update.
+## 9. Executable reference and validation
 
-## 10. Executable reference and translation validation
+The core-only `proofs/TlsfProofs/Dpa/Impl/` implements class equality/support/tags,
+syntactic protection, simultaneous DROP_X, elision/unfold/retry, full progression,
+pure factoring, fresh-coordinate assembly, and Zielonka export.
+`uncached_construction_language` composes their languages. Positive Buchi rounds
+require `positiveb`. `Normalize.lean` covers Boolean simplification below
+modalities, including frozen absorption, without C caches/traces/call order.
 
-The core-only executable reference in `proofs/TlsfProofs/Dpa/Impl/` performs
-class equality, support and structural tags, syntactic protection, simultaneous
-DROP_X, elision, unfolding, retry, complete component progression, pure
-factoring, fresh-coordinate assembly and Zielonka export. Its component and
-product languages compose in `uncached_construction_language`. The positive
-Buchi round monitor has the same language when `positiveb` succeeds.
+The canonical [validation guide](../../proofs/README.md#automaton-translation-validation)
+documents `Validation/Finite.lean` and `Validation/Equivalence.lean`,
+`exportParity_language`, `exportBuchi_language`, `check_language`,
+`checkBuchi_sound`, checked alphabet compaction, `Buchi.toParity_language`,
+and `validate_parity_sound`/`validate_buchi_sound`. It also gives offline
+regeneration, exact hash gates, full results, and the 17-second shared deadline.
+Finite-export exhaustion fails validation; no fixed limit is proved sufficient.
+Nonpositive round skeletons compare via proved parity embedding; positivity is
+sufficient for the selected round construction, not necessary for Buchi language.
 
-`Validation/Finite.lean` provides checked finite tables. BFS merges Boolean
-equivalent all/rejecting fields while retaining the tree or round state.
-A separate closure check covers every state and letter, including terminal
-loops. `exportParity_language` and `exportBuchi_language` prove successful
-exports preserve the symbolic language. Exploration limits cause validation
-failure; no fixed limit is proved sufficient for every admitted formula.
-`Normalize.lean` proves Boolean simplification below modalities, including the
-frozen-operand absorption examples. No C cache, trace or call-order model is
-used or required.
-
-`Validation/Equivalence.lean` proves `check_language` and `checkBuchi_sound` for
-complete deterministic automata with arbitrary state counts. Checked alphabet
-compaction preserves these results. The `dpaValidate` executable parses the
-canonical C dump, checks the exact formula and AP order, builds a certified
-finite reference, explicitly checks positivity for the Buchi round construction
-and invokes the language checker. A nonpositive round skeleton instead uses
-`Buchi.toParity_language` to compare C's Buchi machine with the certified parity
-reference; positivity is sufficient for the chosen round skeleton, not necessary
-for the formula to have a Buchi recognizer. This comparison is also covered by
-`validate_buchi_sound`. `validate_parity_sound` and `validate_buchi_sound` connect successful
-verdicts directly to formula satisfaction.
-
-Offline regeneration is `tools/golden/translation_validate.py`; it needs Lean
-4.35.0 and never runs in CI. It covers every monitor constructor reached by
-the 217-spec corpus, DPA equivalence formulas, language-golden formulas and
-review-k/l/i examples, under both admission policies and acceptance kinds.
-Canonical hashes bind the validated artifacts to the C-only CI regression.
-Each formula/AP order, admission policy and acceptance kind has one hard
-17-second wall-clock timeout covering the C dump and Lean check together.
-Admitted cases have pass/fail/timeout outcomes. Timeouts are reported, excluded
-from goldens and never minimized. C unsupported declines are counted separately
-because there is no automaton to validate. Only passing language checks enter
-the hash regression. Failures are retained and minimized, and prevent enabling
-general admission; the correctness bar is zero failures among cases finishing
-within the budget. Runs use fresh verdicts throughout.
-See `proofs/README.md` and the translation golden report for current counts.
-
-The trusted boundary includes decoding, C memory safety, the BDD library and
-hashing. C correctness is validated only on the enumerated formulas, AP
-orders, policies and acceptance kinds. Formulas admitted at runtime without a
-validated golden rely on the proved reference construction plus the validation
-sample. Their C implementations are not thereby proved correct. Bounded lasso
-goldens alone do not prove language equality.
-
-VERDICT: targeted and general reference component grammars proved; general
-admission enabled by default in GR(1) after **4,134 pass / 0 fail / 36 timeout**
-in the full fresh bounded inventory. The 678 C unsupported requests are counted
-separately. Corpus coverage increases **148 -> 155 / 217**. See
-`test/fixtures/golden/translation/report.json` for all per-set/policy/kind counts
-and timed-out formulas.
+Decoding, C memory safety, BDDs, and hashes remain trusted. Validation covers only
+enumerated formulas/AP orders/policies/acceptance kinds. Other runtime formulas
+rely on the proved reference plus sample, not a C proof; bounded lasso goldens
+alone do not prove language equality.
