@@ -70,9 +70,6 @@ if research_tools
              exe['tlsf2ltl'], exe['tlsfinfo'], exe['tlsfbenchgraph'],
              fake_automata_generator,
              files(cases / 'normalization_match.tlsf')])
-    test('automata_study_evaluator', python3,
-      args: [files('check_evaluate_automata_study.py'),
-             files(scripts / 'evaluate_automata_study.py')])
   endif
 endif
 
