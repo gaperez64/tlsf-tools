@@ -22,6 +22,8 @@ LAZY = SCRATCH / "build/test/unit/dpa_admission"
 OWL = SCRATCH / "owl-linux-musl-amd64-21.0/bin/owl"
 JAR = OWL.parents[1] / "jar/owl-21.0.jar"
 LIMIT = 120
+TOOLS = ("default", "research", "owl", "owl_lookahead0")
+OWL_TOOLS = ("owl", "owl_lookahead0")
 
 
 def digest(path):
@@ -98,10 +100,13 @@ def worker(args):
     relative = next(line[3:] for line in Path("/proc/self/cgroup").read_text().splitlines()
                     if line.startswith("0::"))
     cgroup = Path("/sys/fs/cgroup") / relative.lstrip("/")
-    assert (cgroup / "memory.max").read_text().strip() == str(4 << 30)
-    assert (cgroup / "memory.swap.max").read_text().strip() == "0"
+    memory_max = (cgroup / "memory.max").read_text().strip()
+    memory_swap_max = (cgroup / "memory.swap.max").read_text().strip()
+    assert memory_max == str(4 << 30)
+    assert memory_swap_max == "0"
     before = events(cgroup)
-    save(directory / "started.json", dict(cgroup=str(cgroup), before=before))
+    save(directory / "started.json", dict(cgroup=str(cgroup), before=before,
+         memory_max=memory_max, memory_swap_max=memory_swap_max))
     env = dict(os.environ, TMPDIR=str(SCRATCH / "tmp"))
     start = time.monotonic()
     with (directory / "stdout").open("w") as out, (directory / "stderr").open("w") as err:
@@ -159,16 +164,20 @@ def run(args):
         source = SCRATCH / "inputs" / row["tlsf"]
         assert digest(source) == row["source_sha256"]
         check_exports(row, prefix)
-        for tool in ["default", "research", "owl"]:
+        for tool in args.tools:
             directory = SCRATCH / "runs" / row["instance"] / tool
             directory.mkdir(parents=True, exist_ok=True)
             if (directory / "result.json").exists():
                 continue
             # Refuse to overwrite interrupted evidence; inspect or move it first.
             assert not (directory / "started.json").exists(), directory
-            command = ([str(OWL), "ltl2dpa", "--complete", "-i", str(prefix) + ".owl.ltl"]
-                       if tool == "owl" else
-                       [str(LAZY), "--expand", "--measure", tool, str(source), str(prefix)])
+            if tool in OWL_TOOLS:
+                command = [str(OWL), "ltl2dpa", "--complete"]
+                if tool == "owl_lookahead0":
+                    command.append("--SLM21-lookahead=0")
+                command.extend(["-i", str(prefix) + ".owl.ltl"])
+            else:
+                command = [str(LAZY), "--expand", "--measure", tool, str(source), str(prefix)]
             save(directory / "command.json", command)
             unit = "dpa-counts-" + uuid.uuid4().hex + ".scope"
             scope = ["systemd-run", "--user", "--scope", "--unit=" + unit,
@@ -210,7 +219,7 @@ def run(args):
             elif finish["timed_out"]:
                 result.update(status="timeout", reason="deadline")
             elif finish["returncode"] == 0:
-                if tool == "owl":
+                if tool in OWL_TOOLS:
                     states, colours, used = owl_counts(directory / "stdout",
                                                        Path(str(prefix) + ".aps").read_text().splitlines())
                     result.update(status="ok", reason="none", states=states, colours=colours, used=used)
@@ -232,31 +241,34 @@ def summarize(args):
     rows = []
     for item in inventory:
         row = dict(item)
-        for tool in ["default", "research", "owl"]:
+        for tool in TOOLS:
             result = json.loads((SCRATCH / "runs" / row["instance"] / tool / "result.json").read_text())
             row.update({tool + "_" + key: value for key, value in result.items()})
-        row["owl_parity"] = "NA"
-        if row["owl_status"] == "ok":
-            with (SCRATCH / "runs" / row["instance"] / "owl/stdout").open() as stream:
-                acceptance = next(line.split() for line in stream if line.startswith("acc-name:"))
-            assert acceptance[1] == "parity"
-            row["owl_parity"] = "_".join(acceptance[2:4])
+            if tool in OWL_TOOLS:
+                row[tool + "_parity"] = "NA"
+                if result["status"] == "ok":
+                    with (SCRATCH / "runs" / row["instance"] / tool / "stdout").open() as stream:
+                        acceptance = next(line.split() for line in stream if line.startswith("acc-name:"))
+                    assert acceptance[1] == "parity"
+                    row[tool + "_parity"] = "_".join(acceptance[2:4])
         rows.append(row)
     with args.output.open("w") as stream:
         writer = csv.DictWriter(stream, fieldnames=rows[0].keys(), delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
-    for tool in ["default", "research", "owl"]:
+    for tool in TOOLS:
         print(tool, dict(collections.Counter(r[tool + "_status"] for r in rows)))
-    for tool in ["default", "research"]:
-        ratios = sorted((r[tool + "_states"] / r["owl_states"], r["instance"]) for r in rows
-                        if r[tool + "_status"] == r["owl_status"] == "ok")
-        values = [v for v, _ in ratios]
-        print(tool, "both", len(values))
-        if values:
-            print("Q1/median/Q3", statistics.quantiles(values, method="inclusive"),
-                  "max", max(values), "<=1/2/10", [sum(v <= k for v in values) for k in [1, 2, 10]])
-            print("largest", ratios[-5:])
+    for baseline in OWL_TOOLS:
+        for tool in ["default", "research"]:
+            ratios = sorted((r[tool + "_states"] / r[baseline + "_states"], r["instance"])
+                            for r in rows if r[tool + "_status"] == r[baseline + "_status"] == "ok")
+            values = [v for v, _ in ratios]
+            print(tool, "vs", baseline, "both", len(values))
+            if values:
+                quartiles = statistics.quantiles(values, method="inclusive") if len(values) > 1 else values * 3
+                print("Q1/median/Q3", quartiles, "max", max(values),
+                      "<=1/2/10", [sum(v <= k for v in values) for k in [1, 2, 10]])
+                print("largest", ratios[-5:])
 
 
 def main():
@@ -265,7 +277,9 @@ def main():
     prep = commands.add_parser("prepare")
     prep.add_argument("--acacia", type=Path, required=True)
     prep.add_argument("--corpus", type=Path, required=True)
-    commands.add_parser("run")
+    runner = commands.add_parser("run")
+    runner.add_argument("--tools", nargs="+", choices=TOOLS, default=TOOLS,
+                        help="Configurations to run (default: all four); completed records are skipped.")
     summary = commands.add_parser("summarize")
     summary.add_argument("--output", type=Path, default=ROOT / "docs/lazy-dpa/STATE-COUNTS.tsv")
     work = commands.add_parser("worker")
