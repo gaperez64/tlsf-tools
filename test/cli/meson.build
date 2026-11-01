@@ -576,6 +576,8 @@ if research_tools
 endif
 
 # tlsfnorm is stable preprocessing functionality.
+test('norm_cli_help', python3,
+  args: [files('check_tlsfnorm_help.py'), exe['tlsfnorm']])
 test('norm_split', check,
   args: [files(cases / 'arbiter1formula.norm.tlsf'),
          exe['tlsfnorm'], '--passes', 'split',

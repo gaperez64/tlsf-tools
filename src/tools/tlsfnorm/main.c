@@ -32,7 +32,6 @@ static void usage(const char *prog) {
           "  --norm-trace FILE            per-step TSV trace (- = stderr)\n"
           "  --norm-soundness off|assert|verify   rule soundness gate "
           "(default assert)\n"
-          "  --check-equivalence[=auto|spot|off]  (reserved)\n"
           "  --format tlsf|trace          output (default tlsf)\n"
           "  --overwrite-semantics VALUE  replace SEMANTICS\n"
           "  --overwrite-target VALUE     replace TARGET\n"
@@ -128,8 +127,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "tlsfnorm: bad --norm-soundness '%s'\n", v);
         return 1;
       }
-    } else if (strncmp(a, "--check-equivalence", 19) == 0) {
-      // Accepted for forward-compatibility; external check not wired yet.
     } else if (strcmp(a, "--format") == 0) {
       const char *v = NEED_ARG();
       if (!strcmp(v, "tlsf"))
