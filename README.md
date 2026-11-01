@@ -53,7 +53,7 @@ flowchart LR
 ## Building
 
 Requires C23 and C++20 compilers, [meson](https://mesonbuild.com/),
-[ninja](https://ninja-build.org/), `flex`, `bison`, Spot, Cargo (Rust 1.91+)
+[ninja](https://ninja-build.org/), `flex`, `bison`, Cargo (Rust 1.91+)
 and `cbindgen` (0.29.4). Meson builds OxiDD and native GR(1) in every build.
 
 Release-quality stable build:
@@ -85,6 +85,10 @@ the private JSON dependency with `pkg-config --static --libs tlsf`.
 
 OxiDD (<https://github.com/OxiDD/oxidd>) and native GR(1) are always part of
 libtlsf. `research_tools` controls only the optional executable targets.
+GR(1) monitor construction tries general admission after a default unsupported
+decline. The [Lean reference and bounded translation-validation sample](proofs/README.md)
+cover both policies; runtime formulas without a validated golden rely on that
+proved reference plus the sample, rather than a proof of the C implementation.
 [ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and [acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are
 optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 

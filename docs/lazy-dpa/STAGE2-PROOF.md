@@ -6,8 +6,10 @@ combination of finite windows and `F` of finite windows, and for its `F`/`G`
 duals. Together with the Boolean-product/Zielonka theorems, this gives the
 admitted grammar at the end. The general Π₂ component theorem was subsequently
 proved in `GeneralConverse.lean`; Task T adds executable Π₂/Σ₂ component
-simulation. The complete general C constructor/enablement gate remains open;
-see §10 and `proofs/README.md`.
+simulation. TV3 enables general admission in GR(1) after the full 17-second
+translation-validation sample finishes with zero failures; see §10 and
+`proofs/README.md` for the trusted boundary. C correctness on every runtime
+input is not proved.
 
 This extends [STAGE1-PROOF.md](STAGE1-PROOF.md), using its definitions of `b`, `s`,
 `c`, NNF dualization, AP_COMBINED classes, frozen unfolding `U`, simultaneous
@@ -634,8 +636,12 @@ used or required.
 complete deterministic automata with arbitrary state counts. Checked alphabet
 compaction preserves these results. The `dpaValidate` executable parses the
 canonical C dump, checks the exact formula and AP order, builds a certified
-finite reference, explicitly checks Buchi positivity and invokes the language
-checker. `validate_parity_sound` and `validate_buchi_sound` connect successful
+finite reference, explicitly checks positivity for the Buchi round construction
+and invokes the language checker. A nonpositive round skeleton instead uses
+`Buchi.toParity_language` to compare C's Buchi machine with the certified parity
+reference; positivity is sufficient for the chosen round skeleton, not necessary
+for the formula to have a Buchi recognizer. This comparison is also covered by
+`validate_buchi_sound`. `validate_parity_sound` and `validate_buchi_sound` connect successful
 verdicts directly to formula satisfaction.
 
 Offline regeneration is `tools/golden/translation_validate.py`; it needs Lean
@@ -643,13 +649,26 @@ Offline regeneration is `tools/golden/translation_validate.py`; it needs Lean
 the 217-spec corpus, DPA equivalence formulas, language-golden formulas and
 review-k/l/i examples, under both admission policies and acceptance kinds.
 Canonical hashes bind the validated artifacts to the C-only CI regression.
-Failures are retained and minimized, and prevent enabling general admission.
+Each formula/AP order, admission policy and acceptance kind has one hard
+17-second wall-clock timeout covering the C dump and Lean check together.
+Admitted cases have pass/fail/timeout outcomes. Timeouts are reported, excluded
+from goldens and never minimized. C unsupported declines are counted separately
+because there is no automaton to validate. Only passing language checks enter
+the hash regression. Failures are retained and minimized, and prevent enabling
+general admission; the correctness bar is zero failures among cases finishing
+within the budget. Runs use fresh verdicts throughout.
 See `proofs/README.md` and the translation golden report for current counts.
 
 The trusted boundary includes decoding, C memory safety, the BDD library and
 hashing. C correctness is validated only on the enumerated formulas, AP
-orders, policies and acceptance kinds. Other inputs remain trusted C code;
-bounded lasso goldens alone do not prove language equality.
+orders, policies and acceptance kinds. Formulas admitted at runtime without a
+validated golden rely on the proved reference construction plus the validation
+sample. Their C implementations are not thereby proved correct. Bounded lasso
+goldens alone do not prove language equality.
 
-VERDICT: targeted Stage 2 grammar proved; general-admission enablement gated
-by the complete translation-validation report.
+VERDICT: targeted and general reference component grammars proved; general
+admission enabled by default in GR(1) after **4,134 pass / 0 fail / 36 timeout**
+in the full fresh bounded inventory. The 678 C unsupported requests are counted
+separately. Corpus coverage increases **148 -> 155 / 217**. See
+`test/fixtures/golden/translation/report.json` for all per-set/policy/kind counts
+and timed-out formulas.

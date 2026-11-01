@@ -448,3 +448,46 @@ A second pruning regeneration reproduced every golden and provenance byte.
 The complete golden directory, including provenance and this README, is
 **2986929 bytes (2.849 MiB)**, below the **4,629,524-byte** cap. The new
 pruning data is **32,134 bytes**. No existing reference circuit was regenerated.
+
+## TV3: bounded translation validation and general admission
+
+The final fresh inventory on 2026-11-01 uses one hard **17-second wall-clock
+budget per formula/AP order × admission × acceptance kind**, covering the C
+dump and Lean check together. It records **4,134 pass / 0 fail / 36 timeout**,
+plus **678 C unsupported declines**. Only the **4,134 passing cases** enter
+`translation/hashes.tsv`; the C-only `dpa_translation_hashes` CI test recomputes
+those dumps exactly. Timeouts are reported and never minimized or hash-guarded.
+The full per-set/admission/kind counts and each timeout are retained in
+[`translation/report.json`](translation/report.json), with source/checker and
+corpus provenance alongside it. Regeneration is offline, requires Lean, and
+is documented in [`proofs/README.md`](../../../proofs/README.md).
+
+Three reference positivity rejections were minimized and corrected using the
+proved Buchi-to-parity language embedding; the round construction still checks
+positivity explicitly. Original and minimized receipts are retained in
+`tools/golden/translation-fixed-rejections.json`, and both minimized formulas
+and their complements are permanent inventory regressions.
+
+GR(1) now tries general admission after a default unsupported decline. The
+fresh 217-source inventory improves **148 -> 155 successes**, with **54 -> 47
+unsupported** and **15 invalid inputs**. The independently confirmed archived
+expectations for **12 native exact/strict cases** and **9 decomposition admission
+observations** are restored using `tools/golden/restore_general_goldens.py`.
+The phase-1 payload hashes are preserved; no successful reference artifact was
+regenerated. `normalization_sickert2.tlsf` remains declined in both semantics.
+Native reduction successes increase **306 -> 318 / 436** (88 unsupported,
+30 invalid inputs).
+
+All admitted corpus constructor requests finish and pass within budget. The
+36 timeouts belong to the larger golden/equivalence formulas. Runtime inputs
+without a validated golden rely on the proved reference construction plus this
+validation sample; C memory safety, decoding, hashing and the BDD library remain
+trusted. The complete golden directory remains below **4.4 MiB**, including
+provenance, archived phase-1 data and the translation report.
+
+All **392 registered Meson checks** are verified: 389 passes in the full serial
+suite, followed by three successful targeted reruns. Release builds now retain
+the Phase B regression helper's assertions and formula output. The aggregate
+native integration test has a 180-second outer budget (96.89 seconds observed);
+its worker budgets and the 17-second translation-validation budget are unchanged.
+The C hash gate recomputed all **4,134** passing dumps successfully.

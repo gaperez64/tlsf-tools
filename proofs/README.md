@@ -484,7 +484,7 @@ explicitly requires `positiveb` success.
 | Language equality for arbitrary finite state counts | `Validation.check_language`, `Validation.checkBuchi_sound` |
 | Checked alphabet compaction | `checkCompact_sound`, `checkBuchiCompact_sound` |
 | Parsed C table recognizes the requested formula after successful validation | `validate_parity_sound`, `validate_buchi_sound`; `Buchi.toParity_language` covers nonpositive round skeletons |
-| Complete corpus inventory, hash goldens and general-admission enablement | Full run pending; general admission remains disabled |
+| Complete bounded inventory, passing hash goldens and GR(1) general admission | 4,134 pass / 0 fail / 36 timeout; general admission enabled by default in GR(1) |
 
 The equivalence checker searches for reachable closed walks with conflicting
 recurrent maximal priority parities. An executable SCC traversal proposes a
@@ -530,7 +530,10 @@ states discovered in increasing valuation order, sorted complete rows, max-odd
 priorities and source-state Buchi acceptance. AP i is bit i of each valuation.
 The offline dumper uses explicit caps of 10,000 states, 256 MiB host storage,
 2²² BDD nodes and 2¹⁸ cache entries inside the task’s 5 GiB process scope;
-these are independent of production reduction budgets.
+these are independent of production reduction budgets. The offline scope sets
+`MemoryHigh=4G` to reclaim/throttle allocation-heavy cases before the unchanged
+`MemoryMax=5G` hard cap (`MemorySwapMax=0`). This lets the shared wall-clock
+deadline stop those cases without the OOM policy killing the report writer.
 The Lean executable `dpaValidate REQUEST DUMP` independently parses both files,
 rejects AP/formula/mode mismatches, duplicate APs, missing or unordered edges,
 invalid target/acceptance values and trailing data, builds the proved reference
@@ -588,7 +591,7 @@ systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   meson setup build-scratch-t/c-tv -Dbuildtype=release -Dresearch_tools=true
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   meson compile -C build-scratch-t/c-tv -j2 dpa_dump tv_inventory
-systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
+systemd-run --user --scope -q -p MemoryHigh=4G -p MemoryMax=5G -p MemorySwapMax=0 \
   python3 tools/golden/translation_validate.py --build build-scratch-t/c-tv
 ```
 
@@ -603,13 +606,41 @@ are never reused. Scratch progress retains diagnostics if interrupted. A
 `--set` run never publishes CI fixtures. The final audit uses the single full
 regeneration command above, with neither inventory reuse nor a set filter.
 
-Before this task, tracked Lean source was 12,679 lines (18,699 before pruning).
-The finite-export regressions pass 30/30; protocol regressions pass 18/18,
-covering malformed input, AP order, source-state Buchi acceptance, positivity,
-language disagreement and alphabet compaction. All admitted review examples
-pass under both policies. Fresh corpus coverage is default 148/217 and general
-155/217; no admission policy has changed. Full validation counts and the final
-source/fixture census will replace this pending milestone after the full run.
+The final fresh TV3 run covers **1,212 formula/AP orders**, or **4,848 requests**:
+**4,134 pass, zero failures, 36 timeouts**, and **678 C unsupported declines**
+outside the validation outcomes. The full report, including each timed-out
+request, is [`translation/report.json`](../test/fixtures/golden/translation/report.json).
+The sets overlap. Entries below are pass / fail / timeout; declines are listed
+separately in the report.
+
+| Set | Default parity | Default Buchi | General parity | General Buchi |
+| --- | ---: | ---: | ---: | ---: |
+| Corpus (258) | 248 / 0 / 0 | 242 / 0 / 0 | 256 / 0 / 0 | 249 / 0 / 0 |
+| Equivalence (108) | 90 / 0 / 1 | 51 / 0 / 0 | 104 / 0 / 1 | 59 / 0 / 0 |
+| Golden (945) | 760 / 0 / 5 | 690 / 0 / 0 | 912 / 0 / 28 | 760 / 0 / 3 |
+| Review (14) | 12 / 0 / 0 | 9 / 0 / 0 | 10 / 0 / 0 | 6 / 0 / 0 |
+
+GR(1) now tries general admission after a default unsupported decline. This
+preserves frozen formulas accepted only by the old predicate, since the two
+predicates are not nested. The standalone DPA API's default remains unchanged.
+Fresh corpus coverage is **148 -> 155 / 217**; unsupported outcomes change
+**54 -> 47**, with **15** invalid inputs in both runs. Twelve native exact/strict
+goldens and nine decomposition admission verdicts are restored from their
+independently confirmed phase-1 archives; the historical hashes are preserved.
+Only `normalization_sickert2.tlsf` remains declined among those fourteen archived
+native cases. No successful reference artifact was regenerated.
+
+The Lean build passes with warningAsError: **30 construction/equivalence checks,
+21 protocol checks, 48 permitted-axiom audits**, plus **7** Python deadline/verdict
+regressions. Tracked Lean source is **14,214 -> 14,317 lines** in TV3, including
+the audit (proof tree: **14,163 -> 14,263**). The earlier cache/trace pruning was
+**18,699 -> 12,679** lines, before finite export and validation were added.
+All **392 Meson checks** are verified: 389 passed in the full serial suite and
+three passed on targeted reruns after fixing the release-only Phase B helper
+(`assert` had removed its formula-print call) and allowing 180 seconds for the
+aggregate native test (96.89 seconds measured). Individual worker deadlines
+and the translation validator's 17-second case budget are unchanged. The
+C hash gate recomputed all 4,134 passing dumps successfully.
 
 ### Source map
 

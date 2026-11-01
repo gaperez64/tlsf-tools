@@ -624,6 +624,15 @@ Monitor make_monitor(Formula formula, bool assumption, const Limits &limits) {
   auto status = dpa_buchi_create(
       reinterpret_cast<const TlsfAstNode *>(formula.node()), names.data(),
       uint32_t(names.size()), &budget, &context, &klass);
+  if (status.code == TLSF_DPA_DECLINED && status.reason == TLSF_DPA_UNSUPPORTED) {
+    // The general predicate is not a superset of frozen default admission.
+    // Retain default successes and extend unsupported cases with the general
+    // construction, checked offline against the proved Lean reference.
+    budget.allow_unproved = true;
+    status = dpa_buchi_create(
+        reinterpret_cast<const TlsfAstNode *>(formula.node()), names.data(),
+        uint32_t(names.size()), &budget, &context, &klass);
+  }
   automaton->context.reset(context);
   dpa_result(status, limits, "mp-class");
 #ifdef TLSF_GR1_REDUCTION_TEST_FAULT

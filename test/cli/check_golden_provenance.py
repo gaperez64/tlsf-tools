@@ -94,13 +94,14 @@ if translation.exists():
     report = json.loads((translation / "report.json").read_text())
     payload = (translation / "hashes.tsv").read_bytes()
     assert hashlib.sha256(payload).hexdigest() == provenance["hashes_sha256"]
+    assert hashlib.sha256((translation / "report.json").read_bytes()).hexdigest() == provenance["report_sha256"]
     rows = payload.decode().splitlines()
     assert len(rows) == provenance["golden_artifacts"] > 0
     assert sum(row.split("\t")[1] == "pass" for row in rows) == provenance["validated_artifacts"] > 0
     requests = set()
     for row in rows:
         digest, verdict, request = row.split("\t")
-        assert re.fullmatch("[0-9a-f]{64}", digest) and verdict in ("pass", "declined")
+        assert re.fullmatch("[0-9a-f]{64}", digest) and verdict == "pass"
         assert request.startswith(("TV1 parity ", "TV1 buchi "))
         assert request not in requests, "duplicate translation request"
         requests.add(request)
@@ -108,8 +109,21 @@ if translation.exists():
     assert provenance["validation_theorems"] == [
         "Tlsf.Dpa.Validation.validate_parity_sound",
         "Tlsf.Dpa.Validation.validate_buchi_sound"]
+    for suite in manifest.values():
+        if isinstance(suite, dict) and "general_admission_recoveries" in suite:
+            recovery = suite["general_admission_recoveries"]
+            assert recovery["translation_hashes_sha256"] == provenance["hashes_sha256"]
     assert report["partial_set"] is None
-    assert report["all_validated"] == (not report["failures"])
+    assert report["zero_failures"] == (not report["failures"])
+    assert report["zero_failures"], "general admission requires zero finished validation failures"
+    assert report["fresh_run"] and report["timeout_seconds"] == 17
+    assert report["attempted_requests"] == report["formula_ap_orders"] * 4
+    assert sum(report["outcomes"].values()) + report["not_admitted_requests"] == report["attempted_requests"]
+    assert report["outcomes"].get("fail", 0) == 0
+    assert report["outcomes"]["pass"] == provenance["validated_artifacts"] == len(rows)
+    assert report["outcomes"].get("timeout", 0) == len(report["timeouts"])
+    for timeout in report["timeouts"]:
+        assert timeout["request"] not in requests, "timed-out case has a golden"
     assert len(provenance["corpus_sources"]) == 217
     for name, digest in provenance["source_sha256"].items():
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
@@ -124,6 +138,9 @@ if translation.exists():
                 ("corpus", "equivalence", "golden", "review") for mode in
                 ("default", "general") for kind in ("parity", "buchi")}
     assert set(report["counts"]) == expected
+    for key, counts in report["counts"].items():
+        assert set(counts) == {"pass", "fail", "timeout"} and counts["fail"] == 0
+        assert sum(counts.values()) + report["not_admitted"].get(key, 0) == report["formulas_per_set"][key.split("/")[0]]
 size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
-assert size <= 4_629_524, ("golden directory exceeds its original size", size)
-print(f"golden provenance checked; {size} bytes <= 4629524-byte cap")
+assert size <= 4_613_734, ("golden directory exceeds 4.4 MiB", size)
+print(f"golden provenance checked; {size} bytes <= 4613734-byte cap")

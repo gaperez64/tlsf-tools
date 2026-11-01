@@ -1,0 +1,395 @@
+{
+  "date": "2026-11-01",
+  "timeout_seconds": 17,
+  "fresh_run": true,
+  "formula_ap_orders": 1212,
+  "formulas_per_set": {
+    "corpus": 258,
+    "equivalence": 108,
+    "golden": 945,
+    "review": 14
+  },
+  "attempted_requests": 4848,
+  "outcomes": {
+    "pass": 4134,
+    "fail": 0,
+    "timeout": 36
+  },
+  "not_admitted_requests": 678,
+  "counts": {
+    "corpus/default/buchi": {
+      "pass": 242,
+      "fail": 0,
+      "timeout": 0
+    },
+    "corpus/default/parity": {
+      "pass": 248,
+      "fail": 0,
+      "timeout": 0
+    },
+    "corpus/general/buchi": {
+      "pass": 249,
+      "fail": 0,
+      "timeout": 0
+    },
+    "corpus/general/parity": {
+      "pass": 256,
+      "fail": 0,
+      "timeout": 0
+    },
+    "equivalence/default/buchi": {
+      "pass": 51,
+      "fail": 0,
+      "timeout": 0
+    },
+    "equivalence/default/parity": {
+      "pass": 90,
+      "fail": 0,
+      "timeout": 1
+    },
+    "equivalence/general/buchi": {
+      "pass": 59,
+      "fail": 0,
+      "timeout": 0
+    },
+    "equivalence/general/parity": {
+      "pass": 104,
+      "fail": 0,
+      "timeout": 1
+    },
+    "golden/default/buchi": {
+      "pass": 690,
+      "fail": 0,
+      "timeout": 0
+    },
+    "golden/default/parity": {
+      "pass": 760,
+      "fail": 0,
+      "timeout": 5
+    },
+    "golden/general/buchi": {
+      "pass": 760,
+      "fail": 0,
+      "timeout": 3
+    },
+    "golden/general/parity": {
+      "pass": 912,
+      "fail": 0,
+      "timeout": 28
+    },
+    "review/default/buchi": {
+      "pass": 9,
+      "fail": 0,
+      "timeout": 0
+    },
+    "review/default/parity": {
+      "pass": 12,
+      "fail": 0,
+      "timeout": 0
+    },
+    "review/general/buchi": {
+      "pass": 6,
+      "fail": 0,
+      "timeout": 0
+    },
+    "review/general/parity": {
+      "pass": 10,
+      "fail": 0,
+      "timeout": 0
+    }
+  },
+  "not_admitted": {
+    "corpus/default/buchi": 16,
+    "corpus/default/parity": 10,
+    "corpus/general/buchi": 9,
+    "corpus/general/parity": 2,
+    "equivalence/default/buchi": 57,
+    "equivalence/default/parity": 17,
+    "equivalence/general/buchi": 49,
+    "equivalence/general/parity": 3,
+    "golden/default/buchi": 255,
+    "golden/default/parity": 180,
+    "golden/general/buchi": 182,
+    "golden/general/parity": 5,
+    "review/default/buchi": 5,
+    "review/default/parity": 2,
+    "review/general/buchi": 8,
+    "review/general/parity": 4
+  },
+  "coverage": {
+    "default": {
+      "3": 54,
+      "0": 148,
+      "2": 15
+    },
+    "general": {
+      "3": 47,
+      "0": 155,
+      "2": 15
+    },
+    "runtime": {
+      "3": 47,
+      "0": 155,
+      "2": 15
+    }
+  },
+  "failures": [],
+  "timeouts": [
+    {
+      "request": "TV1 parity general 4 uncontrollable_i1 uncontrollable_i0 controllable_o1 controllable_o0 & G | & ! $controllable_o0 1 & 1 ! $controllable_o1 W ! $controllable_o0 & & & & | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 G i & $controllable_o0 X & ! | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 ! $controllable_o0 X W ! $controllable_o0 | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 G i & $controllable_o0 G ! | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 F ! $controllable_o0 G i | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 F $controllable_o0 W ! $controllable_o1 & & & | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 G i & $controllable_o1 X & ! | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 ! $controllable_o1 X W ! $controllable_o1 | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 G i & $controllable_o1 G ! | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 F ! $controllable_o1 G i | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 F $controllable_o1",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 buchi general 4 uncontrollable_i1 uncontrollable_i0 controllable_o1 controllable_o0 & G | & ! $controllable_o0 1 & 1 ! $controllable_o1 W ! $controllable_o0 & & & & | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 G i & $controllable_o0 X & ! | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 ! $controllable_o0 X W ! $controllable_o0 | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 G i & $controllable_o0 G ! | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 F ! $controllable_o0 G i | & $uncontrollable_i0 X ! $uncontrollable_i0 & ! $uncontrollable_i0 X $uncontrollable_i0 F $controllable_o0 W ! $controllable_o1 & & & | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 G i & $controllable_o1 X & ! | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 ! $controllable_o1 X W ! $controllable_o1 | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 G i & $controllable_o1 G ! | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 F ! $controllable_o1 G i | & $uncontrollable_i1 X ! $uncontrollable_i1 & ! $uncontrollable_i1 X $uncontrollable_i1 F $controllable_o1",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 6 uncontrollable_i2 uncontrollable_i1 uncontrollable_i0 controllable_o2 controllable_o1 controllable_o0 & G | & & ! $controllable_o0 ! $controllable_o1 1 & | & ! $controllable_o0 1 & 1 ! $controllable_o1 ! $controllable_o2 W ! $controllable_o0 & & & & & $uncontrollable_i0 G i & $controllable_o0 X & ! $uncontrollable_i0 ! $controllable_o0 X W ! $controllable_o0 $uncontrollable_i0 G i & $controllable_o0 G ! $uncontrollable_i0 F ! $controllable_o0 G i $uncontrollable_i0 F $controllable_o0 W ! $controllable_o1 & & & $uncontrollable_i1 G i & $controllable_o1 X & ! $uncontrollable_i1 ! $controllable_o1 X W ! $controllable_o1 $uncontrollable_i1 G i & $controllable_o1 G ! $uncontrollable_i1 F ! $controllable_o1 G i $uncontrollable_i1 F $controllable_o1 W ! $controllable_o2 & & & $uncontrollable_i2 G i & $controllable_o2 X & ! $uncontrollable_i2 ! $controllable_o2 X W ! $controllable_o2 $uncontrollable_i2 G i & $controllable_o2 G ! $uncontrollable_i2 F ! $controllable_o2 G i $uncontrollable_i2 F $controllable_o2",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 buchi general 6 uncontrollable_i2 uncontrollable_i1 uncontrollable_i0 controllable_o2 controllable_o1 controllable_o0 & G | & & ! $controllable_o0 ! $controllable_o1 1 & | & ! $controllable_o0 1 & 1 ! $controllable_o1 ! $controllable_o2 W ! $controllable_o0 & & & & & $uncontrollable_i0 G i & $controllable_o0 X & ! $uncontrollable_i0 ! $controllable_o0 X W ! $controllable_o0 $uncontrollable_i0 G i & $controllable_o0 G ! $uncontrollable_i0 F ! $controllable_o0 G i $uncontrollable_i0 F $controllable_o0 W ! $controllable_o1 & & & $uncontrollable_i1 G i & $controllable_o1 X & ! $uncontrollable_i1 ! $controllable_o1 X W ! $controllable_o1 $uncontrollable_i1 G i & $controllable_o1 G ! $uncontrollable_i1 F ! $controllable_o1 G i $uncontrollable_i1 F $controllable_o1 W ! $controllable_o2 & & & $uncontrollable_i2 G i & $controllable_o2 X & ! $uncontrollable_i2 ! $controllable_o2 X W ! $controllable_o2 $uncontrollable_i2 G i & $controllable_o2 G ! $uncontrollable_i2 F ! $controllable_o2 G i $uncontrollable_i2 F $controllable_o2",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity default 6 uncontrollable_i2 uncontrollable_i1 uncontrollable_i0 controllable_o2 controllable_o1 controllable_o0 i G & & & & i & $uncontrollable_i0 ! $controllable_o0 X $uncontrollable_i0 i & ! $uncontrollable_i0 $controllable_o0 X ! $uncontrollable_i0 F ! & $uncontrollable_i0 $controllable_o0 & & i & $uncontrollable_i1 ! $controllable_o1 X $uncontrollable_i1 i & ! $uncontrollable_i1 $controllable_o1 X ! $uncontrollable_i1 F ! & $uncontrollable_i1 $controllable_o1 & & i & $uncontrollable_i2 ! $controllable_o2 X $uncontrollable_i2 i & ! $uncontrollable_i2 $controllable_o2 X ! $uncontrollable_i2 F ! & $uncontrollable_i2 $controllable_o2 & G & | & & ! $controllable_o0 ! $controllable_o1 1 & | & ! $controllable_o0 1 & 1 ! $controllable_o1 ! $controllable_o2 & & & i & $uncontrollable_i0 X $uncontrollable_i1 F & $controllable_o0 $controllable_o1 i & $uncontrollable_i0 X $uncontrollable_i2 F & $controllable_o0 $controllable_o2 i & $uncontrollable_i1 X $uncontrollable_i2 F & $controllable_o1 $controllable_o2 1 & & G i $uncontrollable_i0 F $controllable_o0 G i $uncontrollable_i1 F $controllable_o1 G i $uncontrollable_i2 F $controllable_o2",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity general 6 uncontrollable_i2 uncontrollable_i1 uncontrollable_i0 controllable_o2 controllable_o1 controllable_o0 i G & & & & i & $uncontrollable_i0 ! $controllable_o0 X $uncontrollable_i0 i & ! $uncontrollable_i0 $controllable_o0 X ! $uncontrollable_i0 F ! & $uncontrollable_i0 $controllable_o0 & & i & $uncontrollable_i1 ! $controllable_o1 X $uncontrollable_i1 i & ! $uncontrollable_i1 $controllable_o1 X ! $uncontrollable_i1 F ! & $uncontrollable_i1 $controllable_o1 & & i & $uncontrollable_i2 ! $controllable_o2 X $uncontrollable_i2 i & ! $uncontrollable_i2 $controllable_o2 X ! $uncontrollable_i2 F ! & $uncontrollable_i2 $controllable_o2 & G & | & & ! $controllable_o0 ! $controllable_o1 1 & | & ! $controllable_o0 1 & 1 ! $controllable_o1 ! $controllable_o2 & & & i & $uncontrollable_i0 X $uncontrollable_i1 F & $controllable_o0 $controllable_o1 i & $uncontrollable_i0 X $uncontrollable_i2 F & $controllable_o0 $controllable_o2 i & $uncontrollable_i1 X $uncontrollable_i2 F & $controllable_o1 $controllable_o2 1 & & G i $uncontrollable_i0 F $controllable_o0 G i $uncontrollable_i1 F $controllable_o1 G i $uncontrollable_i2 F $controllable_o2",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 8 uncontrollable_i3 uncontrollable_i2 uncontrollable_i1 uncontrollable_i0 controllable_o3 controllable_o2 controllable_o1 controllable_o0 & G | & & ! $controllable_o0 ! $controllable_o1 | & ! $controllable_o2 1 & 1 ! $controllable_o3 & | & ! $controllable_o0 1 & 1 ! $controllable_o1 & ! $controllable_o2 ! $controllable_o3 W ! $controllable_o0 & & & & & & $uncontrollable_i0 G i & $controllable_o0 X & ! $uncontrollable_i0 ! $controllable_o0 X W ! $controllable_o0 $uncontrollable_i0 G i & $controllable_o0 G ! $uncontrollable_i0 F ! $controllable_o0 G i $uncontrollable_i0 F $controllable_o0 W ! $controllable_o1 & & & $uncontrollable_i1 G i & $controllable_o1 X & ! $uncontrollable_i1 ! $controllable_o1 X W ! $controllable_o1 $uncontrollable_i1 G i & $controllable_o1 G ! $uncontrollable_i1 F ! $controllable_o1 G i $uncontrollable_i1 F $controllable_o1 W ! $controllable_o2 & & & $uncontrollable_i2 G i & $controllable_o2 X & ! $uncontrollable_i2 ! $controllable_o2 X W ! $controllable_o2 $uncontrollable_i2 G i & $controllable_o2 G ! $uncontrollable_i2 F ! $controllable_o2 G i $uncontrollable_i2 F $controllable_o2 W ! $controllable_o3 & & & $uncontrollable_i3 G i & $controllable_o3 X & ! $uncontrollable_i3 ! $controllable_o3 X W ! $controllable_o3 $uncontrollable_i3 G i & $controllable_o3 G ! $uncontrollable_i3 F ! $controllable_o3 G i $uncontrollable_i3 F $controllable_o3",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.016
+    },
+    {
+      "request": "TV1 buchi general 8 uncontrollable_i3 uncontrollable_i2 uncontrollable_i1 uncontrollable_i0 controllable_o3 controllable_o2 controllable_o1 controllable_o0 & G | & & ! $controllable_o0 ! $controllable_o1 | & ! $controllable_o2 1 & 1 ! $controllable_o3 & | & ! $controllable_o0 1 & 1 ! $controllable_o1 & ! $controllable_o2 ! $controllable_o3 W ! $controllable_o0 & & & & & & $uncontrollable_i0 G i & $controllable_o0 X & ! $uncontrollable_i0 ! $controllable_o0 X W ! $controllable_o0 $uncontrollable_i0 G i & $controllable_o0 G ! $uncontrollable_i0 F ! $controllable_o0 G i $uncontrollable_i0 F $controllable_o0 W ! $controllable_o1 & & & $uncontrollable_i1 G i & $controllable_o1 X & ! $uncontrollable_i1 ! $controllable_o1 X W ! $controllable_o1 $uncontrollable_i1 G i & $controllable_o1 G ! $uncontrollable_i1 F ! $controllable_o1 G i $uncontrollable_i1 F $controllable_o1 W ! $controllable_o2 & & & $uncontrollable_i2 G i & $controllable_o2 X & ! $uncontrollable_i2 ! $controllable_o2 X W ! $controllable_o2 $uncontrollable_i2 G i & $controllable_o2 G ! $uncontrollable_i2 F ! $controllable_o2 G i $uncontrollable_i2 F $controllable_o2 W ! $controllable_o3 & & & $uncontrollable_i3 G i & $controllable_o3 X & ! $uncontrollable_i3 ! $controllable_o3 X W ! $controllable_o3 $uncontrollable_i3 G i & $controllable_o3 G ! $uncontrollable_i3 F ! $controllable_o3 G i $uncontrollable_i3 F $controllable_o3",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.014
+    },
+    {
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ! & & i G F $a G F | $b $req i G F $b G F | $a $c i & & ! $a ! $b $req & & G i $a X $b G i $b X $c G i $req X $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b ! & & i G F $a G F | $b $req i G F $b G F | $a $c i & & ! $a ! $b $req & & G i $a X $b G i $b X $c G i $req X $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b & & i G F $a G F | $b $req i G F $b G F | $a $c i & & ! $a ! $b $req & & G i $a X $b G i $b X $c G i $req X $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b & & i G F $a G F | $b $req i G F $b G F | $a $c i & & ! $a ! $b $req & & G i $a X $b G i $b X $c G i $req X $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b & ^ ^ $a $b U G $c $c X G $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b ^ ! | ^ $a $c X $c U 1 i $b R 0 $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b ^ $b ^ i $a $c X G F $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e ! F ! M U 1 $c U 1 $b ! | X $a U ! X $b F X & $a i $c X $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e ! ^ $a $b W M $b F $c $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.017
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e ! e e $a $b G $a ! X e M W $a X $c X $c & ! $c G $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.123
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e ! | ! F $b M $b G | $a $c ! & $c F U X 0 X ! U 1 $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e F W $c $b ! F & F ! $c M e $c i G $a ! $b X ! $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e F e $a | X 0 ! G $a M F ^ F $c G W $c $b M ^ $b $c i $a $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e G $b ! & U $a $c R & $c F $b F ! $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e G F $b | & G F $a F G $b & G F $c F G $a",
+      "sets": [
+        "equivalence",
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e G F $b | & G F $a F G $b & G F $c F G $a",
+      "sets": [
+        "equivalence",
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e R 0 U $a $b ! & W $c $a R R 0 G $b F $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e W U ! X 0 e $c ! $c $a ! e ! $c R $c F | X 0 X $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e W U F X $a U e $a $c X $c 0 U $b G X $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.004
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e X ^ G $a G X $a ! e $c & F $b X U X $b ^ $c & $a F $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.111
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e ^ ! $b $c ! W R ! $a X $c ^ $b M $a $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e ^ G $c U X $a | $a ! W F $c 0 ! i R 0 X $c e $c ! F $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e e $b U F ^ $a $b $b ! ^ ! $c W ^ $a U 1 X F $c ! F G $a",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e i ! F X $c $b ! R 0 U & $b $c ^ $b $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e i W F ! $a 0 $a ! F e G | $a ! $b i $b X $c",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.019
+    },
+    {
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e i ^ $b F ! $c $a ! & F G $b | $b X $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e i ^ $b F ! $c $a ! & F G $b | $b X $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.007
+    },
+    {
+      "request": "TV1 parity general 7 unused_in req a unused_out c grant b e i | ^ $b $c X $a G | F $c G $a ! R & $b F $a ! F $b",
+      "sets": [
+        "golden"
+      ],
+      "elapsed_seconds": 17.018
+    }
+  ],
+  "zero_failures": true,
+  "partial_set": null
+}

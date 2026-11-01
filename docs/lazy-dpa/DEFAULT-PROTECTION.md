@@ -3,9 +3,13 @@
 Task TV replaces the attempted cache/call-order refinement with translation
 validation. The uncached executable Lean construction has a composed language
 theorem, checked finite parity/Büchi exports, sound language checkers and a
-canonical C-dump validator. The full offline corpus gates admission changes;
-production admission is unchanged at this milestone. The historical measurements
-below remain historical evidence. See `proofs/README.md` for the current gates.
+canonical C-dump validator. TV3's full fresh 17-second inventory records
+4,134 passes, zero failures and 36 timeouts; C unsupported requests are counted
+separately. GR(1) now tries general admission after a default unsupported
+decline, increasing coverage from 148 to 155 of 217 specifications while
+preserving default-only frozen formulas. Standalone DPA default admission is
+unchanged. The measurements below remain historical evidence. See
+`proofs/README.md` for the validated sample and trusted boundary.
 
 Keep syntactic X protection in both modes. The default admission predicate is
 unchanged, but the automata can differ, including their priorities, state

@@ -1,6 +1,9 @@
 # Internal units: these may include libtlsf's private headers.
 
 dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
+test('dpa_translation_hashes', dpa_dump,
+  args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/hashes.tsv'],
+  timeout: 300, is_parallel: false)
 if research_tools
   tv_inventory = executable('tv_inventory', '../../tools/golden/tv_inventory.cc',
     link_args: ['-Wl,--wrap=dpa_buchi_create'], dependencies: tlsf_internal_dep)
@@ -58,6 +61,7 @@ if research_tools
     dependencies: tlsf_internal_dep)
   test('pruning_cache', pruning_cache)
   phase_b_probe = executable('phase_b_probe', 'phase_b_probe.c',
+    c_args: ['-UNDEBUG'],
     dependencies: tlsf_internal_dep)
   residual_fault = executable('residual-fault', 'research_fault.c',
     files('../../src/tools/tlsfresidual/main.c'),
@@ -103,7 +107,8 @@ native_both_api_exe = executable('native_both_api',
   dependencies: tlsf_internal_dep)
 test('native_both_api', native_both_api_exe,
   args: files('../oracle/env_lift_one.tlsf'),
-  timeout: get_option('buildtype') == 'debug' ? 180 : 90,
+  # Aggregate of many worker runs, including deliberate deadline injections.
+  timeout: 180,
   is_parallel: false)
 # Three added corruption cases each retain the worker's 30-second deadline.
 test('native_failure_census', native_both_api_exe,
@@ -158,6 +163,9 @@ endif
 # Diagnostic inventory; not a test and never used by the production reducer.
 gr1_admission = executable('gr1_admission', 'gr1_admission.cpp',
   dependencies: tlsf_internal_dep)
+gr1_general_policy = executable('gr1_general_policy', 'gr1_general_policy.c',
+  dependencies: tlsf_internal_dep)
+test('gr1_general_policy', gr1_general_policy)
 env_witness = executable('env_witness', 'env_witness.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('env_witness', env_witness)
