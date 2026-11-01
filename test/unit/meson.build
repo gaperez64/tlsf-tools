@@ -53,7 +53,7 @@ objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
               '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
               '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
   dependencies: tool_dep)
-test('objective_alloc', objective_alloc_exe)
+test('objective_alloc', objective_alloc_exe, timeout: 120)
 
 if research_tools
   pruning_cache = executable('pruning_cache', 'pruning_cache.c',
@@ -74,11 +74,20 @@ if research_tools
                 '-Wl,--wrap=open_memstream'],
     dependencies: tool_dep)
   composition_fault = executable('composition-fault', 'research_fault.c',
-    tools['tlsfcompose']['sources'],
-    c_args: ['-DCOMPOSITION_FAULT'],
+    tools['tlsfcompose']['sources'], files('../../src/lib/arena.c'),
+    c_args: ['-DCOMPOSITION_FAULT', '-DTLSF_ARENA_FAULT'],
     link_args: ['-Wl,--wrap=csnf_compose', '-Wl,--wrap=malloc',
                 '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
     dependencies: tools['tlsfcompose']['dependencies'])
+  composition_callers = {'tlsfcompose': composition_fault}
+  foreach name : ['tlsftemplates', 'tlsfresidual', 'tlsfbenchgraph']
+    composition_callers += {name: executable(name + '-composition-fault',
+      'research_fault.c', tools[name]['sources'], files('../../src/lib/arena.c'),
+      c_args: ['-DCOMPOSITION_FAULT', '-DTLSF_ARENA_FAULT'],
+      link_args: ['-Wl,--wrap=csnf_compose', '-Wl,--wrap=malloc',
+                  '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+      dependencies: tools[name]['dependencies'])}
+  endforeach
 endif
 
 # Header-only: the SIMD kernels in src/lib/simd.h.

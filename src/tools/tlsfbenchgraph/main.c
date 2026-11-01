@@ -397,20 +397,23 @@ static Metrics measure(const char *path, bool split, const char *pre_norm,
   }
 
   Csnf *csnf = templates_certify(cov, TPL_ALL, true);
-  if (csnf) {
-    csnf_counts(csnf, &m.solved, &m.certified, nullptr, &m.residual,
-                &m.dependent);
-    CsnfComposition *comp = csnf_compose(csnf);
-    if (comp) {
-      m.conflicts = comp->nconflicts;
-      m.fully_solved = comp->fully_solved ? 1 : 0;
-      m.elim_constraints = comp->neliminated;
-      m.owned_outputs = comp->nowned_outputs;
-      measure_residual(spec, cov, comp, &m);
-      csnf_composition_free(comp);
-    }
+  CsnfComposition *comp = csnf ? csnf_compose(csnf) : nullptr;
+  if (!csnf || !comp) {
+    fprintf(stderr, "tlsfbenchgraph: out of memory\n");
     csnf_free(csnf);
+    spec_free(spec);
+    m.ok = false;
+    return m;
   }
+  csnf_counts(csnf, &m.solved, &m.certified, nullptr, &m.residual,
+              &m.dependent);
+  m.conflicts = comp->nconflicts;
+  m.fully_solved = comp->fully_solved ? 1 : 0;
+  m.elim_constraints = comp->neliminated;
+  m.owned_outputs = comp->nowned_outputs;
+  measure_residual(spec, cov, comp, &m);
+  csnf_composition_free(comp);
+  csnf_free(csnf);
   m.comp = largest_output_component(cov);
 
   spec_free(spec);
@@ -688,5 +691,5 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < g_nfiles; i++)
     free((void *)g_files[i]);
   free(g_files);
-  return 0;
+  return nfail != 0;
 }
