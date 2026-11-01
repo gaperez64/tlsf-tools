@@ -71,13 +71,101 @@ theorem table_exact (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap))
     intro σ _
     exact congrArg (fun x : Class ap => x σ) he
 
+def conjuncts : Formula α → List (Formula α)
+  | .tt => [] | .conj f g => conjuncts f ++ conjuncts g | f => [f]
+
+def disjuncts : Formula α → List (Formula α)
+  | .ff => [] | .disj f g => disjuncts f ++ disjuncts g | f => [f]
+
+theorem conjuncts_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
+    (conjuncts f).all (propEval σ) = propEval σ f := by
+  induction f <;> simp_all [conjuncts, propEval, List.all_append]
+
+theorem disjuncts_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
+    (disjuncts f).any (propEval σ) = propEval σ f := by
+  induction f <;> simp_all [disjuncts, propEval, List.any_append]
+
+def complementary [DecidableEq α] (f g : Formula α) : Bool :=
+  decide (f = .neg g) || decide (g = .neg f)
+
+theorem complementary_eval (σ : Assignment ap) (f g : Formula (Fin ap))
+    (h : complementary f g = true) : propEval σ f = !propEval σ g := by
+  rcases Bool.or_eq_true_iff.mp h with h | h
+  · have he := of_decide_eq_true h
+    rw [he]; rfl
+  · have he := of_decide_eq_true h
+    rw [he]; simp [propEval]
+
+def conflicting [DecidableEq α] (xs : List (Formula α)) : Bool :=
+  xs.any (fun f => xs.any (complementary f))
+
+theorem conflicting_eval (σ : Assignment ap) (xs : List (Formula (Fin ap)))
+    (h : conflicting xs = true) :
+    xs.all (propEval σ) = false ∧ xs.any (propEval σ) = true := by
+  obtain ⟨f, hf, hh⟩ := List.any_eq_true.mp h
+  obtain ⟨g, hg, hc⟩ := List.any_eq_true.mp hh
+  have he := complementary_eval σ f g hc
+  constructor
+  · cases hh : xs.all (propEval σ) with
+    | false => rfl
+    | true =>
+      have ef := List.all_eq_true.mp hh f hf
+      have eg := List.all_eq_true.mp hh g hg
+      simp [ef, eg] at he
+  · cases hh : xs.any (propEval σ) with
+    | true => rfl
+    | false =>
+      have ef := List.any_eq_false.mp hh f hf
+      have eg := List.any_eq_false.mp hh g hg
+      cases hv : propEval σ f <;> cases hw : propEval σ g <;> simp_all
+
+def mergeConj [DecidableEq α] (xs : List (Formula α)) : Formula α :=
+  let terms := xs.eraseDups
+  if conflicting terms then .ff else terms.foldr .conj .tt
+
+def mergeDisj [DecidableEq α] (xs : List (Formula α)) : Formula α :=
+  let terms := xs.eraseDups
+  if conflicting terms then .tt else terms.foldr .disj .ff
+
+theorem foldConj_eval (σ : Assignment ap) (xs : List (Formula (Fin ap))) :
+    propEval σ (xs.foldr .conj .tt) = xs.all (propEval σ) := by
+  induction xs <;> simp_all [propEval]
+
+theorem foldDisj_eval (σ : Assignment ap) (xs : List (Formula (Fin ap))) :
+    propEval σ (xs.foldr .disj .ff) = xs.any (propEval σ) := by
+  induction xs <;> simp_all [propEval]
+
+theorem mergeConj_eval (σ : Assignment ap) (xs : List (Formula (Fin ap))) :
+    propEval σ (mergeConj xs) = xs.all (propEval σ) := by
+  have he : xs.eraseDups.all (propEval σ) = xs.all (propEval σ) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [List.all_eq_true, List.mem_eraseDups]
+  unfold mergeConj
+  dsimp only
+  split
+  · rename_i h
+    exact (conflicting_eval σ _ h).1.symm.trans he
+  · rw [foldConj_eval, he]
+
+theorem mergeDisj_eval (σ : Assignment ap) (xs : List (Formula (Fin ap))) :
+    propEval σ (mergeDisj xs) = xs.any (propEval σ) := by
+  have he : xs.eraseDups.any (propEval σ) = xs.any (propEval σ) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [List.any_eq_true, List.mem_eraseDups]
+  unfold mergeDisj
+  dsimp only
+  split
+  · rename_i h
+    exact (conflicting_eval σ _ h).2.symm.trans he
+  · rw [foldDisj_eval, he]
+
 def propAnd [DecidableEq α] (f g : Formula α) : Formula α :=
   if f = g then f else
   match f, g with
   | .ff, _ | _, .ff => .ff
   | .tt, g => g
   | f, .tt => f
-  | f, g => .conj f g
+  | f, g => mergeConj (conjuncts f ++ conjuncts g)
 
 def propOr [DecidableEq α] (f g : Formula α) : Formula α :=
   if f = g then f else
@@ -85,7 +173,7 @@ def propOr [DecidableEq α] (f g : Formula α) : Formula α :=
   | .tt, _ | _, .tt => .tt
   | .ff, g => g
   | f, .ff => f
-  | f, g => .disj f g
+  | f, g => mergeDisj (disjuncts f ++ disjuncts g)
 
 def propNot : Formula α → Formula α
   | .tt => .ff
@@ -97,14 +185,14 @@ theorem propAnd_eval (σ : Assignment ap) (f g : Formula (Fin ap)) :
   unfold propAnd
   split
   · rename_i h; subst g; simp
-  · cases f <;> cases g <;> simp [propEval]
+  · cases f <;> cases g <;> simp [propEval, mergeConj_eval, List.all_append, conjuncts_eval]
 
 theorem propOr_eval (σ : Assignment ap) (f g : Formula (Fin ap)) :
     propEval σ (propOr f g) = (propEval σ f || propEval σ g) := by
   unfold propOr
   split
   · rename_i h; subst g; simp
-  · cases f <;> cases g <;> simp [propEval]
+  · cases f <;> cases g <;> simp [propEval, mergeDisj_eval, List.any_append, disjuncts_eval]
 
 theorem propNot_eval (σ : Assignment ap) (f : Formula (Fin ap)) :
     propEval σ (propNot f) = !propEval σ f := by
@@ -337,20 +425,6 @@ theorem sampleAgreement_of_eq (atoms : List (Formula (Fin ap))) (f g : Formula (
     · intro a _
       exact ⟨congrArg (fun c : Class ap => c (setAtom (fun _ => false) a true)) he,
         congrArg (fun c : Class ap => c (setAtom (fun _ => true) a false)) he⟩
-
-def conjuncts : Formula α → List (Formula α)
-  | .tt => [] | .conj f g => conjuncts f ++ conjuncts g | f => [f]
-
-def disjuncts : Formula α → List (Formula α)
-  | .ff => [] | .disj f g => disjuncts f ++ disjuncts g | f => [f]
-
-theorem conjuncts_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
-    (conjuncts f).all (propEval σ) = propEval σ f := by
-  induction f <;> simp_all [conjuncts, propEval, List.all_append]
-
-theorem disjuncts_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
-    (disjuncts f).any (propEval σ) = propEval σ f := by
-  induction f <;> simp_all [disjuncts, propEval, List.any_append]
 
 def sameTerms [DecidableEq α] (xs ys : List α) : Bool :=
   xs.all (fun x => decide (x ∈ ys)) && ys.all (fun y => decide (y ∈ xs))

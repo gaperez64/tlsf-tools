@@ -14,6 +14,7 @@ TlsfDpaStatus __real_dpa_buchi_create(const TlsfAstNode *, const char *const *,
 }
 
 static bool general_admission;
+static bool runtime_admission;
 
 static void prefix(const TlsfAstNode *f) {
   static const char *ops[] = {"1", "0", "",  "!", "&", "|", "i", "e",
@@ -32,14 +33,16 @@ extern "C" TlsfDpaStatus __wrap_dpa_buchi_create(const TlsfAstNode *root,
                                                  uint32_t count,
                                                  const TlsfDpaBudget *budget,
                                                  TlsfDpa **out, char *klass) {
-  std::cout << "TV1 parity " << (general_admission ? "general" : "default")
-            << ' ' << count << ' ';
+  TlsfDpaBudget selected = *budget;
+  if (!runtime_admission)
+    selected.allow_unproved = general_admission;
+  std::cout << "TV1 parity "
+            << (selected.allow_unproved ? "general" : "default") << ' ' << count
+            << ' ';
   for (uint32_t i = 0; i < count; ++i)
     std::cout << names[i] << ' ';
   prefix(root);
   std::cout << std::endl;
-  TlsfDpaBudget selected = *budget;
-  selected.allow_unproved = general_admission;
   return __real_dpa_buchi_create(root, names, count, &selected, out, klass);
 }
 
@@ -64,8 +67,10 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc < 2 ||
-      (std::string(argv[1]) != "default" && std::string(argv[1]) != "general"))
+      (std::string(argv[1]) != "default" && std::string(argv[1]) != "general" &&
+       std::string(argv[1]) != "runtime"))
     return 2;
   general_admission = std::string(argv[1]) == "general";
+  runtime_admission = std::string(argv[1]) == "runtime";
   return tv_native_reduction_main(argc - 1, argv + 1);
 }

@@ -37,8 +37,9 @@ typedef struct {
   const volatile bool *cancel; // borrowed until free; one caller per context
   int (*cancelled)(void *);    // may load an atomic flag
   void *cancel_ctx;
-  // Research only: admit components outside STAGE2-PROOF.md's proved grammar;
-  // their correctness remains unproved (issue #80). Default false.
+  // Admit the general syntactic Pi2/Sigma2 component grammar.
+  // The reference construction is proved; C is translation-validated on the
+  // recorded sample (issue #80). Default false for this standalone DPA API.
   bool allow_unproved;
 } TlsfDpaBudget;
 typedef struct {

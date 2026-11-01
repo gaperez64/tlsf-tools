@@ -501,8 +501,10 @@ each automaton separately. Alphabet compaction merges letters only after
 checking identical transitions and priorities at every state of both tables.
 It invokes the same proved `check` / `checkBuchi`, with a proof lifting equality
 to the original alphabet.
-Class equality uses branch-pruned Shannon comparison after propagating
-propositional constants. Deterministic mixed, single-atom and
+Class equality uses branch-pruned Shannon comparison after flattening Boolean
+roots, removing duplicate terms, cancelling complementary terms, and propagating
+constants. `mergeConj_eval` and `mergeDisj_eval` prove these reductions; frozen
+modal operands stay verbatim. Deterministic mixed, single-atom and
 single-complement assignments reject unequal residuals early; `sampleAgreement_of_eq` proves equal classes always
 pass this filter. `associationAgreement_sound` handles reassociation,
 commutation and repeated terms at a Boolean root; the full Shannon check
@@ -543,6 +545,9 @@ Successful offline checks validate C only on the enumerated formulas, admission
 modes, AP orders and acceptance kinds, with an exact canonical hash gate in CI.
 They do not establish C correctness on other inputs. Existing bounded lasso
 goldens alone do not establish unbounded language equality.
+Formulas admitted at runtime without a validated golden rely on the proved
+reference construction and the validation sample; this is evidence for the C
+construction, not a proof of C correctness for those formulas.
 
 ### Offline regeneration and CI
 
@@ -551,11 +556,16 @@ and is not run in CI. It inventories every monitor constructor reached by the
 217-spec corpus under both policies, including constructors in failed
 reductions, and includes the DPA equivalence formulas, all language-golden
 formulas, every pinned infinite-word verdict and stored monitor construction
-formula (including historical accepted rows), and review-k/l/i examples. It checks both parity and Buchi where C
-admits that kind; unsupported cases are reported separately and their canonical decline dumps
-are also hash-guarded. Every validation
-failure is retained with its formula and a minimized reproducer. General
-admission must stay disabled while any failure remains.
+formula (including historical accepted rows), and review-k/l/i examples. Each
+formula/AP order, admission and acceptance kind gets one hard **17-second
+wall-clock budget**, shared by the C dump and Lean check. The script defaults
+to 17 seconds. An admitted case is **pass**, **fail**, or **timeout**. Parse/AP
+errors, reference rejection after C admission, failed finite export and language
+mismatches are failures. A timeout is recorded, never minimized, and does not
+fail the run. C unsupported declines have no automaton to compare and are
+counted separately as `not_admitted`. Only passing language checks get hash
+goldens. Every real failure is retained and minimized and prevents general
+admission. The enablement bar is zero failures among cases finishing in budget.
 
 ```sh
 mkdir -p build-scratch-t/tmp
@@ -574,9 +584,10 @@ canonical hashes, verdicts, counts, failures and provenance are published under
 gate recomputes the exact same dump without Lean. The total golden budget is
 4,613,734 bytes (4.4 MiB).
 
-Long runs can use `--max-new N` to checkpoint (exit 75), then `--resume`.
-Receipts are reused only for the identical Lean executable and a freshly
-recomputed identical C dump. Partial runs never publish CI fixtures.
+Every run executes fresh C dumps and Lean checks; verdicts from earlier runs
+are never reused. Scratch progress retains diagnostics if interrupted. A
+`--set` run never publishes CI fixtures. The final audit uses the single full
+regeneration command above, with neither inventory reuse nor a set filter.
 
 Before this task, tracked Lean source was 12,679 lines (18,699 before pruning).
 The finite-export regressions pass 30/30; protocol regressions pass 18/18,

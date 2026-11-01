@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from time import monotonic
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRATCH = ROOT / "build-scratch-t/translation"
@@ -49,9 +50,11 @@ def collect(build):
         prefix = " ".join(prefix.split())
         key = (tuple(names), prefix)
         row = cases.setdefault(key, {"names": list(names), "prefix": prefix, "sets": {}})
-        row["sets"].setdefault(group, []).append(origin)
+        origins = row["sets"].setdefault(group, [])
+        if origin not in origins:
+            origins.append(origin)
 
-    coverage = {mode: [] for mode in ("default", "general")}
+    coverage = {mode: [] for mode in ("default", "general", "runtime")}
     for mode in coverage:
         for path in paths:
             try:
@@ -179,26 +182,37 @@ def collect(build):
     return result
 
 
-def validate_one(build, validator, text, timeout, receipts=None):
+def validate_one(build, validator, text, timeout):
+    # One monotonic deadline covers serialization, the C dump and the Lean
+    # check. In particular, Lean does not get a second timeout budget.
+    deadline = monotonic() + timeout
+
+    def remaining():
+        seconds = deadline - monotonic()
+        if seconds <= 0:
+            raise subprocess.TimeoutExpired("C dump + Lean check", timeout)
+        return seconds
+
     source, target = SCRATCH / "request.txt", SCRATCH / "dump.txt"
-    source.write_text(text + "\n")
     try:
-        result = run([build / "test/unit/dpa_dump", source], timeout=timeout)
+        source.write_text(text + "\n")
+        result = run([build / "test/unit/dpa_dump", source], timeout=remaining())
+        remaining()
         if result.returncode == 77:
-            return "declined", "unsupported", sha(result.stdout.encode())
+            # No admitted automaton exists: outside the three validation
+            # outcomes, counted separately and never included in hash goldens.
+            return "not_admitted", "unsupported", None
         if result.returncode:
             return "fail", f"C dump failure ({result.returncode}): {result.stderr.strip()}", None
         digest = sha(result.stdout.encode())
-        previous = (receipts or {}).get(text)
-        if previous and previous["status"] == "pass" and previous["sha256"] == digest:
-            return previous["status"], previous["reason"], digest
         target.write_text(result.stdout)
-        checked = run([validator, source, target], timeout=timeout)
+        checked = run([validator, source, target], timeout=remaining())
+        remaining()
         if checked.returncode or checked.stdout != "pass\n":
             return "fail", checked.stderr.strip() or "invalid validator verdict", None
         return "pass", "", digest
     except subprocess.TimeoutExpired:
-        return "fail", "validation timeout", None
+        return "timeout", "C dump + Lean check exceeded wall-clock budget", None
 
 
 def parse_tree(tokens):
@@ -250,18 +264,17 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--reuse-inventory", action="store_true")
     parser.add_argument("--collect-only", action="store_true")
-    parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--timeout", type=int, default=17,
+                        help="shared C dump + Lean wall-clock budget in seconds (default: 17)")
     parser.add_argument("--set", choices=("corpus", "golden", "equivalence", "review"))
-    parser.add_argument("--resume", action="store_true",
-                        help="reuse receipts only for this exact Lean executable and identical fresh C dumps")
-    parser.add_argument("--max-new", type=int, default=0,
-                        help="checkpoint after this many new verdicts; exit 75 until the run is complete")
     args = parser.parse_args()
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
     SCRATCH.mkdir(parents=True, exist_ok=True)
     os.environ["TMPDIR"] = str(ROOT / "build-scratch-t/tmp")
     os.environ["LEAN_NUM_THREADS"] = "1"
     build = args.build.resolve()
-    compiled = run(["meson", "compile", "-C", build, "-j2", "dpa_dump", "tv_inventory"],
+    compiled = run(["meson", "compile", "-C", build, "-j2", "dpa_dump", "tv_inventory", "native_reduction"],
                    cwd=ROOT, timeout=600)
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
     data = json.loads((SCRATCH / "inventory.json").read_text()) if args.reuse_inventory else collect(build)
@@ -282,52 +295,57 @@ def main():
     version = run([Path.home() / ".elan/bin/lake", "env", "lean", "--version"], cwd=ROOT / "proofs")
     assert version.returncode == 0 and "4.35.0" in version.stdout, version
     executable_hash = sha(validator.read_bytes())
-    checkpoint = SCRATCH / "checkpoint.json"
-    receipts = {}
-    if args.resume and checkpoint.exists():
-        prior = json.loads(checkpoint.read_text())
-        if prior["validator_sha256"] == executable_hash:
-            receipts = prior["receipts"]
-    new_verdicts = 0
-    counts = defaultdict(Counter)
-    failures, goldens, records = [], [], []
+    counts = defaultdict(lambda: Counter({"pass": 0, "fail": 0, "timeout": 0}))
+    not_admitted = Counter()
+    failures, timeouts, goldens, records = [], [], [], []
     for index, case in enumerate(data["cases"]):
         if args.set and args.set not in case["sets"]:
             continue
         for mode in ("default", "general"):
             for kind in ("parity", "buchi"):
                 text = request(kind, mode, case["names"], case["prefix"])
-                previous = receipts.get(text)
-                status, reason, digest = validate_one(build, validator, text, args.timeout, receipts)
-                if not previous or digest is None or previous["sha256"] != digest:
-                    new_verdicts += 1
-                receipts[text] = {"status": status, "reason": reason, "sha256": digest}
+                started = monotonic()
+                status, reason, digest = validate_one(build, validator, text, args.timeout)
                 row = {**case, "mode": mode, "kind": kind, "status": status,
-                       "reason": reason, "sha256": digest}
+                       "reason": reason, "sha256": digest,
+                       "elapsed_seconds": round(monotonic() - started, 3)}
                 records.append(row)
                 for group in case["sets"]:
-                    counts[f"{group}/{mode}/{kind}"][status] += 1
-                if status in ("pass", "declined"):
+                    key = f"{group}/{mode}/{kind}"
+                    # Keep all three outcomes visible even when zero.
+                    counts[key]
+                    if status == "not_admitted":
+                        not_admitted[key] += 1
+                    else:
+                        counts[key][status] += 1
+                if status == "pass":
                     goldens.append(f"{digest}\t{status}\t{text}\n")
+                if status == "timeout":
+                    timeouts.append({"request": text, "sets": sorted(case["sets"]),
+                                     "elapsed_seconds": row["elapsed_seconds"]})
+                    print("TIMEOUT", mode, kind, case["prefix"], flush=True)
                 if status == "fail":
                     print("FAIL", mode, kind, case["prefix"], reason, flush=True)
                     failures.append(row)
         print(f"validated {index + 1}/{len(data['cases'])}", flush=True)
-        # Interrupted runs retain exact verdicts without publishing partial goldens.
+        # Interrupted runs retain diagnostics, but never reuse old verdicts.
         (SCRATCH / "progress.json").write_text(json.dumps(records, indent=2) + "\n")
-        pending = checkpoint.with_suffix(".new")
-        pending.write_text(json.dumps({"validator_sha256": executable_hash, "receipts": receipts}) + "\n")
-        pending.replace(checkpoint)
-        if args.max_new and new_verdicts >= args.max_new and index + 1 < len(data["cases"]):
-            print(f"checkpoint saved: {new_verdicts} new verdicts; resume with --resume", flush=True)
-            raise SystemExit(75)
     for row in failures:
         print("minimizing", row["mode"], row["kind"], row["prefix"], flush=True)
         row["minimized"] = minimize(build, validator, row, args.timeout)
-    report = {"date": str(date.today()), "counts": dict(sorted(counts.items())),
+    report = {"date": str(date.today()), "timeout_seconds": args.timeout,
+              "fresh_run": True, "formula_ap_orders": len(data["cases"]),
+              "formulas_per_set": {group: sum(group in c["sets"] for c in data["cases"])
+                                   for group in ("corpus", "equivalence", "golden", "review")},
+              "attempted_requests": len(records),
+              "outcomes": {"pass": 0, "fail": 0, "timeout": 0,
+                           **Counter(r["status"] for r in records if r["status"] != "not_admitted")},
+              "not_admitted_requests": sum(r["status"] == "not_admitted" for r in records),
+              "counts": dict(sorted(counts.items())),
+              "not_admitted": dict(sorted(not_admitted.items())),
               "coverage": {mode: dict(Counter(str(x["status"]) for x in rows))
                            for mode, rows in data["coverage"].items()},
-              "failures": failures, "all_validated": not failures,
+              "failures": failures, "timeouts": timeouts, "zero_failures": not failures,
               "partial_set": args.set}
     (SCRATCH / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     # Only a complete run may publish the CI fixtures.
@@ -346,11 +364,14 @@ def main():
                       "validation_theorems": ["Tlsf.Dpa.Validation.validate_parity_sound",
                                                "Tlsf.Dpa.Validation.validate_buchi_sound"],
                       "hashes_sha256": sha((DEST / "hashes.tsv").read_bytes()),
+                      "report_sha256": sha((DEST / "report.json").read_bytes()),
                       "source_sha256": {
                           str(p.relative_to(ROOT)): sha(p.read_bytes())
                           for p in sorted(set(ROOT.glob("proofs/TlsfProofs/**/*.lean")) |
                                           set(ROOT.glob("src/lib/dpa*.[ch]")) |
                                           {ROOT / "test/unit/dpa_dump.c",
+                                           ROOT / "src/lib/gr1_reduction.cc",
+                                           ROOT / "include/tlsf/dpa.h",
                                            Path(__file__).resolve(),
                                            ROOT / "tools/golden/tv_inventory.cc"})},
                       "corpus_sources": data["corpus_sources"],

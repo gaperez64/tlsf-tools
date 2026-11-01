@@ -258,10 +258,7 @@ int main(int argc, char **argv) {
         break;
       }
       *separator = 0;
-      int expected = !strcmp(tab + 1, "pass")       ? 0
-                     : !strcmp(tab + 1, "declined") ? 77
-                                                    : -1;
-      if (expected < 0) {
+      if (strcmp(tab + 1, "pass")) {
         status = 2;
         break;
       }
@@ -279,7 +276,7 @@ int main(int argc, char **argv) {
       char hash[65];
       sha256_hex(bytes, length, hash);
       free(bytes);
-      if (code != expected || strcmp(hash, line)) {
+      if (code != 0 || strcmp(hash, line)) {
         fprintf(stderr, "translation golden mismatch at row %zu: %s", count + 1,
                 request);
         status = 1;

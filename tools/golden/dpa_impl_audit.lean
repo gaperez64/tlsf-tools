@@ -49,3 +49,5 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Impl.probeExpr_eval
 #print axioms Tlsf.Dpa.Impl.classFingerprint_congr
 #print axioms Tlsf.Dpa.Impl.Assembly.configurationHint_congr
+#print axioms Tlsf.Dpa.Impl.mergeConj_eval
+#print axioms Tlsf.Dpa.Impl.mergeDisj_eval
