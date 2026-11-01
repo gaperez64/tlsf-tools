@@ -40,6 +40,9 @@ if python3.found()
 endif
 # These scripts locate their helpers under --builddir. Declare those targets
 # explicitly so `meson test` also works without a preceding full build.
+test('compiler_order', python3,
+  args: [files('test_compiler_order.py'), '--builddir', meson.project_build_root()],
+  depends: [native_reduction_exe], timeout: 60)
 native_lift_test_deps = [native_lift_exe]
 if research_tools
   native_lift_test_deps += [exe['tlsfcertcheck']]
