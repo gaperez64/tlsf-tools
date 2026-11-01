@@ -157,7 +157,8 @@ def run(args):
                        if tool == "owl" else
                        [str(LAZY), "--expand", "--measure", tool, str(source), str(prefix)])
             save(directory / "command.json", command)
-            scope = ["systemd-run", "--user", "--scope", "--unit=dpa-counts-" + uuid.uuid4().hex,
+            unit = "dpa-counts-" + uuid.uuid4().hex + ".scope"
+            scope = ["systemd-run", "--user", "--scope", "--unit=" + unit,
                      "-p", "MemoryMax=4G", "-p", "MemorySwapMax=0", sys.executable,
                      str(Path(__file__).resolve()), "worker", str(directory), *command]
             start = time.monotonic()
@@ -173,6 +174,14 @@ def run(args):
                             pass
                     time.sleep(0.1)
             assert (directory / "started.json").exists(), (directory / "scope.log").read_text()
+            # systemd's default OOMPolicy=stop can terminate the observer as
+            # well. The failed scope retains its Result after cgroup removal.
+            observed = subprocess.run(["systemctl", "--user", "show", unit,
+                                       "-p", "Result", "-p", "MemoryPeak"],
+                                      capture_output=True, text=True)
+            scope_properties = dict(line.split("=", 1) for line in observed.stdout.splitlines()
+                                    if "=" in line)
+            save(directory / "scope.json", scope_properties)
             if (directory / "finished.json").exists():
                 finish = json.loads((directory / "finished.json").read_text())
                 last_events = finish["events"]
@@ -182,7 +191,8 @@ def run(args):
             before = json.loads((directory / "started.json").read_text())["before"]
             result = dict(status="error", reason="exit_" + str(finish["returncode"]),
                           states="NA", colours="NA", used="NA", wall_s=finish["wall_s"])
-            if last_events.get("oom_kill", 0) > before.get("oom_kill", 0):
+            if (last_events.get("oom_kill", 0) > before.get("oom_kill", 0)
+                    or scope_properties.get("Result") == "oom-kill"):
                 result.update(status="oom", reason="cgroup_oom_kill")
             elif finish["timed_out"]:
                 result.update(status="timeout", reason="deadline")
