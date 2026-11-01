@@ -1,92 +1,86 @@
-# tlsfsolve Developer Diagnostics
+# tlsfsolve usage and diagnostics
 
-This guide is for maintainers investigating failures and for collecting useful
-bug reports; it is not required for normal solver use. For memory tuning on the
-five issue-24 files, use the measured
-[recommended caps and peak RSS](../experiments/oxidd-memory/followup-report.md).
-Recoverable BDD/host allocation failures point here from stderr. A process that
-aborts inside an allocator cannot reliably print that hint.
+`tlsfsolve` solves AbsSynthe-style AIGER games. Ordinary inputs are
+uncontrollable; `controllable_` inputs belong to the system. Safety games use
+a `bad` output; GR(1) also supports AIGER 1.9 bad-state, `justice`, and
+`fairness` records. Bad-state records are disjoined and override ordinary outputs.
+Without them, exactly one ordinary output means legacy unsafe output;
+zero/multiple outputs mean pure justice. Exit 0 writes a strategy AAG to stdout;
+exit 1 prints `UNREALIZABLE` to stderr; exit 2 reports input, usage, or internal
+OxiDD failure.
 
-`tlsfsolve` keeps normal strategy output quiet by default.  Diagnostic tracing is
-available only in builds where `NDEBUG` is not defined:
+For memory-heavy games, try:
+
+```sh
+tlsfsolve --oxidd-var-order=fanin-dfs \
+  --oxidd-nodes=4194304 --oxidd-cache=262144 game.aag > strategy.aag
+```
+
+Order, node arena, and cache can vary per run of the same binary. Capacities
+count entries, not bytes; the node cap is not a process memory limit. Automatic
+GC is default. `fanin-dfs` sometimes costs more; retry default `input-first`
+before raising capacities. See [ordering measurements](../experiments/oxidd-ordering/report.md)
+and the five pinned corpus files' [measured caps/RSS](../experiments/oxidd-memory/followup-report.md).
+OxiDD sizes worker stacks to finite `RLIMIT_AS`; `OXIDD_STACK_SIZE` overrides it.
+Manager creation failure returns an invalid manager instead of aborting.
+
+## Collect a failure report
+
+Tracing requires a build without `NDEBUG`:
 
 ```sh
 git submodule update --init --recursive external/oxidd
-meson setup build-oxidd-diagnose \
-  -Dresearch_tools=true \
+meson setup build-oxidd-diagnose -Dresearch_tools=true \
   --buildtype=debugoptimized -Db_ndebug=false
 meson compile -C build-oxidd-diagnose
 build-oxidd-diagnose/tlsfsolve --version
-```
-
-Run one failing instance with the diagnostic wrapper:
-
-```sh
 python3 scripts/diagnose_tlsfsolve.py \
   --solver build-oxidd-diagnose/tlsfsolve \
-  --input /path/to/driver_c2y.aag \
-  --out diagnosis-driver-c2y \
+  --input /path/to/driver_c2y.aag --out diagnosis-driver-c2y \
   -- --oxidd-nodes 8388608
 ```
 
-The wrapper writes `manifest.json`, `stderr.log`, `summary.json`,
-`summary.md`, and either `strategy.aag` or `stdout.txt`.  It does not copy the
-input file into the bundle; the manifest records its SHA-256.  Trace timings are
-diagnostic, not release-performance measurements.
-Use a new output directory for each run. On systems with `wait4`, the wrapper
-records that specific child's peak RSS (normalized to KiB), including on
-timeout; it does not reuse cumulative usage from earlier runs. Signals,
-timeouts, unfinished operations and partial trace lines remain separate in the
-summary. A signal alone is not evidence of an OOM kill. Verdict-only success
-uses `stdout.txt`, never a misleading empty strategy artifact. Share the
-manifest, log and summaries after reviewing paths; keep strategies local.
+Use a new output directory per run. The wrapper writes `manifest.json`,
+`stderr.log`, `summary.json`, `summary.md`, and `strategy.aag` or `stdout.txt`.
+It hashes the input without copying it; verdict-only success uses `stdout.txt`.
+On systems with `wait4`, peak RSS is that child's usage in KiB, even on timeout.
+Signals, timeouts, unfinished operations, and partial lines stay separate;
+a signal alone does not establish OOM. Trace times are not release performance.
+Share the manifest/log/summaries after reviewing paths; keep strategies local.
+Recoverable BDD/host allocation errors link here, but allocator aborts cannot
+reliably print a hint.
 
-Useful first request for issue #24:
-
-> Please build with `--buildtype=debugoptimized -Db_ndebug=false`, then run
-> `scripts/diagnose_tlsfsolve.py` on one failing issue-#24 instance using the
-> same node/cache/GC settings that fail.  Use the original supplied AAG without
-> renaming or stripping symbols.  These cases should resolve as
-> `legacy-safety` with `O=1,B=C=J=F=0`, objective source ordinary output 0, and
-> `forall_u_exists_c`.  Please send the manifest, stderr log and summary.
-
-The node and cache budgets are independent:
+For the five issue-24 files, retain original AAG symbols and reproduce the
+failing node/cache/GC settings. Expect `legacy-safety`, `O=1,B=C=J=F=0`,
+ordinary output 0 as objective, and `forall_u_exists_c`. Node/cache budgets are
+independent:
 
 ```sh
-build-oxidd-diagnose/tlsfsolve \
-  --oxidd-nodes 8388608 \
-  --oxidd-cache 4194304 \
-  --game-profile=auto \
-  failing.aag > strategy.aag
+build-oxidd-diagnose/tlsfsolve --oxidd-nodes 8388608 \
+  --oxidd-cache 4194304 --game-profile=auto failing.aag > strategy.aag
 ```
 
-`--oxidd-gc=pressure --oxidd-gc-threshold=80` adds explicit GC checkpoints at
-safe phase boundaries and before allocating operations. After a collection,
-the policy waits 256 completed operation entries, or 4096 when the explicit
-call removed nothing or less than 1% of the configured capacity. A changed
-ownership phase rearms the checkpoint. This policy is independent of verbosity.
-Both GC modes allow exactly one explicit collection and retry of a failed pure
-BDD operation, keeping its original inputs alive. Variable addition,
-substitution mutation and AIG insertion are never replayed. A zero GC return
-does not prove that the arena is entirely live; another collection may be active.
+`--oxidd-gc=pressure --oxidd-gc-threshold=80` adds checkpoints at safe phase
+boundaries and before allocations, independently of verbosity. After collection
+it waits 256 completed operations, or 4096 if nothing or less than 1% of capacity
+was removed; ownership-phase changes rearm it. Both GC modes allow one explicit
+collection/retry of a failed pure BDD operation with original inputs alive.
+Variable addition, substitution mutation, and AIG insertion are never replayed.
+A zero GC return does not prove all nodes live: another collection may be active.
 
-Use `-vv` to log each operation before entering the FFI. The first failure
-contains phase, operation ID and gate/control/iteration index. Phase records
-include elapsed time and approximate stored-node samples; the sampled maximum
-is not an exact live-node or internal transient peak. Construction records
-count map references, not distinct reachable nodes. Session managers report
-their actual configured node/cache capacities and reject conflicting overrides.
-Rust allocator failures and existing aborting AIG allocation paths may still
-terminate the process instead of returning a recoverable error.
+`-vv` logs operations before FFI entry. The first failure gives phase, operation
+ID, and gate/control/iteration index. Phase timing/node samples are approximate,
+not exact live/transient peaks; construction counts map references, not distinct
+reachable nodes. Session managers report configured capacities and reject
+conflicting overrides. Rust allocator failures and aborting AIG allocation paths
+can still terminate the process.
 
-## Ordering-Sensitive Failures
+## Variable order and circuit construction
 
-Variable identities remain inputs, then latches, then any GR(1) auxiliaries.
-`--oxidd-var-order=input-first|state-first|fanin-dfs` changes only their BDD
-levels, before projections or circuit construction. The same OxiDD-enabled
-executable can select a different order on each invocation. The default is
-`input-first`; `--oxidd-build-plan=gates` is the unchanged construction plan.
-A custom complete permutation can be supplied with `--oxidd-order-file`:
+Identities stay inputs, latches, then GR(1) auxiliaries.
+`--oxidd-var-order=input-first|state-first|fanin-dfs` changes BDD levels before
+projections/construction. Defaults are `input-first` and
+`--oxidd-build-plan=gates`. A custom `--oxidd-order-file PATH` uses:
 
 ```text
 tlsfsolve-order-v1 N
@@ -96,14 +90,9 @@ tlsfsolve-order-v1 N
 ...
 ```
 
-The header count must equal the local BDD variable count and the following
-lines must contain every identity in `0..N-1` exactly once. Pass the file with
-`--oxidd-order-file PATH`; it conflicts with an explicitly selected named
-order. Nondefault orders are rejected while a shared composition manager is
-active because previously allocated variables cannot be moved safely.
-
-Diagnostic builds can inspect one normalized AIG gate and the union of nodes
-reachable from completed construction roots:
+The count must match local variables and list each identity in `0..N-1` once.
+It conflicts with an explicitly named order. Shared composition managers reject
+nondefault orders because allocated variables cannot safely move.
 
 ```sh
 python3 scripts/diagnose_tlsfsolve.py \
@@ -111,126 +100,89 @@ python3 scripts/diagnose_tlsfsolve.py \
   -- --oxidd-var-order=fanin-dfs --oxidd-trace-gate=562 \
      --oxidd-trace-roots --oxidd-trace-node-limit=100000 \
      --oxidd-trace-scratch=16777216
+python3 scripts/analyze_oxidd_cone.py game.aag --gate-index 562 --out cone.json
 ```
 
-These trace switches are absent from `NDEBUG` builds. Traversal pins its roots,
-counts each inner-node identity once, releases every cofactor handle, and never
-uses GC. `complete=false` means the reported count is only a lower bound. The
-effective limit may be lower than requested to honor the scratch cap. Selected
-gate events record signed AIG operands, syntactic input/state dependence,
-remaining uses, before/after stored-node estimates, and bounded operand/result
-counts. Diagnostic timings are not release measurements.
+Trace switches are absent in `NDEBUG` builds. Traversal pins roots, counts
+inner-node identities once, releases cofactors, and uses no GC. `complete=false`
+is a lower bound; scratch caps may lower the effective limit. Gate events give
+signed operands, input/state dependence, remaining uses, stored-node estimates,
+and bounded operand/result counts. The offline cone report needs no BDDs;
+it distinguishes source/parser-normalized ASCII AIGER indices, signed fan-outs,
+root occurrences, and conservative fusion barriers `shared`, `root`,
+`negative_edge`, `input_only_barrier`. It does not estimate BDD size.
 
-Inspect the corresponding AAG cone without constructing BDDs:
+GR(1) handles multiple fairness assumptions with separate inner greatest
+fixpoints, disjoined at each least-fixpoint level; extraction retains `X[k,i]`.
+Combining fairness negations pointwise would mishandle a forced alternating
+state satisfying both `GF s` and `GF !s`, allowing an impossible system goal.
 
-```sh
-python3 scripts/analyze_oxidd_cone.py game.aag --gate-index 562 \
-  --out cone.json
-```
+Safety-only `--oxidd-transitions=demand` builds exact updates for the current
+predicate's complete BDD support, accumulating updates and publishing immutable
+substitutions as support grows. Default `eager` builds them upfront. Full
+synthesis completes `strategy_updates` and preserves every controller latch.
+Safety-only `--realizability-only` skips extraction/stdout, prints
+`REALIZABLE`/`UNREALIZABLE` to stderr, and exits 0/1. Failures exit 2, including
+full-synthesis extraction failure after finding a winning region. Both options
+reject GR(1). Library verdict-only callers need `solve_safety_oxidd_result()`;
+legacy strategy-returning APIs reject it. Compare like modes when benchmarking.
 
-The offline report distinguishes source/parser-normalized indices for direct
-ASCII AIGER input, lists signed fan-outs and root occurrences, and applies the
-conservative fusion barriers `shared`, `root`, `negative_edge`, and
-`input_only_barrier`. It is structural evidence only; it does not estimate BDD
-size.
-
-## Exact Demand Construction
-
-The GR(1) multiple-fairness repair is implemented in the fixpoint itself. A
-forced alternating state satisfies both `GF s` and `GF !s`, so the solver must
-not combine their negations pointwise: doing so would incorrectly permit an
-impossible system goal. Instead, every fairness assumption has its own inner
-greatest fixpoint, their results are disjoined at each least-fixpoint level,
-and strategy extraction retains the corresponding `X[k,i]` level. Multiple
-fairness assumptions are therefore solved normally rather than rejected.
-
-Safety profiles also accept `--oxidd-transitions=demand`. This builds only
-updates in the current state predicate's complete BDD support, retaining the
-accumulated updates and publishing a new immutable substitution when it grows.
-The default remains `eager`. Every supported state variable gets its exact
-update; this is not abstraction. Full synthesis explicitly builds any remaining
-updates in the `strategy_updates` phase and preserves all controller latches.
-
-`--realizability-only` skips extraction, emits no stdout, and prints
-`REALIZABLE`/`UNREALIZABLE` to stderr with exit 0/1. Failures are exit 2, including
-extraction failure after a winning region was found in full synthesis. Both
-options reject GR(1). Library callers must use `solve_safety_oxidd_result()` for
-verdict-only mode; the legacy strategy-returning interfaces reject that mode.
-Compare full synthesis with full synthesis and verdict-only with verdict-only.
-
-## Offline Corpus Suites
-
-Fetch the five pinned files explicitly, then enable the optional offline tests:
+## Offline checks
 
 ```sh
 python3 scripts/fetch_syntcomp_issue24.py --out build-issue24-corpus
-meson configure build-oxidd-diagnose \
-  -Dissue24_corpus="$PWD/build-issue24-corpus"
+meson configure build-oxidd-diagnose -Dissue24_corpus="$PWD/build-issue24-corpus"
 meson test -C build-oxidd-diagnose --suite issue24-correctness
 meson test -C build-oxidd-diagnose --suite issue24-memory
 ```
 
-The serial correctness suite checks the pins, headers, ownership, resets and
-upstream verdicts at a 32M-node/4M-cache budget. Independent strategy proofs
-remain the separate check below. The serial memory suite records GNU-time peak
-RSS and failures at the historical 4M-node/4M-cache budget in build-local JSON;
-capacity exhaustion is recorded, while crashes or changed successful verdicts
-are errors. Ordinary tests do not download third-party files.
+Ordinary tests download nothing. The serial correctness suite checks pins,
+headers, ownership, resets, and upstream verdicts at 32M-node/4M-cache.
+The serial memory suite records GNU-time peak RSS/failures in build-local JSON
+at historical 4M-node/4M-cache; exhaustion is recorded, crashes or changed
+successful verdicts fail. Independent strategy proofs require the check below.
 
-## Independent Closed-Loop Safety Check
+## Independent closed-loop safety verification
 
-For a `legacy-safety` game, verify the emitted controller against the original
-game using external tools:
+For a `legacy-safety` game:
 
 ```sh
 python3 scripts/verify_aiger_safety.py \
-  --game /path/to/original-game.aag \
-  --strategy /path/to/strategy.aag \
-  --aiger-dir /path/to/aiger \
-  --combine-aiger /path/to/combine-aiger \
-  --abc /path/to/abc \
-  --out check-result --timeout 120
+  --game /path/to/original-game.aag --strategy /path/to/strategy.aag \
+  --aiger-dir /path/to/aiger --combine-aiger /path/to/combine-aiger \
+  --abc /path/to/abc --out check-result --timeout 120
 ```
 
-The dependencies are [Armin Biere's AIGER utilities](https://github.com/arminbiere/aiger),
-[SYNTCOMP's combine-aiger](https://github.com/SYNTCOMP/combine-aiger), and
-[ABC](https://github.com/berkeley-abc/abc). They are optional and are not vendored.
-The checker does not use tlsf-tools' parser, BDD implementation, or composition
-code. It uses this pipeline:
+Optional external dependencies are [AIGER utilities](https://github.com/arminbiere/aiger),
+[combine-aiger](https://github.com/SYNTCOMP/combine-aiger), and
+[ABC](https://github.com/berkeley-abc/abc); none is vendored. The pipeline uses
+no tlsf-tools parser, BDD, or composition code:
 
-1. `aigtoaig` validates both input files and normalizes their representation.
-2. Interface checks require the controller outputs to match exactly the game's
-   `controllable_` inputs. Controller inputs may only observe environmental
-   inputs. Missing/duplicate names and `AIGER_NEXT_` aliases are rejected.
-3. `aigmove -r` moves the game's ordinary error output 0 into the bad-property
-   section, preserving its polarity.
-4. `combine-aiger` connects the controller to the game by signal name. The
-   original plant and the controller keep separate latches and reset values.
-5. `aigtoaig` validates the composition and converts it to binary AIGER. Only
-   environmental inputs and exactly one bad property may remain.
-6. ABC's unbounded `pdr` checks that the bad property is unreachable.
+1. `aigtoaig` validates and normalizes both inputs.
+2. Controller outputs must exactly match game `controllable_` inputs; controller
+   inputs may observe only environment inputs. Missing/duplicate names and
+   `AIGER_NEXT_` aliases fail.
+3. `aigmove -r` moves ordinary error output 0 to a bad property, preserving polarity.
+4. `combine-aiger` connects by name, retaining separate plant/controller latches
+   and resets.
+5. `aigtoaig` validates the binary closed loop: only environment inputs and one
+   bad property may remain.
+6. ABC unbounded `pdr` proves the bad property unreachable; startup scripts are disabled.
 
-`SAFE` (exit 0) means PDR proved safety for all environment input sequences.
-`UNSAFE` (exit 1) means it found a counterexample. `UNKNOWN` or `ERROR` (exit 2)
-is not a successful verification, including timeouts, tool failures, and missing
-proof status. A new output directory is required to prevent stale proof
-results from being reused. The directory contains normalized circuits, the
-closed loop, per-step logs and commands, `proof.status`, and `result.json` with
-SHA-256 fingerprints of inputs and tools. ABC startup scripts are disabled.
-
-This checker currently accepts only legacy safety games with named input
-signals and constant latch resets. It does not verify GR(1) liveness or certify
-UNREALIZABLE results. `aigbmc` is useful for bounded bug finding and `aigsim` for
-simulation or witness replay; neither alone proves unbounded safety.
-
-Run the external-tool regression checks directly:
+`SAFE` exits 0 for all environment sequences; `UNSAFE` exits 1 with a
+counterexample. `UNKNOWN`/`ERROR` exit 2, including timeout, tool failure, or
+missing proof status. A new directory prevents stale results; it stores
+normalized/closed-loop circuits, commands/logs, `proof.status`, and `result.json`
+with input/tool SHA-256 fingerprints. Only named-input legacy safety games with
+constant resets are supported. GR(1) liveness and UNREALIZABLE are not verified.
+`aigbmc` finds bounded bugs and `aigsim` replays/simulates; neither proves
+unbounded safety alone.
 
 ```sh
-python3 test/oracle/check_aiger_safety.py \
-  --aiger-dir /path/to/aiger \
+python3 test/oracle/check_aiger_safety.py --aiger-dir /path/to/aiger \
   --combine-aiger /path/to/combine-aiger --abc /path/to/abc
 ```
 
-Meson also registers `aiger_closed_loop` when these tools are on `PATH` during
-configuration. The cases include a safe controller with private memory and
-reset 1, an incorrect reset, a delayed safety violation, and invalid interfaces.
+Meson registers `aiger_closed_loop` if tools are on `PATH` at configuration.
+Cases cover private controller memory/reset 1, incorrect resets, delayed safety
+violations, and invalid interfaces.

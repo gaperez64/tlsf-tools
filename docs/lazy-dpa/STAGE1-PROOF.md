@@ -1,307 +1,197 @@
-# Stage 1: restricted language-correctness proof
+# Restricted component language proof
 
-This discharges the restricted component proof gate in [DESIGN.md §1](DESIGN.md#conservative-component-exact-rules-and-proof-gate).
-It proves the construction below, including its complement, on every infinite word.
-It does not discharge the general Π₂ claim in [#80](https://github.com/gaperez64/tlsf-tools/issues/80)
-or certify the implementation, bridge, or Stage 0; their separate release gates remain.
+The construction below recognizes its input and complement on every infinite
+word. It discharges the restricted component gate in [the design](DESIGN.md#conservative-component-exact-rules-and-proof-gate),
+not implementation, bridge, or objective-assembly validation. The general Π₂
+proof is separate; see [the proof overview](../../proofs/README.md#automaton-translation-validation).
 
-## 1. Exact fragment
+## Fragment and classes
 
-Let AP be a finite set, `lit ::= p | ¬p` for `p ∈ AP`. After NNF and distribution
-of X through Boolean operators, the admitted fragment is:
+For finite AP, after NNF and Boolean X distribution:
 
 ```text
+lit ::= p | ¬p, p ∈ AP
 b ::= true | false | lit | b ∧ b | b ∨ b | X b
 s ::= b | s ∧ s | s ∨ s | X s | G s | s R s | s W s
 c ::= b | c ∧ c | c ∨ c | X c | F c | c U c | c M c
 φ ::= s | c | G F b | F G b
 ```
 
-Here `s`, `c`, and `b` are syntactic safety, co-safety, and finite-window
-formulas. Each `b` has a finite maximum X depth `h`; its truth at position n
-depends only on positions n through n+h. There is no bound common to all inputs.
-The dual `bar(b)` swaps constants, literal polarities, and ∧/∨, and commutes with X.
-Thus `FG b = ¬GF bar(b)`. General duality also exchanges F/G, U/R, and M/W.
-U is strong until, W weak until, R weak release, and M strong release:
-`f M g = g U (f ∧ g)` and `f R g = g W (f ∧ g)`.
+Finite-window b has some maximum X depth h and reads n through n+h; no bound
+is common to inputs. NNF dualization swaps constants, literals, ∧/∨, F/G,
+U/R, and M/W, commuting with X; `FG b = ¬GF bar(b)`.
+U/M are strong until/release, W/R weak: `f M g = g U (f ∧ g)` and
+`f R g = g W (f ∧ g)`. Boolean truth tables expand implication/equivalence;
+`X(f ⋄ g) = Xf ⋄ Xg` distributes X, and temporal constants fold
+(`X true = F true = G true = true`, likewise false). Infinite semantics
+justify these identities. Membership uses canonical class support, where
+Boolean identities can remove unsupported operands, without a semantic oracle.
+No general GF/FG Boolean product or unbounded operator inside b is admitted here.
 
-NNF uses these dualities and the Boolean truth tables, including expansion of
-implication and equivalence; X distribution uses `X(f ⋄ g) = Xf ⋄ Xg`.
-These identities follow directly from infinite-word semantics. Fold temporal
-constants (`X true = F true = G true = true`, and likewise false).
-Membership is checked on the resulting canonical classes: Boolean identities
-may remove unsupported operands. No other semantic membership oracle is assumed.
-In particular, this grammar admits no general Boolean product containing GF/FG
-components and no unbounded temporal operator inside `b`.
-
-## 2. Exact automaton
-
-**Classes and derivatives.** Abstract each distinct modal formula as an independent
-Boolean variable, with APs and their Boolean negations sharing AP variables.
-Equality is propositional equality in this abstraction. A modal formula and its
-NNF dual are separate variables; class negation must use NNF dualization, not
-Boolean complementation of modal variables. Supported atoms below mean the
-variables on which the class actually depends, without descending into them.
-All represented NNF functions are positive in modal variables.
-
-Write `[t]` for a frozen modal atom. Unfolding U is Boolean-homomorphic, fixes
-APs/constants and `[Xf]`, and uses:
+Classes abstract each modal formula, including its NNF dual, as an independent
+Boolean variable. AP negation shares its AP variable; modal negation uses NNF
+dualization, never Boolean complementation. Equality is propositional; support
+does not descend inside atoms. NNF functions are positive in modal variables.
+For frozen `[t]`, Boolean-homomorphic unfolding fixes AP/constants/X and uses:
 
 ```text
 U(Ff)     = U(f) ∨ [Ff]          U(Gf)     = U(f) ∧ [Gf]
-U(f U g)  = U(g) ∨ (U(f) ∧ [f U g])       (same equation for W)
-U(f R g)  = U(g) ∧ (U(f) ∨ [f R g])       (same equation for M)
+U(f U g)  = U(g) ∨ (U(f) ∧ [f U g])       (same for W)
+U(f R g)  = U(g) ∧ (U(f) ∨ [f R g])       (same for M)
 ```
 
-The displayed continuations are frozen during that substitution. U is idempotent
-as a propositional class: substituting these equations twice gives the same
-class by absorption. Dᵥ evaluates current APs under letter `v ⊆ AP`, substitutes
-`f` for `[Xf]`, and retains every other frozen modal atom; substitution is
-simultaneous, so newly exposed APs are not evaluated. Set `Δᵥ = U Dᵥ U`.
-In particular, X does not expose its operand to the current letter.
+Continuations stay frozen during substitution; absorption proves `U²=U`.
+Simultaneous `Dᵥ` evaluates current APs, replaces `[Xf]` by f, and retains other
+modal atoms; newly exposed APs are not evaluated. Write `Δᵥ = U Dᵥ U`.
+Finite/safety/co-safety tests require every supported atom to belong to b/s/c;
+constants pass all. There are no graph/support-change heuristics.
 
-A class is finite/safety/co-safety iff every supported atom belongs respectively
-to `b`/`s`/`c` above. Constants satisfy all three tests. This is the direct
-syntactic test, without graph or support-change heuristics.
+Use exactly [the canonical extractor and ordered component table](DESIGN.md#conservative-component-exact-rules-and-proof-gate).
+Call the extractor ρ and component Bχ. The alphabet is `2^AP`; states `(A,R)`
+are unfolded classes with false R as suspension. Acceptance is Inf(0) for
+safety, co-safety, and GF b; FG b uses the identical complete run for GF bar(b)
+with Fin(0). Safety/co-safety/constants take their direct classification.
+No transient/support reset, external suspension, pruning, round robin, or
+changing tree/acceptance is used. Finite modal closure plus X tails gives
+finitely many Boolean classes/pairs. The ordered table is total/deterministic;
+Shannon splitting and equal `(target,mark)` merging represent it with complete,
+disjoint guards, without enumerating the alphabet.
 
-**Extractor ρ.** On class x, replace each supported non-co-safety modal atom by
-true. On the resulting class y, repeatedly collect all X subformulas inside
-supported non-X modal atoms, using their frozen syntax even inside operands
-that would be propositionally absorbed if materialized. Replace supported X
-atoms outside that protected set by true, until unchanged. Compute `z = U(y)`.
-If z is finite and `x ≠ U(x)`,
-retry the entire extraction on `U(x)`; otherwise return z. Idempotence of U
-makes a second retry impossible. Protection is recomputed from the reduced
-support on every iteration. Each changing iteration removes a supported X
-variable, so the loop also terminates.
+## Derivatives and finite witnesses
 
-**Breakpoint component Bχ.** Its alphabet is `2^AP`, its reachable states are
-pairs `(A,R)` of unfolded classes, and `R=false` is the suspension sentinel.
-For χ in `s`, `c`, or `GF b`, initialize
-
-```text
-(U(χ), false)    if U(χ) is safety or co-safety;
-(U(χ), ρ(χ))    otherwise.
-```
-
-Constants use `(false,false)` and `(true,false)`. For each letter v, compute
-`a=Dᵥ(A)`, `r=Dᵥ(R)`, `a′=U(a)`, and apply the first applicable row:
-
-| Condition | Target | Mark 0? |
-| --- | --- | --- |
-| `a′=false` | `(false,false)` | no |
-| `a′=true` | `(true,false)` | yes |
-| `a′` safety | `(a′,false)` | yes |
-| `a′` co-safety | `(a′,false)` | no |
-| `U(r)=false` | `(a′,ρ(a))` | no |
-| `U(r)` finite | set `q=U(r) ∧ ρ(a)`; target `(a′,q)` if `q≠false`, else `(false,false)` | yes iff `q≠false` |
-| otherwise | `(a′,U(r))` | no |
-
-Acceptance is `Inf(0)`: infinitely many marked transitions. For input `FG b`,
-construct Bχ for `χ=GF bar(b)` and use `Fin(0)` on the same complete run.
-Handle inputs already classified as safety/co-safety directly, including constants.
-No transient blocking, support reset, external suspension, pruning, round robin,
-or changing acceptance formula/tree is used.
-
-This is a finite deterministic complete automaton: all classes use the finite
-closure of input modal subformulas and their X tails; there are finitely many
-Boolean functions over that closure. The ordered table defines one successor
-and mark for every letter. A symbolic implementation Shannon-splits current APs
-and merges equal `(target,mark)` leaves; the disjoint guards cover all letters
-and implement exactly this function. No alphabet enumeration is needed.
-
-## 3. Derivative and finite-witness lemmas
-
-Give classes their LTL interpretation by replacing each modal variable with its
-formula. Propositional equality implies equal LTL languages. The usual semantic
-equations, with an explicit next on the continuation, are for example
-`Ff = f ∨ X Ff`, `Gf = f ∧ X Gf`, and
-`f U g = g ∨ (f ∧ X(f U g))`; W uses the same equation and R/M its conjunctive dual.
-Together with the Boolean and X clauses, these equations prove by structural
-induction, for every suffix z,
+Interpret modal variables by their LTL formulas; propositional equality then
+preserves language. Structural induction using `Ff = f ∨ X Ff`,
+`Gf = f ∧ X Gf`, `f U g = g ∨ (f ∧ X(f U g))`, the W equation, and R/M duals gives:
 
 ```text
 v z ⊨ x  iff  z ⊨ Δᵥ(x).                         (1)
 ```
 
-Indeed DᵥU performs precisely those one-step equations; the final U preserves
-their LTL interpretation. Thus for an unfolded x its next residual is `U Dᵥ x`.
-Induction on prefix length gives the corresponding iterated derivative identity.
-The displayed clauses also show that unfolding and derivatives preserve each
-of the three syntactic classes.
+`DᵥU` implements these equations, and final U preserves interpretation.
+Unfolded x therefore steps to `U Dᵥ x`; induction extends (1) over prefixes.
+Unfolding/stepping preserve all three syntactic classes.
 
-If `z ⊨ c`, some finite prefix derivative of c is propositionally true.
-Here is a structural proof, including why the conclusion is propositional:
-true needs zero letters, false has no satisfying word, and literals need one
-letter. Boolean conjunction takes the maximum of its two
-witness lengths, disjunction a satisfied operand's length, and X adds one.
-For F choose a satisfying position of its operand. For `f U g` choose its finite
-witness position j, finite witnesses for g at j, and for f at every earlier
-position. For `f M g` choose j with f true there and g true through j inclusive,
-and take those finitely many operand witnesses. Take the maximum of their end
-positions. Repeated unfolding contains the corresponding sufficient Boolean
-branch; every factor in it has become true by the operand induction, so the
-whole derivative is propositionally true. True remains true, justifying each
-maximum. This proves the claim for every grammar clause.
+If `z ⊨ c`, some finite derivative is propositionally true. Structural witness
+lengths are zero for true, absent for false, one for literals, maximum for
+conjunction, a satisfied operand for disjunction, and one extra for X. F chooses
+a satisfying operand position. U chooses g at finite j and f before j; M
+chooses f at j and g through j. Take the maximum end of these finitely many
+operand witnesses. Unfolding contains that sufficient Boolean branch, whose
+factors become true by induction; true persists, justifying maxima.
 
-Dually, if `z ⊭ s`, a finite prefix derivative of s is propositionally false.
-Apply the preceding proof to its NNF dual. Dualization commutes with unfolding
-and stepping and exchanges true/false; on modal classes it also renames each
-modal variable to its dual, as specified above. This follows clause by clause
-from the displayed equations, so does not assume modal variables are Boolean
-complements. Finally, a finite class becomes its actual truth constant after at
-most `h+1` letters: each step decreases all remaining X depths and then evaluates
-all exposed APs. These arguments also apply to classes passing the support tests:
-a positive Boolean function of atoms from a grammar has a representative in it.
+Dually, violated s has a propositionally false finite derivative. Its NNF
+dualization commutes clausewise with unfolding/stepping and swaps true/false,
+renaming modal variables to duals without assuming Boolean complements.
+Finite b becomes its actual truth constant within h+1 letters: each step
+reduces X depth and evaluates exposed APs. Support-tested classes inherit these
+lemmas because positive Boolean functions of grammar atoms have representatives
+in that grammar.
 
-## 4. Component correctness, both directions
+## Component correctness
 
-**Safety.** Every residual stays safety and R stays suspended. By (1), a
-satisfying word never reaches false, so every edge marks. A violating word
-reaches false by the bad-prefix lemma and then never marks. Hence
-`L(Bs)=L(s)`.
+For safety, R stays suspended and every residual is safety. By (1), satisfying
+words never reach false and mark forever; violations reach false by a finite
+bad prefix and never mark again. Thus `L(Bs)=L(s)`.
 
-**Co-safety.** A satisfying word reaches true by the finite-witness lemma and
-then marks forever. On a violating word true is unreachable. Before a safety
-residual is reached there are no marks. If one is reached, it is both safety
-and co-safety, hence finite: every supported modal atom belongs to both grammars,
-whose intersection is the finite grammar. It therefore reaches false after
-finitely many further letters. Thus a violating word has only finitely many
-marks, and `L(Bc)=L(c)`. This also handles the precedence of the safety row for
-finite co-safety residuals.
+For co-safety, satisfying words reach true and mark forever. Violations cannot
+reach true and mark only on reaching safety. A residual in both grammars is
+finite, since their supported-atom intersection is b, so a violating one soon
+reaches false. There are only finitely many marks: `L(Bc)=L(c)`, including the
+safety-row precedence on finite co-safety.
 
-**GF finite-window.** Fix a finite class `b ∉ {false,true}` and write
+For nonconstant finite b, define independent modal variables H,K:
 
 ```text
 H = [F b],   K = [G F b],   S = H ∨ b,   A* = K ∧ S.
 ```
 
-Constant b was already folded and handled above. H and K are independent modal
-variables, distinct from every atom in b. `U(K)=A*`. On letter v put `e=Dᵥ(b)`;
-it is a finite class. Direct calculation gives
+Constants were folded above. `U(K)=A*`; with finite `e=Dᵥ(b)`:
 
 ```text
 a = Dᵥ(A*) = K ∧ (H ∨ e),
 U(a) = K ∧ (H ∨ b) ∧ (H ∨ b ∨ e) = A*.          (2)
 ```
 
-Consequently A never changes and is neither safety nor co-safety. Extracting
-from K first gives true and retries on A*, giving `ρ(K)=S`. Extracting from raw
-a deletes K and gives `H ∨ e`, unless e already makes it true. Every X atom
-remaining in e is an X subformula of b, since a finite temporal step only exposes
-children of existing X atoms. H therefore protects all those X atoms. No
-unprotected X obligation is deleted. Unfolding gives `S ∨ e`. If this is finite
-it must be true (otherwise it still depends on H); the retry returns S. More
-explicitly,
+A is fixed, neither safety nor co-safety. Extracting K first yields true,
+then retries A*, so `ρ(K)=S`. Extracting raw a deletes K, leaving `H ∨ e`
+unless already true. Every X in e is a tail of b and syntactically protected
+by H, so none is elided. Unfolding yields `S ∨ e`; if finite it must be true
+(otherwise it depends on H), and retry returns S:
 
 ```text
 ρ(a) = S                 if b ∨ e = true,
        S ∨ e             otherwise.             (3)
 ```
 
-In the first case a differs from A*: equality would imply `e=b` by assigning
-independently to H and K, contradicting `b ∨ e=true` and nonconstant b.
-Thus the required retry really occurs. These calculations also cover finite
-classes that are semantically constant without being propositionally constant.
+The first case requires `a≠A*`: equality would imply `e=b` by independent H/K
+assignments, contradicting nonconstant b and `b∨e=true`. This also covers
+semantically constant b that is not propositionally constant.
 
-Every active R has the form `H ∨ E` for a finite class E. This holds initially
-and after renewal by (3); on an unmarked step its unfolded derivative is
-`H ∨ b ∨ Dᵥ(E)`. Therefore it can never be false, and when finite it is exactly
-true. The suspension/resumption row and the false-renewal target are unreachable.
-The renewal is exactly `(A*,ρ(a))`, with a mark. In particular, **a finite
-nonconstant remainder is unreachable in this restricted GF construction**;
-this does not justify dropping that remainder in the general table. Also
-`A* ⇒ S ⇒ R` propositionally throughout the run. Thus the all-field derivative
-invariant (1) is never interrupted by a breakpoint-induced false sink.
+Every active R is `H ∨ E` for finite E, initially/after renewal by (3), with
+unmarked successor `H ∨ b ∨ Dᵥ(E)`. It cannot be false; finite means true.
+Resume/false-renewal are unreachable, and renewal marks exactly `(A*,ρ(a))`.
+Finite nonconstant remainders are unreachable here; the general table must
+still retain them. `A* ⇒ S ⇒ R` holds propositionally, so breakpoint failure
+never interrupts derivative invariant (1).
 
-Call initialization and the state immediately after each marked edge round
-starts, at positions t. The initial seed is S. By (3), every later seed is
-either S or `S ∨ D_{w[t−1]}(b)`. Between round starts, every unmarked transition
-updates R by its exact derivative. These statements specify all round behavior;
-in particular a renewal forgets all witness starts before t−1.
+Round starts are initialization and states after marked edges, at positions t.
+Initial seed is S; later seeds are S or `S ∨ D_{w[t−1]}(b)`. Unmarked steps
+are exact derivatives; renewal forgets witness starts before t−1.
 
-Suppose `w ⊨ GF b`. At every round start t, its suffix satisfies H, hence the
-seed R. If that round never ended, R would evolve only by exact derivatives.
-R is co-safety, so its finite-witness lemma would force a derivative to true,
-which the transition table marks, a contradiction. Every round therefore ends,
-and induction gives infinitely many marks. Hence `L(GF b) ⊆ L(BGFb)`.
+If `w ⊨ GF b`, every round-start suffix satisfies H and its seed. A round that
+never ends would evolve this satisfied co-safety seed by exact derivatives;
+its finite witness forces true and a mark. Every round ends, giving infinitely
+many marks: `L(GF b) ⊆ L(BGFb)`.
 
-Conversely suppose there are infinitely many marks. Each completed round starting
-at t reaches `U(r)=true`. Exact derivatives within the round and (1) imply
-`w[t:] ⊨ R_t`. For the initial seed this implies a b occurrence starting at
-some `j≥t`. For a later seed, either H holds, again giving such j, or
-`w[t:] ⊨ D_{w[t−1]}(b)`, which by (1), since b is already unfolded, gives
-`w[t−1:] ⊨ b`. Thus **each completed round guarantees a b occurrence with
-start `j≥t−1`**. The infinitely many round starts are strictly increasing.
-Their lower bounds are unbounded, so the occurrence starts are unbounded:
-`w ⊨ GF b`. This proves `L(BGFb) ⊆ L(GF b)`.
+Conversely, every completed round reaches `U(r)=true`, so (1) gives
+`w[t:] ⊨ R_t`. Initial S gives b at some `j≥t`. Later seeds give either H
+(and such j) or `w[t:] ⊨ D_{w[t−1]}(b)`, hence b at t−1 by (1).
+Each completed round therefore gives a b occurrence starting at `j≥t−1`.
+Infinitely many strictly increasing starts give unbounded occurrence positions,
+so `L(BGFb) ⊆ L(GF b)`.
 
-No separation of witnesses is assumed. A retained derivative in (3) carries
-the possible witness starting on the preceding letter, including its entire
-remaining X delay. A new H searches all later starts. The unbounded-start
-argument prevents infinitely many renewals from reusing finitely many witnesses;
-the finite-witness argument prevents overlap or delay from stopping a satisfying
-run. This proves the required repeated-renewal property without a cohort or SCC
-assumption.
+Witnesses need not be separated: retained derivatives carry all preceding-letter
+X delay, and H searches later starts. Unbounded starts prevent reuse of finitely
+many witnesses; finite witnesses prevent overlap/delay from blocking renewal.
+No cohort/SCC assumption is needed. Completeness/unique runs make Inf(0) and
+Fin(0) complements, proving `L(Bχ,Fin(0))=L(¬χ)`, including FG.
 
-We have proved `L(Bχ)=L(χ)` for every admitted positive component. Since its run
-is unique and complete, exactly one of Inf(0) and Fin(0) holds. Complementing
-acceptance therefore gives `L(Bχ,Fin(0)) = L(¬χ)`, in particular the specified
-FG fragment, on every word.
+## One-set Zielonka parity
 
-## 5. The one-set Zielonka path and priorities
-
-Keep the global colour universe `{0}`. For Inf(0) its Zielonka tree has accepting
-root `{0}` and rejecting child `∅`; for Fin(0) the same two labels have opposite
-acceptance. In both cases the only leaf path is `[0]`, initially and forever.
-Use the ordinary update: find the deepest node on the path containing the edge's
-colour set, emit its depth plus 0 for an accepting root or 1 for a rejecting root,
-then advance one child cyclically and descend leftmost. There is only one child.
-Thus marked edges anchor at depth 0 and unmarked edges at depth 1, including
-empty colour sets. The DPA state is `(A,R,[0])`.
-
-The design exports max-odd priorities using `P−p`, with `P=3` for one colour:
+The universe is `{0}`. Inf(0) has accepting root `{0}` and rejecting child ∅;
+Fin(0) reverses acceptance. The sole leaf path `[0]` persists; state is
+`(A,R,[0])`. The ordinary deepest-containing-node update advances one sibling
+and descends leftmost. Marked edges anchor at depth 0, unmarked at depth 1,
+including empty marks. Root offset is 0 when accepting, otherwise 1.
+For max-odd export `P−p`, `P=3`:
 
 | Component acceptance | Marked: min-even p / max-odd export | Unmarked: p / export |
 | --- | --- | --- |
 | Inf(0) | 0 / 3 | 1 / 2 |
 | Fin(0) | 1 / 2 | 2 / 1 |
 
-For Inf(0), infinitely many marks make the recurring maximum 3 (odd);
-finitely many make it 2 (even). For Fin(0), infinitely many marks make it 2
-(even); finitely many make it 1 (odd). This proves both parity orientations
-directly, including true/false sinks and streams with no marks. Equivalently,
-`max Inf(3−p) = 3−min Inf(p)`, whose parity is odd exactly when the minimum is
-even. Every edge has a priority; there are no tree-reset edges or missing letters.
+Infinitely many marks give recurring maximum 3/2 respectively; finitely many
+give 2/1. Thus both orientations accept correctly, including sinks/no marks:
+`max Inf(3−p) = 3−min Inf(p)` is odd iff the minimum is even.
+Every edge has priority; there are no resets or missing letters.
 
-## 6. Discharged restriction and remaining obligations
+## Scope
 
-The general [#80](https://github.com/gaperez64/tlsf-tools/issues/80) obligations
-are replaced here by explicit facts: safety/co-safety have finite bad/good
-certificates; (2) fixes the GF all-field; H protects every relevant X tail;
-(3) proves the retry and seed behavior; finite remainders are only true;
-and round starts give the two language inclusions. Suspension is permanent in
-safety/co-safety and absent in nontrivial GF. None of these facts establishes
-the general Π₂ cohort correspondence, repeated unprotected-X deletion, finite
-nonconstant renewal, or general suspension/resumption lemma.
+This proof replaces the restricted [#80](https://github.com/gaperez64/tlsf-tools/issues/80)
+obligations with finite witnesses, fixed GF all-field, protected X tails,
+retry/seed calculations, and both round inclusions. Suspension is permanent
+for safety/co-safety and absent for nontrivial GF. It proves no general Π₂
+cohort, repeated unprotected-X elision, nonconstant renewal, or resumption lemma.
+The restricted constructor must decline outside its grammar unless canonicalization
+puts the whole formula inside. This includes `G(a → F(Xb ∧ XXc))` and general
+recurrence products; a Π₂ tag, tests, or support changes cannot justify them.
+The [extended proof](STAGE2-PROOF.md) covers a broader grammar.
 
-Those general lemmas remain unproved here. **Stage 1 must decline formulas
-outside §1**, including a non-finite body such as `G(a → F(Xb ∧ XXc))` and
-general Boolean products of recurrence components, unless canonicalization
-puts the entire formula in the proved fragment. It must not infer admission
-from a Π₂ tag, tests, or support changes. Support blocking/resets
-([#81](https://github.com/gaperez64/tlsf-tools/issues/81)), DELA suspension/round
-robin/padding ([#82](https://github.com/gaperez64/tlsf-tools/issues/82)), and
-stuttering/local-tree resets ([#83](https://github.com/gaperez64/tlsf-tools/issues/83))
-are unused and remain outside this theorem.
-
-All semantic lemmas used here were proved above; no external automata theorem is
-assumed. For the exact reference algorithms, see the inspected Owl checkout,
-`src/main/java/owl/ltl/SyntacticFragments.java:42–95` (support tests) and
-`src/main/java/owl/translations/canonical/DeterministicConstructions.java:682–779`
-(breakpoint/extractor). The authoritative transition variant and ordinary
-Zielonka update are [DESIGN.md §§1–2](DESIGN.md), rather than Owl's additional
-optimizations. There is no unproved mathematical case within the stated grammar;
-proof review and the implementation/bridge checks remain Stage 1 closing gates.
-
-VERDICT: done
+Support blocking/resets [#81](https://github.com/gaperez64/tlsf-tools/issues/81),
+DELA suspension/round robin/padding [#82](https://github.com/gaperez64/tlsf-tools/issues/82),
+and stuttering/local resets [#83](https://github.com/gaperez64/tlsf-tools/issues/83)
+remain outside this theorem. No external automata theorem was assumed.
+Inspected Owl references are `src/main/java/owl/ltl/SyntacticFragments.java:42–95`
+and `src/main/java/owl/translations/canonical/DeterministicConstructions.java:682–779`;
+[the design](DESIGN.md) fixes the variant, without Owl's extra optimizations.
+Proof review and implementation/bridge checks remain separate closing gates.
