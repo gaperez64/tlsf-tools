@@ -1,189 +1,139 @@
-# TLSF decomposition exactness proofs
+# TLSF decomposition and automaton proofs
 
-This standalone project uses Lean 4.35.0 and core only (`import Init`). The
-`TlsfProofs` target checks every module and `Examples.lean`, with warnings treated
-as errors. All proof steps are checked by the kernel. Classical reasoning is
-used for proposition cases, least witnesses and choosing component strategies.
-There are no external Lean packages or executable decision shortcuts. The
-dependency audit of the main results contains only `propext`,
-`Classical.choice` and `Quot.sound`.
+This standalone Lean 4.35.0 project uses only core (`import Init`). `TlsfProofs`
+checks every module and `Examples.lean` with warnings as errors. The kernel
+checks all proof steps; there are no external packages or executable decision
+shortcuts. Classical reasoning handles proposition cases, least witnesses,
+and component-strategy choice. Main-result audits permit only `propext`,
+`Classical.choice`, and `Quot.sound`.
 
-What is proved:
+The proofs establish mathematical ports of definition elimination, clustering,
+conditional assumption pruning, selected rewrites, and an independent automaton
+construction/validator. They do not verify the C binary or other CSNF controllers.
 
-- `LTL.lean` models the expanded AST: constants, atoms, all five Boolean
-  connectives, weak/strong next, F, G, U, R, W and M. `Sat len w f j` uses
-  `len = none` for an infinite word and `some n` for positions below n.
-  Queries outside the word are false. Weak next is true at the final position;
-  strong next is false there. Locality reads only the formula's atoms at
-  in-range positions at or after j. Boolean substitution is exact.
-- `Game.lean` models input-first Mealy strategies with a history and current
-  masked inputs. `play` supplies an infinite stream of environment choices.
-  `Realizable` requires satisfaction at zero on every infinite play;
-  `FinRealizable` requires some nonempty winning prefix on every play, exactly
-  the `FinWin` quantifier order. Replay rebuilds each strategy's own history
-  from inputs. Decoration implements a current-letter map, and a product
-  strategy plays each component's owned output signals.
-- `Objective.lean` constructs the literal ordinary objective
-  `I -> (P && ((G Req && A) -> (G As && Gu)))` and strict objective
-  `I -> (P && (As W !Req) && ((G Req && A) -> Gu))`.
-  `objective_sat` proves their equivalence to section obligations at enabled
-  positions, including the strict safety obligation before REQUIRE fails.
-- `Passes.lean` models one substitution pass in list order, followed by exactly
-  `passes` repetitions. Its letter map composes updates in the reverse order:
-  substituting first d and then e denotes `setLetter d (setLetter e v)`.
-  Ranked dependencies converge for every list order. After enough passes,
-  every definition holds, including definitions with the equivalence flipped.
-- `Definition.lean` proves realizability equivalence for both word kinds and
-  both ordinary/strict semantics. The residual contains only retained entries,
-  each transformed by the actual pass structure. A decorated residual strategy
-  reconstructs a winning original strategy. The reverse proof uses section
-  coverage and a dependency-closed support; it does not require a conditional
-  definition to hold on plays where that section has no obligation.
-- `Cluster.lean` proves infinite-word realizability iff every cluster is
-  realizable, for both ordinary/strict semantics. Every cluster keeps all
-  environment entries. Environment entries use inputs only; each system
-  entry's outputs belong to its key's class. A key without a system entry is
-  trivially realizable, even when the environment is inconsistent.
-- `Pruning.lean` proves `prune_realizable` for infinite Mealy games, for both
-  ordinary and strict objectives. `Prunable isIn K D` requires environment
-  roles in D, input-only atoms in D, and no D atom in any K entry. `EnvSat D`
-  is an infinite witness for `Initial D && G Require D && Assume D`.
-  `envSat_of_word` bridges satisfaction of `environmentFormula D` on any
-  infinite word (including a lasso) to `EnvSat D`. A
-  residual strategy pins D inputs to that witness and replays the original
-  strategy; locality transfers all K obligations. Adding D is pointwise
-  weakening, including the strict safety obligation. No finite theorem is
-  claimed.
-- `Examples.lean` proves every requested game counterexample, guard rejection,
-  finite next boundary and finite split failure. It also checks an accepted
-  Boolean fixture in both equivalence orientations and a list order requiring
-  more than one substitution pass.
+## Build
 
-- `Rewrites.lean` ports NNF, local weak simplification, the ordered local
-  rewrite rules, bottom-up rewriting, the capped rewrite driver, pre-weak
-  simplification and spine decomposition. All exactness statements quantify
-  over every word and valid position, for both word kinds when finite mode is
-  enabled and for infinite words otherwise.
+From `proofs/`, run one Lean compiler at a time. Dependencies make the default
+build serial. As in acacia, library arguments are `-j1`, `-s2048`,
+`-DElab.async=false`, with `warningAsError = true`. Do not impose a virtual-memory cap.
 
-## Guard and game interfaces
+```sh
+export PATH=$HOME/.elan/bin:$PATH
+export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
+lake build
 
-`Admissible isIn strict kept ds passes` consists of these conditions:
+# Sequential per-module diagnostics
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites; do
+  timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
+  timeout 300 lake build "TlsfProofs.$module" || exit $?
+done
+timeout 1500 lake build
+```
 
-1. Each definition name is an output (`isIn name = false`).
-2. Each right-hand side is Boolean, and definition names are pairwise distinct.
-3. There is a rank function, with every dependency between eliminated signals
-   strictly decreasing and every defined signal's rank below `passes`.
-4. Every original entry mentioning a definition name has a system role and
-   satisfies `covers strict use definitionRole`.
+## Decomposition model and guarantees
 
-`covers` is exactly equality of roles, a PRESET definition, a GUARANTEE use of
-an ASSERT definition, or an ordinary ASSERT use of a GUARANTEE definition.
-`covers_trans` checks every Boolean/role combination using kernel reduction.
-`Admissible.not_self` proves that self dependence contradicts the rank condition. Instantiate `passes` with
-`ds.length + 1` for the C loop's `nelim + 1` passes. The theorem also permits any
-other pass count satisfying the explicit rank bound.
+| Module | Model and guarantee |
+|---|---|
+| `LTL.lean` | Expanded constants/atoms, five Boolean connectives, weak/strong next, F/G/U/R/W/M. `Sat len w f j` uses `none` for infinite words and `some n` below n; out-of-word queries are false. Final weak next is true, strong next false. Locality reads only formula atoms at in-range positions from j; Boolean substitution is exact. |
+| `Game.lean` | Input-first Mealy strategies use history and current masked inputs. `play` supplies infinite environment choices. `Realizable` wins at zero on every play; `FinRealizable` wins some nonempty prefix per play (`FinWin` order). Replay reconstructs each strategy's own history; decoration maps current letters; products play owned outputs. |
+| `Objective.lean` | `objective_sat` connects ordinary `I -> (P && ((G Req && A) -> (G As && Gu)))` and strict `I -> (P && (As W !Req) && ((G Req && A) -> Gu))` to enabled section obligations, including safety before REQUIRE fails. |
+| `Passes.lean` | One list-ordered substitution pass repeated exactly `passes` times. Substituting d then e means `setLetter d (setLetter e v)`. Ranked dependencies converge in any list order; enough passes establish every definition, including flipped equivalences. |
+| `Definition.lean` | Realizability equivalence for both word kinds and ordinary/strict semantics, using the actual pass structure on retained entries. Decoration reconstructs a winning original strategy; the reverse uses section coverage and dependency-closed support, without requiring inactive conditional definitions. |
+| `Cluster.lean` | Infinite-word realizability iff every cluster wins, for ordinary/strict semantics. All environment entries stay and use inputs only; each system entry's outputs share its key class. Unused keys win trivially, even with inconsistent environments. |
+| `Pruning.lean` | `prune_realizable` for infinite ordinary/strict Mealy games. `Prunable isIn K D` requires input-only environment entries in D, disjoint from every K entry. `EnvSat D` witnesses `Initial D && G Require D && Assume D`; `envSat_of_word` bridges any satisfying infinite word, including lassos. Pinning D inputs and replay/locality transfer K obligations; adding D is pointwise weakening, also for strict safety. No finite theorem. |
+| `Examples.lean` | Game counterexamples, rejected guards, finite-next boundaries/split failure, both Boolean-fixture orientations, and a list order needing multiple passes. |
+| `Rewrites.lean` | NNF, weak/local/bottom-up rewrites, capped driver, pre-weak simplification, and spine decomposition. Exactness covers every valid position and word: both kinds in finite mode, infinite otherwise. |
 
-`Clustered isIn owner es` records input-only environment support and ownership
-of every output in each system entry. `whole es` contains every entry;
-`cluster es k` retains every environment entry and the system entries at k.
-The theorem quantifies over all keys, including unused keys. No finite split
-claim is made: finite components can need incompatible ending positions.
-After this split, `prune_realizable` may be applied separately to each cluster.
-It compares the full cluster K ++ D against K. All kept entries, including
-PRESET, ASSERT and retained environment entries, participate in disjointness.
-`EnvSat` is a full-word witness; only its input atoms matter under `Prunable`.
-If D is inconsistent, `pruning_without_envSat_changes_verdict` exhibits a
-realizable full objective and an unrealizable pruned objective for either shape.
+`Admissible isIn strict kept ds passes` requires declared output definitions,
+Boolean right-hand sides, distinct names, decreasing dependency ranks below
+`passes`, and a covering system role for every entry mentioning a defined name.
+`covers` allows equal roles, PRESET definitions, GUARANTEE uses of ASSERT, and
+ordinary ASSERT uses of GUARANTEES. `covers_trans` checks every Boolean/role case
+by kernel reduction; `Admissible.not_self` excludes self-dependence. The C loop's
+`nelim + 1` passes instantiate `ds.length + 1`; any explicit valid rank bound works.
 
-When C collapses the decomposition to one cluster, keeping every entry gives
-the original game directly, including for finite and output-dependent cases (`collapsed_cluster`,
+`Clustered isIn owner es` records input-only environments and system-output
+ownership. `whole es` keeps every entry; `cluster es k` keeps all environments
+and key-k system entries, including unused keys. After splitting,
+`prune_realizable` compares K ++ D with K; all kept roles participate in
+disjointness, and only witness input atoms matter. Without `EnvSat`,
+`pruning_without_envSat_changes_verdict` refutes equivalence in both shapes.
+Finite prefixes may end incompatibly, so no finite split is claimed. Keeping
+one full cluster preserves finite/output-dependent games (`collapsed_cluster`,
 `collapsed_cluster_realizable_fin`).
 
-## Issue obligations
+Names below are in `Tlsf`; fixtures/counterexamples are in `Tlsf.Examples`.
 
-Names without an explicit namespace belong to `Tlsf`; counterexamples and
-fixtures belong to `Tlsf.Examples`.
+| Obligation | Theorem or definition |
+| --- | --- |
+| First split with every environment entry and disjoint system outputs | `Clustered`, `cluster`, `cluster_same_environment`, `clusters_realizable` |
+| Compose strategies with independent histories | `replay_ignores_outputs`, `replay_history`, `product_plays`, `cluster_product` |
+| Empty system key is realizable | `empty_cluster_objective`, `empty_cluster_realizable` |
+| Prune input-only environment entries disjoint from all kept entries, given a joint infinite witness | `Prunable`, `EnvSat`, `prune_realizable` |
+| Pinned-input strategy is causal and its replay matches the original play | `pinStrategy`, `replay_pin_history`, `play_pinStrategy` |
+| Inconsistent disjoint assumptions can change the verdict in either shape | `recurrence_conflict`, `issue79_original`, `issue79_pruned`, `issue79_env_unsat`, `pruning_without_envSat_changes_verdict` |
+| No eliminated output occurs on the environment side | `Admissible.occurrences`, `normalize_environment`, `elim_backward` |
+| Original game wins by falsifying an output assumption; residual loses; guard rejects | `issue84_original`, `issue84_residual`, `issue84_rejected` |
+| PRESET and strict ASSERT uses require a covering definition | `covers`, `covers_trans`, `enabled_cover`, `normalize_kept` |
+| Unconditional preset counterexample and rejection | `issue86_original`, `input_q_unrealizable`, `issue86_rejected` |
+| Exact Boolean elimination for both semantics and word kinds | `elim_realizable_inf`, `elim_realizable_fin` |
+| Same C pass structure; every reconstructed equality holds | `sat_substPass`, `sat_substPasses`, `normalize_definitions`, `definition_sat`, `pass_order` |
+| Current-letter Boolean decoder is causal and keeps inputs | `boolean_sat`, `normalize_inputs`, `play_decorate`, `transfer_inf`, `transfer_fin` |
+| Future-dependent decoder loses against an answering environment; Boolean guard rejects | `issue91_noncausal`, `issue91_rejected` |
+| One-letter weak next and the negation counterexample | `issue85_weak_next`, `issue85_negation` |
+| Correct weak/strong next dualities | `next_neg_dual`, `strong_next_neg_dual` |
+| Finite realizability distinguishes weak-next false from false | `issue85_finite_realizable`, `false_finite_unrealizable` |
+| Conservative one-cluster finite fallback preserves the game | `collapsed_cluster`, `collapsed_cluster_realizable_fin` |
+| Each component wins at a different length; conjunction loses | `finite_short_realizable`, `finite_long_realizable`, `finite_split_fails` |
+| In-range future locality and exact Boolean substitution | `sat_locality`, `sat_subst`, `subst_absent` |
+| Literal ordinary/strict section objective | `section_sat`, `weakUntil_guard`, `objective_sat` |
+| Input-preserving causal strategy transfer | `transfer`, `transfer_inf`, `transfer_fin` |
+| Guard is satisfiable for either equivalence orientation | `boolean_fixture` |
 
-| Issue | Obligation | Theorem or definition |
-| --- | --- | --- |
-| #79 | First split with every environment entry and disjoint system outputs | `Clustered`, `cluster`, `cluster_same_environment`, `clusters_realizable` |
-| #79 | Compose strategies with independent histories | `replay_ignores_outputs`, `replay_history`, `product_plays`, `cluster_product` |
-| #79 | Empty system key is realizable | `empty_cluster_objective`, `empty_cluster_realizable` |
-| #79 | Prune input-only environment entries disjoint from all kept entries, given a joint infinite witness | `Prunable`, `EnvSat`, `prune_realizable` |
-| #79 | Pinned-input strategy is causal and its replay matches the original play | `pinStrategy`, `replay_pin_history`, `play_pinStrategy` |
-| #79 | Inconsistent disjoint assumptions can change the verdict in either shape | `recurrence_conflict`, `issue79_original`, `issue79_pruned`, `issue79_env_unsat`, `pruning_without_envSat_changes_verdict` |
-| #84 | No eliminated output occurs on the environment side | `Admissible.occurrences`, `normalize_environment`, `elim_backward` |
-| #84 | Original game wins by falsifying an output assumption; residual loses; guard rejects | `issue84_original`, `issue84_residual`, `issue84_rejected` |
-| #86 | PRESET and strict ASSERT uses require a covering definition | `covers`, `covers_trans`, `enabled_cover`, `normalize_kept` |
-| #86 | Unconditional preset counterexample and rejection | `issue86_original`, `input_q_unrealizable`, `issue86_rejected` |
-| #84, #86 | Exact Boolean elimination for both semantics and word kinds | `elim_realizable_inf`, `elim_realizable_fin` |
-| #84, #86 | Same C pass structure; every reconstructed equality holds | `sat_substPass`, `sat_substPasses`, `normalize_definitions`, `definition_sat`, `pass_order` |
-| #91 | Current-letter Boolean decoder is causal and keeps inputs | `boolean_sat`, `normalize_inputs`, `play_decorate`, `transfer_inf`, `transfer_fin` |
-| #91 | Future-dependent decoder loses against an answering environment; Boolean guard rejects | `issue91_noncausal`, `issue91_rejected` |
-| #85 | One-letter weak next and the negation counterexample | `issue85_weak_next`, `issue85_negation` |
-| #85 | Correct weak/strong next dualities | `next_neg_dual`, `strong_next_neg_dual` |
-| #85 | Finite realizability distinguishes weak-next false from false | `issue85_finite_realizable`, `false_finite_unrealizable` |
-| Finite split | Conservative one-cluster finite fallback preserves the game | `collapsed_cluster`, `collapsed_cluster_realizable_fin` |
-| Finite split | Each component wins at a different length; conjunction loses | `finite_short_realizable`, `finite_long_realizable`, `finite_split_fails` |
-| Core | In-range future locality and exact Boolean substitution | `sat_locality`, `sat_subst`, `subst_absent` |
-| Core | Literal ordinary/strict section objective | `section_sat`, `weakUntil_guard`, `objective_sat` |
-| Core | Input-preserving causal strategy transfer | `transfer`, `transfer_inf`, `transfer_fin` |
-| Positive fixtures | Guard is satisfiable for either equivalence orientation | `boolean_fixture` |
+## Rewrite exactness
 
-## Issue #85: rewrite exactness
+`TlsfProofs/Rewrites.lean` uses namespace `Tlsf.Rewrites`; `Ltl` abbreviates
+`Formula` rather than introducing syntax.
 
-The new module is `TlsfProofs/Rewrites.lean`, in namespace `Tlsf.Rewrites`.
-`Ltl` is an abbreviation for the existing `Formula`, not a second syntax.
-
-```
+```text
 Exact fin f g := ∀ len, (fin = true ∨ len = none) → ∀ w j,
   InRange len j → (Sat len w f j ↔ Sat len w g j)
 ```
 
-A valid position in `some n` entails `n > 0`, so these statements include
-exactly the requested nonempty finite words. With `fin = false`, the length
-must be `none`. No assumptions about valuations, formula shape or rewrite-flag
-combinations are added within the expanded core syntax.
+A valid finite position implies a nonempty word. Infinite mode requires `none`;
+no valuation, core-shape, or flag-combination assumptions are added.
 
-| Issue | Obligation | Theorem statement (implicit type/equality parameters omitted) |
-| --- | --- | --- |
-| #85 | Congruence before pass soundness | `exact_congr` lifts Exact equivalences of immediate children; `bind_exact` and `context_exact` replace holes in arbitrary nested contexts, including negation and implication |
-| #85 | Both NNF polarities | `nnf_exact f fin : Exact fin (to_nnf f true fin) f ∧ Exact fin (to_nnf f false fin) (neg f)` |
-| #85 | Infinite-mode NNF is unsafe on finite words | `nnf_infinite_mode_finite_failure w` refutes equivalence for `not (X p)` on a one-letter word, reusing `Examples.issue85_negation` |
-| #85 | Every local constant/redundancy rule | `simplify_exact f : Exact fin (simplify_weak_local f fin) f` |
-| #85 | Every combination of local-rule flags | `apply_local_exact f flags : Exact flags.finite (apply_local f flags) f` |
-| #85 | Bottom-up subformula replacement | `rw_pass_exact f flags : Exact flags.finite (rw_pass f flags) f`, using `bottom_up_exact` and `exact_congr` |
-| #85 | NNF first, structural stability test, cap 200 | `apply_rewrites_exact f flags : Exact flags.finite (apply_rewrites f flags) f`; `rewrite_loop_exact` proves this for every fuel, even when no fixpoint is reached |
-| #85 | High-level weak simplifier on core constructors | `pre_weak_exact f : Exact fin (pre_weak f fin) f` |
-| #85 | Conjunction of all decomposed parts | `decompose_exact f : Exact fin (conjoin (rewrite_decompose f)) f`; `decompose_has_part` supplies the nonempty-list premise needed for strong next |
-| #85 | Finite-safe temporal RULES rows | `route_push_g_in`, `route_push_x_in`, `route_push_strong_x_in`, `or_to_guarded_next_impl`, `or_to_guarded_strong_next_impl`, `or_to_response_impl`, `pre_spine_split_exact` |
-| #85 | Expanded indexed-next identities | `pre_x0`, `pre_xn_flatten`, `pre_xn_bool_distribute` for `next_power`, with both-word exactness |
-| #85 | Reject all three finite-disabled metadata rows | `sickert_rules_refused`, `sickert_limit_lift_refused`, `sickert_gf_w_refused`, `sickert_fg_u_refused` show the finite guard returns false |
-| #85 | Counterexample to the unrestricted context equation | `sickert_finite_counterexample`: on one letter with p=true, `C[GF p]` is false and `(GF p && C[true]) || C[false]` is true for `C[z] = G(!z)` |
+| Obligation | Theorem statement (implicit type/equality parameters omitted) |
+| --- | --- |
+| Congruence before pass soundness | `exact_congr` lifts Exact equivalences of immediate children; `bind_exact` and `context_exact` replace holes in arbitrary nested contexts, including negation and implication |
+| Both NNF polarities | `nnf_exact f fin : Exact fin (to_nnf f true fin) f ∧ Exact fin (to_nnf f false fin) (neg f)` |
+| Infinite-mode NNF is unsafe on finite words | `nnf_infinite_mode_finite_failure w` refutes equivalence for `not (X p)` on a one-letter word, reusing `Examples.issue85_negation` |
+| Every local constant/redundancy rule | `simplify_exact f : Exact fin (simplify_weak_local f fin) f` |
+| Every combination of local-rule flags | `apply_local_exact f flags : Exact flags.finite (apply_local f flags) f` |
+| Bottom-up subformula replacement | `rw_pass_exact f flags : Exact flags.finite (rw_pass f flags) f`, using `bottom_up_exact` and `exact_congr` |
+| NNF first, structural stability test, cap 200 | `apply_rewrites_exact f flags : Exact flags.finite (apply_rewrites f flags) f`; `rewrite_loop_exact` proves this for every fuel, even when no fixpoint is reached |
+| High-level weak simplifier on core constructors | `pre_weak_exact f : Exact fin (pre_weak f fin) f` |
+| Conjunction of all decomposed parts | `decompose_exact f : Exact fin (conjoin (rewrite_decompose f)) f`; `decompose_has_part` supplies the nonempty-list premise needed for strong next |
+| Finite-safe temporal RULES rows | `route_push_g_in`, `route_push_x_in`, `route_push_strong_x_in`, `or_to_guarded_next_impl`, `or_to_guarded_strong_next_impl`, `or_to_response_impl`, `pre_spine_split_exact` |
+| Expanded indexed-next identities | `pre_x0`, `pre_xn_flatten`, `pre_xn_bool_distribute` for `next_power`, with both-word exactness |
+| Reject all three finite-disabled metadata rows | `sickert_rules_refused`, `sickert_limit_lift_refused`, `sickert_gf_w_refused`, `sickert_fg_u_refused` show the finite guard returns false |
+| Counterexample to the unrestricted context equation | `sickert_finite_counterexample`: on one letter with p=true, `C[GF p]` is false and `(GF p && C[true]) || C[false]` is true for `C[z] = G(!z)` |
 
-The named distribution and guarded-implication lemmas state satisfaction
-biconditionals for every `len`, word and valid position; they therefore cover
-finite words without an extra side condition. They prove `G(a&&b)=Ga&&Gb`,
-`X(a&&b)=Xa&&Xb` for weak and strong next, and `!r||T a = r->T a` for weak
-next, strong next and eventually. The guarded-implication lemma also applies
-to a next chain by taking its operand to be the remaining chain.
+The distribution/guarded-implication biconditionals cover every valid position
+of either word kind: `G(a&&b)=Ga&&Gb`, weak/strong `X(a&&b)=Xa&&Xb`, and
+`!r||T a = r->T a` for either next or eventually. Taking the operand as the
+remaining next chain covers chains too.
 
-The Sickert counterexample deliberately uses a **nonpositive** context. It
-refutes the equation with an unrestricted context, including on finite words;
-it is not a counterexample to the C pass's positive-NNF-context premise, nor
-a claim of a finite-only failure of that monotone identity. The three finite
-refusal results establish the actual metadata guard independently of this
-example. No infinite-word Sickert soundness theorem is claimed.
+The Sickert example uses a nonpositive context. It refutes the unrestricted
+context equation, not C's positive-NNF premise or a finite-only version of the
+monotone identity. The three finite-refusal results independently establish the
+metadata guard. No infinite-word Sickert soundness theorem is claimed.
 
-The ports preserve return-on-first-rule order and structural AST equality.
-`Flags` has one Bool per defined C flag. The driver passes the structure to
-local traversals unchanged: `nnf` is never inspected there, so this is exactly
-the C mask that removes RW_NNF/RW_FINITE and then restores RW_FINITE. AST
-pointer reuse and arena allocation do not appear in the mathematical result.
-`pre_local` factors only the NOT/AND/OR branches through the identical local
-simplifier; its implication fold is deliberately smaller, it does not collapse
-FF/GG, and `pre_walk` leaves a strong-next subtree untouched as the C default
-branch does.
+Ports preserve first-rule order and structural equality. `Flags` has one Bool
+per C flag; local traversals ignore `nnf`, matching removal of RW_NNF/RW_FINITE
+and restoration of RW_FINITE. Pointer reuse/allocation are outside the model.
+`pre_local` shares only NOT/AND/OR simplification: implication folding is smaller,
+FF/GG are retained, and `pre_walk` leaves strong-next subtrees untouched like C.
 
 | C source in this worktree | Lean correspondence |
 | --- | --- |
@@ -200,31 +150,24 @@ branch does.
 | `src/lib/normalize.c:1381–1413` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
 | `src/lib/print_ltlxba.c:214–216,242–249` | Trusted printer correspondence: NODE_X is weak X and NODE_X_STRONG uses X[!] for finite rendering |
 
-Additional trusted gaps for #85:
+These ports require matching C/Lean ASTs, interned AP identifiers, and structural
+equality. They cover successful expanded unbounded core transformations, not
+malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
+or machine-size behavior. `NODE_NEXT_N` only recurses into its body
+(`src/lib/normalize.c:840–843`) and is outside `Formula`; indexed spine splitting,
+arithmetic, bounded quantifiers, and expansion to nexts remain unverified.
+`next_power` proves identities of the expanded mathematical sequence.
 
-- C and Lean ASTs, interned AP identifiers and structural equality must agree.
-  The proofs cover successful transformations of expanded, unbounded core
-  nodes, excluding malformed/high-level ASTs, integer nodes, bounded metadata,
-  arena exhaustion and machine-size/allocation behavior.
-- `NODE_NEXT_N` in pre-weak only recurses into its body
-  (`src/lib/normalize.c:840–843`) and is outside `Formula`. The analogous
-  indexed-next branch in pre-spine splitting, arithmetic evaluation, bounded
-  quantifiers and expansion into ordinary nexts are not C-verified here.
-  `next_power` states the identities of the expanded mathematical sequence.
-- The RULES and finite guard ports do not verify the full scheduler, phase or
-  growth checks, CLI option plumbing, other normalization passes, or Sickert
-  transformations. A caller must run the finite admission check before those
-  infinite-mode passes.
-- Printing/escaping and downstream interpretation of X versus X[!], including
-  `print_ltlxba.c:242–249`, remain trusted; these kernel proofs do not execute
-  C or establish an emitted residual trust tag.
+RULES/finite-guard ports do not verify scheduler phases/growth checks, CLI
+plumbing, other passes, or Sickert transformations. Callers must check finite
+admission before infinite-mode passes. Printing/escaping and downstream X/X[!]
+interpretation (`print_ltlxba.c:242–249`) remain trusted; theorems neither execute
+C nor establish emitted trust tags.
 
-## C ↔ Lean correspondence
+## C and Lean correspondence
 
-All C locations in this table are relative to the repository root **in this
-working tree**, including the guards described here. The
-correspondence covers the guarded mathematical model; it does not verify the C
-implementation or the other CSNF template families.
+Locations are relative to this repository. They identify guarded mathematical
+ports, not verification of C or other CSNF template families.
 
 | C source in this working tree | Lean port / correspondence obligation |
 | --- | --- |
@@ -248,229 +191,109 @@ implementation or the other CSNF template families.
 | `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:834–838` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
-The textual controller `ctl o := theta` is emitted outside `src/lib`, in
-`src/tools/tlsfcompose/main.c:1057` in this working tree. `normalize_definitions` proves
-that reconstruction by the composed letter map satisfies every such equation;
+The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1057`.
+`normalize_definitions` establishes every reconstructed equation;
 `play_decorate` supplies its Mealy implementation.
 
-## Trusted gap
+## Decomposition trusted boundary
 
-For CSNF decomposition, **definition elimination, clustering, and conditional
-assumption pruning (`prune_realizable`) are proved**. The other CSNF
-templates—Phase B Skolem values, registers, reaction and liveness schedulers—are
-guarded but unproved. The rewrite theorems above
-are separate formula-equivalence results, not proofs of these controllers.
+Definition elimination, clustering, and conditional pruning are proved.
+Phase B Skolem values, registers, reactions, and liveness schedulers remain
+guarded C implementations without Lean controller proofs. Rewrite equivalence
+does not prove their controllers. `TRUST_EXACT` means realizability equivalence
+under certifier/composition guards; free reactions/registers may choose a winning
+strategy without forcing a unique value on every trace.
 
-The kernel checks a mathematical port; it does not execute or verify the C
-binary. C sets, lists, AP identifiers, AST constructors and section roles must
-correspond to the Lean model. In particular, **cover output sets must equal the
-formula's output atoms**. This includes any normalized/matching formula used
-by recognition: recognizing an equality must recover the same constraint and
-support. Expansion, normalization, preprocessing, memory management, allocation
-failure behavior and machine-integer bounds remain C obligations.
+C sets, lists, AP identifiers, AST constructors, and roles must match Lean.
+Cover output sets must equal formula output atoms, including normalized/matching
+formulas: recognizing an equality must recover the same constraint/support.
+Expansion, preprocessing, other normalization, memory/allocation behavior, and
+machine bounds remain C obligations. Cycles must yield ranks below `nelim + 1`,
+providers distinct names, and section guards inspect every occurrence, including
+other definitions, exactly as `covers`. Boolean guards must reject all temporal
+constructors. Definition games are Mealy only; their certifier must decline Moore.
 
-The cycle check must correspond to a rank on all accepted definitions, with a
-bound below `nelim + 1`. Provider selection must make names distinct. The
-section guard must inspect every entry mentioning an eliminated output,
-including other definitions, and its role test must equal `covers`. The new
-Boolean test must reject all temporal constructors, not merely next. The game
-is **Mealy only**; the definition certifier must decline Moore.
+| Unproved controller family | Required runtime guard |
+|---|---|
+| Output-fixing non-definitions | `output_is_free` in `src/lib/templates_certify.c` (directly or through `output_constrained_elsewhere`) requires a declared output, no environment occurrence even inside the block, and no outside use, including PRESET/strict ASSERT. This covers invariant, reaction, reachability, persistence, delayed/fixed-delay, recurrence switch, server/response, arbiter, round-robin, set/reset, toggle, and guarded-next. Standalone mutex fixes/discharges nothing. |
+| Round-robin/arbiter | Every mutex member and every output of every block constraint must be free outside the whole block, even without recurrence/response. Reject self-pairs `!(p && p)` before distinct-member construction. Arbiter grants are outputs, requests plain inputs; free unscheduled members can stay false. |
+| Assigned values and guards | Definition/register values and both polarities of reaction, guarded-next, set/reset, toggle, and fixed-delay guards are temporal-free. Reactions reject self-reference. Combinational definitions/reactions and Skolem invariants reject Moore; registers may read current Boolean inputs for later outputs. Server requests are plain inputs; other/output/temporal requests stay residual. |
+| Invariants and implicit inputs | Decline unflagged atoms. Cover support, residual interfaces, monitor eligibility, and timing adaptation treat them as environment inputs; the bounded Boolean solver must not assign omitted inputs false, even in input-only bodies. |
+| Phase B ownership | Support closes transitively under committed definition theta (`src/lib/templates.c:442–472,576–623`), including newly exposed dependencies; rejected blocks stay residual. `phase_b_probe` injects solved blocks to bypass local free-output guards, checking direct and reversed-order transitive dependencies. This is not a Lean proof. |
+| Finite registers/schedulers | `src/lib/templates_certify.c` rejects weak/strong next for delayed definitions, set/reset, toggle, fixed-delay, and guarded-next. Final weak next is true and strong next false independently of output; transition registers cannot discharge equivalence boundaries. Even vacuous weak-next implications are conservatively declined. Round-robin/arbiter/recurrence-switch also decline: infinite schedules cannot discharge final GF/F requests; two final grants may violate mutex. Free F/FG outputs and plain-input single-grant servers can stay true on all nonempty prefixes; Boolean invariants/reactions have no temporal boundary. |
 
-The unproved templates now have these conservative runtime rules. These are
-C guards, not additional Lean controller theorems. `TRUST_EXACT` means
-realizability equivalence under the certifier and composition guards; a free
-reaction/register can choose a satisfying strategy without forcing a unique
-value on every trace.
+Before cover construction, `tlsf_pipeline_build_cover` (`src/lib/pipeline.c`)
+calls `spec_adapt_target` once after expansion. The pipeline, decomposition API,
+tlsfresidual, tlsfcompose, tlsftemplates, and tlsfbenchgraph share it;
+`conversion_prepare`/tlsf2ltl share validation. Differing finite SEMANTICS/TARGET,
+including overrides, are refused explicitly; no finite adaptation is proved.
+Infinite adaptation, including implicit inputs, remains trusted. Drivers use
+effective TARGET: Moore bypasses input-first OxiDD and uses input-delay ltlsynt
+checks; finite residuals use explicit Mealy/Moore ltlfsynt. Controller export
+refuses finite/Moore contracts it does not implement.
 
-- Every output-fixing non-definition certifier uses `output_is_free` in
-  `src/lib/templates_certify.c`, directly or through
-  `output_constrained_elsewhere`. It first requires a declared output. An
-  environment-side occurrence
-  in INITIALLY, REQUIRE or ASSUMPTIONS rejects elimination even inside the
-  candidate block. Every use outside the block also rejects it, including
-  unconditional PRESET and strict ASSERT uses. Round-robin uses this common
-  check instead of skipping all member constraints; set/reset, toggle and
-  guarded-next registers now use it too. The invariant, reaction,
-  reachability, persistence, delayed-definition, fixed-delay, recurrence
-  switch, response/server and arbiter certifiers share the same rule. A
-  standalone mutex does not fix an output or discharge its constraint.
-- Round-robin and arbiter certification require every mutex member to be an
-  output and free outside the entire block, including members without a
-  recurrence or response. The check covers every output of every block
-  constraint. Mutex recognition rejects self-pairs such as `!(p && p)` before
-  constructing the distinct member set. Arbiter grants must be outputs and
-  requests must be plain inputs. Free unscheduled members can be held false.
-- Every assigned definition/register value and every reaction, guarded-next,
-  set/reset, toggle and fixed-delay guard must be temporal-free. Both positive
-  and negative guards are checked. Reactions also decline self-reference;
-  combinational definitions/reactions and Skolem invariants decline Moore
-  semantics. Registers read the current letter to drive a later output, so
-  Boolean current-input guards are permitted in Moore games. Server request
-  artifacts represent plain input signals only; other guards, including
-  temporal formulas and output requests, remain residual.
-- Invariants conservatively decline bodies containing unflagged atoms. The
-  cover's input support, residual interfaces, monitor eligibility and timing
-  adaptation all treat those atoms as environment inputs. The bounded Boolean
-  solver must not treat an omitted input as a constant false valuation,
-  including in input-only bodies.
-- Phase B checks support closed transitively under every committed definition
-  theta (`src/lib/templates.c:442–472,576–623`), including dependencies absent
-  from a surviving constraint's original output set. Rejected blocks remain
-  residual. The `phase_b_probe` regression supplies locally solved blocks
-  directly to composition, so the local free-output guard cannot mask this
-  check; it covers direct and reversed-order transitive dependencies. This
-  ownership check is not a Lean proof of Phase B elimination.
-- Finite semantics declines **both weak and strong next** for delayed
-  definitions, set/reset, toggle, fixed-delay and guarded-next in
-  `src/lib/templates_certify.c`. At the final position weak next is true and
-  strong next false,
-  independently of the output; a transition register alone does not discharge
-  an equivalence's terminal obligation. Weak-next implications have vacuous
-  terminal obligations, but these families are conservatively declined too.
-  Round-robin, arbiter and global-recurrence-switch also decline finite
-  semantics: final-position GF obligations (or requests with F responses)
-  cannot be discharged by an infinite fair schedule. In particular two final
-  grants can contradict a mutex. Free F/FG outputs and plain-input single-grant
-  servers can instead hold their output true, satisfying every nonempty prefix;
-  Boolean invariants/reactions have no temporal terminal obligation.
+Empty Lean sections are `tt`; absent/dropped C sections must agree, including
+strict empty REQUIRE (`As W false = G As`). Successful views must retain every
+constraint/role. Only the listed expanded-core simplification/NNF/rewrites have
+exactness theorems; bounded expansion and high-level lowering remain trusted.
+Lean retains the full signal type; C's unused-output filtering must preserve
+the game/formula under projection and arbitrary extension. Only decoder
+reconstruction may then assign eliminated outputs. Locality/substitution support
+this interface but do not verify declaration filtering.
 
-Before cover construction, the shared `tlsf_pipeline_build_cover`
-(`src/lib/pipeline.c`, `tlsf_pipeline_build_cover`) applies `spec_adapt_target`
-exactly once after
-expansion. The pipeline (including tlsfresidual and the decomposition API),
-tlsfcompose, tlsftemplates and tlsfbenchgraph all use it. The conversion path
-(`conversion_prepare`, including tlsf2ltl) uses the same validation. Both
-refuse differing finite SEMANTICS/TARGET timing frames with an explicit
-diagnostic, including CLI overrides; no finite-correct adaptation is claimed.
-Infinite-word Moore/Mealy adaptation remains a trusted frontend obligation
-outside these Lean theorems and includes implicit environment inputs. The
-generated driver uses the effective TARGET move order: Moore targets bypass
-the input-first OxiDD games, with infinite-word realizability checked by the
-standard input-delay encoding for ltlsynt. Finite residuals use ltlfsynt with
-explicit Mealy/Moore semantics. The controller-export wrapper refuses finite
-games and Moore targets because it does not implement their export contracts.
+Union-find/keys must establish `Clustered` before pruning the initially complete
+environment. Pruning needs `Prunable` and `EnvSat` for the actual dropped set.
+The native search uses at most four lasso positions, eight atoms, 128 source
+nodes, and 200,000 shared candidate/node/fixpoint/section updates. The last
+position loops to its chosen entry; F/U/M use least and G/R/W greatest fixpoints
+on reachable positions. REQUIRE holds everywhere, INITIALLY/ASSUMPTIONS at zero.
+Only a completed positive joint check certifies D. Failed candidates are skipped;
+unsupported syntax, exhaustion, or no witness yield UNKNOWN and retain D, so
+incompleteness cannot change realizability.
 
-An empty section is `tt` in Lean but represented by absence and dropped in C.
-Their objectives must be equivalent, including the strict empty-REQUIRE case
-`As W false = G As`. The successful C view must include every retained
-constraint with the correct role. The expanded-core simplification, NNF and
-rewrite passes listed above preserve `Sat` by the #85 theorems. Bounded expansion, high-level operator
-lowering and normalization passes outside that list remain trusted.
+`envSat_of_word` and `prune_realizable` bridge any satisfying infinite word to
+conditional equivalence. C evaluation, AST/sections, and lasso interpretation
+remain trusted; search completeness is unnecessary. No external automata/SAT
+library is used. Finite and Moore semantics/targets never prune. Finite or
+output-dependent environments must first collapse to one game, retaining
+input-only system constraints. `clusters_realizable` covers infinite input-only
+environments; `finite_split_fails` prevents combining arbitrary finite prefixes.
 
-Lean keeps the full signal type after elimination. C drops an unused output
-from the residual's declaration. Projection to the used alphabet and extension
-with arbitrary values must preserve both the game and the printed formula;
-only the mapped decoder reconstruction may subsequently assign the eliminated
-output. The absent-signal locality/substitution results support this interface,
-but the declaration/filtering code is not verified here.
+Printers/escaping/AP names must preserve the AST and weak/strong next. Compiled
+controllers must realize composed letter maps, not order-sensitive simultaneous
+assignments of unexpanded values. Solver/export frontends need the positive
+system objective and identical ownership. In particular, ltlfsynt must implement
+`FinWin`: some nonempty winning prefix for every play. External solvers, ending
+conventions, printing, and reported trust labels remain unverified.
 
-Union-find and cluster-key construction must establish `Clustered`. The
-initial cluster contains every environment entry. Pruning then requires
-`Prunable` and `EnvSat` for the actual dropped set. The native checker
-searches infinite lasso words with at most four positions and eight atoms,
-under a 128-source-node syntax cap and a shared 200,000-update work budget
-(candidate, node, fixed-point and section checks). The last position returns
-to the chosen loop entry. F/U/M use least fixed points and G/R/W use greatest
-fixed points over the reachable positions. REQUIRE is checked at every
-position; INITIALLY and ASSUMPTIONS only at position zero. Only a completed
-positive check certifies the conjunction. Failed candidates are skipped;
-if no bounded witness is found, syntax is unsupported, or a budget is
-exhausted, the result is UNKNOWN and D is kept. Incompleteness therefore
-cannot change realizability.
+## Automaton translation validation
 
-`envSat_of_word` proves that satisfaction of this conjunction with `len = none`
-on any word yields `EnvSat D`; applying `prune_realizable` then gives the
-conditional equivalence. **The C evaluator, AST/section correspondence and
-lasso-to-infinite-word interpretation remain trusted**: Lean does not execute
-C or prove the evaluator implementation. Search completeness is unnecessary.
-This check uses no external automata or SAT library. Finite semantics and
-Moore semantics/targets never use pruning. If an environment entry mentions an
-output, or the semantics is finite, the C fallback must retain one game
-before this proved pruning, including input-only system constraints. The `clusters_realizable` theorem is
-for infinite words with input-only environment entries. `finite_split_fails`
-shows that independent finite winning prefixes cannot in general be combined.
+`Impl.uncached_construction_language` proves an independent executable symbolic
+reference for admitted formulas: syntax transport, pure factoring/selection,
+a fixed finite basis, product progression, Zielonka construction, and max-odd
+export. It models no C caches, traces, memo phases, allocation/call order, or
+compiler refinement. Positive Buchi rounds require `positiveb`; general parity
+formulas such as `F G a` need not admit deterministic Buchi recognizers.
 
-Printing, escaping and AP names must denote the Lean AST, preserve weak/strong
-next, and emit controllers with the established dependency interpretation.
-Any compiled controller composition must realize the composed letter map, not
-a single order-sensitive simultaneous assignment of unexpanded values. Solver
-and export frontends must use the positive system objective and the same
-input/output ownership. In particular, **ltlfsynt's game must equal `FinWin`**:
-for every play there is some nonempty finite winning prefix. The development
-does not verify the external solver, its ending convention, the printer or the
-reported trust label.
+`Validation/Basis.lean` fixes distinct oriented components before execution.
+`compileBasis_presentation` proves the indexed Boolean/Shannon plan's language;
+repeated occurrences share coordinates to avoid duplicate-colour Zielonka work.
+Selection minimizes colours first; whole admitted Boolean components use proved
+terminal handling. `Impl.normalize` applies `equivalent_exact` below modalities;
+`normalize_language` proves infinite-word preservation, including default-only
+frozen-operand absorption. `normalized_finite_construction_language` composes
+normalization, admission, and export; its Buchi conclusion requires positivity.
 
-## Build
-
-Run from `proofs/` with exactly one Lean compiler process at a time. The modules
-form a dependency chain, so the default build checks them serially. The library
-uses the same weak arguments as acacia: `-j1`, `-s2048`,
-`-DElab.async=false`; `warningAsError = true`. Do not set a virtual-memory cap.
-
-```sh
-export PATH=$HOME/.elan/bin:$PATH
-export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
-lake build
-```
-
-For sequential per-module diagnostics:
-
-```sh
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites; do
-  timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
-  timeout 300 lake build "TlsfProofs.$module" || exit $?
-done
-timeout 1500 lake build
-```
-
-## Issues #80 / #83: translation validation
-
-The proof boundary is an independent, uncached reference construction plus
-language equivalence of finite automata. C caches, traces, memo phases and
-allocation order are not modeled.
-
-`Impl.uncached_construction_language` proves the executable symbolic reference
-recognizes an admitted formula. Its pipeline performs syntax transport, pure
-factoring and selection, a fixed finite component basis, product progression,
-Zielonka construction and max-odd export. The positive Buchi round monitor
-requires the executable `positiveb` check, since a general parity formula such
-as `F G a` need not have a deterministic Buchi recognizer.
-
-`Validation/Finite.lean` explores representatives in BFS order and merges
-component all/rejecting fields using proved Boolean class equality. Tree paths
-and round residual/incoming bits remain in the key. Independently of discovery,
-it checks initial correspondence and every state/letter transition, including
-terminal loops. The representative index uses semantic fingerprints only
-as search hints: mixed and biased assignments distinguish sparse conjunctions; every candidate still passes exact class equality, failed
-hinted lookup falls back to a full scan, and closure is checked independently.
-`classFingerprint_congr` and `configurationHint_congr` prove equal classes
-have equal hints. Coordinates are materialized and Boolean constants simplified
-before storing each representative; `prepareParity_exact` and
-`prepareBuchi_exact` prove preservation of its semantic key.
-`exportParity_language` and `exportBuchi_language` prove that
-any returned closed finite table has exactly the symbolic machine's language.
-Resource exhaustion returns no table and is a validation failure. No theorem
-claims a fixed exploration limit succeeds for every admitted formula.
-
-`Validation/Basis.lean` chooses the complete finite basis of distinct oriented
-component records before running any machine. `compileBasis_presentation`
-proves the indexed Boolean/Shannon plan has the formula's language over that
-basis. Repeated plan occurrences use the same coordinate, avoiding exponential
-Zielonka work over duplicate colours. Plan selection first minimizes the
-number of component colours. Admitted Boolean components remain whole, so
-the proved component terminal behavior handles their constants directly.
-This is a static product presentation;
-no C cache, lookup history or call order is modeled.
-
-The pure `Impl.normalize` pass simplifies Boolean expressions below modalities.
-Every local replacement uses `equivalent_exact`, and `normalize_language`
-proves the complete traversal preserves the infinite-word language. This
-covers default-only frozen-operand absorption review examples without any C
-cache or compiler model. `normalized_finite_construction_language` composes
-normalization, admitted construction and finite export; the Buchi conclusion
-explicitly requires `positiveb` success.
-
-### Obligation table
+`Validation/Finite.lean` explores BFS representatives, merging all/rejecting
+fields by proved Boolean class equality while retaining tree paths and round
+residual/incoming bits. It independently checks initial correspondence and every
+state/letter edge, including terminal loops. Fingerprints use mixed/biased
+assignments only as hints: exact equality checks candidates, failed hints trigger
+full scans, and closure is checked separately. `classFingerprint_congr` and
+`configurationHint_congr` preserve hints under equality; `prepareParity_exact`
+and `prepareBuchi_exact` preserve keys after materialization/constant reduction.
+`exportParity_language`/`exportBuchi_language` prove returned closed tables exact.
+Exhaustion is a validation failure; no fixed exploration limit is proved sufficient.
 
 | Obligation | Result / status |
 | --- | --- |
@@ -484,105 +307,69 @@ explicitly requires `positiveb` success.
 | Language equality for arbitrary finite state counts | `Validation.check_language`, `Validation.checkBuchi_sound` |
 | Checked alphabet compaction | `checkCompact_sound`, `checkBuchiCompact_sound` |
 | Parsed C table recognizes the requested formula after successful validation | `validate_parity_sound`, `validate_buchi_sound`; `Buchi.toParity_language` covers nonpositive round skeletons |
-| Complete bounded inventory, passing hash goldens and GR(1) general admission | 4,134 pass / 0 fail / 36 timeout; general admission enabled by default in GR(1) |
 
-The equivalence checker searches for reachable closed walks with conflicting
-recurrent maximal priority parities. An executable SCC traversal proposes a
-rank for each reachable product vertex. `rankClosedCheck_sound` checks that
-all outgoing edges stay in the indexed set and ranks never decrease. The
-resulting rank-order relation is reflexive, transitive and includes every
-edge, regardless of the SCC routine's correctness. Recurrent priority marks
-are collected per vertex; the final search compares vertices rather than
-all pairs of valuation-labelled edges. No state isomorphism is assumed.
+The equivalence checker seeks reachable closed walks with conflicting recurrent
+maximum parities, without state isomorphism. SCC traversal proposes ranks;
+`rankClosedCheck_sound` proves closure/nondecreasing ranks, giving a reflexive,
+transitive edge-containing order independently of SCC correctness. Marks/search
+are per vertex, avoiding pairs of valuation-labelled edges.
+`VertexIndex.index_exact` certifies the shared index across priority thresholds;
+priorities are collected separately. Alphabet compaction checks identical
+transitions/priorities at every state of both tables, then lifts proved
+`check`/`checkBuchi` equality to the original alphabet.
 
-`VertexIndex.index_exact` certifies the stored finite position table. The same
-index is reused across priority thresholds. Priorities are collected from
-each automaton separately. Alphabet compaction merges letters only after
-checking identical transitions and priorities at every state of both tables.
-It invokes the same proved `check` / `checkBuchi`, with a proof lifting equality
-to the original alphabet.
-Class equality uses branch-pruned Shannon comparison after flattening Boolean
-roots, removing duplicate terms, cancelling complementary terms, and propagating
-constants. `mergeConj_eval` and `mergeDisj_eval` prove these reductions; frozen
-modal operands stay verbatim. Deterministic mixed, single-atom and
-single-complement assignments reject unequal residuals early; `sampleAgreement_of_eq` proves equal classes always
-pass this filter. `associationAgreement_sound` handles reassociation,
-commutation and repeated terms at a Boolean root; the full Shannon check
-decides every remaining equality. Support is tested by simplified Shannon cofactors;
-`reduceProp_class`, `cofactor_unused` and `uses_exact` prove these optimizations
-preserve classes and support. Protection tests distinct modal atoms and checks
-syntactic containment before support, with the same proved predicate.
-`protectionSet_exact` presents protection as a finite set built once for each
-elision pass. Cheap tree/round keys precede Boolean field comparisons; exact
-syntax equality returns before constructing an atom list.
-`productStep_exact` proves that materializing all component edges once preserves
-the product step, including its target and colour projections.
-The finite sources materialize the AP valuation array once before stepping,
-with pointwise decoding preserved in both language proofs.
-Reference transition tables are materialized once; `freeze_exact` and
-`freezeBuchi_exact` prove this preserves the machines exactly.
+Class equality flattens Boolean roots, deduplicates, cancels complements, and
+propagates constants (`mergeConj_eval`, `mergeDisj_eval`), leaving frozen operands
+verbatim. Mixed/single-atom/single-complement samples reject early;
+`sampleAgreement_of_eq` preserves equals. `associationAgreement_sound` covers
+root reassociation, commutation, and repeats; Shannon comparison decides the rest.
+Simplified cofactors preserve classes/support (`reduceProp_class`,
+`cofactor_unused`, `uses_exact`). Protection tests distinct modal atoms and
+syntactic containment before support; `protectionSet_exact` builds its finite
+set once per elision. Cheap tree/round keys precede Boolean comparisons; syntax
+equality avoids atom-list construction. `productStep_exact` preserves targets/
+colours when materializing edges once. AP valuations are decoded/materialized
+once with pointwise preservation in both language proofs; `freeze_exact` and
+`freezeBuchi_exact` preserve materialized transition tables.
 
-### Dump protocol and trusted boundary
+### Protocol and trusted boundary
 
-The C executable `test/unit/dpa_dump.c` takes a `TV1` request with acceptance
-kind, admission mode, explicit AP order and a prefix formula. It exports BFS
-states discovered in increasing valuation order, sorted complete rows, max-odd
-priorities and source-state Buchi acceptance. AP i is bit i of each valuation.
-The offline dumper uses explicit caps of 10,000 states, 256 MiB host storage,
-2²² BDD nodes and 2¹⁸ cache entries inside the task’s 5 GiB process scope;
-these are independent of production reduction budgets. The offline scope sets
-`MemoryHigh=4G` to reclaim/throttle allocation-heavy cases before the unchanged
-`MemoryMax=5G` hard cap (`MemorySwapMax=0`). This lets the shared wall-clock
-deadline stop those cases without the OOM policy killing the report writer.
-The Lean executable `dpaValidate REQUEST DUMP` independently parses both files,
-rejects AP/formula/mode mismatches, duplicate APs, missing or unordered edges,
-invalid target/acceptance values and trailing data, builds the proved reference
-for that same formula and AP order, and checks language equality. The round
-reference requires `positiveb` success. When its skeleton is not positive,
-the validator compares C's Buchi machine, embedded exactly as parity using
-`Buchi.toParity_language`, to the certified parity reference instead. This
-handles formulas with a Buchi recognizer whose chosen round skeleton is not
-positive; it does not assume the round construction is sound without
-positivity. Every parse, construction, export or language-comparison failure
-is a failing exit.
+`test/unit/dpa_dump.c` accepts `TV1`: acceptance kind, admission mode, AP order,
+and prefix formula. BFS discovery uses increasing valuations (AP i is bit i),
+with sorted complete rows, max-odd priorities, and source-state Buchi acceptance.
+Offline caps are 10,000 states, 256 MiB host storage, 2²² BDD nodes, and 2¹⁸
+cache entries, separate from production budgets. A 5 GiB process scope uses
+`MemoryHigh=4G`, `MemoryMax=5G`, `MemorySwapMax=0`, letting deadlines stop
+allocation-heavy cases before OOM kills the writer.
 
-The kernel checks the construction, finite-export and checker proofs. Offline
-execution also trusts the Lean compiler/runtime. Axiom
-audits permit only `propext`, `Classical.choice` and `Quot.sound`. Decoding,
-serialization, hashing, C memory safety and the BDD library remain trusted.
-Successful offline checks validate C only on the enumerated formulas, admission
-modes, AP orders and acceptance kinds, with an exact canonical hash gate in CI.
-They do not establish C correctness on other inputs. Existing bounded lasso
-goldens alone do not establish unbounded language equality.
-Formulas admitted at runtime without a validated golden rely on the proved
-reference construction and the validation sample; this is evidence for the C
-construction, not a proof of C correctness for those formulas.
+`dpaValidate REQUEST DUMP` independently parses both, rejects AP/formula/mode
+mismatches, duplicate APs, missing/unordered edges, invalid targets/acceptance,
+and trailing data, then builds the same-formula/AP reference and checks language
+equality. Positive skeletons use Buchi rounds; otherwise `Buchi.toParity_language`
+embeds C Buchi exactly for comparison with the proved parity reference. This
+does not assume nonpositive round soundness. Parse/construction/export/comparison
+errors fail.
 
-### Offline regeneration and CI
+The kernel checks construction, export, and checker proofs; offline execution
+also trusts the Lean compiler/runtime. Decoding, serialization, hashes, C memory
+safety, and BDDs remain trusted. Successful checks cover only enumerated formulas,
+modes, AP orders, and acceptance kinds, bound by canonical CI hashes. Other
+runtime formulas rely on the reference plus sample evidence, not a C correctness
+proof. Bounded lasso goldens alone do not prove unbounded language equality.
 
-Regeneration is `tools/golden/translation_validate.py`; it requires Lean 4.35.0
-and is not run in CI. It inventories every monitor constructor reached by the
-217-spec corpus under both policies, including constructors in failed
-reductions, and includes the DPA equivalence formulas, all language-golden
-formulas, every pinned infinite-word verdict and stored monitor construction
-formula (including historical accepted rows), and review-k/l/i examples. Each
-formula/AP order, admission and acceptance kind gets one hard **17-second
-wall-clock budget**, shared by the C dump and Lean check. The script defaults
-to 17 seconds. An admitted case is **pass**, **fail**, or **timeout**. Parse/AP
-errors, reference rejection after C admission, failed finite export and language
-mismatches are failures. A timeout is recorded, never minimized, and does not
-fail the run. C unsupported declines have no automaton to compare and are
-counted separately as `not_admitted`. Only passing language checks get hash
-goldens. Every real failure is retained and minimized and prevents general
-admission. The enablement bar is zero failures among cases finishing in budget.
+### Regeneration and recorded results
 
-TV3 found and minimized three reference positivity rejections, recorded in
-[`translation-fixed-rejections.json`](../tools/golden/translation-fixed-rejections.json):
-`!(G F (b & X false))` under both admissions, and
-`true U (b -> (b xor G a))` under default admission. All original and minimized
-forms pass after the proved Buchi-to-parity comparison was connected. Both
-minimized formulas and their complements are now permanent inventory cases;
-protocol regressions also check a wrong acceptance table is still rejected.
+`tools/golden/translation_validate.py` requires Lean 4.35.0 and runs offline.
+Its inventory includes every monitor constructor reached by 217 corpus specs
+under both policies (also failed reductions), DPA equivalence/language-golden
+formulas, pinned infinite-word verdicts, stored historical monitor formulas,
+and review-k/l/i cases. Each formula/AP order/admission/acceptance request shares
+a hard 17-second C-dump/Lean-check deadline (the default). Admitted outcomes are
+pass/fail/timeout; C declines are separate `not_admitted`. Parse/AP errors,
+reference rejection, export failures, and language mismatches fail. Timeouts are
+recorded without minimization or failing the run. Only passing checks get hashes;
+all real failures are retained/minimized and prevent general admission. Enablement
+requires zero failures among completed cases.
 
 ```sh
 mkdir -p build-scratch-t/tmp
@@ -595,23 +382,17 @@ systemd-run --user --scope -q -p MemoryHigh=4G -p MemoryMax=5G -p MemorySwapMax=
   python3 tools/golden/translation_validate.py --build build-scratch-t/c-tv
 ```
 
-All transient artifacts and TMPDIR stay under `build-scratch-t/`. Only compact
-canonical hashes, verdicts, counts, failures and provenance are published under
-`test/fixtures/golden/translation/`; dump tables stay in scratch. The C hash
-gate recomputes the exact same dump without Lean. The total golden budget is
-4,613,734 bytes (4.4 MiB).
+Transient files/TMPDIR/dumps stay in `build-scratch-t/`; only hashes, verdicts,
+counts, failures, and provenance go to `test/fixtures/golden/translation/`.
+The C-only CI gate recomputes identical dumps. Total golden budget is 4,613,734
+bytes (4.4 MiB). Runs always execute fresh C/Lean checks, retaining scratch
+progress if interrupted. `--set` never publishes fixtures; full audits use the
+unfiltered command without inventory reuse.
 
-Every run executes fresh C dumps and Lean checks; verdicts from earlier runs
-are never reused. Scratch progress retains diagnostics if interrupted. A
-`--set` run never publishes CI fixtures. The final audit uses the single full
-regeneration command above, with neither inventory reuse nor a set filter.
-
-The final fresh TV3 run covers **1,212 formula/AP orders**, or **4,848 requests**:
-**4,134 pass, zero failures, 36 timeouts**, and **678 C unsupported declines**
-outside the validation outcomes. The full report, including each timed-out
-request, is [`translation/report.json`](../test/fixtures/golden/translation/report.json).
-The sets overlap. Entries below are pass / fail / timeout; declines are listed
-separately in the report.
+The [recorded report](../test/fixtures/golden/translation/report.json) covers
+1,212 formula/AP orders and 4,848 requests: 4,134 pass, zero failures, 36 timeouts,
+and 678 C declines outside validation outcomes. Sets overlap; table entries are
+pass / fail / timeout, with declines separate in the report.
 
 | Set | Default parity | Default Buchi | General parity | General Buchi |
 | --- | ---: | ---: | ---: | ---: |
@@ -620,34 +401,26 @@ separately in the report.
 | Golden (945) | 760 / 0 / 5 | 690 / 0 / 0 | 912 / 0 / 28 | 760 / 0 / 3 |
 | Review (14) | 12 / 0 / 0 | 9 / 0 / 0 | 10 / 0 / 0 | 6 / 0 / 0 |
 
-GR(1) now tries general admission after a default unsupported decline. This
-preserves frozen formulas accepted only by the old predicate, since the two
-predicates are not nested. The standalone DPA API's default remains unchanged.
-Fresh corpus coverage is **148 -> 155 / 217**; unsupported outcomes change
-**54 -> 47**, with **15** invalid inputs in both runs. Twelve native exact/strict
-goldens and nine decomposition admission verdicts are restored from their
-independently confirmed phase-1 archives; the historical hashes are preserved.
-Only `normalization_sickert2.tlsf` remains declined among those fourteen archived
-native cases. No successful reference artifact was regenerated.
+GR(1) tries general admission after default unsupported decline because the
+predicates are not nested; standalone DPA defaults stay unchanged. Corpus
+coverage rose from 148 to 155/217, unsupported fell from 54 to 47, and invalid
+inputs stayed 15. Twelve exact/strict goldens and nine decomposition verdicts
+retain independently confirmed archive hashes; only `normalization_sickert2.tlsf`
+stays declined among fourteen archived native cases. No successful reference
+artifact was regenerated. See [golden provenance](../test/fixtures/golden/README.md)
+for recorded suite results.
 
-The Lean build passes with warningAsError: **30 construction/equivalence checks,
-21 protocol checks, 48 permitted-axiom audits**, plus **7** Python deadline/verdict
-regressions. Tracked Lean source is **14,214 -> 14,317 lines** in TV3, including
-the audit (proof tree: **14,163 -> 14,263**). The earlier cache/trace pruning was
-**18,699 -> 12,679** lines, before finite export and validation were added.
-All **392 Meson checks** are verified: 389 passed in the full serial suite and
-three passed on targeted reruns after fixing the release-only Phase B helper
-(`assert` had removed its formula-print call) and allowing 180 seconds for the
-aggregate native test (96.89 seconds measured). Individual worker deadlines
-and the translation validator's 17-second case budget are unchanged. The
-C hash gate recomputed all 4,134 passing dumps successfully.
+The [fixed-rejection inventory](../tools/golden/translation-fixed-rejections.json)
+retains `!(G F (b & X false))` under both admissions and
+`true U (b -> (b xor G a))` under default admission. Original/minimized forms pass
+with the proved Buchi-to-parity comparison. Both minimized formulas and complements
+are permanent cases; protocol tests still reject a wrong acceptance table.
 
 ### Source map
 
-These locations identify semantic reference algorithms and the C operations
-covered by the dump validator. They assert no cache, trace, store
-order or compiler refinement. BDD allocation, failure handling and decoding
-remain outside the language theorems.
+These locations identify semantic algorithms and C operations covered by dump
+validation. BDD allocation/failure handling/decoding remain outside language
+theorems; no cache, trace, store-order, or compiler refinement is asserted.
 
 | Source | Relevant definitions / boundary |
 | --- | --- |
