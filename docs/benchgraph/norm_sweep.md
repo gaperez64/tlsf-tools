@@ -1,8 +1,6 @@
 # Normalization schedule sweep
 
-Corpus: 2545 specs. Structural/certification sweep (no solver). Only soundness-eligible rows (no new parse failures) should be ranked.
-
-Provenance: generated over `benchmarks/tlsf` at commit `6c56b55`.
+Structural/certification sweep of 2545 specs from `benchmarks/tlsf` at `6c56b55`, without a solver. Rank only soundness-eligible rows (no new parse failures).
 
 | schedule | cand Δ | certified Δ | solved Δ | elim Δ | growth % | eligible | recommendation |
 |---|--:|--:|--:|--:|--:|:--:|---|
