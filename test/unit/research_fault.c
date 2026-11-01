@@ -30,13 +30,14 @@ uint32_t __wrap_residual_cluster_keys(ConstraintCover *cov, const Node **rf,
   return count;
 }
 #elif defined(COMPOSITION_FAULT)
-#include "tlsf/templates.h"
+#include "templates_internal.h"
 
 // Ignore unrelated Rayon worker allocations while csnf_compose is running.
 static _Thread_local bool composing;
 static size_t fail_at, count;
+static bool arena_mode;
 static bool composition_fault(void) {
-  if (!composing || ++count != fail_at)
+  if (!composing || arena_mode || ++count != fail_at)
     return false;
   fprintf(stderr, "injected composition allocation failure %zu\n", count);
   return true;
@@ -56,16 +57,33 @@ void *__wrap_realloc(void *, size_t);
 void *__wrap_realloc(void *p, size_t n) {
   return composition_fault() ? nullptr : __real_realloc(p, n);
 }
+// Use the same per-allocation arena hook as objective_alloc, including calls
+// within arena.c that a link-time --wrap cannot intercept.
+bool tlsf_arena_fault(size_t, bool);
+bool tlsf_arena_fault(size_t size, bool slab) {
+  (void)size;
+  if (!composing || !arena_mode || slab || ++count != fail_at)
+    return false;
+  fprintf(stderr, "injected composition arena failure %zu\n", count);
+  return true;
+}
 CsnfComposition *__real_csnf_compose(const Csnf *);
 CsnfComposition *__wrap_csnf_compose(const Csnf *);
 CsnfComposition *__wrap_csnf_compose(const Csnf *c) {
   const char *nth = getenv("TLSF_TEST_COMPOSITION_ALLOC");
+  const char *arena_nth = getenv("TLSF_TEST_COMPOSITION_ARENA");
+  arena_mode = arena_nth != nullptr;
+  if (arena_mode)
+    nth = arena_nth;
   fail_at = nth ? strtoul(nth, nullptr, 10) : 0;
   count = 0;
   composing = true;
   CsnfComposition *r = __real_csnf_compose(c);
   composing = false;
   fprintf(stderr, "composition allocations: %zu\n", count);
+  if (arena_mode)
+    fprintf(stderr, "composition result: %s arena_failed=%d\n",
+            r ? "non-null" : "null", arena_failed(c->cov->arena));
   return r;
 }
 #else

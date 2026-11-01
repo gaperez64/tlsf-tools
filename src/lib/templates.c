@@ -302,8 +302,11 @@ static const Node *block_comb_value(const Csnf *c, const Block *b, int32_t o) {
     if (b->asg_nguards == 0)
       return node_false(a);
     Node *acc = (Node *)b->asg_guards[0];
-    for (uint32_t g = 1; g < b->asg_nguards; g++)
+    for (uint32_t g = 1; g < b->asg_nguards; g++) {
       acc = node_or(a, acc, (Node *)b->asg_guards[g]);
+      if (!acc)
+        return nullptr;
+    }
     return acc; // reaction o := OR(true-guards)
   }
   for (uint32_t k = 0; k < b->inv_n; k++)
@@ -472,6 +475,8 @@ static ApSet *definition_closed_outputs(const Csnf *c,
 }
 
 CsnfComposition *csnf_compose(const Csnf *c) {
+  if (arena_failed(c->cov->arena))
+    return nullptr;
   CsnfComposition *r = calloc(1, sizeof *r);
   if (!r)
     return nullptr;
@@ -536,10 +541,15 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   for (uint32_t b = 0; b < B; b++) {
     if (!r->accepted_block[b] || elim_excluded[b])
       continue;
-    for (uint32_t o = 0; o < A; o++)
-      if ((ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) && provider[o] < 0 &&
-          block_comb_value(c, &c->blocks[b], (int32_t)o))
+    for (uint32_t o = 0; o < A; o++) {
+      if (!(ap_table_flags(&cov->aps, o) & AP_FLAG_OUTPUT) || provider[o] >= 0)
+        continue;
+      const Node *value = block_comb_value(c, &c->blocks[b], (int32_t)o);
+      if (arena_failed(cov->arena))
+        goto fail;
+      if (value)
         provider[o] = (int32_t)b;
+    }
   }
   // Phase A commits only *definition* eliminations (o := theta), which are
   // sound under the section-coverage guard above. Non-definition combinational
@@ -563,7 +573,12 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   // or cycle-excluded combinational block is not (its constraint stays
   // residual, to be substituted there).
   for (uint32_t b = 0; b < B; b++) {
-    if (!r->accepted_block[b] || !block_is_comb(c, &c->blocks[b]))
+    if (!r->accepted_block[b])
+      continue;
+    bool is_comb = block_is_comb(c, &c->blocks[b]);
+    if (arena_failed(cov->arena))
+      goto fail;
+    if (!is_comb)
       continue;
     bool is_provider = false;
     for (uint32_t o = 0; o < A; o++)
@@ -579,7 +594,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   // (committed in Phase A) are exempt -- `o := theta` is
   // equivalence-preserving.
   ApSet *phase_b_outputs = definition_closed_outputs(c, r);
-  if (!phase_b_outputs)
+  if (!phase_b_outputs || arena_failed(cov->arena))
     goto fail;
   bool changed = true;
   while (changed) {
@@ -631,8 +646,13 @@ CsnfComposition *csnf_compose(const Csnf *c) {
     const Block *pb = &c->blocks[provider[o]];
     if (is_definition_elim(pb, (int32_t)o))
       continue; // already committed in Phase A
-    r->elim[r->nelim++] =
-        (Elim){(int32_t)o, block_comb_value(c, pb, (int32_t)o)};
+    const Node *value = block_comb_value(c, pb, (int32_t)o);
+    // Do not remove the provider's original constraints unless its entire
+    // value was built. In particular nullptr cannot mean "not combinational"
+    // after an arena allocation failed.
+    if (!value || arena_failed(cov->arena))
+      goto fail;
+    r->elim[r->nelim++] = (Elim){(int32_t)o, value};
     for (uint32_t k = 0; k < pb->ncids; k++)
       eliminated[pb->cids[k]] = true;
   }
@@ -671,6 +691,8 @@ CsnfComposition *csnf_compose(const Csnf *c) {
       r->nowned_outputs++;
   free(owned);
 
+  if (arena_failed(cov->arena))
+    goto fail;
   free(provider);
   free(elim_excluded);
   free(def_committed);
