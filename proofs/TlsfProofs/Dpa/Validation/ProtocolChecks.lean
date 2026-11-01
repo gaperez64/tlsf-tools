@@ -33,8 +33,14 @@ def protocolChecks : List (String × Bool) := [
     "TV1 buchi default 1 a G F $a states 2 1 0 0 0 1 1 0 1 0 1 1 0 1 0 1 1 0 0 end"),
   ("Buchi-source-acceptance-mismatch", !probe "TV1 buchi default 1 a G F $a"
     "TV1 buchi default 1 a G F $a states 1 1 0 0 0 1 0 1 0 0 end"),
-  ("Buchi-positiveb-required", !probe "TV1 buchi general 1 a F G $a"
+  ("non-Buchi-language-rejected", !probe "TV1 buchi general 1 a F G $a"
     "TV1 buchi general 1 a F G $a states 1 1 0 0 0 1 0 1 0 1 end"),
+  ("Buchi-constant-negative-recurrence", probe "TV1 buchi default 1 b ! G F & $b X 0"
+    "TV1 buchi default 1 b ! G F & $b X 0 states 1 1 0 0 0 1 0 1 0 1 end"),
+  ("Buchi-positiveb-fallback-still-checks-language", !probe "TV1 buchi general 1 b ! G F & $b X 0"
+    "TV1 buchi general 1 b ! G F & $b X 0 states 1 0 0 0 0 0 0 1 0 0 end"),
+  ("Buchi-nonpositive-cosafety", probe "TV1 buchi default 2 a b U 1 i $b ^ $b G $a"
+    "TV1 buchi default 2 a b U 1 i $b ^ $b G $a states 2 0 1 0 0 1 0 0 1 1 0 0 2 1 0 0 3 0 0 1 0 1 1 1 1 1 1 1 2 1 1 1 3 1 1 end"),
   ("compact-different-state-count", checkCompact (singleton 1) (alternating 3 0)),
   ("compact-disagreement", !checkCompact (singleton 1) infLetters),
   ("compact-Buchi-frequency", checkBuchiCompact allBuchi alternatingBuchi),

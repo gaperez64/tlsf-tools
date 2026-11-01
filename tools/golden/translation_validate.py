@@ -25,6 +25,10 @@ REVIEWS = [
     "G | F $a & F $a F G $b",
     "X G | $a & $a F G $b",
     "& G $s & | F $q | $p ! $p & $p G F $r",
+    # Minimized TV3 rejections: the round skeleton is not positive, although
+    # the formula has a Buchi recognizer. Also check their complements below.
+    "! G F & $b X 0",
+    "U 1 i $b ^ $b G $a",
 ]
 
 

@@ -217,12 +217,22 @@ def certifiedBuchi (f : Formula (Fin ap)) (fuel : Nat) : Except String (Certifie
       else .error "positiveb failure"
   else .error "reference admission failure"
 
-/-- Every error propagates to a failing process exit. The factory checks
-positivity separately for each Buchi formula and carries its language proof. -/
+/-- The round factory checks positivity and carries its language proof. If its
+skeleton is not positive, a certified parity comparison is still available.
+Construction, export and language-comparison errors remain failing exits. -/
 def validate (r : Request) (d : Dump r.names.size) (fuel : Nat) : Except String Unit := do
   if r.buchi then
-    let reference ← certifiedBuchi r.source fuel
-    unless checkBuchiCompact d.buchi reference.machine do throw "Buchi language mismatch"
+    match certifiedBuchi r.source fuel with
+    | .ok reference =>
+      unless checkBuchiCompact d.buchi reference.machine do throw "Buchi language mismatch"
+    | .error reason =>
+      if reason == "positiveb failure" then
+        -- Positivity is sufficient for the round construction, not necessary
+        -- for the formula to have a Buchi recognizer. Compare its language to
+        -- the general parity reference using the proved Buchi embedding.
+        let reference ← certifiedParity r.source fuel
+        unless checkCompact d.buchi.toParity reference.machine do throw "Buchi language mismatch"
+      else throw reason
   else
     let reference ← certifiedParity r.source fuel
     unless checkCompact d.parity reference.machine do throw "parity language mismatch"
@@ -242,11 +252,21 @@ theorem validate_buchi_sound (r : Request) (d : Dump r.names.size) (fuel : Nat)
     (hk : r.buchi = true) (h : validate r d fuel = .ok ()) (w : Nat → Alphabet r.names.size) :
     d.buchi.Accepts w ↔ Sat none (fun n => decode (w n)) r.source 0 := by
   cases hp : certifiedBuchi r.source fuel with
-  | error reason => simp [validate, hk, hp, bind, Except.bind] at h
+  | error reason =>
+    by_cases hs : reason == "positiveb failure"
+    · cases hq : certifiedParity r.source fuel with
+      | error why => simp [validate, hk, hp, hs, hq, bind, Except.bind] at h
+      | ok reference =>
+        have hc : checkCompact d.buchi.toParity reference.machine = true := by
+          cases hh : checkCompact d.buchi.toParity reference.machine <;>
+            simp_all [validate, bind, Except.bind, pure, throw]
+        exact (d.buchi.toParity_language w).symm.trans
+          ((checkCompact_sound _ _ hc w).trans (reference.language w))
+    · simp [validate, hk, hp, hs, throw] at h
   | ok reference =>
     have hc : checkBuchiCompact d.buchi reference.machine = true := by
       cases hh : checkBuchiCompact d.buchi reference.machine <;>
-        simp_all [validate, bind, Except.bind, pure, throw]
+        simp_all [validate, pure, throw]
     exact (checkBuchiCompact_sound _ _ hc w).trans (reference.language w)
 
 end Tlsf.Dpa.Validation

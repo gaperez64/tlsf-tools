@@ -483,7 +483,7 @@ explicitly requires `positiveb` success.
 | Checked finite reference export | `exportParity_language`, `exportBuchi_language`, `normalized_finite_construction_language` |
 | Language equality for arbitrary finite state counts | `Validation.check_language`, `Validation.checkBuchi_sound` |
 | Checked alphabet compaction | `checkCompact_sound`, `checkBuchiCompact_sound` |
-| Parsed C table recognizes the requested formula after successful validation | `validate_parity_sound`, `validate_buchi_sound` |
+| Parsed C table recognizes the requested formula after successful validation | `validate_parity_sound`, `validate_buchi_sound`; `Buchi.toParity_language` covers nonpositive round skeletons |
 | Complete corpus inventory, hash goldens and general-admission enablement | Full run pending; general admission remains disabled |
 
 The equivalence checker searches for reachable closed walks with conflicting
@@ -534,8 +534,14 @@ these are independent of production reduction budgets.
 The Lean executable `dpaValidate REQUEST DUMP` independently parses both files,
 rejects AP/formula/mode mismatches, duplicate APs, missing or unordered edges,
 invalid target/acceptance values and trailing data, builds the proved reference
-for that same formula and AP order, and checks language equality. Every parse,
-construction, positivity, export or comparison failure is a failing exit.
+for that same formula and AP order, and checks language equality. The round
+reference requires `positiveb` success. When its skeleton is not positive,
+the validator compares C's Buchi machine, embedded exactly as parity using
+`Buchi.toParity_language`, to the certified parity reference instead. This
+handles formulas with a Buchi recognizer whose chosen round skeleton is not
+positive; it does not assume the round construction is sound without
+positivity. Every parse, construction, export or language-comparison failure
+is a failing exit.
 
 The kernel checks the construction, finite-export and checker proofs. Offline
 execution also trusts the Lean compiler/runtime. Axiom
@@ -566,6 +572,14 @@ fail the run. C unsupported declines have no automaton to compare and are
 counted separately as `not_admitted`. Only passing language checks get hash
 goldens. Every real failure is retained and minimized and prevents general
 admission. The enablement bar is zero failures among cases finishing in budget.
+
+TV3 found and minimized three reference positivity rejections, recorded in
+[`translation-fixed-rejections.json`](../tools/golden/translation-fixed-rejections.json):
+`!(G F (b & X false))` under both admissions, and
+`true U (b -> (b xor G a))` under default admission. All original and minimized
+forms pass after the proved Buchi-to-parity comparison was connected. Both
+minimized formulas and their complements are now permanent inventory cases;
+protocol regressions also check a wrong acceptance table is still rejected.
 
 ```sh
 mkdir -p build-scratch-t/tmp
@@ -600,7 +614,7 @@ source/fixture census will replace this pending milestone after the full run.
 ### Source map
 
 These locations identify semantic reference algorithms and the C operations
-that the future dump validator must cover. They assert no cache, trace, store
+covered by the dump validator. They assert no cache, trace, store
 order or compiler refinement. BDD allocation, failure handling and decoding
 remain outside the language theorems.
 
