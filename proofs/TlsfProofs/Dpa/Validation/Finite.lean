@@ -200,7 +200,8 @@ def decode (a : Alphabet ap) : Letter (Fin ap) := (colourVectors ap)[a.val]
 @[noinline] def Assembly.finiteParitySource (r : Assembly ap) :
     Validation.Parity (Alphabet ap) (Configuration r × List Nat) :=
   let source := r.parity
-  ⟨source.initial, fun s a => source.step s (decode a)⟩
+  let letters := (colourVectors ap).toArray
+  ⟨source.initial, fun s a => source.step s (letters[a.val]'(by simp [letters]))⟩
 
 def Assembly.paritySame (r : Assembly ap) (s t : Configuration r × List Nat) : Bool :=
   decide (s.2 = t.2) && r.configurationSame s.1 t.1
@@ -222,7 +223,8 @@ theorem Assembly.finiteParitySource_congr (r : Assembly ap)
       (r.finiteParitySource.step s a).2 = (r.finiteParitySource.step t a).2 := by
   have hh := Prod.mk.inj h
   have hp := r.productStep_congr s.1 t.1 (decode a) hh.1
-  simp [Assembly.finiteParitySource, Assembly.parity, Assembly.parityKey, hp.1, hp.2, hh.2]
+  simp only [decode] at hp
+  simp [Assembly.finiteParitySource, List.getElem_toArray, Assembly.parity, Assembly.parityKey, hp.1, hp.2, hh.2]
 
 /-- Materialize all coordinates before storing the pair. Returning a data pair
 keeps the vector outside the coordinate function in compiled code. This does
@@ -258,16 +260,18 @@ theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
       r.parity.run (fun n => decode (w n)) n := by
     induction n with
     | zero => rfl
-    | succ n ih => rw [Validation.Parity.run, ih]; rfl
+    | succ n ih => rw [Validation.Parity.run, ih]; simp [Assembly.finiteParitySource, decode, Validation.Parity.run]
   have hp : r.finiteParitySource.priorities w =
       r.parity.priorities (fun n => decode (w n)) := by
-    funext n; simp only [Validation.Parity.priorities, hr]; rfl
+    funext n; simp only [Validation.Parity.priorities, hr]
+    simp [Assembly.finiteParitySource, decode]
   exact he.trans (by unfold Validation.Parity.Accepts; rw [hp])
 
 @[noinline] def Assembly.finiteBuchiSource (r : Assembly ap) :
     Validation.Buchi (Alphabet ap) (Configuration r × RoundState r.store.length) :=
   let source := r.buchi
-  ⟨source.initial, fun s a => source.step s (decode a), source.accepting⟩
+  let letters := (colourVectors ap).toArray
+  ⟨source.initial, fun s a => source.step s (letters[a.val]'(by simp [letters])), source.accepting⟩
 
 def Assembly.buchiSame (r : Assembly ap)
     (s t : Configuration r × RoundState r.store.length) : Bool :=
@@ -290,7 +294,8 @@ theorem Assembly.finiteBuchiSource_congr (r : Assembly ap)
       r.finiteBuchiSource.accepting s = r.finiteBuchiSource.accepting t := by
   have hh := Prod.mk.inj h
   have hp := r.productStep_congr s.1 t.1 (decode a) hh.1
-  simp [Assembly.finiteBuchiSource, Assembly.buchi, Assembly.buchiKey, hp.1, hp.2, hh.2]
+  simp only [decode] at hp
+  simp [Assembly.finiteBuchiSource, List.getElem_toArray, Assembly.buchi, Assembly.buchiKey, hp.1, hp.2, hh.2]
 
 @[noinline] def Assembly.prepareBuchi (r : Assembly ap)
     (s : Configuration r × RoundState r.store.length) :
@@ -324,7 +329,7 @@ theorem Assembly.exportBuchi_language (r : Assembly ap) (fuel : Nat)
       r.buchi.run (fun n => decode (w n)) n := by
     induction n with
     | zero => rfl
-    | succ n ih => rw [Validation.Buchi.run, ih]; rfl
+    | succ n ih => rw [Validation.Buchi.run, ih]; simp [Assembly.finiteBuchiSource, decode, Validation.Buchi.run]
   exact he.trans (by change Inf _ ↔ Inf _; simp only [hr]; rfl)
 
 /-- Every successful finite export is covered by the admitted construction's

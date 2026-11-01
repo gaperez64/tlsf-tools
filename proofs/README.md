@@ -515,6 +515,8 @@ elision pass. Cheap tree/round keys precede Boolean field comparisons; exact
 syntax equality returns before constructing an atom list.
 `productStep_exact` proves that materializing all component edges once preserves
 the product step, including its target and colour projections.
+The finite sources materialize the AP valuation array once before stepping,
+with pointwise decoding preserved in both language proofs.
 Reference transition tables are materialized once; `freeze_exact` and
 `freezeBuchi_exact` prove this preserves the machines exactly.
 
