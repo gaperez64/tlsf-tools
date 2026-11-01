@@ -139,7 +139,9 @@ static int dump(FILE *in, FILE *out) {
   if (!f || token(in, extra))
     goto done;
   TlsfDpaBudget budget = {.max_states = 10000,
-                          .max_host_bytes = 64u << 20,
+                          .max_host_bytes = 256u << 20,
+                          .bdd_nodes = 1u << 22,
+                          .bdd_cache = 1u << 18,
                           .allow_unproved = !strcmp(admission, "general")};
   bool buchi = !strcmp(kind, "buchi");
   char klass;
@@ -159,8 +161,13 @@ static int dump(FILE *in, FILE *out) {
     result = 77;
     goto done;
   }
-  if (status.code != TLSF_DPA_OK || tlsf_dpa_expand(c).code != TLSF_DPA_OK)
+  if (status.code == TLSF_DPA_OK)
+    status = tlsf_dpa_expand(c);
+  if (status.code != TLSF_DPA_OK) {
+    fprintf(stderr, "C construction status %d reason %d\n", (int)status.code,
+            (int)status.reason);
     goto done;
+  }
   if (tlsf_dpa_ap_count(c) != aps)
     goto done;
   for (unsigned i = 0; i < aps; ++i)

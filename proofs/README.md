@@ -526,6 +526,9 @@ The C executable `test/unit/dpa_dump.c` takes a `TV1` request with acceptance
 kind, admission mode, explicit AP order and a prefix formula. It exports BFS
 states discovered in increasing valuation order, sorted complete rows, max-odd
 priorities and source-state Buchi acceptance. AP i is bit i of each valuation.
+The offline dumper uses explicit caps of 10,000 states, 256 MiB host storage,
+2²² BDD nodes and 2¹⁸ cache entries inside the task’s 5 GiB process scope;
+these are independent of production reduction budgets.
 The Lean executable `dpaValidate REQUEST DUMP` independently parses both files,
 rejects AP/formula/mode mismatches, duplicate APs, missing or unordered edges,
 invalid target/acceptance values and trailing data, builds the proved reference
