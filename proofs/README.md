@@ -441,7 +441,7 @@ component all/rejecting fields using proved Boolean class equality. Tree paths
 and round residual/incoming bits remain in the key. Independently of discovery,
 it checks initial correspondence and every state/letter transition, including
 terminal loops. The representative index uses semantic fingerprints only
-as search hints: every candidate still passes exact class equality, failed
+as search hints: mixed and biased assignments distinguish sparse conjunctions; every candidate still passes exact class equality, failed
 hinted lookup falls back to a full scan, and closure is checked independently.
 `classFingerprint_congr` and `configurationHint_congr` prove equal classes
 have equal hints. Coordinates are materialized and Boolean constants simplified

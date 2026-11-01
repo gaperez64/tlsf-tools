@@ -264,7 +264,9 @@ def probeCode : Formula (Fin ap) → Nat
   | .strongRelease f g => (53 + 37 * probeCode f + 101 * probeCode g) % 65521
 
 def probeValue (seed code : Nat) : Bool :=
-  decide ((code * (seed + 1) ^ 2 + 17 * seed) % 65521 < 32760)
+  let threshold := match seed % 4 with
+    | 0 => 32760 | 1 => 60000 | 2 => 5521 | _ => 64500
+  decide ((code * (seed + 1) ^ 2 + 17 * seed) % 65521 < threshold)
 
 def probeAssignment (seed : Nat) (a : Formula (Fin ap)) : Bool :=
   probeValue seed (probeCode a)
