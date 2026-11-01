@@ -131,8 +131,9 @@ uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {
       dpa_decline(c, TLSF_DPA_UNSUPPORTED);
     else {
       uint32_t v = component(c, atom->cls);
-      result = dpa_ite(c, v, dpa_acceptance(c, cl->high),
-                       dpa_acceptance(c, cl->low));
+      uint32_t low = dpa_acceptance(c, cl->low);
+      uint32_t high = dpa_acceptance(c, cl->high);
+      result = dpa_ite(c, v, high, low);
     }
   }
   if (dpa_poll(c))
@@ -184,10 +185,11 @@ static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,
     if (pair && pair->all < 2)
       result =
           terminal_condition(c, pair->all ? cl->high : cl->low, values, epoch);
-    else
-      result =
-          dpa_ite(c, atom->cls, terminal_condition(c, cl->high, values, epoch),
-                  terminal_condition(c, cl->low, values, epoch));
+    else {
+      uint32_t low = terminal_condition(c, cl->low, values, epoch);
+      uint32_t high = terminal_condition(c, cl->high, values, epoch);
+      result = dpa_ite(c, atom->cls, high, low);
+    }
     cl->epoch = epoch;
     cl->mapped = result;
   }
@@ -314,9 +316,11 @@ uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     return DPA_BAD;
   for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i) {
     DpaPair *p = c->pairs.items[t->values[i]];
-    if (p->dag == DPA_BAD)
-      p->dag = dpa_product(c, dpa_step_dag(c, p->all),
-                           dpa_step_dag(c, p->rejecting));
+    if (p->dag == DPA_BAD) {
+      uint32_t rejecting = dpa_step_dag(c, p->rejecting);
+      uint32_t all = dpa_step_dag(c, p->all);
+      p->dag = dpa_product(c, all, rejecting);
+    }
     roots[i] = p->dag;
   }
   uint32_t result = joint(c, dpa_tuple(c, roots), leaf);

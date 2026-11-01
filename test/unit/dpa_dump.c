@@ -279,8 +279,8 @@ int main(int argc, char **argv) {
       if (code != 0 || strcmp(hash, line)) {
         fprintf(stderr, "translation golden mismatch at row %zu: %s", count + 1,
                 request);
+        // Keep checking: compiler-dependent construction can affect many rows.
         status = 1;
-        break;
       }
       ++count;
     }

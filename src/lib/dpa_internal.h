@@ -108,6 +108,10 @@ struct TlsfDpa {
   unsigned recursion;
 };
 
+// Interning assigns syntax, BDD-variable and acceptance-colour IDs in discovery
+// order. Sequence recursive operands in separate full expressions: C does not
+// order function arguments. At formerly nested calls, retain the historical
+// right-to-left order so canonical automata keep their validated identities.
 bool dpa_poll(TlsfDpa *c);
 bool dpa_enter(TlsfDpa *c);
 uint32_t dpa_decline(TlsfDpa *c, TlsfDpaReason reason);

@@ -5,7 +5,7 @@ import TlsfProofs.Dpa.Refinements
 # Executable structural fragment tags
 
 These are the five bits of `src/lib/dpa_internal.h:10`, computed by the
-operator transfers in `src/lib/dpa_formula.c:254` (`term`) and `:207`
+operator transfers in `src/lib/dpa_formula.c:256` (`term`) and `:209`
 (`dpa_atom`). `classTag` performs the exact support intersection of
 `src/lib/dpa_formula.c:81` in research mode. That mode deliberately does not
 recursively refine frozen modal operands. Default-mode refinement is a

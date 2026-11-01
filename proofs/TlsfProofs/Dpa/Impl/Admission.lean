@@ -3,14 +3,14 @@ import TlsfProofs.Dpa.Impl.Dual
 /-!
 # Executable canonical research admission and grouping decisions
 
-The full canonical success domain of `src/lib/dpa_formula.c:505`
+The full canonical success domain of `src/lib/dpa_formula.c:509`
 (`check_admission`) is the support-wise union of the Π₂/Σ₂ atom grammars.
 `canonicalResearchCheck_exact` and `canonicalResearchCheck_shannon` justify
 that domain independently of a particular BDD variable order. They do not
 yet simulate allocation of components by `syntax_acceptance`.
 
 `compatibleGroups` implements the actual folded-class identity comparison
-at `src/lib/dpa_formula.c:597`; a nonempty operand list can fold to identity.
+at `src/lib/dpa_formula.c:602`; a nonempty operand list can fold to identity.
 -/
 namespace Tlsf.Dpa.Impl
 open Formula

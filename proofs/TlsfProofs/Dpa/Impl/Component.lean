@@ -4,9 +4,9 @@ import TlsfProofs.Dpa.GeneralConverse
 /-!
 # Executable complete research component
 
-`initial` corresponds to `src/lib/dpa_dela.c:327`. `transition` is the ordered
-table at `:5`, after simultaneous STEP at `src/lib/dpa_formula.c:664` and
-unfolding at `:700`. The executable extractor supplies protection, DROP_X,
+`initial` corresponds to `src/lib/dpa_dela.c:331`. `transition` is the ordered
+table at `:5`, after simultaneous STEP at `src/lib/dpa_formula.c:670` and
+unfolding at `:706`. The executable extractor supplies protection, DROP_X,
 retry, and retained finite remainders. This is a component reference; it
 does not yet model the C constructor's colour sharing or global product.
 -/

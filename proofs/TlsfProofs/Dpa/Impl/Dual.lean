@@ -3,7 +3,7 @@ import TlsfProofs.Dpa.Impl.Component
 /-!
 # NNF dual classification and general Σ₂ components
 
-`src/lib/dpa_formula.c:971` (`dpa_dual`) complements a Boolean class while
+`src/lib/dpa_formula.c:977` (`dpa_dual`) complements a Boolean class while
 renaming modal atoms to their NNF duals. It does not take the Boolean function
 complement with unchanged modal variables. `src/lib/dpa_dela.c:93` chooses
 the Π₂ orientation and shares a complete run with complemented acceptance.
