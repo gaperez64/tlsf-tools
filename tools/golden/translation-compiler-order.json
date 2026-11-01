@@ -1,0 +1,410 @@
+{
+  "date": "2026-11-01",
+  "base_revision": "5bdee530877e4f6ff3c6b9d2dc48fb59a2463cd6",
+  "ci_run": 41268190475,
+  "timeout_seconds": 17,
+  "lean": "Lean (version 4.35.0, x86_64-unknown-linux-gnu, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)",
+  "validator_executable_sha256": "2a01e060dc6951269a51f47150378f250d09f4abee970a7c3580ad1ec25d8460",
+  "validation_theorems": [
+    "Tlsf.Dpa.Validation.validate_parity_sound",
+    "Tlsf.Dpa.Validation.validate_buchi_sound"
+  ],
+  "hashes_sha256": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+  "root_cause": "Unspecified C operand evaluation order assigned different syntax, BDD-variable and acceptance-colour IDs; colour order changes Zielonka branch order and parity states.",
+  "fix": "Sequence recursive interning calls in separate full expressions, preserving the previously validated GCC order.",
+  "changed_golden_hashes": 0,
+  "mismatching_rows": 38,
+  "cases": [
+    {
+      "row": 265,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e ^ ! $a X ! M $b $a ! R $b ! & & ! $a $b F $b",
+      "clang_before_sha256": "641b1be3c01006546bdbaf04bf925c948fa3029417cc03064134939dd5a8837e",
+      "fixed_sha256": "10feca0eefd0b57d54b0ab180752b7d9dd836e8a4f21cb56a56c1a4b28e994bc",
+      "golden_sha256": "10feca0eefd0b57d54b0ab180752b7d9dd836e8a4f21cb56a56c1a4b28e994bc",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.566
+    },
+    {
+      "row": 284,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ^ F X $a X F ! $a",
+      "clang_before_sha256": "a3bf5ee159a9af2cc685d09e35d1cfed901eebf2d23beec4798890c638467e53",
+      "fixed_sha256": "11affd1f6f033d1a6180a04987ba17184a2e5e5ff033694bd3810d008e86bbb8",
+      "golden_sha256": "11affd1f6f033d1a6180a04987ba17184a2e5e5ff033694bd3810d008e86bbb8",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.151
+    },
+    {
+      "row": 504,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b & & $b G $c M $a $c",
+      "clang_before_sha256": "6a6e8b5ad0ca318c380127c7e94abe2537e3248e9bee85da39bb7c8e567c0fd6",
+      "fixed_sha256": "1ee46e12ba4e92d22bcc03f097ccd22fa99ca1431937419ad6c2a24355295d8c",
+      "golden_sha256": "1ee46e12ba4e92d22bcc03f097ccd22fa99ca1431937419ad6c2a24355295d8c",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.061
+    },
+    {
+      "row": 521,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e i ! ^ $a U X $b $c F U ! $c $a ! e ! $a R W $c G $a $b",
+      "clang_before_sha256": "2645c6f88be0c73fa360ff66ea04a7adc1fa45b7eb5397e46ea2d2caba08fee5",
+      "fixed_sha256": "1fd0822f41f54de36732588610eb4694d4e46b53dda9f6e35cdb93fd6f016ab3",
+      "golden_sha256": "1fd0822f41f54de36732588610eb4694d4e46b53dda9f6e35cdb93fd6f016ab3",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 1.208
+    },
+    {
+      "row": 565,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ! G & | $a F X $b | F $c & X $a F | $b X X $c",
+      "clang_before_sha256": "29e6ade393326cf59c651e704850074838cdaf0b0bec17375a88a53017ce46e7",
+      "fixed_sha256": "222cae989506e58dd6c31d47850bd689231307c83c726f5218a830d66afdbfaa",
+      "golden_sha256": "222cae989506e58dd6c31d47850bd689231307c83c726f5218a830d66afdbfaa",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 4.367
+    },
+    {
+      "row": 595,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b & F $a ! | F ! $c U 1 ! G $b",
+      "clang_before_sha256": "e158466a657fbda951fb7a65900d03060217fe32eac500694a6af5fc81c3cb88",
+      "fixed_sha256": "243f888b5bbf6a1d13f4a3af37bddaca21369de131736d1a44c0edcfd98a0d5a",
+      "golden_sha256": "243f888b5bbf6a1d13f4a3af37bddaca21369de131736d1a44c0edcfd98a0d5a",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.053
+    },
+    {
+      "row": 646,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e W G $c R 0 X 0 ! M $b e $c X & $a $b",
+      "clang_before_sha256": "34e29597c05363cc02f7c8117aa2b712960a416665ea95967cfd67a2a2c7a957",
+      "fixed_sha256": "276e3e14b63e07b5e38bd7a179c07ec5ee0ed7011a1fba34ef52ba344212096d",
+      "golden_sha256": "276e3e14b63e07b5e38bd7a179c07ec5ee0ed7011a1fba34ef52ba344212096d",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.659
+    },
+    {
+      "row": 739,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e ! U $c M F $a | $b ! $c i G $b $a",
+      "clang_before_sha256": "33fe3531b82a874290e53af664c0b9ec058cde2141575954524fff73c966deab",
+      "fixed_sha256": "2cf20d3c899923e1abb46814f3bb55edfd821c14493433dfc67f6b3d6faa9a0b",
+      "golden_sha256": "2cf20d3c899923e1abb46814f3bb55edfd821c14493433dfc67f6b3d6faa9a0b",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.489
+    },
+    {
+      "row": 874,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e X ! $c i $a M & ! $b F $a X $b",
+      "clang_before_sha256": "fca5cfabd57f3ff2242766fdc00f232f9455c59ea1c6607698c30b3db03cdbd3",
+      "fixed_sha256": "33b4a1e7a09d857d4badcd16a04389e316c2919c7d176182ab7b407cde721e9a",
+      "golden_sha256": "33b4a1e7a09d857d4badcd16a04389e316c2919c7d176182ab7b407cde721e9a",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.239
+    },
+    {
+      "row": 912,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e ! X F ! $c ! M F ! $c $a",
+      "clang_before_sha256": "791a109692b17a9211e5135c6ec7108e3a7de74a912ded901baa37846cf8afa0",
+      "fixed_sha256": "364a0bc333d614f9ef3e3790ff019e977506bd2fe04623598f720edb5ffb66fc",
+      "golden_sha256": "364a0bc333d614f9ef3e3790ff019e977506bd2fe04623598f720edb5ffb66fc",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.272
+    },
+    {
+      "row": 1172,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e G ! U U ! $c X $a $c ! R & $b X $b ! | $a X $b",
+      "clang_before_sha256": "a21eb3105bfdecbf3d1683f26955e66adf360e9831a3a353b7802f56d060292a",
+      "fixed_sha256": "457f94cfcd8f641f7a152458b88b08826c8f7f46d26880309ed1f128aede5543",
+      "golden_sha256": "457f94cfcd8f641f7a152458b88b08826c8f7f46d26880309ed1f128aede5543",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.785
+    },
+    {
+      "row": 1173,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e R 0 $b ^ X 0 X R $b $a",
+      "clang_before_sha256": "100996fff3e1c2d560536ee4e0aacdc03c8859447cd7c5bcce4364035177cac4",
+      "fixed_sha256": "45a2ebed2026118c4d680f9276388c8df00380f0cc8d58f0e77e366567940715",
+      "golden_sha256": "45a2ebed2026118c4d680f9276388c8df00380f0cc8d58f0e77e366567940715",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.212
+    },
+    {
+      "row": 1232,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b X e X $b ! G $a",
+      "clang_before_sha256": "c1ce785cbce9d970e635f66e520ce29cb848f2629b43da10a6713f1e5e6fb1c1",
+      "fixed_sha256": "4973b939dab7d351004a806c0a0a8bd178ce0ef58b5345b1e3ca7148b179173c",
+      "golden_sha256": "4973b939dab7d351004a806c0a0a8bd178ce0ef58b5345b1e3ca7148b179173c",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.182
+    },
+    {
+      "row": 1331,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ! F | & $a G X $b & G $c | X $a G & $b X X $c",
+      "clang_before_sha256": "20d26217a2ca82d913db673ce9bf656d5ba472610bd147ce309ba5a7550640e5",
+      "fixed_sha256": "507bb60e92c7d5456e1158edbd4bb5b5ae4620624767235e5a012a5a7b59cba8",
+      "golden_sha256": "507bb60e92c7d5456e1158edbd4bb5b5ae4620624767235e5a012a5a7b59cba8",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 4.111
+    },
+    {
+      "row": 1464,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e $c W ! $b 0",
+      "clang_before_sha256": "6cf0d2f2beb074cff3715a961a8c5e7d930b5905698aa213f7b30afe29a36314",
+      "fixed_sha256": "595b150127577b328c57cf8d8f40d00b6351334f11584203620fe75dc8d81984",
+      "golden_sha256": "595b150127577b328c57cf8d8f40d00b6351334f11584203620fe75dc8d81984",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.063
+    },
+    {
+      "row": 1520,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e X G $c W $c R $b $c",
+      "clang_before_sha256": "865edb6dbde18e198a1ed3a2225657c541c83811062ff4f13c20fc032d4f5fac",
+      "fixed_sha256": "5c273f04f7ce54fa315e873f4ffefd3c51b4364fab573162c7df36c417ee9e8d",
+      "golden_sha256": "5c273f04f7ce54fa315e873f4ffefd3c51b4364fab573162c7df36c417ee9e8d",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.272
+    },
+    {
+      "row": 1644,
+      "request": "TV1 parity general 4 uncontrollable_i1 uncontrollable_i0 controllable_o1 controllable_o0 i G & & & i & $uncontrollable_i0 ! $controllable_o0 X $uncontrollable_i0 i & ! $uncontrollable_i0 $controllable_o0 X ! $uncontrollable_i0 F ! & $uncontrollable_i0 $controllable_o0 & & i & $uncontrollable_i1 ! $controllable_o1 X $uncontrollable_i1 i & ! $uncontrollable_i1 $controllable_o1 X ! $uncontrollable_i1 F ! & $uncontrollable_i1 $controllable_o1 & G & | & ! $controllable_o0 1 & 1 ! $controllable_o1 & i & $uncontrollable_i0 X $uncontrollable_i1 F & $controllable_o0 $controllable_o1 1 & G i $uncontrollable_i0 F $controllable_o0 G i $uncontrollable_i1 F $controllable_o1",
+      "clang_before_sha256": "abd557d443971b1af00acbc18d26d66744e907f35f2d4b7e29470bf1b61aaa57",
+      "fixed_sha256": "638a3aa81fe911dea653d464212e494bcf47bfe002fc6978873ba046ff7e11d6",
+      "golden_sha256": "638a3aa81fe911dea653d464212e494bcf47bfe002fc6978873ba046ff7e11d6",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 4.718
+    },
+    {
+      "row": 1646,
+      "request": "TV1 parity default 4 uncontrollable_i1 uncontrollable_i0 controllable_o1 controllable_o0 i G & & & i & $uncontrollable_i0 ! $controllable_o0 X $uncontrollable_i0 i & ! $uncontrollable_i0 $controllable_o0 X ! $uncontrollable_i0 F ! & $uncontrollable_i0 $controllable_o0 & & i & $uncontrollable_i1 ! $controllable_o1 X $uncontrollable_i1 i & ! $uncontrollable_i1 $controllable_o1 X ! $uncontrollable_i1 F ! & $uncontrollable_i1 $controllable_o1 & G & | & ! $controllable_o0 1 & 1 ! $controllable_o1 & i & $uncontrollable_i0 X $uncontrollable_i1 F & $controllable_o0 $controllable_o1 1 & G i $uncontrollable_i0 F $controllable_o0 G i $uncontrollable_i1 F $controllable_o1",
+      "clang_before_sha256": "64062abee898721eea3c440a9ec74d6865a0bae37ca58097fab654a8087c299b",
+      "fixed_sha256": "638deb704900a9de4485013130c4a1840e9d9da13136574888131036fe4abca9",
+      "golden_sha256": "638deb704900a9de4485013130c4a1840e9d9da13136574888131036fe4abca9",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 4.805
+    },
+    {
+      "row": 1801,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e | ! $a & $a $c F $a",
+      "clang_before_sha256": "0bb01a1e01297829779e3e1ef306d780022e04c28f29e45c9d2fd38ad0836683",
+      "fixed_sha256": "6d5626bbc01a1bad0ed1879c23d9842f88212f60cccc1dd4ddcf6cb2c03727e2",
+      "golden_sha256": "6d5626bbc01a1bad0ed1879c23d9842f88212f60cccc1dd4ddcf6cb2c03727e2",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.054
+    },
+    {
+      "row": 1806,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e ! X F $a ! ^ $a | X $b M $b 1",
+      "clang_before_sha256": "fa6ae51c1a24758b442c1c44b9693962e788e691ce58974f3d5e173b711be472",
+      "fixed_sha256": "6d95e55547199e8f36e81483695bf752f1b774c9f961a880abb26b4d3da1ed9c",
+      "golden_sha256": "6d95e55547199e8f36e81483695bf752f1b774c9f961a880abb26b4d3da1ed9c",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.299
+    },
+    {
+      "row": 1925,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b i ^ $b F ! $c $a",
+      "clang_before_sha256": "76096ffd1778ceb2ead3b73431b85d203b1412cadf39ebd85ead7337c6d45712",
+      "fixed_sha256": "75e571aa299f9bd8bd91e39ed82e7c9360b28e1f13d55f8e2a20e43bf33c2aa0",
+      "golden_sha256": "75e571aa299f9bd8bd91e39ed82e7c9360b28e1f13d55f8e2a20e43bf33c2aa0",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.063
+    },
+    {
+      "row": 1997,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b G & | $a F X $b | F $c & X $a F | $b X X $c",
+      "clang_before_sha256": "ff784e9410ce78912e764104ac3324dbd24962370c312557fc3fb3c41fef2d4b",
+      "fixed_sha256": "79de4a7a8666668fc2bf99819bf1e1fd7c471e3203c1c8b6c19bd1cb68a5e0ac",
+      "golden_sha256": "79de4a7a8666668fc2bf99819bf1e1fd7c471e3203c1c8b6c19bd1cb68a5e0ac",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 4.367
+    },
+    {
+      "row": 2120,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ! G & F | & $a X $b & $c X $req F $grant",
+      "clang_before_sha256": "2a40bb6d35a30d7eb99d9faf3fdb55fcc6de59c51b16fdff2996648bd735ab30",
+      "fixed_sha256": "812f0be9de794cc416ff1f6b9a868ee0eb4b6d87012cf0d4455caec510d1adb2",
+      "golden_sha256": "812f0be9de794cc416ff1f6b9a868ee0eb4b6d87012cf0d4455caec510d1adb2",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 1.732
+    },
+    {
+      "row": 2160,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b & & $b G $c F & $a ^ $a ! $c",
+      "clang_before_sha256": "f1c988089e58add085688f8db91ba302743e9e7e0ddaee653d276b9931373c8d",
+      "fixed_sha256": "83bc062cfc6be68df9cfc18c166640c194faebfe635556a132149041512b2cb5",
+      "golden_sha256": "83bc062cfc6be68df9cfc18c166640c194faebfe635556a132149041512b2cb5",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.078
+    },
+    {
+      "row": 2213,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b F | & $a G X $b & G $c | X $a G & $b X X $c",
+      "clang_before_sha256": "dba1e271cc8e1d05a62dcae70cfbf69ec550a3f98cfbb48e31791a0a8a03bb79",
+      "fixed_sha256": "871e819bf8a99e07751fc0c1b0b67d68826d1813bfb824b5d78f3575a6e52de3",
+      "golden_sha256": "871e819bf8a99e07751fc0c1b0b67d68826d1813bfb824b5d78f3575a6e52de3",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 4.047
+    },
+    {
+      "row": 2338,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e e $c W ! $b 0 ! e F ^ $b $c W $b 0",
+      "clang_before_sha256": "f04dc439fd0e8a157c471558434df8ee734ec494c710fcbda62938d0f7953497",
+      "fixed_sha256": "8f483cca1ef58be2321c22ecae3703cb6511dee712c4aad6a024d6ccba42bf0c",
+      "golden_sha256": "8f483cca1ef58be2321c22ecae3703cb6511dee712c4aad6a024d6ccba42bf0c",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.59
+    },
+    {
+      "row": 2350,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b X & ! G $a R $c G $b",
+      "clang_before_sha256": "5f5aa3dd2a40ea5b59b85086a80079f916212fbb645a0da68059f97e119b80e4",
+      "fixed_sha256": "8ff6c93c6e2b6fcb5f2846ae5a8311fba633f7f10729e57f6488c38c6e21445f",
+      "golden_sha256": "8ff6c93c6e2b6fcb5f2846ae5a8311fba633f7f10729e57f6488c38c6e21445f",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.151
+    },
+    {
+      "row": 2463,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b & F $c G $a",
+      "clang_before_sha256": "14373300814e0f7816ed8829e0d8eb7f12bfbf31a39b46c861f2d22c76476630",
+      "fixed_sha256": "96f1d1edd15d10ad16cb59816fd097549d44326f4b7a86e9be639194f2593553",
+      "golden_sha256": "96f1d1edd15d10ad16cb59816fd097549d44326f4b7a86e9be639194f2593553",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.046
+    },
+    {
+      "row": 2467,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b G & F | & $a X $b & $c X $req F $grant",
+      "clang_before_sha256": "2f7fff094171b3d3e52c227775f422219a1fab64a96fda5ccd0868a3faaf2987",
+      "fixed_sha256": "97111552368a333d5e357d478e4dd7144fb86ce0f11a18460d1764f542f479a1",
+      "golden_sha256": "97111552368a333d5e357d478e4dd7144fb86ce0f11a18460d1764f542f479a1",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 1.778
+    },
+    {
+      "row": 2506,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e F & $a $b ! G W ! $c 0",
+      "clang_before_sha256": "3dd54aabbfc74ba69f6647e74044965f48952232d8e894fb999d80aee84a3beb",
+      "fixed_sha256": "98f6d34602773332eba03a427a943c7787136f19133c07af0fbe73d1ce5917c8",
+      "golden_sha256": "98f6d34602773332eba03a427a943c7787136f19133c07af0fbe73d1ce5917c8",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.229
+    },
+    {
+      "row": 2574,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ^ X G $b G X $b",
+      "clang_before_sha256": "fc72e39bbebb387b74363a8e4bff1c654b8c48c47473a1d856dcf7cbe3e558dc",
+      "fixed_sha256": "9c8bfe03403c1f8dd17d6c3651d1c6066a53651dc744b16fa0309101d75c42cb",
+      "golden_sha256": "9c8bfe03403c1f8dd17d6c3651d1c6066a53651dc744b16fa0309101d75c42cb",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.185
+    },
+    {
+      "row": 2611,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ^ G $b R 0 R $c $b",
+      "clang_before_sha256": "4cb18ac5b69f14d810ed4d219fea0f27b011d009f6a5e30b585df06d177d6ddc",
+      "fixed_sha256": "9eff696aedc8eef555c160893c6f1e4333efaf49aac2a38a78cab20b0d00f191",
+      "golden_sha256": "9eff696aedc8eef555c160893c6f1e4333efaf49aac2a38a78cab20b0d00f191",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.115
+    },
+    {
+      "row": 2648,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e X i X M ! X $b $c & $b ! $b i X $b $b",
+      "clang_before_sha256": "fa0d886c48f32e5b4390a076cfdc405cef82c998a4aae6888a82f1223ed7fac5",
+      "fixed_sha256": "a1851348692ed36a2054b5b5bdc281613c67d2ac9b04938e626cc253a3f22a9a",
+      "golden_sha256": "a1851348692ed36a2054b5b5bdc281613c67d2ac9b04938e626cc253a3f22a9a",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.165
+    },
+    {
+      "row": 2997,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e F $b X $c",
+      "clang_before_sha256": "e44c7e39e7709fddf3a254d6e5f98e73925bbe61236ba955a0f9cf471389531a",
+      "fixed_sha256": "b89c9606b3d8d0a97b843ddc1a49e8d63aea873c9ee5d95d0cb7e69dcc12af38",
+      "golden_sha256": "b89c9606b3d8d0a97b843ddc1a49e8d63aea873c9ee5d95d0cb7e69dcc12af38",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.115
+    },
+    {
+      "row": 3280,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b ^ G $a X W G $a e $c X $b",
+      "clang_before_sha256": "608bd929de50eeba20b2e43aea87c693f1292651449b7aceb29557de131a9d21",
+      "fixed_sha256": "cbff446a937eba5d778f077daadfa2d30bb67aad9d58ff1d299e99092357c367",
+      "golden_sha256": "cbff446a937eba5d778f077daadfa2d30bb67aad9d58ff1d299e99092357c367",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.834
+    },
+    {
+      "row": 3549,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e $a F $c",
+      "clang_before_sha256": "dc8f5a85c0f4aa9a8d195be16e069026ea89541af4321977815062c3f8c7096e",
+      "fixed_sha256": "dc0805a7182a651b1355416cd281574850f47e22d375bd5d3b37a14624bc07ce",
+      "golden_sha256": "dc0805a7182a651b1355416cd281574850f47e22d375bd5d3b37a14624bc07ce",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.06
+    },
+    {
+      "row": 3921,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b e ^ G $b R 0 R $c $b ! W $b G $a",
+      "clang_before_sha256": "7247ff638db7a8856523c7a14957efabe49a3485cef43163e6061f4cbd8e501a",
+      "fixed_sha256": "f1a7568fdc5ad821121ad811723f49c8bc5dc293d04d264365806bfdfe889966",
+      "golden_sha256": "f1a7568fdc5ad821121ad811723f49c8bc5dc293d04d264365806bfdfe889966",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.532
+    },
+    {
+      "row": 3958,
+      "request": "TV1 parity default 7 unused_in req a unused_out c grant b X ^ G $a G X $a",
+      "clang_before_sha256": "c90dac25005fbe40e05949bc9f37021687f7304c1e9a0500d161a162e10025e3",
+      "fixed_sha256": "f496b39dd097db5aa2be2cbd965a2bf99fc598d600c9bb6a8e8867966dde98f6",
+      "golden_sha256": "f496b39dd097db5aa2be2cbd965a2bf99fc598d600c9bb6a8e8867966dde98f6",
+      "status": "pass",
+      "reason": "",
+      "elapsed_seconds": 0.276
+    }
+  ],
+  "outcomes": {
+    "pass": 38
+  },
+  "source_sha256": {
+    "src/lib/dpa_formula.c": "3859ad88a0725b526fdf2a88263fa687d2e705ab862b2db4bfa718b7ca67b739",
+    "src/lib/dpa_dela.c": "1035f54f0d61d9cff9a372001b42c80b9c7f539957d831c5290ce69ab4118add",
+    "src/lib/dpa_internal.h": "c108ba0c0ef58498d56356c04a5735c9d68233d43edd79bdd7bf5f900080ba1a",
+    "test/unit/dpa_dump.c": "286213f4107335a89a8ac50ef07b0fe81510e615455e0c63f0711b802421805f"
+  },
+  "clang_version": "clang version 21.1.8 (Fedora 21.1.8-6.fc43)",
+  "gcc_version": "gcc (GCC) 15.3.1 20260722 (Red Hat 15.3.1-1)"
+}

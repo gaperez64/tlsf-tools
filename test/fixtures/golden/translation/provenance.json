@@ -291,5 +291,25 @@
   },
   "golden_formula_inventory_sha256": "583283e8207bde9d84158916e23480a9ac52b056b4b522b6b71775202855388a",
   "validated_artifacts": 4134,
-  "golden_artifacts": 4134
+  "golden_artifacts": 4134,
+  "compiler_order_validation": {
+    "receipt": "tools/golden/translation-compiler-order.json",
+    "sha256": "c55197fb65585db6b6b2cbc6267e37af036f1aad453c5938631db48a6fe14ff3",
+    "revalidated_artifacts": 38,
+    "changed_golden_hashes": 0,
+    "source_updates": [
+      "proofs/TlsfProofs/Dpa/Impl/Admission.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Buchi.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Component.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Dual.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Extractor.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Factoring.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Tags.lean",
+      "proofs/TlsfProofs/Dpa/Impl/Transport.lean",
+      "src/lib/dpa_dela.c",
+      "src/lib/dpa_formula.c",
+      "src/lib/dpa_internal.h",
+      "test/unit/dpa_dump.c"
+    ]
+  }
 }

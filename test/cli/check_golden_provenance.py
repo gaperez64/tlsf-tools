@@ -109,6 +109,26 @@ if translation.exists():
     assert provenance["validation_theorems"] == [
         "Tlsf.Dpa.Validation.validate_parity_sound",
         "Tlsf.Dpa.Validation.validate_buchi_sound"]
+    if "compiler_order_validation" in provenance:
+        update = provenance["compiler_order_validation"]
+        receipt_path = root.parents[2] / update["receipt"]
+        assert hashlib.sha256(receipt_path.read_bytes()).hexdigest() == update["sha256"]
+        receipt = json.loads(receipt_path.read_text())
+        assert receipt["timeout_seconds"] == 17
+        assert receipt["validator_executable_sha256"] == provenance["validator_executable_sha256"]
+        assert receipt["hashes_sha256"] == provenance["hashes_sha256"]
+        count = update["revalidated_artifacts"]
+        assert count == receipt["mismatching_rows"] == len(receipt["cases"]) > 0
+        assert receipt["outcomes"] == {"pass": count}
+        assert update["changed_golden_hashes"] == receipt["changed_golden_hashes"] == 0
+        assert len({case["row"] for case in receipt["cases"]}) == count
+        for case in receipt["cases"]:
+            digest, verdict, request = rows[case["row"] - 1].split("\t")
+            assert request == case["request"] and verdict == case["status"] == "pass"
+            assert digest == case["fixed_sha256"] == case["golden_sha256"]
+            assert digest != case["clang_before_sha256"]
+        for name, digest in receipt["source_sha256"].items():
+            assert provenance["source_sha256"][name] == digest
     for suite in manifest.values():
         if isinstance(suite, dict) and "general_admission_recoveries" in suite:
             recovery = suite["general_admission_recoveries"]
