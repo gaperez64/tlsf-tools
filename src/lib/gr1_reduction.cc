@@ -873,7 +873,10 @@ struct AagBuilder {
       uint32_t ap = compile_atom(Formula::ap(automaton.names.at(node.ap)));
       uint32_t low = compile_label(automaton, node.low),
                high = compile_label(automaton, node.high);
-      result = lor(land(ap ^ 1u, low), land(ap, high));
+      // Gate IDs are serialized: preserve GCC's historical right-first order.
+      uint32_t high_gate = land(ap, high);
+      uint32_t low_gate = land(ap ^ 1u, low);
+      result = lor(low_gate, high_gate);
     }
     label_cache.emplace(key, result);
     return result;
