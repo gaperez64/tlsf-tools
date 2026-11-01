@@ -122,11 +122,12 @@ warnings from `include/tlsf/ast.h`.
 
 ### Inventory scope and reproduction
 
-The full 69-objective rerun is pending the missing `semml-only.list` (or its
-45 default-admitted names). The list is not in this checkout, the documented
-`../../otfpar/semml-only.list` path is absent, and the original raw inventory
-results were not committed. The materialized TLSF corpus and 1,524-name source
-mapping are present. The 24 named default declines can be recovered from
+The current 69-objective expansion inventory and Owl comparison are recorded
+in [STATE-COUNTS.md](STATE-COUNTS.md). The historical paired parent/HEAD rerun
+over all 69 was not performed: `semml-only.list` was unavailable during that
+audit, and the original raw inventory results were not committed. The
+materialized TLSF corpus and 1,524-name source mapping were present. The
+24 named default declines were recovered from
 `STAGE2-INVENTORY.md`; they are a known subset, not a replacement inventory.
 The historical 45/69 and 69/69 totals must not be read as a fresh full-corpus
 measurement on either revision.

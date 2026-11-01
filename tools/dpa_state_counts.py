@@ -32,7 +32,19 @@ def save(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
+def check_exports(row, prefix):
+    assert digest(str(prefix) + ".ltl") == row["formula_sha256"]
+    assert digest(str(prefix) + ".aps") == row["aps_sha256"]
+    body = Path(str(prefix) + ".ltl").read_text()
+    aps = Path(str(prefix) + ".aps").read_text().splitlines()
+    expected = "(false" + "".join(f' & "{ap}"' for ap in aps) + ") | " + body
+    assert Path(str(prefix) + ".owl.ltl").read_text() == expected
+
+
 def prepare(args):
+    if any((SCRATCH / "runs").glob("*/*/started.json")):
+        raise SystemExit("Scratch contains measured runs; resume with run, or preserve it "
+                         "and start a fresh scratch directory before preparing a new campaign.")
     names = (SCRATCH / "evidence/_bm-logs.otfpar/semml-only.list").read_text().splitlines()
     assert len(names) == len(set(names)) == 69
     mapping_path = args.acacia / "tests/suites/benchmarks/syntcomp26/tlsf-sources.tsv"
@@ -146,6 +158,7 @@ def run(args):
         prefix = SCRATCH / "formulas" / row["instance"]
         source = SCRATCH / "inputs" / row["tlsf"]
         assert digest(source) == row["source_sha256"]
+        check_exports(row, prefix)
         for tool in ["default", "research", "owl"]:
             directory = SCRATCH / "runs" / row["instance"] / tool
             directory.mkdir(parents=True, exist_ok=True)
@@ -210,8 +223,7 @@ def run(args):
                     if code == "0":
                         result.update(states=int(states), colours=int(colours), used=int(used))
             save(directory / "result.json", result)
-            assert digest(str(prefix) + ".ltl") == row["formula_sha256"]
-            assert digest(str(prefix) + ".aps") == row["aps_sha256"]
+            check_exports(row, prefix)
             print(f"{index}/69 {row['instance']} {tool}: {result}", flush=True)
 
 
@@ -223,6 +235,12 @@ def summarize(args):
         for tool in ["default", "research", "owl"]:
             result = json.loads((SCRATCH / "runs" / row["instance"] / tool / "result.json").read_text())
             row.update({tool + "_" + key: value for key, value in result.items()})
+        row["owl_parity"] = "NA"
+        if row["owl_status"] == "ok":
+            with (SCRATCH / "runs" / row["instance"] / "owl/stdout").open() as stream:
+                acceptance = next(line.split() for line in stream if line.startswith("acc-name:"))
+            assert acceptance[1] == "parity"
+            row["owl_parity"] = "_".join(acceptance[2:4])
         rows.append(row)
     with args.output.open("w") as stream:
         writer = csv.DictWriter(stream, fieldnames=rows[0].keys(), delimiter="\t", lineterminator="\n")
