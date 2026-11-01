@@ -7,6 +7,12 @@
 cases = meson.current_source_dir() / 'fixtures' / 'cases'
 scripts = meson.project_source_root() / 'scripts'
 
+# Default-behaviour checks must ignore developer solver overrides. Solver
+# configuration tests supply their own subprocess environment explicitly.
+test_env = environment()
+test_env.unset('TLSFCOMPOSE_SOLVER')
+add_test_setup('default', env: test_env, is_default: true)
+
 subdir('fixtures')
 subdir('unit')
 subdir('api')
