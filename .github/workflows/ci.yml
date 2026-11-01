@@ -45,7 +45,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build flex bison gcc-14 valgrind
+            ninja-build flex bison gcc-14 g++-14 valgrind
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
@@ -118,7 +118,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build flex bison gcc-14
+            ninja-build flex bison gcc-14 g++-14
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
@@ -131,7 +131,7 @@ jobs:
           meson compile -C build-simd-${{ matrix.cpu }} simd_check
           meson test -C build-simd-${{ matrix.cpu }} simd_kernels --print-errorlogs
 
-  # Exercise the research executables and the Spot-verified native solvers.
+  # Exercise the research executables and native solvers against goldens.
   build-oxidd:
     runs-on: ubuntu-24.04
     steps:
@@ -146,7 +146,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build flex bison gcc-14 python3
+            ninja-build flex bison gcc-14 g++-14 python3
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
@@ -175,7 +175,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build flex bison gcc-14 g++-14 make curl pkg-config
+            ninja-build flex bison gcc-14 g++-14
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
@@ -184,7 +184,6 @@ jobs:
           CC: gcc-14
           CXX: g++-14
         run: |
-          pkg-config --modversion libspot
           git rev-parse HEAD
           git -C external/oxidd rev-parse HEAD
           meson setup build-native-ci \
@@ -242,7 +241,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build flex bison gcc-14 time
+            ninja-build flex bison gcc-14 g++-14 time
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
