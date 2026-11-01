@@ -1,102 +1,85 @@
 # Frontend expansion provenance
 
-`tlsf2tlsf --provenance-out instance.json source.tlsf` expands the source and
-writes basic TLSF to stdout. `--output` can redirect the TLSF separately. The
-JSON schema is `tlsf-tools.frontend-provenance.v1`; consumers must check both
-`schema` and `format_version` before using it. `source_sha256` hashes the exact
-input bytes, including comments and whitespace. `--param NAME=VALUE` overrides
-are reflected in `parameters` and in the expanded records.
+`tlsf2tlsf --provenance-out instance.json source.tlsf` writes expanded basic
+TLSF to stdout (or `--output`) and provenance JSON separately. Consumers must
+check `schema` (`tlsf-tools.frontend-provenance.v1`) and `format_version`.
+`source_sha256` hashes exact input bytes, including whitespace/comments;
+`parameters` and expanded records reflect `--param NAME=VALUE` overrides.
 
-Each signal has a direction and a `declaration_id` such as `input:2`. The
-ordinal is its source declaration order within INPUTS or OUTPUTS. Expanded
-members retain the same ID and carry their concrete `index_tuple`, resolved
-`bounds`, and `width`. `dimensions` is the number of declared TLSF bus axes;
-the current parser supports one bus axis. A grid flattened into a bus therefore
-has one signal axis, while its generating formulas may have two bindings.
-`index_role` is `representation-bit` for explicitly typed enum buses and for
-source definitions that implement the structurally proved halving recurrence
-for floor(log2(x)) followed by its bit-width wrapper. The latter receive
-`width_kind: proved-logarithmic-encoding`. The proof checks AST operators and
-recursion, never function or signal names. Other computed widths are
-`undetermined` and retain their original bound in `width_expression`.
-`element` denotes a direct declared bus position, not a proof that positions
-are symmetric clients. A consumer must prove any further encoding or symmetry
-role before lifting it.
+## Signals and conjuncts
 
-`width_parameter_ids` lists the one-based IDs in `parameters`, in declaration
-order, used by the original lower and upper bus-bound ASTs. Scalar signals
-have an empty list. A definition call follows only formals referenced by its
-body; unused actual arguments do not contribute dependencies. The field is a
-partial list when `width_binding_complete` is false. Recursive definition
-visits, unknown names, unsupported width nodes, and traversal beyond the
-depth limit set that flag to false. Consumers must decline an incomplete
-binding before inferring an `element` owner's parameter axis, and must reject
-unknown or duplicate IDs. A separately proved `representation-bit` role stays
-unowned even if recursive width dependence is incomplete. Width dependence
-alone does not establish client ownership; `undetermined` roles must be
-declined. `width_expression` is display text and must never supply an owner.
+A signal's direction and `declaration_id` (for example `input:2`) identify its
+source declaration order within INPUTS or OUTPUTS. Expanded members share that
+ID and record concrete `index_tuple`, resolved `bounds`, and `width`.
+`dimensions` counts declared bus axes; the parser supports one. A flattened
+grid therefore has one signal axis even when its formulas have two bindings.
 
-Each `conjuncts` entry records the source block, its one-based formula ordinal,
-an AST `source_node_id`, a zero-based `generated_position` within that source
-formula, the concrete integer generator `bindings`, expanded
-formula text, and the exact names of mentioned expanded signals. Source node
-IDs are assigned by source AST preorder before parameter substitution and
-definition expansion. They therefore survive signal renaming, basename
-changes, and parameter overrides. `source_formula_id` is `BLOCK:ordinal` and
-can be used with `source_node_id` to align instances. Conjunctions at the top
-level and directly under a top-level G are split; true terms are retained so
-the frontend inventory is complete. The pair (`source_formula_id`,
-`generated_position`) uniquely identifies an expanded conjunct, including
-temporal ranges and repeated definition calls; it remains stable under signal
-renaming and source filename changes. Consumers must verify this uniqueness.
-When a generator binds a non-integer set element, `ambiguous` is true because
-the integer binding tuple is incomplete. A formula reference that does not
-resolve to an expanded declaration also sets `ambiguous` and is marked on its
-conjunct. Duplicate expanded signal names also set `ambiguous`, even when the
-declarations differ. Consumers must decline structural lifting in these cases
-and independently verify the signal inventory has unique names.
+`index_role: representation-bit` covers explicitly typed enum buses and
+structurally proved floor(log2(x)) halving recurrences with bit-width wrappers
+(`width_kind: proved-logarithmic-encoding`). The proof checks AST operators and
+recursion, never names. Other computed widths are `undetermined`, retaining the
+original bound in `width_expression`. `element` means a declared bus position;
+consumers must prove any symmetry or further encoding role before lifting.
 
-The native GR(1) reducer reads this output and matches each monitor to a unique
-source conjunct by canonical text or native formula equivalence. It sets
-`source_origin_metadata.available` only when the frontend
-record is valid and every monitor has one unique origin. Its
-`provenance_source` is `frontend` in that case. If matching is ambiguous or the
-frontend output is unavailable, the metadata says `suffix-heuristic`; generic
-lifting must reject that fallback. The AIG output does not depend on any of
-these metadata decisions. The pipeline retains the source snapshot and its
-SHA-256 alongside the frontend provenance.
+`width_parameter_ids` lists one-based `parameters` IDs in declaration order
+from the original lower/upper bus-bound ASTs; scalars have none. Definition
+calls follow only formals used by the body. Recursive visits, unknown names,
+unsupported nodes, or traversal beyond the depth limit make
+`width_binding_complete` false and the list partial. Decline incomplete
+bindings before inferring an `element` owner's axis, and reject unknown/duplicate
+IDs. Proved `representation-bit` roles stay unowned even with incomplete
+recursive dependence. Width dependence does not prove ownership; decline
+`undetermined` roles. Display-only `width_expression` must never supply an owner.
 
-The native reducer records `construction_formula` as canonical text of the
-conjunct passed to monitor construction, before source matching. It
-independently parses each frontend conjunct into
-`source_conjuncts[].normalized_formula`, adding the required outer `G` for
-REQUIRE and ASSERT blocks. These two strings use the same source signal names.
-The reported `conjunct` is monitor construction text. On a unique frontend
-match, the monitor also receives `source_binding`: the claimed
-`source_formula_id`, `generated_position`, and `source_node_id`. Otherwise
-`source_origin` is null and `source_binding` is absent. A consumer that needs exact linkage must
-require a unique source conjunct key, equality of `source_binding` with both
-`source_origin` and that conjunct, and equality of `construction_formula` with
-its `normalized_formula`. It must decline missing, inconsistent, or merely
-equivalent formulas. This comparison catches a joint swap of `source_origin`
-and `source_binding` between equal-support sibling monitors whose construction
-formulas differ. Siblings with indistinguishable construction formulas need
-independent structural linkage or must be declined.
+Each `conjuncts` entry contains its block, one-based formula ordinal,
+`source_node_id`, zero-based `generated_position` within that formula, concrete
+integer generator `bindings`, expanded formula, and exact mentioned signal
+names. AST preorder assigns node IDs before substitution/definition expansion,
+so they survive signal renaming, basename changes, and parameter overrides.
+`source_formula_id` is `BLOCK:ordinal`; combine it with `source_node_id` to
+align instances. Top-level conjunctions and those directly under top-level G
+are split, retaining true terms for a complete inventory. Consumers must check
+uniqueness of (`source_formula_id`, `generated_position`), including temporal
+ranges and repeated calls; the pair survives signal renaming and filename changes.
+
+Non-integer generator elements make integer bindings incomplete and set
+`ambiguous`. Unresolved formula references also mark their conjunct ambiguous;
+duplicate expanded names set the flag even across distinct declarations.
+Decline structural lifting in all these cases and independently check signal
+name uniqueness.
+
+## Native monitor linkage
+
+The GR(1) reducer matches monitors to unique source conjuncts by canonical text
+or native formula equivalence. `source_origin_metadata.available` requires a
+valid frontend record and one unique origin per monitor; `provenance_source`
+is then `frontend`. Unavailable/ambiguous metadata uses `suffix-heuristic`,
+which generic lifting must reject. Metadata decisions do not affect the AIG.
+The pipeline retains the source snapshot, its SHA-256, and frontend provenance.
+
+`construction_formula` and reported `conjunct` describe the formula passed to
+monitor construction, before matching. The reducer independently parses
+`source_conjuncts[].normalized_formula`, wrapping REQUIRE/ASSERT in `G`; both
+strings use source signal names. Unique matches receive `source_binding`
+(`source_formula_id`, `generated_position`, `source_node_id`); otherwise
+`source_origin` is null and `source_binding` absent.
+
+Exact linkage requires a unique conjunct key, identical binding/origin/conjunct
+records, and equal `construction_formula`/`normalized_formula`. Decline missing,
+inconsistent, or merely equivalent formulas. This catches joint origin/binding
+swaps between equal-support siblings with different construction formulas.
+Indistinguishable formulas require independent structural linkage or a decline.
 
 ## Monitor game symbol namespace
 
-The native GR(1) reducer assigns expanded environment inputs
-`uncontrollable_i<k>` and system outputs `controllable_o<k>`, where `k` is
-the zero-based order within that role's expanded declarations. The reducer
-maps source signal names to canonical game symbols when encoding the AIG.
-Thus the game, policies and certificates use canonical structural names. TLSF
-spelling cannot change the game bytes or collide with monitor latches; the two
-role prefixes remain disjoint and internal symbols use neither prefix.
+Expanded environment inputs are `uncontrollable_i<k>` and system outputs
+`controllable_o<k>`, using zero-based expanded declaration order within each
+role. Canonical structural names keep TLSF spelling (including legal `@` and
+apostrophes) from changing game bytes or colliding with monitor latches. Role
+prefixes are disjoint; internal symbols use neither.
 
-The reduction API returns symbol-map JSON to save beside an exported AIG as
-`game.aag.symbols`. This map contains the exact game SHA-256 and ordered
-canonical-to-TLSF signal pairs. `tlsfcertcheck --emit-controller` validates
-that map against the game before restoring the original input and output
-names. Keep the map next to the game when exporting a controller. Provenance
-JSON retains the TLSF `name` and records the canonical `game_symbol` for each
-signal.
+Save the reduction API's symbol-map JSON beside the AIG as `game.aag.symbols`.
+It binds ordered canonical-to-TLSF pairs to the exact game SHA-256.
+`tlsfcertcheck --emit-controller` validates it before restoring original names;
+keep it beside the game for controller export. Provenance records both TLSF
+`name` and canonical `game_symbol`.

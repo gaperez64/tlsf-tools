@@ -1,20 +1,14 @@
 # TLSF normalization and Acacia automata study
 
-This research path keeps production conversion and solver CLIs unchanged. It
-creates durable bundles at Acacia's formula-to-automaton boundary: the same
-optional realizability simplifier, worker orientation, interface BDD ordering,
-translator type/preferences/options, and state-based Büchi conversion.
-Formula-level verdict shortcuts, safety-core witnesses, and formula
-decomposition happen outside this boundary and must be measured separately;
-an HOA replay result is not a replacement for an end-to-end Acacia verdict.
+`scripts/automata_study.py` creates durable bundles at Acacia's formula-to-automaton
+boundary, preserving its optional realizability simplifier, worker orientation,
+interface BDD order, translator type/preferences/options, and state-based Büchi
+conversion. Formula verdict shortcuts, safety-core witnesses, and decomposition
+sit outside this boundary and need separate measurement. HOA replay does not
+replace an end-to-end Acacia verdict. Production conversion and solver CLIs are
+unchanged.
 
-`tlsf-tools` does not link to Spot or expose Spot types in this workflow. The
-orchestrator translates TLSF into ordinary TLSF/LTL files and invokes an
-external automaton generator; Acacia owns the Spot-dependent generator and
-replay adapters. The standalone `examples/tlsf2spot.cpp` remains an example
-consumer of the public tlsf-tools representation; Meson and CI do not build it.
-
-Build `tlsf-tools` with `-Dresearch_tools=true` and Acacia with
+Build tlsf-tools with `-Dresearch_tools=true` and Acacia with
 `-Dbuild_research_tools=true`, then run:
 
 ```sh
@@ -24,29 +18,21 @@ scripts/automata_study.py --file-list panel.list --output RUN \
   --automata-generator ../acacia-bonsai/build/src/acacia-automata-study
 ```
 
-The default schedule ladder is `off`; `split`; `split,nnf,weak,bool-canon`;
-`pre-safe` plus `split,match-safe`; `split,route-safe`; and bounded Sickert
-profiles at one and two iterations. Each variant retains its normalized TLSF,
-LTL, three worker-orientation HOA files, a versioned metrics row, source hash,
-and tool versions.
+The default ladder is `off`; `split`; `split,nnf,weak,bool-canon`; `pre-safe`
+plus `split,match-safe`; `split,route-safe`; and Sickert profiles bounded to
+one/two iterations. Variants retain normalized TLSF/LTL, three oriented HOAs,
+versioned metrics, source hash, and tool versions. Bundle schema 2 retains
+failure/timeout rows (`generation_status`, elapsed time, bounded error), so one
+orientation cannot discard a sweep. `source-features.tsv` is computed before
+normalization/translation/solving: digests, interface sizes, and `guard_*` AST
+measurements only, excluding template/residual measurements.
 
-Translation failures and timeouts are first-class manifest rows in bundle
-schema 2.  They carry `generation_status`, elapsed time, and a bounded error
-message; one difficult orientation therefore cannot discard the rest of a
-corpus sweep.
-Each bundle also contains `source-features.tsv`, computed before and
-independently of normalization, translation, and solving.  That table contains
-only source digests, interface sizes, and `guard_*` AST measurements; derived
-template and residual measurements are excluded by construction.
-
-Bundle generation is the end of this repository's workflow. Replay and solver
-evaluation belong to the external consumer. Evaluations should distinguish
-timeouts, resource limits and other errors, detect conflicting real/unreal
-verdicts, and report losses/gains relative to the `off` schedule.
-
-Offline selectors may use only `guard_*` fields from `tlsfbenchgraph` plus
-explicit TLSF metadata such as input/output counts. They must not use paths,
-filenames, automaton metrics, or solver results. A selector is eligible for a
-later production proposal only with zero losses/opposite verdicts on grouped
-holdouts, non-worse PAR-2, and useful alternate-only wins across at least two
-families. This PR deliberately does not add such a production selector.
+Selectors may use only `guard_*` and explicit TLSF metadata (such as I/O counts),
+never paths, filenames, automaton metrics, or solver results. Production proposals
+require zero losses/opposite verdicts on grouped holdouts, non-worse PAR-2, and
+useful alternate-only wins in at least two families. No production selector is
+included. Acacia owns Spot-dependent generation/replay; tlsf-tools passes files,
+without Spot linkage/types. `examples/tlsf2spot.cpp` stays outside Meson/CI.
+This workflow ends at bundle generation. External evaluation must separate
+timeouts/resource limits/errors, detect conflicting verdicts, and report
+losses/gains against `off`.
