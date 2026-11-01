@@ -440,7 +440,11 @@ as `F G a` need not have a deterministic Buchi recognizer.
 component all/rejecting fields using proved Boolean class equality. Tree paths
 and round residual/incoming bits remain in the key. Independently of discovery,
 it checks initial correspondence and every state/letter transition, including
-terminal loops. Coordinates are materialized and Boolean constants simplified
+terminal loops. The representative index uses semantic fingerprints only
+as search hints: every candidate still passes exact class equality, failed
+hinted lookup falls back to a full scan, and closure is checked independently.
+`classFingerprint_congr` and `configurationHint_congr` prove equal classes
+have equal hints. Coordinates are materialized and Boolean constants simplified
 before storing each representative; `prepareParity_exact` and
 `prepareBuchi_exact` prove preservation of its semantic key.
 `exportParity_language` and `exportBuchi_language` prove that

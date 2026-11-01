@@ -263,8 +263,55 @@ def probeCode : Formula (Fin ap) → Nat
   | .weakUntil f g => (47 + 37 * probeCode f + 101 * probeCode g) % 65521
   | .strongRelease f g => (53 + 37 * probeCode f + 101 * probeCode g) % 65521
 
+def probeValue (seed code : Nat) : Bool :=
+  decide ((code * (seed + 1) ^ 2 + 17 * seed) % 65521 < 32760)
+
 def probeAssignment (seed : Nat) (a : Formula (Fin ap)) : Bool :=
-  decide ((probeCode a * (seed + 1) ^ 2 + 17 * seed) % 101 < 50)
+  probeValue seed (probeCode a)
+
+/-- Compile frozen atoms to probe codes once before evaluating a fingerprint. -/
+inductive ProbeExpr where
+  | literal (b : Bool) | atom (code : Nat) | neg (f : ProbeExpr)
+  | conj (f g : ProbeExpr) | disj (f g : ProbeExpr)
+  | impl (f g : ProbeExpr) | equiv (f g : ProbeExpr)
+
+def probeExpr : Formula (Fin ap) → ProbeExpr
+  | .tt => .literal true | .ff => .literal false
+  | .neg f => .neg (probeExpr f)
+  | .conj f g => .conj (probeExpr f) (probeExpr g)
+  | .disj f g => .disj (probeExpr f) (probeExpr g)
+  | .impl f g => .impl (probeExpr f) (probeExpr g)
+  | .equiv f g => .equiv (probeExpr f) (probeExpr g)
+  | f => .atom (probeCode f)
+
+def ProbeExpr.eval (seed : Nat) : ProbeExpr → Bool
+  | .literal b => b | .atom code => probeValue seed code
+  | .neg f => !f.eval seed
+  | .conj f g => f.eval seed && g.eval seed
+  | .disj f g => f.eval seed || g.eval seed
+  | .impl f g => !f.eval seed || g.eval seed
+  | .equiv f g => f.eval seed == g.eval seed
+
+theorem probeExpr_eval (f : Formula (Fin ap)) (seed : Nat) :
+    (probeExpr f).eval seed = propEval (probeAssignment seed) f := by
+  induction f <;> simp_all [probeExpr, ProbeExpr.eval, propEval, probeAssignment]
+
+def classFingerprint (f : Formula (Fin ap)) : Nat :=
+  let e := probeExpr (reduceProp f)
+  (List.range 128).foldl (fun code seed => 2*code + if e.eval seed then 1 else 0) 0
+
+theorem classFingerprint_congr (f g : Formula (Fin ap))
+    (h : Class.ofFormula f = Class.ofFormula g) : classFingerprint f = classFingerprint g := by
+  have hc : Class.ofFormula (reduceProp f) = Class.ofFormula (reduceProp g) := by
+    simpa only [reduceProp_class] using h
+  have he (seed : Nat) : (probeExpr (reduceProp f)).eval seed =
+      (probeExpr (reduceProp g)).eval seed := by
+    rw [probeExpr_eval, probeExpr_eval]
+    exact congrArg (fun c : Class ap => c (probeAssignment seed)) hc
+  unfold classFingerprint
+  apply congrArg (fun step : Nat → Nat → Nat => (List.range 128).foldl step 0)
+  funext code seed
+  rw [he]
 
 def sampleAgreement (atoms : List (Formula (Fin ap))) (f g : Formula (Fin ap)) : Bool :=
   if f = g then true else

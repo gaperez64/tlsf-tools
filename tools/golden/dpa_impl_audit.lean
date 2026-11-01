@@ -46,3 +46,6 @@ import TlsfProofs.Dpa.Validation.Dump
 #print axioms Tlsf.Dpa.Validation.VertexIndex.index_exact
 #print axioms Tlsf.Dpa.Validation.rankClosedCheck_sound
 #print axioms Tlsf.Dpa.Validation.graph_successors
+#print axioms Tlsf.Dpa.Impl.probeExpr_eval
+#print axioms Tlsf.Dpa.Impl.classFingerprint_congr
+#print axioms Tlsf.Dpa.Impl.Assembly.configurationHint_congr

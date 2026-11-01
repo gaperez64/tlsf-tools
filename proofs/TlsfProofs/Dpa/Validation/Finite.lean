@@ -12,12 +12,18 @@ variable {S K : Type} {alphabet : Nat}
 structure Representatives (S : Type) where
   states : Array S
   nonempty : 0 < states.size
+  hints : Array Nat
+  hint : S → Nat
+  scan : List (Fin states.size)
 
 def Representatives.zero (r : Representatives S) : Fin r.states.size := ⟨0, r.nonempty⟩
 
 def Representatives.locate (r : Representatives S) (eqb : S → S → Bool) (s : S) :
     Fin r.states.size :=
-  ((List.finRange r.states.size).find? (fun i => eqb s r.states[i])).getD r.zero
+  let code := r.hint s
+  match r.scan.find? (fun i => r.hints.getD i.val 0 == code && eqb s r.states[i]) with
+  | some i => i
+  | none => (r.scan.find? (fun i => eqb s r.states[i])).getD r.zero
 
 def Representatives.parity (r : Representatives S) (A : Parity (Fin alphabet) S)
     (eqb : S → S → Bool) : Parity (Fin alphabet) (Fin r.states.size) where
@@ -55,29 +61,33 @@ theorem Representatives.parity_language (r : Representatives S)
 
 /-- Breadth-first discovery, in increasing letter order. The certificate is
 checked separately, so no exploration implementation is in the proof boundary. -/
-def discover (step : S → Fin alphabet → S) (eqb : S → S → Bool) (prepare : S → S) :
-    Nat → Nat → Array S → Array S
+def discover (step : S → Fin alphabet → S) (eqb : S → S → Bool) (prepare : S → S)
+    (hint : S → Nat) : Nat → Nat → Array (S × Nat) → Array (S × Nat)
   | 0, _, states => states
   | fuel+1, cursor, states =>
     if h : cursor < states.size then
       let next := (List.finRange alphabet).foldl (fun xs a =>
-        let t := prepare (step states[cursor] a)
-        if xs.any (eqb t) then xs else xs.push t) states
-      discover step eqb prepare fuel (cursor+1) next
+        let t := prepare (step states[cursor].1 a)
+        let code := hint t
+        if xs.any (fun entry => entry.2 == code && eqb t entry.1) then xs else xs.push (t, code)) states
+      discover step eqb prepare hint fuel (cursor+1) next
     else states
 
 def exportParity (A : Parity (Fin alphabet) S) (eqb : S → S → Bool) (fuel : Nat)
-    (prepare : S → S := id) :
+    (prepare : S → S := id) (hint : S → Nat := fun _ => 0) :
     Option (Representatives S) :=
-  let states := discover (fun s a => (A.step s a).1) eqb prepare fuel 0 #[prepare A.initial]
+  let start := prepare A.initial
+  let entries := discover (fun s a => (A.step s a).1) eqb prepare hint fuel 0 #[(start, hint start)]
+  let states := entries.map Prod.fst
   if hn : 0 < states.size then
-    let r : Representatives S := ⟨states, hn⟩
+    let r : Representatives S :=
+      ⟨states, hn, entries.map Prod.snd, hint, List.finRange states.size⟩
     if r.closed A eqb then some r else none
   else none
 
 theorem exportParity_closed (A : Parity (Fin alphabet) S) (eqb : S → S → Bool)
-    (fuel : Nat) (r : Representatives S) (prepare : S → S)
-    (h : exportParity A eqb fuel prepare = some r) :
+    (fuel : Nat) (r : Representatives S) (prepare : S → S) (hint : S → Nat)
+    (h : exportParity A eqb fuel prepare hint = some r) :
     r.closed A eqb = true := by
   unfold exportParity at h
   dsimp only at h
@@ -91,10 +101,10 @@ theorem exportParity_language (A : Parity (Fin alphabet) S) (eqb : S → S → B
     (key : S → K) (he : ∀ s t, eqb s t = true ↔ key s = key t)
     (hs : ∀ s t a, key s = key t →
       key (A.step s a).1 = key (A.step t a).1 ∧ (A.step s a).2 = (A.step t a).2)
-    (fuel : Nat) (r : Representatives S) (prepare : S → S)
-    (h : exportParity A eqb fuel prepare = some r)
+    (fuel : Nat) (r : Representatives S) (prepare : S → S) (hint : S → Nat)
+    (h : exportParity A eqb fuel prepare hint = some r)
     (w : Nat → Fin alphabet) : (r.parity A eqb).Accepts w ↔ A.Accepts w :=
-  r.parity_language A eqb key he hs (exportParity_closed A eqb fuel r prepare h) w
+  r.parity_language A eqb key he hs (exportParity_closed A eqb fuel r prepare hint h) w
 
 def Representatives.buchi (r : Representatives S) (A : Buchi (Fin alphabet) S)
     (eqb : S → S → Bool) : Buchi (Fin alphabet) (Fin r.states.size) where
@@ -106,8 +116,8 @@ theorem exportBuchi_language (A : Buchi (Fin alphabet) S) (eqb : S → S → Boo
     (key : S → K) (he : ∀ s t, eqb s t = true ↔ key s = key t)
     (hs : ∀ s t a, key s = key t →
       key (A.step s a) = key (A.step t a) ∧ A.accepting s = A.accepting t)
-    (fuel : Nat) (r : Representatives S) (prepare : S → S)
-    (h : exportParity A.toParity eqb fuel prepare = some r)
+    (fuel : Nat) (r : Representatives S) (prepare : S → S) (hint : S → Nat)
+    (h : exportParity A.toParity eqb fuel prepare hint = some r)
     (w : Nat → Fin alphabet) : (r.buchi A eqb).Accepts w ↔ A.Accepts w := by
   have hc : ∀ s t a, key s = key t →
       key (A.toParity.step s a).1 = key (A.toParity.step t a).1 ∧
@@ -116,7 +126,7 @@ theorem exportBuchi_language (A : Buchi (Fin alphabet) S) (eqb : S → S → Boo
     have ht := hs s t a hh
     exact ⟨ht.1, by simp only [Buchi.toParity, ht.2]⟩
   exact ((r.buchi A eqb).toParity_language w).symm.trans
-    ((exportParity_language A.toParity eqb key he hc fuel r prepare h w).trans (A.toParity_language w))
+    ((exportParity_language A.toParity eqb key he hc fuel r prepare hint h w).trans (A.toParity_language w))
 
 end Tlsf.Dpa.Validation
 
@@ -152,6 +162,23 @@ def Assembly.configurationSame (r : Assembly ap) (s t : Configuration r) : Bool 
 
 def Assembly.configurationKey (r : Assembly ap) (s : Configuration r) :
     Fin r.store.length → Pair ap := fun i => (s i).denote
+
+def Assembly.configurationHint (r : Assembly ap) (s : Configuration r) : Nat :=
+  (List.finRange r.store.length).foldl (fun code i =>
+    code * 2^256 + classFingerprint (s i).all * 2^128 + classFingerprint (s i).rejecting) 0
+
+theorem Assembly.configurationHint_congr (r : Assembly ap) (s t : Configuration r)
+    (h : r.configurationKey s = r.configurationKey t) :
+    r.configurationHint s = r.configurationHint t := by
+  unfold Assembly.configurationHint
+  apply congrArg (fun step : Nat → Fin r.store.length → Nat =>
+    (List.finRange r.store.length).foldl step 0)
+  funext code i
+  have ha : Class.ofFormula (s i).all = Class.ofFormula (t i).all :=
+    congrArg Pair.all (congrFun h i)
+  have hr : Class.ofFormula (s i).rejecting = Class.ofFormula (t i).rejecting :=
+    congrArg Pair.rejecting (congrFun h i)
+  rw [classFingerprint_congr _ _ ha, classFingerprint_congr _ _ hr]
 
 theorem Assembly.configurationSame_exact (r : Assembly ap) (s t : Configuration r) :
     r.configurationSame s t = true ↔ r.configurationKey s = r.configurationKey t := by
@@ -217,6 +244,7 @@ theorem Assembly.prepareParity_exact (r : Assembly ap) (s : Configuration r × L
 
 def Assembly.exportParity (r : Assembly ap) (fuel : Nat) :=
   Validation.exportParity r.finiteParitySource r.paritySame fuel r.prepareParity
+    (fun s => r.configurationHint s.1)
 
 theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
     (table : Validation.Representatives (Configuration r × List Nat))
@@ -224,7 +252,8 @@ theorem Assembly.exportParity_language (r : Assembly ap) (fuel : Nat)
     (table.parity r.finiteParitySource r.paritySame).Accepts w ↔
       r.parity.Accepts (fun n => decode (w n)) := by
   have he := Validation.exportParity_language r.finiteParitySource r.paritySame r.parityKey
-    r.paritySame_exact r.finiteParitySource_congr fuel table r.prepareParity h w
+    r.paritySame_exact r.finiteParitySource_congr fuel table r.prepareParity
+    (fun s => r.configurationHint s.1) h w
   have hr (n : Nat) : r.finiteParitySource.run w n =
       r.parity.run (fun n => decode (w n)) n := by
     induction n with
@@ -281,6 +310,7 @@ theorem Assembly.prepareBuchi_exact (r : Assembly ap)
 
 def Assembly.exportBuchi (r : Assembly ap) (fuel : Nat) :=
   Validation.exportParity r.finiteBuchiSource.toParity r.buchiSame fuel r.prepareBuchi
+    (fun s => r.configurationHint s.1)
 
 theorem Assembly.exportBuchi_language (r : Assembly ap) (fuel : Nat)
     (table : Validation.Representatives (Configuration r × RoundState r.store.length))
@@ -288,7 +318,8 @@ theorem Assembly.exportBuchi_language (r : Assembly ap) (fuel : Nat)
     (table.buchi r.finiteBuchiSource r.buchiSame).Accepts w ↔
       r.buchi.Accepts (fun n => decode (w n)) := by
   have he := Validation.exportBuchi_language r.finiteBuchiSource r.buchiSame r.buchiKey
-    r.buchiSame_exact r.finiteBuchiSource_congr fuel table r.prepareBuchi h w
+    r.buchiSame_exact r.finiteBuchiSource_congr fuel table r.prepareBuchi
+    (fun s => r.configurationHint s.1) h w
   have hr (n : Nat) : r.finiteBuchiSource.run w n =
       r.buchi.run (fun n => decode (w n)) n := by
     induction n with
