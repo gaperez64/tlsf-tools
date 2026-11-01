@@ -29,9 +29,7 @@ typedef enum {
 /* Zero-valued knobs use these global defaults. They match the applicable
  * settings.py Stage C values. The caller supplies one immutable TLSF snapshot;
  * every seed is expanded from these bytes by changing declared PARAMETERS.
- * Zero-valued caps select their defaults; effective caps are positive.
- * Spot calls cannot be interrupted in process, so a hard deadline also needs
- * a killable caller process. */
+ * Zero-valued caps select their defaults; effective caps are positive. */
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SIZES_PER_AXIS 6u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_PREDICATE_ARITY 4u
 #define TLSF_GR1_LIFT_DEFAULT_MAX_SUBSETS_PER_PREDICATE 2000u

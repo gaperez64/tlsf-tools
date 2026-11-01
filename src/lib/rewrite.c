@@ -188,8 +188,12 @@ static Node *simplify_weak_local(Arena *a, Node *n, bool finite) {
 
 static Node *apply_local(Arena *a, Node *n, unsigned flags) {
   // Operator replacement.
-  if ((flags & RW_NO_WEAK_UNTIL) && n->kind == NODE_W)
-    return node_or(a, node_u(a, n->lhs, n->rhs), node_g(a, n->lhs));
+  if ((flags & RW_NO_WEAK_UNTIL) && n->kind == NODE_W) {
+    // Preserve GCC's right-first allocation order.
+    Node *r = node_g(a, n->lhs);
+    Node *l = node_u(a, n->lhs, n->rhs);
+    return node_or(a, l, r);
+  }
   if ((flags & RW_NO_RELEASE) && n->kind == NODE_R)
     return node_w(a, n->rhs, node_and(a, n->lhs, n->rhs));
   if ((flags & RW_NO_STRONG_RELEASE) && n->kind == NODE_M)
@@ -200,10 +204,16 @@ static Node *apply_local(Arena *a, Node *n, unsigned flags) {
     return node_r(a, node_false(a), n->arg);
 
   // Push inwards.
-  if ((flags & RW_PUSH_G_IN) && n->kind == NODE_G && n->arg->kind == NODE_AND)
-    return node_and(a, node_g(a, n->arg->lhs), node_g(a, n->arg->rhs));
-  if ((flags & RW_PUSH_F_IN) && n->kind == NODE_F && n->arg->kind == NODE_OR)
-    return node_or(a, node_f(a, n->arg->lhs), node_f(a, n->arg->rhs));
+  if ((flags & RW_PUSH_G_IN) && n->kind == NODE_G && n->arg->kind == NODE_AND) {
+    Node *r = node_g(a, n->arg->rhs);
+    Node *l = node_g(a, n->arg->lhs);
+    return node_and(a, l, r);
+  }
+  if ((flags & RW_PUSH_F_IN) && n->kind == NODE_F && n->arg->kind == NODE_OR) {
+    Node *r = node_f(a, n->arg->rhs);
+    Node *l = node_f(a, n->arg->lhs);
+    return node_or(a, l, r);
+  }
   if ((flags & RW_PUSH_X_IN) && n->kind == NODE_X &&
       (n->arg->kind == NODE_AND || n->arg->kind == NODE_OR)) {
     Node *c = n->arg;
@@ -239,6 +249,7 @@ static Node *rw_pass(Arena *a, Node *n, unsigned flags) {
   if (!n || arena_failed(a))
     return nullptr;
   Node *t;
+  // Sequence sibling allocations in GCC's historical right-first order.
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
@@ -260,30 +271,54 @@ static Node *rw_pass(Arena *a, Node *n, unsigned flags) {
   case NODE_G:
     t = node_g(a, rw_pass(a, n->arg, flags));
     break;
-  case NODE_AND:
-    t = node_and(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  case NODE_AND: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_and(a, l, r);
     break;
-  case NODE_OR:
-    t = node_or(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_OR: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_or(a, l, r);
     break;
-  case NODE_IMPL:
-    t = node_impl(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_IMPL: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_impl(a, l, r);
     break;
-  case NODE_EQUIV:
-    t = node_equiv(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_EQUIV: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_equiv(a, l, r);
     break;
-  case NODE_U:
-    t = node_u(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_U: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_u(a, l, r);
     break;
-  case NODE_R:
-    t = node_r(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_R: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_r(a, l, r);
     break;
-  case NODE_W:
-    t = node_w(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_W: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_w(a, l, r);
     break;
-  case NODE_M:
-    t = node_m(a, rw_pass(a, n->lhs, flags), rw_pass(a, n->rhs, flags));
+  }
+  case NODE_M: {
+    Node *r = rw_pass(a, n->rhs, flags);
+    Node *l = rw_pass(a, n->lhs, flags);
+    t = node_m(a, l, r);
     break;
+  }
   default:
     assert(false && "rewrite: unexpected high-level node");
     return n;

@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-01",
+  "timeout_seconds": 17,
+  "initial_reason": "FAIL positiveb failure",
+  "resolution": "Compare the C Buchi machine embedded by Buchi.toParity_language with the certified parity reference when the round skeleton is not positive; validate_buchi_sound proves both branches.",
+  "reproductions": [
+    {
+      "admission": "default",
+      "kind": "buchi",
+      "names": [
+        "unused_in",
+        "req",
+        "a",
+        "unused_out",
+        "c",
+        "grant",
+        "b"
+      ],
+      "original": "! G F & & $b X $b X 0",
+      "minimized": "! G F & $b X 0",
+      "minimization_trials": 26,
+      "original_after_correction": "pass",
+      "original_c_sha256": "ac27169f3d186ecf10cddf73adf77ae2b980edb6e10f94ba70ddb54b44001d2e",
+      "minimized_after_correction": "pass",
+      "minimized_c_sha256": "6e904b4d6d9b8d0d9f9a98d5c4041d7fb84c0b1bae728d6f2bd8be6646b462c6"
+    },
+    {
+      "admission": "general",
+      "kind": "buchi",
+      "names": [
+        "unused_in",
+        "req",
+        "a",
+        "unused_out",
+        "c",
+        "grant",
+        "b"
+      ],
+      "original": "! G F & & $b X $b X 0",
+      "minimized": "! G F & $b X 0",
+      "minimization_trials": 26,
+      "original_after_correction": "pass",
+      "original_c_sha256": "94a7ea7e5aa87e9d49b73e2f2a56747e4d2317f84c954cb1f4f791bf3e1d407b",
+      "minimized_after_correction": "pass",
+      "minimized_c_sha256": "85f01d80582a9d0ebac0bb928b8a609432863320a428ce4037175e58c760d028"
+    },
+    {
+      "admission": "default",
+      "kind": "buchi",
+      "names": [
+        "unused_in",
+        "req",
+        "a",
+        "unused_out",
+        "c",
+        "grant",
+        "b"
+      ],
+      "original": "U 1 | F $b i $b ^ $b G $a",
+      "minimized": "U 1 i $b ^ $b G $a",
+      "minimization_trials": 23,
+      "original_after_correction": "pass",
+      "original_c_sha256": "ca455aa465ebbc035a8c26f1180c00b35f0462182f23932ac57d9ba89776f378",
+      "minimized_after_correction": "pass",
+      "minimized_c_sha256": "d4e9125e1f9630a53bfd0ff76c748dba7621e0e6a68de8ec5b9b77da3ea1df3e"
+    }
+  ]
+}

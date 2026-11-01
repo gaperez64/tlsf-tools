@@ -53,8 +53,9 @@ flowchart LR
 ## Building
 
 Requires C23 and C++20 compilers, [meson](https://mesonbuild.com/),
-[ninja](https://ninja-build.org/), `flex`, `bison`, Spot, Cargo (Rust 1.91+)
+[ninja](https://ninja-build.org/), `flex`, `bison`, Cargo (Rust 1.91+)
 and `cbindgen` (0.29.4). Meson builds OxiDD and native GR(1) in every build.
+The library, tests and CI do not require Spot.
 
 Release-quality stable build:
 
@@ -85,6 +86,10 @@ the private JSON dependency with `pkg-config --static --libs tlsf`.
 
 OxiDD (<https://github.com/OxiDD/oxidd>) and native GR(1) are always part of
 libtlsf. `research_tools` controls only the optional executable targets.
+GR(1) monitor construction tries general admission after a default unsupported
+decline. The [Lean reference and bounded translation-validation sample](proofs/README.md)
+cover both policies; runtime formulas without a validated golden rely on that
+proved reference plus the sample, rather than a proof of the C implementation.
 [ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and [acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are
 optional executables used by `scripts/solve.sh` and by wrapper/benchmark flows.
 
@@ -119,8 +124,6 @@ scripts/automata_study.py --file-list panel.list --output run/ \
   --tlsfnorm build/tlsfnorm --tlsf2ltl build/tlsf2ltl \
   --tlsfinfo build/tlsfinfo --tlsfbenchgraph build/tlsfbenchgraph \
   --automata-generator ../acacia-bonsai/build/src/acacia-automata-study
-scripts/evaluate_automata_study.py --bundle run/ --output results/ \
-  --acacia-replay ../acacia-bonsai/build/src/acacia-hoa-replay
 
 # normalize / decompose / synthesize
 tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized TLSF
@@ -157,12 +160,12 @@ strategy AAG to stdout;
 status 1 means proven unrealizable and writes `UNREALIZABLE` to stderr; status
 2 reports an input, usage, or internal OxiDD solver failure.
 
-Games emitted by `scripts/gr1_monitor_game.py` name expanded environment
+Native GR(1) monitor games name expanded environment
 inputs `uncontrollable_i0`, `uncontrollable_i1`, etc., and system outputs
 `controllable_o0`, `controllable_o1`, etc., in declaration order. This keeps
 the game AIG independent of TLSF signal spelling, including legal `@` and
-apostrophe identifiers. For `--output game.aag`, the builder writes
-`game.aag.symbols`, a SHA-256-bound map back to TLSF names. Keep this file
+apostrophe identifiers. The native reduction API returns a SHA-256-bound
+symbol map back to TLSF names; save it as `game.aag.symbols`. Keep this file
 beside the game for `tlsfcertcheck --emit-controller`; provenance JSON also
 contains each TLSF name and its canonical `game_symbol`.
 
@@ -234,8 +237,8 @@ for (tlsf::ast::Tree cluster : ast.clusters()) {
 No `Aig`, OxiDD, internal `Node`, cover, CSNF, or arena type crosses this API.
 The visitor-based [`ast_api` Spot example](examples/tlsf2spot.cpp) builds each
 tree directly as a `spot::formula` and checks it against the string API.
-Configure a local `/usr/local` Spot installation with
-`meson setup build -Dpkg_config_path=/usr/local/lib/pkgconfig`.
+It requires Spot and is built by hand, outside Meson and CI; see the build
+command in the file's header.
 
 ## Example pipelines
 
@@ -248,7 +251,7 @@ independent — several small `ltlsynt`/`strix` calls instead of one giant one.
 
 ```sh
 mkdir out && tlsfcompose --split --output-dir out/ spec.tlsf
-sh out/compose.sh                                  # semantics-aware Spot verdicts
+sh out/compose.sh                                  # semantics-aware external verdicts
 # Or, for infinite-word Mealy targets, use the quoted Spot formula and
 # the exact --ins/--outs expressions written in compose.sh:
 ltlsynt --ins=… --outs=… -F out/cluster.0.spot
@@ -259,6 +262,16 @@ the driver's anchored regex partitions preserve case and match complete names.
 Infinite Moore games use `cluster.k.mealy`, which also delays environment
 inputs. Only the exact `c ins=` and `c outs=` metadata lines are comments in
 `cluster.k.ltl`; a formula such as `c -> p` remains valid.
+
+The generated driver defaults to `ltlsynt` for infinite words and `ltlfsynt`
+for finite words. Select another executable when generating it with
+`tlsfcompose --solver /path/to/solver --output-dir out/ spec.tlsf`, or set
+`TLSFCOMPOSE_SOLVER`. The CLI option takes precedence; an unset or empty
+environment variable uses the default. The executable is recorded in
+`compose.sh` and must accept the same `--ins`, `--outs`, `-F` and
+`--realizability` arguments, plus `--semantics=Mealy|Moore` for finite words.
+Use a wrapper script to adapt other interfaces or add arguments. Executable
+paths may contain spaces; the value is a single executable name or path.
 
 `--output-dir` also writes `controllers.aag`, a mergeable AIGER strategy for
 the certified part. Trusted OxiDD-eligible residual outcomes are handled in
@@ -286,9 +299,6 @@ the certified part.
 
 ```sh
 scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
-# verify it against the spec (Spot):
-python3 scripts/verify_aiger_ltl.py --aiger ctrl.aag \
-        --tlsf2ltl build/tlsf2ltl --tlsf spec.tlsf
 ```
 
 ### 3 · Normalize, then feed any LTL synthesizer
@@ -381,8 +391,9 @@ parallelisable sub-problems under infinite-word semantics. Output-dependent
 assumptions collapse all outputs into one cluster. Finite semantics also keep
 one cluster, since controllers share the choice of where the word ends.
 In infinite Mealy games (ordinary and strict), global environment entries
-outside the cluster's transitive signal cone are pruned only when Spot confirms
-that their joint `INITIALLY && G REQUIRE && ASSUMPTIONS` is satisfiable.
+outside the cluster's transitive signal cone are pruned only when the bounded
+native lasso search confirms that their joint
+`INITIALLY && G REQUIRE && ASSUMPTIONS` is satisfiable.
 Inconsistent or uncertain dropped sets are kept. Finite and Moore games keep
 every global assumption. The residual decomposition is labelled **TRUST_EXACT**. The emitted
 cluster formula is the formula solved and trusted. See [proofs/README.md](proofs/README.md)
@@ -435,9 +446,9 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
   agree. The adapting CLIs and decomposition API refuse finite mismatches;
   `tlsf_convert` refuses all finite semantics.
 
-Generated `compose.sh` drivers use `ltlfsynt --semantics=Mealy|Moore` for finite
-residuals. Infinite Moore targets bypass OxiDD and use the standard input-delay
-encoding for `ltlsynt` realizability checks. `scripts/solve.sh`, which exports
+Generated `compose.sh` drivers default to `ltlfsynt --semantics=Mealy|Moore`
+for finite residuals. Infinite Moore targets bypass OxiDD and use the standard
+input-delay encoding for external realizability checks. `scripts/solve.sh`, which exports
 and merges controllers, supports only infinite-word Mealy targets and refuses
 finite games and Moore targets.
 

@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "dpa_internal.h"
+#include "dpa_buchi.h"
+#include "tlsf/ast.h"
 #include <time.h>
 #include <stdalign.h>
 
@@ -260,6 +262,175 @@ fail:;
   return status;
 }
 
+TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
+                               const char *const *names, uint32_t count,
+                               const TlsfDpaBudget *budget, TlsfDpa **out,
+                               char *klass) {
+  TlsfDpaStatus status =
+      tlsf_dpa_create(root, names, count, nullptr, 0, budget, out);
+  if (status.code != TLSF_DPA_OK)
+    return status;
+  TlsfDpa *c = *out;
+  uint32_t f = dpa_formula(c, root, false, 0);
+  unsigned tags = dpa_tags(c, f);
+  if (dpa_poll(c) && !(tags & DPA_PI2))
+    dpa_decline(c, TLSF_DPA_UNSUPPORTED);
+  if (dpa_poll(c)) {
+    *klass = tags & DPA_FINITE     ? 'B'
+             : tags & DPA_SAFETY   ? 'S'
+             : tags & DPA_COSAFETY ? 'G'
+             : tags & DPA_SIGMA2   ? 'O'
+                                   : 'R';
+    c->buchi = true;
+    for (uint32_t i = 0; i < c->components.n; ++i)
+      dpa_release(c, c->components.items[i]);
+    dpa_release(c, c->components.items);
+    dpa_release(c, c->components.buckets);
+    c->components = (DpaTable){0};
+    for (uint32_t i = 0; i < c->classes.n && dpa_poll(c); ++i) {
+      dpa_cls(c, i)->tags = 0;
+      dpa_cls(c, i)->acceptance = DPA_BAD;
+    }
+    c->acceptance = dpa_buchi_acceptance(c);
+    c->colour_words = ((size_t)c->components.n + 63) / 64;
+    uint32_t tuple = dpa_dela_initial(c);
+    // A finite initial Buchi mark does not affect the language. Starting
+    // marked lets recurrent good states reuse the initial state, instead of
+    // adding an otherwise redundant one-hot latch to every safety monitor.
+    uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);
+    if (dpa_poll(c)) {
+      DpaState *initial = c->states.items[c->initial];
+      c->states.buckets[initial->key.hash & (c->states.bins - 1)] = DPA_BAD;
+      initial->tuple = tuple;
+      initial->leaf = round;
+      initial->key.hash = dpa_hash(tuple, round, 0, 0);
+      c->states.buckets[initial->key.hash & (c->states.bins - 1)] = c->initial;
+      c->buchi = c->started = true;
+    }
+  }
+  status = c->status;
+  if (status.code != TLSF_DPA_OK) {
+    tlsf_dpa_free(c);
+    *out = nullptr;
+  }
+  return status;
+}
+
+typedef struct {
+  TlsfDpa *c;
+  uint32_t odd, next, top, component;
+  int32_t *index, *low;
+  uint32_t *stack, *scc;
+  bool *on;
+} DpaEqualitySearch;
+static void equality_scc(DpaEqualitySearch *q, uint32_t state) {
+  if (!dpa_enter(q->c))
+    return;
+  q->index[state] = q->low[state] = (int32_t)q->next++;
+  q->stack[q->top++] = state;
+  q->on[state] = true;
+  DpaState *s = q->c->states.items[state];
+  for (size_t i = 0; i < s->count && dpa_poll(q->c); ++i) {
+    const TlsfDpaEdge *edge = &s->edges[i];
+    if (edge->priority > q->odd)
+      continue;
+    uint32_t dst = edge->successor;
+    if (q->index[dst] < 0) {
+      equality_scc(q, dst);
+      if (q->low[dst] < q->low[state])
+        q->low[state] = q->low[dst];
+    } else if (q->on[dst] && q->index[dst] < q->low[state])
+      q->low[state] = q->index[dst];
+  }
+  if (q->low[state] == q->index[state]) {
+    uint32_t member;
+    do {
+      member = q->stack[--q->top];
+      q->on[member] = false;
+      q->scc[member] = q->component;
+    } while (member != state);
+    ++q->component;
+  }
+  --q->c->recursion;
+}
+// Every expanded state is reachable. A max-odd accepting lasso exists iff,
+// for some odd p, the subgraph of edges <= p has an SCC with an internal p
+// edge. This checks unbounded language equivalence, without enumerating APs.
+static bool equality_empty(TlsfDpa *c) {
+  uint32_t n = c->states.n;
+  if (n > INT32_MAX) {
+    dpa_decline(c, TLSF_DPA_HOST_LIMIT);
+    return false;
+  }
+  DpaEqualitySearch q = {.c = c};
+  q.index = dpa_alloc(c, n, sizeof *q.index);
+  q.low = dpa_alloc(c, n, sizeof *q.low);
+  q.stack = dpa_alloc(c, n, sizeof *q.stack);
+  q.scc = dpa_alloc(c, n, sizeof *q.scc);
+  q.on = dpa_alloc(c, n, sizeof *q.on);
+  if (!dpa_poll(c))
+    return false;
+  for (uint32_t odd = 1; odd <= c->max_priority && dpa_poll(c);) {
+    q.odd = odd;
+    q.next = q.top = q.component = 0;
+    memset(q.index, 0xff, n * sizeof *q.index);
+    memset(q.on, 0, n * sizeof *q.on);
+    for (uint32_t state = 0; state < n && dpa_poll(c); ++state)
+      if (q.index[state] < 0)
+        equality_scc(&q, state);
+    for (uint32_t state = 0; state < n && dpa_poll(c); ++state) {
+      DpaState *s = c->states.items[state];
+      for (size_t i = 0; i < s->count && dpa_poll(c); ++i)
+        if (s->edges[i].priority == odd &&
+            q.scc[state] == q.scc[s->edges[i].successor])
+          return false;
+    }
+    if (odd == c->max_priority)
+      break;
+    odd += 2;
+  }
+  return dpa_poll(c);
+}
+
+TlsfDpaStatus dpa_formula_equal(const TlsfAstNode *a, const TlsfAstNode *b,
+                                const char *const *names, uint32_t count,
+                                const TlsfDpaBudget *budget, bool temporal,
+                                bool *equal) {
+  // Creation on a constant allocates the common symbolic context without
+  // imposing automaton admission on either expression.
+  Node truth = {.kind = NODE_TRUE};
+  TlsfDpa *c = nullptr;
+  *equal = false;
+  TlsfDpaStatus status = tlsf_dpa_create((const TlsfAstNode *)&truth, names,
+                                         count, nullptr, 0, budget, &c);
+  if (status.code != TLSF_DPA_OK)
+    return status;
+  uint32_t lhs = dpa_formula(c, a, false, 0);
+  uint32_t rhs = dpa_formula(c, b, false, 0);
+  status = c->status;
+  *equal = status.code == TLSF_DPA_OK && lhs == rhs;
+  tlsf_dpa_free(c);
+  if (status.code != TLSF_DPA_OK || *equal || !temporal)
+    return status;
+  Node equivalence = {.kind = NODE_EQUIV, .lhs = (Node *)a, .rhs = (Node *)b};
+  Node difference = {.kind = NODE_NOT, .arg = &equivalence};
+  c = nullptr;
+  status = tlsf_dpa_create((const TlsfAstNode *)&difference, names, count,
+                           nullptr, 0, budget, &c);
+  if (status.code == TLSF_DPA_DECLINED && status.reason == TLSF_DPA_UNSUPPORTED)
+    return (TlsfDpaStatus){TLSF_DPA_OK,
+                           TLSF_DPA_NONE}; // unknown, never a binding
+  if (status.code == TLSF_DPA_OK) {
+    status = tlsf_dpa_expand(c);
+    if (status.code == TLSF_DPA_OK) {
+      *equal = equality_empty(c);
+      status = c->status;
+    }
+  }
+  tlsf_dpa_free(c);
+  return status;
+}
+
 void tlsf_dpa_free(TlsfDpa *c) {
   if (!c)
     return;
@@ -425,4 +596,14 @@ TlsfDpaStatus tlsf_dpa_expand(TlsfDpa *c) {
       break;
   }
   return c->status;
+}
+
+bool dpa_labels_partition(TlsfDpa *c, const uint32_t *labels, size_t count) {
+  uint32_t seen = 0;
+  for (size_t i = 0; i < count && dpa_poll(c); ++i) {
+    if (labels[i] >= c->classes.n || dpa_boolean(c, true, seen, labels[i]) != 0)
+      return false;
+    seen = dpa_boolean(c, false, seen, labels[i]);
+  }
+  return dpa_poll(c) && seen == 1;
 }

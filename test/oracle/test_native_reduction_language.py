@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check native game languages directly against Spot on small lasso words."""
+"""Evaluate native AAG games on committed golden lasso memberships."""
 
 from __future__ import annotations
 
@@ -7,15 +7,12 @@ import argparse
 import json
 import pathlib
 import random
+import re
 import subprocess
 import sys
 import tempfile
 
-import spot
-import buddy
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
-from gr1_monitor_game import canonicalize_ltl  # noqa: E402
+from golden import Golden
 
 
 class Game:
@@ -125,90 +122,40 @@ def check(source: pathlib.Path, args, directory: pathlib.Path,
           expect_fallback: bool):
     prefix = directory / source.stem
     subprocess.run([str(args.native), str(source), "exact", str(prefix)],
-                   check=True, capture_output=True)
+                   check=True, capture_output=True, timeout=60)
     game = Game(prefix.with_suffix(".aag").read_text())
     metadata = json.loads(prefix.with_suffix(".metadata.json").read_text())
-    if expect_fallback:
-        assert metadata["fallback_monitor_count"] > 0
+    assert metadata["fallback_monitor_count"] == 0
     lowered = subprocess.run([str(args.tlsf2ltl), "--format", "ltl",
                               str(source)], check=True, capture_output=True,
                              text=True).stdout
-    # Signal names are read from the original declaration order in these
-    # generated examples. Spot sees the same canonical APs as the game.
+    # Preserve declaration order while mapping complete tokens to game APs.
     input_name, output_name = source.stem.split("--", maxsplit=1)
     symbols = {input_name: "uncontrollable_i0",
                output_name: "controllable_o0"}
-    formula = spot.formula(canonicalize_ltl(lowered, symbols))
-    automaton = spot.translate(formula)
-    assert spot.are_equivalent(game_automaton(game, automaton.get_dict()),
-                               automaton), source.name
+    token = re.compile(r"[A-Za-z_@][A-Za-z0-9_@']*")
+    formula = token.sub(lambda match: '"' + symbols[match[0]] + '"'
+                        if match[0] in symbols else match[0], lowered).strip()
+
     rng = random.Random(0x20260923)
     words = [([], [bits]) for bits in range(4)]
     words += [([rng.randrange(4) for _ in range(rng.randrange(3))],
                [rng.randrange(4) for _ in range(rng.randrange(1, 4))])
               for _ in range(48)]
 
-    def letter(bits):
-        return " & ".join(name if bits & (1 << index) else "!" + name
-                          for index, name in enumerate(game.input_names))
-
-    for prefix_bits, loop_bits in words:
-        word = ";".join(map(letter, prefix_bits))
-        if word:
-            word += ";"
-        word += "cycle{" + ";".join(map(letter, loop_bits)) + "}"
-        expected = spot.parse_word(word, automaton.get_dict()).intersects(
-            automaton)
-        actual = game.accepts(prefix_bits, loop_bits)
-        assert actual == expected, (source.name, word, actual, expected)
-
-
-def game_automaton(game: Game, dictionary):
-    """Build a Spot automaton directly from the native AAG transition system."""
-    states = [game.initial()]
-    positions = {states[0]: 0}
-    edges = []
-    for state in states:
-        assert len(states) <= 512
-        for letter in range(1 << len(game.inputs)):
-            successor, bad, justice, fairness = game.step(state, letter)
-            assert not bad  # Exact reduction has a constant-false safety output.
-            if successor not in positions:
-                positions[successor] = len(states)
-                states.append(successor)
-            marks = [index for index, present in enumerate(fairness) if present]
-            marks += [len(fairness) + index
-                      for index, present in enumerate(justice) if present]
-            edges.append((positions[state], positions[successor], letter, marks))
-
-    result = spot.make_twa_graph(dictionary)
-    result.new_states(len(states))
-    result.set_init_state(0)
-    nf = len(game.fairness)
-    nj = len(game.justice)
-    guarantees = " & ".join(f"Inf({nf + index})" for index in range(nj))
-    acceptance = " | ".join([*(f"Fin({index})" for index in range(nf)),
-                              f"({guarantees})"])
-    result.set_acceptance(nf + nj, spot.acc_code(acceptance))
-    variables = [result.register_ap(name) for name in game.input_names]
-    for source, target, letter, marks in edges:
-        condition = buddy.bddtrue
-        for index, variable in enumerate(variables):
-            atom = buddy.bdd_ithvar(variable)
-            condition &= atom if letter & (1 << index) else -atom
-        result.new_edge(source, target, condition, spot.mark_t(marks))
-    return result
+    actual = "".join("1" if game.accepts(prefix, loop) else "0"
+                     for prefix, loop in words)
+    args.gold.language(formula, game.input_names, words, actual)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--native", type=pathlib.Path, required=True)
-    parser.add_argument("--tlsf2ltl", type=pathlib.Path, required=True)
     parser.add_argument("--builddir", type=pathlib.Path, required=True)
     args = parser.parse_args()
-    args.native = args.native.resolve()
-    args.tlsf2ltl = args.tlsf2ltl.resolve()
     args.builddir = args.builddir.resolve()
+    args.native = args.builddir / "test/api/native_reduction"
+    args.tlsf2ltl = args.builddir / "tlsf2ltl"
+    args.gold = Golden("native-language")
     cases = [
         ("i", "o", "true;", "G (i -> o);", False),
         ("controllable_x", "uncontrollable_y", "G F controllable_x;",
@@ -240,7 +187,8 @@ def main():
             source.write_text(tiny(input_name, output_name, assumptions,
                                    guarantees))
             check(source, args, directory, fallback)
-    print(f"native Spot language checks: {len(cases)} cases, 52 lassos each")
+    args.gold.finish()
+    print(f"native golden language checks: {len(cases)} cases, 52 lassos each")
 
 
 if __name__ == "__main__":

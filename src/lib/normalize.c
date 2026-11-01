@@ -506,6 +506,7 @@ static void collect_operands(Arena *a, Node *n, NodeKind k, NodeVec *out) {
 }
 
 static Node *bool_canon(Arena *a, Node *n) {
+  // Sequence sibling allocations in GCC's historical right-first order.
   switch (n->kind) {
   case NODE_AND:
   case NODE_OR: {
@@ -543,18 +544,36 @@ static Node *bool_canon(Arena *a, Node *n) {
     return node_f(a, bool_canon(a, n->arg));
   case NODE_G:
     return node_g(a, bool_canon(a, n->arg));
-  case NODE_IMPL:
-    return node_impl(a, bool_canon(a, n->lhs), bool_canon(a, n->rhs));
-  case NODE_EQUIV:
-    return node_equiv(a, bool_canon(a, n->lhs), bool_canon(a, n->rhs));
-  case NODE_U:
-    return node_u(a, bool_canon(a, n->lhs), bool_canon(a, n->rhs));
-  case NODE_R:
-    return node_r(a, bool_canon(a, n->lhs), bool_canon(a, n->rhs));
-  case NODE_W:
-    return node_w(a, bool_canon(a, n->lhs), bool_canon(a, n->rhs));
-  case NODE_M:
-    return node_m(a, bool_canon(a, n->lhs), bool_canon(a, n->rhs));
+  case NODE_IMPL: {
+    Node *r = bool_canon(a, n->rhs);
+    Node *l = bool_canon(a, n->lhs);
+    return node_impl(a, l, r);
+  }
+  case NODE_EQUIV: {
+    Node *r = bool_canon(a, n->rhs);
+    Node *l = bool_canon(a, n->lhs);
+    return node_equiv(a, l, r);
+  }
+  case NODE_U: {
+    Node *r = bool_canon(a, n->rhs);
+    Node *l = bool_canon(a, n->lhs);
+    return node_u(a, l, r);
+  }
+  case NODE_R: {
+    Node *r = bool_canon(a, n->rhs);
+    Node *l = bool_canon(a, n->lhs);
+    return node_r(a, l, r);
+  }
+  case NODE_W: {
+    Node *r = bool_canon(a, n->rhs);
+    Node *l = bool_canon(a, n->lhs);
+    return node_w(a, l, r);
+  }
+  case NODE_M: {
+    Node *r = bool_canon(a, n->rhs);
+    Node *l = bool_canon(a, n->lhs);
+    return node_m(a, l, r);
+  }
   default:
     return n;
   }
@@ -1048,6 +1067,7 @@ static bool is_limit(const Node *n) { return is_gf(n) || is_fg(n); }
 static Node *subst_by_ptr(Arena *a, Node *n, const Node *target, Node *repl) {
   if (n == target)
     return repl;
+  // Sequence sibling allocations in GCC's historical right-first order.
   switch (n->kind) {
   case NODE_NOT:
     return node_not(a, subst_by_ptr(a, n->arg, target, repl));
@@ -1059,30 +1079,46 @@ static Node *subst_by_ptr(Arena *a, Node *n, const Node *target, Node *repl) {
     return node_f(a, subst_by_ptr(a, n->arg, target, repl));
   case NODE_G:
     return node_g(a, subst_by_ptr(a, n->arg, target, repl));
-  case NODE_AND:
-    return node_and(a, subst_by_ptr(a, n->lhs, target, repl),
-                    subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_OR:
-    return node_or(a, subst_by_ptr(a, n->lhs, target, repl),
-                   subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_IMPL:
-    return node_impl(a, subst_by_ptr(a, n->lhs, target, repl),
-                     subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_EQUIV:
-    return node_equiv(a, subst_by_ptr(a, n->lhs, target, repl),
-                      subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_U:
-    return node_u(a, subst_by_ptr(a, n->lhs, target, repl),
-                  subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_R:
-    return node_r(a, subst_by_ptr(a, n->lhs, target, repl),
-                  subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_W:
-    return node_w(a, subst_by_ptr(a, n->lhs, target, repl),
-                  subst_by_ptr(a, n->rhs, target, repl));
-  case NODE_M:
-    return node_m(a, subst_by_ptr(a, n->lhs, target, repl),
-                  subst_by_ptr(a, n->rhs, target, repl));
+  case NODE_AND: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_and(a, l, r);
+  }
+  case NODE_OR: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_or(a, l, r);
+  }
+  case NODE_IMPL: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_impl(a, l, r);
+  }
+  case NODE_EQUIV: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_equiv(a, l, r);
+  }
+  case NODE_U: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_u(a, l, r);
+  }
+  case NODE_R: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_r(a, l, r);
+  }
+  case NODE_W: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_w(a, l, r);
+  }
+  case NODE_M: {
+    Node *r = subst_by_ptr(a, n->rhs, target, repl);
+    Node *l = subst_by_ptr(a, n->lhs, target, repl);
+    return node_m(a, l, r);
+  }
   default:
     return n;
   }
@@ -1248,9 +1284,11 @@ static Node *sickert3_step(Arena *a, Node *n, bool *done) {
       Node *c_u = subst_by_ptr(a, body, w, node_u(a, aL, bR));
       Node *c_true = subst_by_ptr(a, body, w, node_true(a));
       *done = true;
-      return node_or(
-          a, node_g(a, node_f(a, c_u)),
-          node_and(a, node_f(a, node_g(a, aL)), node_g(a, node_f(a, c_true))));
+      Node *gf_true = node_g(a, node_f(a, c_true));
+      Node *fg_left = node_f(a, node_g(a, aL));
+      Node *r = node_and(a, fg_left, gf_true);
+      Node *l = node_g(a, node_f(a, c_u));
+      return node_or(a, l, r);
     }
   }
   if (is_fg(n)) {
@@ -1261,9 +1299,11 @@ static Node *sickert3_step(Arena *a, Node *n, bool *done) {
       Node *c_w = subst_by_ptr(a, body, u, node_w(a, aL, bR));
       Node *c_false = subst_by_ptr(a, body, u, node_false(a));
       *done = true;
-      return node_or(
-          a, node_and(a, node_g(a, node_f(a, bR)), node_f(a, node_g(a, c_w))),
-          node_f(a, node_g(a, c_false)));
+      Node *r = node_f(a, node_g(a, c_false));
+      Node *fg_weak = node_f(a, node_g(a, c_w));
+      Node *gf_right = node_g(a, node_f(a, bR));
+      Node *l = node_and(a, gf_right, fg_weak);
+      return node_or(a, l, r);
     }
   }
   // Recurse, at most one rewrite.

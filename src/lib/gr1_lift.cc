@@ -1447,8 +1447,11 @@ public:
         return it->second;
       B hi(oxidd_bdd_cofactor_true(node.v));
       B lo(oxidd_bdd_cofactor_false(node.v));
-      B result = ite(var(mapping.at(int(oxidd_bdd_node_var(node.v)))),
-                     visit(hi), visit(lo));
+      // Preserve GCC's right-first node/variable allocation order.
+      B low = visit(lo);
+      B high = visit(hi);
+      B variable = var(mapping.at(int(oxidd_bdd_node_var(node.v))));
+      B result = ite(variable, high, low);
       memo.emplace(h, result);
       return result;
     };
@@ -1491,7 +1494,9 @@ public:
       if (gate == gates.end())
         decline(FailureCause::error, "schema_abi",
                 "AIG root references missing gate");
-      B result = land(value(gate->second.first), value(gate->second.second));
+      B right = value(gate->second.second);
+      B left = value(gate->second.first);
+      B result = land(left, right);
       memo.emplace(variable, result);
       return result;
     };
@@ -1515,8 +1520,10 @@ public:
       B hi(oxidd_bdd_cofactor_true(node.v));
       B lo(oxidd_bdd_cofactor_false(node.v));
       uint32_t x = found->second;
-      uint32_t result = aig_or(aig, aig_and(aig, x, visit(hi)),
-                               aig_and(aig, aig_not(x), visit(lo)));
+      // Export low first, including its guard, to keep historical gate IDs.
+      uint32_t low = aig_and(aig, aig_not(x), visit(lo));
+      uint32_t high = aig_and(aig, x, visit(hi));
+      uint32_t result = aig_or(aig, high, low);
       memo.emplace(h, result);
       return result;
     };
@@ -1958,8 +1965,9 @@ emit_certificate(Schema &bdd, const GameView &target,
     auto gate = gates.find(lit / 2);
     if (gate == gates.end())
       decline(FailureCause::error, "candidate", "unmapped target game gate");
-    uint32_t value = aig_and(out.get(), translate(gate->second.first),
-                             translate(gate->second.second));
+    uint32_t right = translate(gate->second.second);
+    uint32_t left = translate(gate->second.first);
+    uint32_t value = aig_and(out.get(), left, right);
     translated.emplace(lit / 2, value);
     return value;
   };
@@ -2004,8 +2012,9 @@ emit_certificate(Schema &bdd, const GameView &target,
     fairness.push_back(bdd.from_aig(game, aig_fairness_at(game, fair), true));
   for (const Goal &g : target.goals) {
     B at_goal = bdd.land(inv, predicate("goal_" + field(g.number)));
-    uint32_t move = aig_and(out.get(), now(at_goal),
-                            aig_and(out.get(), aig_not(bad), later(inv)));
+    uint32_t safe_next = aig_and(out.get(), aig_not(bad), later(inv));
+    uint32_t at_goal_now = now(at_goal);
+    uint32_t move = aig_and(out.get(), at_goal_now, safe_next);
     B covered = at_goal;
     for (int level = 0; level < learned.depths[g.number]; level++) {
       B strict = level == 0
@@ -2018,10 +2027,11 @@ emit_certificate(Schema &bdd, const GameView &target,
         B fair_pred = fairness.empty() ? bdd.t() : fairness[fair];
         B rank_target = bdd.lor(strict, bdd.land(bdd.neg(fair_pred), x));
         B layer = bdd.land(x, bdd.neg(covered));
-        move = aig_or(
-            out.get(), move,
-            aig_and(out.get(), now(layer),
-                    aig_and(out.get(), aig_not(bad), later(rank_target))));
+        uint32_t safe_target =
+            aig_and(out.get(), aig_not(bad), later(rank_target));
+        uint32_t layer_now = now(layer);
+        move =
+            aig_or(out.get(), move, aig_and(out.get(), layer_now, safe_target));
         covered = bdd.lor(covered, x);
       }
     }
@@ -2134,17 +2144,19 @@ std::unique_ptr<Aig, decltype(&aig_free)> emit_policy(Schema &bdd,
     B function =
         bdd.exists(bdd.land(bdd.land(relation, chosen), bit), control_cube);
     functions.push_back(function);
-    chosen =
-        bdd.land(chosen, bdd.lor(bdd.land(bit, function),
-                                 bdd.land(bdd.neg(bit), bdd.neg(function))));
+    B not_function = bdd.neg(function);
+    B not_bit = bdd.neg(bit);
+    B low = bdd.land(not_bit, not_function);
+    B high = bdd.land(bit, function);
+    chosen = bdd.land(chosen, bdd.lor(high, low));
   }
   std::vector<B> next_curr;
   for (uint32_t goal = 0; goal < ngoals; goal++) {
     B advance = bdd.land(effective[goal], goals[goal]);
     uint32_t previous = (goal + ngoals - 1) % ngoals;
-    next_curr.push_back(
-        bdd.lor(bdd.land(effective[goal], bdd.neg(advance)),
-                bdd.land(effective[previous], goals[previous])));
+    B entered = bdd.land(effective[previous], goals[previous]);
+    B stayed = bdd.land(effective[goal], bdd.neg(advance));
+    next_curr.push_back(bdd.lor(stayed, entered));
   }
   auto policy = std::unique_ptr<Aig, decltype(&aig_free)>(aig_new(), &aig_free);
   if (!policy)

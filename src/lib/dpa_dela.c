@@ -96,7 +96,7 @@ static uint32_t component(TlsfDpa *c, uint32_t f) {
     DpaComponent *p = c->components.items[i];
     if (p->formula == f)
       return p->colour;
-    if (p->dual == f)
+    if (!c->buchi && p->dual == f)
       return dpa_class(c, oxidd_bdd_not(dpa_cls(c, p->colour)->bdd));
   }
   bool neg = !(dpa_tags(c, f) & DPA_PI2);
@@ -131,8 +131,9 @@ uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {
       dpa_decline(c, TLSF_DPA_UNSUPPORTED);
     else {
       uint32_t v = component(c, atom->cls);
-      result = dpa_ite(c, v, dpa_acceptance(c, cl->high),
-                       dpa_acceptance(c, cl->low));
+      uint32_t low = dpa_acceptance(c, cl->low);
+      uint32_t high = dpa_acceptance(c, cl->high);
+      result = dpa_ite(c, v, high, low);
     }
   }
   if (dpa_poll(c))
@@ -184,10 +185,11 @@ static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,
     if (pair && pair->all < 2)
       result =
           terminal_condition(c, pair->all ? cl->high : cl->low, values, epoch);
-    else
-      result =
-          dpa_ite(c, atom->cls, terminal_condition(c, cl->high, values, epoch),
-                  terminal_condition(c, cl->low, values, epoch));
+    else {
+      uint32_t low = terminal_condition(c, cl->low, values, epoch);
+      uint32_t high = terminal_condition(c, cl->high, values, epoch);
+      result = dpa_ite(c, atom->cls, high, low);
+    }
     cl->epoch = epoch;
     cl->mapped = result;
   }
@@ -195,6 +197,30 @@ done:
   --c->recursion;
   return result;
 }
+// A round remembers the residual positive acceptance formula after setting
+// every colour seen in this round to true. A completed round resets it. For
+// positive Boolean B, infinitely many completed rounds iff B(Inf colours).
+// This is the ordinary deterministic Buchi union/intersection construction;
+// it does not enlarge the proved grammar of any breakpoint component.
+static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  uint32_t result = f;
+  if (f > 1 && dpa_children(c, f)) {
+    DpaClass *cl = dpa_cls(c, f);
+    DpaAtom *atom = c->atoms.items[cl->var];
+    if (dpa_colour(colours, atom->lhs))
+      result = seen_colours(c, cl->high, colours);
+    else {
+      uint32_t low = seen_colours(c, cl->low, colours);
+      uint32_t high = seen_colours(c, cl->high, colours);
+      result = dpa_ite(c, atom->cls, high, low);
+    }
+  }
+  --c->recursion;
+  return dpa_poll(c) ? result : DPA_BAD;
+}
+
 static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
   if (!dpa_enter(c))
     return DPA_BAD;
@@ -225,7 +251,9 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     DpaDag *d = c->dags.items[t->values[i]];
     values[i] = d->kind == 3 ? d->low : DPA_BAD;
   }
-  uint32_t truth = terminal_condition(c, c->acceptance, values, ++c->epoch);
+  uint32_t truth =
+      c->buchi ? DPA_BAD
+               : terminal_condition(c, c->acceptance, values, ++c->epoch);
   if (truth < 2) {
     uint32_t target = dpa_state(c, DPA_BAD, truth);
     result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);
@@ -242,7 +270,16 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
         dpa_set_colour(colours, i);
     }
     uint32_t next_leaf = leaf;
-    uint32_t priority = dpa_tree_step(c, &next_leaf, colours);
+    uint32_t priority;
+    if (c->buchi) {
+      DpaPair *round = c->pairs.items[leaf];
+      uint32_t residual = seen_colours(c, round->all, colours);
+      bool complete = residual == 1;
+      next_leaf = dpa_pair(c, complete ? c->acceptance : residual, complete);
+      // Splitting by the incoming mark exposes state-based acceptance.
+      priority = round->rejecting;
+    } else
+      priority = dpa_tree_step(c, &next_leaf, colours);
     uint32_t target = dpa_state(c, dpa_tuple(c, values), next_leaf);
     result = dpa_dag(c, 2, 0, target, priority);
     dpa_release(c, colours);
@@ -279,9 +316,11 @@ uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     return DPA_BAD;
   for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i) {
     DpaPair *p = c->pairs.items[t->values[i]];
-    if (p->dag == DPA_BAD)
-      p->dag = dpa_product(c, dpa_step_dag(c, p->all),
-                           dpa_step_dag(c, p->rejecting));
+    if (p->dag == DPA_BAD) {
+      uint32_t rejecting = dpa_step_dag(c, p->rejecting);
+      uint32_t all = dpa_step_dag(c, p->all);
+      p->dag = dpa_product(c, all, rejecting);
+    }
     roots[i] = p->dag;
   }
   uint32_t result = joint(c, dpa_tuple(c, roots), leaf);

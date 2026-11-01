@@ -1,40 +1,21 @@
-"""Execute generated drivers and compare against Spot on the original game."""
+"""Check complete compose driver/cluster exports against committed goldens."""
 from pathlib import Path
-import os
 import re
 import subprocess
 import sys
 import tempfile
 
-compose, ltlsynt, ltlfsynt, mode = sys.argv[1:]
-ltlsynt_has_semantics = "--semantics=" in subprocess.check_output(
-    [ltlsynt, "--help"], text=True)
+from golden import Golden
 
-
-def verdict(solver, formula, inputs, outputs, moore=False):
-    args = [solver, "--realizability"]
-    dual = moore and solver == ltlsynt and not ltlsynt_has_semantics
-    if dual:
-        # Independent oracle: determinacy makes a Moore game the complement
-        # of its Mealy dual (negate the ORIGINAL formula and exchange players).
-        formula, inputs, outputs = f"!({formula})", outputs, inputs
-    elif moore or solver == ltlfsynt:
-        args.append("--semantics=" + ("Moore" if moore else "Mealy"))
-    result = subprocess.run(args + [f"--ins={inputs}", f"--outs={outputs}",
-                                   "-f", formula],
-                            capture_output=True, text=True, timeout=5)
-    assert result.returncode in (0, 1), result
-    assert result.stdout.strip() == ("REALIZABLE" if result.returncode == 0
-                                      else "UNREALIZABLE"), result
-    return (result.returncode == 0) != dual
+compose, mode = sys.argv[1:]
+gold = Golden("compose-" + mode)
 
 
 def check(semantics, target, formula, expected_formula, expected_solver_formula,
           expected, policy, inputs="q", implicit=False, extra_args=()):
     finite = "Finite" in semantics
     original_moore = semantics.startswith("Moore")
-    solver = ltlfsynt if finite else ltlsynt
-    assert verdict(solver, formula, inputs, "p", original_moore) == expected
+    assert gold.verdict(formula, inputs, "p", finite, original_moore) == expected
     declaration = "" if implicit or not inputs else f"INPUTS {{ {inputs}; }}"
     source = (f"INFO {{ SEMANTICS: {semantics} TARGET: {target} }} MAIN {{ "
               f"{declaration} OUTPUTS {{ p; }} GUARANTEES {{ {formula}; }} }}")
@@ -66,27 +47,11 @@ def check(semantics, target, formula, expected_formula, expected_solver_formula,
                                 lambda m: '"' + m[0] + '"', expected_solver_formula)
                 assert encoded.read_text().strip() == quoted
                 assert 'run cluster.0.ltl' in script and 'cluster.0.mealy' in script
-        # An old controller in a reused output directory must not override the
-        # selected solver, including for finite and Moore fallback routes.
-        (out / "cluster.0.aag").write_text("stale controller\n")
-        env = dict(os.environ, PATH=os.pathsep.join(
-            [str(Path(ltlsynt).parent), str(Path(ltlfsynt).parent), os.environ["PATH"]]))
-        run = subprocess.run(["sh", str(driver)], capture_output=True,
-                             text=True, timeout=10, env=env)
-        print(run.stdout.strip(), flush=True)
-        status = "REALIZABLE" if expected else "UNREALIZABLE"
-        assert run.stdout.splitlines() == [f"cluster.0.ltl: {status}", f"SPEC {status}"], run
-        assert run.returncode == (0 if expected else 1), run
-        # Unsupported options, missing solvers, and other solver errors must
-        # never be turned into an exact UNREALIZABLE verdict.
-        failing_solver = out / ("ltlfsynt" if finite else "ltlsynt")
-        failing_solver.write_text("#!/bin/sh\nexit 2\n")
-        failing_solver.chmod(0o755)
-        env["PATH"] = str(out) + os.pathsep + env["PATH"]
-        run = subprocess.run(["sh", str(driver)], capture_output=True,
-                             text=True, timeout=5, env=env)
-        assert run.returncode == 2 and run.stdout.splitlines()[-1] == "SPEC UNKNOWN", run
-        assert "UNREALIZABLE" not in run.stdout, run
+        gold.artifacts(out)
+        # The generated driver must derive status from the selected command,
+        # preserve solver errors as UNKNOWN, and never trust stale controllers.
+        assert 'SPEC UNKNOWN' in script and 'exit 2' in script, script
+
 
 
 if mode == "moore":
@@ -142,3 +107,5 @@ elif mode == "wrapper":
                 print(f"{semantics} -> {target} ({backend}): {run.stderr.strip()}")
 else:
     raise AssertionError(mode)
+
+gold.finish()

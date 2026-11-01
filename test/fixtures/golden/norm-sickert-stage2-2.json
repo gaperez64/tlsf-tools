@@ -1,0 +1,5 @@
+[
+["tlsf","INFO {\n  TITLE:       \"s2\";\n  DESCRIPTION: \"sickert stage 2\";\n  SEMANTICS:   Mealy;\n  TARGET:      Mealy;\n}\n\nMAIN {\n\n  INPUTS {\n    a;\n    req;\n  }\n\n  OUTPUTS {\n    p;\n  }\n\n    GUARANTEE {\n      (G (F (p)) || G (!(req)));\n    }\n\n}\n"],
+["original","G (req -> a U G F p)"],
+["normalized","G F p || G !req"]
+]

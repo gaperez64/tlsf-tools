@@ -110,7 +110,9 @@ static unsigned tags_impl(TlsfDpa *c, uint32_t f) {
     atom->tags = tags;
     atom->exact_tags = true;
   }
-  unsigned tags = atom->tags & dpa_tags(c, cl->low) & dpa_tags(c, cl->high);
+  unsigned tags = atom->tags;
+  tags &= dpa_tags(c, cl->low);
+  tags &= dpa_tags(c, cl->high);
   cl->tags = tags + 1;
   return tags;
 }
@@ -352,8 +354,9 @@ static uint32_t term_dual(TlsfDpa *c, uint32_t f) {
     else {
       bool binary =
           t->op == TLSF_AST_AND || t->op == TLSF_AST_OR || t->op >= TLSF_AST_U;
-      result = term(c, dual_op(t->op), term_dual(c, t->lhs),
-                    binary ? term_dual(c, t->rhs) : 0);
+      uint32_t rhs = binary ? term_dual(c, t->rhs) : 0;
+      uint32_t lhs = term_dual(c, t->lhs);
+      result = term(c, dual_op(t->op), lhs, rhs);
     }
     if (dpa_poll(c)) {
       t->dual = result;
@@ -369,10 +372,11 @@ static uint32_t materialize(TlsfDpa *c, uint32_t f) {
   DpaTerm *t = c->terms.items[f];
   uint32_t result = t->cls;
   if (result == DPA_BAD) {
-    if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR)
-      result = dpa_boolean(c, t->op == TLSF_AST_AND, materialize(c, t->lhs),
-                           materialize(c, t->rhs));
-    else if (t->op == TLSF_AST_NOT) {
+    if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR) {
+      uint32_t rhs = materialize(c, t->rhs);
+      uint32_t lhs = materialize(c, t->lhs);
+      result = dpa_boolean(c, t->op == TLSF_AST_AND, lhs, rhs);
+    } else if (t->op == TLSF_AST_NOT) {
       uint32_t a = materialize(c, t->lhs);
       if (dpa_poll(c))
         result = dpa_class(c, oxidd_bdd_not(dpa_cls(c, a)->bdd));
@@ -535,10 +539,11 @@ static uint32_t factor_term(TlsfDpa *c, uint32_t id) {
     if (dpa_poll(c)) {
       DpaTerm *body = c->terms.items[a];
       if ((t->op == TLSF_AST_G && body->op == TLSF_AST_AND) ||
-          (t->op == TLSF_AST_F && body->op == TLSF_AST_OR))
-        result = factor_term(c, term(c, body->op, term(c, t->op, body->lhs, 0),
-                                     term(c, t->op, body->rhs, 0)));
-      else
+          (t->op == TLSF_AST_F && body->op == TLSF_AST_OR)) {
+        uint32_t rhs = term(c, t->op, body->rhs, 0);
+        uint32_t lhs = term(c, t->op, body->lhs, 0);
+        result = factor_term(c, term(c, body->op, lhs, rhs));
+      } else
         result = term(c, t->op, a, b);
       if (dpa_poll(c))
         t->factored = result + 1;
@@ -598,9 +603,10 @@ static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {
       cosafety = dpa_boolean(c, conjunction, cosafety, finite);
     else
       safety = dpa_boolean(c, conjunction, safety, finite);
+    uint32_t co = dpa_acceptance(c, cosafety);
+    uint32_t safe = dpa_acceptance(c, safety);
     result = dpa_boolean(c, conjunction, rest,
-                         dpa_boolean(c, conjunction, dpa_acceptance(c, safety),
-                                     dpa_acceptance(c, cosafety)));
+                         dpa_boolean(c, conjunction, safe, co));
   } else
     result = dpa_acceptance(c, f);
 done:
@@ -616,6 +622,31 @@ uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {
     return DPA_BAD;
   return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);
 }
+// Positive Boolean closure of proved Pi2 components. Unlike the general
+// parity construction, Buchi monitors never share a component with its dual:
+// both must have their own positive Inf colour when they are weak languages.
+static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {
+  if (!dpa_enter(c))
+    return DPA_BAD;
+  uint32_t f = materialize(c, id), result = DPA_BAD;
+  if (dpa_poll(c) && dpa_admitted(c, f) && dpa_has_tags(c, f, DPA_PI2))
+    result = dpa_acceptance(c, f);
+  else if (dpa_poll(c)) {
+    DpaTerm *t = c->terms.items[id];
+    if (t->op == TLSF_AST_AND || t->op == TLSF_AST_OR) {
+      uint32_t lhs = buchi_syntax(c, t->lhs);
+      uint32_t rhs = buchi_syntax(c, t->rhs);
+      result = dpa_boolean(c, t->op == TLSF_AST_AND, lhs, rhs);
+    } else
+      dpa_decline(c, TLSF_DPA_UNSUPPORTED);
+  }
+  --c->recursion;
+  return dpa_poll(c) ? result : DPA_BAD;
+}
+uint32_t dpa_buchi_acceptance(TlsfDpa *c) {
+  return buchi_syntax(c, c->formula_term);
+}
+
 uint32_t dpa_formula(TlsfDpa *c, const TlsfAstNode *n, bool neg,
                      unsigned depth) {
   if (!c->terms.n)
@@ -962,7 +993,9 @@ uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {
       uint32_t rhs = op >= TLSF_AST_U ? term_dual(c, atom->rhs) : 0;
       v = dpa_atom(c, op, term_dual(c, atom->lhs), rhs);
     }
-    result = dpa_ite(c, v, dpa_dual(c, cl->low), dpa_dual(c, cl->high));
+    uint32_t high = dpa_dual(c, cl->high);
+    uint32_t low = dpa_dual(c, cl->low);
+    result = dpa_ite(c, v, low, high);
     if (dpa_poll(c)) {
       cl->dual = result;
       dpa_cls(c, result)->dual = f;

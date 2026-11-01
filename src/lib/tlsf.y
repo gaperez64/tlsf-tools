@@ -159,7 +159,10 @@
     Node *acc = nullptr;
     for (uint16_t i = 0; i < et->label_count; i++) {
       const char *label = spec->enum_labels[et->label_start + i].name;
-      Node *eq = mk_cmp(a, NODE_CMP_EQ, node_ap(a, sig), node_ap(a, label));
+      /* Preserve GCC's right-first node allocation order. */
+      Node *rhs = node_ap(a, label);
+      Node *lhs = node_ap(a, sig);
+      Node *eq = mk_cmp(a, NODE_CMP_EQ, lhs, rhs);
       acc = acc ? node_or(a, acc, eq) : eq;
     }
     return acc ? acc : node_true(a);

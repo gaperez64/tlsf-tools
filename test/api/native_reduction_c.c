@@ -98,28 +98,28 @@ int main(void) {
   snapshot[0] = original;
   tlsf_pipeline_free(pipeline);
   static const char fallback_source[] =
-      "INFO { TITLE: \"aborter\" DESCRIPTION: \"fallback\" "
+      "INFO { TITLE: \"component budget\" DESCRIPTION: \"fallback\" "
       "SEMANTICS: Mealy TARGET: Mealy }\n"
       "MAIN { INPUTS { i; } OUTPUTS { o; } "
       "GUARANTEES { G (F o || ((!i || X i) && (i || X !i))); } }\n";
   pipeline = tlsf_pipeline_load_bytes((const uint8_t *)fallback_source,
                                       strlen(fallback_source), &load_options);
   assert(pipeline);
-  options.max_monitor_states = 3;
+  options.max_monitor_states = 1;
   assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
          TLSF_GR1_REDUCE_LIMIT);
-  assert(strcmp(error.stage, "determinize") == 0);
+  assert(strcmp(error.stage, "budget-monitor-states") == 0);
   assert(!result.game && !result.aag);
-  options.max_monitor_states = 4;
+  options.max_monitor_states = 100;
   assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
          TLSF_GR1_REDUCE_OK);
-  assert(strstr(result.metadata_json, "\"fallback_monitor_count\":1"));
+  assert(strstr(result.metadata_json, "\"fallback_monitor_count\":0"));
   tlsf_gr1_reduction_clear(&result);
-  options.max_monitor_states = 3;
+  options.max_monitor_states = 1;
   TlsfGr1ReductionStats stats = {0};
   const TlsfGr1ConstructionWork *work = &stats.work;
   options.stats = &stats;
-  options.budget.max_total_states = 3;
+  options.budget.max_total_states = 1;
   assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
          TLSF_GR1_REDUCE_LIMIT);
   assert(strcmp(error.stage, "budget-monitor-states") == 0);
@@ -127,6 +127,7 @@ int main(void) {
          work->monitors_completed == 0);
   assert(!result.game && !result.aag);
   options.budget.max_total_states = 0;
+  options.max_monitor_states = 100;
   int edge_abort_seen = 0;
   for (unsigned edge_cap = 1; edge_cap <= 32 && !edge_abort_seen; ++edge_cap) {
     options.budget.max_total_edges = edge_cap;
@@ -148,7 +149,7 @@ int main(void) {
   assert(!result.game && !result.aag);
   // With no budget the work counters are still reported.
   options.budget = (TlsfGr1ConstructionBudget){0};
-  options.max_monitor_states = 4;
+  options.max_monitor_states = 100;
   assert(tlsf_gr1_reduce(pipeline, &options, &result, &error) ==
          TLSF_GR1_REDUCE_OK);
   assert(stats.stages[TLSF_GR1_REDUCE_STATS_SOURCE].wall_ns);

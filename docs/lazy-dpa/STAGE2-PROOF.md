@@ -4,7 +4,12 @@
 §6 proves both component inclusions for `G(q)`, where q is a positive Boolean
 combination of finite windows and `F` of finite windows, and for its `F`/`G`
 duals. Together with the Boolean-product/Zielonka theorems, this gives the
-admitted grammar at the end. The general Π₂/Σ₂ gate remains unproved.
+admitted grammar at the end. The general Π₂ component theorem was subsequently
+proved in `GeneralConverse.lean`; Task T adds executable Π₂/Σ₂ component
+simulation. TV3 enables general admission in GR(1) after the full 17-second
+translation-validation sample finishes with zero failures; see §10 and
+`proofs/README.md` for the trusted boundary. C correctness on every runtime
+input is not proved.
 
 This extends [STAGE1-PROOF.md](STAGE1-PROOF.md), using its definitions of `b`, `s`,
 `c`, NNF dualization, AP_COMBINED classes, frozen unfolding `U`, simultaneous
@@ -513,9 +518,12 @@ Therefore `G(a∧b)=Ga∧Gb` and `F(a∨b)=Fa∨Fb`. Already compatible safety/c
 syntax is retained as one monitor; distributing inside it is unnecessary.
 Structural congruence permits
 replacement inside any NNF syntax context, including frozen modal operands.
-Hash-consing/memoization changes no formula. The recursion terminates because
-each distribution moves G/F onto strict Boolean subterms; ordinary recursive
-calls descend the syntax DAG. These are the **infinite-word semantic identities
+Hash-consing/memoization changes no formula. The executable proof in
+`Impl/Factoring.lean` uses leaf weight 1, unary weight twice the operand weight,
+and binary weight the operand sum plus 1. Smart construction respects these
+bounds and each distribution strictly decreases weight. The sufficient fuel
+bound also covers recursion on factored children and newly constructed terms;
+ordinary syntax size need not decrease. These are the **infinite-word semantic identities
 used for canonicalization in Stage 1 §1**, with component correctness and the
 final parity language supplied by **Stage 1 §4, §6 here, and §§4–5 here**.
 The original admission guard is evaluated first, as above.
@@ -605,4 +613,62 @@ None of §9 uses support blocking (#81), external suspension/round robin (#82),
 local-tree/reset/stuttering reductions (#83), `State.inDifferentSccs`, or
 lookahead. Undecided products retain §5's original global tree and update.
 
-VERDICT: done
+## 10. Executable reference and translation validation
+
+The core-only executable reference in `proofs/TlsfProofs/Dpa/Impl/` performs
+class equality, support and structural tags, syntactic protection, simultaneous
+DROP_X, elision, unfolding, retry, complete component progression, pure
+factoring, fresh-coordinate assembly and Zielonka export. Its component and
+product languages compose in `uncached_construction_language`. The positive
+Buchi round monitor has the same language when `positiveb` succeeds.
+
+`Validation/Finite.lean` provides checked finite tables. BFS merges Boolean
+equivalent all/rejecting fields while retaining the tree or round state.
+A separate closure check covers every state and letter, including terminal
+loops. `exportParity_language` and `exportBuchi_language` prove successful
+exports preserve the symbolic language. Exploration limits cause validation
+failure; no fixed limit is proved sufficient for every admitted formula.
+`Normalize.lean` proves Boolean simplification below modalities, including the
+frozen-operand absorption examples. No C cache, trace or call-order model is
+used or required.
+
+`Validation/Equivalence.lean` proves `check_language` and `checkBuchi_sound` for
+complete deterministic automata with arbitrary state counts. Checked alphabet
+compaction preserves these results. The `dpaValidate` executable parses the
+canonical C dump, checks the exact formula and AP order, builds a certified
+finite reference, explicitly checks positivity for the Buchi round construction
+and invokes the language checker. A nonpositive round skeleton instead uses
+`Buchi.toParity_language` to compare C's Buchi machine with the certified parity
+reference; positivity is sufficient for the chosen round skeleton, not necessary
+for the formula to have a Buchi recognizer. This comparison is also covered by
+`validate_buchi_sound`. `validate_parity_sound` and `validate_buchi_sound` connect successful
+verdicts directly to formula satisfaction.
+
+Offline regeneration is `tools/golden/translation_validate.py`; it needs Lean
+4.35.0 and never runs in CI. It covers every monitor constructor reached by
+the 217-spec corpus, DPA equivalence formulas, language-golden formulas and
+review-k/l/i examples, under both admission policies and acceptance kinds.
+Canonical hashes bind the validated artifacts to the C-only CI regression.
+Each formula/AP order, admission policy and acceptance kind has one hard
+17-second wall-clock timeout covering the C dump and Lean check together.
+Admitted cases have pass/fail/timeout outcomes. Timeouts are reported, excluded
+from goldens and never minimized. C unsupported declines are counted separately
+because there is no automaton to validate. Only passing language checks enter
+the hash regression. Failures are retained and minimized, and prevent enabling
+general admission; the correctness bar is zero failures among cases finishing
+within the budget. Runs use fresh verdicts throughout.
+See `proofs/README.md` and the translation golden report for current counts.
+
+The trusted boundary includes decoding, C memory safety, the BDD library and
+hashing. C correctness is validated only on the enumerated formulas, AP
+orders, policies and acceptance kinds. Formulas admitted at runtime without a
+validated golden rely on the proved reference construction plus the validation
+sample. Their C implementations are not thereby proved correct. Bounded lasso
+goldens alone do not prove language equality.
+
+VERDICT: targeted and general reference component grammars proved; general
+admission enabled by default in GR(1) after **4,134 pass / 0 fail / 36 timeout**
+in the full fresh bounded inventory. The 678 C unsupported requests are counted
+separately. Corpus coverage increases **148 -> 155 / 217**. See
+`test/fixtures/golden/translation/report.json` for all per-set/policy/kind counts
+and timed-out formulas.

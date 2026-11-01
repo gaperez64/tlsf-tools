@@ -8,11 +8,11 @@ Formula-level verdict shortcuts, safety-core witnesses, and formula
 decomposition happen outside this boundary and must be measured separately;
 an HOA replay result is not a replacement for an end-to-end Acacia verdict.
 
-`tlsf-tools` does not link to Spot or expose Spot types in this workflow.  The
+`tlsf-tools` does not link to Spot or expose Spot types in this workflow. The
 orchestrator translates TLSF into ordinary TLSF/LTL files and invokes an
 external automaton generator; Acacia owns the Spot-dependent generator and
-replay adapters used below.  The existing `tlsf2spot` program remains only an
-example consumer of the public tlsf-tools representation.
+replay adapters. The standalone `examples/tlsf2spot.cpp` remains an example
+consumer of the public tlsf-tools representation; Meson and CI do not build it.
 
 Build `tlsf-tools` with `-Dresearch_tools=true` and Acacia with
 `-Dbuild_research_tools=true`, then run:
@@ -22,10 +22,6 @@ scripts/automata_study.py --file-list panel.list --output RUN \
   --tlsfnorm build/tlsfnorm --tlsf2ltl build/tlsf2ltl \
   --tlsfinfo build/tlsfinfo --tlsfbenchgraph build/tlsfbenchgraph \
   --automata-generator ../acacia-bonsai/build/src/acacia-automata-study
-
-scripts/evaluate_automata_study.py --bundle RUN --output RESULTS \
-  --acacia-replay ../acacia-bonsai/build/src/acacia-hoa-replay \
-  --timeout 20 --repetitions 1
 ```
 
 The default schedule ladder is `off`; `split`; `split,nnf,weak,bool-canon`;
@@ -43,13 +39,10 @@ independently of normalization, translation, and solving.  That table contains
 only source digests, interface sizes, and `guard_*` AST measurements; derived
 template and residual measurements are excluded by construction.
 
-The replay orchestrator uses one memory-limited user-systemd scope per run,
-persists every sample atomically, distinguishes timeouts, resource limits, and
-other errors, detects simultaneous real/unreal wins as a hard conflict, and
-reports losses/gains relative to the `off` schedule.
-Resume mode verifies the script, binaries, bundle, schedules, resource limits,
-and other run metadata before appending, so incompatible samples cannot be
-silently mixed.
+Bundle generation is the end of this repository's workflow. Replay and solver
+evaluation belong to the external consumer. Evaluations should distinguish
+timeouts, resource limits and other errors, detect conflicting real/unreal
+verdicts, and report losses/gains relative to the `off` schedule.
 
 Offline selectors may use only `guard_*` fields from `tlsfbenchgraph` plus
 explicit TLSF metadata such as input/output counts. They must not use paths,

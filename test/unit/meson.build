@@ -1,6 +1,16 @@
 # Internal units: these may include libtlsf's private headers.
 
+dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
+test('dpa_translation_hashes', dpa_dump,
+  args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/hashes.tsv'],
+  timeout: 300, is_parallel: false)
+if research_tools
+  tv_inventory = executable('tv_inventory', '../../tools/golden/tv_inventory.cc',
+    link_args: ['-Wl,--wrap=dpa_buchi_create'], dependencies: tlsf_internal_dep)
+endif
+
 dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
+  cpp_args: ['-DDPA_GOLDEN_DIR="' + (meson.project_source_root() / 'test/fixtures/golden/dpa') + '"'],
   dependencies: tlsf_internal_dep)
 dpa_contract = executable('dpa_contract', 'dpa_contract.c',
   c_args: ['-UNDEBUG'],
@@ -11,6 +21,7 @@ dpa_contract = executable('dpa_contract', 'dpa_contract.c',
   dependencies: tlsf_internal_dep)
 test('dpa_contract', dpa_contract, timeout: 120)
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
+test('dpa_buchi_goldens', dpa_equivalence, args: ['--buchi'], timeout: 120)
 test('dpa_equivalence_research', dpa_equivalence,
   args: ['--allow-unproved'], timeout: 120)
 test('dpa_limits', dpa_equivalence,
@@ -19,21 +30,16 @@ test('dpa_limits', dpa_equivalence,
 dpa_stage2 = executable('dpa_stage2', 'dpa_stage2.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('dpa_stage2', dpa_stage2, timeout: 120)
-randltl = find_program('randltl', required: false)
-if randltl.found()
-  test('dpa_random', python3, args: [files('dpa_random.py'),
-    dpa_equivalence, randltl], timeout: 120)
-  test('dpa_random_research', python3, args: [files('dpa_random.py'),
-    dpa_equivalence, randltl, '--allow-unproved'], timeout: 120)
-endif
-
+foreach mode : ['default', 'research']
+  test('dpa_random_' + mode, python3,
+    args: [files('dpa_random.py'), dpa_equivalence,
+           meson.project_source_root() / 'test/fixtures/golden/dpa/random.ltl', mode],
+    timeout: 120)
+endforeach
 dpa_admission = executable('dpa_admission', 'dpa_admission.c',
   dependencies: tlsf_internal_dep)
-ltlfilt = find_program('ltlfilt', required: false)
-if randltl.found() and ltlfilt.found()
-  test('dpa_delta2', python3, args: [files('dpa_delta2.py'),
-    dpa_equivalence, randltl, ltlfilt], timeout: 300)
-endif
+test('dpa_delta2', python3, args: [files('dpa_delta2.py'), dpa_equivalence,
+  meson.project_source_root() / 'test/fixtures/golden/dpa/delta2.ltl'], timeout: 300)
 
 objective_cli = static_library('objective-cli',
   files('../../src/tools/tlsf2ltl/main.c'),
@@ -55,6 +61,7 @@ if research_tools
     dependencies: tlsf_internal_dep)
   test('pruning_cache', pruning_cache)
   phase_b_probe = executable('phase_b_probe', 'phase_b_probe.c',
+    c_args: ['-UNDEBUG'],
     dependencies: tlsf_internal_dep)
   residual_fault = executable('residual-fault', 'research_fault.c',
     files('../../src/tools/tlsfresidual/main.c'),
@@ -100,7 +107,8 @@ native_both_api_exe = executable('native_both_api',
   dependencies: tlsf_internal_dep)
 test('native_both_api', native_both_api_exe,
   args: files('../oracle/env_lift_one.tlsf'),
-  timeout: get_option('buildtype') == 'debug' ? 180 : 90,
+  # Aggregate of many worker runs, including deliberate deadline injections.
+  timeout: 180,
   is_parallel: false)
 # Three added corruption cases each retain the worker's 30-second deadline.
 test('native_failure_census', native_both_api_exe,
@@ -152,6 +160,12 @@ if host_machine.system() == 'linux'
   endforeach
 endif
 
+# Diagnostic inventory; not a test and never used by the production reducer.
+gr1_admission = executable('gr1_admission', 'gr1_admission.cpp',
+  dependencies: tlsf_internal_dep)
+gr1_general_policy = executable('gr1_general_policy', 'gr1_general_policy.c',
+  dependencies: tlsf_internal_dep)
+test('gr1_general_policy', gr1_general_policy)
 env_witness = executable('env_witness', 'env_witness.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('env_witness', env_witness)

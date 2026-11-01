@@ -1,3 +1,9 @@
+// Standalone example requiring Spot; Meson and CI do not build it.
+// After installing libtlsf and Spot, build by hand from the repository root:
+//   c++ -std=c++20 examples/tlsf2spot.cpp -o tlsf2spot \
+//     $(pkg-config --cflags --libs --static tlsf libspot)
+// Set PKG_CONFIG_PATH if either installation uses a nonstandard prefix.
+
 #include "tlsf/ast_api.hpp"
 
 #include <spot/tl/formula.hh>

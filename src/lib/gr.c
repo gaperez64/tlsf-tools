@@ -353,14 +353,18 @@ static int classify_invariant(TlsfSpec *sp, const Node *f, const Node **live) {
 static Node *gnorm(Arena *a, const Node *n) {
   if (!n || arena_failed(a))
     return nullptr;
+  // Sequence sibling allocations in GCC's historical right-first order.
   switch (n->kind) {
   case NODE_G: {
     Node *m = gnorm(a, n->arg);
     if (!m)
       return nullptr;
-    if (m->kind == NODE_AND)
-      return node_and(a, gnorm(a, node_g(a, m->lhs)),
-                      gnorm(a, node_g(a, m->rhs)));
+    if (m->kind == NODE_AND) {
+      // Preserve GCC's right-first allocation order.
+      Node *r = gnorm(a, node_g(a, m->rhs));
+      Node *l = gnorm(a, node_g(a, m->lhs));
+      return node_and(a, l, r);
+    }
     if (m->kind == NODE_G)
       return m;
     return node_g(a, m);
@@ -373,22 +377,46 @@ static Node *gnorm(Arena *a, const Node *n) {
     return node_x_strong(a, gnorm(a, n->arg));
   case NODE_F:
     return node_f(a, gnorm(a, n->arg));
-  case NODE_AND:
-    return node_and(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_OR:
-    return node_or(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_IMPL:
-    return node_impl(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_EQUIV:
-    return node_equiv(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_U:
-    return node_u(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_R:
-    return node_r(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_W:
-    return node_w(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
-  case NODE_M:
-    return node_m(a, gnorm(a, n->lhs), gnorm(a, n->rhs));
+  case NODE_AND: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_and(a, l, r);
+  }
+  case NODE_OR: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_or(a, l, r);
+  }
+  case NODE_IMPL: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_impl(a, l, r);
+  }
+  case NODE_EQUIV: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_equiv(a, l, r);
+  }
+  case NODE_U: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_u(a, l, r);
+  }
+  case NODE_R: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_r(a, l, r);
+  }
+  case NODE_W: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_w(a, l, r);
+  }
+  case NODE_M: {
+    Node *r = gnorm(a, n->rhs);
+    Node *l = gnorm(a, n->lhs);
+    return node_m(a, l, r);
+  }
   default:
     return (Node *)n;
   }

@@ -76,13 +76,12 @@ if host_machine.system() == 'darwin' and cpp_compiler.get_id() != 'gcc'
   cpp_runtime = 'c++'
 endif
 lib_compile_deps = [yyjson_dep, oxidd_dep.partial_dependency(includes: true,
-                                                          sources: true),
-                   spot_dep.partial_dependency(compile_args: true, includes: true)]
+                                                          sources: true)]
 # An explicit dynamic -lstdc++ would override the wheel's static-runtime flag.
 cpp_runtime_static = cpp_runtime == 'stdc++' and \
   get_option('cpp_link_args').contains('-static-libstdc++')
 cpp_runtime_dep = cpp_compiler.find_library(cpp_runtime, static: cpp_runtime_static)
-lib_deps = [yyjson_dep, oxidd_dep, spot_dep, cpp_runtime_dep]
+lib_deps = [yyjson_dep, oxidd_dep, cpp_runtime_dep]
 pkg_private_libs = ['-loxidd_ffi_c', '-lpthread', '-lm', '-l' + cpp_runtime]
 if host_machine.system() != 'darwin'
   pkg_private_libs += ['-ldl']
@@ -128,5 +127,5 @@ pkg.generate(
   description: 'TLSF decomposition and preprocessing library',
   version: meson.project_version(),
   libraries_private: pkg_private_libs,
-  requires_private: ['yyjson', 'libspot'],
+  requires_private: ['yyjson'],
 )
