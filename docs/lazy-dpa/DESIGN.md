@@ -95,7 +95,7 @@ No generic automata framework is needed. The proposed public surface is:
 
 | Operation/type | Contract |
 |---|---|
-| `tlsf_dpa_create(root, inputs, outputs, budget, &ctx)` | Copy/intern borrowed ground AST/AP names; initialize metadata/state only. Infinite ground operators include W/M; finite semantics, strong-next, unknown nodes, invalid partitions, and staged unsupported fragments decline. |
+| `tlsf_dpa_create(root, inputs, outputs, budget, &ctx)` | Copy/intern borrowed ground AST/AP names; initialize metadata/state only. Infinite ground operators include W/M. Null, empty, or duplicate AP names return `INVALID`; finite semantics, strong-next, unknown nodes, and staged unsupported fragments decline. |
 | `tlsf_dpa_initial(ctx)` | Stable integer state ID, AP table, fixed maximum priority after creation. |
 | `tlsf_dpa_successors(ctx, id, &edges, &count)` | Cache/publish one complete symbolic row `(label_id, successor_id, priority)`. Nonempty labels partition true; merge only equal target/priority. Targets need not be expanded. |
 | `tlsf_dpa_label_node(ctx, label_id)` | False/true or `(ap_index, low_id, high_id)`, with only AP variables and no OxiDD types. |
