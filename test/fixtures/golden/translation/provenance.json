@@ -65,7 +65,7 @@
     "src/lib/dpa_formula.c": "53f1b92562b00227216c72c4a6edbad56515cae4d6be16c3bc73c1ecc7761610",
     "src/lib/dpa_internal.h": "8cf9a337b6aa0afd546c2a4c4ed5b95f19a2ca93d387918a9ac6afb307479d6e",
     "src/lib/dpa_zielonka.c": "853aa04bab3f17f2326c8891b47f884527f5c83e65405e9d52225ba3ee79b059",
-    "src/lib/gr1_reduction.cc": "739636d5cec41300ff88021bc96f4938adb02e2b8df5a599489586cd3eda744f",
+    "src/lib/gr1_reduction.cc": "ccbc371c7ef95f94c524f44b9a529ca3ba1fb94dc2ee0bbbd6c2b1defb23fd52",
     "test/unit/dpa_dump.c": "17903ae8d064f8e12a63cf6aacc439131f7cd3162ba98d46f58508951665feff",
     "tools/golden/translation_validate.py": "b3144ead22ea128fd8f204d2f2b14925978b1642ffd74e5d7a9ac210b9074062",
     "tools/golden/tv_inventory.cc": "78dadec923dc4f5260c5eb6a28bc01fda36c00c154d0f4bfa7c992db1d8d3628"
