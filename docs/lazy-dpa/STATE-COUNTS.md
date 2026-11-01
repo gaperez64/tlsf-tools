@@ -8,39 +8,66 @@ once to `tests/suites/benchmarks/syntcomp26/tlsf-sources.tsv` at acacia-bonsai
 checkout's official TLSF SHA-256 manifest. No replacement inputs or Spot were
 used. “Complete” means a successful full automaton expansion.
 
-| Tool / admission | Complete | Both with Owl | Timeout | OOM | Declined | Error |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Lazy, default | 13 | 4 | 19 | 8 | 29 | 0 |
-| Lazy, general | 22 | 12 | 17 | 7 | 23 | 0 |
-| Owl 21.0 | 18 | — | 49 | 2 | 0 | 0 |
+| Tool / admission | Complete | Timeout | OOM | Declined | Error |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lazy, default | 13 | 19 | 8 | 29 | 0 |
+| Lazy, general | 22 | 17 | 7 | 23 | 0 |
+| Owl 21.0, CLI default | 18 | 49 | 2 | 0 | 0 |
+| Owl 21.0, lookahead 0 | 19 | 49 | 1 | 0 | 0 |
 
-All 69 inputs ran in each mode and in Owl, for 207 isolated runs. Lazy completed
-24 inputs in at least one mode; 13 of those also completed in Owl. Either tool
-completed 29 inputs; 40 have no completed count in this budget. Default declines
-are 24 unsupported requests and five BDD limits; all 23 general declines are
-BDD limits.
+All 69 inputs ran in each of four configurations, for 276 isolated runs.
+The original 207 results are unchanged. Lazy completed 24 inputs in at least
+one mode; 13 also completed with Owl CLI default and 14 with lookahead 0.
+At least one configuration completed 29 inputs; 40 have no count in this budget.
+Default declines are 24 unsupported requests and five BDD limits; all 23 general
+declines are BDD limits.
 
 Ratios are **lazy states / Owl states**, separately for each admission mode,
 using only pairs with two OK runs. Quartiles use linear interpolation at
 `(n−1)p` (`statistics.quantiles(..., method="inclusive")`). A threshold counts
 ratios at or below it: ≤1× means lazy has no more states than Owl.
 
+Against Owl's CLI default (unlimited lookahead, `-1`):
+
 | Lazy mode | Pairs | Q1 | Median | Q3 | Max | ≤1× | ≤2× | ≤10× |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Default | 4 | 1.32 | 5.50 | 13.47 | 24.93 | 0 | 2 | 3 |
 | General | 12 | 5.81 | 50.48 | 71.07 | 76.67 | 2 | 3 | 4 |
 
-These distributions describe the completed overlap; failed runs remain missing.
+Against Owl with lookahead 0:
+
+| Lazy mode | Pairs | Q1 | Median | Q3 | Max | ≤1× | ≤2× | ≤10× |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 4 | 1.30 | 2.33 | 5.75 | 12.99 | 0 | 2 | 3 |
+| General | 13 | 1.21 | 6.08 | 6.31 | 6.85 | 3 | 4 | 13 |
+
+Lookahead controls how many successor states Owl explores in advance when
+choosing the parity structure. Unlimited (`-1`) uses exact semantic information;
+zero uses sound approximations and can yield larger DPAs. Zero is the relevant
+parity-transformation baseline for synthesis: it is the setting used by
+[SemML](https://gitlab.com/live-lab/software/semml/-/blob/20ad6ec7/src/main/java/semml/smarterOwl/OwlUtil.java)
+and [Strix](https://github.com/meyerphi/strix/blob/main/src/options.rs).
+Only lookahead changes here. AP reordering and realizability simplification
+are excluded because they change the AP order or objective; the measurements
+therefore isolate this setting within the same Owl CLI pipeline.
+
+Each baseline uses its own completed overlap; failed runs remain missing.
 Notable cases:
 
 - `robot-to-target-charging-unreal8.ltl`: general needs 16,715 states versus
-  Owl's 218 (76.67×), the largest matched ratio; default declines as unsupported.
+  Owl CLI default's 218 (76.67×), the largest general ratio against that baseline.
+  Lookahead 0 needs 2,707 (6.17×); default declines as unsupported.
+- `robot-to-target-charging-unreal3.ltl`: general's 6,695 states versus Owl
+  lookahead 0's 977 (6.85×) is the largest general ratio against that baseline.
 - `robot_grid_pb_5_5_pe_.ltl`: default needs 16,278 states versus Owl's 653
-  (24.93×), while general also needs 653.
+  with unlimited lookahead (24.93×) or 1,253 with lookahead 0 (12.99×), the
+  largest default ratio against either baseline. General needs 653 (1× / 0.52×).
+- `collector_v1_pb_11_pe_.ltl`: general and Owl lookahead 0 both need 4,096
+  states; Owl CLI default times out. This adds the thirteenth general pair.
 - `lift_gr1_pb_7_pe_.ltl`: general's 26,992 states are the largest completed
-  lazy count; default needs 18,462 and Owl times out.
-- `ltl2dba_theta_pb_100_pe_.ltl`: Owl completes with 400 states in 20.7 s,
-  while both lazy modes hit the memory cap.
+  lazy count; default needs 18,462 and both Owl configurations time out.
+- `ltl2dba_theta_pb_100_pe_.ltl`: both Owl configurations complete with 400
+  states, while both lazy modes hit the memory cap.
 
 ## Method
 
@@ -66,8 +93,10 @@ alphabet is an exact prefix of that order. This does not change the language
 or the ownership of any signal. Source, direct-formula and alphabet hashes
 are in the TSV; regenerated exports are checked after every run.
 
-Each input runs default admission (`allow_unproved=false`), general admission
-(`research`, `allow_unproved=true`), then Owl, serially. Every run has its own
+The original campaign ran default admission (`allow_unproved=false`), general
+admission (`research`, `allow_unproved=true`), then Owl, serially per input.
+The fourth configuration adds only `--SLM21-lookahead=0` to the same Owl command;
+the original three configurations were not rerun. Every run has its own
 `systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0`. The observer
 checks the actual cgroup limits and kills the tool's process group at 120 s.
 Wall time covers the tool process, including lazy conversion/export or Owl
@@ -82,11 +111,11 @@ limit is `declined`, not a completed count. Ordinary `dpa_admission --expand`
 keeps its documented budgets and output.
 
 Lazy completion requires `tlsf_dpa_expand` to return OK: every reachable
-state has a disjoint symbolic successor row covering all valuations. Owl runs
-`ltl2dpa --complete` with its default SLM21 translation, simplifiers, fragment
-portfolio and lookahead. Its `--complete` requests a total transition relation,
-adding a rejecting sink if needed. Success requires exit zero and a finished
-HOA with the `complete` and `deterministic` properties; states are counted from
+state has a disjoint symbolic successor row covering all valuations. Both Owl
+configurations run `ltl2dpa --complete` with the same default SLM21 translation,
+simplifiers and fragment portfolio. `--complete` requests a total transition
+relation, adding a rejecting sink if needed. Success requires exit zero and a
+finished HOA with the `complete` and `deterministic` properties; states are counted from
 its fully emitted reachable graph. Counts cover the reachable word-automaton
 graph before splitting input/output moves into game positions.
 
@@ -97,16 +126,19 @@ edges. Both automata use transition acceptance. Lazy uses max-odd;
 Unused priorities can make the two colour columns differ. Every unsuccessful
 run has `NA` for states and colours, including a decline with partial progress.
 
-Validation passed: all 69 formula/alphabet checks, the 207-run raw-result and
-resource audit, `dpa_contract`, `dpa_stage2`, and the ordinary `--expand` smoke
-check. Pinned clang-format 22.1.8 and the proof-source reference check also pass.
+Original validation passed: all 69 formula/alphabet checks, the 207-run raw-result
+and resource audit, `dpa_contract`, `dpa_stage2`, and the ordinary `--expand` smoke
+check. Pinned clang-format 22.1.8 and the proof-source reference check also passed.
+All 69 added runs passed the command, resource and HOA-count audit. Original
+raw results, formula exports and TSV columns are unchanged; all four completion
+rows and both ratio tables agree with the TSV.
 
 ## Versions and hashes
 
 The DPA and conversion implementation is tlsf-tools main
 `3bf210a0ba7a36ef6b42984ddec567c99f7b0bda`. The measurement mode was added in
-`3d9a2d6`, with the scope OOM fallback in `151deb3`. OxiDD is the clean pinned
-submodule
+`3d9a2d6`, with the scope OOM fallback in `151deb3` and the zero-lookahead
+configuration in `ceaaf1f`. OxiDD is the clean pinned submodule
 `288a6efcf553f18fe4bf722635157f2453bb2618`. Build: GCC 15.3.1, Meson 1.8.5,
 release configuration, baseline CPU, one build job. Host: Intel i3-8100T,
 four cores, 7.6 GiB RAM, Linux 7.2.10. The measurement uses the unmodified
@@ -159,6 +191,8 @@ python3 tools/dpa_state_counts.py summarize
 Compare the downloaded hashes above before running. Adjust only the two
 acacia paths. `prepare` checks the exact 69-name join, official source hashes
 and Owl formula/alphabet identity. `run` skips completed records when resumed.
+To add only the fourth configuration to an existing three-configuration campaign,
+use `python3 tools/dpa_state_counts.py run --tools owl_lookahead0`, then `summarize`.
 Scratch contains copies, exports, full HOA, commands, resource observations and
 raw results. Among measurement outputs, only the small TSV and this report
 belong in git. Preparation refuses to overwrite measured runs.
@@ -169,6 +203,7 @@ The individual tool commands inside each scope are:
 build-scratch-m/build/test/unit/dpa_admission --expand --measure default SOURCE PREFIX
 build-scratch-m/build/test/unit/dpa_admission --expand --measure research SOURCE PREFIX
 build-scratch-m/owl-linux-musl-amd64-21.0/bin/owl ltl2dpa --complete -i PREFIX.owl.ltl
+build-scratch-m/owl-linux-musl-amd64-21.0/bin/owl ltl2dpa --complete --SLM21-lookahead=0 -i PREFIX.owl.ltl
 ```
 
 The Python runner supplies the verified memory scope, external deadline,
