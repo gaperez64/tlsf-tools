@@ -31,10 +31,12 @@ int __wrap_clock_gettime(clockid_t id, struct timespec *t) {
   *t = (struct timespec){.tv_nsec = (long)now};
   return 0;
 }
-void *__real_oxidd_host_calloc(size_t, size_t);
-void *__wrap_oxidd_host_calloc(size_t, size_t);
-void *__wrap_oxidd_host_calloc(size_t n, size_t size) {
-  void *p = __real_oxidd_host_calloc(n, size);
+// Supply these tiny project-owned seams in the test so their production
+// archive objects are not extracted/inlined under LTO. Allocation and manager
+// semantics match oxidd_host.c/oxidd_runtime.c; only the observers differ.
+void *oxidd_host_realloc(void *p, size_t size) { return realloc(p, size); }
+void *oxidd_host_calloc(size_t n, size_t size) {
+  void *p = calloc(n, size);
   if (mock) {
     if (n == 1 && size == sizeof(TlsfDpa))
       tracked = p;
@@ -43,10 +45,8 @@ void *__wrap_oxidd_host_calloc(size_t n, size_t size) {
   }
   return p;
 }
-oxidd_bdd_manager_t __real_tlsf_oxidd_manager_new(size_t, size_t);
-oxidd_bdd_manager_t __wrap_tlsf_oxidd_manager_new(size_t, size_t);
-oxidd_bdd_manager_t __wrap_tlsf_oxidd_manager_new(size_t nodes, size_t cache) {
-  oxidd_bdd_manager_t manager = __real_tlsf_oxidd_manager_new(nodes, cache);
+oxidd_bdd_manager_t tlsf_oxidd_manager_new(size_t nodes, size_t cache) {
+  oxidd_bdd_manager_t manager = oxidd_bdd_manager_new(nodes, cache, 1);
   if (mock && slow_manager)
     now = DEADLINE;
   return manager;
