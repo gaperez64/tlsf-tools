@@ -316,6 +316,109 @@ TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
   return status;
 }
 
+TlsfDpaStatus tlsf_dpa_create_from_dag(
+    const TlsfDpaFormulaNode *nodes, uint32_t count, uint32_t root,
+    const char *const *inputs, uint32_t ni, const char *const *outputs,
+    uint32_t no, TlsfDpaKind kind, const TlsfDpaBudget *budget, TlsfDpa **out) {
+  TlsfDpaStatus invalid = {TLSF_DPA_INVALID, TLSF_DPA_NONE};
+  if (!out)
+    return invalid;
+  *out = nullptr;
+  if (!nodes || !count || root >= count || (ni && !inputs) ||
+      (no && !outputs) || no > UINT32_MAX - ni ||
+      (kind != TLSF_DPA_PARITY && kind != TLSF_DPA_BUCHI))
+    return invalid;
+  TlsfDpa scratch = {0};
+  if (budget)
+    scratch.budget = *budget;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!dpa_poll(&scratch))
+      return scratch.status;
+    const TlsfDpaFormulaNode *n = &nodes[i];
+    unsigned arity;
+    switch (n->kind) {
+    case TLSF_AST_TRUE: case TLSF_AST_FALSE: case TLSF_AST_AP:
+      arity = 0;
+      break;
+    case TLSF_AST_NOT: case TLSF_AST_X: case TLSF_AST_F: case TLSF_AST_G:
+      arity = 1;
+      break;
+    case TLSF_AST_AND: case TLSF_AST_OR: case TLSF_AST_IMPL:
+    case TLSF_AST_EQUIV: case TLSF_AST_U: case TLSF_AST_R:
+    case TLSF_AST_W: case TLSF_AST_M:
+      arity = 2;
+      break;
+    default:
+      return invalid;
+    }
+    if ((arity ? n->left >= i : n->left != UINT32_MAX) ||
+        (arity == 2 ? n->right >= i : n->right != UINT32_MAX) ||
+        (n->kind == TLSF_AST_AP ? n->ap >= ni + no : n->ap != UINT32_MAX))
+      return invalid;
+  }
+  Node *temporary = dpa_alloc(&scratch, count, sizeof *temporary);
+  const char **names = nullptr;
+  if (!temporary)
+    return scratch.status;
+  if (kind == TLSF_DPA_BUCHI) {
+    names = dpa_alloc(&scratch, ni + no, sizeof *names);
+    if (!names)
+      goto done;
+    for (uint32_t i = 0; i < ni + no; ++i) {
+      if (!dpa_poll(&scratch))
+        goto done;
+      names[i] = i < ni ? inputs[i] : outputs[i - ni];
+    }
+  }
+  // Mapping stays private; public enum values need not match internal NodeKind.
+  static const NodeKind operators[TLSF_AST_KIND_COUNT] = {
+      [TLSF_AST_TRUE] = NODE_TRUE, [TLSF_AST_FALSE] = NODE_FALSE,
+      [TLSF_AST_AP] = NODE_AP, [TLSF_AST_NOT] = NODE_NOT,
+      [TLSF_AST_AND] = NODE_AND, [TLSF_AST_OR] = NODE_OR,
+      [TLSF_AST_IMPL] = NODE_IMPL, [TLSF_AST_EQUIV] = NODE_EQUIV,
+      [TLSF_AST_X] = NODE_X, [TLSF_AST_F] = NODE_F, [TLSF_AST_G] = NODE_G,
+      [TLSF_AST_U] = NODE_U, [TLSF_AST_R] = NODE_R,
+      [TLSF_AST_W] = NODE_W, [TLSF_AST_M] = NODE_M};
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!dpa_poll(&scratch))
+      goto done;
+    const TlsfDpaFormulaNode *n = &nodes[i];
+    temporary[i].kind = operators[n->kind];
+    if (n->kind == TLSF_AST_AP)
+      temporary[i].name = n->ap < ni ? inputs[n->ap] : outputs[n->ap - ni];
+    else {
+      if (n->left != UINT32_MAX)
+        temporary[i].lhs = &temporary[n->left];
+      if (n->right != UINT32_MAX)
+        temporary[i].rhs = &temporary[n->right];
+    }
+  }
+  TlsfDpaBudget remaining = scratch.budget;
+  if (remaining.max_host_bytes) {
+    if (scratch.bytes >= remaining.max_host_bytes) {
+      dpa_decline(&scratch, TLSF_DPA_HOST_LIMIT);
+      goto done;
+    }
+    remaining.max_host_bytes -= scratch.bytes;
+  }
+  char klass;
+  scratch.status = kind == TLSF_DPA_BUCHI
+      ? dpa_buchi_create((const TlsfAstNode *)&temporary[root], names, ni + no,
+                         &remaining, out, &klass)
+      : tlsf_dpa_create((const TlsfAstNode *)&temporary[root], inputs, ni,
+                        outputs, no, &remaining, out);
+done:
+  dpa_release(&scratch, names);
+  dpa_release(&scratch, temporary);
+  if (!dpa_poll(&scratch)) {
+    tlsf_dpa_free(*out);
+    *out = nullptr;
+  }
+  if (*out)
+    (*out)->budget.max_host_bytes = budget ? budget->max_host_bytes : 0;
+  return scratch.status;
+}
+
 typedef struct {
   TlsfDpa *c;
   uint32_t odd, next, top, component;
