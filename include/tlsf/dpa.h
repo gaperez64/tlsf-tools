@@ -87,11 +87,12 @@ typedef struct {
 // storage shares max_host_bytes with construction, and uses the same deadline
 // and cancellation checks. The language is exactly the supplied root: callers
 // select polarity themselves. All other create/successor contracts apply.
-TlsfDpaStatus tlsf_dpa_create_from_dag(
-    const TlsfDpaFormulaNode *nodes, uint32_t count, uint32_t root,
-    const char *const *inputs, uint32_t n_inputs,
-    const char *const *outputs, uint32_t n_outputs, TlsfDpaKind kind,
-    const TlsfDpaBudget *budget, TlsfDpa **out);
+TlsfDpaStatus
+tlsf_dpa_create_from_dag(const TlsfDpaFormulaNode *nodes, uint32_t count,
+                         uint32_t root, const char *const *inputs,
+                         uint32_t n_inputs, const char *const *outputs,
+                         uint32_t n_outputs, TlsfDpaKind kind,
+                         const TlsfDpaBudget *budget, TlsfDpa **out);
 void tlsf_dpa_free(TlsfDpa *ctx); // accepts NULL, including after any decline
 TlsfDpaStatus tlsf_dpa_status(const TlsfDpa *ctx);
 TlsfDpaState tlsf_dpa_initial(const TlsfDpa *ctx);

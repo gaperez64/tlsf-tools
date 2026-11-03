@@ -65,13 +65,15 @@ static int cancelled(void *unused) {
 static int cancel_published(void *pointer) {
   return *(TlsfDpa **)pointer != nullptr;
 }
-static size_t creation_floor(const TlsfDpaFormulaNode *nodes, uint32_t count, uint32_t root) {
+static size_t creation_floor(const TlsfDpaFormulaNode *nodes, uint32_t count,
+                             uint32_t root) {
   size_t low = 1, high = 4u << 20;
   while (low < high) {
     size_t middle = low + (high - low) / 2;
     TlsfDpaBudget budget = {.max_host_bytes = middle};
     TlsfDpa *c;
-    TlsfDpaStatus status = create(nodes, count, root, TLSF_DPA_PARITY, &budget, &c);
+    TlsfDpaStatus status =
+        create(nodes, count, root, TLSF_DPA_PARITY, &budget, &c);
     tlsf_dpa_free(c);
     if (status.code == TLSF_DPA_OK)
       high = middle;
@@ -93,14 +95,17 @@ static void scratch_budget(void) {
     nodes[i] = (TlsfDpaFormulaNode){TLSF_AST_TRUE, NIL, NIL, NIL};
   size_t small = creation_floor(nodes, used, used - 1);
   size_t padded = creation_floor(nodes, count, used - 1);
-  assert(padded > small + 32768); // Unreachable valid records still consume scratch.
+  assert(padded >
+         small + 32768); // Unreachable valid records still consume scratch.
   TlsfDpa *c;
   TlsfDpaBudget budget = {.max_host_bytes = small};
-  assert(create(nodes, used, used - 1, TLSF_DPA_PARITY, &budget, &c).code == TLSF_DPA_OK);
+  assert(create(nodes, used, used - 1, TLSF_DPA_PARITY, &budget, &c).code ==
+         TLSF_DPA_OK);
   assert(tlsf_dpa_expand(c).reason == TLSF_DPA_HOST_LIMIT);
   tlsf_dpa_free(c);
   budget.max_host_bytes = padded;
-  assert(create(nodes, count, used - 1, TLSF_DPA_PARITY, &budget, &c).code == TLSF_DPA_OK);
+  assert(create(nodes, count, used - 1, TLSF_DPA_PARITY, &budget, &c).code ==
+         TLSF_DPA_OK);
   // Expansion needs more than the constructor's reduced allowance. Releasing
   // scratch must restore the original ceiling before the first successor.
   assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
@@ -108,9 +113,11 @@ static void scratch_budget(void) {
   free(nodes);
 }
 int main(void) {
-  // Shared GF(A) is referenced twice. Input data may disappear before expansion.
+  // Shared GF(A) is referenced twice. Input data may disappear before
+  // expansion.
   const TlsfDpaFormulaNode formula[] = {ATOM(0), UNARY(TLSF_AST_F, 0),
-      UNARY(TLSF_AST_G, 1), BINARY(TLSF_AST_AND, 2, 2)};
+                                        UNARY(TLSF_AST_G, 1),
+                                        BINARY(TLSF_AST_AND, 2, 2)};
   for (TlsfDpaKind kind = TLSF_DPA_PARITY; kind <= TLSF_DPA_BUCHI; ++kind) {
     TlsfDpaFormulaNode *copy = malloc(sizeof formula);
     memcpy(copy, formula, sizeof formula);
@@ -118,7 +125,8 @@ int main(void) {
     const char *names[] = {name, "unused"};
     TlsfDpa *c = nullptr;
     assert(tlsf_dpa_create_from_dag(copy, 4, 3, names, 2, outputs, 1, kind,
-                                    nullptr, &c).code == TLSF_DPA_OK);
+                                    nullptr, &c)
+               .code == TLSF_DPA_OK);
     memset(copy, 0xff, sizeof formula);
     free(copy);
     name[0] = 'z';
@@ -135,37 +143,67 @@ int main(void) {
   for (unsigned mutation = 0; mutation < 7; ++mutation) {
     memcpy(malformed, formula, sizeof formula);
     switch (mutation) {
-    case 0: malformed[0].ap = 3; break;
-    case 1: malformed[1].left = 1; break;
-    case 2: malformed[1].right = 0; break;
-    case 3: malformed[2].ap = 0; break;
-    case 4: malformed[3].right = NIL; break;
-    case 5: malformed[3].kind = TLSF_AST_X_STRONG; break;
-    case 6: malformed[3].kind = TLSF_AST_KIND_COUNT; break;
+    case 0:
+      malformed[0].ap = 3;
+      break;
+    case 1:
+      malformed[1].left = 1;
+      break;
+    case 2:
+      malformed[1].right = 0;
+      break;
+    case 3:
+      malformed[2].ap = 0;
+      break;
+    case 4:
+      malformed[3].right = NIL;
+      break;
+    case 5:
+      malformed[3].kind = TLSF_AST_X_STRONG;
+      break;
+    case 6:
+      malformed[3].kind = TLSF_AST_KIND_COUNT;
+      break;
     }
-    assert(create(malformed, 4, 0, TLSF_DPA_PARITY, nullptr, &c).code == TLSF_DPA_INVALID);
+    assert(create(malformed, 4, 0, TLSF_DPA_PARITY, nullptr, &c).code ==
+           TLSF_DPA_INVALID);
     assert(!c); // Even unreachable records must validate.
   }
-  assert(create(formula, 4, 4, TLSF_DPA_PARITY, nullptr, &c).code == TLSF_DPA_INVALID && !c);
-  assert(create(formula, 0, 0, TLSF_DPA_PARITY, nullptr, &c).code == TLSF_DPA_INVALID && !c);
+  assert(create(formula, 4, 4, TLSF_DPA_PARITY, nullptr, &c).code ==
+             TLSF_DPA_INVALID &&
+         !c);
+  assert(create(formula, 0, 0, TLSF_DPA_PARITY, nullptr, &c).code ==
+             TLSF_DPA_INVALID &&
+         !c);
   const char *duplicate[] = {"A", "A"};
   assert(tlsf_dpa_create_from_dag(formula, 4, 3, duplicate, 2, outputs, 1,
-      TLSF_DPA_PARITY, nullptr, &c).code == TLSF_DPA_INVALID && !c);
+                                  TLSF_DPA_PARITY, nullptr, &c)
+                 .code == TLSF_DPA_INVALID &&
+         !c);
   TlsfDpaBudget budget = {.max_host_bytes = 128};
-  assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason == TLSF_DPA_HOST_LIMIT && !c);
+  assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason ==
+             TLSF_DPA_HOST_LIMIT &&
+         !c);
   budget = (TlsfDpaBudget){.deadline_mono_ns = 1};
-  assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason == TLSF_DPA_DEADLINE && !c);
+  assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason ==
+             TLSF_DPA_DEADLINE &&
+         !c);
   budget = (TlsfDpaBudget){.cancelled = cancelled};
   for (cancel_at = 1; cancel_at <= 60; ++cancel_at) {
     polls = 0;
     TlsfDpaStatus status = create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c);
     assert(status.reason == TLSF_DPA_CANCELLED && !c);
   }
-  const TlsfDpaFormulaNode sigma[] = {ATOM(0), UNARY(TLSF_AST_G, 0), UNARY(TLSF_AST_F, 1)};
-  assert(create(sigma, 3, 2, TLSF_DPA_BUCHI, nullptr, &c).reason == TLSF_DPA_UNSUPPORTED && !c);
+  const TlsfDpaFormulaNode sigma[] = {ATOM(0), UNARY(TLSF_AST_G, 0),
+                                      UNARY(TLSF_AST_F, 1)};
+  assert(create(sigma, 3, 2, TLSF_DPA_BUCHI, nullptr, &c).reason ==
+             TLSF_DPA_UNSUPPORTED &&
+         !c);
   budget = (TlsfDpaBudget){.cancelled = cancel_published, .cancel_ctx = &c};
   c = nullptr;
-  assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason == TLSF_DPA_CANCELLED && !c);
+  assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason ==
+             TLSF_DPA_CANCELLED &&
+         !c);
   scratch_budget();
   return 0;
 }

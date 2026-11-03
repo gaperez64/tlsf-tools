@@ -337,15 +337,25 @@ TlsfDpaStatus tlsf_dpa_create_from_dag(
     const TlsfDpaFormulaNode *n = &nodes[i];
     unsigned arity;
     switch (n->kind) {
-    case TLSF_AST_TRUE: case TLSF_AST_FALSE: case TLSF_AST_AP:
+    case TLSF_AST_TRUE:
+    case TLSF_AST_FALSE:
+    case TLSF_AST_AP:
       arity = 0;
       break;
-    case TLSF_AST_NOT: case TLSF_AST_X: case TLSF_AST_F: case TLSF_AST_G:
+    case TLSF_AST_NOT:
+    case TLSF_AST_X:
+    case TLSF_AST_F:
+    case TLSF_AST_G:
       arity = 1;
       break;
-    case TLSF_AST_AND: case TLSF_AST_OR: case TLSF_AST_IMPL:
-    case TLSF_AST_EQUIV: case TLSF_AST_U: case TLSF_AST_R:
-    case TLSF_AST_W: case TLSF_AST_M:
+    case TLSF_AST_AND:
+    case TLSF_AST_OR:
+    case TLSF_AST_IMPL:
+    case TLSF_AST_EQUIV:
+    case TLSF_AST_U:
+    case TLSF_AST_R:
+    case TLSF_AST_W:
+    case TLSF_AST_M:
       arity = 2;
       break;
     default:
@@ -373,12 +383,13 @@ TlsfDpaStatus tlsf_dpa_create_from_dag(
   // Mapping stays private; public enum values need not match internal NodeKind.
   static const NodeKind operators[TLSF_AST_KIND_COUNT] = {
       [TLSF_AST_TRUE] = NODE_TRUE, [TLSF_AST_FALSE] = NODE_FALSE,
-      [TLSF_AST_AP] = NODE_AP, [TLSF_AST_NOT] = NODE_NOT,
-      [TLSF_AST_AND] = NODE_AND, [TLSF_AST_OR] = NODE_OR,
+      [TLSF_AST_AP] = NODE_AP,     [TLSF_AST_NOT] = NODE_NOT,
+      [TLSF_AST_AND] = NODE_AND,   [TLSF_AST_OR] = NODE_OR,
       [TLSF_AST_IMPL] = NODE_IMPL, [TLSF_AST_EQUIV] = NODE_EQUIV,
-      [TLSF_AST_X] = NODE_X, [TLSF_AST_F] = NODE_F, [TLSF_AST_G] = NODE_G,
-      [TLSF_AST_U] = NODE_U, [TLSF_AST_R] = NODE_R,
-      [TLSF_AST_W] = NODE_W, [TLSF_AST_M] = NODE_M};
+      [TLSF_AST_X] = NODE_X,       [TLSF_AST_F] = NODE_F,
+      [TLSF_AST_G] = NODE_G,       [TLSF_AST_U] = NODE_U,
+      [TLSF_AST_R] = NODE_R,       [TLSF_AST_W] = NODE_W,
+      [TLSF_AST_M] = NODE_M};
   for (uint32_t i = 0; i < count; ++i) {
     if (!dpa_poll(&scratch))
       goto done;
@@ -402,11 +413,12 @@ TlsfDpaStatus tlsf_dpa_create_from_dag(
     remaining.max_host_bytes -= scratch.bytes;
   }
   char klass;
-  scratch.status = kind == TLSF_DPA_BUCHI
-      ? dpa_buchi_create((const TlsfAstNode *)&temporary[root], names, ni + no,
-                         &remaining, out, &klass)
-      : tlsf_dpa_create((const TlsfAstNode *)&temporary[root], inputs, ni,
-                        outputs, no, &remaining, out);
+  scratch.status =
+      kind == TLSF_DPA_BUCHI
+          ? dpa_buchi_create((const TlsfAstNode *)&temporary[root], names,
+                             ni + no, &remaining, out, &klass)
+          : tlsf_dpa_create((const TlsfAstNode *)&temporary[root], inputs, ni,
+                            outputs, no, &remaining, out);
 done:
   dpa_release(&scratch, names);
   dpa_release(&scratch, temporary);
