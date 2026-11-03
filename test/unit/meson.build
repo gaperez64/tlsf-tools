@@ -20,6 +20,14 @@ dpa_contract = executable('dpa_contract', 'dpa_contract.c',
     '-Wl,--wrap=oxidd_bdd_cofactor_true'],
   dependencies: tlsf_internal_dep)
 test('dpa_contract', dpa_contract, timeout: 120)
+# Use the existing production library. Non-LTO test allocation/manager seams
+# keep the observers visible even when that library was built with LTO.
+dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',
+  c_args: ['-UNDEBUG'],
+  override_options: ['b_lto=false'],
+  link_args: ['-Wl,--wrap=clock_gettime', '-Wl,--wrap=free'],
+  dependencies: tlsf_internal_dep)
+test('dpa_deadline', dpa_deadline, timeout: 120)
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
 test('dpa_buchi_goldens', dpa_equivalence, args: ['--buchi'], timeout: 120)
 test('dpa_equivalence_research', dpa_equivalence,

@@ -1,5 +1,7 @@
 # Public-API clients. They see only include/ (through tlsf_dep), so a private
 # header here fails to compile, as it would for an installed consumer.
+dpa_dag = executable('dpa_dag', 'dpa_dag.c', c_args: ['-UNDEBUG'], dependencies: tlsf_dep)
+test('dpa_dag', dpa_dag)
 
 foreach name : ['ast_visitor', 'aiger_roundtrip']
   test(name, executable(name, name + '.c', dependencies: tlsf_dep))

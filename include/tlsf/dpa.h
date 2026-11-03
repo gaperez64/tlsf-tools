@@ -67,12 +67,36 @@ typedef struct {
 // first successor request materializes its tree and the initial component
 // tuple. Syntax depth above 1024 declines; recursive symbolic work is capped at
 // 2048 frames (host limit). BDD nodes/cache are separate from C host-byte
-// accounting. Deadlines/cancellation are cooperative between individual FFI
-// operations.
+// accounting. Cancellation is checked at every cooperative poll. Deadline
+// clocks are read at work API entry/return and at least once per 256 internal
+// polls; this bounds skipped poll sites, not wall latency. Multiple foreign
+// operations may run between clock reads, and a single operation may block.
+// Use a process boundary for a hard deadline. Observed failures are sticky;
+// close resource/deadline races may select different nonconclusive reasons.
 TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
                               const char *const *inputs, uint32_t n_inputs,
                               const char *const *outputs, uint32_t n_outputs,
                               const TlsfDpaBudget *budget, TlsfDpa **out);
+typedef enum { TLSF_DPA_PARITY, TLSF_DPA_BUCHI } TlsfDpaKind;
+typedef struct {
+  TlsfAstKind kind;
+  uint32_t left, right, ap;
+} TlsfDpaFormulaNode;
+// Neutral infinite-LTL DAG. Every child index is smaller than its parent;
+// unused fields must be UINT32_MAX. AP indices address inputs then outputs.
+// All records (including unreachable records) are validated. X_STRONG and
+// unknown operators are invalid. BUCHI additionally requires syntactic Pi2
+// admission and emits priorities 0/1, with recurring 1 accepting.
+// Copies all retained data; nodes and names may be freed on return. Temporary
+// storage shares max_host_bytes with construction, and uses the same deadline
+// and cancellation checks. The language is exactly the supplied root: callers
+// select polarity themselves. All other create/successor contracts apply.
+TlsfDpaStatus
+tlsf_dpa_create_from_dag(const TlsfDpaFormulaNode *nodes, uint32_t count,
+                         uint32_t root, const char *const *inputs,
+                         uint32_t n_inputs, const char *const *outputs,
+                         uint32_t n_outputs, TlsfDpaKind kind,
+                         const TlsfDpaBudget *budget, TlsfDpa **out);
 void tlsf_dpa_free(TlsfDpa *ctx); // accepts NULL, including after any decline
 TlsfDpaStatus tlsf_dpa_status(const TlsfDpa *ctx);
 TlsfDpaState tlsf_dpa_initial(const TlsfDpa *ctx);

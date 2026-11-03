@@ -23,7 +23,9 @@ bool dpa_poll(TlsfDpa *c) {
   if ((c->budget.cancel && *c->budget.cancel) ||
       (c->budget.cancelled && c->budget.cancelled(c->budget.cancel_ctx)))
     dpa_decline(c, TLSF_DPA_CANCELLED);
-  if (c->budget.deadline_mono_ns) {
+  // Cancellation remains checked at every site. Sample only the clock: the
+  // first poll reads it, followed by at most 255 skipped internal reads.
+  if (c->budget.deadline_mono_ns && (c->deadline_polls++ & 255u) == 0) {
     struct timespec t;
     if (clock_gettime(CLOCK_MONOTONIC, &t) != 0)
       c->status.code = TLSF_DPA_INTERNAL;
@@ -32,6 +34,11 @@ bool dpa_poll(TlsfDpa *c) {
       dpa_decline(c, TLSF_DPA_DEADLINE);
   }
   return c->status.code == TLSF_DPA_OK;
+}
+
+bool dpa_poll_now(TlsfDpa *c) {
+  c->deadline_polls = 0;
+  return dpa_poll(c);
 }
 
 bool dpa_enter(TlsfDpa *c) {
@@ -191,7 +198,7 @@ TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
   if (budget)
     c->budget = *budget;
   c->aps = ni + no;
-  if (!dpa_poll(c))
+  if (!dpa_poll_now(c))
     goto fail;
   size_t nodes = c->budget.bdd_nodes ? c->budget.bdd_nodes : (1u << 18);
   size_t cache = c->budget.bdd_cache ? c->budget.bdd_cache : (1u << 16);
@@ -254,6 +261,8 @@ TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
   dpa_release(c, c->syntax.items);
   dpa_release(c, c->syntax.buckets);
   c->syntax = (DpaTable){0};
+  if (!dpa_poll_now(c))
+    goto fail;
   *out = c;
   return c->status;
 fail:;
@@ -271,16 +280,13 @@ TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
   if (status.code != TLSF_DPA_OK)
     return status;
   TlsfDpa *c = *out;
+  if (!dpa_poll_now(c))
+    goto done;
   uint32_t f = dpa_formula(c, root, false, 0);
   unsigned tags = dpa_tags(c, f);
   if (dpa_poll(c) && !(tags & DPA_PI2))
     dpa_decline(c, TLSF_DPA_UNSUPPORTED);
   if (dpa_poll(c)) {
-    *klass = tags & DPA_FINITE     ? 'B'
-             : tags & DPA_SAFETY   ? 'S'
-             : tags & DPA_COSAFETY ? 'G'
-             : tags & DPA_SIGMA2   ? 'O'
-                                   : 'R';
     c->buchi = true;
     for (uint32_t i = 0; i < c->components.n; ++i)
       dpa_release(c, c->components.items[i]);
@@ -308,12 +314,136 @@ TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
       c->buchi = c->started = true;
     }
   }
+  if (dpa_poll_now(c))
+    *klass = tags & DPA_FINITE     ? 'B'
+             : tags & DPA_SAFETY   ? 'S'
+             : tags & DPA_COSAFETY ? 'G'
+             : tags & DPA_SIGMA2   ? 'O'
+                                   : 'R';
+done:
   status = c->status;
   if (status.code != TLSF_DPA_OK) {
     tlsf_dpa_free(c);
     *out = nullptr;
   }
   return status;
+}
+
+TlsfDpaStatus tlsf_dpa_create_from_dag(
+    const TlsfDpaFormulaNode *nodes, uint32_t count, uint32_t root,
+    const char *const *inputs, uint32_t ni, const char *const *outputs,
+    uint32_t no, TlsfDpaKind kind, const TlsfDpaBudget *budget, TlsfDpa **out) {
+  TlsfDpaStatus invalid = {TLSF_DPA_INVALID, TLSF_DPA_NONE};
+  if (!out)
+    return invalid;
+  *out = nullptr;
+  if (!nodes || !count || root >= count || (ni && !inputs) ||
+      (no && !outputs) || no > UINT32_MAX - ni ||
+      (kind != TLSF_DPA_PARITY && kind != TLSF_DPA_BUCHI))
+    return invalid;
+  TlsfDpa scratch = {0};
+  if (budget)
+    scratch.budget = *budget;
+  if (!dpa_poll_now(&scratch))
+    return scratch.status;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!dpa_poll(&scratch))
+      return scratch.status;
+    const TlsfDpaFormulaNode *n = &nodes[i];
+    unsigned arity;
+    switch (n->kind) {
+    case TLSF_AST_TRUE:
+    case TLSF_AST_FALSE:
+    case TLSF_AST_AP:
+      arity = 0;
+      break;
+    case TLSF_AST_NOT:
+    case TLSF_AST_X:
+    case TLSF_AST_F:
+    case TLSF_AST_G:
+      arity = 1;
+      break;
+    case TLSF_AST_AND:
+    case TLSF_AST_OR:
+    case TLSF_AST_IMPL:
+    case TLSF_AST_EQUIV:
+    case TLSF_AST_U:
+    case TLSF_AST_R:
+    case TLSF_AST_W:
+    case TLSF_AST_M:
+      arity = 2;
+      break;
+    default:
+      return invalid;
+    }
+    if ((arity ? n->left >= i : n->left != UINT32_MAX) ||
+        (arity == 2 ? n->right >= i : n->right != UINT32_MAX) ||
+        (n->kind == TLSF_AST_AP ? n->ap >= ni + no : n->ap != UINT32_MAX))
+      return invalid;
+  }
+  Node *temporary = dpa_alloc(&scratch, count, sizeof *temporary);
+  const char **names = nullptr;
+  if (!temporary)
+    return scratch.status;
+  if (kind == TLSF_DPA_BUCHI) {
+    names = dpa_alloc(&scratch, ni + no, sizeof *names);
+    if (!names)
+      goto done;
+    for (uint32_t i = 0; i < ni + no; ++i) {
+      if (!dpa_poll(&scratch))
+        goto done;
+      names[i] = i < ni ? inputs[i] : outputs[i - ni];
+    }
+  }
+  // Mapping stays private; public enum values need not match internal NodeKind.
+  static const NodeKind operators[TLSF_AST_KIND_COUNT] = {
+      [TLSF_AST_TRUE] = NODE_TRUE, [TLSF_AST_FALSE] = NODE_FALSE,
+      [TLSF_AST_AP] = NODE_AP,     [TLSF_AST_NOT] = NODE_NOT,
+      [TLSF_AST_AND] = NODE_AND,   [TLSF_AST_OR] = NODE_OR,
+      [TLSF_AST_IMPL] = NODE_IMPL, [TLSF_AST_EQUIV] = NODE_EQUIV,
+      [TLSF_AST_X] = NODE_X,       [TLSF_AST_F] = NODE_F,
+      [TLSF_AST_G] = NODE_G,       [TLSF_AST_U] = NODE_U,
+      [TLSF_AST_R] = NODE_R,       [TLSF_AST_W] = NODE_W,
+      [TLSF_AST_M] = NODE_M};
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!dpa_poll(&scratch))
+      goto done;
+    const TlsfDpaFormulaNode *n = &nodes[i];
+    temporary[i].kind = operators[n->kind];
+    if (n->kind == TLSF_AST_AP)
+      temporary[i].name = n->ap < ni ? inputs[n->ap] : outputs[n->ap - ni];
+    else {
+      if (n->left != UINT32_MAX)
+        temporary[i].lhs = &temporary[n->left];
+      if (n->right != UINT32_MAX)
+        temporary[i].rhs = &temporary[n->right];
+    }
+  }
+  TlsfDpaBudget remaining = scratch.budget;
+  if (remaining.max_host_bytes) {
+    if (scratch.bytes >= remaining.max_host_bytes) {
+      dpa_decline(&scratch, TLSF_DPA_HOST_LIMIT);
+      goto done;
+    }
+    remaining.max_host_bytes -= scratch.bytes;
+  }
+  char klass;
+  scratch.status =
+      kind == TLSF_DPA_BUCHI
+          ? dpa_buchi_create((const TlsfAstNode *)&temporary[root], names,
+                             ni + no, &remaining, out, &klass)
+          : tlsf_dpa_create((const TlsfAstNode *)&temporary[root], inputs, ni,
+                            outputs, no, &remaining, out);
+done:
+  dpa_release(&scratch, names);
+  dpa_release(&scratch, temporary);
+  if (!dpa_poll_now(&scratch)) {
+    tlsf_dpa_free(*out);
+    *out = nullptr;
+  }
+  if (*out)
+    (*out)->budget.max_host_bytes = budget ? budget->max_host_bytes : 0;
+  return scratch.status;
 }
 
 typedef struct {
@@ -400,35 +530,47 @@ TlsfDpaStatus dpa_formula_equal(const TlsfAstNode *a, const TlsfAstNode *b,
   // imposing automaton admission on either expression.
   Node truth = {.kind = NODE_TRUE};
   TlsfDpa *c = nullptr;
+  TlsfDpa guard = {0};
+  if (budget)
+    guard.budget = *budget;
   *equal = false;
-  TlsfDpaStatus status = tlsf_dpa_create((const TlsfAstNode *)&truth, names,
-                                         count, nullptr, 0, budget, &c);
-  if (status.code != TLSF_DPA_OK)
-    return status;
+  if (!dpa_poll_now(&guard))
+    return guard.status;
+  guard.status = tlsf_dpa_create((const TlsfAstNode *)&truth, names, count,
+                                 nullptr, 0, budget, &c);
+  if (guard.status.code != TLSF_DPA_OK)
+    return guard.status;
   uint32_t lhs = dpa_formula(c, a, false, 0);
   uint32_t rhs = dpa_formula(c, b, false, 0);
-  status = c->status;
-  *equal = status.code == TLSF_DPA_OK && lhs == rhs;
+  guard.status = c->status;
+  *equal = guard.status.code == TLSF_DPA_OK && lhs == rhs;
   tlsf_dpa_free(c);
-  if (status.code != TLSF_DPA_OK || *equal || !temporal)
-    return status;
+  if (!dpa_poll_now(&guard)) {
+    *equal = false;
+    return guard.status;
+  }
+  if (*equal || !temporal)
+    return guard.status;
   Node equivalence = {.kind = NODE_EQUIV, .lhs = (Node *)a, .rhs = (Node *)b};
   Node difference = {.kind = NODE_NOT, .arg = &equivalence};
   c = nullptr;
-  status = tlsf_dpa_create((const TlsfAstNode *)&difference, names, count,
-                           nullptr, 0, budget, &c);
-  if (status.code == TLSF_DPA_DECLINED && status.reason == TLSF_DPA_UNSUPPORTED)
-    return (TlsfDpaStatus){TLSF_DPA_OK,
-                           TLSF_DPA_NONE}; // unknown, never a binding
-  if (status.code == TLSF_DPA_OK) {
-    status = tlsf_dpa_expand(c);
-    if (status.code == TLSF_DPA_OK) {
+  guard.status = tlsf_dpa_create((const TlsfAstNode *)&difference, names, count,
+                                 nullptr, 0, budget, &c);
+  if (guard.status.code == TLSF_DPA_DECLINED &&
+      guard.status.reason == TLSF_DPA_UNSUPPORTED)
+    guard.status =
+        (TlsfDpaStatus){TLSF_DPA_OK, TLSF_DPA_NONE}; // unknown, never a binding
+  else if (guard.status.code == TLSF_DPA_OK) {
+    guard.status = tlsf_dpa_expand(c);
+    if (guard.status.code == TLSF_DPA_OK) {
       *equal = equality_empty(c);
-      status = c->status;
+      guard.status = c->status;
     }
   }
   tlsf_dpa_free(c);
-  return status;
+  if (!dpa_poll_now(&guard))
+    *equal = false;
+  return guard.status;
 }
 
 void tlsf_dpa_free(TlsfDpa *c) {
@@ -505,7 +647,7 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     *count = 0;
   if (!c || !edges || !count || id >= c->states.n)
     return (TlsfDpaStatus){TLSF_DPA_INVALID, TLSF_DPA_NONE};
-  if (!dpa_poll(c))
+  if (!dpa_poll_now(c))
     return c->status;
   if (!c->started) {
     c->started = true;
@@ -580,6 +722,8 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     s->edges = row;
     s->count = at;
   }
+  if (!dpa_poll_now(c))
+    return c->status;
   *edges = s->edges;
   *count = s->count;
   return c->status;
@@ -588,6 +732,8 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
 TlsfDpaStatus tlsf_dpa_expand(TlsfDpa *c) {
   if (!c)
     return tlsf_dpa_status(c);
+  if (!dpa_poll_now(c))
+    return c->status;
   // States are interned on discovery: their IDs are the FIFO work queue.
   for (uint32_t i = 0; i < c->states.n && dpa_poll(c); ++i) {
     const TlsfDpaEdge *edges;
@@ -595,15 +741,21 @@ TlsfDpaStatus tlsf_dpa_expand(TlsfDpa *c) {
     if (tlsf_dpa_successors(c, i, &edges, &count).code != TLSF_DPA_OK)
       break;
   }
+  dpa_poll_now(c);
   return c->status;
 }
 
 bool dpa_labels_partition(TlsfDpa *c, const uint32_t *labels, size_t count) {
+  if (!dpa_poll_now(c))
+    return false;
   uint32_t seen = 0;
   for (size_t i = 0; i < count && dpa_poll(c); ++i) {
-    if (labels[i] >= c->classes.n || dpa_boolean(c, true, seen, labels[i]) != 0)
+    if (labels[i] >= c->classes.n ||
+        dpa_boolean(c, true, seen, labels[i]) != 0) {
+      dpa_poll_now(c);
       return false;
+    }
     seen = dpa_boolean(c, false, seen, labels[i]);
   }
-  return dpa_poll(c) && seen == 1;
+  return dpa_poll_now(c) && seen == 1;
 }
