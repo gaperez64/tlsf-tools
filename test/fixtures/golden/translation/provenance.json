@@ -311,5 +311,34 @@
       "src/lib/dpa_internal.h",
       "test/unit/dpa_dump.c"
     ]
+  },
+  "source_rebindings": {
+    "date": "2026-11-03",
+    "reason": "Batch internal deadline clock reads with exact work API boundaries; update the shifted Buchi proof comment. Historical Lean validation and compiler-order receipts are unchanged; current C dump hashes were recomputed.",
+    "checks": [
+      "dpa_translation_hashes",
+      "dpa_deadline"
+    ],
+    "hashes_sha256": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+    "artifacts": 4134,
+    "changed_golden_hashes": 0,
+    "sources": {
+      "include/tlsf/dpa.h": {
+        "previous_sha256": "95a35ba4b16ea3f1c04c9dbab352b9bf9cfa036430b1152a5b4d26ad1eaddb5c",
+        "current_sha256": "fdb62f7734a95f517a8865beb384febd2b5e0e6558412b9d1810096e3f56e8e1"
+      },
+      "proofs/TlsfProofs/Dpa/Impl/Buchi.lean": {
+        "previous_sha256": "4ce83b8e8add4fb45786feabcabafa31a8b7dcd235a50c010b69773c7a3b01d0",
+        "current_sha256": "52e9f7136ff02f42de0bca440389ed2e49ae1edbe90ccc623e1901e9c268f0b9"
+      },
+      "src/lib/dpa.c": {
+        "previous_sha256": "fa5dd84fbdcd7aae2be87912ce5d1e5853f0a855b758dec34e65f03b65c6f7de",
+        "current_sha256": "94288a3d7e968cbea33a45b57229f6e95434f82e9025041aa4840283dcb798bd"
+      },
+      "src/lib/dpa_internal.h": {
+        "previous_sha256": "c108ba0c0ef58498d56356c04a5735c9d68233d43edd79bdd7bf5f900080ba1a",
+        "current_sha256": "1bf11b47c6734bdf6d7f452b58834058f4acc632bba78afff5cb02cb86e45b2e"
+      }
+    }
   }
 }

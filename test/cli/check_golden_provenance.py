@@ -145,7 +145,23 @@ if translation.exists():
     for timeout in report["timeouts"]:
         assert timeout["request"] not in requests, "timed-out case has a golden"
     assert len(provenance["corpus_sources"]) == 217
+    rebindings = provenance.get("source_rebindings", {})
+    if rebindings:
+        assert rebindings["date"] and rebindings["reason"]
+        assert rebindings["checks"] == ["dpa_translation_hashes", "dpa_deadline"]
+        assert rebindings["hashes_sha256"] == provenance["hashes_sha256"]
+        assert rebindings["artifacts"] == provenance["golden_artifacts"]
+        assert rebindings["changed_golden_hashes"] == 0
+        assert set(rebindings["sources"]) == {
+            "include/tlsf/dpa.h", "src/lib/dpa.c", "src/lib/dpa_internal.h",
+            "proofs/TlsfProofs/Dpa/Impl/Buchi.lean",
+        }
+        for name, binding in rebindings["sources"].items():
+            assert set(binding) == {"previous_sha256", "current_sha256"}
+            assert binding["previous_sha256"] == provenance["source_sha256"][name]
+            assert binding["current_sha256"] != binding["previous_sha256"]
     for name, digest in provenance["source_sha256"].items():
+        digest = rebindings.get("sources", {}).get(name, {}).get("current_sha256", digest)
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
     for name, digest in provenance["corpus_sources"].items():
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest

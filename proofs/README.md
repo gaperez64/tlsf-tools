@@ -431,10 +431,10 @@ theorems; no cache, trace, store-order, or compiler refinement is asserted.
 | `TlsfProofs/Dpa/Classes.lean:596` | `noncomputable def rho (x : Class ap) : Class ap` |
 | `TlsfProofs/Dpa/Converse.lean:35` | `inductive Pi2 : Formula α → Prop where` |
 | `TlsfProofs/Dpa/GeneralConverse.lean:862` | `theorem general_pi2_language (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)` |
-| `src/lib/dpa.c:246` | `c->max_priority = (c->components.n + 2) \| 1u;` |
-| `src/lib/dpa.c:300` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
-| `src/lib/dpa.c:625` | `if (!c->started) {` |
-| `src/lib/dpa.c:651` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
+| `src/lib/dpa.c:253` | `c->max_priority = (c->components.n + 2) \| 1u;` |
+| `src/lib/dpa.c:306` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
+| `src/lib/dpa.c:652` | `if (!c->started) {` |
+| `src/lib/dpa.c:678` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
 | `src/lib/dpa_dela.c:5` | `static uint32_t transition(TlsfDpa *c, uint32_t a, uint32_t r) {` |
 | `src/lib/dpa_dela.c:72` | `uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {` |
 | `src/lib/dpa_dela.c:93` | `static uint32_t component(TlsfDpa *c, uint32_t f) {` |

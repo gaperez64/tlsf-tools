@@ -106,6 +106,7 @@ struct TlsfDpa {
   bool root_accepts, started, buchi;
   uint64_t epoch;
   unsigned recursion;
+  uint32_t deadline_polls;
 };
 
 // Interning assigns syntax, BDD-variable and acceptance-colour IDs in discovery
@@ -113,6 +114,7 @@ struct TlsfDpa {
 // order function arguments. At formerly nested calls, retain the historical
 // right-to-left order so canonical automata keep their validated identities.
 bool dpa_poll(TlsfDpa *c);
+bool dpa_poll_now(TlsfDpa *c);
 bool dpa_enter(TlsfDpa *c);
 uint32_t dpa_decline(TlsfDpa *c, TlsfDpaReason reason);
 void *dpa_alloc(TlsfDpa *c, size_t count, size_t size);

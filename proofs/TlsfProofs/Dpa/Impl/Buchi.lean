@@ -6,7 +6,7 @@ import TlsfProofs.Dpa.Zielonka
 `src/lib/dpa_dela.c:205` walks the acceptance BDD's Shannon children,
 substituting true for every colour on the current edge. `:274` resets a true
 residual and stores the completion bit in the target pair; `:280` exports the
-source pair's incoming bit. `src/lib/dpa.c:300` initializes that bit to
+source pair's incoming bit. `src/lib/dpa.c:306` initializes that bit to
 acceptance != false.
 
 `ColourDag` exposes the same Shannon recursion. C's interned canonical true

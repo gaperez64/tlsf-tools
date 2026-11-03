@@ -155,6 +155,13 @@ hashes remain unchanged. CI recomputes those dumps through the existing AST API;
 the new DAG API has separate contract tests and is not covered by the historical
 Lean validation run.
 
+The deadline clock-sampling update keeps those historical source hashes and
+the original compiler-order receipt. `translation/provenance.json` records
+explicit old/current source bindings separately; its checker rejects unbound
+current sources. `dpa_translation_hashes` recomputes all 4,134 unchanged dumps,
+while `dpa_deadline` checks cooperative sampling and exact API boundaries. This
+does not rerun the historical Lean validator or prove a wall-time bound.
+
 ## Recorded reference scope
 
 Independent confirmation on 2026-10-31 compared all 436 exact/strict reductions

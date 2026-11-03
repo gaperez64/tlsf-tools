@@ -67,8 +67,12 @@ typedef struct {
 // first successor request materializes its tree and the initial component
 // tuple. Syntax depth above 1024 declines; recursive symbolic work is capped at
 // 2048 frames (host limit). BDD nodes/cache are separate from C host-byte
-// accounting. Deadlines/cancellation are cooperative between individual FFI
-// operations.
+// accounting. Cancellation is checked at every cooperative poll. Deadline
+// clocks are read at work API entry/return and at least once per 256 internal
+// polls; this bounds skipped poll sites, not wall latency. Multiple foreign
+// operations may run between clock reads, and a single operation may block.
+// Use a process boundary for a hard deadline. Observed failures are sticky;
+// close resource/deadline races may select different nonconclusive reasons.
 TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
                               const char *const *inputs, uint32_t n_inputs,
                               const char *const *outputs, uint32_t n_outputs,
