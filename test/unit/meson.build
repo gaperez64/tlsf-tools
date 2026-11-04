@@ -12,22 +12,26 @@ endif
 dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
   cpp_args: ['-DDPA_GOLDEN_DIR="' + (meson.project_source_root() / 'test/fixtures/golden/dpa') + '"'],
   dependencies: tlsf_internal_dep)
-dpa_contract = executable('dpa_contract', 'dpa_contract.c',
-  c_args: ['-UNDEBUG'],
-  link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite',
-    '-Wl,--wrap=oxidd_bdd_not', '-Wl,--wrap=oxidd_bdd_and',
-    '-Wl,--wrap=oxidd_bdd_or', '-Wl,--wrap=oxidd_bdd_cofactor_false',
-    '-Wl,--wrap=oxidd_bdd_cofactor_true'],
-  dependencies: tlsf_internal_dep)
-test('dpa_contract', dpa_contract, timeout: 120)
-# Use the existing production library. Non-LTO test allocation/manager seams
-# keep the observers visible even when that library was built with LTO.
-dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',
-  c_args: ['-UNDEBUG'],
-  override_options: ['b_lto=false'],
-  link_args: ['-Wl,--wrap=clock_gettime', '-Wl,--wrap=free'],
-  dependencies: tlsf_internal_dep)
-test('dpa_deadline', dpa_deadline, timeout: 120)
+if host_machine.system() == 'linux'
+  dpa_contract = executable('dpa_contract', 'dpa_contract.c',
+    c_args: ['-UNDEBUG'],
+    link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite',
+      '-Wl,--wrap=oxidd_bdd_not', '-Wl,--wrap=oxidd_bdd_and',
+      '-Wl,--wrap=oxidd_bdd_or', '-Wl,--wrap=oxidd_bdd_cofactor_false',
+      '-Wl,--wrap=oxidd_bdd_cofactor_true'],
+    dependencies: tlsf_internal_dep)
+  test('dpa_contract', dpa_contract, timeout: 120)
+  # Use the existing production library. Non-LTO test allocation/manager seams
+  # keep the observers visible even when that library was built with LTO.
+  dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',
+    c_args: ['-UNDEBUG'],
+    override_options: ['b_lto=false'],
+    link_args: ['-Wl,--wrap=clock_gettime', '-Wl,--wrap=free'],
+    dependencies: tlsf_internal_dep)
+  test('dpa_deadline', dpa_deadline, timeout: 120)
+else
+  message('SKIP dpa_contract and dpa_deadline: require GNU ld --wrap')
+endif
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
 test('dpa_buchi_goldens', dpa_equivalence, args: ['--buchi'], timeout: 120)
 test('dpa_equivalence_research', dpa_equivalence,
@@ -49,19 +53,23 @@ dpa_admission = executable('dpa_admission', 'dpa_admission.c',
 test('dpa_delta2', python3, args: [files('dpa_delta2.py'), dpa_equivalence,
   meson.project_source_root() / 'test/fixtures/golden/dpa/delta2.ltl'], timeout: 300)
 
-objective_cli = static_library('objective-cli',
-  files('../../src/tools/tlsf2ltl/main.c'),
-  c_args: ['-Dmain=objective_cli_main'], dependencies: tool_dep)
-objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
-  files('../../src/lib/arena.c'), c_args: ['-DTLSF_ARENA_FAULT'],
-  link_with: objective_cli,
-  link_args: ['-Wl,--wrap=build_spec_formula', '-Wl,--wrap=malloc',
-              '-Wl,--wrap=calloc', '-Wl,--wrap=realloc',
-              '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
-              '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
-              '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
-  dependencies: tool_dep)
-test('objective_alloc', objective_alloc_exe, timeout: 120)
+if host_machine.system() == 'linux'
+  objective_cli = static_library('objective-cli',
+    files('../../src/tools/tlsf2ltl/main.c'),
+    c_args: ['-Dmain=objective_cli_main'], dependencies: tool_dep)
+  objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
+    files('../../src/lib/arena.c'), c_args: ['-DTLSF_ARENA_FAULT'],
+    link_with: objective_cli,
+    link_args: ['-Wl,--wrap=build_spec_formula', '-Wl,--wrap=malloc',
+                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc',
+                '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
+                '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
+                '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
+    dependencies: tool_dep)
+  test('objective_alloc', objective_alloc_exe, timeout: 120)
+else
+  message('SKIP objective_alloc: requires GNU ld --wrap and /proc/self/fd')
+endif
 
 if research_tools
   pruning_cache = executable('pruning_cache', 'pruning_cache.c',
@@ -175,6 +183,8 @@ if host_machine.system() == 'linux'
     test('oxidd_runtime_' + mib, oxidd_runtime_exe, args: [mib],
          is_parallel: false)
   endforeach
+else
+  message('SKIP oxidd_runtime_*: Linux RLIMIT_AS worker-stack contract')
 endif
 
 # Diagnostic inventory; not a test and never used by the production reducer.
