@@ -49,6 +49,34 @@ installed yyjson 0.12.0 or the pinned `subprojects/yyjson.wrap` fallback. The
 fallback installs yyjson and its pkg-config file with `libtlsf`, so static
 consumers can use `pkg-config --static --libs tlsf`.
 
+`-Dcpu=baseline|x86-64-v2|avx2|avx512|neon|native` selects the compiler's target
+for auto-vectorization. AP-set kernels use portable C loops with a one-word
+union fast path; the compiler chooses vector width. Build metadata retains the
+existing tier names (`scalar` is the historical baseline label), which describe
+the compiler target rather than runtime dispatch or a guaranteed vector width.
+`simd_check` covers every length 0–1000, every word offset modulo 64 bytes,
+zero/one/alternating/random data, and unchanged words outside the union range.
+
+On the shared x86-64 AVX2 host, nine serial release (`-O3`) runs of
+[`bench/simd.c`](bench/simd.c) gave these median union times (ns/call):
+
+| Compiler / target | Words | Intrinsics | Portable |
+| --- | ---: | ---: | ---: |
+| GCC 15.3 / baseline | 1000 | 252.97 | 252.93 |
+| GCC 15.3 / x86-64-v2 | 1000 | 333.37 | 252.85 |
+| GCC 15.3 / AVX2 | 1 | 3.24 | 2.43 |
+| GCC 15.3 / AVX2 | 1000 | 171.56 | 131.24 |
+| Clang 21.1 / baseline | 1000 | 252.91 | 253.37 |
+| Clang 21.1 / AVX2 | 1000 | 217.20 | 156.46 |
+
+The [complete measurements](bench/simd-20261104.json) include small sizes and
+popcount. The change favors common one-word sets and longer unions, with some
+short Clang cases costing up to about 1.2 ns more; it is not a speed guarantee
+for every size. Popcount keeps the builtin reduction, letting the target
+compiler choose scalar or vector instructions. The unused AND-popcount kernel
+was removed. AVX-512 and AArch64/NEON are compile-only checks here; these numbers
+make no performance claim for those targets or for whole applications.
+
 [OxiDD](https://github.com/OxiDD/oxidd) is part of `libtlsf`.
 [ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and
 [acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are optional external

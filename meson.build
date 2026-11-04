@@ -58,12 +58,10 @@ extra_cflags = cc.get_supported_arguments([
 add_project_arguments(extra_cflags, language: 'c')
 
 # ---------------------------------------------------------------------------
-# Target CPU / SIMD (opt-in via -Dcpu=...).  These -m flags both enable the
-# matching compile-time path in src/lib/simd.h (via the predefined
-# __AVX2__ / __AVX512F__ / __ARM_NEON macros) and let the compiler
-# auto-vectorize the rest of the tree.  Filtered through get_supported_arguments
-# so an ISA flag the host compiler/arch doesn't accept degrades to the scalar
-# fallback instead of failing the build.
+# Target CPU / SIMD (opt-in via -Dcpu=...). These flags select the compiler's
+# auto-vectorization target and the tier reported by tlsf_build_simd(). The word
+# kernels in src/lib/simd.h do not assume a vector width. Unsupported flags are
+# filtered out; reporting follows the actual compiler macros in that case.
 # ---------------------------------------------------------------------------
 
 cpu = get_option('cpu')
