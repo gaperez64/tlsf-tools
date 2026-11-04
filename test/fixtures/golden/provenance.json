@@ -4061,7 +4061,16 @@
       "limits.tsv": "5a6452a828f3584db6520a228cc76b30af925bfda9db8257164df9a9dac07758",
       "membership.tsv": "f7d6d355df13a7869006c8fde7422993c6e4c44ef6551686e75fe389f11df788",
       "random.ltl": "dbf98d2cc11c27f6778d82115cd81891c22128f85f72dc3996d52512ff941838",
-      "words.txt": "d96a3010290f73d0e5136a5caa6bfd2a48c9288c37bc3fa4513e97685f917614"
+      "words.txt": "d96a3010290f73d0e5136a5caa6bfd2a48c9288c37bc3fa4513e97685f917614",
+      "rows.tsv": "ac1b44e32d20f2119a7b153d908b34344456721b5465321ac2369dcc2982ba07"
+    },
+    "row_identity": {
+      "baseline_revision": "3463a862275967a590b5ed91faf43ac205187ae5",
+      "capture": "dpa_equivalence --write-rows test/fixtures/golden/dpa/rows.tsv",
+      "check": "dpa_row_identity",
+      "automata": 112,
+      "states": 810,
+      "edges": 3942
     }
   },
   "assumption-pruning": {

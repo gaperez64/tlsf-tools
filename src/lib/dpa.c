@@ -17,15 +17,10 @@ uint32_t dpa_decline(TlsfDpa *c, TlsfDpaReason reason) {
   return DPA_BAD;
 }
 
-bool dpa_poll(TlsfDpa *c) {
-  if (c->status.code != TLSF_DPA_OK)
-    return false;
-  if ((c->budget.cancel && *c->budget.cancel) ||
-      (c->budget.cancelled && c->budget.cancelled(c->budget.cancel_ctx)))
+bool dpa_poll_slow(TlsfDpa *c, bool cancelled, bool clock) {
+  if (cancelled)
     dpa_decline(c, TLSF_DPA_CANCELLED);
-  // Cancellation remains checked at every site. Sample only the clock: the
-  // first poll reads it, followed by at most 255 skipped internal reads.
-  if (c->budget.deadline_mono_ns && (c->deadline_polls++ & 255u) == 0) {
+  if (clock) {
     struct timespec t;
     if (clock_gettime(CLOCK_MONOTONIC, &t) != 0)
       c->status.code = TLSF_DPA_INTERNAL;
@@ -162,8 +157,6 @@ uint32_t dpa_state(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     return DPA_BAD;
   uint64_t h = dpa_hash(tuple, leaf, 0, 0);
   for (uint32_t i = dpa_bucket(&c->states, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaState *s = c->states.items[i];
     if (s->tuple == tuple && s->leaf == leaf)
       return i;
@@ -639,6 +632,34 @@ const TlsfDpaLabelNode *tlsf_dpa_label_node(const TlsfDpa *c, uint32_t f) {
   return cl->label == DPA_BAD ? nullptr : &cl->description;
 }
 
+// In-place heapsort: libc qsort may allocate scratch outside the host budget.
+static bool sort_ids(TlsfDpa *c, uint32_t *ids, size_t n) {
+  for (size_t start = n / 2, end = n; end > 1;) {
+    if (!dpa_poll(c))
+      return false;
+    size_t root = 0;
+    uint32_t value;
+    if (start) {
+      root = --start;
+      value = ids[root];
+    } else {
+      value = ids[--end];
+      ids[end] = ids[0];
+    }
+    while (root < end / 2) {
+      size_t child = 2 * root + 1;
+      if (child + 1 < end && ids[child] < ids[child + 1])
+        ++child;
+      if (value >= ids[child])
+        break;
+      ids[root] = ids[child];
+      root = child;
+    }
+    ids[root] = value;
+  }
+  return true;
+}
+
 TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
                                   const TlsfDpaEdge **edges, size_t *count) {
   if (edges)
@@ -681,16 +702,47 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     uint32_t root = dpa_dela_step(c, s->tuple, s->leaf);
     if (!dpa_poll(c))
       return c->status;
-    // DAG children precede parents. Propagate and OR guards once per shared
-    // node, rather than expanding root-to-leaf paths or alphabet letters.
-    uint32_t n = c->dags.n;
-    uint32_t *guards = dpa_alloc(c, n, sizeof *guards);
-    TlsfDpaEdge *row = nullptr;
-    if (!guards)
+    // Reuse a guard map, reachable IDs and DFS stack. Grow geometrically with
+    // the DAG table; clear only reachable entries between rows.
+    if (c->row_capacity < c->dags.n) {
+      uint32_t *scratch = dpa_alloc(c, c->dags.cap, 3 * sizeof *scratch);
+      if (!scratch)
+        return c->status;
+      dpa_release(c, c->row_scratch);
+      c->row_scratch = scratch;
+      c->row_capacity = c->dags.cap;
+    }
+    uint32_t *guards = c->row_scratch;
+    uint32_t *nodes = guards + c->row_capacity;
+    uint32_t *stack = nodes + c->row_capacity;
+    size_t n = 0, pending = 0;
+    guards[root] = 1;
+    stack[pending++] = root;
+    while (pending && dpa_poll(c)) {
+      uint32_t i = stack[--pending];
+      nodes[n++] = i;
+      DpaDag *d = c->dags.items[i];
+      if (d->kind != 1)
+        continue;
+      uint32_t children[] = {d->low, d->high};
+      for (unsigned j = 0; j < 2; ++j)
+        if (!guards[children[j]]) {
+          guards[children[j]] = 1;
+          stack[pending++] = children[j];
+        }
+    }
+    if (!dpa_poll(c))
       return c->status;
+    if (!sort_ids(c, nodes, n))
+      return c->status;
+    for (size_t j = 0; j < n; ++j)
+      guards[nodes[j]] = 0;
+    TlsfDpaEdge *row = nullptr;
     guards[root] = 1;
     size_t leaves = 0;
-    for (uint32_t i = root + 1; i-- > 0 && dpa_poll(c);) {
+    // Children precede parents. Keep the historical interning/export order.
+    for (size_t j = n; j-- > 0 && dpa_poll(c);) {
+      uint32_t i = nodes[j];
       if (!guards[i])
         continue;
       DpaDag *d = c->dags.items[i];
@@ -707,14 +759,16 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     if (dpa_poll(c))
       row = dpa_alloc(c, leaves, sizeof *row);
     size_t at = 0;
-    for (uint32_t i = 0; row && i <= root && dpa_poll(c); ++i) {
+    for (size_t j = 0; row && j < n && dpa_poll(c); ++j) {
+      uint32_t i = nodes[j];
       DpaDag *d = c->dags.items[i];
       if (guards[i] && d->kind == 2) {
         uint32_t label = dpa_export(c, guards[i]);
         row[at++] = (TlsfDpaEdge){label, d->low, d->high};
       }
     }
-    dpa_release(c, guards);
+    for (size_t j = 0; j < n; ++j)
+      guards[nodes[j]] = 0;
     if (!dpa_poll(c)) {
       dpa_release(c, row);
       return c->status;

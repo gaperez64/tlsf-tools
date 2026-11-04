@@ -91,6 +91,10 @@ typedef struct {
   DpaKey key;
   uint32_t node, parent, position, depth;
 } DpaPath;
+typedef struct DpaJointScratch {
+  struct DpaJointScratch *next;
+  uint64_t data[]; // colours followed by component values
+} DpaJointScratch;
 struct TlsfDpa {
   TlsfDpaStatus status;
   TlsfDpaBudget budget;
@@ -107,13 +111,25 @@ struct TlsfDpa {
   uint64_t epoch;
   unsigned recursion;
   uint32_t deadline_polls;
+  uint32_t *row_scratch, row_capacity;
+  DpaJointScratch *joint_scratch;
 };
 
 // Interning assigns syntax, BDD-variable and acceptance-colour IDs in discovery
 // order. Sequence recursive operands in separate full expressions: C does not
 // order function arguments. At formerly nested calls, retain the historical
 // right-to-left order so canonical automata keep their validated identities.
-bool dpa_poll(TlsfDpa *c);
+bool dpa_poll_slow(TlsfDpa *c, bool cancelled, bool clock);
+static inline bool dpa_poll(TlsfDpa *c) {
+  if (c->status.code != TLSF_DPA_OK)
+    return false;
+  bool cancelled =
+      (c->budget.cancel && *c->budget.cancel) ||
+      (c->budget.cancelled && c->budget.cancelled(c->budget.cancel_ctx));
+  // Check cancellation at every call; sample the clock once per 256 calls.
+  bool clock = c->budget.deadline_mono_ns && (c->deadline_polls++ & 255u) == 0;
+  return cancelled || clock ? dpa_poll_slow(c, cancelled, clock) : true;
+}
 bool dpa_poll_now(TlsfDpa *c);
 bool dpa_enter(TlsfDpa *c);
 uint32_t dpa_decline(TlsfDpa *c, TlsfDpaReason reason);

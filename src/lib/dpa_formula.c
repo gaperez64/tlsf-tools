@@ -17,10 +17,6 @@ uint32_t dpa_class(TlsfDpa *c, Bdd owned) {
       oxidd_bdd_unref(owned);
       return i;
     }
-    if (!dpa_poll(c)) {
-      oxidd_bdd_unref(owned);
-      return DPA_BAD;
-    }
     i = cl->key.next;
   }
   DpaClass *cl = dpa_alloc(c, 1, sizeof *cl);
@@ -215,8 +211,6 @@ uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
     return a;
   uint64_t h = dpa_hash((uint32_t)op, a, b, 0);
   for (uint32_t i = dpa_bucket(&c->atoms, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaAtom *atom = c->atoms.items[i];
     if (atom->op == op && atom->lhs == a && atom->rhs == b)
       return atom->cls;
@@ -288,8 +282,6 @@ static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
     return a;
   uint64_t h = dpa_hash((uint32_t)op, a, b, 0);
   for (uint32_t i = dpa_bucket(&c->terms, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaTerm *t = c->terms.items[i];
     if (t->op == op && t->lhs == a && t->rhs == b)
       return i;
@@ -489,8 +481,6 @@ static uint32_t transport(TlsfDpa *c, const TlsfAstNode *n, bool neg,
   uintptr_t p = (uintptr_t)n;
   uint64_t h = dpa_hash((uint32_t)p, (uint32_t)((uint64_t)p >> 32), neg, next);
   for (uint32_t i = dpa_bucket(&c->syntax, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaSyntax *entry = c->syntax.items[i];
     if (entry->node == n && entry->neg == neg && entry->next == next)
       return entry->formula;
@@ -804,8 +794,6 @@ static uint32_t unfold_care(TlsfDpa *c, uint32_t id, uint32_t cube,
     return id;
   uint64_t h = dpa_hash(id, cube, syntax, 0);
   for (uint32_t i = dpa_bucket(&c->unfolds, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaDag *p = c->unfolds.items[i];
     if (p->kind == (uint32_t)syntax && p->var == id && p->low == cube)
       return p->high;
@@ -845,8 +833,6 @@ uint32_t dpa_dag(TlsfDpa *c, uint32_t kind, uint32_t var, uint32_t lo,
     return lo;
   uint64_t h = dpa_hash(kind, var, lo, hi);
   for (uint32_t i = dpa_bucket(&c->dags, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaDag *d = c->dags.items[i];
     if (d->kind == kind && d->var == var && d->low == lo && d->high == hi)
       return i;

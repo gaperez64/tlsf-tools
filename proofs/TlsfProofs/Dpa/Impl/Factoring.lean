@@ -5,7 +5,7 @@ import TlsfProofs.Dpa.Validation.Basis
 /-!
 # Recursive factoring of frozen syntax
 
-The decoded traversal of `src/lib/dpa_formula.c:528` retains safety/co-safety
+The decoded traversal of `src/lib/dpa_formula.c:518` retains safety/co-safety
 terms, recursively factors children, and repeats on the smart-constructed
 distribution of G over conjunction or F over disjunction. In particular it
 inspects the *returned* child, which can expose a new Boolean node.
@@ -150,7 +150,7 @@ theorem factorDistribution_spec (rank : Formula (Fin ap) → Nat) (op : UnaryTer
       (distribute_G_conj _ _ w n).symm
 
 /-- One unary reconstruction, including the recursive call on newly
-distributed syntax at `src/lib/dpa_formula.c:528`. -/
+distributed syntax at `src/lib/dpa_formula.c:518`. -/
 def factorUnary (rank : Formula (Fin ap) → Nat)
     (recur : Formula (Fin ap) → Option (Formula (Fin ap)))
     (op : UnaryTerm) (f : Formula (Fin ap)) : Option (Formula (Fin ap)) := do

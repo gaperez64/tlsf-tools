@@ -33,8 +33,6 @@ static uint32_t product_impl(TlsfDpa *c, uint32_t a, uint32_t r) {
     return DPA_BAD;
   uint64_t h = dpa_hash(a, r, 0, 0);
   for (uint32_t i = dpa_bucket(&c->products, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaProduct *p = c->products.items[i];
     if (p->lhs == a && p->rhs == r)
       return p->dag;
@@ -74,8 +72,6 @@ uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {
     return DPA_BAD;
   uint64_t h = dpa_hash(a, r, 0, 0);
   for (uint32_t i = dpa_bucket(&c->pairs, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaPair *p = c->pairs.items[i];
     if (p->all == a && p->rejecting == r)
       return i;
@@ -146,12 +142,10 @@ uint32_t dpa_tuple(TlsfDpa *c, const uint32_t *values) {
   if (!dpa_poll(c))
     return DPA_BAD;
   uint64_t h = 0;
-  for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i)
+  for (uint32_t i = 0; i < c->components.n; ++i)
     h = dpa_hash((uint32_t)h, (uint32_t)(h >> 32), values[i], i);
   size_t bytes = (size_t)c->components.n * sizeof *values;
   for (uint32_t i = dpa_bucket(&c->tuples, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaTuple *t = c->tuples.items[i];
     if (!memcmp(t->values, values, bytes))
       return i;
@@ -221,7 +215,8 @@ static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {
   return dpa_poll(c) ? result : DPA_BAD;
 }
 
-static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
+static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf,
+                      DpaJointScratch **scratch) {
   if (!dpa_enter(c))
     return DPA_BAD;
   uint64_t h = dpa_hash(tuple, leaf, 0, 0);
@@ -233,20 +228,28 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
       result = p->dag;
       goto done;
     }
-    if (!dpa_poll(c))
-      goto done;
     i = p->key.next;
   }
   DpaTuple *t = c->tuples.items[tuple];
   uint32_t var = DPA_BAD;
-  for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i) {
+  for (uint32_t i = 0; i < c->components.n; ++i) {
     DpaDag *d = c->dags.items[t->values[i]];
     if (d->kind == 1 && d->var < var)
       var = d->var;
   }
-  values = dpa_alloc(c, c->components.n, sizeof *values);
-  if (!values)
+  if (!*scratch) {
+    size_t bytes = sizeof **scratch + c->colour_words * sizeof(uint64_t);
+    if (c->components.n > (SIZE_MAX - bytes) / sizeof *values) {
+      dpa_decline(c, TLSF_DPA_HOST_LIMIT);
+      goto done;
+    }
+    *scratch =
+        dpa_alloc(c, 1, bytes + (size_t)c->components.n * sizeof *values);
+  }
+  if (!*scratch)
     goto done;
+  uint64_t *colours = (*scratch)->data;
+  values = (void *)(colours + c->colour_words);
   for (uint32_t i = 0; i < c->components.n; ++i) {
     DpaDag *d = c->dags.items[t->values[i]];
     values[i] = d->kind == 3 ? d->low : DPA_BAD;
@@ -260,9 +263,7 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     goto cache;
   }
   if (var == DPA_BAD) {
-    uint64_t *colours = dpa_alloc(c, c->colour_words, sizeof *colours);
-    if (!colours)
-      goto done;
+    memset(colours, 0, c->colour_words * sizeof *colours);
     for (uint32_t i = 0; i < c->components.n; ++i) {
       DpaDag *d = c->dags.items[t->values[i]];
       values[i] = d->low;
@@ -282,7 +283,6 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
       priority = dpa_tree_step(c, &next_leaf, colours);
     uint32_t target = dpa_state(c, dpa_tuple(c, values), next_leaf);
     result = dpa_dag(c, 2, 0, target, priority);
-    dpa_release(c, colours);
   } else {
     uint32_t children[2];
     for (unsigned high = 0; high < 2; ++high) {
@@ -291,7 +291,7 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
         values[i] = d->kind == 1 && d->var == var ? (high ? d->high : d->low)
                                                   : t->values[i];
       }
-      children[high] = joint(c, dpa_tuple(c, values), leaf);
+      children[high] = joint(c, dpa_tuple(c, values), leaf, &(*scratch)->next);
     }
     result = dpa_dag(c, 1, var, children[0], children[1]);
   }
@@ -302,7 +302,6 @@ cache:;
     dpa_insert(c, &c->joints, p);
   }
 done:
-  dpa_release(c, values);
   --c->recursion;
   return dpa_poll(c) ? result : DPA_BAD;
 }
@@ -323,7 +322,7 @@ uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
     }
     roots[i] = p->dag;
   }
-  uint32_t result = joint(c, dpa_tuple(c, roots), leaf);
+  uint32_t result = joint(c, dpa_tuple(c, roots), leaf, &c->joint_scratch);
   dpa_release(c, roots);
   return result;
 }

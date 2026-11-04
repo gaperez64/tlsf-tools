@@ -33,7 +33,7 @@ ANCHORS = {
         'priority = round->rejecting;',
         'result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);',
         'static uint32_t component(TlsfDpa *c, uint32_t f) {',
-        'static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {',
+        'static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf,',
         'static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,',
         'static uint32_t transition(TlsfDpa *c, uint32_t a, uint32_t r) {',
         'uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {',

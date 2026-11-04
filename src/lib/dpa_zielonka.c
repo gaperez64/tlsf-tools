@@ -74,8 +74,6 @@ static uint32_t tree(TlsfDpa *c, const uint64_t *set) {
   Child *children = nullptr;
   uint64_t *m = nullptr;
   for (uint32_t i = dpa_bucket(&c->trees, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      goto done;
     DpaTreeNode *t = c->trees.items[i];
     if (!memcmp(t->colours, set, c->colour_words * sizeof *set)) {
       result = i;
@@ -155,8 +153,6 @@ static uint32_t path(TlsfDpa *c, uint32_t node, uint32_t parent, uint32_t pos) {
     return DPA_BAD;
   uint64_t h = dpa_hash(node, parent, pos, 0);
   for (uint32_t i = dpa_bucket(&c->paths, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
     DpaPath *p = c->paths.items[i];
     if (p->node == node && p->parent == parent && p->position == pos)
       return i;

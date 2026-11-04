@@ -29,6 +29,8 @@ dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',
   dependencies: tlsf_internal_dep)
 test('dpa_deadline', dpa_deadline, timeout: 120)
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
+# Full rows captured from the unchanged 3463a86 library with --write-rows.
+test('dpa_row_identity', dpa_equivalence, args: ['--rows'], timeout: 120)
 test('dpa_buchi_goldens', dpa_equivalence, args: ['--buchi'], timeout: 120)
 test('dpa_equivalence_research', dpa_equivalence,
   args: ['--allow-unproved'], timeout: 120)

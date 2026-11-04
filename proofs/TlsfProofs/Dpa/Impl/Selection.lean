@@ -4,7 +4,7 @@ import TlsfProofs.Dpa.Impl.Transport
 /-!
 # Selecting the canonical acceptance plan
 
-`src/lib/dpa_dela.c:117` first tests constants, then the acceptance cache,
+`src/lib/dpa_dela.c:113` first tests constants, then the acceptance cache,
 then whole-class admission, and otherwise branches on the first supported
 BDD variable. This module selects the resulting *uncached* plan, with
 executable cofactors and a supplied atom-ID order. It proves validity and

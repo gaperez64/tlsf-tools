@@ -148,13 +148,28 @@ if translation.exists():
     rebindings = provenance.get("source_rebindings", {})
     if rebindings:
         assert rebindings["date"] and rebindings["reason"]
-        assert rebindings["checks"] == ["dpa_translation_hashes", "dpa_deadline"]
+        assert rebindings["checks"] == ["dpa_translation_hashes", "dpa_deadline",
+                                         "dpa_row_identity", "proof_source_references"]
         assert rebindings["hashes_sha256"] == provenance["hashes_sha256"]
         assert rebindings["artifacts"] == provenance["golden_artifacts"]
         assert rebindings["changed_golden_hashes"] == 0
         assert set(rebindings["sources"]) == {
-            "include/tlsf/dpa.h", "src/lib/dpa.c", "src/lib/dpa_internal.h",
+            "include/tlsf/dpa.h",
+            "proofs/TlsfProofs/Dpa/Impl/Admission.lean",
             "proofs/TlsfProofs/Dpa/Impl/Buchi.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Classes.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Component.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Dual.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Extractor.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Factoring.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Selection.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Tags.lean",
+            "proofs/TlsfProofs/Dpa/Impl/Transport.lean",
+            "src/lib/dpa.c",
+            "src/lib/dpa_dela.c",
+            "src/lib/dpa_formula.c",
+            "src/lib/dpa_internal.h",
+            "src/lib/dpa_zielonka.c",
         }
         for name, binding in rebindings["sources"].items():
             assert set(binding) == {"previous_sha256", "current_sha256"}
