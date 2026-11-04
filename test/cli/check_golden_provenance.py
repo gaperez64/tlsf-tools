@@ -196,7 +196,23 @@ if translation.exists():
         assert "universal C implementation refinement" in dag_report["not_established"]
         assert len(receipt["conditional_objective_theorems"]) == 2
         assert re.fullmatch("[0-9a-f]{40}", receipt["revision"])
+        # Preserve the original receipt when only test registration and its
+        # provenance guard change. Production/proof sources cannot be rebound.
+        test_rebindings = update.get("test_source_rebindings", {})
+        if test_rebindings:
+            assert test_rebindings["date"] and test_rebindings["reason"]
+            assert test_rebindings["checks"] == [
+                "native_both_api", "dpa_dag_translation_hashes", "golden_provenance",
+            ]
+            assert set(test_rebindings["sources"]) == {
+                "test/unit/meson.build", "test/cli/check_golden_provenance.py",
+            }
+            for name, binding in test_rebindings["sources"].items():
+                assert set(binding) == {"previous_sha256", "current_sha256"}
+                assert binding["previous_sha256"] == receipt["source_sha256"][name]
+                assert binding["current_sha256"] != binding["previous_sha256"]
         for name, digest in receipt["source_sha256"].items():
+            digest = test_rebindings.get("sources", {}).get(name, {}).get("current_sha256", digest)
             assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
         for name, binding in update["sources"].items():
             assert receipt["source_sha256"][name] == binding["current_sha256"]

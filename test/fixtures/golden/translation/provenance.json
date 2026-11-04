@@ -362,6 +362,25 @@
         "previous_sha256": "b3144ead22ea128fd8f204d2f2b14925978b1642ffd74e5d7a9ac210b9074062",
         "current_sha256": "d60ccbf1c6a2a9406cb6068969fc8c191bcbd1aa234e7b28fa3da9912e111b99"
       }
+    },
+    "test_source_rebindings": {
+      "date": "2026-11-04",
+      "reason": "Restore the default native_both_api test on macOS while skipping only its Linux RSS assertions. Rebind the test registry and provenance guard; retain the original DAG receipt, validation date, source revision, reports, and every automaton hash. No translator, dumper, or proof source changed.",
+      "checks": [
+        "native_both_api",
+        "dpa_dag_translation_hashes",
+        "golden_provenance"
+      ],
+      "sources": {
+        "test/unit/meson.build": {
+          "previous_sha256": "0c87dd97040d7e8a3bdf4c34955ac8f62f4f1274fed14775a1cec800fa703cf4",
+          "current_sha256": "6fa853475ce7bf04f4ab805e0e41c47114a573250d96199ac5d4e84ed406acac"
+        },
+        "test/cli/check_golden_provenance.py": {
+          "previous_sha256": "d2a7f493aa2d8fbaf7233d7698e044a8123ff6e868216783262e40b4e5e30f8b",
+          "current_sha256": "9ac9cc196158dcefad55ab33f16c5eb1e5b1814dd1afc53fa4dcc4550e3bc61e"
+        }
+      }
     }
   }
 }
