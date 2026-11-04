@@ -81,6 +81,8 @@ jobs:
 
   build-macos:
     runs-on: macos-15
+    env:
+      CARGO_BUILD_JOBS: '1'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -103,11 +105,12 @@ jobs:
         run: |
           meson setup build-macos --buildtype=release -Dresearch_tools=false -Dcpu=neon
           meson compile -C build-macos -j1
-          meson test -C build-macos --num-processes 1 --print-errorlogs
+          meson test -C build-macos --no-rebuild --num-processes 1 --print-errorlogs
       - name: Explain platform exclusions
         run: |
           echo 'SKIP dpa_contract, dpa_deadline, objective_alloc, native_api_failure: require GNU ld --wrap (objective_alloc also uses /proc/self/fd).'
           echo 'SKIP oxidd_runtime_*: Linux RLIMIT_AS worker-stack contract.'
+          echo 'SKIP native_both_api: reads /proc/self/status and Linux ru_maxrss units; its fault-census and corruption modes still run.'
 
   build-clang:
     runs-on: ubuntu-24.04
