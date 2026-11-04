@@ -133,15 +133,11 @@ native_both_api_exe = executable('native_both_api',
   'native_both_api.cpp', gr1_lift_source, gr1_env_lift_source,
   cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
   dependencies: tlsf_internal_dep)
-if host_machine.system() == 'linux'
-  test('native_both_api', native_both_api_exe,
-    args: files('../oracle/env_lift_one.tlsf'),
-    # Aggregate of many worker runs, including deliberate deadline injections.
-    timeout: 180,
-    is_parallel: false)
-else
-  message('SKIP native_both_api: requires /proc/self/status and Linux ru_maxrss units')
-endif
+test('native_both_api', native_both_api_exe,
+  args: files('../oracle/env_lift_one.tlsf'),
+  # Aggregate of many worker runs, including deliberate deadline injections.
+  timeout: 180,
+  is_parallel: false)
 # Three added corruption cases each retain the worker's 30-second deadline.
 test('native_failure_census', native_both_api_exe,
   args: [files('../oracle/env_lift_one.tlsf'), '--fault-census'],

@@ -7,7 +7,9 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#ifdef __linux__
 #include <sys/resource.h>
+#endif
 #include <vector>
 
 #define CHECK(x)                                                               \
@@ -153,6 +155,7 @@ static uint64_t deadline() {
          30000000000ull;
 }
 
+#ifdef __linux__
 static uint64_t resident_bytes() {
   FILE *file = std::fopen("/proc/self/status", "r");
   CHECK(file);
@@ -175,6 +178,7 @@ static uint64_t peak_bytes() {
   CHECK(getrusage(RUSAGE_SELF, &usage) == 0);
   return uint64_t(usage.ru_maxrss) * 1024u;
 }
+#endif
 
 static void binding_error(const Observation &state) {
   CHECK(!state.events.empty());
@@ -575,6 +579,7 @@ int main(int argc, char **argv) {
   CHECK(!strcmp(memory_decline.decline_stage, "budget-memory"));
   tlsf_gr1_both_result_clear(&memory_decline);
 
+#ifdef __linux__
   // Match the worker's equal general and U budgets. U crosses the share,
   // releases its allocation, and the direct solve gets the current allowance.
   options = {};
@@ -607,6 +612,10 @@ int main(int argc, char **argv) {
   tlsf_gr1_both_result_clear(&equal_budget_fallback);
   tlsf_gr1_both_test_set_env_rss_spike(0);
   tlsf_gr1_lift_target_free(memory_target);
+#else
+  std::puts("SKIP native_both_api RSS measurement/assertions: require "
+            "/proc/self/status and Linux ru_maxrss units");
+#endif
 
   options = {};
   tlsf_gr1_both_test_set_candidate_ns(1);
