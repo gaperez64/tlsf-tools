@@ -32,12 +32,14 @@ static uint32_t product_impl(TlsfDpa *c, uint32_t a, uint32_t r) {
   if (!dpa_poll(c))
     return DPA_BAD;
   uint64_t h = dpa_hash(a, r, 0, 0);
-  for (uint32_t i = dpa_bucket(&c->products, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->products, h, &slot)) != DPA_BAD;) {
     DpaProduct *p = c->products.items[i];
-    if (p->lhs == a && p->rhs == r)
+    if (p->key.hash == h && p->lhs == a && p->rhs == r)
       return p->dag;
-    i = p->key.next;
   }
+  if (c->status.code != TLSF_DPA_OK)
+    return DPA_BAD;
   DpaDag *x = c->dags.items[a], *y = c->dags.items[r];
   uint32_t result;
   if (x->kind == 0 && y->kind == 0)
@@ -52,7 +54,7 @@ static uint32_t product_impl(TlsfDpa *c, uint32_t a, uint32_t r) {
         dpa_product(c, xv == var ? x->high : a, yv == var ? y->high : r);
     result = dpa_dag(c, 1, var, low, high);
   }
-  DpaProduct *p = dpa_alloc(c, 1, sizeof *p);
+  DpaProduct *p = dpa_record(c, &c->products, sizeof *p);
   if (!p)
     return DPA_BAD;
   *p = (DpaProduct){.key.hash = h, .lhs = a, .rhs = r, .dag = result};
@@ -71,13 +73,13 @@ uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {
   if (!dpa_poll(c))
     return DPA_BAD;
   uint64_t h = dpa_hash(a, r, 0, 0);
-  for (uint32_t i = dpa_bucket(&c->pairs, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->pairs, h, &slot)) != DPA_BAD;) {
     DpaPair *p = c->pairs.items[i];
-    if (p->all == a && p->rejecting == r)
+    if (p->key.hash == h && p->all == a && p->rejecting == r)
       return i;
-    i = p->key.next;
   }
-  DpaPair *p = dpa_alloc(c, 1, sizeof *p);
+  DpaPair *p = dpa_record(c, &c->pairs, sizeof *p);
   if (!p)
     return DPA_BAD;
   *p = (DpaPair){.key.hash = h, .all = a, .rejecting = r, .dag = DPA_BAD};
@@ -88,16 +90,27 @@ uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {
 // fixed acceptance literal changes; terminal pairs stay in every tuple.
 static uint32_t component(TlsfDpa *c, uint32_t f) {
   uint32_t dual = dpa_dual(c, f);
-  for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i) {
+  uint64_t h = dpa_hash(f, 0, 0, 0);
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->components, h, &slot)) != DPA_BAD;) {
     DpaComponent *p = c->components.items[i];
-    if (p->formula == f)
+    if (p->key.hash == h && p->formula == f)
       return p->colour;
-    if (!c->buchi && p->dual == f)
-      return dpa_class(c, oxidd_bdd_not(dpa_cls(c, p->colour)->bdd));
   }
+  if (!c->buchi) {
+    h = dpa_hash(dual, 0, 0, 0);
+    for (uint32_t slot = (uint32_t)h, i;
+         (i = dpa_probe(c, &c->components, h, &slot)) != DPA_BAD;) {
+      DpaComponent *p = c->components.items[i];
+      if (p->key.hash == h && p->dual == f)
+        return dpa_class(c, oxidd_bdd_not(dpa_cls(c, p->colour)->bdd));
+    }
+  }
+  if (c->status.code != TLSF_DPA_OK)
+    return DPA_BAD;
   bool neg = !(dpa_tags(c, f) & DPA_PI2);
   uint32_t formula = neg ? dual : f;
-  DpaComponent *p = dpa_alloc(c, 1, sizeof *p);
+  DpaComponent *p = dpa_record(c, &c->components, sizeof *p);
   if (!p)
     return DPA_BAD;
   uint32_t colour = dpa_atom(c, TLSF_AST_KIND_COUNT, c->components.n, 0);
@@ -145,15 +158,15 @@ uint32_t dpa_tuple(TlsfDpa *c, const uint32_t *values) {
   for (uint32_t i = 0; i < c->components.n; ++i)
     h = dpa_hash((uint32_t)h, (uint32_t)(h >> 32), values[i], i);
   size_t bytes = (size_t)c->components.n * sizeof *values;
-  for (uint32_t i = dpa_bucket(&c->tuples, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->tuples, h, &slot)) != DPA_BAD;) {
     DpaTuple *t = c->tuples.items[i];
-    if (!memcmp(t->values, values, bytes))
+    if (t->key.hash == h && !memcmp(t->values, values, bytes))
       return i;
-    i = t->key.next;
   }
   if (bytes > SIZE_MAX - sizeof(DpaTuple))
     return dpa_decline(c, TLSF_DPA_HOST_LIMIT);
-  DpaTuple *t = dpa_alloc(c, 1, sizeof *t + bytes);
+  DpaTuple *t = dpa_record(c, &c->tuples, sizeof *t + bytes);
   if (!t)
     return DPA_BAD;
   t->key.hash = h;
@@ -222,14 +235,16 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf,
   uint64_t h = dpa_hash(tuple, leaf, 0, 0);
   uint32_t result = DPA_BAD;
   uint32_t *values = nullptr;
-  for (uint32_t i = dpa_bucket(&c->joints, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->joints, h, &slot)) != DPA_BAD;) {
     DpaProduct *p = c->joints.items[i];
-    if (p->lhs == tuple && p->rhs == leaf) {
+    if (p->key.hash == h && p->lhs == tuple && p->rhs == leaf) {
       result = p->dag;
       goto done;
     }
-    i = p->key.next;
   }
+  if (c->status.code != TLSF_DPA_OK)
+    goto done;
   DpaTuple *t = c->tuples.items[tuple];
   uint32_t var = DPA_BAD;
   for (uint32_t i = 0; i < c->components.n; ++i) {
@@ -296,7 +311,7 @@ static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf,
     result = dpa_dag(c, 1, var, children[0], children[1]);
   }
 cache:;
-  DpaProduct *p = dpa_alloc(c, 1, sizeof *p);
+  DpaProduct *p = dpa_record(c, &c->joints, sizeof *p);
   if (p) {
     *p = (DpaProduct){.key.hash = h, .lhs = tuple, .rhs = leaf, .dag = result};
     dpa_insert(c, &c->joints, p);

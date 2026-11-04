@@ -3,8 +3,8 @@ import TlsfProofs.Dpa.Impl.Tags
 /-!
 # Executable research-mode extractor
 
-Reference for `src/lib/dpa_formula.c:660` (REDUCE and DROP_X), `:883`/`:906`
-(syntactic protection from current support), and `:930` (elision and retry).
+Reference for `src/lib/dpa_formula.c:662` (REDUCE and DROP_X), `:887`/`:910`
+(syntactic protection from current support), and `:934` (elision and retry).
 The definitions run on formula representatives; every equality decision uses
 proved Boolean class equality, independently of syntactic representatives.
 Theorems identify their results with the semantic classes of `Classes.lean`.

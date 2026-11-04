@@ -314,7 +314,7 @@
   },
   "source_rebindings": {
     "date": "2026-11-04",
-    "reason": "Batch internal deadline clock reads with exact work API boundaries; update the shifted Buchi proof comment. Historical Lean validation and compiler-order receipts are unchanged; current C dump hashes were recomputed. P1a visits only reachable row DAG nodes, reuses budgeted row/joint scratch, and inlines poll checks; source correspondence comments track moved lines. All 4134 translation hashes and 112 pre-change full row dumps are unchanged.",
+    "reason": "Batch internal deadline clock reads with exact work API boundaries; update the shifted Buchi proof comment. Historical Lean validation and compiler-order receipts are unchanged; current C dump hashes were recomputed. P1a visits only reachable row DAG nodes, reuses budgeted row/joint scratch, and inlines poll checks; source correspondence comments track moved lines. All 4134 translation hashes and 112 pre-change full row dumps are unchanged. P1b uses tagged open-addressed tables and stable per-table record chunks; source correspondence comments track moved lines. The same 4134 translation hashes and 112 full row dumps pass unchanged.",
     "checks": [
       "dpa_translation_hashes",
       "dpa_deadline",
@@ -331,19 +331,19 @@
       },
       "proofs/TlsfProofs/Dpa/Impl/Buchi.lean": {
         "previous_sha256": "4ce83b8e8add4fb45786feabcabafa31a8b7dcd235a50c010b69773c7a3b01d0",
-        "current_sha256": "ebea48e63de5e54b0f7b3ffcb9a1f95f76f611a28211553077a9b273231b9f8c"
+        "current_sha256": "9f9ee0bd6b583f00e57bec19a932457158cb18b947b366b023a1d0f480219532"
       },
       "src/lib/dpa.c": {
         "previous_sha256": "fa5dd84fbdcd7aae2be87912ce5d1e5853f0a855b758dec34e65f03b65c6f7de",
-        "current_sha256": "e827432eefe527940f3ccb89b3f701a37727eb0a88a599cf58f5df6825033b0e"
+        "current_sha256": "18161ff5235bd1e702dd9cf6cb5eaabb41e3f99ee6344194e99b1c2bb3c0b060"
       },
       "src/lib/dpa_internal.h": {
         "previous_sha256": "c108ba0c0ef58498d56356c04a5735c9d68233d43edd79bdd7bf5f900080ba1a",
-        "current_sha256": "c0da073d4f7085303076194ca8404576750eed518c14fd19d271685c84dd3c20"
+        "current_sha256": "240c3084a2691c414b50e9c3e0b484f975d70ae9afec4a5ae3398b4a7e62666c"
       },
       "proofs/TlsfProofs/Dpa/Impl/Admission.lean": {
         "previous_sha256": "e9c5c29fb7c01b4cf0fb282bef8c398071a6fdf0148421cbacc434376d133d64",
-        "current_sha256": "dc1297fba9a60d8d5d833cb6cd2a6d5208a37886e97aa6265d66ab614cdee132"
+        "current_sha256": "2ae7a58f78c12eb1f9c7d63be2c119f6e7158e7820b2db10e4901f46b69adaa0"
       },
       "proofs/TlsfProofs/Dpa/Impl/Classes.lean": {
         "previous_sha256": "c1ee4b88aa8553a07badb4a2f7306fa9852e0cb1cdf3a88424c9bece2e6e05a1",
@@ -351,43 +351,43 @@
       },
       "proofs/TlsfProofs/Dpa/Impl/Component.lean": {
         "previous_sha256": "b3bbc97120706e5e8c02d4d78658015fdae03b095664eb0e7c0e7b7994caab64",
-        "current_sha256": "0e919f153dfc3a41a93b23fddef9b60bf4657196c8c97b760a70406dead6b266"
+        "current_sha256": "cbdbde8a20f36169ba3acc6578931075751c3fcdbe6cae211b54442d8983e42a"
       },
       "proofs/TlsfProofs/Dpa/Impl/Dual.lean": {
         "previous_sha256": "e87d25ae48eed180a0575139e9d845685d28000f2425acc0920f5559df0b0e56",
-        "current_sha256": "a83a4b24026a82c6c785e8c9f5e96da73797c667d03ca2d7810ecb4ea1a8cae0"
+        "current_sha256": "0a96b00dac69f75db1c4faced3ae305e26cffcdcfc5a817bf29d54fa09bec97b"
       },
       "proofs/TlsfProofs/Dpa/Impl/Extractor.lean": {
         "previous_sha256": "d2ee11496c480fa5779dad692cd35acfccd8f921a96735ea1c907ae26c805b88",
-        "current_sha256": "b67fa6f133c70a76f3a96eab916cd7ae0a59382f2b835a371f3062c0a846ca32"
+        "current_sha256": "2ce997d40fe09e4373171199ec61229d3e0c5050f66e60c642ba36ac51b2b154"
       },
       "proofs/TlsfProofs/Dpa/Impl/Factoring.lean": {
         "previous_sha256": "3bfec864458c820a8c66911e4b7482a22e12a414383df2f58b75a329bb95e561",
-        "current_sha256": "b4194e83da93cb415d7b0b9d40eb9f37aced0d418bb999518ceaef389146ff15"
+        "current_sha256": "841b1876ed6b7dec21472fe219fe6d14d0dc2a56b46f5761247d6b02641b4ba2"
       },
       "proofs/TlsfProofs/Dpa/Impl/Selection.lean": {
         "previous_sha256": "8ccd61abed380b118e41c7b46b84250a8fbcefbdf2906534dca85e7a6d256383",
-        "current_sha256": "704b060af3c06a2af793e1593101ac887df0011faa2283c3d611acff06144d14"
+        "current_sha256": "f62e3b799d45959b93252c3ab543296d71d05f8c7e350b3f0148f5d9ea7dddf7"
       },
       "proofs/TlsfProofs/Dpa/Impl/Tags.lean": {
         "previous_sha256": "cfe796657331040803d6ea2c08c8722271c5bab6a49e218f7ab86cd231437ca1",
-        "current_sha256": "f8fdd8223e0c259e2c81b4b6ddb8f6b02e2236e9e0478cb8b4c246250bb21e5d"
+        "current_sha256": "908b002f1e3198259f67f81191a617ac5732d6f004457566f8b8c091bb9dd9e2"
       },
       "proofs/TlsfProofs/Dpa/Impl/Transport.lean": {
         "previous_sha256": "6aced4cb3ed633618be4c313ca11fbd5727057f010c795e2fc00ca355707ebf4",
-        "current_sha256": "a8b311709a6a76cabbc7c65884f7383e4411faf8d2ccdde39cd3ea34c8330a67"
+        "current_sha256": "60d55993e36385ee5f8a2f86a7e359eb87cfbed960d1525aba5b2b7a893a00cb"
       },
       "src/lib/dpa_dela.c": {
         "previous_sha256": "1035f54f0d61d9cff9a372001b42c80b9c7f539957d831c5290ce69ab4118add",
-        "current_sha256": "1817ba810dceb50272d0be53c3afc8d513e61e04c7a126fddbd45166f147a736"
+        "current_sha256": "0e64927e7eee3a8db7be650aeea94e0bb7a5b2e8c8831c38343109b2cc42abbb"
       },
       "src/lib/dpa_formula.c": {
         "previous_sha256": "3859ad88a0725b526fdf2a88263fa687d2e705ab862b2db4bfa718b7ca67b739",
-        "current_sha256": "9b84513436a2c5d787072ab6aeca0e5bc516d39cf93fd68d03cfd564d2f51164"
+        "current_sha256": "6fa59d32278bd2b5a25e937fff23a523e612a728de39f249b3409de1564fabb0"
       },
       "src/lib/dpa_zielonka.c": {
         "previous_sha256": "853aa04bab3f17f2326c8891b47f884527f5c83e65405e9d52225ba3ee79b059",
-        "current_sha256": "82847353697364b91d6752f647cf15f71c3355e046b76ca15512b8e9cae60e9d"
+        "current_sha256": "6c5820bf2d67b808f5726e3867a689e59a76a00a4b64cd31028f619040f35264"
       }
     }
   }

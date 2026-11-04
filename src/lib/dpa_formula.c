@@ -11,15 +11,15 @@ uint32_t dpa_class(TlsfDpa *c, Bdd owned) {
   uint64_t h =
       dpa_hash((uint32_t)p, (uint32_t)((uint64_t)p >> 32), (uint32_t)owned._i,
                (uint32_t)((uint64_t)owned._i >> 32));
-  for (uint32_t i = dpa_bucket(&c->classes, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->classes, h, &slot)) != DPA_BAD;) {
     DpaClass *cl = dpa_cls(c, i);
-    if (bdd_same_identity(cl->bdd, owned)) {
+    if (cl->key.hash == h && bdd_same_identity(cl->bdd, owned)) {
       oxidd_bdd_unref(owned);
       return i;
     }
-    i = cl->key.next;
   }
-  DpaClass *cl = dpa_alloc(c, 1, sizeof *cl);
+  DpaClass *cl = dpa_record(c, &c->classes, sizeof *cl);
   if (!cl) {
     oxidd_bdd_unref(owned);
     return DPA_BAD;
@@ -210,15 +210,16 @@ uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
       (op == TLSF_AST_X || op == TLSF_AST_F || op == TLSF_AST_G))
     return a;
   uint64_t h = dpa_hash((uint32_t)op, a, b, 0);
-  for (uint32_t i = dpa_bucket(&c->atoms, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->atoms, h, &slot)) != DPA_BAD;) {
     DpaAtom *atom = c->atoms.items[i];
-    if (atom->op == op && atom->lhs == a && atom->rhs == b)
+    if (atom->key.hash == h && atom->op == op && atom->lhs == a &&
+        atom->rhs == b)
       return atom->cls;
-    i = atom->key.next;
   }
   if (c->atoms.n == UINT32_MAX - 1)
     return dpa_decline(c, TLSF_DPA_HOST_LIMIT);
-  DpaAtom *atom = dpa_alloc(c, 1, sizeof *atom);
+  DpaAtom *atom = dpa_record(c, &c->atoms, sizeof *atom);
   if (!atom)
     return DPA_BAD;
   unsigned tags = op == TLSF_AST_AP ? DPA_ALL : 0;
@@ -252,7 +253,7 @@ static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
     return DPA_BAD;
   if (!c->terms.n) {
     for (uint32_t i = 0; i < 2; ++i) {
-      DpaTerm *t = dpa_alloc(c, 1, sizeof *t);
+      DpaTerm *t = dpa_record(c, &c->terms, sizeof *t);
       if (!t)
         return DPA_BAD;
       *t = (DpaTerm){.op = i ? TLSF_AST_TRUE : TLSF_AST_FALSE,
@@ -281,13 +282,13 @@ static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {
   if ((op == TLSF_AST_X || op == TLSF_AST_F || op == TLSF_AST_G) && a < 2)
     return a;
   uint64_t h = dpa_hash((uint32_t)op, a, b, 0);
-  for (uint32_t i = dpa_bucket(&c->terms, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->terms, h, &slot)) != DPA_BAD;) {
     DpaTerm *t = c->terms.items[i];
-    if (t->op == op && t->lhs == a && t->rhs == b)
+    if (t->key.hash == h && t->op == op && t->lhs == a && t->rhs == b)
       return i;
-    i = t->key.next;
   }
-  DpaTerm *t = dpa_alloc(c, 1, sizeof *t);
+  DpaTerm *t = dpa_record(c, &c->terms, sizeof *t);
   if (!t)
     return DPA_BAD;
   unsigned tags = DPA_ALL;
@@ -480,14 +481,15 @@ static uint32_t transport(TlsfDpa *c, const TlsfAstNode *n, bool neg,
     return DPA_BAD;
   uintptr_t p = (uintptr_t)n;
   uint64_t h = dpa_hash((uint32_t)p, (uint32_t)((uint64_t)p >> 32), neg, next);
-  for (uint32_t i = dpa_bucket(&c->syntax, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->syntax, h, &slot)) != DPA_BAD;) {
     DpaSyntax *entry = c->syntax.items[i];
-    if (entry->node == n && entry->neg == neg && entry->next == next)
+    if (entry->key.hash == h && entry->node == n && entry->neg == neg &&
+        entry->next == next)
       return entry->formula;
-    i = entry->key.next;
   }
   uint32_t f = formula_impl(c, n, neg, depth, next);
-  DpaSyntax *entry = dpa_alloc(c, 1, sizeof *entry);
+  DpaSyntax *entry = dpa_record(c, &c->syntax, sizeof *entry);
   if (!entry)
     return DPA_BAD;
   *entry = (DpaSyntax){
@@ -793,15 +795,16 @@ static uint32_t unfold_care(TlsfDpa *c, uint32_t id, uint32_t cube,
   if (id < 2)
     return id;
   uint64_t h = dpa_hash(id, cube, syntax, 0);
-  for (uint32_t i = dpa_bucket(&c->unfolds, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->unfolds, h, &slot)) != DPA_BAD;) {
     DpaDag *p = c->unfolds.items[i];
-    if (p->kind == (uint32_t)syntax && p->var == id && p->low == cube)
+    if (p->key.hash == h && p->kind == (uint32_t)syntax && p->var == id &&
+        p->low == cube)
       return p->high;
-    i = p->key.next;
   }
   uint32_t result = syntax ? unfold_term_care(c, id, cube, care)
                            : unfold_class_care(c, id, cube, care);
-  DpaDag *p = dpa_alloc(c, 1, sizeof *p);
+  DpaDag *p = dpa_record(c, &c->unfolds, sizeof *p);
   if (!p)
     return DPA_BAD;
   *p = (DpaDag){
@@ -832,13 +835,14 @@ uint32_t dpa_dag(TlsfDpa *c, uint32_t kind, uint32_t var, uint32_t lo,
   if (kind == 1 && lo == hi)
     return lo;
   uint64_t h = dpa_hash(kind, var, lo, hi);
-  for (uint32_t i = dpa_bucket(&c->dags, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->dags, h, &slot)) != DPA_BAD;) {
     DpaDag *d = c->dags.items[i];
-    if (d->kind == kind && d->var == var && d->low == lo && d->high == hi)
+    if (d->key.hash == h && d->kind == kind && d->var == var && d->low == lo &&
+        d->high == hi)
       return i;
-    i = d->key.next;
   }
-  DpaDag *d = dpa_alloc(c, 1, sizeof *d);
+  DpaDag *d = dpa_record(c, &c->dags, sizeof *d);
   if (!d)
     return DPA_BAD;
   *d = (DpaDag){.key.hash = h, .kind = kind, .var = var, .low = lo, .high = hi};

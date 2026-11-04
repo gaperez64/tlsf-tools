@@ -11,6 +11,12 @@ struct DpaAllocation {
   max_align_t payload[];
 };
 
+struct DpaChunk {
+  DpaChunk *next;
+  size_t used, capacity;
+  max_align_t data[];
+};
+
 uint32_t dpa_decline(TlsfDpa *c, TlsfDpaReason reason) {
   if (c->status.code == TLSF_DPA_OK)
     c->status = (TlsfDpaStatus){TLSF_DPA_DECLINED, reason};
@@ -93,8 +99,54 @@ uint64_t dpa_hash(uint32_t a, uint32_t b, uint32_t d, uint32_t e) {
   return h ^ (h >> 32);
 }
 
-uint32_t dpa_bucket(DpaTable *t, uint64_t hash) {
-  return t->bins ? t->buckets[hash & (t->bins - 1)] : DPA_BAD;
+void *dpa_record(TlsfDpa *c, DpaTable *t, size_t size) {
+  if (!dpa_poll(c))
+    return nullptr;
+  size_t alignment = alignof(max_align_t);
+  if (size > SIZE_MAX - (alignment - 1))
+    goto fail;
+  size = (size + alignment - 1) & ~(alignment - 1);
+  DpaChunk *chunk = t->chunks;
+  if (!chunk || size > chunk->capacity - chunk->used) {
+    size_t capacity = size > 4096 ? size : 4096;
+    if (capacity > SIZE_MAX - sizeof *chunk)
+      goto fail;
+    chunk = dpa_alloc(c, 1, sizeof *chunk + capacity);
+    if (!chunk)
+      return nullptr;
+    chunk->next = t->chunks;
+    chunk->capacity = capacity;
+    t->chunks = chunk;
+  }
+  void *record = (char *)chunk->data + chunk->used;
+  chunk->used += size;
+  return record;
+fail:
+  dpa_decline(c, TLSF_DPA_HOST_LIMIT);
+  return nullptr;
+}
+
+static void table_clear(TlsfDpa *c, DpaTable *t) {
+  while (t->chunks) {
+    DpaChunk *next = t->chunks->next;
+    dpa_release(c, t->chunks);
+    t->chunks = next;
+  }
+  dpa_release(c, t->items);
+  dpa_release(c, t->buckets);
+  *t = (DpaTable){0};
+}
+
+static bool table_slot(TlsfDpa *c, DpaSlot *buckets, uint32_t bins,
+                       uint64_t hash, uint32_t id) {
+  uint32_t b = (uint32_t)hash;
+  while (buckets[b & (bins - 1)].id != DPA_BAD) {
+    ++b;
+    if (((b - (uint32_t)hash) & 63u) == 0 && !dpa_poll(c))
+      return false;
+  }
+  buckets[b & (bins - 1)] = (DpaSlot){id, (uint32_t)(hash >> 32)};
+  return true;
 }
 
 bool dpa_insert(TlsfDpa *c, DpaTable *t, void *item) {
@@ -119,35 +171,31 @@ bool dpa_insert(TlsfDpa *c, DpaTable *t, void *item) {
     t->items = items;
     t->cap = cap;
   }
-  if (t->n >= t->bins) {
+  if (t->n >= t->bins / 2) {
     uint32_t bins = t->cap * 2;
     if (bins <= t->cap) {
       dpa_decline(c, TLSF_DPA_HOST_LIMIT);
       return false;
     }
-    uint32_t *buckets = dpa_alloc(c, bins, sizeof *buckets);
+    DpaSlot *buckets = dpa_alloc(c, bins, sizeof *buckets);
     if (!buckets)
       return false;
     for (uint32_t i = 0; i < bins; ++i)
-      buckets[i] = DPA_BAD;
+      buckets[i].id = DPA_BAD;
     for (uint32_t i = 0; i < t->n; ++i) {
-      if (!dpa_poll(c)) {
+      DpaKey *key = t->items[i];
+      if (!dpa_poll(c) || !table_slot(c, buckets, bins, key->hash, i)) {
         dpa_release(c, buckets);
         return false;
       }
-      DpaKey *key = t->items[i];
-      uint32_t b = (uint32_t)(key->hash & (bins - 1));
-      key->next = buckets[b];
-      buckets[b] = i;
     }
     dpa_release(c, t->buckets);
     t->buckets = buckets;
     t->bins = bins;
   }
   DpaKey *key = item;
-  uint32_t b = (uint32_t)(key->hash & (t->bins - 1));
-  key->next = t->buckets[b];
-  t->buckets[b] = t->n;
+  if (!table_slot(c, t->buckets, t->bins, key->hash, t->n))
+    return false;
   t->items[t->n++] = item;
   return true;
 }
@@ -156,15 +204,15 @@ uint32_t dpa_state(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {
   if (!dpa_poll(c))
     return DPA_BAD;
   uint64_t h = dpa_hash(tuple, leaf, 0, 0);
-  for (uint32_t i = dpa_bucket(&c->states, h); i != DPA_BAD;) {
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->states, h, &slot)) != DPA_BAD;) {
     DpaState *s = c->states.items[i];
-    if (s->tuple == tuple && s->leaf == leaf)
+    if (s->key.hash == h && s->tuple == tuple && s->leaf == leaf)
       return i;
-    i = s->key.next;
   }
   if (c->budget.max_states && c->states.n >= c->budget.max_states)
     return dpa_decline(c, TLSF_DPA_STATE_LIMIT);
-  DpaState *s = dpa_alloc(c, 1, sizeof *s);
+  DpaState *s = dpa_record(c, &c->states, sizeof *s);
   if (!s)
     return DPA_BAD;
   *s = (DpaState){.key.hash = h, .tuple = tuple, .leaf = leaf};
@@ -249,11 +297,7 @@ TlsfDpaStatus tlsf_dpa_create(const TlsfAstNode *root,
   c->initial = dpa_state(c, DPA_BAD, DPA_BAD);
   if (!dpa_poll(c))
     goto fail;
-  for (uint32_t i = 0; i < c->syntax.n; ++i)
-    dpa_release(c, c->syntax.items[i]);
-  dpa_release(c, c->syntax.items);
-  dpa_release(c, c->syntax.buckets);
-  c->syntax = (DpaTable){0};
+  table_clear(c, &c->syntax);
   if (!dpa_poll_now(c))
     goto fail;
   *out = c;
@@ -281,11 +325,7 @@ TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
     dpa_decline(c, TLSF_DPA_UNSUPPORTED);
   if (dpa_poll(c)) {
     c->buchi = true;
-    for (uint32_t i = 0; i < c->components.n; ++i)
-      dpa_release(c, c->components.items[i]);
-    dpa_release(c, c->components.items);
-    dpa_release(c, c->components.buckets);
-    c->components = (DpaTable){0};
+    table_clear(c, &c->components);
     for (uint32_t i = 0; i < c->classes.n && dpa_poll(c); ++i) {
       dpa_cls(c, i)->tags = 0;
       dpa_cls(c, i)->acceptance = DPA_BAD;
@@ -299,11 +339,13 @@ TlsfDpaStatus dpa_buchi_create(const TlsfAstNode *root,
     uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);
     if (dpa_poll(c)) {
       DpaState *initial = c->states.items[c->initial];
-      c->states.buckets[initial->key.hash & (c->states.bins - 1)] = DPA_BAD;
+      c->states.buckets[initial->key.hash & (c->states.bins - 1)].id = DPA_BAD;
       initial->tuple = tuple;
       initial->leaf = round;
       initial->key.hash = dpa_hash(tuple, round, 0, 0);
-      c->states.buckets[initial->key.hash & (c->states.bins - 1)] = c->initial;
+      if (!table_slot(c, c->states.buckets, c->states.bins, initial->key.hash,
+                      c->initial))
+        goto done;
       c->buchi = c->started = true;
     }
   }
@@ -683,11 +725,13 @@ TlsfDpaStatus tlsf_dpa_successors(TlsfDpa *c, uint32_t id,
     // No row has been requested, hence the sole state is still the initial
     // state. Re-key it before discovery so normalization adds no extra state.
     DpaState *initial = c->states.items[c->initial];
-    c->states.buckets[initial->key.hash & (c->states.bins - 1)] = DPA_BAD;
+    c->states.buckets[initial->key.hash & (c->states.bins - 1)].id = DPA_BAD;
     initial->tuple = tuple;
     initial->leaf = c->leftmost;
     initial->key.hash = dpa_hash(tuple, initial->leaf, 0, 0);
-    c->states.buckets[initial->key.hash & (c->states.bins - 1)] = c->initial;
+    if (!table_slot(c, c->states.buckets, c->states.bins, initial->key.hash,
+                    c->initial))
+      return c->status;
   }
   DpaState *s = c->states.items[id];
   if (s->tuple == DPA_BAD && s->leaf < 2 && !s->edges) {

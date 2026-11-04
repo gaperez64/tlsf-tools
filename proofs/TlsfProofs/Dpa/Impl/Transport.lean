@@ -4,17 +4,17 @@ import TlsfProofs.Rewrites
 /-!
 # Frozen syntax transport with pending next operators
 
-This is the decoded-syntax traversal of `src/lib/dpa_formula.c:390`.
+This is the decoded-syntax traversal of `src/lib/dpa_formula.c:391`.
 `neg` has C's polarity (true means negate), and `pending` is C's `next`.
 Boolean children inherit both parameters; modal operands restart at zero.
 Strong-next is rejected, including in a subsequently absorbed branch.
 
-`termBoolean` models `src/lib/dpa_formula.c:250`: sort by permanent term ID,
+`termBoolean` models `src/lib/dpa_formula.c:251`: sort by permanent term ID,
 then eliminate duplicates and constants. Its `rank` parameter is the ID of
 decoded syntax in the final, append-only C arena. All soundness results hold
 for every rank, so they do not assume any allocation order. In the C instance
 false/true have ranks 0/1. `termUnary` models the unary branch of `term`;
-`wrapNext` models `src/lib/dpa_formula.c:384`.
+`wrapNext` models `src/lib/dpa_formula.c:385`.
 Hash-consing, traversal memoization, resource failure and the representation
 of IDs remain implementation boundaries. No Boolean absorption is performed
 inside frozen syntax. In particular, the conclusion is language equality,
@@ -299,7 +299,7 @@ theorem transport_nnf (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap))
 
 /-- The materialized transported class has an NNF representative and the
 original language. `Class.ofFormula` freezes modal operands, just as
-`src/lib/dpa_formula.c:361` stops materialization at a modal term. -/
+`src/lib/dpa_formula.c:362` stops materialization at a modal term. -/
 theorem transport_class_language (rank : Formula (Fin ap) → Nat) (f : Formula (Fin ap))
     (t : Formula (Fin ap)) (ht : transport rank f false 0 = some t) :
     NNFClass (Class.ofFormula t) ∧

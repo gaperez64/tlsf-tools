@@ -17,11 +17,15 @@ enum {
 };
 typedef struct {
   uint64_t hash;
-  uint32_t next;
 } DpaKey;
 typedef struct {
+  uint32_t id, tag;
+} DpaSlot;
+typedef struct DpaChunk DpaChunk;
+typedef struct {
   void **items;
-  uint32_t *buckets;
+  DpaSlot *buckets;
+  DpaChunk *chunks;
   uint32_t n, cap, bins;
 } DpaTable;
 typedef struct DpaAllocation DpaAllocation;
@@ -135,8 +139,22 @@ bool dpa_enter(TlsfDpa *c);
 uint32_t dpa_decline(TlsfDpa *c, TlsfDpaReason reason);
 void *dpa_alloc(TlsfDpa *c, size_t count, size_t size);
 void dpa_release(TlsfDpa *c, void *ptr);
+void *dpa_record(TlsfDpa *c, DpaTable *t, size_t size);
 uint64_t dpa_hash(uint32_t a, uint32_t b, uint32_t d, uint32_t e);
-uint32_t dpa_bucket(DpaTable *t, uint64_t hash);
+// Start slot at (uint32_t)hash. Only tag matches reach the record/full hash.
+static inline uint32_t dpa_probe(TlsfDpa *c, const DpaTable *t, uint64_t hash,
+                                 uint32_t *slot) {
+  if (!t->bins || c->status.code != TLSF_DPA_OK)
+    return DPA_BAD;
+  for (;;) {
+    DpaSlot s = t->buckets[(*slot)++ & (t->bins - 1)];
+    // Count across calls too: matching tags need not match the full key.
+    if (((*slot - (uint32_t)hash) & 63u) == 0 && !dpa_poll(c))
+      return DPA_BAD;
+    if (s.id == DPA_BAD || s.tag == (uint32_t)(hash >> 32))
+      return s.id;
+  }
+}
 bool dpa_insert(TlsfDpa *c, DpaTable *t, void *item);
 uint32_t dpa_class(TlsfDpa *c, Bdd owned);
 uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b);

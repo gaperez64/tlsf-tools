@@ -27,7 +27,7 @@ ANCHORS = {
         's->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};',
     },
     'src/lib/dpa_dela.c': {
-        'if (!c->buchi && p->dual == f)',
+        'if (!c->buchi) {',
         'static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {',
         'if (c->buchi) {',
         'priority = round->rejecting;',
