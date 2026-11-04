@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize W/R-safety residuals that still need an external solver."""
+"""Summarize W/R-safety residuals without a native solving route."""
 
 import argparse
 import collections
@@ -9,7 +9,7 @@ import sys
 
 def is_wr_external(row):
     return (
-        row.get("route") == "ltlsynt"
+        row.get("route") == "unresolved"
         and row.get("has_liveness") == "0"
         and (row.get("has_weak_until") == "1" or row.get("has_release") == "1")
     )
@@ -17,7 +17,7 @@ def is_wr_external(row):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Report external W/R-safety residual reasons from route-stats TSV."
+        description="Report unresolved W/R-safety residual reasons from route-stats TSV."
     )
     parser.add_argument("route_stats", help="TSV from collect_route_stats.py")
     parser.add_argument("--examples", type=int, default=5,

@@ -6,8 +6,8 @@ usage() {
 Usage: scripts/solve.sh [OPTIONS] SPEC.tlsf
 
 Options:
-  --solver PATH          external solver command (default: ltlsynt)
-  --backend NAME         ltlsynt or acacia (default: ltlsynt)
+  --solver PATH          optional command for unresolved clusters (default: UNKNOWN)
+  --backend NAME         command or acacia (default: command)
   --tlsfcompose PATH     tlsfcompose binary (default: tlsfcompose)
   --output FILE          merged AIGER output (default: strategy.aag)
   --work-dir DIR         decomposition/work directory (default: mktemp)
@@ -16,8 +16,8 @@ Options:
 EOF
 }
 
-solver=${SOLVER:-ltlsynt}
-backend=ltlsynt
+solver=${SOLVER:-}
+backend=command
 tlsfcompose=${TLSFCOMPOSE:-tlsfcompose}
 output=strategy.aag
 work_dir=
@@ -85,20 +85,20 @@ else
 fi
 rm -f "$work_dir"/cluster.*.aag "$work_dir"/cluster.*.formula \
       "$work_dir"/cluster.*.ltl "$work_dir"/cluster.*.mealy \
-      "$work_dir"/cluster.*.spot "$work_dir"/compose.sh \
+      "$work_dir"/compose.sh \
       "$work_dir"/controllers.aag "$work_dir"/controllers.txt \
       "$work_dir"/plan.txt
 
 lowercase=0
 case "$backend" in
-  ltlsynt)
+  command)
     lowercase=1
     ;;
   acacia)
     lowercase=1
     ;;
   *)
-    echo "solve.sh: unknown backend '$backend' (expected ltlsynt or acacia)" >&2
+    echo "solve.sh: unknown backend '$backend' (expected command or acacia)" >&2
     exit 2
     ;;
 esac
@@ -136,8 +136,13 @@ for cluster in "$work_dir"/cluster.*.ltl; do
     continue
   fi
 
+  if [ -z "$solver" ]; then
+    echo "solve.sh: cluster $id is UNKNOWN (no native controller available)" >&2
+    exit 2
+  fi
+
   case "$backend" in
-    ltlsynt)
+    command)
       "$solver" --ins="$ins" --outs="$outs" -F "$formula" --aiger > "$aag"
       if head -n 1 "$aag" | grep -q '^UNREALIZABLE'; then
         echo "solve.sh: cluster $id is UNREALIZABLE" >&2

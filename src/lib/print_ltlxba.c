@@ -6,7 +6,8 @@
 #include <ctype.h>
 
 // ---------------------------------------------------------------------------
-// Operator precedence (matches spot / ltl2ba and the TLSF arXiv papers).
+// Operator precedence (matches the ASCII LTL dialect and the TLSF arXiv
+// papers).
 //
 // Binding strength, tightest first:
 //   5  unary:  !  X  F  G   (and X[!])
@@ -86,8 +87,8 @@ typedef struct LtlSyntax {
 static void atom_plain(Printer *out, const char *name) { put_text(out, name); }
 
 // Some classic ltl2ba-compatible workflows conventionally lowercase atoms.
-// Spot itself accepts uppercase TLSF identifiers (including names beginning
-// with F/G/X); exact operator names are already forbidden by TLSF.
+// The quoted dialect accepts uppercase TLSF identifiers (including names
+// beginning with F/G/X); exact operator names are already forbidden by TLSF.
 static void atom_lower(Printer *out, const char *name) {
   for (const char *p = name; *p; p++)
     put_char(tolower((unsigned char)*p), out);
@@ -105,7 +106,7 @@ static void atom_latex(Printer *out, const char *name) {
   put_char('}', out);
 }
 
-// ltl2ba / spot ASCII (the historical default).
+// ASCII LTL (the historical default).
 static const LtlSyntax SYNTAX_LTLXBA = {
     .t_true = "true",
     .t_false = "false",
@@ -379,7 +380,7 @@ bool print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
                    /*lower_atoms=*/false);
 }
 
-static void atom_spot_name(Printer *out, const char *name, bool lower) {
+static void atom_quoted_name(Printer *out, const char *name, bool lower) {
   put_char('"', out);
   for (const char *p = name; *p; p++) {
     if (*p == '"' || *p == '\\')
@@ -389,19 +390,19 @@ static void atom_spot_name(Printer *out, const char *name, bool lower) {
   put_char('"', out);
 }
 
-static void atom_spot(Printer *out, const char *name) {
-  atom_spot_name(out, name, false);
+static void atom_quoted(Printer *out, const char *name) {
+  atom_quoted_name(out, name, false);
 }
 
-static void atom_spot_lower(Printer *out, const char *name) {
-  atom_spot_name(out, name, true);
+static void atom_quoted_lower(Printer *out, const char *name) {
+  atom_quoted_name(out, name, true);
 }
 
-bool print_spot_ltl(FILE *out, const Node *root, bool finite,
-                    bool lower_atoms) {
+bool print_quoted_ltl(FILE *out, const Node *root, bool finite,
+                      bool lower_atoms) {
   Printer p = {.file = out};
   LtlSyntax s = SYNTAX_LTL;
-  s.emit_atom = lower_atoms ? atom_spot_lower : atom_spot;
+  s.emit_atom = lower_atoms ? atom_quoted_lower : atom_quoted;
   emit(&p, root, 1, false, finite, &s);
   put_char('\n', &p);
   return !p.failed && !ferror(p.file);

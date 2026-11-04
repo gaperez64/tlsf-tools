@@ -2,10 +2,9 @@
 #define TLSF_PRECHECK_UNREAL_H
 
 /// precheck_unreal.h — fast, sound structural UNREALIZABLE pre-check at the
-/// TLSF level (the analog of ltlsynt's `try_create_direct_strategy`
-/// input-only-`G` shortcut).  It inspects the propositional safety fragment of
-/// the expanded cover and proves unrealizability via a one-step
-/// environment-win BDD test:
+/// TLSF level using an input-only-`G` shortcut. It inspects the propositional
+/// safety fragment of the expanded cover and proves unrealizability via a
+/// one-step environment-win BDD test:
 ///
 ///   EnvWin(i) = ∀o. ( A(i,o) ∧ ¬G(i,o) ) = ¬ ∃o. ¬(A ∧ ¬G)
 ///

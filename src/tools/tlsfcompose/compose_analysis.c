@@ -3,7 +3,7 @@
 // Eligibility gates and X-depth accounting for the direct / W/R / strict-safety
 // safety paths, the GR(1) decomposition (`aig_gr1_parts`), liveness
 // bounding (`bound_liveness`), and cluster-shape classification used to pick a
-// backend / explain an ltlsynt fallback.  No `Aig` construction here — see
+// backend / explain an unresolved fallback.  No `Aig` construction here — see
 // compose_games.c.  Shared types live in compose_internal.h.
 
 #include "compose_internal.h"
@@ -425,7 +425,7 @@ bool wr_has_delayed_global(const Node *n) {
 // build_aig_game encodes bare W/R with release latches compiled at lag=depth;
 // when depth > 0 (from G X conjuncts) this interaction can spuriously
 // over-constrain the game.  Use this to decide whether to trust an UNREALIZABLE
-// result or fall back to ltlsynt.
+// result or fall back to unresolved.
 bool wr_has_bare_wr(const Node *n) {
   switch (n->kind) {
   case NODE_W:
@@ -861,7 +861,7 @@ static Node *bounded_until(Arena *a, Node *p, Node *q, uint32_t k) {
 // strictly stronger obligation than `F x`, so a controller for the bounded game
 // still satisfies the unbounded spec.  Bounding an assumption would be unsound,
 // so an `F` at negative polarity (an antecedent / fairness assumption) is left
-// intact; it then fails `aig_eligible` and the cluster stays on ltlsynt.
+// intact; it then fails `aig_eligible` and the cluster stays on unresolved.
 // This turns `G F g` into `G(g|..|X^k g)` and `G(req -> F grant)` into `G(req
 // -> grant|..|X^k grant)`, both pure-safety games the existing AbsSynthe safety
 // encoder handles.
@@ -917,7 +917,8 @@ Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos) {
   }
   default:
     // AP / constant, or EQUIV left intact — a positive liveness operator
-    // surviving inside it fails eligibility and the cluster stays on ltlsynt.
+    // surviving inside it fails eligibility and the cluster stays on
+    // unresolved.
     return (Node *)n;
   }
 }
@@ -1005,14 +1006,13 @@ ClusterShape cluster_shape(TlsfSpec *spec, const Node *root) {
   return shape;
 }
 
-const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
+const char *cluster_unknown_reason(const ClusterShape *shape, bool finite,
                                    char *buf, size_t buf_sz) {
   if (finite) {
     snprintf(buf, buf_sz, "finite semantics are not OxiDD-eligible");
   } else if (shape->gr_level >= 0 && shape->has_liveness) {
     snprintf(buf, buf_sz,
-             "GR(%d) residual with liveness; no GR backend is available "
-             "without ltlsynt",
+             "GR(%d) residual with liveness; no native encoding for this shape",
              shape->gr_level);
   } else if (shape->has_liveness) {
     snprintf(buf, buf_sz, "liveness temporal operators are not OxiDD-eligible");

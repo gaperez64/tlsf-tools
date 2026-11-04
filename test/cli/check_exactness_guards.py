@@ -65,7 +65,7 @@ elif name == "implicit-input-adaptation":
                       f"{declaration} OUTPUTS {{ p; }} GUARANTEES {{ {formula}; }} }}")
             route = next(csv.DictReader(io.StringIO(output(
                 compose, "--route-stats", source=source)), delimiter="\t"))
-            assert route["uses_oxidd"] == "0" and route["route"] == "ltlsynt", route
+            assert route["uses_oxidd"] == "0" and route["route"] == "unresolved", route
 elif name == "phase-b-support":
     # Local certifiers now reject the CLI fixtures before composition. Exercise
     # Phase B independently with locally solved blocks, including a dependency

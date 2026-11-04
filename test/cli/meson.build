@@ -1,6 +1,8 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
 if python3.found()
+  test('reference_semantics_and_oracle_guard', python3,
+    args: [files('../../tools/golden/test_gates.py')], timeout: 60)
   test('proof_source_references', python3,
     args: [files('check_proof_references.py'), meson.project_source_root()])
   test('bench_matrix_setup_failure', python3,

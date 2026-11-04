@@ -191,7 +191,7 @@ ports, not verification of C or other CSNF template families.
 | `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:834–838` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
-The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1057`.
+The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1063`.
 `normalize_definitions` establishes every reconstructed equation;
 `play_decorate` supplies its Mealy implementation.
 
@@ -228,8 +228,9 @@ tlsfresidual, tlsfcompose, tlsftemplates, and tlsfbenchgraph share it;
 `conversion_prepare`/tlsf2ltl share validation. Differing finite SEMANTICS/TARGET,
 including overrides, are refused explicitly; no finite adaptation is proved.
 Infinite adaptation, including implicit inputs, remains trusted. Drivers use
-effective TARGET: Moore bypasses input-first OxiDD and uses input-delay ltlsynt
-checks; finite residuals use explicit Mealy/Moore ltlfsynt. Controller export
+effective TARGET: Moore bypasses input-first OxiDD; finite and Moore residuals
+return UNKNOWN unless a command is explicitly selected. Moore verdict exports
+use input-delay encoding; finite commands carry explicit Mealy/Moore semantics. Controller export
 refuses finite/Moore contracts it does not implement.
 
 Empty Lean sections are `tt`; absent/dropped C sections must agree, including
@@ -262,7 +263,7 @@ environments; `finite_split_fails` prevents combining arbitrary finite prefixes.
 Printers/escaping/AP names must preserve the AST and weak/strong next. Compiled
 controllers must realize composed letter maps, not order-sensitive simultaneous
 assignments of unexpanded values. Solver/export frontends need the positive
-system objective and identical ownership. In particular, ltlfsynt must implement
+system objective and identical ownership. In particular, a finite-game command must implement
 `FinWin`: some nonempty winning prefix for every play. External solvers, ending
 conventions, printing, and reported trust labels remain unverified.
 
@@ -377,17 +378,17 @@ export TMPDIR="$PWD/build-sprint/tmp" LEAN_NUM_THREADS=1
 export PATH="$HOME/.elan/bin:$PATH"
 export LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0 CARGO_BUILD_JOBS=1
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson setup build-scratch-t/c-tv -Dbuildtype=release -Dresearch_tools=true
+  meson setup build-sprint/release -Dbuildtype=release -Dresearch_tools=true
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson compile -C build-scratch-t/c-tv -j1 dpa_dump tv_inventory
+  meson compile -C build-sprint/release -j1 dpa_dump tv_inventory
 systemd-run --user --scope -q -p MemoryHigh=4G -p MemoryMax=5G -p MemorySwapMax=0 \
-  python3 tools/golden/translation_validate.py --build build-scratch-t/c-tv
+  python3 tools/golden/translation_validate.py --build build-sprint/release
 ```
 
 Transient validator files/TMPDIR/dumps stay in `build-sprint/`; only hashes, verdicts,
 counts, failures, and provenance go to `test/fixtures/golden/translation/`.
-The C-only CI gate recomputes identical dumps. Total golden budget is 4,613,734
-bytes (4.4 MiB). Runs always execute fresh C/Lean checks, retaining scratch
+The C-only CI gate recomputes identical dumps. Total golden budget is 4,400,000
+bytes (4.4 MB). Runs always execute fresh C/Lean checks, retaining scratch
 progress if interrupted. `--set` never publishes fixtures; full audits use the
 unfiltered command without inventory reuse.
 
@@ -585,3 +586,10 @@ theorems; no cache, trace, store-order, or compiler refinement is asserted.
 | `src/lib/dpa_zielonka.c:187` | `void dpa_tree_init(TlsfDpa *c) {` |
 | `src/lib/dpa_zielonka.c:198` | `uint32_t dpa_tree_step(TlsfDpa *c, uint32_t *leaf, const uint64_t *colours) {` |
 | `src/lib/dpa_zielonka.c:231` | `return c->max_priority - priority;` |
+
+Offline verification now uses `tools/golden/regenerate.py --build
+build-sprint/release --translation` to replay the frozen passing receipts
+without changing dates, hashes or claims. Membership expectations are independently
+rederived by direct word semantics. General realizability and historical exact
+normalization equivalence stay frozen where native checks cannot renew them;
+see [the golden guide](../test/fixtures/golden/README.md).

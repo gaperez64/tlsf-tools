@@ -15,7 +15,7 @@ TLSF or equivalent LTL.
 | `mealy2moore` | Delay AIGER strategy outputs for Moore-target specs. |
 
 The optional research layer adds decomposition, certified local controllers,
-exact OxiDD safety/GR(1) solving, and external residual solving. Build these
+exact OxiDD safety/GR(1) solving, and residual export. Build these
 executables with `-Dresearch_tools=true`; they are excluded from stable release
 archives and the stable preprocessing API.
 
@@ -32,7 +32,7 @@ archives and the stable preprocessing API.
 Requires C23 and C++20 compilers, [Meson](https://mesonbuild.com/),
 [Ninja](https://ninja-build.org/), `flex`, `bison`, Cargo (Rust 1.91+), and
 `cbindgen` 0.29.4. Every build includes OxiDD and native GR(1); `research_tools`
-controls only optional executables. The library, tests, and CI do not require Spot.
+controls only optional executables. The library, tests, CI and offline tools use only in-house checks.
 
 ```sh
 meson setup build --buildtype=release
@@ -78,9 +78,8 @@ was removed. AVX-512 and AArch64/NEON are compile-only checks here; these number
 make no performance claim for those targets or for whole applications.
 
 [OxiDD](https://github.com/OxiDD/oxidd) is part of `libtlsf`.
-[ltlsynt](https://spot.lre.epita.fr/ltlsynt.html) and
-[acacia-bonsai](https://github.com/gaperez64/acacia-bonsai) are optional external
-executables for `scripts/solve.sh` and benchmark flows. GR(1) tries general
+Unresolved residuals return UNKNOWN unless the user explicitly selects a command.
+GR(1) tries general
 monitor admission after a default unsupported decline. The
 [Lean reference and bounded validation](proofs/README.md#automaton-translation-validation)
 cover both policies; runtime formulas without a validated golden rely on the
@@ -106,7 +105,7 @@ mealy2moore strategy.aag > strategy.moore.aag  # delay Mealy outputs one step
 # inspect
 tlsfinfo  spec.tlsf                        # all metadata (--semantics, --title, …)
 tlsfinfo  --input-signals|--output-signals spec.tlsf    # declared (bus notation)
-tlsfinfo  --expanded-ins|--expanded-outs   spec.tlsf    # scalar CSV for ltlsynt --ins/--outs
+tlsfinfo  --expanded-ins|--expanded-outs   spec.tlsf    # scalar input/output CSV
 tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 
 # research / diagnostics
@@ -129,7 +128,7 @@ tlsfresidual --split --lowercase spec.tlsf                # lowercase formulas +
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers.aag + clusters + exact OxiDD solves
 tlsfcompose --split --realizability spec.tlsf             # fast REAL/UNREAL/UNKNOWN oracle
 tlsfcompose --merge out/controllers.aag out/cluster.*.aag # recombine external strategies
-scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf  # ltlsynt backend
+scripts/solve.sh --output ctrl.aag spec.tlsf  # native controllers; UNKNOWN if unresolved
 scripts/solve.sh --backend acacia --solver acacia-bonsai \
         --output ctrl.aag spec.tlsf                            # acacia backend
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
@@ -192,63 +191,38 @@ for (tlsf::ast::Tree cluster : ast.clusters()) {
 ```
 
 No `Aig`, OxiDD, internal `Node`, cover, CSNF, or arena type crosses this API.
-The visitor-based [`ast_api` Spot example](examples/tlsf2spot.cpp) builds each
-tree directly as a `spot::formula` and checks it against the string API.
-It requires Spot and is built by hand, outside Meson and CI; see the build
-command in the file's header.
-
 ## Synthesis and solver pipelines
 
 `tlsfcompose` certifies local controllers, solves eligible residuals in process,
-and writes external clusters. For file-based controller export:
+and writes remaining clusters. For file-based controller export:
 
 ```sh
 mkdir out && tlsfcompose --split --output-dir out/ spec.tlsf
 sh out/compose.sh
-# Infinite-word Mealy targets: use the exact interface expressions in compose.sh
-ltlsynt --ins=… --outs=… -F out/cluster.0.spot
-# Or automate solving and merging:
-scripts/solve.sh --solver ltlsynt --output ctrl.aag spec.tlsf
+scripts/solve.sh --output ctrl.aag spec.tlsf
 ```
 
 `controllers.aag` contains the certified part; trusted exact/UNDER routes can
 write `cluster.k.aag`, and trusted OVER routes can stop on UNREAL. Remaining
 `cluster.k.ltl` files carry `c ins=`/`c outs=` interface comments. Only those
 exact metadata lines are comments: `c -> p` is a valid formula.
-`tlsfcompose --merge` combines local and external AIGER strategies.
+`tlsfcompose --merge` combines compatible AIGER strategies.
 
-Spot files quote atoms such as `Grant`; anchored interface regexes preserve
-case and match whole names. Infinite Moore checks use `cluster.k.mealy` with
-delayed environment inputs. The driver defaults to `ltlsynt` for infinite words
-and `ltlfsynt` for finite words. Select an executable with `--solver /path/to/solver`
-or `TLSFCOMPOSE_SOLVER`; the CLI wins, and an unset/empty variable uses the default.
-The value is one executable name or path (spaces allowed), recorded in
-`compose.sh`. It must accept `--ins`, `--outs`, `-F`, and `--realizability`, plus
-`--semantics=Mealy|Moore` for finite words. Use a wrapper to adapt other interfaces
-or add arguments.
+Generated drivers return UNKNOWN for unresolved residuals by default. An
+explicit `--solver /path/to/command` or `TLSFCOMPOSE_SOLVER` selects a single
+executable (CLI takes precedence). It must implement `--ins`, `--outs`, `-F`,
+`--realizability`, and finite `--semantics=Mealy|Moore`; use a wrapper to adapt
+another protocol. Quoted `.formula` files and anchored interface expressions
+preserve AP identity. Infinite Moore verdict exports use `.mealy` with delayed
+inputs. No external synthesizer is discovered or selected automatically.
 
-`scripts/solve.sh` supports only infinite-word Mealy controller export. Its
-`ltlsynt` backend passes `--lowercase` so formulas, interfaces, and AIGER symbols
-agree; the `acacia` backend uses the same convention and calls acacia-bonsai with
-`-F/-i/-o/-s`.
-
-To use another Spot/Strix-style LTL synthesizer, normalize and export the scalar interface:
-
-```sh
-tlsfnorm --passes split,nnf,boolean spec.tlsf > spec.norm.tlsf
-lc() { tr 'A-Z' 'a-z'; }  # ltlxba lowercases atoms
-ins=$(tlsfinfo --expanded-ins spec.norm.tlsf | lc)
-outs=$(tlsfinfo --expanded-outs spec.norm.tlsf | lc)
-tlsf2ltl spec.norm.tlsf > spec.norm.ltl
-ltlsynt --ins="$ins" --outs="$outs" -F spec.norm.ltl
-```
-
-Use `-F` for large formulas that exceed `-f` argument limits. The historical
-SyFCo/classic-ltl2ba `ltlxba` dialect lowercases atoms; faithful `ltl` preserves
-case, which Spot accepts. `tlsfcompose` and `tlsfresidual` preserve case unless
-`--lowercase` is set; all lowercase exports reject collisions. TLSF permits
-`'` and `@` in identifiers, but ltl2ba/ltl3ba silently truncate at these characters.
-Every `ltlxba` export therefore rejects them; use `--format ltl`.
+`scripts/solve.sh` exports and merges infinite Mealy controllers. Native
+presolving is used first; unresolved clusters return UNKNOWN unless an explicit
+command is selected. It refuses finite and Moore controller export. Its command
+backend and optional acacia adapter lowercase formulas/interfaces and reject
+collisions. Faithful `--format ltl` exports preserve case and identifiers such
+as `Grant`, `@` and names containing apostrophes; classic `ltlxba` exports
+reject identifiers they cannot represent.
 
 The research reports provide corpus shapes, normalization comparisons, and
 wrapper performance:
@@ -326,7 +300,7 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
   relaxes it to the standard implication.
 - Finite-word (`Finite,*`): emits `ltlxba-fin`: strong-next prints `X[!]`,
   and `W` plus any internally derived strong release are rewritten with
-  LTLf-valid identities so spot's `ltlfsynt` accepts them.
+  LTLf-valid identities.
 - **Mealy/Moore**: from `SEMANTICS`; for infinite words, a `TARGET` mismatch
   is converted (Moore→Mealy delays all environment inputs `i↦X i`, including
   undeclared atoms; Mealy→Moore delays outputs `o↦X o`). Under finite-word
@@ -334,20 +308,18 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
   agree. The adapting CLIs and decomposition API refuse finite mismatches;
   `tlsf_convert` refuses all finite semantics.
 
-Generated `compose.sh` drivers default to `ltlfsynt --semantics=Mealy|Moore`
-for finite residuals. Infinite Moore targets bypass OxiDD and use the standard
-input-delay encoding for external realizability checks. `scripts/solve.sh`, which exports
-and merges controllers, supports only infinite-word Mealy targets and refuses
-finite games and Moore targets.
+Generated drivers return UNKNOWN for unsupported native residual games.
+Finite and Moore controller export remains unsupported by `scripts/solve.sh`.
 
-Output is minimally parenthesised by the spot/ltl2ba precedence
+Output is minimally parenthesised by the classic ASCII LTL precedence
 (`! X F G` > `U R W` > `&&` > `||` > `-> <->`). `--parenthesize` fully
 parenthesises; `--format` picks the spelling (`ltlxba`/`ltl`/`latex`).
 Equivalence-preserving rewrites are exposed as flags
 (`--weak-simplify`=`-s0`, `--strong-simplify`=`-s1`, `--nnf`,
 `--no-{weak-until,release,strong-release,finally,globally}`,
 `--{push,pull}-{globally,finally,next}-{in,out}`);
-The rewrites preserve equivalence (`ltlfilt --equivalent-to`).
+The rewrites have native regression checks and a Lean reference; independent
+direct-semantics sampling checks the committed normalized objectives.
 
 `--fair-environment` adds `G F i` and `G F !i` assumptions for every Boolean
 environment input, requiring each input to visit both values infinitely often.
@@ -388,3 +360,9 @@ bench/bench.sh [--baseline|--check]
 CI (`.github/workflows/ci.yml`) checks formatting, GCC/Clang builds, tests,
 Valgrind leaks, 75% line coverage, and `bench.sh --check` wall/RSS regressions.
 Licensed under [MIT](LICENSE).
+
+Offline golden verification and membership regeneration use the independent
+direct-semantics evaluator, seeded in-house formulas, native OxiDD/certificates,
+and kernel-checked Lean translation validation. Historical verdicts that cannot
+be independently renewed remain frozen, with their original provenance. See
+[the golden guide](test/fixtures/golden/README.md) for serial commands and scope.

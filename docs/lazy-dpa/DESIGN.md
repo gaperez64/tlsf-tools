@@ -2,15 +2,15 @@
 
 The bounded lazy C23 API constructs ground TLSF AST → Boolean Π₂/Σ₂ components
 → deterministic Emerson–Lei automaton (DELA) → Zielonka tree → DPA. Eager
-translation is BFS over that API; Acacia rebuilds symbolic labels in `bddx`
-and reuses splitting/solving. A complete Δ₂ normalizer is conditional on needed
+translation is BFS over that API; a consumer can rebuild symbolic labels in its
+own Boolean representation and reuse splitting/solving. A complete Δ₂ normalizer is conditional on needed
 inventory coverage. There is one constructor, no alphabet enumeration, Java
-runtime, new dependency, or Spot in libtlsf.
+runtime, new dependency, or external automata in libtlsf.
 
 The language proofs and C boundary are in [proofs/README.md](../../proofs/README.md#automaton-translation-validation).
 This design also specifies external Acacia integration and original comparison
 gates; it does not claim all those gates ran. Repository tests use
-frozen goldens/native checks without linking or running Spot. Spot import and
+frozen goldens/native checks using only in-house tooling. External import and
 comparison details below belong to external consumers/offline validation.
 
 ## Conservative component: exact rules and proof gate
@@ -172,7 +172,7 @@ export `P-p`. Then recurring maximum is odd iff recurring minimum was even.
 Empty marks get ordinary priorities. Deferred tree resets get 0 below every
 ordinary priority and require a finite-reset proof. Missing valuations use
 one lazy rejecting sink with true/priority-0 loop; retain a distinct false
-initial DELA state for count comparisons. Check overflow and Spot acceptance
+initial DELA state for count comparisons. Check overflow and consumer acceptance
 width; never truncate.
 
 The context owns storage/tables/DAGs/rows/IDs and BDD references; release handles
@@ -184,25 +184,24 @@ Reuse `OxiddSolveOptions` deadline/cancel conventions (`T/include/tlsf/oxidd_opt
 Creation shares expansion budgets. Poll callbacks/monotonic deadlines around
 BDD calls and in normalization/model/hash/expansion loops; never pass invalid
 handles. FFI calls are not interruptible, and node/cache caps do not bound RSS:
-retain process limits. Importer BFS/memo/Spot graph also need accounting. Any
+retain process limits. Importer BFS/memo/consumer graph also need accounting. Any
 failure returns UNKNOWN; solving requires an empty BFS queue, never a prefix graph.
 
-## Acacia import and eager arm
+## Consumer import and eager arm
 
 Retain TLSF conversion AST alongside text/metadata (`A/src/tlsf_frontend.cc:40`).
 Build its positive effective-Mealy objective once; keep original target for
 controller conversion. Text/HOA-only input lacking the AST initially declines.
 The library never swaps players or adapts timing.
 
-`A/src/solver/parity/tlsf_dpa.{hh,cc}` owns RAII context, BFS, and a label memo
-per `(context, Spot dictionary, AP mapping)`. Register all APs, including unused,
-and map indices by name to returned Spot variable IDs. Map constants to
-`bddfalse`/`bddtrue`, decisions to
-`bdd_ite(bdd_ithvar(ap_to_buddy[index]), memo[high], memo[low])`. Iterative
-postorder memo entries own `bddx` references across all rows, analogous to
-`T/include/tlsf/ast_api.hpp:89`'s Visitor. Bridge visits are O(distinct exported
-nodes) plus BuDDy ITE cost; different orders work. No DNF/cubes/text/OxiDD
-pointers cross. Destroy memo before dictionary; graph BDDs outlive the context.
+A consumer owns the RAII context, BFS, and a label memo keyed by context and
+AP mapping. Preserve every declared AP, including unused declarations, and map
+indices by name. Constants map to Boolean constants; a decision selects the
+high or low child according to that AP. Iterative postorder memo entries own
+the consumer's Boolean handles across all rows, analogous to
+`T/include/tlsf/ast_api.hpp:89`'s Visitor. Bridge work scales with distinct
+exported nodes plus Boolean-operation cost. No DNF/cubes/text/OxiDD pointers
+cross this boundary. Destroy the memo before the consumer's Boolean manager.
 
 Opt-in `both:parity:tlsf` needs `parity_arm.cc`, portfolio naming/parsing/help,
 and a narrow already-positive-DPA entry in `solver/parity/route.{hh,cc}`.
@@ -220,8 +219,9 @@ may double budgets without an incremental solver.
 ## Validation gates
 
 Finish BFS and check one initial state, guard partition, priorities, stable IDs,
-and repeatable rows. Original offline C++/Spot tests rebuild the exact AST/label bridge and use
-`spot::are_equivalent`, retaining a counterexample lasso. Check both acceptance
+and repeatable rows. Kernel-checked Lean translation validation checks completed
+automata against formula semantics, while an independent direct word evaluator
+reproduces memberships. Check both acceptance
 orientations/negations, constants, unused APs, delayed obligations, temporal
 duals/nesting, shared complements/biconditionals, GF/FG. Suspension/local-tree
 optimizations add gates. Current repository replacements are documented in
@@ -229,7 +229,7 @@ optimizations add gates. Current repository replacements are documented in
 
 First-slice cases include `GF(a & X b)`, `FG(!a | X !b)`, `G(req → X grant)`,
 `F grant`, constants, and overlapping/delayed accepting/rejecting lassos.
-For every source/target/priority, compare OR-ed C guards against imported bddx
+For every source/target/priority, compare OR-ed C guards against imported Boolean functions
 using explicit state maps and named-AP valuations, with absent guards false.
 Exhaust small alphabets under permuted/gapped AP maps including unused APs;
 a separate evaluator walks label DAGs. Coverage/determinism/language equality
@@ -239,10 +239,10 @@ Objective failure tests must independently show false objectives for
 `GUARANTEES { false; }` and `GUARANTEES { p; !p; }`, then fail entry-array growth,
 conjunction, and arena slabs while permitting later allocations. Require failure,
 no text/root/verdict, clean destruction, fail-each-allocation sweeps, and a
-healthy follow-up. Comparing only returned AST to Spot cannot catch corrupt
+healthy follow-up. Comparing only a returned AST to a reference cannot catch corrupt
 objective assembly. Cover empty and ordinary/strict sections.
 
-Layer checks compare unfolding/steps/Δ₂ with Spot and small component/DELA
+Layer checks compare unfolding/steps/Δ₂ with the Lean reference and small component/DELA
 DAGs, alpha/padding, and Zielonka paths with Owl. Test-only SCC computations
 may check blocking certificates; production has no SCC exploration. Force
 caps/cancel/deadline/allocation failure at creation, mid-expansion, after rows
@@ -302,9 +302,9 @@ if needed, schedule it after the first eager experiment.
 | Stage | Production lines | Test/harness lines | Closing test |
 | --- | ---: | ---: | --- |
 | 0. Repair tlsf-tools objective allocation/error propagation, including arena, section assembly, conversion and printing callers. | 150–300 | 120–220 | Deterministic one-shot failures and allocation sweep: no successful text/AST/verdict on failure; healthy objectives independently checked. Prerequisite for every row below. |
-| 1. Strengthened complete slice: retain AST; IDs/budgets; OxiDD classes/symbolic derivatives; safety/co-safety plus finite-window GF recurrence and complement; shared one-set Zielonka path; bridge, BFS and minimal opt-in eager arm. | 1,500–2,200 | 400–650 | Restricted breakpoint proof reviewed; `GF(a & X b)`/complement and the validation examples: full Spot equivalence, exact `(target,priority)` bridge relation under permuted AP maps, verified controller, and declines after publication and during import. |
-| 2. Complete Boolean Π₂/Σ₂ product; completed components; fixed global acceptance/tree; generic maximal-model tree builder and ordinary one-sibling path update. | 1,400–2,200 | 350–600 | Reviewed L(Bχ)=L(χ) proof for the exact variant, including X elision, finite remainders and no support resets (`prove-breakpoint-x-elision`); mixed/shared/complement formulas, empty marks, full Spot equivalence and Owl layer checks. No general Π₂ admission before the proof gate. |
-| 3. Hardening and first eager admission experiment, immediately after Stage 2: finish accounting/diagnostics and arm plumbing; fault paths and Spot width limits; paired corpus/controller measurements. | 300–600 | 250–450 | All 69 attempted with support/decline/coverage visible; no completed language/verdict mismatch or lost incumbent solve; paired construction/import/split/solve time and memory. Retain opt-in unless owner gates pass. |
+| 1. Strengthened complete slice: retain AST; IDs/budgets; OxiDD classes/symbolic derivatives; safety/co-safety plus finite-window GF recurrence and complement; shared one-set Zielonka path; bridge, BFS and minimal opt-in eager arm. | 1,500–2,200 | 400–650 | Restricted breakpoint proof reviewed; `GF(a & X b)`/complement and the validation examples: kernel-checked translation validation, exact `(target,priority)` bridge relation under permuted AP maps, verified controller, and declines after publication and during import. |
+| 2. Complete Boolean Π₂/Σ₂ product; completed components; fixed global acceptance/tree; generic maximal-model tree builder and ordinary one-sibling path update. | 1,400–2,200 | 350–600 | Reviewed L(Bχ)=L(χ) proof for the exact variant, including X elision, finite remainders and no support resets (`prove-breakpoint-x-elision`); mixed/shared/complement formulas, empty marks, kernel-checked translation validation and Owl layer checks. No general Π₂ admission before the proof gate. |
+| 3. Hardening and first eager admission experiment, immediately after Stage 2: finish accounting/diagnostics and arm plumbing; fault paths and consumer width limits; paired corpus/controller measurements. | 300–600 | 250–450 | All 69 attempted with support/decline/coverage visible; no completed language/verdict mismatch or lost incumbent solve; paired construction/import/split/solve time and memory. Retain opt-in unless owner gates pass. |
 | 4. Conditional: one complete Δ₂ normalizer, only if the inventory identifies needed unsupported targets. | 1,000–1,800 | 300–500 | Nested alternation and random LTL: normalization equivalence and composed DPA equivalence; all choices/side conditions included; blowup declines. Repeat admission measurements for the added coverage. |
 | 5. Deferred: grouping/pruning, suspension, round robin, local alpha/padding, local trees and stuttering; only reductions justified by measurements. | 1,400–2,400 | 400–700 | Separate reviewed proofs under `prove-component-support-blocking`, `prove-dela-suspension-round-robin` and `prove-zielonka-stutter-and-resets` before enabling affected reductions; full language suite and structural-input count diagnostics. Zero lookahead stays fixed. |
 

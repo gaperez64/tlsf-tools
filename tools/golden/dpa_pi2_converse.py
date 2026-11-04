@@ -1,11 +1,8 @@
-"""Bounded research search for the general Pi_2 converse (issue #80).
+"""Bounded Pi_2 corpus search using kernel-checked translation validation.
 
-Run manually; this does not enable general admission or replace a proof:
-  python3 tools/golden/dpa_pi2_converse.py /path/to/dpa_equivalence --output /tmp/pi2
-TOOLS ONLY: REQUIRES Spot 2.16. Build the historical executable first with
-  python3 tools/golden/build_legacy.py build
-Use build/golden-legacy as the executable. It compares both inclusions
-with Spot, writes a witness on mismatch, and uses allow_unproved explicitly.
+Each admitted completed automaton is checked by the Lean validator; unsupported
+constructions and deadlines remain unknown. This does not prove universal C
+refinement or promote admission. All artifacts must be below build-sprint.
 """
 import argparse
 import hashlib
@@ -13,9 +10,6 @@ import itertools
 import json
 from pathlib import Path
 import random
-import resource
-import subprocess
-import time
 
 
 def formulas(max_size, random_count, seed):
@@ -86,70 +80,46 @@ def formulas(max_size, random_count, seed):
 
 
 def main():
+    from reference import parse, prefix, atoms
+    from translation_validate import ROOT, SCRATCH, build_validator, validate_one, request
+    import os
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("executable", type=Path)
+    parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-size", type=int, default=6, choices=range(1, 7))
     parser.add_argument("--random-count", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=80002931)
-    parser.add_argument("--timeout", type=float, default=3)
+    parser.add_argument("--timeout", type=float, default=17)
     args = parser.parse_args()
     if args.random_count < 0 or args.timeout <= 0:
         parser.error("random-count must be nonnegative and timeout must be positive")
-    exe = args.executable.resolve(strict=True)
     out = args.output.resolve()
+    assert out.is_relative_to(ROOT / "build-sprint"), "scratch must be under build-sprint"
     out.mkdir(parents=True, exist_ok=True)
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    os.environ.update(LEAN_NUM_THREADS="1", LEAN_STACK_SIZE_KB="2048", LEAN_MAIN_USE_THREAD="0",
+                      TMPDIR=str(ROOT / "build-sprint/tmp"), CARGO_BUILD_JOBS="1")
+    validator, version, _ = build_validator()
     small, deep = formulas(args.max_size, args.random_count, args.seed)
     corpus = list(dict.fromkeys(small + deep))
     data = "\n".join(corpus) + "\n"
     (out / "formulas.ltl").write_text(data)
-    result = {"small_and_targeted": len(small), "deep": len(deep),
-              "total": len(corpus), "equivalent": 0, "declined": [],
-              "timeout": [], "failures": [], "seed": args.seed,
-              "corpus_sha256": hashlib.sha256(data.encode()).hexdigest()}
-    start = time.monotonic()
-
-    def save():
-        result["elapsed_s"] = round(time.monotonic() - start, 3)
-        (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
-
-    def check(fs):
-        batch = out / "current-batch.ltl"
-        batch.write_text("\n".join(fs) + "\n")
-        try:
-            run = subprocess.run([str(exe), str(batch), "--allow-unproved"],
-                                 cwd=out, text=True, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE,
-                                 timeout=max(args.timeout, min(30, args.timeout * len(fs))))
-        except subprocess.TimeoutExpired:
-            if len(fs) == 1:
-                result["timeout"].extend(fs)
-                return
+    result = {"validated": 0, "unknown": [], "failures": [], "seed": args.seed,
+              "lean": version, "corpus_sha256": hashlib.sha256(data.encode()).hexdigest()}
+    for formula in corpus:
+        tree = parse(formula)
+        text = request("parity", "general", sorted(atoms(tree)), prefix(tree))
+        status, reason, digest = validate_one(args.build.resolve(), validator, text, args.timeout)
+        if status == "pass":
+            result["validated"] += 1
+        elif status in ("not_admitted", "timeout"):
+            result["unknown"].append({"formula": formula, "reason": reason})
         else:
-            if run.returncode == 0:
-                result["equivalent"] += len(fs)
-                return
-            if len(fs) == 1:
-                if run.returncode == 77:
-                    result["declined"].extend(fs)
-                    return
-                result["failures"].append({"formula": fs[0], "returncode": run.returncode,
-                                           "stderr": run.stderr})
-                save()
-                raise RuntimeError(f"equivalence harness failed: {fs[0]}\n{run.stderr}")
-        # Isolate bounded skips and mismatches without hiding later formulas.
-        middle = len(fs) // 2
-        check(fs[:middle])
-        check(fs[middle:])
-
-    for i in range(0, len(corpus), 128):
-        check(corpus[i:i + 128])
-        save()
-        if i % 1024 == 0:
-            print(f"{result['equivalent']}/{len(corpus)} equivalent", flush=True)
-    print(json.dumps(result, indent=2))
-    return 2 if result["declined"] or result["timeout"] else 0
+            result["failures"].append({"formula": formula, "reason": reason})
+        (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(json.dumps({k: len(v) if isinstance(v, list) else v for k, v in result.items()}, indent=2))
+    return 1 if result["failures"] else 2 if result["unknown"] else 0
 
 
 if __name__ == "__main__":

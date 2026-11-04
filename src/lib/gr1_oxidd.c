@@ -2159,8 +2159,8 @@ static Aig *solve_gr1_oxidd_impl(Aig *game, int *unreal,
 
   // Goal-counter next-functions and strategy move predicate both use
   // "effective_curr[j]": when all curr bits are 0 (initial state, all reset to
-  // 0), treat it as curr[0]=1.  This avoids the AIGER reset=1 latch line that
-  // Spot's parser does not accept.
+  // 0), treat it as curr[0]=1. This keeps every counter latch reset at zero
+  // for compatibility with ASCII consumers.
   //
   //   any_curr = ⋃_j curr[j]
   //   effective_curr[j] = curr[j]       (j > 0)

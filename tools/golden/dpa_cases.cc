@@ -1,4 +1,5 @@
-// Tools-only corpus enumerator. The reference oracle requires Spot 2.16.
+// Tools-only corpus enumerator. Use the independent evaluator for membership
+// checks.
 #include <fstream>
 #include <iostream>
 #include <string>

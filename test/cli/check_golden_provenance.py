@@ -8,6 +8,23 @@ import re
 import sys
 
 root = Path(sys.argv[1]) / "test/fixtures/golden"
+retirement = json.loads((root.parents[2] / "tools/analysis/oracle-retirement.json").read_text())
+assert set(retirement["source_rebindings"]) == {
+    "include/tlsf/aiger.h", "include/tlsf/safety_oxidd.h",
+    "src/lib/gr1_oxidd.c", "src/lib/precheck_unreal.h",
+    "src/lib/print_ltlxba.c", "src/lib/print_ltlxba.h", "src/lib/rewrite.h",
+    "test/cli/check_golden_provenance.py",
+}
+
+
+def retirement_digest(name, historical):
+    binding = retirement["source_rebindings"].get(name)
+    if binding:
+        assert historical == binding["previous_sha256"], (name, "wrong historical source binding")
+        return binding["current_sha256"]
+    return historical
+
+
 manifest = json.loads((root / "provenance.json").read_text())
 for path in root.glob("*.json"):
     if path.name in ("tool-versions.json", "skipped.json", "provenance.json"):
@@ -166,7 +183,7 @@ if translation.exists():
         if update:
             assert update["previous_sha256"] == digest
             digest = update["current_sha256"]
-        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == retirement_digest(name, digest), name
     for name, digest in provenance["corpus_sources"].items():
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest
     for failure in report["failures"]:
@@ -213,7 +230,7 @@ if translation.exists():
                 assert binding["current_sha256"] != binding["previous_sha256"]
         for name, digest in receipt["source_sha256"].items():
             digest = test_rebindings.get("sources", {}).get(name, {}).get("current_sha256", digest)
-            assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+            assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == retirement_digest(name, digest), name
         for name, binding in update["sources"].items():
             assert receipt["source_sha256"][name] == binding["current_sha256"]
         cases = dag_report["cases"]
@@ -236,5 +253,5 @@ if translation.exists():
             else:
                 assert c["dump_sha256"] is None and c["request"] not in hashes
 size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
-assert size <= 4_613_734, ("golden directory exceeds 4.4 MiB", size)
-print(f"golden provenance checked; {size} bytes <= 4613734-byte cap")
+assert size <= 4_400_000, ("golden directory exceeds 4.4 MB", size)
+print(f"golden provenance checked; {size} bytes <= 4400000-byte cap")

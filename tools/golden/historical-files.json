@@ -1,0 +1,66 @@
+{
+  "docs/lazy-dpa/DEFAULT-PROTECTION.md": {
+    "reason": "Frozen historical measurement report, explicitly marked retired.",
+    "sha256": "5da61e6337907ecfa2242e823ca1deb98a439736891a293be604e570b478a6b0"
+  },
+  "docs/lazy-dpa/TASK-J-SEARCH.json": {
+    "reason": "Frozen bounded-search measurement provenance.",
+    "sha256": "59077ad48f5b779a6729b4f429898dd74b4f1d9c6212342b59e4b0a740aeaaf9"
+  },
+  "test/fixtures/cases/precheck_input_only.tlsf": {
+    "reason": "Frozen corpus description; source hashes bound by historical Lean receipt.",
+    "sha256": "0ae7a2441d84f33427aa683ebec1320a9471d96b2509dd809be99b04c49e0106"
+  },
+  "test/fixtures/cases/precheck_outputs_rescue.tlsf": {
+    "reason": "Frozen corpus description; source hashes bound by historical Lean receipt.",
+    "sha256": "ab8061b6d090190fb0457d021b3a3c3dbe705d3aeb144eda159341802bbe08bf"
+  },
+  "test/fixtures/cases/precheck_temporal_assume_bail.tlsf": {
+    "reason": "Frozen corpus description; source hashes bound by historical Lean receipt.",
+    "sha256": "f089155528c00e94b11313b85b0fb4a036f0e2ee521b77d26fe29ecd1571a2e3"
+  },
+  "test/fixtures/cases/upper_atoms.tlsf": {
+    "reason": "Frozen corpus description; source hashes bound by historical Lean receipt.",
+    "sha256": "17b63146cbfcbccb77b1e26c7d219a66760f4c58d010703cf2e3bd17f7e9c4eb"
+  },
+  "test/fixtures/cases/wr_impl_bare_w_antecedent.tlsf": {
+    "reason": "Frozen corpus description; source hashes bound by historical Lean receipt.",
+    "sha256": "ccac9838895669e670cfe9eda6ad1a440d78cda9ba272bb0e0231612e7f33522"
+  },
+  "test/fixtures/golden/README.md": {
+    "reason": "Documentation of frozen historical evidence and current verify-only paths.",
+    "sha256": "eb4ec20a564049d2723095153ba4214eecbdd977f353102e977de6ef422a4337"
+  },
+  "test/fixtures/golden/compose-finite.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "a2c54bf0ec13187b525e4b39612922d73a0b926b70331f1b653c24ead3612277"
+  },
+  "test/fixtures/golden/compose-implicit.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "1fe86d9b4063747409564a6fa8877229ac55cae24d97852d6e076c1b7b4a870a"
+  },
+  "test/fixtures/golden/compose-moore.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "e907782e278cb4f652f898dac63257bdf40e60f3147086127f3055d729ce52a5"
+  },
+  "test/fixtures/golden/provenance.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "92f6be7e02fabe92e092137a5f9ec5e26f677465d36fb452a98cf1f8b31eefb1"
+  },
+  "test/fixtures/golden/review4-comment.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "109a5de48e5f151ae250e3a71e61b0940a2943502c5f1763021f02680f230c27"
+  },
+  "test/fixtures/golden/review4-signals.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "591eaa8c32aa92a71d0f958fbaeef1faa69a794c93e527e3e126e753b879fb9b"
+  },
+  "test/fixtures/golden/tool-versions.json": {
+    "reason": "Frozen historical evidence; never executed or renewed.",
+    "sha256": "cd57574a1d8eca2fe7b01ff8006d868f705ee3a2d6824b5593281daeb59083a5"
+  },
+  "tools/analysis/nospot-phase2.json": {
+    "reason": "Frozen phase-two audit; historical runtime provenance.",
+    "sha256": "ce6e48f04cff7f271e442f87be50ede111de35b57038e5441469a6c881bae4ae"
+  }
+}

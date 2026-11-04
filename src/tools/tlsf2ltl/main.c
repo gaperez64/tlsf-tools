@@ -281,8 +281,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   // Preserve the historical SyFCo/classic-ltl2ba convention of lowercasing
-  // ltlxba atoms.  Spot accepts case-preserving TLSF identifiers; callers that
-  // need that fidelity should select the `ltl` dialect instead.
+  // ltlxba atoms.  The quoted dialect accepts case-preserving TLSF identifiers;
+  // callers that need that fidelity should select the `ltl` dialect instead.
   bool ok = print_ltl(out, root, fmt, full_parens, finite,
                       /*lower_atoms=*/fmt == LTL_FMT_LTLXBA);
   if ((output_file ? fclose(out) : fflush(out)) != 0)

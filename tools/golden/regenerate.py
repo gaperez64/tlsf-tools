@@ -1,167 +1,88 @@
 #!/usr/bin/env python3
-"""TOOLS ONLY: REQUIRES Spot 2.16; never imported by tests, Meson, or CI.
+"""Reproduce memberships and verify frozen recordings using in-house checks.
 
-Run from the repository root, with no build/test running concurrently:
-  systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-    python3 tools/golden/regenerate.py --build build --spot ~/spot-2.16-install \
-      --bindings-site build/reference/spot-python --oracle-root build/reference/prototype
-
-Run prepare_legacy.py first for the retired references (see the golden README).
-Every reference call has a deadline. Mandatory confirmations fail on timeouts;
-other timeouts are recorded in skipped.json. Review changes before committing.
+Never overwrites historical data or provenance. Scratch/output must be below
+build-sprint. Use --translation to also replay every kernel-checked receipt.
 """
-
 import argparse
+from collections import Counter
 import hashlib
 import json
 import os
 from pathlib import Path
-import random
 import runpy
 import subprocess
 import sys
-import tempfile
-import types
 
-from confirm import Confirmation, INDEPENDENT
-from provenance import describe, required
+from reference import atoms, membership, parse, parse_prefix, prefix, random_formulas, sample_equivalent
 
 ROOT = Path(__file__).resolve().parents[2]
 DEST = ROOT / "test/fixtures/golden"
-SKIPPED = []
-OPTIONS = None
+NAMES = ["unused_in", "req", "a", "unused_out", "c", "grant", "b"]
 
 
-def run(argv, **kwargs):
-    try:
-        return subprocess.run(list(map(str, argv)), text=True, capture_output=True,
-                              timeout=kwargs.pop("timeout", 60), **kwargs)
-    except subprocess.CalledProcessError as error:
-        print(error.stderr, file=sys.stderr)
-        raise
+def run(args, **kwargs):
+    return subprocess.run(list(map(str, args)), capture_output=True, text=True,
+                          timeout=kwargs.pop("timeout", 1800), **kwargs)
 
 
-def reference(formula, names, words):
-    with tempfile.NamedTemporaryFile(mode="w") as stream:
-        stream.write("\n".join(" ".join(map(str, prefix)) + ";" +
-                               " ".join(map(str, loop)) for prefix, loop in words) + "\n")
-        stream.flush()
-        result = run([OPTIONS.reference, formula, ",".join(names), stream.name])
+def fingerprints():
+    return {str(p.relative_to(DEST)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in DEST.rglob("*") if p.is_file()}
+
+
+def reproduce_dpa(output):
+    directory = DEST / "dpa"
+    words = [([int(x) for x in p.split()], [int(x) for x in q.split()])
+             for p, q in (line.split(";") for line in (directory / "words.txt").read_text().splitlines())]
+    lines = []
+    for line in (directory / "membership.tsv").read_text().splitlines():
+        formula, tree, expected = line.split("\t")
+        actual = membership(formula, NAMES, words)
+        assert actual == expected, (formula, "membership disagreement")
+        assert membership(parse_prefix(tree), NAMES, words) == actual, (formula, "AST disagreement")
+        # Retain the historical AST serialization. Its parser origin is frozen;
+        # only the membership column is rederived here.
+        lines.append("\t".join((formula, tree, actual)))
+    data = "\n".join(lines) + "\n"
+    assert data.encode() == (directory / "membership.tsv").read_bytes()
+    (output / "membership.tsv").write_text(data)
+    print(f"dpa: {len(lines)} x {len(words)} memberships reproduced byte-identically", flush=True)
+
+
+def random_corpus(build, output):
+    directory = output / "random"
+    directory.mkdir(exist_ok=True)
+    formulas = random_formulas()
+    import random
+    rng = random.Random(0x97D0A)
+    words = [([], [bits]) for bits in range(128)] + [
+        ([rng.randrange(128) for _ in range(rng.randrange(5))],
+         [rng.randrange(128) for _ in range(rng.randrange(1, 6))]) for _ in range(64)]
+    (directory / "words.txt").write_text("\n".join(" ".join(map(str, p)) + ";" +
+        " ".join(map(str, q)) for p, q in words) + "\n")
+    (directory / "membership.tsv").write_text("\n".join("\t".join((f, prefix(parse(f)),
+        membership(f, NAMES, words))) for f in formulas) + "\n")
+    (directory / "formulas.ltl").write_text("\n".join(formulas) + "\n")
+    result = run([build / "test/unit/dpa_equivalence", directory / "formulas.ltl"],
+                 env=dict(os.environ, DPA_REFERENCE_DIR=str(directory)))
+    (output / "random.log").write_text(result.stdout + result.stderr)
     assert result.returncode == 0, result.stderr
-    tree, membership = result.stdout.splitlines()
-    assert len(membership) == len(words)
-    return tree, membership
+    print(f"random: {len(formulas)} seeded in-house formulas, {len(words)} lassos each; native DPA agrees", flush=True)
 
 
-class Recorder:
-    def __init__(self, name):
-        self.name, self.records = name, []
-        self.confirmation = Confirmation(name, OPTIONS) if name in INDEPENDENT else None
-        self.pending = []
-        self.validations = set()
-
-    def source(self, path):
-        self.confirm_pending()
-        if self.confirmation:
-            target = self.confirmation.directory / Path(path).name
-            target.write_bytes(Path(path).read_bytes())
-            self.confirmation.current_source = target
-
-    def confirm_pending(self):
-        if self.confirmation and self.pending:
-            self.confirmation.confirm(self.pending)
-            self.pending = []
-
-    def enabled(self, label):
-        return True
-
-    def timeout(self, label):
-        if self.confirmation:
-            raise RuntimeError(f"{self.name}: timeout cannot be independently confirmed: {label}")
-        SKIPPED.append({"suite": self.name, "case": label, "reason": "60s native generation timeout"})
-        print(f"skip {self.name}: {label}: 60s timeout", flush=True)
-
-    def check(self, label, value):
-        if self.confirmation:
-            if label in ("status", "lift"):
-                self.confirm_pending()
-            self.pending.append([label, value])
-        if self.name.startswith("norm-") and label == "normalized":
-            original = next(v for key, v in self.records if key == "original")
-            result = run([OPTIONS.spot / "bin/ltlfilt", "--equivalent-to=" + original, "-f", value], check=True)
-            assert result.stdout.strip(), (self.name, result.stderr)
-            self.validations.add("equivalence")
-        if label == "ast-export":
-            lines = value.splitlines()
-            for index, line in enumerate(lines):
-                if line.startswith("string: "):
-                    formula = lines[index - 1].split(": ", 1)[1]
-                    result = run([OPTIONS.spot / "bin/ltlfilt", "--equivalent-to=" + formula,
-                                  "-f", line.removeprefix("string: ")], check=True)
-                    assert result.stdout.strip(), (self.name, formula)
-                    self.validations.add("equivalence")
-        self.records.append([label, value])
-
-    def verdict(self, formula, inputs, outputs, finite=False, moore=False):
-        solver = OPTIONS.spot / "bin" / ("ltlfsynt" if finite else "ltlsynt")
-        # Infinite Moore games are complemented Mealy duals. This avoids
-        # relying on a --semantics option absent from ltlsynt 2.16.
-        dual = moore and not finite
-        objective, ins, outs = (f"!({formula})", outputs, inputs) if dual else (formula, inputs, outputs)
-        args = [solver, "--realizability", f"--ins={ins}", f"--outs={outs}", "-f", objective]
-        if finite:
-            args.append("--semantics=" + ("Moore" if moore else "Mealy"))
-        try:
-            result = run(args, timeout=60)
-        except subprocess.TimeoutExpired:
-            SKIPPED.append({"suite": self.name, "formula": formula, "reason": "60s reference timeout"})
-            raise
-        assert result.returncode in (0, 1), (args, result.stderr)
-        self.validations.add("verdict")
-        expected = (result.returncode == 0) != dual
-        self.records.append(["verdict", [formula, inputs, outputs, finite, moore], expected])
-        return expected
-
-    def artifacts(self, directory):
-        self.check("artifacts", {p.name: p.read_text() for p in sorted(Path(directory).iterdir())
-                                  if p.is_file()})
-
-    def language(self, formula, names, words, actual):
-        _tree, expected = reference(formula, names, words)
-        assert actual == expected, (self.name, formula, actual, expected)
-        self.validations.add("language")
-        self.check("language", [formula, names, words, expected])
-
-    def finish(self):
-        self.confirm_pending()
-        assert required(self.name) <= self.validations, (self.name, "missing independent checks")
-        if self.name in INDEPENDENT:
-            assert self.confirmation, f"{self.name}: refusing unconfirmed recording"
-            provenance = self.confirmation.provenance()
-        else:
-            provenance = describe(self.name, self.records)
-        if self.name == "assumption-pruning":
-            provenance["native_revision"] = run(["git", "rev-parse", "HEAD"], check=True).stdout.strip()
-            provenance["test_sha256"] = hashlib.sha256(
-                (ROOT / "test/oracle/test_assumption_pruning.py").read_bytes()).hexdigest()
-            provenance["reference"] = "Spot 2.16 ltlsynt; tool-versions.json"
-            provenance["verdicts"] = sum(row[0] == "verdict" for row in self.records)
-            provenance["exports"] = len(self.records) - provenance["verdicts"]
-        if self.name == "native-api-8b158d7":
-            # This independent historical differential was frozen in phase 1.
-            # A fresh native snapshot cannot renew that historical evidence.
-            previous = json.loads((DEST / (self.name + ".json")).read_text())
-            assert self.records == previous, "restore the pinned historical differential before changing this suite"
-            provenance["historical_confirmation"] = "passing pre-change differential against 8b158d7"
-        provenance["sha256"] = hashlib.sha256(
-            json.dumps(self.records, separators=(",", ":")).encode()).hexdigest()
-        path = DEST / "provenance.json"
-        suites = json.loads(path.read_text()) if path.exists() else {}
-        suites[self.name] = provenance
-        path.write_text(json.dumps(suites, indent=2) + "\n")
-        payload = ("[\n" + ",\n".join(json.dumps(row, separators=(",", ":"))
-                                      for row in self.records) + "\n]\n") if self.records else "[]\n"
-        (DEST / (self.name + ".json")).write_text(payload)
+def verify_languages():
+    count = 0
+    for path in sorted(DEST.glob("*.json")):
+        rows = json.loads(path.read_text())
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if row[0] == "language":
+                formula, names, words, expected = row[1]
+                assert membership(formula, names, words) == expected, (path, formula)
+                count += len(words)
+    print(f"language: {count} committed memberships rederived", flush=True)
 
 
 def script(name, *args):
@@ -169,128 +90,172 @@ def script(name, *args):
     runpy.run_path(sys.argv[0], run_name="__main__")
 
 
-def dpa():
-    target = DEST / "dpa"
-    target.mkdir(exist_ok=True)
-    run(["c++", "-std=c++20", ROOT / "tools/golden/dpa_cases.cc", "-o", OPTIONS.build / "golden-cases"], check=True)
-    handwritten = run([OPTIONS.build / "golden-cases"], check=True).stdout.splitlines()
-    common = "strongX=0,not=0,equiv=0,implies=0,xor=0"
-    random_formulas = []
-    for seed, priorities, recurrence in (
-            (31415, common + ",F=0,U=0,M=0", False),
-            (27182, common + ",F=0,G=0,U=0,R=0,W=0,M=0", True)):
-        lines = run([OPTIONS.spot / "bin/randltl", "a", "b", "c", f"--seed={seed}",
-                     "-n", "18", "--tree-size=4..12", "--ltl-priorities=" + priorities], check=True).stdout.splitlines()
-        for line in lines:
-            formula = f"G F ({line})" if recurrence else line
-            random_formulas.extend((formula, f"!({formula})"))
-    raw = run([OPTIONS.spot / "bin/randltl", "a", "b", "c", "--seed=20852", "-n", "1600",
-               "--tree-size=6..20", "--ltl-priorities=strongX=0"], check=True).stdout
-    filtered = run([OPTIONS.spot / "bin/ltlfilt", "--delta2"], input=raw, check=True).stdout.splitlines()
-    assert len(filtered) >= 300
-    delta = filtered[:300] + [f"({left}) <-> !({filtered[-1-i]})" for i, left in enumerate(filtered[:60])]
-    rng = random.Random(0x97D0A)
-    words = [([], [bits]) for bits in range(128)]
-    words += [([rng.randrange(128) for _ in range(rng.randrange(5))],
-               [rng.randrange(128) for _ in range(rng.randrange(1, 6))]) for _ in range(384)]
-    (target / "words.txt").write_text("\n".join(" ".join(map(str, p)) + ";" + " ".join(map(str, q)) for p, q in words) + "\n")
-    records, timed_out = [], set()
-    for index, formula in enumerate(dict.fromkeys(handwritten + random_formulas + delta)):
-        try:
-            tree, membership = reference(formula, ["unused_in", "req", "a", "unused_out", "c", "grant", "b"], words)
-        except subprocess.TimeoutExpired:
-            SKIPPED.append({"suite": "dpa", "formula": formula, "reason": "60s reference timeout"})
-            timed_out.add(formula)
-            continue
-        records.append("\t".join((formula, tree, membership)))
-        if index % 50 == 0:
-            print(f"DPA reference {index}", flush=True)
-    assert not (set(handwritten) & timed_out), "handwritten timeout needs explicit test review"
-    (target / "membership.tsv").write_text("\n".join(records) + "\n")
-    limits = []
-    for formula in (ROOT / "test/unit/dpa_limits.ltl").read_text().splitlines():
-        result = run([OPTIONS.reference, formula, "", "/dev/null", "--tree-only"], check=True)
-        limits.append(formula + "\t" + result.stdout.strip())
-    (target / "limits.tsv").write_text("\n".join(limits) + "\n")
-    for name, formulas in (("random.ltl", random_formulas), ("delta2.ltl", delta)):
-        (target / name).write_text("\n".join(f for f in formulas if f not in timed_out) + "\n")
+def verify_native_verdict(build, output, fields):
+    """Exact native game result, or None. Never infer a verdict from a decline."""
+    formula, inputs, outputs, finite, moore = fields
+    if finite or moore:
+        return None
+    tree = parse(formula)
+    names = sorted(atoms(tree))
 
-    path = DEST / "provenance.json"
-    suites = json.loads(path.read_text()) if path.exists() else {}
-    suites["dpa"] = {"status": "independently confirmed",
-                     "independent_checks": ["Spot 2.16 ASTs and lasso memberships"],
-                     "native_snapshot": [],
-                     "files_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                      for p in sorted(target.iterdir()) if p.is_file()}}
-    path.write_text(json.dumps(suites, indent=2) + "\n")
+    def selected(interface):
+        import re
+        result = set()
+        for item in filter(None, interface.split(",")):
+            if item.startswith("/") and item.endswith("/"):
+                result.update(n for n in names if re.search(item[1:-1], n))
+            else:
+                result.add(item)
+        return result
+    ins, outs = selected(inputs), selected(outputs)
+    if ins & outs or not set(names) <= ins | outs:
+        return None
+    aliases = {n: f"refap{i}" for i, n in enumerate(sorted(ins | outs))}
+
+    def render(node):
+        op = node[0]
+        if op == "ap":
+            return aliases[node[1]]
+        if op in ("0", "1"):
+            return "true" if op == "1" else "false"
+        if len(node) == 2:
+            return f"{op} ({render(node[1])})"
+        if op == "^":
+            return f"!({render(node[1])} <-> {render(node[2])})"
+        symbol = {"i": "->", "e": "<->", "&": "&&", "|": "||"}.get(op, op)
+        return f"({render(node[1])} {symbol} {render(node[2])})"
+    source = output / "verdict.tlsf"
+    source.write_text("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { " +
+        " ".join(aliases[n] + ";" for n in sorted(ins)) + " } OUTPUTS { " +
+        " ".join(aliases[n] + ";" for n in sorted(outs)) + " } GUARANTEES { " + render(tree) + "; } }")
+    base = output / "verdict"
+    for suffix in (".cert.aag", ".cert.aag.json", ".policy.aag", ".policy.aag.json"):
+        base.with_suffix(suffix).unlink(missing_ok=True)
+    try:
+        reduced = run([build / "test/api/native_reduction", source, "exact", base], timeout=20)
+        if reduced.returncode != 0:
+            assert reduced.returncode == 3, reduced.stderr
+            return None
+        game = base.with_suffix(".aag")
+        cert, policy = base.with_suffix(".cert.aag"), base.with_suffix(".policy.aag")
+        solved = run([build / "tlsfsolve", "--certificate", cert, "--policy", policy, game], timeout=20)
+        if solved.returncode not in (0, 1):
+            return None
+        sidecar_path = Path(str(cert) + ".json")
+        if not sidecar_path.is_file():
+            return None
+        sidecar = json.loads(sidecar_path.read_text())
+        if sidecar.get("side") != ("system" if solved.returncode == 0 else "environment"):
+            return None
+        # A failed certificate is UNKNOWN, never a losing verdict. Winning
+        # games use the policy-free region proof; losing games require the
+        # dual environment certificate AND checked closed-loop counterstrategy.
+        command = [build / "tlsfcertcheck", "--certificate", cert, "--method"]
+        command += ["region", game] if solved.returncode == 0 else ["both", game, policy]
+        checked = run(command, timeout=20)
+        if checked.returncode != 0:
+            return None
+        return solved.returncode == 0
+    except subprocess.TimeoutExpired:
+        return None
 
 
 def main():
-    global OPTIONS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
-    parser.add_argument("--spot", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=ROOT / "build-sprint/oracle-retirement")
     parser.add_argument("--only", choices=("dpa", "exports", "pruning", "native", "language", "monitor", "lift", "norm", "api", "step1"))
-    parser.add_argument("--bindings-site", type=Path,
-                        help="Python bindings built against the selected Spot 2.16")
-    parser.add_argument("--oracle-root", type=Path,
-                        help="archive root containing the retired acacia_lift prototype")
-    OPTIONS = parser.parse_args()
-    for name in ("bindings_site", "oracle_root"):
-        value = getattr(OPTIONS, name)
-        if value:
-            setattr(OPTIONS, name, value.expanduser().resolve())
-    OPTIONS.build = OPTIONS.build.resolve()
-    OPTIONS.spot = OPTIONS.spot.expanduser().resolve()
-    OPTIONS.reference = OPTIONS.build / "golden-reference"
-    flags = run(["pkg-config", "--cflags", "--libs", "libspot"],
-                env=dict(os.environ, PKG_CONFIG_PATH=str(OPTIONS.spot / "lib/pkgconfig")), check=True).stdout.split()
-    run(["c++", "-std=c++20", ROOT / "tools/golden/reference.cc", "-o", OPTIONS.reference, *flags,
-         "-Wl,-rpath," + str(OPTIONS.spot / "lib")], check=True)
-    module = types.ModuleType("golden")
-    module.Golden, module.ROOT = Recorder, DEST
-    module.reference = reference
-    sys.modules["golden"] = module
+    parser.add_argument("--translation", action="store_true", help="replay all committed C/Lean translation receipts")
+    options = parser.parse_args()
+    build, output = options.build.resolve(), options.output.resolve()
+    assert output.is_relative_to(ROOT / "build-sprint"), "scratch must be under build-sprint"
+    output.mkdir(parents=True, exist_ok=True)
+    temp = ROOT / "build-sprint/tmp"
+    temp.mkdir(exist_ok=True)
+    os.environ.update(TMPDIR=str(temp), LEAN_NUM_THREADS="1", LEAN_STACK_SIZE_KB="2048",
+                      LEAN_MAIN_USE_THREAD="0", CARGO_BUILD_JOBS="1")
+    before = fingerprints()
     sys.path.insert(0, str(ROOT / "test/oracle"))
-    build, cases = OPTIONS.build, ROOT / "test/fixtures/cases"
-    versions = {}
-    for tool in ("ltlsynt", "ltlfsynt", "ltlfilt", "ltl2tgba", "autfilt", "randltl"):
-        versions[tool] = run([OPTIONS.spot / "bin" / tool, "--version"], check=True).stdout.splitlines()[0]
-        assert "2.16" in versions[tool], versions[tool]
-    (DEST / "tool-versions.json").write_text(json.dumps(versions, indent=2) + "\n")
+    import golden
+    base = golden.Golden
+    totals, cache, verified_suites = Counter(), {}, {}
+
+    class Verifier(base):
+        def check(self, label, value):
+            super().check(label, value)
+            if label == "normalized" and self.name.startswith("norm-"):
+                original = next(v for k, v in self.records if k == "original")
+                sample_equivalent(original, value, count=512)
+                totals["sampled_normalization_pairs"] += 1
+            if label == "ast-export":
+                lines = value.splitlines()
+                for index, line in enumerate(lines):
+                    if line.startswith("string: "):
+                        sample_equivalent(lines[index - 1].split(": ", 1)[1], line[8:], count=512)
+                        totals["sampled_api_pairs"] += 1
+
+        def verdict(self, *args, **kwargs):
+            position = self.position
+            expected = super().verdict(*args, **kwargs)
+            fields = self.records[position][1]
+            key = json.dumps(fields)
+            if key not in cache:
+                cache[key] = verify_native_verdict(build, output, fields)
+            actual = cache[key]
+            if actual is not None:
+                assert actual == expected, (self.name, fields, actual, expected)
+            totals["unknown" if actual is None else "native_certificate_agrees"] += 1
+            return expected  # Historical data, never persisted as new evidence.
+
+        def language(self, formula, names, words, actual):
+            assert membership(formula, names, words) == actual, (self.name, formula)
+            super().language(formula, names, words, actual)
+
+        def finish(self):
+            super().finish()
+            verified_suites[self.name] = self.position
+            print(f"verified frozen suite {self.name}: {self.position} records", flush=True)
+    golden.Golden = Verifier
+    cases = ROOT / "test/fixtures/cases"
+    selected = lambda name: options.only in (None, name)
     try:
-        if OPTIONS.only in (None, "pruning"):
-            script("test_assumption_pruning.py", build / "tlsf2ltl", build / "tlsfresidual",
-                   build / "tlsfcompose")
-            from pruning_sources import refresh
-            refresh(ROOT, DEST, OPTIONS, run)
-        if OPTIONS.only in (None, "dpa"):
-            dpa()
-        if OPTIONS.only in (None, "exports"):
+        if selected("dpa"):
+            reproduce_dpa(output)
+            random_corpus(build, output)
+        if selected("language"):
+            verify_languages()
+        if selected("pruning"):
+            script("test_assumption_pruning.py", build / "tlsf2ltl", build / "tlsfresidual", build / "tlsfcompose")
+            from pruning_sources import verify
+            verify(ROOT, build)
+        if selected("exports"):
             for mode in ("lowercase", "comment", "signals"):
                 script("test_review4_exports.py", build / "tlsf2ltl", build / "tlsfresidual", build / "tlsfcompose", mode)
             for mode in ("moore", "finite", "implicit", "wrapper"):
                 script("test_compose_driver_semantics.py", build / "tlsfcompose", mode)
-            script("test_decomposition_exactness.py", build / "tlsf2ltl", build / "tlsfresidual",
-                   build / "tlsfcompose", build / "test/unit/phase_b_probe", cases)
-            script("test_disjoint_assumptions.py", build / "tlsf2ltl", build / "tlsfresidual",
-                   build / "tlsfcompose", cases / "disjoint_assumptions.tlsf")
-        for mode, name in (("native", "test_native_reduction.py"),
-                           ("language", "test_native_reduction_language.py"),
-                           ("monitor", "test_gr1_monitor_game.py"),
-                           ("lift", "test_native_lift_differential.py")):
-            if OPTIONS.only in (None, mode):
-                script(name, "--builddir", build)
-        if OPTIONS.only in (None, "norm"):
+            script("test_decomposition_exactness.py", build / "tlsf2ltl", build / "tlsfresidual", build / "tlsfcompose", build / "test/unit/phase_b_probe", cases)
+            script("test_disjoint_assumptions.py", build / "tlsf2ltl", build / "tlsfresidual", build / "tlsfcompose", cases / "disjoint_assumptions.tlsf")
+        for mode, name in (("native", "native_reduction"), ("language", "native_reduction_language"),
+                           ("monitor", "gr1_monitor_game"), ("lift", "native_lift_differential")):
+            if selected(mode):
+                script("test_" + name + ".py", "--builddir", build)
+        if selected("norm"):
             script("test_normalization.py", build / "tlsfnorm", build / "tlsf2ltl", cases)
-        if OPTIONS.only in (None, "api"):
+        if selected("api"):
             script("test_conversion.py", build / "test/api/ast_golden", cases / "cluster_split.tlsf")
-        if OPTIONS.only in (None, "step1"):
+        if selected("step1"):
             script("native_oracle.py", build)
+        if options.translation:
+            from verify_translation import verify
+            verify(build, output)
     finally:
-        path = DEST / "skipped.json"
-        previous = json.loads(path.read_text()) if OPTIONS.only and path.exists() else []
-        path.write_text(json.dumps(previous + SKIPPED, indent=2) + "\n")
+        assert fingerprints() == before, "historical data/provenance changed"
+    (output / "verification.json").write_text(json.dumps({"historical_files_unchanged": len(before),
+        "checks": dict(totals), "unique_verdicts": len(cache), "python": sys.version,
+        "verified_suites": verified_suites,
+        "direct_evaluator_sha256": hashlib.sha256(Path(__file__).with_name("reference.py").read_bytes()).hexdigest()},
+        indent=2) + "\n")
+    print(f"historical files unchanged: {len(before)}; verdict crosschecks: {dict(totals)}", flush=True)
 
 
 if __name__ == "__main__":

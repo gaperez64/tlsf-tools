@@ -5,7 +5,7 @@ Measurement for [issue #78](https://github.com/gaperez64/tlsf-tools/issues/78),
 from the acacia-bonsai release `evidence-2026-10-27-otfpar`. Each name joins
 once to `tests/suites/benchmarks/syntcomp26/tlsf-sources.tsv` at acacia-bonsai
 `1571a87b05cdad26deb97ceb96e0f49b2129682b`. All 69 copied sources match that
-checkout's official TLSF SHA-256 manifest. No replacement inputs or Spot were
+checkout's official TLSF SHA-256 manifest. No replacement inputs or external automata were
 used. “Complete” means a successful full automaton expansion.
 
 | Tool / admission | Complete | Timeout | OOM | Declined | Error |

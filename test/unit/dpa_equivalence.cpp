@@ -71,8 +71,13 @@ static Node *ground(Arena *a, InternTable *atoms, std::istream &in) {
   return nullptr;
 }
 
+static std::string reference_dir() {
+  const char *path = std::getenv("DPA_REFERENCE_DIR");
+  return path && *path ? path : DPA_GOLDEN_DIR;
+}
+
 static void load_goldens() {
-  std::ifstream data(std::string(DPA_GOLDEN_DIR) + "/membership.tsv");
+  std::ifstream data(reference_dir() + "/membership.tsv");
   CHECK(data);
   std::string line;
   while (std::getline(data, line)) {
@@ -84,7 +89,7 @@ static void load_goldens() {
                                  line.substr(second + 1)})
               .second);
   }
-  std::ifstream samples(std::string(DPA_GOLDEN_DIR) + "/words.txt");
+  std::ifstream samples(reference_dir() + "/words.txt");
   CHECK(samples);
   while (std::getline(samples, line)) {
     auto separator = line.find(';');
@@ -101,7 +106,8 @@ static void load_goldens() {
                        masks(line.substr(separator + 1)));
     CHECK(!words.back().second.empty());
   }
-  CHECK(words.size() == 512 && !references.empty());
+  CHECK(!words.empty() && !references.empty());
+  CHECK(std::getenv("DPA_REFERENCE_DIR") || words.size() == 512);
 }
 
 static bool holds(TlsfDpa *dpa, uint32_t id, unsigned letter) {
@@ -216,7 +222,7 @@ static void check(const std::string &text, bool allow_unproved = false,
   Reference reference;
   if (expect_bdd_limit) {
     // TLSF parses the limits corpus through the in-house parser below.
-    std::ifstream limits(std::string(DPA_GOLDEN_DIR) + "/limits.tsv");
+    std::ifstream limits(reference_dir() + "/limits.tsv");
     CHECK(limits);
     std::string line;
     while (std::getline(limits, line)) {
@@ -337,7 +343,8 @@ int main(int argc, char **argv) {
     }
     CHECK(buchi_admitted && buchi_declined);
     std::cout << "Buchi goldens: " << buchi_admitted << " admitted, "
-              << buchi_declined << " declined, 512 memberships each\n";
+              << buchi_declined << " declined, " << words.size()
+              << " memberships each\n";
     return 0;
   }
   bool research = argc == 2 && std::string(argv[1]) == "--allow-unproved";

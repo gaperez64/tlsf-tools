@@ -74,7 +74,7 @@ if mode == "lowercase":
                     assert "'q'" in result.stderr and "'Q'" in result.stderr, result
     source = spec("Mealy", "Mealy", "OUTPUTS { p; } "
                   "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; }")
-    for backend in ("ltlsynt", "acacia"):
+    for backend in ("command", "acacia"):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             (path / "spec.tlsf").write_text(source)
@@ -122,7 +122,7 @@ elif mode in ("comment", "signals"):
                     assert text == f"c outs={used_outputs}\nc ins={used_inputs}\n{formula}\n", text
                     script = (out / "compose.sh").read_text()
                     encode_moore = not finite and target == "Moore"
-                    solver_file = out / ("cluster.0.mealy" if encode_moore else "cluster.0.spot")
+                    solver_file = out / ("cluster.0.mealy" if encode_moore else "cluster.0.formula")
                     assert solver_file.read_text() == quoted(formula, inputs, outputs, encode_moore) + "\n"
                     if mode == "signals":
                         invocation = next(line for line in script.splitlines() if line.startswith("run "))

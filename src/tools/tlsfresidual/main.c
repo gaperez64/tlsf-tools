@@ -3,7 +3,7 @@
 /// Runs the cover -> recognize -> certify -> compose pipeline, keeps the
 /// maximal sound set of SOLVED blocks (csnf_compose), and re-emits the
 /// remaining (residual) obligations as a single LTL formula, ready to hand to
-/// an external synthesizer (e.g. `ltlsynt --ins=.. --outs=..`).  The certified
+/// an external synthesizer (e.g. a selected solver command).  The certified
 /// controllers plus a controller for this residual realise the whole spec.
 
 #include "build_info.h"
