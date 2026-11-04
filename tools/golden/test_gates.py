@@ -13,6 +13,64 @@ from reference import evaluate, membership, parse, random_formulas, sample_equiv
 from regenerate import ROOT, fingerprints, verify_native_verdict
 
 
+def assert_rejected(action, label):
+    try:
+        action()
+    except AssertionError:
+        return
+    raise AssertionError((label, "guard accepted mutant"))
+
+
+def check_guard_mutations(guard, root):
+    (root / "tools/golden").mkdir(parents=True)
+    (root / "tools/golden/historical-files.json").write_text("{}")
+    data_path = root / guard.DATA_FILE
+    data = (ROOT / guard.DATA_FILE).read_bytes()
+    data_path.write_bytes(data)
+    for name in ("meson.build", "meson.options", "README.md"):
+        (root / name).write_text("")
+    sources = {}
+    for name in ("test/cli/check_no_external_oracles.py", "tools/golden/test_gates.py"):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sources[path] = (ROOT / name).read_text()
+        path.write_text(sources[path])
+    guard.check(root)
+    cases = 0
+    for directory in ("tools", "scripts", "bench", "test"):
+        (root / directory).mkdir(exist_ok=True)
+        for payload in guard.DATA["text_mutants"]:
+            path = root / directory / ("mutant" + payload["suffix"])
+            path.write_text(payload["source"])
+            assert_rejected(lambda: guard.check(root), path)
+            path.unlink()
+            cases += 1
+    # Test AST detection independently: text matching must not mask an AST gap.
+    for payload in guard.DATA["python_mutants"]:
+        assert_rejected(lambda: guard.inspect_python(payload["name"], payload["source"]),
+                        payload["name"])
+    # Both formerly exempt executable files must reject added code AND comments.
+    for path, original in sources.items():
+        for payload in [*guard.DATA["python_mutants"],
+                        *(p for p in guard.DATA["text_mutants"] if p["suffix"] == ".py")]:
+            path.write_text(original + "\n" + payload["source"] + "\n")
+            assert_rejected(lambda: guard.check(root), (path, payload))
+            cases += 1
+        path.write_text(original)
+    for tool in guard.TOOLS:
+        assert guard.FORBIDDEN.search(tool)
+    # The data exemption is bound to exact bytes, even for valid JSON changes.
+    data_path.write_bytes(data + b"\n")
+    assert_rejected(lambda: guard.check(root), "changed guard data")
+    data_path.write_bytes(data)
+    cases += 1
+    valid_path = root / "scripts/legitimate.py"
+    valid_path.write_text("\n".join(guard.DATA["valid_python"]))
+    guard.inspect_python(valid_path, valid_path.read_text())
+    guard.check(root)
+    return cases
+
+
 def main():
     (ROOT / "build-sprint/tmp").mkdir(parents=True, exist_ok=True)
     before = fingerprints()
@@ -62,28 +120,7 @@ def main():
     spec.loader.exec_module(guard)
     with tempfile.TemporaryDirectory(dir=ROOT / "build-sprint/tmp") as temp:
         root = Path(temp)
-        (root / "tools/golden").mkdir(parents=True)
-        (root / "tools/golden/historical-files.json").write_text("{}")
-        for name in ("meson.build", "meson.options", "README.md"):
-            (root / name).write_text("")
-        for directory in ("tools", "scripts", "bench", "test"):
-            (root / directory).mkdir(exist_ok=True)
-            for suffix, payload in ((".cc", '#include <spot/tl/parse.hh>'),
-                                    (".py", 'import spot'),
-                                    (".sh", 'pkg-config --libs libspot'),
-                                    (".sh", '"$prefix/bin/ltlsynt" -f true'),
-                                    (".py", 'from importlib import import_module\nimport_module("spot")')):
-                path = root / directory / ("mutant" + suffix)
-                path.write_text(payload)
-                try:
-                    guard.check(root)
-                except AssertionError:
-                    pass
-                else:
-                    raise AssertionError((path, "guard accepted mutant"))
-                path.unlink()
-        for tool in guard.TOOLS:
-            assert guard.FORBIDDEN.search(tool)
+        mutants = check_guard_mutations(guard, root)
         fake = root / "build/test/api/native_reduction"
         fake.parent.mkdir(parents=True)
         fake.write_text('#!/bin/sh\necho "injected erroneous decline" >&2\nexit 3\n')
@@ -112,7 +149,9 @@ def main():
                 with patch("regenerate.run", side_effect=rejected_certificate):
                     assert verify_native_verdict(root, root, ["G a", "", "a", False, False]) is None
     assert fingerprints() == before
-    print(f"offline gates: {cases} direct semantic checks; 20 forbidden dependency mutants, "
+    print(f"offline gates: {cases} direct semantic checks; {mutants} forbidden dependency mutants, "
+          f"{len(guard.DATA['python_mutants'])} direct AST rejections, "
+          f"{len(guard.DATA['valid_python'])} legitimate snippets accepted; "
           "decline-everything and four failed certificates rejected; historical files untouched")
 
 
