@@ -3,6 +3,15 @@
 gr1_export_stream = executable('gr1_export_stream', 'gr1_export_stream.c',
   dependencies: tlsf_internal_dep)
 test('gr1_export_stream', gr1_export_stream)
+if host_machine.system() == 'linux'
+  # glibc has fopencookie, but no funopen. Compile the production BSD branch
+  # against a test bridge, including Darwin's eager open_memstream publication.
+  gr1_export_stream_bsd = executable('gr1_export_stream_bsd',
+    'gr1_export_stream.c', 'gr1_export_stdio.c',
+    '../../src/lib/gr1_oxidd.c', c_args: ['-DTLSF_GR1_EXPORT_TEST_BSD'],
+    dependencies: tlsf_internal_dep)
+  test('gr1_export_stream_bsd', gr1_export_stream_bsd)
+endif
 
 dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
 test('dpa_translation_hashes', dpa_dump,

@@ -30,6 +30,11 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef TLSF_GR1_EXPORT_TEST_BSD
+#define funopen gr1_export_test_funopen
+#define open_memstream gr1_export_test_open_memstream
+#endif
+
 typedef struct {
   char **output;
   size_t *output_size;
@@ -97,8 +102,8 @@ static int capped_export_close(void *opaque) {
   return 0;
 }
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) ||      \
-    defined(__NetBSD__)
+#if defined(TLSF_GR1_EXPORT_TEST_BSD) || defined(__APPLE__) ||                 \
+    defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 static int capped_export_write_bsd(void *opaque, const char *bytes, int count) {
   ssize_t written = capped_export_write(opaque, bytes, (size_t)count);
   return ((CappedExport *)opaque)->failed ? -1 : (int)written;
@@ -120,8 +125,8 @@ FILE *gr1_open_export_memstream(const OxiddRun *run,
     export->output_size = size;
     export->limit = limit;
     export->options = run->options;
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) ||      \
-    defined(__NetBSD__)
+#if defined(TLSF_GR1_EXPORT_TEST_BSD) || defined(__APPLE__) ||                 \
+    defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     FILE *stream = funopen(export, nullptr, capped_export_write_bsd, nullptr,
                            capped_export_close);
 #else

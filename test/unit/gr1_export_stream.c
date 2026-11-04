@@ -33,7 +33,10 @@ static FILE *open_stream(Export *export, size_t run_cap,
   FILE *stream = gr1_open_export_memstream(&export->run, &export->certificate,
                                            &export->bytes, &export->size);
   assert(stream);
-  assert(export->bytes == nullptr && export->size == 0);
+  // Only capped streams promise publication at close. Darwin's ordinary
+  // open_memstream may publish its empty buffer immediately at open.
+  if (run_cap || certificate_cap)
+    assert(export->bytes == nullptr && export->size == 0);
   return stream;
 }
 
@@ -113,6 +116,9 @@ int main(void) {
   FILE *stream = open_stream(&export, 0, 0);
   const char payload[] = "unlimited";
   assert(fwrite(payload, 1, sizeof payload - 1, stream) == sizeof payload - 1);
+  assert(fflush(stream) == 0 && !ferror(stream));
+  assert(export.bytes && export.size == sizeof payload - 1);
+  assert(memcmp(export.bytes, payload, sizeof payload) == 0);
   assert(fclose(stream) == 0);
   assert(export.failure.kind == OXIDD_FAILURE_NONE);
   assert(export.bytes && export.size == sizeof payload - 1);

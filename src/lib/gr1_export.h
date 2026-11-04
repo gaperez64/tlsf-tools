@@ -15,6 +15,16 @@ FILE *gr1_open_export_memstream(const OxiddRun *run,
                                 const Gr1CertificateOptions *options,
                                 char **output, size_t *size);
 
+#ifdef TLSF_GR1_EXPORT_TEST_BSD
+// Linux test seam: compile the production funopen branch with a stdio bridge.
+FILE *gr1_export_test_funopen(const void *cookie,
+                              int (*readfn)(void *, char *, int),
+                              int (*writefn)(void *, const char *, int),
+                              fpos_t (*seekfn)(void *, fpos_t, int),
+                              int (*closefn)(void *));
+FILE *gr1_export_test_open_memstream(char **output, size_t *size);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
