@@ -308,6 +308,67 @@ static void mid_compile_cancellation(void) {
     free(bytes[i]);
 }
 
+static void solver_artifact_limits(const char *game_text, int expect_unreal) {
+  char *bytes[4] = {0};
+  size_t sizes[4] = {0};
+  OxiddFailure failure = {0};
+  Gr1CertificateOptions export = {
+      .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
+      .aag_bytes = &bytes[0],
+      .json_bytes = &bytes[1],
+      .policy_aag_bytes = &bytes[2],
+      .policy_json_bytes = &bytes[3],
+      .aag_size = &sizes[0],
+      .json_size = &sizes[1],
+      .policy_aag_size = &sizes[2],
+      .policy_json_size = &sizes[3],
+  };
+  Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default(),
+                             .certificate = &export};
+  options.oxidd.failure = &failure;
+  options.oxidd.node_cap = options.oxidd.cache_cap = 1u << 16;
+  int unreal = 0;
+  Aig *strategy = solve_gr1_oxidd(parse_game(game_text), &unreal, &options);
+  assert(!export.failed && failure.kind == OXIDD_FAILURE_NONE);
+  assert(unreal == expect_unreal && (strategy != NULL) == !expect_unreal);
+  aig_free(strategy);
+  // Measure the serialized artifacts themselves (including newlines, excluding
+  // the terminating NUL), rather than assuming a platform-specific size.
+  size_t largest = 0, largest_aag = 0;
+  for (size_t i = 0; i < 4; i++) {
+    assert(bytes[i] && sizes[i] && strlen(bytes[i]) == sizes[i]);
+    if (sizes[i] > largest)
+      largest = sizes[i];
+    if (i % 2 == 0 && sizes[i] > largest_aag)
+      largest_aag = sizes[i];
+    free(bytes[i]);
+  }
+  assert(largest_aag < largest);
+  size_t caps[] = {1, largest_aag, largest - 1, largest};
+  for (unsigned inherited = 0; inherited < 2; inherited++) {
+    for (size_t c = 0; c < sizeof caps / sizeof *caps; c++) {
+      export.max_artifact_bytes = inherited ? 0 : caps[c];
+      options.oxidd.max_artifact_bytes = inherited ? caps[c] : 0;
+      unreal = 0;
+      strategy = solve_gr1_oxidd(parse_game(game_text), &unreal, &options);
+      if (caps[c] == largest) {
+        assert(!export.failed && failure.kind == OXIDD_FAILURE_NONE);
+        assert(unreal == expect_unreal && (strategy != NULL) == !expect_unreal);
+        for (size_t i = 0; i < 4; i++) {
+          assert(bytes[i] && sizes[i] <= caps[c]);
+          free(bytes[i]);
+        }
+      } else {
+        assert(!strategy && !unreal && export.failed);
+        assert(failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT);
+        for (size_t i = 0; i < 4; i++)
+          assert(!bytes[i] && !sizes[i]);
+      }
+      aig_free(strategy);
+    }
+  }
+}
+
 static void solver_limits(void) {
   Gr1SolveOptions options = {.oxidd = oxidd_solve_options_default()};
   OxiddFailure failure = {0};
@@ -336,30 +397,9 @@ static void solver_limits(void) {
   options.certificate = &export;
   strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
   assert(!strategy && !unreal && export.failed);
+  assert(failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT);
   assert(!certificate && !certificate_size);
   free(certificate);
-  char *aag = NULL, *json = NULL, *policy = NULL, *policy_json = NULL;
-  size_t aag_size = 0, json_size = 0, policy_size = 0, policy_json_size = 0;
-  Gr1CertificateOptions partial = {
-
-      .semantics = GR1_CERTIFICATE_SEMANTICS_EXACT,
-      .aag_bytes = &aag,
-      .json_bytes = &json,
-      .policy_aag_bytes = &policy,
-      .policy_json_bytes = &policy_json,
-      .aag_size = &aag_size,
-      .json_size = &json_size,
-      .policy_aag_size = &policy_size,
-      .policy_json_size = &policy_json_size,
-      .max_artifact_bytes = 500,
-  };
-  failure = (OxiddFailure){0};
-  options.certificate = &partial;
-  strategy = solve_gr1_oxidd(parse_game(real_game), &unreal, &options);
-  assert(!strategy && !unreal && partial.failed);
-  assert(failure.kind == OXIDD_FAILURE_ARTIFACT_LIMIT);
-  assert(!aag && !json && !policy && !policy_json);
-  assert(!aag_size && !json_size && !policy_size && !policy_json_size);
   Gr1CertificateOptions invalid_export = {
 
       .aag_bytes = &certificate};
@@ -370,6 +410,8 @@ static void solver_limits(void) {
   options.certificate = NULL;
   strategy = solve_gr1_oxidd(parse_game(real_game), NULL, &options);
   assert(!strategy && failure.kind == OXIDD_FAILURE_INVALID);
+  solver_artifact_limits(real_game, 0);
+  solver_artifact_limits(unreal_game, 1);
 }
 
 static void expand_source(const char *source_path,

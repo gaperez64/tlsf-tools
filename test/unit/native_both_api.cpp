@@ -1,4 +1,5 @@
 #include "tlsf/gr1_lift.h"
+#include "resource_usage.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -7,9 +8,6 @@
 #include <fstream>
 #include <iterator>
 #include <string>
-#ifdef __linux__
-#include <sys/resource.h>
-#endif
 #include <vector>
 
 #define CHECK(x)                                                               \
@@ -155,30 +153,17 @@ static uint64_t deadline() {
          30000000000ull;
 }
 
-#ifdef __linux__
 static uint64_t resident_bytes() {
-  FILE *file = std::fopen("/proc/self/status", "r");
-  CHECK(file);
-  char line[256];
   uint64_t bytes = 0;
-  while (std::fgets(line, sizeof line, file)) {
-    unsigned long long kb = 0;
-    if (std::sscanf(line, "VmRSS: %llu kB", &kb) == 1) {
-      bytes = kb * 1024u;
-      break;
-    }
-  }
-  std::fclose(file);
-  CHECK(bytes);
+  CHECK(tlsf_current_rss_bytes(&bytes) && bytes);
   return bytes;
 }
 
 static uint64_t peak_bytes() {
-  rusage usage{};
-  CHECK(getrusage(RUSAGE_SELF, &usage) == 0);
-  return uint64_t(usage.ru_maxrss) * 1024u;
+  uint64_t bytes = 0;
+  CHECK(tlsf_peak_rss_bytes(&bytes) && bytes);
+  return bytes;
 }
-#endif
 
 static void binding_error(const Observation &state) {
   CHECK(!state.events.empty());
@@ -571,7 +556,7 @@ int main(int argc, char **argv) {
   CHECK(!strcmp(failed_check.decline_stage, "target_check"));
   tlsf_gr1_both_result_clear(&failed_check);
   options = {};
-  options.env_budget.max_rss_bytes = 1;
+  options.env_budget.max_rss_bytes = resident_bytes() / 2;
   Observation memory_stop;
   auto memory_decline = run(unreal_source, options, 0, &memory_stop);
   stopped_fallback(memory_stop, TLSF_GR1_BOTH_EVENT_U, "budget-memory");
@@ -579,7 +564,6 @@ int main(int argc, char **argv) {
   CHECK(!strcmp(memory_decline.decline_stage, "budget-memory"));
   tlsf_gr1_both_result_clear(&memory_decline);
 
-#ifdef __linux__
   // Match the worker's equal general and U budgets. U crosses the share,
   // releases its allocation, and the direct solve gets the current allowance.
   options = {};
@@ -611,11 +595,16 @@ int main(int argc, char **argv) {
   CHECK(memory_stats.work.peak_rss_bytes > options.budget.max_rss_bytes);
   tlsf_gr1_both_result_clear(&equal_budget_fallback);
   tlsf_gr1_both_test_set_env_rss_spike(0);
+  // When the general share is exhausted too, there is no verified fallback.
+  options.budget.max_rss_bytes = resident_bytes() / 2;
+  TlsfGr1BothResult limited{};
+  CHECK(tlsf_gr1_both_from_target(memory_target, &options, &limited,
+                                  &memory_error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!strcmp(memory_error.stage, "budget-memory"));
+  CHECK(!limited.proof.game_aag && !limited.proof.certificate_aag);
+  CHECK(limited.proof.verdict == TLSF_GR1_CHECK_UNKNOWN);
+  tlsf_gr1_both_result_clear(&limited);
   tlsf_gr1_lift_target_free(memory_target);
-#else
-  std::puts("SKIP native_both_api RSS measurement/assertions: require "
-            "/proc/self/status and Linux ru_maxrss units");
-#endif
 
   options = {};
   tlsf_gr1_both_test_set_candidate_ns(1);

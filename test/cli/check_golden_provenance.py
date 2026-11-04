@@ -23,9 +23,24 @@ assert set(runtime_update["source_rebindings"]) == {
 }
 assert runtime_update["date"] and runtime_update["reason"]
 
+limits_update = json.loads((root.parents[2] / "tools/analysis/native-limits-portability.json").read_text())
+# Native GR(1) resource handling changed independently of the DPA translator.
+# Keep its historical receipts intact; this ledger cannot rebind DPA/proof
+# sources, the reducer, test registration, or any golden payload.
+assert set(limits_update["source_rebindings"]) == {
+    "include/tlsf/gr1_lift.h", "include/tlsf/gr1_oxidd.h",
+    "src/lib/gr1_lift.cc", "src/lib/gr1_oxidd.c", "src/lib/gr1_shared.hh",
+    "test/cli/check_golden_provenance.py",
+}
+assert limits_update["date"] and limits_update["reason"]
+assert limits_update["changed_golden_hashes"] == 0
+assert set(limits_update["added_sources_sha256"]) == {"src/lib/resource_usage.h"}
+for name, digest in limits_update["added_sources_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
 
 def rebound_digest(name, historical):
-    for update in (retirement, runtime_update):
+    for update in (retirement, runtime_update, limits_update):
         binding = update["source_rebindings"].get(name)
         if binding:
             assert historical == binding["previous_sha256"], (name, "wrong historical source binding")

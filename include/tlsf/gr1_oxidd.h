@@ -44,7 +44,9 @@ typedef struct {
   // NUL-terminated byte sequence; the caller frees it. Paths may be null.
   char **aag_bytes, **json_bytes, **policy_aag_bytes, **policy_json_bytes;
   size_t *aag_size, *json_size, *policy_aag_size, *policy_json_size;
-  size_t max_artifact_bytes; /* 0 = unlimited export */
+  /* Per artifact, excluding the terminating NUL. Zero inherits
+   * OxiddSolveOptions.max_artifact_bytes (zero there means unlimited). */
+  size_t max_artifact_bytes;
 } Gr1CertificateOptions;
 
 typedef struct {

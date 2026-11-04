@@ -2,6 +2,7 @@
 
 #include <tlsf/gr1_lift.h>
 #include "oxidd_common.h"
+#include "resource_usage.h"
 #include "yyjson_cpp.hh"
 #include <algorithm>
 #include <cstdio>
@@ -173,42 +174,27 @@ struct Config {
         return;
       last_rss_sample_ns = current_ns;
       last_rss_limit = rss_limit;
-      rusage usage{};
+      uint64_t peak = 0;
       bool sample_current = true;
-      if (getrusage(RUSAGE_SELF, &usage) == 0) {
-#ifdef __APPLE__
-        const uint64_t peak =
-            usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
-#else
-        const uint64_t kb = usage.ru_maxrss > 0 ? uint64_t(usage.ru_maxrss) : 0;
-        const uint64_t peak = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
-#endif
+      if (tlsf_peak_rss_bytes(&peak)) {
         if (work)
           work->peak_rss_bytes = std::max(work->peak_rss_bytes, peak);
         // Current RSS cannot exceed the process peak. Avoid opening /proc
         // during the many BDD cooperation checks below the soft limit.
-        sample_current = peak > rss_limit;
+        sample_current = !peak || peak > rss_limit;
       }
       // The peak is diagnostic only: a released U candidate must not consume
       // the direct solve's memory allowance.
       if (sample_current) {
-        if (FILE *file = fopen("/proc/self/status", "r")) {
-          char line[256];
-          uint64_t current = 0;
-          while (fgets(line, sizeof line, file)) {
-            unsigned long long kb = 0;
-            if (sscanf(line, "VmRSS: %llu kB", &kb) == 1) {
-              current = kb > UINT64_MAX / 1024u ? UINT64_MAX : kb * 1024u;
-              break;
-            }
-          }
-          fclose(file);
-          if (current > rss_limit)
-            throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
-                          "budget-memory",
-                          std::string("construction RSS exceeded arm memory ") +
-                              "share at " + stage);
-        }
+        uint64_t current = 0;
+        if (!tlsf_current_rss_bytes(&current))
+          throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error,
+                        "budget-memory", "cannot measure current process RSS");
+        if (current > rss_limit)
+          throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                        "budget-memory",
+                        std::string("construction RSS exceeded arm memory ") +
+                            "share at " + stage);
       }
     }
   }

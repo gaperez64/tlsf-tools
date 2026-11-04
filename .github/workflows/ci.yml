@@ -257,8 +257,9 @@ jobs:
           meson test -C build-native-ci --num-processes 1 --print-errorlogs
           # The configuration Acacia-Bonsai builds as a subproject.
           meson setup build-native-lib \
-            -Dresearch_tools=false -Dcpp_std=c++23
+            --buildtype=release -Dresearch_tools=false -Dcpp_std=c++23
           meson compile -C build-native-lib -j1
+          meson test -C build-native-lib --no-rebuild --num-processes 1 --print-errorlogs
 
   coverage:
     runs-on: ubuntu-24.04

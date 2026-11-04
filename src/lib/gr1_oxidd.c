@@ -30,7 +30,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifdef __GLIBC__
 typedef struct {
   char **output;
   size_t *output_size;
@@ -43,7 +42,9 @@ typedef struct {
 static ssize_t capped_export_write(void *opaque, const char *bytes,
                                    size_t count) {
   CappedExport *export = opaque;
-  if (export->failed || count > export->limit - export->size ||
+  if (export->failed)
+    return 0;
+  if (count > export->limit - export->size ||
       count == SIZE_MAX - export->size) {
     export->failed = true;
     oxidd_record_failure(export->options, OXIDD_FAILURE_ARTIFACT_LIMIT,
@@ -62,6 +63,8 @@ static ssize_t capped_export_write(void *opaque, const char *bytes,
     char *data = realloc(export->data, capacity);
     if (!data) {
       export->failed = true;
+      oxidd_record_failure(export->options, OXIDD_FAILURE_HOST, "export",
+                           "realloc", 0, 0);
       errno = ENOMEM;
       return 0;
     }
@@ -93,6 +96,13 @@ static int capped_export_close(void *opaque) {
   free(export);
   return 0;
 }
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) ||      \
+    defined(__NetBSD__)
+static int capped_export_write_bsd(void *opaque, const char *bytes, int count) {
+  ssize_t written = capped_export_write(opaque, bytes, (size_t)count);
+  return ((CappedExport *)opaque)->failed ? -1 : (int)written;
+}
 #endif
 
 static FILE *open_export_memstream(const OxiddRun *run,
@@ -102,7 +112,6 @@ static FILE *open_export_memstream(const OxiddRun *run,
                                              : run->options->max_artifact_bytes;
   *output = nullptr;
   *size = 0;
-#ifdef __GLIBC__
   if (limit) {
     CappedExport *export = oxidd_host_calloc(1, sizeof *export);
     if (!export)
@@ -111,9 +120,15 @@ static FILE *open_export_memstream(const OxiddRun *run,
     export->output_size = size;
     export->limit = limit;
     export->options = run->options;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) ||      \
+    defined(__NetBSD__)
+    FILE *stream = funopen(export, nullptr, capped_export_write_bsd, nullptr,
+                           capped_export_close);
+#else
     cookie_io_functions_t io = {.write = capped_export_write,
                                 .close = capped_export_close};
     FILE *stream = fopencookie(export, "w", io);
+#endif
     if (!stream) {
       free(export);
       return nullptr;
@@ -121,11 +136,19 @@ static FILE *open_export_memstream(const OxiddRun *run,
     setvbuf(stream, nullptr, _IONBF, 0);
     return stream;
   }
-#endif
-#ifndef __GLIBC__
-  (void)limit;
-#endif
   return open_memstream(output, size);
+}
+
+static bool write_export_json(const OxiddRun *run, JsonBuilder *builder,
+                              yyjson_mut_val *root, FILE *out) {
+  bool ok = jb_write(builder, root, out);
+  if (builder->limited)
+    oxidd_record_failure(run->options, OXIDD_FAILURE_ARTIFACT_LIMIT, "export",
+                         "json_budget", run->operations, run->index);
+  else if (!ok)
+    oxidd_record_failure(run->options, OXIDD_FAILURE_HOST, "export",
+                         "json_write", run->operations, run->index);
+  return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,10 +351,10 @@ static void json_predicate(JsonBuilder *builder, yyjson_mut_val *outputs,
 }
 
 static bool write_certificate_json(
-    FILE *out, const Aig *certificate, const Aig *game, const char *aag_path,
-    bool unreal, Gr1CertificateSemantics semantics, uint32_t original_nlat,
-    uint32_t m_goal_records, uint32_t m_goals, uint32_t m_fair,
-    uint32_t n_fair_disj, const uint32_t *goal_record,
+    const OxiddRun *run, FILE *out, const Aig *certificate, const Aig *game,
+    const char *aag_path, bool unreal, Gr1CertificateSemantics semantics,
+    uint32_t original_nlat, uint32_t m_goal_records, uint32_t m_goals,
+    uint32_t m_fair, uint32_t n_fair_disj, const uint32_t *goal_record,
     const uint32_t *goal_member, const BddVec *y_levels, size_t artifact_cap) {
   uint32_t nin = aig_num_inputs(game);
   uint32_t nlat = aig_num_latches(game);
@@ -511,7 +534,7 @@ static bool write_certificate_json(
          "stay in the selected x_j_k_i while fair_i is false.");
   if (unreal)
     JB_BOOL(&builder, root, "environment_counter_strategy_exported", false);
-  return jb_write(&builder, root, out);
+  return write_export_json(run, &builder, root, out);
 }
 
 static bool export_certificate(
@@ -624,7 +647,7 @@ static bool export_certificate(
       return false;
     }
     bool json_ok = write_certificate_json(
-        json, certificate, game,
+        run, json, certificate, game,
         options->aag_path ? options->aag_path : "memory", unreal,
         options->semantics, original_nlat, m_goal_records, m_goals, m_fair,
         n_fair_disj, goal_record, goal_member, y_levels,
@@ -642,9 +665,9 @@ static bool export_certificate(
   return true;
 }
 
-static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
-                              const char *aag_path, uint32_t original_nlat,
-                              uint32_t m_goals,
+static bool write_policy_json(const OxiddRun *run, FILE *out, const Aig *policy,
+                              const Aig *game, const char *aag_path,
+                              uint32_t original_nlat, uint32_t m_goals,
                               Gr1CertificateSemantics semantics,
                               size_t artifact_cap) {
   uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
@@ -749,7 +772,7 @@ static bool write_policy_json(FILE *out, const Aig *policy, const Aig *game,
          "All curr bits reset to zero; all-zero is interpreted as curr_0. "
          "Every transition produces exactly one hot next bit, advancing "
          "from j to (j+1) mod goals iff goal_j holds, otherwise staying.");
-  return jb_write(&builder, root, out);
+  return write_export_json(run, &builder, root, out);
 }
 
 static bool export_policy(OxiddRun *run, const Aig *game,
@@ -844,7 +867,7 @@ static bool export_policy(OxiddRun *run, const Aig *game,
     return false;
   }
   ok = write_policy_json(
-      json, policy, game,
+      run, json, policy, game,
       options->policy_aag_path ? options->policy_aag_path : "memory",
       original_nlat, m_goals, options->semantics, options->max_artifact_bytes);
   if (fclose(json) != 0)
@@ -858,12 +881,11 @@ static bool export_policy(OxiddRun *run, const Aig *game,
   return true;
 }
 
-static bool write_environment_policy_json(FILE *out, const Aig *policy,
-                                          const Aig *game, const char *aag_path,
-                                          uint32_t original_nlat,
-                                          uint32_t goals,
-                                          uint32_t fairness_counters,
-                                          size_t artifact_cap) {
+static bool
+write_environment_policy_json(const OxiddRun *run, FILE *out, const Aig *policy,
+                              const Aig *game, const char *aag_path,
+                              uint32_t original_nlat, uint32_t goals,
+                              uint32_t fairness_counters, size_t artifact_cap) {
   uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
   for (uint32_t p = 0; p < nin; p++) {
@@ -958,7 +980,7 @@ static bool write_environment_policy_json(FILE *out, const Aig *policy,
          "fair_i holds the counter advances to (i+1) modulo the number "
          "of fairness assumptions. The uncontrollable outputs do not "
          "read the current controllable letter.");
-  return jb_write(&builder, root, out);
+  return write_export_json(run, &builder, root, out);
 }
 
 static bool export_environment_policy(OxiddRun *run, const Aig *game,
@@ -1039,7 +1061,7 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
     return false;
   }
   ok = write_environment_policy_json(
-      json, policy, game,
+      run, json, policy, game,
       options->policy_aag_path ? options->policy_aag_path : "memory",
       original_nlat, goals, fairness_counters, options->max_artifact_bytes);
   if (fclose(json) != 0)
@@ -1052,9 +1074,10 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
 }
 
 static bool write_environment_certificate_json(
-    FILE *out, const Aig *certificate, const Aig *game, const char *aag_path,
-    uint32_t original_nlat, uint32_t goals, uint32_t fairness,
-    uint32_t fairness_counters, const DualVec *levels, size_t artifact_cap) {
+    const OxiddRun *run, FILE *out, const Aig *certificate, const Aig *game,
+    const char *aag_path, uint32_t original_nlat, uint32_t goals,
+    uint32_t fairness, uint32_t fairness_counters, const DualVec *levels,
+    size_t artifact_cap) {
   uint32_t nin = aig_num_inputs(game), nlat = aig_num_latches(game);
   uint32_t nu = 0, nc = 0;
   for (uint32_t p = 0; p < nin; p++) {
@@ -1107,7 +1130,7 @@ static bool write_environment_certificate_json(
          "move_i is the pre-Skolem relation bad | target(next). The "
          "exported uncontrollable policy is Skolemized only after "
          "universal quantification of every current controllable input.");
-  return jb_write(&builder, root, out);
+  return write_export_json(run, &builder, root, out);
 }
 
 static bool export_environment_certificate(
@@ -1217,7 +1240,7 @@ static bool export_environment_certificate(
       return false;
     }
     ok = write_environment_certificate_json(
-        json, certificate, game,
+        run, json, certificate, game,
         options->aag_path ? options->aag_path : "memory", original_nlat, goals,
         fairness, fairness_counters, levels, options->max_artifact_bytes);
     if (fclose(json) != 0)
@@ -2792,6 +2815,8 @@ Aig *solve_gr1_oxidd(Aig *game, int *unreal, const Gr1SolveOptions *opts) {
   }
   clear_export_outputs(certificate);
   Gr1CertificateOptions staged = *certificate;
+  if (!staged.max_artifact_bytes)
+    staged.max_artifact_bytes = resolved.max_artifact_bytes;
   char *bytes[4] = {0};
   size_t sizes[4] = {0};
   bool requested[4] = {
