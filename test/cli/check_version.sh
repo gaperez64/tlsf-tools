@@ -11,10 +11,14 @@ tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
 "$exe" --version >"$tmp"
-lines=()
-mapfile -t lines <"$tmp"
+line_count=0
+version=
+while IFS= read -r line || [[ -n "$line" ]]; do
+  version=$line
+  line_count=$((line_count + 1))
+done <"$tmp"
 
-if (( ${#lines[@]} != 1 )) || [[ ! "${lines[0]}" =~ $pattern ]]; then
+if (( line_count != 1 )) || [[ ! "$version" =~ $pattern ]]; then
   printf 'invalid version output from %s:\n' "$exe" >&2
   sed 's/^/  /' "$tmp" >&2
   printf 'expected pattern: %s\n' "$pattern" >&2

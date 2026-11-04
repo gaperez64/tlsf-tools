@@ -150,7 +150,11 @@ run_matrix() {
       timeout_bin=""
     fi
   fi
-  mapfile -t matrix_specs < <(find "$matrix_corpus" -name '*.tlsf' | sort)
+  matrix_specs=()
+  local spec
+  while IFS= read -r spec; do
+    matrix_specs+=("$spec")
+  done < <(find "$matrix_corpus" -name '*.tlsf' | sort)
   [ ${#matrix_specs[@]} -gt 0 ] || { echo "no TLSF files in $matrix_corpus" >&2; exit 2; }
 
   local entries=(
@@ -214,7 +218,10 @@ peak_kib() {
 
 ours="$build/tlsf2ltl"
 
-mapfile -t specs < <(find "$here/specs" -name '*.tlsf' | sort)
+specs=()
+while IFS= read -r spec; do
+  specs+=("$spec")
+done < <(find "$here/specs" -name '*.tlsf' | sort)
 [ ${#specs[@]} -gt 0 ] || { echo "no specs in $here/specs" >&2; exit 2; }
 
 baseline="$here/baseline.tsv"
@@ -224,15 +231,17 @@ if [ "$mode" = report ]; then
   printf -- '-%.0s' {1..54}; echo
 fi
 
-declare -A ms_of kib_of
+# Parallel indexed arrays keep this script compatible with macOS Bash 3.2.
+names=() ms_of=() kib_of=()
 fail=0
 
 for spec in "${specs[@]}"; do
   name="$(basename "$spec" .tlsf)"
   o_ms=$(median_ms "$ours" "$spec")
   o_kib=$(peak_kib "$ours" "$spec")
-  ms_of[$name]=$o_ms
-  kib_of[$name]=$o_kib
+  names+=("$name")
+  ms_of+=("$o_ms")
+  kib_of+=("$o_kib")
 
   if [ "$mode" = report ]; then
     printf '%-28s | %10s | %10s\n' "$name" "$o_ms" "$o_kib"
@@ -241,9 +250,8 @@ done
 
 if [ "$mode" = baseline ]; then
   { echo -e "# spec\tms\tkib"
-    for spec in "${specs[@]}"; do
-      n="$(basename "$spec" .tlsf)"
-      echo -e "$n\t${ms_of[$n]}\t${kib_of[$n]}"
+    for ((i = 0; i < ${#names[@]}; i++)); do
+      printf '%s\t%s\t%s\n' "${names[$i]}" "${ms_of[$i]}" "${kib_of[$i]}"
     done
   } > "$baseline"
   echo "wrote baseline: $baseline"
@@ -255,7 +263,13 @@ if [ "$mode" = check ]; then
   printf -- '-%.0s' {1..78}; echo
   while IFS=$'\t' read -r n bms bkib; do
     [ "${n:0:1}" = "#" ] && continue
-    nms=${ms_of[$n]:-}; nkib=${kib_of[$n]:-}
+    nms=; nkib=
+    for ((i = 0; i < ${#names[@]}; i++)); do
+      if [ "${names[$i]}" = "$n" ]; then
+        nms=${ms_of[$i]}; nkib=${kib_of[$i]}
+        break
+      fi
+    done
     [ -n "$nms" ] || continue
     # +1 ms floor avoids divide-by-zero noise on tiny specs
     tflag=""; mflag=""
