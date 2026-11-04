@@ -15,13 +15,21 @@ assert set(retirement["source_rebindings"]) == {
     "src/lib/print_ltlxba.c", "src/lib/print_ltlxba.h", "src/lib/rewrite.h",
     "test/cli/check_golden_provenance.py",
 }
+runtime_update = json.loads((root.parents[2] / "tools/analysis/macos-runtime.json").read_text())
+# This build-only update preserves the original validation receipts. It cannot
+# rebind translator or proof sources, even if their golden outputs still match.
+assert set(runtime_update["source_rebindings"]) == {
+    "src/lib/meson.build", "test/cli/check_golden_provenance.py",
+}
+assert runtime_update["date"] and runtime_update["reason"]
 
 
-def retirement_digest(name, historical):
-    binding = retirement["source_rebindings"].get(name)
-    if binding:
-        assert historical == binding["previous_sha256"], (name, "wrong historical source binding")
-        return binding["current_sha256"]
+def rebound_digest(name, historical):
+    for update in (retirement, runtime_update):
+        binding = update["source_rebindings"].get(name)
+        if binding:
+            assert historical == binding["previous_sha256"], (name, "wrong historical source binding")
+            historical = binding["current_sha256"]
     return historical
 
 
@@ -183,7 +191,7 @@ if translation.exists():
         if update:
             assert update["previous_sha256"] == digest
             digest = update["current_sha256"]
-        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == retirement_digest(name, digest), name
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == rebound_digest(name, digest), name
     for name, digest in provenance["corpus_sources"].items():
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest
     for failure in report["failures"]:
@@ -230,7 +238,7 @@ if translation.exists():
                 assert binding["current_sha256"] != binding["previous_sha256"]
         for name, digest in receipt["source_sha256"].items():
             digest = test_rebindings.get("sources", {}).get(name, {}).get("current_sha256", digest)
-            assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == retirement_digest(name, digest), name
+            assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == rebound_digest(name, digest), name
         for name, binding in update["sources"].items():
             assert receipt["source_sha256"][name] == binding["current_sha256"]
         cases = dag_report["cases"]
