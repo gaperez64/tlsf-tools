@@ -162,6 +162,10 @@ if translation.exists():
             assert binding["current_sha256"] != binding["previous_sha256"]
     for name, digest in provenance["source_sha256"].items():
         digest = rebindings.get("sources", {}).get(name, {}).get("current_sha256", digest)
+        update = provenance.get("dag_extension", {}).get("sources", {}).get(name)
+        if update:
+            assert update["previous_sha256"] == digest
+            digest = update["current_sha256"]
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
     for name, digest in provenance["corpus_sources"].items():
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest
@@ -177,6 +181,44 @@ if translation.exists():
     for key, counts in report["counts"].items():
         assert set(counts) == {"pass", "fail", "timeout"} and counts["fail"] == 0
         assert sum(counts.values()) + report["not_admitted"].get(key, 0) == report["formulas_per_set"][key.split("/")[0]]
+    if "dag_extension" in provenance:
+        update = provenance["dag_extension"]
+        receipt_path = root.parents[2] / update["receipt"]
+        assert hashlib.sha256(receipt_path.read_bytes()).hexdigest() == update["sha256"]
+        receipt = json.loads(receipt_path.read_text())
+        dag = receipt_path.parent
+        dag_report = json.loads((dag / "report.json").read_text())
+        assert hashlib.sha256((dag / "hashes.tsv").read_bytes()).hexdigest() == receipt["hashes_sha256"]
+        assert hashlib.sha256((dag / "report.json").read_bytes()).hexdigest() == receipt["report_sha256"]
+        assert dag_report["fresh_run"] and "4.35.0" in receipt["lean"]
+        assert dag_report["normalization_premise"]["authority"] == "caller-trusted"
+        assert dag_report["normalization_premise"]["checked_by_this_validator"] is False
+        assert "universal C implementation refinement" in dag_report["not_established"]
+        assert len(receipt["conditional_objective_theorems"]) == 2
+        assert re.fullmatch("[0-9a-f]{40}", receipt["revision"])
+        for name, digest in receipt["source_sha256"].items():
+            assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+        for name, binding in update["sources"].items():
+            assert receipt["source_sha256"][name] == binding["current_sha256"]
+        cases = dag_report["cases"]
+        assert receipt["attempted_requests"] == len(cases)
+        assert dict(Counter(c["status"] for c in cases)) == dag_report["outcomes"]
+        assert set(dag_report["outcomes"]) <= {"pass", "not_admitted"}
+        hashes = {}
+        for row in (dag / "hashes.tsv").read_text().splitlines():
+            digest, verdict, request = row.split("\t")
+            assert re.fullmatch("[0-9a-f]{64}", digest) and verdict == "pass"
+            assert request.startswith(("TVD1 parity ", "TVD1 buchi "))
+            assert request not in hashes
+            hashes[request] = digest
+        assert len(hashes) == receipt["validated_artifacts"] == dag_report["outcomes"]["pass"]
+        assert {c["kind"] for c in cases if c["status"] == "pass"} == {"parity", "buchi"}
+        assert {c["mode"] for c in cases} == {"default", "general"}
+        for c in cases:
+            if c["status"] == "pass":
+                assert hashes[c["request"]] == c["dump_sha256"]
+            else:
+                assert c["dump_sha256"] is None and c["request"] not in hashes
 size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
 assert size <= 4_613_734, ("golden directory exceeds 4.4 MiB", size)
 print(f"golden provenance checked; {size} bytes <= 4613734-byte cap")

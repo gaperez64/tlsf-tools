@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Offline C/Lean translation validation; requires Lean, never run by CI.
 
-Run from the repository root in the task's memory-limited systemd scope.
-All transient artifacts are below build-scratch-t. No external oracle is used.
+Run serially from the repository root. All transient artifacts are below
+build-sprint. No external oracle is used. --dag produces the separate DAG receipt.
 """
 import argparse
 from collections import Counter, defaultdict
@@ -16,7 +16,7 @@ import subprocess
 from time import monotonic
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH = ROOT / "build-scratch-t/translation"
+SCRATCH = ROOT / "build-sprint/translation"
 DEST = ROOT / "test/fixtures/golden/translation"
 NAMES = ("unused_in", "req", "a", "unused_out", "c", "grant", "b")
 REVIEWS = [
@@ -43,6 +43,126 @@ def run(args, **kw):
 
 def request(kind, mode, names, prefix):
     return " ".join(["TV1", kind, mode, str(len(names)), *names, prefix])
+
+
+def dag_request(case, kind, mode):
+    """Bind the whole objective separately from the caller's normalized DAG."""
+    return " ".join(map(str, [
+        "TVD1", kind, mode, len(case["inputs"]), len(case["outputs"]),
+        *case["inputs"], *case["outputs"], case["polarity"], "objective", case["objective"],
+        "normalization", "caller-trusted", "dag", len(case["nodes"]), case["root"],
+        *(field for node in case["nodes"] for field in node)]))
+
+
+def build_validator():
+    # Never accept an executable left over from a failed build.
+    built = run([Path.home() / ".elan/bin/lake", "build", "dpaValidate"],
+                cwd=ROOT / "proofs", timeout=1800)
+    assert built.returncode == 0, built.stdout + built.stderr
+    validator = ROOT / "proofs/.lake/build/bin/dpaValidate"
+    checked = run([validator, "--self-test"], timeout=120)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    version = run([Path.home() / ".elan/bin/lake", "env", "lean", "--version"], cwd=ROOT / "proofs")
+    assert version.returncode == 0 and "4.35.0" in version.stdout, version
+    return validator, version.stdout.strip(), checked.stdout.strip()
+
+
+def validate_dags(build, timeout):
+    fixture = ROOT / "tools/golden/dag-cases.json"
+    cases = json.loads(fixture.read_text())
+    sources = sorted(set(ROOT.glob("proofs/TlsfProofs/**/*.lean")) |
+                     {p for p in (ROOT / "src/lib").iterdir()
+                      if p.suffix in (".c", ".cc", ".h", ".hh")} |
+                     set(ROOT.glob("include/tlsf/*.h")) |
+                     {ROOT / "proofs/TlsfProofs.lean", ROOT / "proofs/lakefile.toml",
+                      ROOT / "proofs/lean-toolchain", ROOT / "test/unit/dpa_dump.c",
+                      ROOT / "test/api/dpa_dag.c", ROOT / "tools/golden/dpa_impl_audit.lean",
+                      ROOT / "tools/golden/dag_decode_audit.lean",
+                      ROOT / "meson.build", ROOT / "meson.options", ROOT / "src/lib/meson.build",
+                      ROOT / "test/unit/meson.build", ROOT / "test/cli/check_golden_provenance.py",
+                      ROOT / "tools/golden/test_translation_validate.py", fixture,
+                      Path(__file__).resolve()})
+    # A receipt names a source revision, rather than silently certifying an
+    # uncommitted implementation. The receipt itself is committed afterward.
+    relative_sources = [str(p.relative_to(ROOT)) for p in sources]
+    tracked = run(["git", "ls-files", "--error-unmatch", "--", *relative_sources], cwd=ROOT)
+    clean = run(["git", "diff", "HEAD", "--exit-code", "--", *relative_sources], cwd=ROOT)
+    assert tracked.returncode == clean.returncode == 0, "commit validator/input sources before generating the receipt"
+    source_hashes = {str(p.relative_to(ROOT)): sha(p.read_bytes()) for p in sources}
+    validator, version, self_test = build_validator()
+    records, goldens = [], []
+    for case in cases:
+        for mode in ("default", "general"):
+            for kind in ("parity", "buchi"):
+                text = dag_request(case, kind, mode)
+                status, reason, digest = validate_one(build, validator, text, timeout)
+                records.append({"case": case["name"], "kind": kind, "mode": mode,
+                                "request": text, "status": status, "reason": reason,
+                                "dump_sha256": digest})
+                (SCRATCH / "dag-progress.json").write_text(json.dumps(records, indent=2) + "\n")
+                print(case["name"], mode, kind, status, reason, flush=True)
+                if status == "pass":
+                    goldens.append(f"{digest}\tpass\t{text}\n")
+    assert all(sha((ROOT / p).read_bytes()) == digest for p, digest in source_hashes.items()), \
+        "sources changed during validation"
+    assert not any(r["status"] in ("fail", "timeout") for r in records), records
+    report = {"fresh_run": True, "date": str(date.today()), "timeout_seconds": timeout,
+              "outcomes": dict(Counter(r["status"] for r in records)), "cases": records,
+              "entry_point": "tlsf_dpa_create_from_dag",
+              "acceptance_conventions": {"parity": "max-odd", "buchi": "source-state recurring 1; priorities 0/1"},
+              "validated_claim": "completed decoded automaton recognizes normalized psi",
+              "normalization_premise": {
+                  "statement": "psi is infinite-LTL equivalent to the signed whole effective-Mealy objective: phi or not-phi",
+                  "authority": "caller-trusted", "checked_by_this_validator": False},
+              "not_established": ["caller normalization equivalence", "caller extraction of whole effective-Mealy phi",
+                                  "universal C implementation refinement", "memory safety", "BDD refinement",
+                                  "compiler correctness", "unsupported or incomplete constructions"]}
+    dest = DEST / "dag"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "hashes.tsv").write_text("".join(sorted(goldens)))
+    (dest / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    options = json.loads(run(["meson", "introspect", "--buildoptions", build]).stdout)
+    compiler = json.loads(run(["meson", "introspect", "--compilers", build]).stdout)["host"]["c"]
+    provenance = {
+        "date": report["date"], "revision": run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip(),
+        "lean": version, "protocol_self_test": self_test,
+        "validator_executable_sha256": sha(validator.read_bytes()),
+        "dumper_executable_sha256": sha((build / "test/unit/dpa_dump").read_bytes()),
+        "compiler": {key: compiler[key] for key in ("id", "version", "exelist")},
+        "oxidd_revision": run(["git", "-C", "external/oxidd", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip(),
+        "oxidd_archive_sha256": sha((build / "oxidd/liboxidd_ffi_c.a").read_bytes()),
+        "build_options": {o["name"]: o["value"] for o in options
+                          if o["name"] in ("buildtype", "cpu", "research_tools")},
+        "hashes_sha256": sha((dest / "hashes.tsv").read_bytes()),
+        "report_sha256": sha((dest / "report.json").read_bytes()),
+        "source_sha256": source_hashes,
+        "decoding_theorems": ["Tlsf.Dpa.FormulaDag.decode_root_meaning",
+                              "Tlsf.Dpa.FormulaDag.decode_indexed_meaning"],
+        "validation_theorems": ["Tlsf.Dpa.Validation.validate_parity_sound",
+                                "Tlsf.Dpa.Validation.validate_buchi_sound"],
+        "dag_validation_theorems": ["Tlsf.Dpa.Validation.validate_dag_parity_sound",
+                                    "Tlsf.Dpa.Validation.validate_dag_buchi_sound"],
+        "conditional_objective_theorems": ["Tlsf.Dpa.Validation.validate_signed_parity_sound",
+                                          "Tlsf.Dpa.Validation.validate_signed_buchi_sound"],
+        "validated_artifacts": len(goldens), "attempted_requests": len(records)}
+    (dest / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+
+    # Preserve the historical receipt and hashes. Rebind only changed sources,
+    # pointing at the fresh DAG receipt instead of changing old proof dates.
+    historical = json.loads((DEST / "provenance.json").read_text())
+    changes = {}
+    for name, previous in historical["source_sha256"].items():
+        previous = historical.get("source_rebindings", {}).get("sources", {}).get(
+            name, {}).get("current_sha256", previous)
+        current = sha((ROOT / name).read_bytes())
+        if current != previous:
+            changes[name] = {"previous_sha256": previous, "current_sha256": current}
+    historical["dag_extension"] = {
+        "receipt": "test/fixtures/golden/translation/dag/provenance.json",
+        "sha256": sha((dest / "provenance.json").read_bytes()),
+        "reason": "Separate fresh DAG validation; historical TV1 dumps remain unchanged.",
+        "sources": changes}
+    (DEST / "provenance.json").write_text(json.dumps(historical, indent=2) + "\n")
 
 
 def collect(build):
@@ -267,6 +387,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--reuse-inventory", action="store_true")
+    parser.add_argument("--dag", action="store_true", help="fresh DAG-entry validation receipt")
     parser.add_argument("--collect-only", action="store_true")
     parser.add_argument("--timeout", type=int, default=17,
                         help="shared C dump + Lean wall-clock budget in seconds (default: 17)")
@@ -275,12 +396,22 @@ def main():
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    os.environ["TMPDIR"] = str(ROOT / "build-scratch-t/tmp")
+    temp = ROOT / "build-sprint/tmp"
+    temp.mkdir(parents=True, exist_ok=True)
+    os.environ["TMPDIR"] = str(temp)
     os.environ["LEAN_NUM_THREADS"] = "1"
+    os.environ["LEAN_STACK_SIZE_KB"] = "2048"
+    os.environ["LEAN_MAIN_USE_THREAD"] = "0"
+    os.environ["CARGO_BUILD_JOBS"] = "1"
+    os.environ["PATH"] = str(Path.home() / ".elan/bin") + os.pathsep + os.environ["PATH"]
     build = args.build.resolve()
-    compiled = run(["meson", "compile", "-C", build, "-j2", "dpa_dump", "tv_inventory", "native_reduction"],
+    compiled = run(["meson", "compile", "-C", build, "-j1", "dpa_dump", "tv_inventory", "native_reduction"],
                    cwd=ROOT, timeout=600)
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+    if args.dag:
+        assert not (args.set or args.reuse_inventory or args.collect_only), "--dag requires a fresh dedicated run"
+        validate_dags(build, args.timeout)
+        return
     data = json.loads((SCRATCH / "inventory.json").read_text()) if args.reuse_inventory else collect(build)
     for path, digest in data["corpus_sources"].items():
         assert sha((ROOT / path).read_bytes()) == digest, f"stale corpus inventory: {path}"
@@ -288,16 +419,7 @@ def main():
         "incomplete corpus inventory: a reduction timed out"
     if args.collect_only:
         return
-    # Never accept verdicts from an executable left over from a failed build.
-    built = run([Path.home() / ".elan/bin/lake", "build", "dpaValidate"],
-                cwd=ROOT / "proofs", timeout=600)
-    assert built.returncode == 0, built.stdout + built.stderr
-    validator = ROOT / "proofs/.lake/build/bin/dpaValidate"
-    assert validator.is_file(), "build lake exe dpaValidate first"
-    checked = run([validator, "--self-test"], timeout=60)
-    assert checked.returncode == 0, checked.stdout + checked.stderr
-    version = run([Path.home() / ".elan/bin/lake", "env", "lean", "--version"], cwd=ROOT / "proofs")
-    assert version.returncode == 0 and "4.35.0" in version.stdout, version
+    validator, version, _ = build_validator()
     executable_hash = sha(validator.read_bytes())
     counts = defaultdict(lambda: Counter({"pass": 0, "fail": 0, "timeout": 0}))
     not_admitted = Counter()
@@ -357,7 +479,7 @@ def main():
         DEST.mkdir(parents=True, exist_ok=True)
         (DEST / "hashes.tsv").write_text("".join(sorted(goldens)))
         (DEST / "report.json").write_text(json.dumps(report, indent=2) + "\n")
-        provenance = {"date": report["date"], "lean": version.stdout.strip(),
+        provenance = {"date": report["date"], "lean": version,
                       "validator_executable_sha256": executable_hash,
                       "revision": run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip(),
                       "checker_theorems": ["Tlsf.Dpa.Validation.check_language",

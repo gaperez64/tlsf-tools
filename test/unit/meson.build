@@ -4,6 +4,9 @@ dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
 test('dpa_translation_hashes', dpa_dump,
   args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/hashes.tsv'],
   timeout: 300, is_parallel: false)
+test('dpa_dag_translation_hashes', dpa_dump,
+  args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/dag/hashes.tsv'],
+  timeout: 120, is_parallel: false)
 if research_tools
   tv_inventory = executable('tv_inventory', '../../tools/golden/tv_inventory.cc',
     link_args: ['-Wl,--wrap=dpa_buchi_create'], dependencies: tlsf_internal_dep)
