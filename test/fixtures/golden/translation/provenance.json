@@ -340,5 +340,28 @@
         "current_sha256": "1bf11b47c6734bdf6d7f452b58834058f4acc632bba78afff5cb02cb86e45b2e"
       }
     }
+  },
+  "dag_extension": {
+    "receipt": "test/fixtures/golden/translation/dag/provenance.json",
+    "sha256": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff",
+    "reason": "Separate fresh DAG validation; historical TV1 dumps remain unchanged.",
+    "sources": {
+      "proofs/TlsfProofs/Dpa/Validation/Dump.lean": {
+        "previous_sha256": "93b2996fdff2ac1f374e55306e95b05c4988468ceb8f8777195cce44ab6b295c",
+        "current_sha256": "8652fb7fd88483b362dd3254b4665f7bbe300ca22112ad20e3f1a926060cd53f"
+      },
+      "proofs/TlsfProofs/Dpa/Validation/ProtocolChecks.lean": {
+        "previous_sha256": "93caa8cb37fef8b30e3826376b1d7f9e19e6a6e172d92a52df7f3fd8405666d5",
+        "current_sha256": "80512cbaaf7ad1581bad38a18f54f42c9c978d78f21b3a44e27ce91652e84bf2"
+      },
+      "test/unit/dpa_dump.c": {
+        "previous_sha256": "286213f4107335a89a8ac50ef07b0fe81510e615455e0c63f0711b802421805f",
+        "current_sha256": "7a9cd355ae52435a89438987628213e3c85a3aed77f058f3abf09266167cd551"
+      },
+      "tools/golden/translation_validate.py": {
+        "previous_sha256": "b3144ead22ea128fd8f204d2f2b14925978b1642ffd74e5d7a9ac210b9074062",
+        "current_sha256": "d60ccbf1c6a2a9406cb6068969fc8c191bcbd1aa234e7b28fa3da9912e111b99"
+      }
+    }
   }
 }

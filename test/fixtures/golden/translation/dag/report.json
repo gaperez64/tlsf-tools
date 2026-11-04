@@ -1,0 +1,679 @@
+{
+  "fresh_run": true,
+  "date": "2026-11-04",
+  "timeout_seconds": 17,
+  "outcomes": {
+    "pass": 68,
+    "not_admitted": 4
+  },
+  "cases": [
+    {
+      "case": "shared-boolean-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 2 A unused_in B unused_out positive objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 3 1 2 4294967295 4294967295 0 4 0 0 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "9cb62964f345a724050da8e528d668501d1b5c5e8b809cda49d338aff750f481"
+    },
+    {
+      "case": "shared-boolean-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 2 A unused_in B unused_out positive objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 3 1 2 4294967295 4294967295 0 4 0 0 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "9f2d7a09ff188a5e85091a8697825d88c134556052906af7bd2f1f9d45a0e50d"
+    },
+    {
+      "case": "shared-boolean-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 2 A unused_in B unused_out positive objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 3 1 2 4294967295 4294967295 0 4 0 0 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "a0c21079fe77fa485603c9fcb53240e499e62dfea8a46b7eda7c2a80ce1b5b17"
+    },
+    {
+      "case": "shared-boolean-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 2 A unused_in B unused_out positive objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 3 1 2 4294967295 4294967295 0 4 0 0 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "fa5b3944666860ff3aaf9dc7abe5cc1e962dc2adf06e663fadf84c366bed6b08"
+    },
+    {
+      "case": "shared-boolean-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 2 A unused_in B unused_out negative objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 4 0 0 4294967295 3 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "0017a47d8edd99e4a4e1676baea90dcde5c4488fb144b59dc14fe2ddaa2f441c"
+    },
+    {
+      "case": "shared-boolean-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 2 A unused_in B unused_out negative objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 4 0 0 4294967295 3 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "2a4283b98e1c7faea23f99609d915ab512e68a7a17e80d23efc592037563a155"
+    },
+    {
+      "case": "shared-boolean-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 2 A unused_in B unused_out negative objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 4 0 0 4294967295 3 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "68f2167cdf88c3bf3e146d6889d4e8dd82acb8c2d155df9334409768ed05aa0d"
+    },
+    {
+      "case": "shared-boolean-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 2 A unused_in B unused_out negative objective i 1 & 1 i & G 1 1 & G 1 & $A $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 4 0 0 4294967295 3 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "c420eef1f52df17c2b2b00dfc87b143f5b153ad7a31d16966b09f504d9023248"
+    },
+    {
+      "case": "ordered-implication-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 2 unused_in B A unused_out positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "98906c7fb3c48ef2f9adad2ad36ddcb54b68c3797d5a01cd7df1b59724437a66"
+    },
+    {
+      "case": "ordered-implication-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 2 unused_in B A unused_out positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "3db64ee0b4b3f584565f5d75ebf4f228be3686b4aac37abf2caa2f562660ad61"
+    },
+    {
+      "case": "ordered-implication-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 2 unused_in B A unused_out positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "accc93cd869c8213e848cd580099dc207de99935054f47cd8047119a7208f524"
+    },
+    {
+      "case": "ordered-implication-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 2 unused_in B A unused_out positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "dfaf5002ba0ff942fa6acb0ca289bf47b62e6b486af5d8f5503f4bbc380047b3"
+    },
+    {
+      "case": "ordered-implication-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 2 unused_in B A unused_out negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "4f6c263d5fa771e393bc49103edc00bd47f9fcdf0db5543b877a128b266f437d"
+    },
+    {
+      "case": "ordered-implication-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 2 unused_in B A unused_out negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "c5a875bbdeb42a4d69d1c54ab7086b6626fb4309b7b41a22ddf669c9ef37647f"
+    },
+    {
+      "case": "ordered-implication-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 2 unused_in B A unused_out negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "38b7c6bbe1c9832563d2c3e18045327b2eb31ab05d1ec585605f8e99640df9bd"
+    },
+    {
+      "case": "ordered-implication-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 2 unused_in B A unused_out negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 2 4294967295 4294967295 2 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "65982bcc32153248bc33753d8cf38eb506199d47b0dc5d9db4aef6c4b4a2cf32"
+    },
+    {
+      "case": "permuted-implication-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 2 B unused_in unused_out A positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "90e9de4e43020fb0784ce3a61ee44baeba4bfbad99591f403012df85366bd85e"
+    },
+    {
+      "case": "permuted-implication-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 2 B unused_in unused_out A positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "f9d4e90aacf6b7a20696598eb74192d3d07393b75f5b8749d4001b3aa86e732a"
+    },
+    {
+      "case": "permuted-implication-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 2 B unused_in unused_out A positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "7173f0dc7455504060952e511cdfaeab5dec3492b34a0144b3cd1a27a3ff5877"
+    },
+    {
+      "case": "permuted-implication-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 2 B unused_in unused_out A positive objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "0bedc24461bc228c12cd8bf2dfbe67025cbeb7a76a985c705de1b7e3c927084a"
+    },
+    {
+      "case": "permuted-implication-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 2 B unused_in unused_out A negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "2d3b50d67d971dd2004558e005dbf03192740f130c5308cae020cf917c2463bd"
+    },
+    {
+      "case": "permuted-implication-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 2 B unused_in unused_out A negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "ad1d5949f14d2f7d796fa004e64e7ff9fe2b89b01aed8c58ec3518c6fb1b7573"
+    },
+    {
+      "case": "permuted-implication-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 2 B unused_in unused_out A negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "5166b56cda732e6886fefe34a8c8568f9ff17132c08bf242f3a515c097188d28"
+    },
+    {
+      "case": "permuted-implication-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 2 B unused_in unused_out A negative objective i 1 & 1 i & G 1 1 & G 1 i $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 3 6 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "452fdcfa212a84d832e8a4dffd2202af777817f85761003aef066cf4ceddebc7"
+    },
+    {
+      "case": "shared-recurrence-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 A unused positive objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "a24faab6b6417e56144afcee190e282755bf587181664a0d32a9050790186a4b"
+    },
+    {
+      "case": "shared-recurrence-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 A unused positive objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "ea2f81836240aed2b67cf6fa7ae38a5e92993ec8789dcd815ec8d603ba27d7e3"
+    },
+    {
+      "case": "shared-recurrence-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 A unused positive objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "d0b5dad78a798cc98b2f973a7b00fea984f893e8a4c0daf2a3bbe066ae91b0b5"
+    },
+    {
+      "case": "shared-recurrence-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 A unused positive objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "cb526c54bce534fdf849b44af6bc988a79fff0aa78168dc8b3b53531727a1fe2"
+    },
+    {
+      "case": "shared-recurrence-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 A unused negative objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "c14ecce8da95c053b425e8ee6a5dc8dfecc990e81628f032fc1fa49c1eb4bb2c"
+    },
+    {
+      "case": "shared-recurrence-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 A unused negative objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "not_admitted",
+      "reason": "unsupported",
+      "dump_sha256": null
+    },
+    {
+      "case": "shared-recurrence-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 A unused negative objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "74ca047e1be1b4b859ab999966614f6fdf40e36b40c8c1ec48edbadb1efcc56e"
+    },
+    {
+      "case": "shared-recurrence-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 A unused negative objective i 1 & 1 i & G 1 1 & G 1 & G F $A G F $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 10 0 4294967295 4294967295 11 1 4294967295 4294967295 4 2 2 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "not_admitted",
+      "reason": "unsupported",
+      "dump_sha256": null
+    },
+    {
+      "case": "persistence-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 0 unused A positive objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "b78f6d778b0a36485cad8480c7a109d0079f2794f18c0bfd0a69f0d9ccc214a9"
+    },
+    {
+      "case": "persistence-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 0 unused A positive objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "not_admitted",
+      "reason": "unsupported",
+      "dump_sha256": null
+    },
+    {
+      "case": "persistence-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 0 unused A positive objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "9e7077b920d5397563781be18b2d3bddb585bad6ade6e51f7de9f15cb2bba567"
+    },
+    {
+      "case": "persistence-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 0 unused A positive objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "not_admitted",
+      "reason": "unsupported",
+      "dump_sha256": null
+    },
+    {
+      "case": "persistence-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 2 0 unused A negative objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "77d3ee455af9032a16e17e7ca6f9034adf28483d9fe665e954aef94bfc56cbac"
+    },
+    {
+      "case": "persistence-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 2 0 unused A negative objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "7615300edf7d9463bf1dc2f45c434166b95253ae7855a870ed07fdb64bb50292"
+    },
+    {
+      "case": "persistence-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 2 0 unused A negative objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "9c3da1a6f6f7f70bd40ecad436b20342b36fd1fc931b63ae1dc9c40c968318c1"
+    },
+    {
+      "case": "persistence-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 2 0 unused A negative objective i 1 & 1 i & G 1 1 & G 1 F G $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 1 11 0 4294967295 4294967295 10 1 4294967295 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "831b6d29cc09cf25177060acad8e86b66faf32c641b33ba5aa9a97ec630ead56"
+    },
+    {
+      "case": "next-equivalence-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "7ed64a272dc588e0cdd3436b9b1f281c47b67ce0668a9b9fd3f6b30a86af5a2a"
+    },
+    {
+      "case": "next-equivalence-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "7a3ac545ebb26f27a478c19503e60ef0a05b30aa89456dd12fe2d3c8e2ecbd4f"
+    },
+    {
+      "case": "next-equivalence-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "b025ff9cd2a6a604d14307b78d17ec323d91ecf982a338e7ba64631ef228b57c"
+    },
+    {
+      "case": "next-equivalence-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "e871772b92b92c1bc25b0a2e128c0d3b999a3d4a4bb86bdd6114bcbedc719ac0"
+    },
+    {
+      "case": "next-equivalence-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "4e7f2060db21db24d46ce732a3733ccf52b6095b4f679b22731b4c6d42011194"
+    },
+    {
+      "case": "next-equivalence-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "bc074ef96bf0244321e1f3f0f9aa3e1dcbc0d2ed34222ebbfefa975374875ed4"
+    },
+    {
+      "case": "next-equivalence-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "5dc14cb3e0fbbf71b4ecf9e977c7f6c8cc2912f2b8e8686fefdb9dfdf6ee856a"
+    },
+    {
+      "case": "next-equivalence-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 X e $B $A normalization caller-trusted dag 6 4 2 4294967295 4294967295 0 2 4294967295 4294967295 1 7 0 1 4294967295 8 2 4294967295 4294967295 3 3 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "9a7ed0b2ff37bc0ff91721595e12d8fe01d4b7a21987789a9cc7cec05fc3bbac"
+    },
+    {
+      "case": "weak-until-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "bbf0a945b42495abbf05258ab44bae10a15274c08e130224440cfc32bcc1a834"
+    },
+    {
+      "case": "weak-until-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "a7684f4f616119db29a7b86bbc508555a7e1ffee583a3a49cc21f3ae3eaf17a3"
+    },
+    {
+      "case": "weak-until-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "6c2344478eaaeda38fa686b49a0770f013d7b78b9deba432021fad2dc5df882a"
+    },
+    {
+      "case": "weak-until-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "956e59cd40dce4394161bdb788b59fff54ef904e3b080051c666c56e07863228"
+    },
+    {
+      "case": "weak-until-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "bbcf699f5e90da80e90f011f73fb0e5fa437a090e3004e1ba1b059643649f91a"
+    },
+    {
+      "case": "weak-until-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "0cb2c3ab63c08960b3930d759fb38094f1c50a52c659193ece207348fcc0a095"
+    },
+    {
+      "case": "weak-until-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "01dae22038bafb143103400f9c2a8de1475cca6b26ec523dc20077f478ffbd86"
+    },
+    {
+      "case": "weak-until-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 W $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 14 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "50b508e82ecfa51d672026ee723645b000c3b6176ad825033da89671ee8f5da3"
+    },
+    {
+      "case": "strong-release-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "73d3400a4e08878e98b91f6cf988029bdc4b962436f88ba6295c2727fce71616"
+    },
+    {
+      "case": "strong-release-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "3b8124f67e2e3a69a810ad4b3b125aa4372464c5dd35b146d8956d56eafb9aab"
+    },
+    {
+      "case": "strong-release-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "938169dd240d487db51dd7b6ae92f9c63ab44130fea0760f46238a784827dff7"
+    },
+    {
+      "case": "strong-release-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 B A positive objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 4 2 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "061fd0c8f7441797bb172d8461c62cdbf3cc967ccd22052a1b37d01bd512dfdc"
+    },
+    {
+      "case": "strong-release-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "da6697bbbe5b57e3e8dcbfe5c1e2328f5c5b69da38f4f3ab42595ee4303eab27"
+    },
+    {
+      "case": "strong-release-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "d7ec865c1baab1dcaa6065948fb1c848119e5bfa33c87cf766c4780ceae2d20d"
+    },
+    {
+      "case": "strong-release-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "7e79f00162b3685e2f86f57668c050419fc203acfabc8973d0b9a19661e4de16"
+    },
+    {
+      "case": "strong-release-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 1 1 B A negative objective i 1 & 1 i & G 1 1 & G 1 M $B $A normalization caller-trusted dag 5 3 2 4294967295 4294967295 0 2 4294967295 4294967295 1 15 0 1 4294967295 3 2 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "39ecf12656055e07910e813ded2ff906efcb353569b94f6320a8c3b3fc7f00e4"
+    },
+    {
+      "case": "zero-ap-true-positive",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 0 0 positive objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 2 0 0 4294967295 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "ef055c56679d40fcb8461a03555dd3cd9a5585e2661df94b995a098c6fa0bf70"
+    },
+    {
+      "case": "zero-ap-true-positive",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 0 0 positive objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 2 0 0 4294967295 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "2de06f0576bdd1a10fa6c342caa9f8e0fd74835dedf89f1152afc4952da18e17"
+    },
+    {
+      "case": "zero-ap-true-positive",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 0 0 positive objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 2 0 0 4294967295 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "2786a084d8c36b9bba2b33995b27296227e0f95ee8c0fe9377ebea69b2290dcb"
+    },
+    {
+      "case": "zero-ap-true-positive",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 0 0 positive objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 2 0 0 4294967295 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "74c54e74ea5f6f571640a04dd50902fbf379a21603aeda3427daa4f12fcdd6e9"
+    },
+    {
+      "case": "zero-ap-true-negative",
+      "kind": "parity",
+      "mode": "default",
+      "request": "TVD1 parity default 0 0 negative objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 3 1 0 4294967295 4294967295 4294967295 3 0 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "ae8cd12b56a6ed6fc2a85ecc4fd487e3985d8625997c7f692ceb054ac4112ba1"
+    },
+    {
+      "case": "zero-ap-true-negative",
+      "kind": "buchi",
+      "mode": "default",
+      "request": "TVD1 buchi default 0 0 negative objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 3 1 0 4294967295 4294967295 4294967295 3 0 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "5ccd5382ae64d884aea5586adcdd15d7395e4d7216a23a913d93c1b07de2cc8d"
+    },
+    {
+      "case": "zero-ap-true-negative",
+      "kind": "parity",
+      "mode": "general",
+      "request": "TVD1 parity general 0 0 negative objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 3 1 0 4294967295 4294967295 4294967295 3 0 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "28056a718cbd29606b48c3ef588d818d324da93a8b304f194120717b3b453fb5"
+    },
+    {
+      "case": "zero-ap-true-negative",
+      "kind": "buchi",
+      "mode": "general",
+      "request": "TVD1 buchi general 0 0 negative objective i 1 & 1 i & G 1 1 & G 1 1 normalization caller-trusted dag 3 1 0 4294967295 4294967295 4294967295 3 0 4294967295 4294967295 1 4294967295 4294967295 4294967295",
+      "status": "pass",
+      "reason": "",
+      "dump_sha256": "c9f626c2172990c2507a35970848c51de4476b4f23f712b0ef071599fb5c3629"
+    }
+  ],
+  "entry_point": "tlsf_dpa_create_from_dag",
+  "acceptance_conventions": {
+    "parity": "max-odd",
+    "buchi": "source-state recurring 1; priorities 0/1"
+  },
+  "validated_claim": "completed decoded automaton recognizes normalized psi",
+  "normalization_premise": {
+    "statement": "psi is infinite-LTL equivalent to the signed whole effective-Mealy objective: phi or not-phi",
+    "authority": "caller-trusted",
+    "checked_by_this_validator": false
+  },
+  "not_established": [
+    "caller normalization equivalence",
+    "caller extraction of whole effective-Mealy phi",
+    "universal C implementation refinement",
+    "memory safety",
+    "BDD refinement",
+    "compiler correctness",
+    "unsupported or incomplete constructions"
+  ]
+}

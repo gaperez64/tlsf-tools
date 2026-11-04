@@ -162,6 +162,26 @@ current sources. `dpa_translation_hashes` recomputes all 4,134 unchanged dumps,
 while `dpa_deadline` checks cooperative sampling and exact API boundaries. This
 does not rerun the historical Lean validator or prove a wall-time bound.
 
+The separate 2026-11-04 [DAG receipt](translation/dag/provenance.json) is a fresh
+run through `tlsf_dpa_create_from_dag`: 72 requests, 68 language-validation
+passes, four unsupported Büchi declines, zero failures and zero timeouts. It
+binds source revision `ab6d4aea8ce38b4dd955a0609c2963e7b26e6fc1`, all input and
+validator source hashes, the actual C/Lean executables, AP partitions/orders,
+both signed whole-objective polarities, normalized DAG records and acceptance
+kinds. Sharing, nonfinal roots and unused/reordered AP declarations are covered.
+`dpa_dag_translation_hashes` recomputes the 68 passing C dumps in CI. The
+neighboring report separates the checked claim (automaton recognizes normalized
+psi) from the explicit caller-trusted premise (psi is equivalent to signed whole
+phi). The conditional Lean theorems require that premise; this receipt does not
+check it or the caller's extraction of phi. Only completed automata with closed
+full rows and valid targets enter validation, using max-odd parity or recurring
+source-state Büchi priority 1. Declines and partial/resource/cancelled/deadline
+outcomes have no validated hash. The seven decoding and four added validation
+results have permitted-axiom audits. These sample checks do not establish
+universal C refinement, memory safety, BDD refinement or compiler correctness.
+Historical reports/dates and successful TV1 dumps remain unchanged; the old
+provenance points separately to this extension and records its source bindings.
+
 ## Recorded reference scope
 
 Independent confirmation on 2026-10-31 compared all 436 exact/strict reductions
