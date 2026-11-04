@@ -6,6 +6,9 @@ if python3.found()
   test('bench_matrix_setup_failure', python3,
     args: [files('check_bench_matrix.py'),
            meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
+  test('bench_basename_last_wins', python3,
+    args: [files('check_bench_baseline.py'),
+           meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
   test('frontend_provenance', python3,
     args: [files('test_frontend_provenance.py'),
            '--tlsf2tlsf', exe['tlsf2tlsf'],

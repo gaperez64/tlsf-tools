@@ -248,10 +248,23 @@ for spec in "${specs[@]}"; do
   fi
 done
 
+lookup_measurement() {
+  local name="$1" i
+  nms=; nkib=
+  # Baselines use basenames. Preserve the old associative arrays' last-wins rule.
+  for ((i = ${#names[@]} - 1; i >= 0; i--)); do
+    if [ "${names[$i]}" = "$name" ]; then
+      nms=${ms_of[$i]}; nkib=${kib_of[$i]}
+      break
+    fi
+  done
+}
+
 if [ "$mode" = baseline ]; then
   { echo -e "# spec\tms\tkib"
     for ((i = 0; i < ${#names[@]}; i++)); do
-      printf '%s\t%s\t%s\n' "${names[$i]}" "${ms_of[$i]}" "${kib_of[$i]}"
+      lookup_measurement "${names[$i]}"
+      printf '%s\t%s\t%s\n' "${names[$i]}" "$nms" "$nkib"
     done
   } > "$baseline"
   echo "wrote baseline: $baseline"
@@ -263,13 +276,7 @@ if [ "$mode" = check ]; then
   printf -- '-%.0s' {1..78}; echo
   while IFS=$'\t' read -r n bms bkib; do
     [ "${n:0:1}" = "#" ] && continue
-    nms=; nkib=
-    for ((i = 0; i < ${#names[@]}; i++)); do
-      if [ "${names[$i]}" = "$n" ]; then
-        nms=${ms_of[$i]}; nkib=${kib_of[$i]}
-        break
-      fi
-    done
+    lookup_measurement "$n"
     [ -n "$nms" ] || continue
     # +1 ms floor avoids divide-by-zero noise on tiny specs
     tflag=""; mflag=""
