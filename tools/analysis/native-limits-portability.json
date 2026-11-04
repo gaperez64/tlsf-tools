@@ -1,9 +1,10 @@
 {
   "date": "2026-11-04",
-  "reason": "Enforce native GR(1) artifact and current-RSS limits on Darwin as well as Linux, propagate JSON workspace exhaustion, and leave failed proof verdicts UNKNOWN. The public header edits document resource handling. The DPA translator, reducer, proof sources, original validation receipts/reports/revisions, golden automata and test registration are unchanged. Revalidate both full serial release configurations and preserve every golden hash.",
+  "reason": "Enforce native GR(1) artifact and current-RSS limits on Darwin as well as Linux, propagate JSON workspace exhaustion, and leave failed proof verdicts UNKNOWN. The public header edits document resource handling. The DPA translator, reducer, proof sources, original validation receipts/reports/revisions and golden automata are unchanged. The bounded-stream regression follow-up exposes the stream factory through a private header; its test registration is separately bound in the DAG test-source ledger. Revalidate both full serial release configurations and preserve every golden hash.",
   "checks": [
     "full_release_research_tests",
     "full_release_library_tests",
+    "gr1_export_stream",
     "native_api_c",
     "native_lift_api",
     "native_both_api",
@@ -27,7 +28,7 @@
     },
     "src/lib/gr1_oxidd.c": {
       "previous_sha256": "459519baf266d357014087f7df5454b95d97ea2a60f727237465853d995e88c4",
-      "current_sha256": "b9f09645fba462506fe54934677a95f7650821155cc8ec6a6b6efd98d76d91d3"
+      "current_sha256": "137719bb810c2cc341b021a731a2c5cb069ad04fb40dfc534850bfe66e1056c3"
     },
     "src/lib/gr1_shared.hh": {
       "previous_sha256": "6633c238da799840927431296c68fb0d5e01fe36e1d9b4d23697bc37bea92ea7",

@@ -1,5 +1,9 @@
 # Internal units: these may include libtlsf's private headers.
 
+gr1_export_stream = executable('gr1_export_stream', 'gr1_export_stream.c',
+  dependencies: tlsf_internal_dep)
+test('gr1_export_stream', gr1_export_stream)
+
 dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
 test('dpa_translation_hashes', dpa_dump,
   args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/hashes.tsv'],

@@ -110,7 +110,7 @@ jobs:
         run: |
           echo 'SKIP dpa_contract, dpa_deadline, objective_alloc, native_api_failure: require GNU ld --wrap (objective_alloc also uses /proc/self/fd).'
           echo 'SKIP oxidd_runtime_*: Linux RLIMIT_AS worker-stack contract.'
-          echo 'SKIP native_both_api RSS measurement/assertions only: require /proc/self/status and Linux ru_maxrss units; all other checks still run.'
+          echo 'native_both_api RSS measurement/assertions run on macOS using Mach task_info and Darwin ru_maxrss byte units.'
 
   build-clang:
     runs-on: ubuntu-24.04

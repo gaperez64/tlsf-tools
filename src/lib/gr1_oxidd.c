@@ -19,7 +19,7 @@
 #include "oxidd_runtime.h"
 #include "tlsf/gr1_oxidd.h"
 
-#include "oxidd_common.h"
+#include "gr1_export.h"
 #include "yyjson_builder.h"
 
 #include <errno.h>
@@ -105,9 +105,9 @@ static int capped_export_write_bsd(void *opaque, const char *bytes, int count) {
 }
 #endif
 
-static FILE *open_export_memstream(const OxiddRun *run,
-                                   const Gr1CertificateOptions *options,
-                                   char **output, size_t *size) {
+FILE *gr1_open_export_memstream(const OxiddRun *run,
+                                const Gr1CertificateOptions *options,
+                                char **output, size_t *size) {
   size_t limit = options->max_artifact_bytes ? options->max_artifact_bytes
                                              : run->options->max_artifact_bytes;
   *output = nullptr;
@@ -617,8 +617,8 @@ static bool export_certificate(
   }
 
   FILE *aag = options->aag_bytes
-                  ? open_export_memstream(run, options, options->aag_bytes,
-                                          options->aag_size)
+                  ? gr1_open_export_memstream(run, options, options->aag_bytes,
+                                              options->aag_size)
                   : fopen(options->aag_path, "w");
   if (!aag) {
     aig_free(certificate);
@@ -636,10 +636,11 @@ static bool export_certificate(
   }
 
   if (options->json_path || options->json_bytes) {
-    FILE *json = options->json_bytes
-                     ? open_export_memstream(run, options, options->json_bytes,
-                                             options->json_size)
-                     : fopen(options->json_path, "w");
+    FILE *json =
+        options->json_bytes
+            ? gr1_open_export_memstream(run, options, options->json_bytes,
+                                        options->json_size)
+            : fopen(options->json_path, "w");
     if (!json) {
       aig_free(certificate);
       certificate_error(options, "cannot open certificate sidecar",
@@ -837,8 +838,8 @@ static bool export_policy(OxiddRun *run, const Aig *game,
 
   FILE *aag =
       options->policy_aag_bytes
-          ? open_export_memstream(run, options, options->policy_aag_bytes,
-                                  options->policy_aag_size)
+          ? gr1_open_export_memstream(run, options, options->policy_aag_bytes,
+                                      options->policy_aag_size)
           : fopen(options->policy_aag_path, "w");
   if (!aag) {
     aig_free(policy);
@@ -857,8 +858,8 @@ static bool export_policy(OxiddRun *run, const Aig *game,
 
   FILE *json =
       options->policy_json_bytes
-          ? open_export_memstream(run, options, options->policy_json_bytes,
-                                  options->policy_json_size)
+          ? gr1_open_export_memstream(run, options, options->policy_json_bytes,
+                                      options->policy_json_size)
           : fopen(options->policy_json_path, "w");
   if (!json) {
     aig_free(policy);
@@ -1032,8 +1033,8 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
   }
   FILE *aag =
       options->policy_aag_bytes
-          ? open_export_memstream(run, options, options->policy_aag_bytes,
-                                  options->policy_aag_size)
+          ? gr1_open_export_memstream(run, options, options->policy_aag_bytes,
+                                      options->policy_aag_size)
           : fopen(options->policy_aag_path, "w");
   if (!aag) {
     aig_free(policy);
@@ -1051,8 +1052,8 @@ static bool export_environment_policy(OxiddRun *run, const Aig *game,
   }
   FILE *json =
       options->policy_json_bytes
-          ? open_export_memstream(run, options, options->policy_json_bytes,
-                                  options->policy_json_size)
+          ? gr1_open_export_memstream(run, options, options->policy_json_bytes,
+                                      options->policy_json_size)
           : fopen(options->policy_json_path, "w");
   if (!json) {
     aig_free(policy);
@@ -1211,8 +1212,8 @@ static bool export_environment_certificate(
     return false;
   }
   FILE *aag = options->aag_bytes
-                  ? open_export_memstream(run, options, options->aag_bytes,
-                                          options->aag_size)
+                  ? gr1_open_export_memstream(run, options, options->aag_bytes,
+                                              options->aag_size)
                   : fopen(options->aag_path, "w");
   if (!aag) {
     aig_free(certificate);
@@ -1229,10 +1230,11 @@ static bool export_environment_certificate(
     return false;
   }
   if (options->json_path || options->json_bytes) {
-    FILE *json = options->json_bytes
-                     ? open_export_memstream(run, options, options->json_bytes,
-                                             options->json_size)
-                     : fopen(options->json_path, "w");
+    FILE *json =
+        options->json_bytes
+            ? gr1_open_export_memstream(run, options, options->json_bytes,
+                                        options->json_size)
+            : fopen(options->json_path, "w");
     if (!json) {
       aig_free(certificate);
       certificate_error(options, "cannot open certificate sidecar",
