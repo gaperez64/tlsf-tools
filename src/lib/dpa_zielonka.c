@@ -73,16 +73,17 @@ static uint32_t tree(TlsfDpa *c, const uint64_t *set) {
   uint32_t result = DPA_BAD;
   Child *children = nullptr;
   uint64_t *m = nullptr;
-  for (uint32_t i = dpa_bucket(&c->trees, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      goto done;
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->trees, h, &slot)) != DPA_BAD;) {
     DpaTreeNode *t = c->trees.items[i];
-    if (!memcmp(t->colours, set, c->colour_words * sizeof *set)) {
+    if (t->key.hash == h &&
+        !memcmp(t->colours, set, c->colour_words * sizeof *set)) {
       result = i;
       goto done;
     }
-    i = t->key.next;
   }
+  if (c->status.code != TLSF_DPA_OK)
+    goto done;
   uint32_t remaining =
       accepts(c, set) ? negate(c, c->acceptance) : c->acceptance;
   for (uint32_t i = 0; i < c->components.n && dpa_poll(c); ++i)
@@ -124,12 +125,12 @@ static uint32_t tree(TlsfDpa *c, const uint64_t *set) {
     ++count;
     remaining = dpa_boolean(c, true, remaining, outside(c, set, m));
   }
-  DpaTreeNode *t = dpa_alloc(c, 1, sizeof *t);
+  DpaTreeNode *t = dpa_record(c, &c->trees, sizeof *t);
   if (!t)
     goto done;
   t->key.hash = h;
-  t->colours = dpa_alloc(c, c->colour_words, sizeof *set);
-  t->children = dpa_alloc(c, count, sizeof *t->children);
+  t->colours = dpa_record(c, &c->trees, c->colour_words * sizeof *set);
+  t->children = dpa_record(c, &c->trees, (size_t)count * sizeof *t->children);
   t->count = count;
   if (!dpa_poll(c))
     goto done;
@@ -154,15 +155,14 @@ static uint32_t path(TlsfDpa *c, uint32_t node, uint32_t parent, uint32_t pos) {
   if (!dpa_poll(c))
     return DPA_BAD;
   uint64_t h = dpa_hash(node, parent, pos, 0);
-  for (uint32_t i = dpa_bucket(&c->paths, h); i != DPA_BAD;) {
-    if (!dpa_poll(c))
-      return DPA_BAD;
+  for (uint32_t slot = (uint32_t)h, i;
+       (i = dpa_probe(c, &c->paths, h, &slot)) != DPA_BAD;) {
     DpaPath *p = c->paths.items[i];
-    if (p->node == node && p->parent == parent && p->position == pos)
+    if (p->key.hash == h && p->node == node && p->parent == parent &&
+        p->position == pos)
       return i;
-    i = p->key.next;
   }
-  DpaPath *p = dpa_alloc(c, 1, sizeof *p);
+  DpaPath *p = dpa_record(c, &c->paths, sizeof *p);
   if (!p)
     return DPA_BAD;
   uint32_t depth =

@@ -39,8 +39,51 @@ for name, digest in limits_update["added_sources_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
 
+row_update = json.loads((root.parents[2] / "tools/analysis/dpa-row-layout.json").read_text())
+assert row_update["date"] and row_update["reason"]
+assert row_update["checks"] == [
+    "full_release_research_tests", "dpa_translation_hashes",
+    "dpa_dag_translation_hashes", "dpa_deadline", "dpa_row_identity",
+    "proof_source_references", "golden_provenance", "no_external_oracles",
+    "lake_build", "clang_format",
+]
+assert row_update["changed_golden_hashes"] == 0
+assert set(row_update["source_rebindings"]) == {
+    "proofs/README.md",
+    "proofs/TlsfProofs/Dpa/Impl/Admission.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Buchi.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Classes.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Component.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Dual.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Extractor.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Factoring.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Selection.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Tags.lean",
+    "proofs/TlsfProofs/Dpa/Impl/Transport.lean",
+    "src/lib/dpa.c", "src/lib/dpa_dela.c", "src/lib/dpa_formula.c",
+    "src/lib/dpa_internal.h", "src/lib/dpa_zielonka.c",
+    "test/cli/check_golden_provenance.py", "test/cli/check_no_external_oracles.py",
+    "test/cli/check_proof_references.py", "test/unit/dpa_contract.c",
+    "test/unit/dpa_equivalence.cpp", "test/unit/meson.build", "tools/golden/test_gates.py",
+}
+for name, binding in row_update["source_rebindings"].items():
+    assert set(binding) == {"previous_sha256", "current_sha256"}
+    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
+    assert binding["previous_sha256"] != binding["current_sha256"], name
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == binding["current_sha256"], name
+assert set(row_update["preserved_artifacts_sha256"]) == {
+    "test/fixtures/golden/translation/hashes.tsv",
+    "test/fixtures/golden/translation/report.json",
+    "test/fixtures/golden/translation/dag/hashes.tsv",
+    "test/fixtures/golden/translation/dag/report.json",
+    "test/fixtures/golden/translation/dag/provenance.json",
+}
+for name, digest in row_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
 def rebound_digest(name, historical):
-    for update in (retirement, runtime_update, limits_update):
+    for update in (retirement, runtime_update, limits_update, row_update):
         binding = update["source_rebindings"].get(name)
         if binding:
             assert historical == binding["previous_sha256"], (name, "wrong historical source binding")

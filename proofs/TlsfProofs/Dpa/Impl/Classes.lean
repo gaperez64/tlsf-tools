@@ -3,7 +3,7 @@ import TlsfProofs.Dpa.Classes
 /-!
 # Executable propositional classes
 
-`src/lib/dpa_formula.c:3` interns Boolean functions, and `:64` obtains their
+`src/lib/dpa_formula.c:3` interns Boolean functions, and `:60` obtains their
 reduced Shannon children. This reference uses branch-pruned Shannon comparison
 over an explicit finite atom list, independently of a BDD manager.
 Frozen modal formulas are independent variables,

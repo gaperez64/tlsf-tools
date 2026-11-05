@@ -513,6 +513,13 @@ language claim. These are fresh per-instance, unbounded-language checks; they
 do **not** establish universal C implementation refinement, memory safety, BDD
 refinement, compiler correctness, or correctness of unvalidated runtime inputs.
 
+The row-layout optimization retains both the TV1 and DAG validation receipts,
+reports, and dump hashes. Its dated [source ledger](../tools/analysis/dpa-row-layout.json)
+extends the existing rebinding chain after the runtime and native-limit updates;
+it also binds the moved proof references and the 112 in-house row snapshots.
+The oracle guard reverses only the two recorded manifest additions and checks
+the original full-file hash, preserving every historical provenance byte.
+
 ### Source map
 
 These locations identify semantic algorithms and C operations covered by dump
@@ -528,60 +535,60 @@ theorems; no cache, trace, store-order, or compiler refinement is asserted.
 | `TlsfProofs/Dpa/Classes.lean:596` | `noncomputable def rho (x : Class ap) : Class ap` |
 | `TlsfProofs/Dpa/Converse.lean:35` | `inductive Pi2 : Formula α → Prop where` |
 | `TlsfProofs/Dpa/GeneralConverse.lean:862` | `theorem general_pi2_language (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)` |
-| `src/lib/dpa.c:253` | `c->max_priority = (c->components.n + 2) \| 1u;` |
-| `src/lib/dpa.c:306` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
-| `src/lib/dpa.c:652` | `if (!c->started) {` |
-| `src/lib/dpa.c:678` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
+| `src/lib/dpa.c:294` | `c->max_priority = (c->components.n + 2) \| 1u;` |
+| `src/lib/dpa.c:339` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
+| `src/lib/dpa.c:715` | `if (!c->started) {` |
+| `src/lib/dpa.c:743` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
 | `src/lib/dpa_dela.c:5` | `static uint32_t transition(TlsfDpa *c, uint32_t a, uint32_t r) {` |
 | `src/lib/dpa_dela.c:72` | `uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {` |
-| `src/lib/dpa_dela.c:93` | `static uint32_t component(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_dela.c:99` | `if (!c->buchi && p->dual == f)` |
-| `src/lib/dpa_dela.c:117` | `uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_dela.c:171` | `static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,` |
-| `src/lib/dpa_dela.c:205` | `static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {` |
-| `src/lib/dpa_dela.c:224` | `static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {` |
-| `src/lib/dpa_dela.c:259` | `result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);` |
-| `src/lib/dpa_dela.c:274` | `if (c->buchi) {` |
-| `src/lib/dpa_dela.c:280` | `priority = round->rejecting;` |
-| `src/lib/dpa_dela.c:310` | `uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {` |
-| `src/lib/dpa_dela.c:331` | `uint32_t dpa_dela_initial(TlsfDpa *c) {` |
+| `src/lib/dpa_dela.c:91` | `static uint32_t component(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_dela.c:100` | `if (!c->buchi) {` |
+| `src/lib/dpa_dela.c:126` | `uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_dela.c:178` | `static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,` |
+| `src/lib/dpa_dela.c:212` | `static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {` |
+| `src/lib/dpa_dela.c:231` | `static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf, DpaJointScratch **scratch) {` |
+| `src/lib/dpa_dela.c:277` | `result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);` |
+| `src/lib/dpa_dela.c:290` | `if (c->buchi) {` |
+| `src/lib/dpa_dela.c:296` | `priority = round->rejecting;` |
+| `src/lib/dpa_dela.c:324` | `uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {` |
+| `src/lib/dpa_dela.c:345` | `uint32_t dpa_dela_initial(TlsfDpa *c) {` |
 | `src/lib/dpa_formula.c:3` | `uint32_t dpa_class(TlsfDpa *c, Bdd owned) {` |
-| `src/lib/dpa_formula.c:50` | `uint32_t dpa_boolean(TlsfDpa *c, bool conjunction, uint32_t a, uint32_t b) {` |
-| `src/lib/dpa_formula.c:57` | `uint32_t dpa_ite(TlsfDpa *c, uint32_t v, uint32_t hi, uint32_t lo) {` |
-| `src/lib/dpa_formula.c:64` | `bool dpa_children(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:81` | `static unsigned tags_impl(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:120` | `unsigned dpa_tags(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:129` | `static void tag_bounds(TlsfDpa *c, uint32_t f, unsigned *lo, unsigned *hi) {` |
-| `src/lib/dpa_formula.c:159` | `bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask) {` |
-| `src/lib/dpa_formula.c:191` | `bool dpa_admitted(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:209` | `uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
-| `src/lib/dpa_formula.c:256` | `static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
-| `src/lib/dpa_formula.c:369` | `static uint32_t materialize(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:392` | `static uint32_t wrap_next(TlsfDpa *c, uint32_t f, unsigned next) {` |
-| `src/lib/dpa_formula.c:398` | `static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,` |
-| `src/lib/dpa_formula.c:509` | `static bool check_admission(TlsfDpa *c, uint32_t f, uint64_t epoch) {` |
-| `src/lib/dpa_formula.c:528` | `static uint32_t factor_term(TlsfDpa *c, uint32_t id) {` |
-| `src/lib/dpa_formula.c:557` | `static bool groupable(TlsfDpa *c, uint32_t id, uint64_t epoch) {` |
-| `src/lib/dpa_formula.c:568` | `static void group_operands(TlsfDpa *c, uint32_t id, TlsfAstKind op,` |
-| `src/lib/dpa_formula.c:588` | `static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {` |
-| `src/lib/dpa_formula.c:602` | `if (cosafety != (uint32_t)conjunction)` |
-| `src/lib/dpa_formula.c:616` | `uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:623` | `return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);` |
-| `src/lib/dpa_formula.c:628` | `static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {` |
-| `src/lib/dpa_formula.c:660` | `static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,` |
-| `src/lib/dpa_formula.c:706` | `static uint32_t unfold_atom_care(TlsfDpa *c, DpaAtom *atom, uint32_t cube,` |
-| `src/lib/dpa_formula.c:767` | `static uint32_t unfold_class_care(TlsfDpa *c, uint32_t f, uint32_t cube,` |
-| `src/lib/dpa_formula.c:823` | `uint32_t dpa_unfold(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:882` | `uint32_t dpa_step_dag(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:897` | `static void protected_term(TlsfDpa *c, uint32_t id, bool *protect,` |
-| `src/lib/dpa_formula.c:920` | `static void protected_x(TlsfDpa *c, uint32_t f, bool *protect, uint64_t epoch) {` |
-| `src/lib/dpa_formula.c:944` | `uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:977` | `uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:46` | `uint32_t dpa_boolean(TlsfDpa *c, bool conjunction, uint32_t a, uint32_t b) {` |
+| `src/lib/dpa_formula.c:53` | `uint32_t dpa_ite(TlsfDpa *c, uint32_t v, uint32_t hi, uint32_t lo) {` |
+| `src/lib/dpa_formula.c:60` | `bool dpa_children(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:77` | `static unsigned tags_impl(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:116` | `unsigned dpa_tags(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:125` | `static void tag_bounds(TlsfDpa *c, uint32_t f, unsigned *lo, unsigned *hi) {` |
+| `src/lib/dpa_formula.c:155` | `bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask) {` |
+| `src/lib/dpa_formula.c:187` | `bool dpa_admitted(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:205` | `uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
+| `src/lib/dpa_formula.c:251` | `static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
+| `src/lib/dpa_formula.c:362` | `static uint32_t materialize(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:385` | `static uint32_t wrap_next(TlsfDpa *c, uint32_t f, unsigned next) {` |
+| `src/lib/dpa_formula.c:391` | `static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,` |
+| `src/lib/dpa_formula.c:501` | `static bool check_admission(TlsfDpa *c, uint32_t f, uint64_t epoch) {` |
+| `src/lib/dpa_formula.c:520` | `static uint32_t factor_term(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_formula.c:549` | `static bool groupable(TlsfDpa *c, uint32_t id, uint64_t epoch) {` |
+| `src/lib/dpa_formula.c:560` | `static void group_operands(TlsfDpa *c, uint32_t id, TlsfAstKind op,` |
+| `src/lib/dpa_formula.c:580` | `static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_formula.c:594` | `if (cosafety != (uint32_t)conjunction)` |
+| `src/lib/dpa_formula.c:608` | `uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:615` | `return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);` |
+| `src/lib/dpa_formula.c:620` | `static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {` |
+| `src/lib/dpa_formula.c:652` | `static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,` |
+| `src/lib/dpa_formula.c:698` | `static uint32_t unfold_atom_care(TlsfDpa *c, DpaAtom *atom, uint32_t cube,` |
+| `src/lib/dpa_formula.c:759` | `static uint32_t unfold_class_care(TlsfDpa *c, uint32_t f, uint32_t cube,` |
+| `src/lib/dpa_formula.c:814` | `uint32_t dpa_unfold(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:872` | `uint32_t dpa_step_dag(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:887` | `static void protected_term(TlsfDpa *c, uint32_t id, bool *protect,` |
+| `src/lib/dpa_formula.c:910` | `static void protected_x(TlsfDpa *c, uint32_t f, bool *protect, uint64_t epoch) {` |
+| `src/lib/dpa_formula.c:934` | `uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {` |
+| `src/lib/dpa_formula.c:967` | `uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_zielonka.c:27` | `static void model(TlsfDpa *c, uint32_t f, uint64_t *set) {` |
 | `src/lib/dpa_zielonka.c:39` | `static uint32_t outside(TlsfDpa *c, const uint64_t *set,` |
 | `src/lib/dpa_zielonka.c:48` | `static bool before(TlsfDpa *c, const uint64_t *a, const uint64_t *b) {` |
 | `src/lib/dpa_zielonka.c:66` | `static uint32_t tree(TlsfDpa *c, const uint64_t *set) {` |
-| `src/lib/dpa_zielonka.c:153` | `static uint32_t path(TlsfDpa *c, uint32_t node, uint32_t parent, uint32_t pos) {` |
+| `src/lib/dpa_zielonka.c:154` | `static uint32_t path(TlsfDpa *c, uint32_t node, uint32_t parent, uint32_t pos) {` |
 | `src/lib/dpa_zielonka.c:177` | `static uint32_t leftmost(TlsfDpa *c, uint32_t id) {` |
 | `src/lib/dpa_zielonka.c:187` | `void dpa_tree_init(TlsfDpa *c) {` |
 | `src/lib/dpa_zielonka.c:198` | `uint32_t dpa_tree_step(TlsfDpa *c, uint32_t *leaf, const uint64_t *colours) {` |

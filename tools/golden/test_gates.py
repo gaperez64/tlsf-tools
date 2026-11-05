@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Independent evaluator boundaries and external-oracle guard mutation tests."""
+import copy
+import hashlib
 import importlib.util
 import itertools
 import json
@@ -19,6 +21,126 @@ def assert_rejected(action, label):
     except AssertionError:
         return
     raise AssertionError((label, "guard accepted mutant"))
+
+
+def check_frozen_additions(guard, root):
+    name = "test/fixtures/golden/provenance.json"
+    receipt = json.loads((ROOT / "tools/golden/historical-files.json").read_text())[name]
+    reference = receipt["additive_update"]
+    ledger = json.loads((ROOT / reference["ledger"]).read_text())
+    payload = (ROOT / name).read_bytes()
+    # Equality must preserve scalar types even through nested objects/arrays.
+    for value in (True, 1.0, 1.0000000000000001):
+        before = {"nested": [1]}
+        after = {"nested": [value]}
+        assert not guard.same_json_value(before, after)
+        assert not guard.same_json_value(after, before)
+    assert guard.same_json_value({"nested": [1, True, 1.0]}, {"nested": [1, True, 1.0]})
+    historical = guard.frozen_payload(ROOT, name, receipt)
+    assert hashlib.sha256(historical).hexdigest() == receipt["sha256"]
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path = root / reference["ledger"]
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def verify(binding):
+        restored = guard.frozen_payload(root, name, binding)
+        assert hashlib.sha256(restored).hexdigest() == receipt["sha256"]
+
+    def publish(candidate, update, rehash=False):
+        binding = copy.deepcopy(receipt)
+        if rehash:
+            update["manifest_additions"]["current_sha256"] = hashlib.sha256(candidate).hexdigest()
+        raw = (json.dumps(update, indent=2) + "\n").encode()
+        binding["additive_update"]["sha256"] = hashlib.sha256(raw).hexdigest()
+        path.write_bytes(candidate)
+        ledger_path.write_bytes(raw)
+        return binding
+
+    binding = publish(payload, copy.deepcopy(ledger))
+    assert guard.frozen_payload(root, name, binding) == historical
+    cases = 0
+
+    def reject(candidate, update, label):
+        nonlocal cases
+        binding = publish(candidate, update, rehash=True)
+        # The restoration boundary itself must reject mutants, even when all
+        # mutable hashes are refreshed and the historical freeze is unchanged.
+        assert binding["sha256"] == receipt["sha256"]
+        assert_rejected(lambda: guard.frozen_payload(root, name, binding), label)
+        cases += 1
+
+    def insert(offset, text, record=True):
+        update = copy.deepcopy(ledger)
+        entries = update["manifest_additions"]["insertions"]
+        for entry in entries:
+            if entry["offset"] >= offset:
+                entry["offset"] += len(text)
+        if record:
+            entries.append({"offset": offset, "text": text.decode()})
+            entries.sort(key=lambda entry: entry["offset"])
+        return payload[:offset] + text + payload[offset:], update
+
+    # Reproduce the review attacks with a third recorded insertion. Each
+    # removal still recovers the exact historical bytes, so hashes alone
+    # cannot reject these changes to the extended manifest.
+    index = payload.index(b'"index": 1,') + len(b'"index": 1')
+    count = payload.index(b'"cases": 436,') + len(b'"cases": 436')
+    for offset, text, label in (
+            (index, b', "index": true', "duplicate historical index shadowed by bool"),
+            (count, b'.0000000000000001', "historical integer rounded through float"),
+            (0, b' ', "recorded leading whitespace"),
+            (index, b', "unapproved": true', "third field insertion")):
+        candidate, update = insert(offset, text)
+        reject(candidate, update, label)
+    # An unrecorded whitespace change compares equal as parsed JSON; the
+    # restoration boundary must verify the original byte hash as well.
+    candidate, update = insert(0, b' ', record=False)
+    reject(candidate, update, "unrecorded historical whitespace")
+    # Exercise duplicate-key rejection with only the two approved insertions,
+    # including an equal-valued duplicate that ordinary dict equality hides.
+    for text in (b', "index": 1', b', "index": true'):
+        candidate, update = insert(index, text, record=False)
+        reject(candidate, update, "duplicate historical key")
+    update = copy.deepcopy(ledger)
+    offset = update["manifest_additions"]["insertions"][0]["offset"]
+    update["manifest_additions"]["insertions"][0]["offset"] = float(offset)
+    reject(payload, update, "non-integer insertion offset")
+    # A duplicate in the ledger is invalid too, even with a matching hash.
+    binding = publish(payload, copy.deepcopy(ledger))
+    raw = ledger_path.read_bytes().replace(b'"date":', b'"date": "shadowed", "date":', 1)
+    ledger_path.write_bytes(raw)
+    binding["additive_update"]["sha256"] = hashlib.sha256(raw).hexdigest()
+    assert_rejected(lambda: guard.frozen_payload(root, name, binding), "duplicate ledger key")
+    cases += 1
+    # Rehashing the current manifest and ledger cannot authorize changes to
+    # the original entries, their ordering, or their whitespace.
+    for candidate in (payload + b"\n", payload.replace(b'"status":', b'"changed_status":', 1),
+                      payload.replace(b'"automata": 112', b'"automata": 113', 1)):
+        binding = publish(candidate, copy.deepcopy(ledger), rehash=True)
+        assert_rejected(lambda: verify(binding), "historical/addition edit")
+        cases += 1
+    # Even with freshly recorded insertions, only the two named in-house
+    # fields are allowed, and their values cannot introduce a dependency.
+    for before, after in ((b'"row_identity": {', b'"unrecorded": true, "row_identity": {'),
+                          (b'"row_identity": {', b'"row_identity": { '),
+                          (b'"automata": 112', b'"automata": 112.0000000000000001'),
+                          (b'"automata": 112', b'"automata": NaN'),
+                          (b'"automata": 112', b'"automata": 112, "automata": 112'),
+                          (b'"row_identity": {', b'"wrong_path": {'),
+                          (b'"dpa_row_identity"', json.dumps(next(iter(guard.MODULES))).encode())):
+        candidate = payload.replace(before, after, 1)
+        assert candidate != payload
+        update = copy.deepcopy(ledger)
+        for entry in update["manifest_additions"]["insertions"]:
+            entry["text"] = entry["text"].replace(before.decode(), after.decode(), 1)
+        binding = publish(candidate, update, rehash=True)
+        assert_rejected(lambda: verify(binding), "unapproved addition")
+        cases += 1
+    binding = publish(payload, copy.deepcopy(ledger))
+    ledger_path.write_bytes(ledger_path.read_bytes() + b"\n")
+    assert_rejected(lambda: verify(binding), "changed addition ledger")
+    return cases + 1
 
 
 def check_guard_mutations(guard, root):
@@ -121,6 +243,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=ROOT / "build-sprint/tmp") as temp:
         root = Path(temp)
         mutants = check_guard_mutations(guard, root)
+        frozen_mutants = check_frozen_additions(guard, root)
         fake = root / "build/test/api/native_reduction"
         fake.parent.mkdir(parents=True)
         fake.write_text('#!/bin/sh\necho "injected erroneous decline" >&2\nexit 3\n')
@@ -152,6 +275,7 @@ def main():
     print(f"offline gates: {cases} direct semantic checks; {mutants} forbidden dependency mutants, "
           f"{len(guard.DATA['python_mutants'])} direct AST rejections, "
           f"{len(guard.DATA['valid_python'])} legitimate snippets accepted; "
+          f"{frozen_mutants} frozen-provenance mutants rejected; "
           "decline-everything and four failed certificates rejected; historical files untouched")
 
 

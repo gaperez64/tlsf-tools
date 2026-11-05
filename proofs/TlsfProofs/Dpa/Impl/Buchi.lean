@@ -3,10 +3,10 @@ import TlsfProofs.Dpa.Zielonka
 /-!
 # Executable positive-Boolean Büchi rounds
 
-`src/lib/dpa_dela.c:205` walks the acceptance BDD's Shannon children,
-substituting true for every colour on the current edge. `:274` resets a true
-residual and stores the completion bit in the target pair; `:280` exports the
-source pair's incoming bit. `src/lib/dpa.c:306` initializes that bit to
+`src/lib/dpa_dela.c:212` walks the acceptance BDD's Shannon children,
+substituting true for every colour on the current edge. `:290` resets a true
+residual and stores the completion bit in the target pair; `:296` exports the
+source pair's incoming bit. `src/lib/dpa.c:339` initializes that bit to
 acceptance != false.
 
 `ColourDag` exposes the same Shannon recursion. C's interned canonical true
@@ -100,9 +100,9 @@ theorem seenColours_exact (f : ColourDag m) (colours v : Fin m → Bool) :
 def PositiveColours (β : Skeleton m) : Prop :=
   ∀ a b, Subset a b → β a = true → β b = true
 
-/-- The acceptance grammar in `src/lib/dpa_formula.c:628`: constants,
+/-- The acceptance grammar in `src/lib/dpa_formula.c:620`: constants,
 positive Π₂ component colours, and Boolean conjunction/disjunction. C disables
-cached-dual sharing for this grammar (`src/lib/dpa_dela.c:99`). The component
+cached-dual sharing for this grammar (`src/lib/dpa_dela.c:100`). The component
 store/constructor bridge is separate from this round-monitor theorem. -/
 inductive PositiveAcceptance (m : Nat) where
   | constant : Bool → PositiveAcceptance m

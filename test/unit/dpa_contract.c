@@ -358,7 +358,99 @@ static void bounds(Arena *a, Node *p, Node *q) {
   tlsf_dpa_free(c);
 }
 
+static void table_interruption(TlsfDpa *c, DpaTable *t, bool insert) {
+  DpaSlot *saved = malloc(t->bins * sizeof *saved);
+  assert(saved);
+  memcpy(saved, t->buckets, t->bins * sizeof *saved);
+  DpaSlot *buckets = t->buckets;
+  uint32_t n = t->n, bins = t->bins;
+  DpaKey item = {.hash = UINT32_MAX};
+  for (unsigned deadline = 0; deadline < 2; ++deadline) {
+    // Entry/allocations and per-record rehash polls precede the first
+    // 64-slot collision poll. Spare capacity avoids allocations otherwise.
+    unsigned stop = !insert ? 1 : n < bins / 2 ? 2 : 68 + (t->n == t->cap);
+    c->status = (TlsfDpaStatus){0};
+    c->budget = (TlsfDpaBudget){.cancelled = cancel_callback,
+                                .deadline_mono_ns = deadline ? 1 : 0};
+    c->deadline_polls = 1u - stop;
+    poll_count = 0;
+    cancel_at = deadline ? 0 : (int)stop;
+    if (insert)
+      assert(!dpa_insert(c, t, &item));
+    else {
+      // Matching tags return between collisions; the distance must persist
+      // across those calls. This also wraps the uint32_t scan cursor.
+      uint32_t slot = UINT32_MAX;
+      while (dpa_probe(c, t, item.hash, &slot) != DPA_BAD) {
+      }
+      assert(slot == 63);
+    }
+    assert(c->status.code == TLSF_DPA_DECLINED &&
+           c->status.reason ==
+               (deadline ? TLSF_DPA_DEADLINE : TLSF_DPA_CANCELLED));
+    assert(poll_count == (int)stop);
+    assert(t->n == n && t->bins == bins && t->buckets == buckets);
+    assert(!memcmp(saved, buckets, bins * sizeof *saved));
+  }
+  c->status = (TlsfDpaStatus){0};
+  c->budget = (TlsfDpaBudget){0};
+  free(saved);
+}
+
+static void tables(void) {
+  TlsfDpa *c = calloc(1, sizeof *c);
+  assert(c);
+  c->bytes = sizeof *c;
+  DpaTable *t = &c->dags;
+  DpaDag *saved[257];
+  for (uint32_t i = 0; i < 257; ++i) {
+    saved[i] = dpa_record(c, t, sizeof *saved[i]);
+    assert(saved[i]);
+    // Same starting slot, alternating tags, distinct full hashes. Also wrap
+    // around the end of every bucket array while growing it.
+    *saved[i] = (DpaDag){.key.hash = ((uint64_t)(i % 2) << 32) |
+                                     ((uint64_t)i << 16) | 1023,
+                         .low = i};
+    if (i == 256)
+      table_interruption(c, t, true); // interruption inside rehash
+    assert(dpa_insert(c, t, saved[i]));
+    assert(t->n <= t->bins / 2);
+  }
+  for (uint32_t i = 0; i < t->n; ++i) {
+    assert(t->items[i] == saved[i] && saved[i]->low == i);
+    uint64_t h = saved[i]->key.hash;
+    uint32_t slot = (uint32_t)h, id;
+    bool found = false;
+    while ((id = dpa_probe(c, t, h, &slot)) != DPA_BAD) {
+      DpaDag *d = t->items[id];
+      assert((d->key.hash >> 32) == (h >> 32));
+      if (d->key.hash == h) {
+        assert(id == i);
+        found = true;
+      }
+    }
+    assert(found);
+  }
+  // Short probes do not poll. Long walks poll even without any tag matches.
+  c->budget.cancelled = cancel_callback;
+  poll_count = 0;
+  uint32_t slot = 1023;
+  assert(dpa_probe(c, t, 1023, &slot) == 0 && poll_count == 0);
+  slot = 1023;
+  cancel_at = 1;
+  assert(dpa_probe(c, t, (UINT64_C(2) << 32) | 1023, &slot) == DPA_BAD);
+  assert(c->status.reason == TLSF_DPA_CANCELLED && slot == 1087);
+  table_interruption(c, t, false);
+  table_interruption(c, t, true); // insertion without growth
+  size_t bytes = c->bytes;
+  c->budget.max_host_bytes = bytes;
+  assert(!dpa_record(c, t, 8192));
+  assert(c->status.reason == TLSF_DPA_HOST_LIMIT && c->bytes == bytes);
+  tlsf_dpa_free(c);
+}
+
 int main(void) {
+  tables();
   Arena *a = arena_new(4096);
   Node *p = node_ap(a, "a"), *q = node_ap(a, "b");
   Node *delayed = p;

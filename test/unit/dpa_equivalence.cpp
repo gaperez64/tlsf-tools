@@ -215,6 +215,32 @@ static std::string hoa(TlsfDpa *c, uint32_t n_inputs) {
 
 static bool buchi_mode = false;
 static unsigned buchi_admitted = 0, buchi_declined = 0;
+static std::ofstream rows_capture;
+static std::ifstream rows_expected;
+
+static void check_rows(TlsfDpa *c, const std::string &text, bool research) {
+  std::ostringstream out;
+  out << text << '\t' << research << ' ' << tlsf_dpa_state_count(c) << ' '
+      << tlsf_dpa_initial(c) << ' ' << tlsf_dpa_max_priority(c);
+  for (uint32_t state = 0; state < tlsf_dpa_state_count(c); ++state) {
+    const TlsfDpaEdge *edges;
+    size_t count;
+    CHECK(tlsf_dpa_successors(c, state, &edges, &count).code == TLSF_DPA_OK);
+    out << " | " << count;
+    for (size_t i = 0; i < count; ++i)
+      out << ' ' << edges[i].label << ',' << edges[i].successor << ','
+          << edges[i].priority;
+  }
+  if (rows_capture.is_open())
+    rows_capture << out.str() << '\n';
+  else {
+    std::string expected;
+    CHECK(bool(std::getline(rows_expected, expected)));
+    if (out.str() != expected)
+      std::cerr << "row identity mismatch: " << text << '\n';
+    CHECK(out.str() == expected);
+  }
+}
 
 static void check(const std::string &text, bool allow_unproved = false,
                   bool expect_bdd_limit = false,
@@ -311,6 +337,8 @@ static void check(const std::string &text, bool allow_unproved = false,
     tlsf_dpa_free(c);
     exit(status.code == TLSF_DPA_DECLINED ? 77 : 1);
   }
+  if (rows_capture.is_open() || rows_expected.is_open())
+    check_rows(c, text, allow_unproved);
   std::string serialized = hoa(c, n_inputs);
   CHECK(serialized.find("controllable-AP: 3 4 5 6\n") != std::string::npos);
   CHECK(serialized.find("AP: 7 \"unused_in\" \"req\" \"a\" \"unused_out\" "
@@ -335,6 +363,16 @@ static void check(const std::string &text, bool allow_unproved = false,
 
 int main(int argc, char **argv) {
   load_goldens();
+  // Capture against the unchanged library before changing construction code.
+  if (argc == 3 && std::string(argv[1]) == "--write-rows") {
+    rows_capture.open(argv[2]);
+    CHECK(rows_capture);
+    argc = 1;
+  } else if (argc == 2 && std::string(argv[1]) == "--rows") {
+    rows_expected.open(std::string(DPA_GOLDEN_DIR) + "/rows.tsv");
+    CHECK(rows_expected);
+    argc = 1;
+  }
   if (argc == 2 && std::string(argv[1]) == "--buchi") {
     buchi_mode = true;
     for (const auto &[text, reference] : references) {
@@ -470,4 +508,8 @@ int main(int argc, char **argv) {
            "((G F a & F G b) | (G F c & F G a)) <-> (G F b)",
        })
     check(text, true);
+  if (rows_expected.is_open()) {
+    std::string extra;
+    CHECK(!std::getline(rows_expected, extra));
+  }
 }
