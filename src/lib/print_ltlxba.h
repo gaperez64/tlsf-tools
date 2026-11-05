@@ -3,13 +3,13 @@
 
 /// print_ltlxba.h — print LTL formulas in the ltlxba format.
 ///
-/// ltlxba is the format expected by ltl2ba, spot (--formula), and similar
+/// ltlxba is the format expected by ltl2ba, ASCII LTL consumers, and similar
 /// tools.  Operators:
 ///   !φ   &&   ||   ->   <->
 ///   X φ  F φ  G φ  φ U ψ  φ R ψ  φ W ψ  φ M ψ
 ///
 /// By default output uses the minimal parentheses required by the operator
-/// precedence shared by spot/ltl2ba and the TLSF arXiv papers (tightest
+/// precedence shared by ASCII LTL and the TLSF arXiv papers (tightest
 /// first):  unary (! X F G) > U R W M > && > || > -> <->.  Passing
 /// full_parens=true parenthesises every compound subformula instead.
 
@@ -21,7 +21,7 @@
 
 /// Output dialect for LTL formulas.  All three share the same precedence and
 /// parenthesisation logic; they differ only in operator spelling.
-///   LTL_FMT_LTLXBA : ltl2ba / spot ASCII (default)
+///   LTL_FMT_LTLXBA : ASCII LTL (default)
 ///   LTL_FMT_LTL    : pure-LTL ASCII, matching `syfco -f ltl`
 ///   LTL_FMT_LATEX  : LaTeX math (e.g. \land, \mathsf{G}, ...)
 typedef enum LtlFormat {
@@ -62,14 +62,15 @@ typedef enum PrintMode {
 /// a newline.  `full_parens` fully parenthesises; `finite` selects finite-word
 /// rendering of the strong next (X[!]).  `lower_atoms` lowercases atom names --
 /// an optional compatibility convention for classic ltl2ba/SyFCo workflows.
-/// Spot accepts case-preserving TLSF identifiers.
+/// The quoted dialect accepts case-preserving TLSF identifiers.
 [[nodiscard]] bool print_ltl(FILE *out, const Node *root, LtlFormat fmt,
                              bool full_parens, bool finite, bool lower_atoms);
 
-/// Print Spot input with quoted atoms, preserving names such as Grant (which
-/// Spot otherwise reads as G rant). Includes a trailing newline.
-[[nodiscard]] bool print_spot_ltl(FILE *out, const Node *root, bool finite,
-                                  bool lower_atoms);
+/// Print LTL input with quoted atoms, preserving names such as Grant (which
+/// a classic unquoted parser otherwise reads as G rant). Includes a trailing
+/// newline.
+[[nodiscard]] bool print_quoted_ltl(FILE *out, const Node *root, bool finite,
+                                    bool lower_atoms);
 
 /// Convenience: assemble the spec formula (ltlxba dialect) and print it.
 /// Retained for callers that do not apply transforms.

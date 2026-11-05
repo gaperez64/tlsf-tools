@@ -13,7 +13,7 @@ class Golden:
         self.position = 0
 
     def source(self, path):
-        """Offline recorders may use the source for independent confirmation."""
+        """Source hook retained by read-only verification harnesses."""
 
     def enabled(self, label):
         skipped = json.loads((ROOT / "skipped.json").read_text())
@@ -36,8 +36,25 @@ class Golden:
 
     def artifacts(self, directory):
         directory = Path(directory)
-        self.check("artifacts", {p.name: p.read_text() for p in sorted(directory.iterdir())
-                                  if p.is_file()})
+        actual = {p.name: p.read_text() for p in sorted(directory.iterdir()) if p.is_file()}
+        label, historical = self.records[self.position]
+        assert label == "artifacts"
+        # Frozen driver programs are historical data, bound by the provenance
+        # hash. Current drivers are exercised by check_compose_solver.py.
+        # Formula bytes and controller exports still compare exactly. Match a
+        # renamed formula artifact by cluster stem, never by backend name.
+        expected = {}
+        for name, value in historical.items():
+            if name == "compose.sh":
+                continue
+            if name not in actual and name.startswith("cluster."):
+                name = name.rsplit(".", 1)[0] + ".formula"
+                assert name in actual, (self.name, "missing formula artifact", name)
+            assert name not in expected, (self.name, "ambiguous historical artifact", name)
+            expected[name] = value
+        actual.pop("compose.sh", None)
+        assert actual == expected, (self.name, self.position, "stable exported artifacts")
+        self.position += 1
 
     def language(self, formula, names, words, actual):
         self.check("language", [formula, names, words, actual])

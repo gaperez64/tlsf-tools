@@ -96,7 +96,7 @@ bool aig_until_monitor_parts(TlsfSpec *spec, const Node *root, Gr1Parts *p);
 bool aig_gr1_parts(Arena *a, const Node *root, Gr1Parts *p);
 Node *bound_liveness(Arena *a, const Node *n, uint32_t k, bool pos);
 ClusterShape cluster_shape(TlsfSpec *spec, const Node *root);
-const char *cluster_ltlsynt_reason(const ClusterShape *shape, bool finite,
+const char *cluster_unknown_reason(const ClusterShape *shape, bool finite,
                                    char *buf, size_t buf_sz);
 
 // ---- compose_games.c ------------------------------------------------------

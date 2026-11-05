@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-04",
+  "reason": "Retire external oracle tooling. Bound library changes only rename private quoted-LTL helpers or edit comments; the provenance test reads this additive source ledger. No construction or proof changes. Original receipts remain byte-identical.",
+  "checks": [
+    "full_release_research_tests",
+    "dpa_translation_hashes",
+    "dpa_dag_translation_hashes",
+    "kernel_checked_receipt_replay"
+  ],
+  "source_rebindings": {
+    "include/tlsf/aiger.h": {
+      "previous_sha256": "ce10ee0d73a562a16b32804d135f50905dafd48b3ca1424e8e28ec34a6fc835d",
+      "current_sha256": "840df6c6862cbe5d90feccefbbae04980640f6d562b83932eb6838fcfb79397d"
+    },
+    "include/tlsf/safety_oxidd.h": {
+      "previous_sha256": "79f904c39a5f846f3cff355b15acab636a18a26e9cc26844e7dc6a1f301b746f",
+      "current_sha256": "1de6a09b35fb5f2b85a4e760dc7143693051c0fb6617fdba27d8104abd749c51"
+    },
+    "src/lib/gr1_oxidd.c": {
+      "previous_sha256": "53709530a57a46d59d727a41b03b124dc18296d6b4a069be692051cba41121bd",
+      "current_sha256": "459519baf266d357014087f7df5454b95d97ea2a60f727237465853d995e88c4"
+    },
+    "src/lib/precheck_unreal.h": {
+      "previous_sha256": "277e2e5b4d7c987c4b1552e03212a13375ba8d1cf759268be0ed04369931c4b0",
+      "current_sha256": "83fc6c388d21c93c0a764127bf44ecfc2ba4f8c7fbbaf467fb69715e854b23d8"
+    },
+    "src/lib/print_ltlxba.c": {
+      "previous_sha256": "f3cdd5103ba9c3cd7e25230672562c86d4de663d7d6b9bc766ba2af869137929",
+      "current_sha256": "6216de57751e0e0811e91e4f32d8a1c2245045cdbb6e119a393d6bacc565357f"
+    },
+    "src/lib/print_ltlxba.h": {
+      "previous_sha256": "f432a4fd3f78575bf90588e2931a00d1b4e1061c88a2daf705db10b89350ea96",
+      "current_sha256": "2c108c10264931a9d1d86681fae11632c4c356fcb99e7b1c54e9f8ecefa58a80"
+    },
+    "src/lib/rewrite.h": {
+      "previous_sha256": "86e376d1ba1ca5567e103d089b09e5144546670fcf2ab72faf253bfce4da92cc",
+      "current_sha256": "36fd76714ca578eca5e3eafebd64300e8a538f8268cfc27aa58aed45e33e0aec"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "9ac9cc196158dcefad55ab33f16c5eb1e5b1814dd1afc53fa4dcc4550e3bc61e",
+      "current_sha256": "97b0d6a94163be8cb21ffb25d3be633ea6db9541a5016caf6b0214ae830d289f"
+    }
+  }
+}

@@ -6,7 +6,7 @@
 #include "section_pattern.h"
 
 typedef enum {
-  ROUTE_OUTPUT_FREE_LTLSYNT,
+  ROUTE_OUTPUT_FREE_UNKNOWN,
   ROUTE_DIRECT_SAFETY,
   ROUTE_STRICT_SAFETY,
   ROUTE_WR_SAFETY,
@@ -15,7 +15,7 @@ typedef enum {
   ROUTE_EVENTUAL_MONITOR_GR1,
   ROUTE_UNTIL_MONITOR_GR1,
   ROUTE_GR1,
-  ROUTE_LTLSYNT,
+  ROUTE_UNKNOWN,
 } ComposeRouteKind;
 
 typedef struct {

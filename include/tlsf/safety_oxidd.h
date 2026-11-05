@@ -25,7 +25,7 @@
 /// (so the caller's `aig_strip_output_prefix("controllable_")` recovers the
 /// spec output name).  On an unrealizable game sets `*unreal = 1` and returns
 /// nullptr; on an internal error returns nullptr with `*unreal = 0` (caller
-/// falls back to ltlsynt, exactly like the AbsSynthe path).
+/// reports UNKNOWN unless another exact route succeeds).
 [[nodiscard]] Aig *solve_safety_oxidd(Aig *game, int *unreal);
 
 /// Solve with a caller-supplied OxiDD profile. Takes ownership of `game`.

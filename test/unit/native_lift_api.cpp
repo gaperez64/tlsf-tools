@@ -1,6 +1,7 @@
 #include "tlsf/gr1_lift.h"
 #include "tlsf/pipeline.h"
 #include "yyjson_cpp.hh"
+#include "resource_usage.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -77,8 +78,12 @@ static int mutate_after_snapshot(void *raw) {
 }
 static void tighten_rss_after_window(void *context, TlsfGr1LiftStatsStage stage,
                                      const TlsfGr1LiftStageStats *) {
-  if (stage == TLSF_GR1_LIFT_STATS_SEED_WINDOW)
-    static_cast<TlsfGr1LiftOptions *>(context)->budget.max_rss_bytes = 1;
+  if (stage == TLSF_GR1_LIFT_STATS_SEED_WINDOW) {
+    uint64_t current = 0;
+    CHECK(tlsf_current_rss_bytes(&current) && current > 1);
+    static_cast<TlsfGr1LiftOptions *>(context)->budget.max_rss_bytes =
+        current / 2;
+  }
 }
 static TlsfGr1LiftOptions options() {
   TlsfGr1LiftOptions o{};
@@ -455,6 +460,7 @@ int main() {
   CHECK(!strcmp(error.stage, "budget-memory") && strstr(error.message, "seed"));
   CHECK(stats.work.peak_rss_bytes > o.budget.max_rss_bytes);
   CHECK(!result.game_aag && !result.certificate_aag);
+  CHECK(result.verdict == TLSF_GR1_CHECK_UNKNOWN);
   std::string mutable_source(source);
   Mutate mutation{mutable_source.data(), 0};
   o = options();

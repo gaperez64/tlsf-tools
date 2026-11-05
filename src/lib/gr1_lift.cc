@@ -130,13 +130,9 @@ struct StatsScope {
     event.calls = work_counter ? *work_counter - work_start : 1;
     auto &row = stats->stages[stage];
     event.rss_kb = -1;
-    if (FILE *file = fopen("/proc/self/status", "r")) {
-      char line[256];
-      while (fgets(line, sizeof line, file))
-        if (sscanf(line, "VmRSS: %ld kB", &event.rss_kb) == 1)
-          break;
-      fclose(file);
-    }
+    uint64_t rss_bytes = 0;
+    if (tlsf_current_rss_bytes(&rss_bytes))
+      event.rss_kb = (long)(rss_bytes / 1024u);
     rusage usage{};
     getrusage(RUSAGE_SELF, &usage);
     event.peak_rss_kb = usage.ru_maxrss;
@@ -3008,6 +3004,7 @@ extern "C" void tlsf_gr1_lift_result_clear(TlsfGr1LiftResult *result) {
   free(result->check_json);
   free(result->evidence_json);
   memset(result, 0, sizeof *result);
+  result->verdict = TLSF_GR1_CHECK_UNKNOWN;
 }
 extern "C" TlsfGr1LiftStatus
 tlsf_gr1_lift(const uint8_t *source, size_t source_size,
@@ -3029,6 +3026,7 @@ tlsf_gr1_lift(const uint8_t *source, size_t source_size,
                "result must be empty");
     return TLSF_GR1_LIFT_INVALID;
   }
+  result->verdict = TLSF_GR1_CHECK_UNKNOWN;
   TlsfGr1LiftTarget *target = nullptr;
   auto status = tlsf_gr1_lift_target_prepare(
       source, source_size, target_overrides, target_override_count, options,
@@ -3144,6 +3142,7 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
     return TLSF_GR1_LIFT_INVALID;
   }
   memset(result, 0, sizeof *result);
+  result->verdict = TLSF_GR1_CHECK_UNKNOWN;
   auto status = invoke_lift(
       [&] {
         auto cfg = lift_config(options);
@@ -3196,6 +3195,7 @@ extern "C" void tlsf_gr1_both_result_clear(TlsfGr1BothResult *result) {
     return;
   tlsf_gr1_lift_result_clear(&result->proof);
   memset(result, 0, sizeof *result);
+  result->proof.verdict = TLSF_GR1_CHECK_UNKNOWN;
 }
 
 extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
@@ -3245,6 +3245,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     return TLSF_GR1_LIFT_INVALID;
   }
   memset(result, 0, sizeof *result);
+  result->proof.verdict = TLSF_GR1_CHECK_UNKNOWN;
   result->target_reductions = 1;
   auto status = invoke_lift(
       [&] {
@@ -3553,6 +3554,7 @@ extern "C" void tlsf_gr1_env_lift_result_clear(TlsfGr1EnvLiftResult *result) {
   free(result->policy_json);
   free(result->check_json);
   memset(result, 0, sizeof *result);
+  result->verdict = TLSF_GR1_CHECK_UNKNOWN;
 }
 
 static TlsfGr1LiftStatus env_lift_entry(const TlsfGr1LiftTarget *target,

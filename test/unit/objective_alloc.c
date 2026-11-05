@@ -119,6 +119,23 @@ int __wrap_fprintf(FILE *out, const char *fmt, ...) {
   va_end(args);
   return rc;
 }
+#ifdef __GLIBC__
+// Ubuntu enables _FORTIFY_SOURCE by default in optimized builds. Its stdio
+// headers redirect fprintf to __fprintf_chk, bypassing the ordinary wrapper.
+// Keep the same one-shot failure without setting the FILE error indicator,
+// and preserve fortification on successful writes.
+int __vfprintf_chk(FILE *, int, const char *, va_list);
+int __wrap___fprintf_chk(FILE *, int, const char *, ...);
+int __wrap___fprintf_chk(FILE *out, int flag, const char *fmt, ...) {
+  if (write_fault(out))
+    return -1;
+  va_list args;
+  va_start(args, fmt);
+  int rc = __vfprintf_chk(out, flag, fmt, args);
+  va_end(args);
+  return rc;
+}
+#endif
 int __real_fputs(const char *, FILE *);
 int __wrap_fputs(const char *, FILE *);
 int __wrap_fputs(const char *s, FILE *out) {

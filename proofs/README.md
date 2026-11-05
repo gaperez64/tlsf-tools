@@ -191,7 +191,7 @@ ports, not verification of C or other CSNF template families.
 | `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:834–838` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
-The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1057`.
+The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1063`.
 `normalize_definitions` establishes every reconstructed equation;
 `play_decorate` supplies its Mealy implementation.
 
@@ -228,8 +228,9 @@ tlsfresidual, tlsfcompose, tlsftemplates, and tlsfbenchgraph share it;
 `conversion_prepare`/tlsf2ltl share validation. Differing finite SEMANTICS/TARGET,
 including overrides, are refused explicitly; no finite adaptation is proved.
 Infinite adaptation, including implicit inputs, remains trusted. Drivers use
-effective TARGET: Moore bypasses input-first OxiDD and uses input-delay ltlsynt
-checks; finite residuals use explicit Mealy/Moore ltlfsynt. Controller export
+effective TARGET: Moore bypasses input-first OxiDD; finite and Moore residuals
+return UNKNOWN unless a command is explicitly selected. Moore verdict exports
+use input-delay encoding; finite commands carry explicit Mealy/Moore semantics. Controller export
 refuses finite/Moore contracts it does not implement.
 
 Empty Lean sections are `tt`; absent/dropped C sections must agree, including
@@ -262,7 +263,7 @@ environments; `finite_split_fails` prevents combining arbitrary finite prefixes.
 Printers/escaping/AP names must preserve the AST and weak/strong next. Compiled
 controllers must realize composed letter maps, not order-sensitive simultaneous
 assignments of unexpanded values. Solver/export frontends need the positive
-system objective and identical ownership. In particular, ltlfsynt must implement
+system objective and identical ownership. In particular, a finite-game command must implement
 `FinWin`: some nonempty winning prefix for every play. External solvers, ending
 conventions, printing, and reported trust labels remain unverified.
 
@@ -372,20 +373,22 @@ all real failures are retained/minimized and prevent general admission. Enableme
 requires zero failures among completed cases.
 
 ```sh
-mkdir -p build-scratch-t/tmp
-export TMPDIR="$PWD/build-scratch-t/tmp" LEAN_NUM_THREADS=1
+mkdir -p build-sprint/tmp
+export TMPDIR="$PWD/build-sprint/tmp" LEAN_NUM_THREADS=1
+export PATH="$HOME/.elan/bin:$PATH"
+export LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0 CARGO_BUILD_JOBS=1
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson setup build-scratch-t/c-tv -Dbuildtype=release -Dresearch_tools=true
+  meson setup build-sprint/release -Dbuildtype=release -Dresearch_tools=true
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson compile -C build-scratch-t/c-tv -j2 dpa_dump tv_inventory
+  meson compile -C build-sprint/release -j1 dpa_dump tv_inventory
 systemd-run --user --scope -q -p MemoryHigh=4G -p MemoryMax=5G -p MemorySwapMax=0 \
-  python3 tools/golden/translation_validate.py --build build-scratch-t/c-tv
+  python3 tools/golden/translation_validate.py --build build-sprint/release
 ```
 
-Transient files/TMPDIR/dumps stay in `build-scratch-t/`; only hashes, verdicts,
+Transient validator files/TMPDIR/dumps stay in `build-sprint/`; only hashes, verdicts,
 counts, failures, and provenance go to `test/fixtures/golden/translation/`.
-The C-only CI gate recomputes identical dumps. Total golden budget is 4,613,734
-bytes (4.4 MiB). Runs always execute fresh C/Lean checks, retaining scratch
+The C-only CI gate recomputes identical dumps. Total golden budget is 4,400,000
+bytes (4.4 MB). Runs always execute fresh C/Lean checks, retaining scratch
 progress if interrupted. `--set` never publishes fixtures; full audits use the
 unfiltered command without inventory reuse.
 
@@ -415,6 +418,100 @@ retains `!(G F (b & X false))` under both admissions and
 `true U (b -> (b xor G a))` under default admission. Original/minimized forms pass
 with the proved Buchi-to-parity comparison. Both minimized formulas and complements
 are permanent cases; protocol tests still reject a wrong acceptance table.
+
+### Formula-DAG decoding and signed objectives (#103)
+
+`TlsfProofs/Dpa/FormulaDag.lean` models the public record decoder independently
+of automaton construction. `Node.valid` uses the public `TlsfAstKind` numbers:
+0/1/2 are true/false/AP, 3/8/10/11 are NOT/X/F/G, and 4–7/12–15 are
+AND/OR/IMPL/EQUIV/U/R/W/M. Kind 9 (strong next), negative/unknown enum values,
+and high-level or quantified syntax are rejected. Exact arity is mandatory:
+each used child is strictly smaller than its record index, each unused child
+is `UINT32_MAX`, AP records have an in-range AP index, and every other record's
+AP field is `UINT32_MAX`. The checks cover all records, including unreachable
+ones. Sharing children, including two equal children, is allowed.
+
+`Accepted` includes bounded uint32 records/counts, an in-range root, and
+distinct usable names in the complete input-then-output array. Names are
+abstract: the C correspondence instantiates them with byte strings up to the
+first NUL, with usable meaning non-null and nonempty. It assumes valid readable
+storage and a non-null output pointer. The corresponding C envelope also
+rejects null nodes, zero nodes, missing nonempty input/output arrays, overflow
+of the summed declaration counts, and acceptance kinds other than parity/Büchi.
+`test/api/dpa_dag.c` regresses these rejections and every relied-on record/name
+check, including unreachable invalid records and unused invalid declarations.
+The mathematical acceptance predicate describes structural admission only;
+it does not predict successful allocation, depth admission, supported monitor
+grammar, cancellation, deadlines, or completion. C may decline structurally
+valid inputs for those reasons. The public API still copies retained data.
+
+`denoteNode` interprets the DAG directly on infinite words. `decodeNode_meaning`
+proves its equality with formula satisfaction by strong induction on node
+indices, at every word position. `decode_root_meaning` selects the supplied
+root without requiring it to be last; `decode_indexed_meaning` connects the
+validator's finite AP indices. `ordered_ap`, `input_order`, and `output_order`
+retain the exact declaration map, including unused declarations. Totalizing
+defaults for malformed indices do not relax `Node.valid`. No unique-parent or
+tree-unfolding-size assumption is used. The main results are included in
+`tools/golden/dag_decode_audit.lean`; validator results are audited in
+`tools/golden/dpa_impl_audit.lean`. They use only the permitted core axioms.
+
+The offline protocol adds this request form (whitespace separates tokens):
+
+```text
+TVD1 parity|buchi default|general input-count output-count names...
+positive|negative objective <prefix whole effective-Mealy phi>
+normalization caller-trusted
+dag node-count root
+<numeric kind left right ap, repeated node-count times>
+```
+
+Unlike the C API's arbitrary nonempty byte strings, this protocol supports
+nonempty UTF-8 AP names without whitespace and at most 16 APs/4096 records.
+The dump repeats the entire header, including the AP partition/order, signed
+objective and every DAG record, then uses the existing complete sorted state
+table. A changed root, unused record, acceptance kind, partition, AP order,
+objective or polarity is rejected. `Request.source` computes normalized psi
+from the DAG, so a separately supplied formula cannot override it.
+
+`validate_dag_parity_sound` and `validate_dag_buchi_sound` establish that a
+successfully checked decoded automaton recognizes the direct DAG denotation
+for every infinite word. `validate_signed_parity_sound` and
+`validate_signed_buchi_sound` separately require `NormalizationPremise`:
+psi is equivalent to the signed **whole** objective (positive phi or negative
+NOT phi). This premise is explicitly trusted from the caller. Neither the
+validator nor its receipt proves the caller's normalization or extraction of
+the whole effective-Mealy objective. The external normalizer is outside this
+repository. A receipt against psi alone never certifies the original objective.
+
+Only a successful full C expansion is serialized. Every enumerated letter
+must match exactly one edge, every target must be valid, and rows must remain
+closed and complete. The Lean reader independently rejects missing, duplicate,
+unsorted, partial or out-of-range rows. Parity uses **max-odd**; Büchi uses
+uniform source-state priorities 0/1 with recurring 1 accepting. Unsupported
+inputs, resource declines, cancellations, deadlines and incomplete attempts
+produce no validated hash. C regressions cover sticky declines and ownership;
+protocol checks cover binding, malformed records, incomplete tables and wrong
+languages. Historical TV1 successful dumps are unchanged.
+
+Run a fresh serial check from the repository root after committing the input
+and validator sources:
+
+```sh
+python3 tools/golden/translation_validate.py --build build-sprint/release --dag
+```
+
+The dedicated [DAG receipt](../test/fixtures/golden/translation/dag/provenance.json)
+binds the source revision and SHA-256 inputs, C dumper and Lean validator
+executables, build configuration, exact requests, successful dump hashes and
+all outcomes. Fixtures cover sharing, a nonfinal root, reordered and unused
+case-sensitive AP declarations, both whole-objective polarities, both admission
+policies, and parity/Büchi (including unsupported Büchi outcomes). The ordinary
+whole objective in these fixtures keeps all section defaults and varies its
+guarantee. The normalization premise is recorded separately from the checked
+language claim. These are fresh per-instance, unbounded-language checks; they
+do **not** establish universal C implementation refinement, memory safety, BDD
+refinement, compiler correctness, or correctness of unvalidated runtime inputs.
 
 ### Source map
 
@@ -489,3 +586,10 @@ theorems; no cache, trace, store-order, or compiler refinement is asserted.
 | `src/lib/dpa_zielonka.c:187` | `void dpa_tree_init(TlsfDpa *c) {` |
 | `src/lib/dpa_zielonka.c:198` | `uint32_t dpa_tree_step(TlsfDpa *c, uint32_t *leaf, const uint64_t *colours) {` |
 | `src/lib/dpa_zielonka.c:231` | `return c->max_priority - priority;` |
+
+Offline verification now uses `tools/golden/regenerate.py --build
+build-sprint/release --translation` to replay the frozen passing receipts
+without changing dates, hashes or claims. Membership expectations are independently
+rederived by direct word semantics. General realizability and historical exact
+normalization equivalence stay frozen where native checks cannot renew them;
+see [the golden guide](../test/fixtures/golden/README.md).

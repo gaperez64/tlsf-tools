@@ -13,7 +13,8 @@ import translation_validate as tv
 
 class BudgetTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=tv.ROOT / "build-scratch-t")
+        tv.SCRATCH.parent.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=tv.SCRATCH.parent)
         self.addCleanup(self.temp.cleanup)
         self.scratch = Path(self.temp.name)
         self.scope = patch.object(tv, "SCRATCH", self.scratch)

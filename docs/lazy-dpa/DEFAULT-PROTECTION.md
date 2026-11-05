@@ -1,3 +1,7 @@
+> Frozen historical measurement report. References below describe the retired
+> Spot 2.16 origin of the measurements, not current setup or commands. Current
+> verification uses [in-house checks](../../test/fixtures/golden/README.md).
+
 # Syntactic X protection in default admission
 
 Keep syntactic X protection in both modes. It preserves default admission but

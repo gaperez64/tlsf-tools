@@ -123,7 +123,8 @@ typedef struct {
    * taking the smaller nonzero limit. Seed reductions receive the same cap. */
   TlsfGr1ConstructionBudget env_budget;
   /* Applied to every reduction and to lifting's own RSS checks. As for
-   * reduction, zero members disable checks and the budget is read live. */
+   * reduction, zero members disable checks and the budget is read live.
+   * Lifting checks current process RSS; its peak RSS is diagnostic only. */
   TlsfGr1ConstructionBudget budget;
   /* Optional; null skips profiling. The callback, if any, receives each
    * finished stage row and runs only when stats is set. */
@@ -143,7 +144,8 @@ typedef struct {
  * Duplicates and unknown declarations are rejected. A successful result owns
  * in-memory target artifacts. Only a result with
  * TLSF_GR1_CHECK_VERIFIED or TLSF_GR1_CHECK_REGION_VERIFIED counts as REAL.
- * The proof is always system-side. Free with tlsf_gr1_lift_result_clear(). */
+ * The proof is always system-side. Resource failures leave an empty result
+ * with verdict UNKNOWN. Free with tlsf_gr1_lift_result_clear(). */
 typedef struct {
   char *game_aag, *certificate_aag, *certificate_json;
   char *policy_aag, *policy_json, *check_json, *evidence_json;

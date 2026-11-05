@@ -1,0 +1,418 @@
+{
+  "tools": [
+    "ltlsynt",
+    "ltlfsynt",
+    "autfilt",
+    "ltl2tgba",
+    "ltlfilt",
+    "randltl"
+  ],
+  "modules": [
+    "spot",
+    "buddy",
+    "acacia_lift"
+  ],
+  "forbidden_pattern": "(?i)(?<![a-z0-9_])(?:spot|buddy|acacia_lift|libspot|autfilt|ltl2tgba|ltlfilt|ltlfsynt|ltlsynt|randltl)(?![a-z0-9_])|--spot(?:-source)?\\b|--bindings-site\\b|spot::|\\bspot_[a-z_]+|-lspot\\b",
+  "text_mutants": [
+    {
+      "suffix": ".cc",
+      "source": "#include <spot/tl/parse.hh>"
+    },
+    {
+      "suffix": ".py",
+      "source": "import spot"
+    },
+    {
+      "suffix": ".sh",
+      "source": "pkg-config --libs libspot"
+    },
+    {
+      "suffix": ".sh",
+      "source": "\"$prefix/bin/ltlsynt\" -f true"
+    },
+    {
+      "suffix": ".py",
+      "source": "from importlib import import_module\nimport_module(\"spot\")"
+    },
+    {
+      "suffix": ".py",
+      "source": "# spot"
+    },
+    {
+      "suffix": ".json",
+      "source": "{\"command\": \"ltlsynt\"}"
+    }
+  ],
+  "python_mutants": [
+    {
+      "name": "reported-path-command",
+      "source": "subprocess.run([Path(\"/usr/bin/ltlsynt\"), \"-f\", \"true\"])"
+    },
+    {
+      "name": "reported-keyword-import",
+      "source": "importlib.import_module(name=\"spot\")"
+    },
+    {
+      "name": "literal-command",
+      "source": "subprocess.run([\"/usr/bin/ltlsynt\", \"-f\", \"true\"])"
+    },
+    {
+      "name": "path-parts",
+      "source": "subprocess.run([Path(\"/usr\", \"bin\", \"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "pure-path",
+      "source": "subprocess.run([PurePath(\"/usr/bin\") / (\"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "qualified-path",
+      "source": "subprocess.run([pathlib.Path(\"/usr/bin/ltlsynt\")])"
+    },
+    {
+      "name": "pure-posix-path",
+      "source": "subprocess.run([pathlib.PurePosixPath(\"/usr/bin\", \"ltlsynt\")])"
+    },
+    {
+      "name": "pure-windows-path",
+      "source": "subprocess.run([PureWindowsPath(\"C:/bin\", \"ltlsynt\")])"
+    },
+    {
+      "name": "posix-path",
+      "source": "subprocess.run([PosixPath(\"/usr/bin/ltlsynt\")])"
+    },
+    {
+      "name": "windows-path",
+      "source": "subprocess.run([WindowsPath(\"C:/bin/ltlsynt\")])"
+    },
+    {
+      "name": "joined-path",
+      "source": "subprocess.run([os.path.join(\"/usr\", \"bin\", \"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "dynamic-path-directory",
+      "source": "subprocess.run([Path(prefix) / (\"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "dynamic-join-directory",
+      "source": "subprocess.run([os.path.join(prefix, \"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "concatenated-command",
+      "source": "subprocess.run([\"/usr/bin/ltl\" + \"synt\"])"
+    },
+    {
+      "name": "f-string-command",
+      "source": "subprocess.run([f\"/usr/bin/ltl{'synt'}\"])"
+    },
+    {
+      "name": "split-f-string-command",
+      "source": "subprocess.run([f\"{'ltl'}{'synt'}\"])"
+    },
+    {
+      "name": "numeric-f-string-command",
+      "source": "subprocess.run([f\"ltl{2}tgba\"])"
+    },
+    {
+      "name": "formatted-f-string-command",
+      "source": "subprocess.run([f\"{'ltlsynt'!s:>7}\"])"
+    },
+    {
+      "name": "string-path-wrapper",
+      "source": "subprocess.run([str(Path(\"/usr/bin/ltlsynt\"))])"
+    },
+    {
+      "name": "fspath-wrapper",
+      "source": "subprocess.run([os.fspath(PurePath(\"/usr/bin/ltlsynt\"))])"
+    },
+    {
+      "name": "keyword-args",
+      "source": "subprocess.run(args=[PurePath(\"/usr/bin/ltlsynt\")])"
+    },
+    {
+      "name": "keyword-executable",
+      "source": "subprocess.run([\"tlsfsolve\"], executable=Path(\"/usr/bin/ltlsynt\"))"
+    },
+    {
+      "name": "keyword-executable-and-args",
+      "source": "subprocess.run(args=[\"tlsfsolve\"], executable=\"ltl\" + \"synt\")"
+    },
+    {
+      "name": "keyword-executable-first",
+      "source": "subprocess.Popen(executable=Path(\"/usr/bin/ltlsynt\"), args=[\"tlsfsolve\"])"
+    },
+    {
+      "name": "keyword-shell-command",
+      "source": "os.system(command=\"ltl\" + \"synt -f true\")"
+    },
+    {
+      "name": "keyword-popen",
+      "source": "os.popen(cmd=\"ltl\" + \"synt -f true\")"
+    },
+    {
+      "name": "which-path",
+      "source": "shutil.which(Path(\"/usr/bin/ltlsynt\"))"
+    },
+    {
+      "name": "which-keyword",
+      "source": "shutil.which(cmd=\"ltl\" + \"synt\")"
+    },
+    {
+      "name": "exec-keyword-path",
+      "source": "os.execv(path=Path(\"/usr/bin/ltlsynt\"), args=[\"tlsfsolve\"])"
+    },
+    {
+      "name": "exec-keyword-file",
+      "source": "os.execl(file=\"ltl\" + \"synt\", arg=\"tlsfsolve\")"
+    },
+    {
+      "name": "spawn-keyword-path",
+      "source": "os.spawnv(mode=os.P_WAIT, path=PurePath(\"/usr/bin/ltlsynt\"), args=[\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawn-keyword-file",
+      "source": "os.spawnlp(mode=os.P_WAIT, file=\"ltl\" + \"synt\", arg=\"tlsfsolve\")"
+    },
+    {
+      "name": "concatenated-import",
+      "source": "importlib.import_module(\"sp\" + \"ot\")"
+    },
+    {
+      "name": "keyword-concatenated-import",
+      "source": "importlib.import_module(name=\"sp\" + \"ot\")"
+    },
+    {
+      "name": "dotted-import",
+      "source": "importlib.import_module(name=\"sp\" + \"ot.automaton\")"
+    },
+    {
+      "name": "f-string-import",
+      "source": "importlib.import_module(name=f\"{'sp'}{'ot'}\")"
+    },
+    {
+      "name": "builtin-concatenated-import",
+      "source": "__import__(\"sp\" + \"ot\")"
+    },
+    {
+      "name": "builtin-keyword-import",
+      "source": "__import__(name=\"spot\")"
+    },
+    {
+      "name": "builtin-keyword-concatenated-import",
+      "source": "__import__(name=\"sp\" + \"ot\")"
+    },
+    {
+      "name": "builtin-dotted-f-string-import",
+      "source": "__import__(name=f\"{'bu'}{'ddy'}.bdd\")"
+    },
+    {
+      "name": "run-command",
+      "source": "subprocess.run(args=[\"ltl\" + \"synt\"])"
+    },
+    {
+      "name": "call-command",
+      "source": "subprocess.call(args=[\"ltl\" + \"synt\"])"
+    },
+    {
+      "name": "check_call-command",
+      "source": "subprocess.check_call(args=[\"ltl\" + \"synt\"])"
+    },
+    {
+      "name": "check_output-command",
+      "source": "subprocess.check_output(args=[\"ltl\" + \"synt\"])"
+    },
+    {
+      "name": "Popen-command",
+      "source": "subprocess.Popen(args=[\"ltl\" + \"synt\"])"
+    },
+    {
+      "name": "execl-command",
+      "source": "os.execl(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execle-command",
+      "source": "os.execle(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execlp-command",
+      "source": "os.execlp(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execlpe-command",
+      "source": "os.execlpe(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execv-command",
+      "source": "os.execv(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execve-command",
+      "source": "os.execve(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execvp-command",
+      "source": "os.execvp(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "execvpe-command",
+      "source": "os.execvpe(Path(\"/usr/bin\") / (\"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnl-command",
+      "source": "os.spawnl(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnle-command",
+      "source": "os.spawnle(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnlp-command",
+      "source": "os.spawnlp(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnlpe-command",
+      "source": "os.spawnlpe(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnv-command",
+      "source": "os.spawnv(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnve-command",
+      "source": "os.spawnve(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnvp-command",
+      "source": "os.spawnvp(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "spawnvpe-command",
+      "source": "os.spawnvpe(os.P_WAIT, os.path.join(\"/usr/bin\", \"ltl\" + \"synt\"), [\"tlsfsolve\"])"
+    },
+    {
+      "name": "posix_spawn-command",
+      "source": "os.posix_spawn(\"ltl\" + \"synt\", [\"tlsfsolve\"], {})"
+    },
+    {
+      "name": "posix_spawnp-command",
+      "source": "os.posix_spawnp(\"ltl\" + \"synt\", [\"tlsfsolve\"], {})"
+    },
+    {
+      "name": "spot-import",
+      "source": "import spot"
+    },
+    {
+      "name": "spot-from-import",
+      "source": "from spot.module import member"
+    },
+    {
+      "name": "spot-dynamic-import",
+      "source": "importlib.import_module(\"spot\")"
+    },
+    {
+      "name": "spot-keyword-import",
+      "source": "importlib.import_module(name=\"spot\")"
+    },
+    {
+      "name": "buddy-import",
+      "source": "import buddy"
+    },
+    {
+      "name": "buddy-from-import",
+      "source": "from buddy.module import member"
+    },
+    {
+      "name": "buddy-dynamic-import",
+      "source": "importlib.import_module(\"buddy\")"
+    },
+    {
+      "name": "buddy-keyword-import",
+      "source": "importlib.import_module(name=\"buddy\")"
+    },
+    {
+      "name": "acacia_lift-import",
+      "source": "import acacia_lift"
+    },
+    {
+      "name": "acacia_lift-from-import",
+      "source": "from acacia_lift.module import member"
+    },
+    {
+      "name": "acacia_lift-dynamic-import",
+      "source": "importlib.import_module(\"acacia_lift\")"
+    },
+    {
+      "name": "acacia_lift-keyword-import",
+      "source": "importlib.import_module(name=\"acacia_lift\")"
+    },
+    {
+      "name": "path-joinpath",
+      "source": "subprocess.run([Path(\"/usr/bin\").joinpath(\"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "purepath-joinpath",
+      "source": "subprocess.run([PurePath(prefix).joinpath(\"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "keyword-string-wrapper-command",
+      "source": "subprocess.run(args=[str(object=\"ltl\" + \"synt\")])"
+    },
+    {
+      "name": "keyword-string-wrapper-import",
+      "source": "importlib.import_module(name=str(object=\"sp\" + \"ot\"))"
+    },
+    {
+      "name": "unpacked-command-args",
+      "source": "subprocess.run(**{\"args\": [Path(\"/usr/bin/ltlsynt\")]})"
+    },
+    {
+      "name": "unpacked-command-executable",
+      "source": "subprocess.run([\"tlsfsolve\"], **{\"executable\": \"ltl\" + \"synt\"})"
+    },
+    {
+      "name": "unpacked-import-name",
+      "source": "importlib.import_module(**{\"name\": \"sp\" + \"ot\"})"
+    },
+    {
+      "name": "unpacked-builtin-import-name",
+      "source": "__import__(**{\"name\": \"sp\" + \"ot\"})"
+    },
+    {
+      "name": "unpacked-positional-command",
+      "source": "subprocess.run(*([\"ltl\" + \"synt\"],))"
+    },
+    {
+      "name": "unpacked-positional-import",
+      "source": "importlib.import_module(*(\"sp\" + \"ot\",))"
+    },
+    {
+      "name": "unpacked-positional-spawn",
+      "source": "os.spawnv(*(os.P_WAIT, \"ltl\" + \"synt\", [\"tlsfsolve\"]))"
+    }
+  ],
+  "valid_python": [
+    "import json\nfrom pathlib import Path",
+    "subprocess.run([Path(\"build-sprint/release/tlsfsolve\"), \"-f\", \"true\"])",
+    "subprocess.run(args=[PurePath(\"build-sprint\", \"release\") / \"tlsfsolve\"])",
+    "subprocess.run([os.path.join(prefix, \"tlsf\" + \"solve\")])",
+    "subprocess.run([Path(prefix) / \"tlsfsolve\"])",
+    "subprocess.run([\"tlsfsolve\"], executable=Path(\"build-sprint/release/tlsfsolve\"))",
+    "subprocess.run([\"tlsfsolve\", \"--label\", \"sp\" + \"ot\"])",
+    "subprocess.run(args=[f\"{'tlsf'}{'solve'}\"])",
+    "subprocess.run([str(Path(\"build-sprint/release/tlsfsolve\"))])",
+    "subprocess.Popen(args=[\"tlsfsolve\"], executable=os.fspath(Path(prefix) / \"tlsfsolve\"))",
+    "shutil.which(cmd=\"tlsfsolve\")",
+    "os.system(command=\"tlsfsolve --help\")",
+    "os.execv(path=Path(\"build-sprint/release/tlsfsolve\"), args=[\"tlsfsolve\"])",
+    "os.spawnv(os.P_WAIT, Path(prefix) / \"tlsfsolve\", [\"tlsfsolve\"])",
+    "os.posix_spawn(\"tlsfsolve\", [\"tlsfsolve\"], {})",
+    "importlib.import_module(name=\"json\")",
+    "__import__(name=\"pathlib\")",
+    "importlib.import_module(name=\"spotlight\")",
+    "label = \"sp\" + \"ot\"",
+    "subprocess.run([Path(prefix).joinpath(\"tlsfsolve\")])",
+    "subprocess.run(**{\"args\": [Path(prefix) / \"tlsfsolve\"]})",
+    "importlib.import_module(**{\"name\": \"json\"})",
+    "subprocess.run(*([\"tlsfsolve\"],))",
+    "importlib.import_module(name=str(object=\"json\"))"
+  ]
+}

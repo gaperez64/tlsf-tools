@@ -80,7 +80,14 @@ lib_compile_deps = [yyjson_dep, oxidd_dep.partial_dependency(includes: true,
 # An explicit dynamic -lstdc++ would override the wheel's static-runtime flag.
 cpp_runtime_static = cpp_runtime == 'stdc++' and \
   get_option('cpp_link_args').contains('-static-libstdc++')
-cpp_runtime_dep = cpp_compiler.find_library(cpp_runtime, static: cpp_runtime_static)
+if host_machine.system() == 'darwin'
+  # The SDK/dyld cache may provide libc++ only as a .tbd stub. Let the
+  # compiler driver resolve it; find_library() can miss it on recent macOS.
+  # Keep the explicit runtime for consumers that link with the C driver.
+  cpp_runtime_dep = declare_dependency(link_args: ['-l' + cpp_runtime])
+else
+  cpp_runtime_dep = cpp_compiler.find_library(cpp_runtime, static: cpp_runtime_static)
+endif
 lib_deps = [yyjson_dep, oxidd_dep, cpp_runtime_dep]
 pkg_private_libs = ['-loxidd_ffi_c', '-lpthread', '-lm', '-l' + cpp_runtime]
 if host_machine.system() != 'darwin'

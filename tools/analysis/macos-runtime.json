@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-04",
+  "reason": "Resolve the Darwin C++ runtime through the compiler driver instead of find_library. Linux compiler/link arguments and pkg-config private libraries are unchanged, including static-libstdc++. Rebind only the build definition and this source-ledger guard; preserve the original validation receipts, reports, source revisions and every automaton hash. No translator or proof source changed.",
+  "checks": [
+    "full_release_research_tests",
+    "dpa_translation_hashes",
+    "dpa_dag_translation_hashes",
+    "golden_provenance",
+    "linux_dynamic_static_runtime_probes",
+    "darwin_configure"
+  ],
+  "source_rebindings": {
+    "src/lib/meson.build": {
+      "previous_sha256": "6d936256d66652f2325d98cb89279f0362b259e45d34df02de6a1f641c97c0e1",
+      "current_sha256": "1845318f70fd909d24a6c38408d63219c3247cf1751032a7a5d9c7bda82c2ec7"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "97b0d6a94163be8cb21ffb25d3be633ea6db9541a5016caf6b0214ae830d289f",
+      "current_sha256": "209c702cab3abcb794bbd292115514698fc1890450731f8457ef70252916ce5c"
+    }
+  }
+}

@@ -1,0 +1,490 @@
+{
+  "date": "2026-11-04",
+  "runs": 9,
+  "statistic": "median ns per call",
+  "iterations_per_size": "20000000 / n",
+  "source": "bench/simd.c",
+  "before_header_revision": "edda7c6",
+  "compilers": [
+    "GCC 15.3.1",
+    "Clang 21.1.8"
+  ],
+  "flags": {
+    "baseline": [
+      "-std=c23",
+      "-O3"
+    ],
+    "x86-64-v2": [
+      "-std=c23",
+      "-O3",
+      "-march=x86-64-v2",
+      "-mtune=generic"
+    ],
+    "avx2": [
+      "-std=c23",
+      "-O3",
+      "-mavx2",
+      "-mfma"
+    ]
+  },
+  "host": "x86-64 AVX2; shared 4-core machine; serial processes; no AVX-512 runtime",
+  "variants": "before: ISA intrinsics; portable: C loops with a one-word OR fast path",
+  "measurements": {
+    "gcc/baseline": {
+      "before": [
+        {
+          "n": 1,
+          "or_ns": 2.281,
+          "count_ns": 4.215
+        },
+        {
+          "n": 3,
+          "or_ns": 3.243,
+          "count_ns": 9.082
+        },
+        {
+          "n": 8,
+          "or_ns": 4.539,
+          "count_ns": 22.073
+        },
+        {
+          "n": 17,
+          "or_ns": 5.836,
+          "count_ns": 45.418
+        },
+        {
+          "n": 64,
+          "or_ns": 28.311,
+          "count_ns": 173.626
+        },
+        {
+          "n": 1000,
+          "or_ns": 252.965,
+          "count_ns": 2591.1
+        },
+        {
+          "n": 4096,
+          "or_ns": 1465.464,
+          "count_ns": 10451.483
+        }
+      ],
+      "portable": [
+        {
+          "n": 1,
+          "or_ns": 1.946,
+          "count_ns": 4.216
+        },
+        {
+          "n": 3,
+          "or_ns": 3.243,
+          "count_ns": 9.126
+        },
+        {
+          "n": 8,
+          "or_ns": 4.539,
+          "count_ns": 22.181
+        },
+        {
+          "n": 17,
+          "or_ns": 5.835,
+          "count_ns": 45.598
+        },
+        {
+          "n": 64,
+          "or_ns": 28.282,
+          "count_ns": 173.429
+        },
+        {
+          "n": 1000,
+          "or_ns": 252.933,
+          "count_ns": 2595.928
+        },
+        {
+          "n": 4096,
+          "or_ns": 1458.971,
+          "count_ns": 10493.068
+        }
+      ]
+    },
+    "gcc/x86-64-v2": {
+      "before": [
+        {
+          "n": 1,
+          "or_ns": 2.595,
+          "count_ns": 1.621
+        },
+        {
+          "n": 3,
+          "or_ns": 2.918,
+          "count_ns": 2.594
+        },
+        {
+          "n": 8,
+          "or_ns": 4.539,
+          "count_ns": 4.638
+        },
+        {
+          "n": 17,
+          "or_ns": 7.133,
+          "count_ns": 8.316
+        },
+        {
+          "n": 64,
+          "or_ns": 29.41,
+          "count_ns": 39.813
+        },
+        {
+          "n": 1000,
+          "or_ns": 333.367,
+          "count_ns": 472.348
+        },
+        {
+          "n": 4096,
+          "or_ns": 1472.88,
+          "count_ns": 1926.637
+        }
+      ],
+      "portable": [
+        {
+          "n": 1,
+          "or_ns": 1.946,
+          "count_ns": 1.621
+        },
+        {
+          "n": 3,
+          "or_ns": 3.243,
+          "count_ns": 2.593
+        },
+        {
+          "n": 8,
+          "or_ns": 4.539,
+          "count_ns": 4.626
+        },
+        {
+          "n": 17,
+          "or_ns": 5.835,
+          "count_ns": 8.254
+        },
+        {
+          "n": 64,
+          "or_ns": 28.352,
+          "count_ns": 30.072
+        },
+        {
+          "n": 1000,
+          "or_ns": 252.848,
+          "count_ns": 474.342
+        },
+        {
+          "n": 4096,
+          "or_ns": 1460.569,
+          "count_ns": 1924.027
+        }
+      ]
+    },
+    "gcc/avx2": {
+      "before": [
+        {
+          "n": 1,
+          "or_ns": 3.243,
+          "count_ns": 1.621
+        },
+        {
+          "n": 3,
+          "or_ns": 3.566,
+          "count_ns": 3.572
+        },
+        {
+          "n": 8,
+          "or_ns": 3.259,
+          "count_ns": 4.539
+        },
+        {
+          "n": 17,
+          "or_ns": 4.553,
+          "count_ns": 8.296
+        },
+        {
+          "n": 64,
+          "or_ns": 12.346,
+          "count_ns": 30.023
+        },
+        {
+          "n": 1000,
+          "or_ns": 171.557,
+          "count_ns": 473.238
+        },
+        {
+          "n": 4096,
+          "or_ns": 861.407,
+          "count_ns": 1925.748
+        }
+      ],
+      "portable": [
+        {
+          "n": 1,
+          "or_ns": 2.429,
+          "count_ns": 1.621
+        },
+        {
+          "n": 3,
+          "or_ns": 2.78,
+          "count_ns": 3.566
+        },
+        {
+          "n": 8,
+          "or_ns": 2.922,
+          "count_ns": 4.542
+        },
+        {
+          "n": 17,
+          "or_ns": 4.548,
+          "count_ns": 8.253
+        },
+        {
+          "n": 64,
+          "or_ns": 9.757,
+          "count_ns": 30.068
+        },
+        {
+          "n": 1000,
+          "or_ns": 131.241,
+          "count_ns": 475.282
+        },
+        {
+          "n": 4096,
+          "or_ns": 867.059,
+          "count_ns": 1924.164
+        }
+      ]
+    },
+    "clang/baseline": {
+      "before": [
+        {
+          "n": 1,
+          "or_ns": 2.596,
+          "count_ns": 3.943
+        },
+        {
+          "n": 3,
+          "or_ns": 3.89,
+          "count_ns": 6.6
+        },
+        {
+          "n": 8,
+          "or_ns": 4.215,
+          "count_ns": 8.547
+        },
+        {
+          "n": 17,
+          "or_ns": 6.808,
+          "count_ns": 16.013
+        },
+        {
+          "n": 64,
+          "or_ns": 17.832,
+          "count_ns": 51.914
+        },
+        {
+          "n": 1000,
+          "or_ns": 252.906,
+          "count_ns": 798.744
+        },
+        {
+          "n": 4096,
+          "or_ns": 1500.906,
+          "count_ns": 3243.754
+        }
+      ],
+      "portable": [
+        {
+          "n": 1,
+          "or_ns": 1.985,
+          "count_ns": 3.931
+        },
+        {
+          "n": 3,
+          "or_ns": 3.891,
+          "count_ns": 6.556
+        },
+        {
+          "n": 8,
+          "or_ns": 4.863,
+          "count_ns": 8.484
+        },
+        {
+          "n": 17,
+          "or_ns": 7.457,
+          "count_ns": 15.95
+        },
+        {
+          "n": 64,
+          "or_ns": 18.479,
+          "count_ns": 51.911
+        },
+        {
+          "n": 1000,
+          "or_ns": 253.373,
+          "count_ns": 798.961
+        },
+        {
+          "n": 4096,
+          "or_ns": 1503.008,
+          "count_ns": 3244.227
+        }
+      ]
+    },
+    "clang/x86-64-v2": {
+      "before": [
+        {
+          "n": 1,
+          "or_ns": 2.918,
+          "count_ns": 2.365
+        },
+        {
+          "n": 3,
+          "or_ns": 3.567,
+          "count_ns": 3.311
+        },
+        {
+          "n": 8,
+          "or_ns": 4.539,
+          "count_ns": 4.573
+        },
+        {
+          "n": 17,
+          "or_ns": 8.752,
+          "count_ns": 6.499
+        },
+        {
+          "n": 64,
+          "or_ns": 34.072,
+          "count_ns": 25.936
+        },
+        {
+          "n": 1000,
+          "or_ns": 413.458,
+          "count_ns": 408.466
+        },
+        {
+          "n": 4096,
+          "or_ns": 1671.346,
+          "count_ns": 1666.622
+        }
+      ],
+      "portable": [
+        {
+          "n": 1,
+          "or_ns": 1.984,
+          "count_ns": 2.301
+        },
+        {
+          "n": 3,
+          "or_ns": 3.891,
+          "count_ns": 3.449
+        },
+        {
+          "n": 8,
+          "or_ns": 4.862,
+          "count_ns": 4.58
+        },
+        {
+          "n": 17,
+          "or_ns": 7.456,
+          "count_ns": 6.499
+        },
+        {
+          "n": 64,
+          "or_ns": 18.481,
+          "count_ns": 25.938
+        },
+        {
+          "n": 1000,
+          "or_ns": 253.338,
+          "count_ns": 408.495
+        },
+        {
+          "n": 4096,
+          "or_ns": 1508.119,
+          "count_ns": 1666.509
+        }
+      ]
+    },
+    "clang/avx2": {
+      "before": [
+        {
+          "n": 1,
+          "or_ns": 3.568,
+          "count_ns": 2.594
+        },
+        {
+          "n": 3,
+          "or_ns": 4.863,
+          "count_ns": 4.214
+        },
+        {
+          "n": 8,
+          "or_ns": 3.583,
+          "count_ns": 4.539
+        },
+        {
+          "n": 17,
+          "or_ns": 6.485,
+          "count_ns": 7.459
+        },
+        {
+          "n": 64,
+          "or_ns": 14.423,
+          "count_ns": 18.192
+        },
+        {
+          "n": 1000,
+          "or_ns": 217.204,
+          "count_ns": 248.37
+        },
+        {
+          "n": 4096,
+          "or_ns": 1202.207,
+          "count_ns": 1014.041
+        }
+      ],
+      "portable": [
+        {
+          "n": 1,
+          "or_ns": 1.985,
+          "count_ns": 1.945
+        },
+        {
+          "n": 3,
+          "or_ns": 3.811,
+          "count_ns": 2.6
+        },
+        {
+          "n": 8,
+          "or_ns": 4.727,
+          "count_ns": 5.187
+        },
+        {
+          "n": 17,
+          "or_ns": 4.606,
+          "count_ns": 7.131
+        },
+        {
+          "n": 64,
+          "or_ns": 10.264,
+          "count_ns": 17.865
+        },
+        {
+          "n": 1000,
+          "or_ns": 156.463,
+          "count_ns": 254.341
+        },
+        {
+          "n": 4096,
+          "or_ns": 925.855,
+          "count_ns": 1011.218
+        }
+      ]
+    }
+  }
+}

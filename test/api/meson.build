@@ -53,6 +53,8 @@ if host_machine.system() == 'linux'
                 '-Wl,--wrap=oxidd_host_calloc',
                 '-Wl,--wrap=oxidd_host_realloc'])
   test('native_api_failure', native_api_failure_exe)
+else
+  message('SKIP native_api_failure: requires GNU ld --wrap')
 endif
 
 # The layout rules: one target per source, installed headers == include/tlsf,

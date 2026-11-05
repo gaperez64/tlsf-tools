@@ -1,0 +1,169 @@
+External oracle retirement, 2026-11-04
+Worktree: /home/gaperez/GIT-repos/tlsf-tools-wt
+Branch: sprint/dag-proof-simd-20261104
+Baseline: dff72a8
+
+Replacements and independence
+
+- reference.cc: removed. reference.py independently parses LTL/LTLf and
+  evaluates finite words and lassos by the defining least/greatest fixed
+  points on word positions. It imports no production parser, normalizer,
+  DPA, BDD, or circuit code. Finite X is weak; X[!] is strong.
+- regenerate.py random generation/filtering: seeded in-house formula generator
+  (20852) and independent word stream (0x97D0A). The original random/Delta2
+  corpus stays frozen; fresh formulas and memberships live only in scratch.
+  dpa_cases.cc remains a dependency-free handwritten-corpus enumerator.
+- legacy_dpa_equivalence.cpp/build_legacy.py: removed. Automaton claims use the
+  kernel-checked Lean translation validator. dpa_pi2_converse.py now submits
+  its bounded corpus to that validator; unsupported/timeouts are unknown.
+- prepare_legacy.py, confirm.py, legacy_monitor.py, legacy_reduction.py,
+  legacy_lift.py and provenance.py: removed. Old differential evidence stays
+  frozen. Native snapshots/dispositions are replayed, with additional native
+  game/certificate checks; these do not renew the historical differential.
+  The obsolete one-time restore_general_goldens.py writer is also removed.
+- regenerate.py verdicts: attempt exact native reduction and OxiDD solving.
+  Successful system region proofs or dual environment certificates plus
+  checked counterstrategies provide fresh game evidence. Certificate failure,
+  missing evidence, unsupported finite/Moore cases and deadlines are unknown.
+  No failure of a candidate proof is treated as a losing verdict. Reduction
+  shares the production frontend; the game certificate obligations are checked
+  separately. Historical verdict provenance is never changed.
+- pruning_sources.py: read-only verification of archived source updates. Strip
+  only DESCRIPTION and require identical ordinary/strict emitted objectives
+  (four complete formula comparisons), stronger than bounded sampling here.
+- normalization and conversion: reproduce native serialization, then use
+  independent direct-semantics lasso sampling. Historical exact-equivalence
+  claims stay frozen; sampling is not a full-language proof.
+- test_gates.py: direct quantified semantics checks, dependency guard mutants,
+  decline-everything mutation and failed-certificate tests. No recorder exists.
+- tlsfcompose/scripts/solve.sh: native OxiDD controllers/results first;
+  unresolved residuals default to UNKNOWN. No built-in external backend is
+  discovered or selected. The generic explicitly selected command interface
+  remains. Quoted files use .formula; routing uses unresolved. Route readers
+  and six TSV expectations were updated. Current drivers are tested directly.
+- bench/bench.sh: serial matrix builds; compose_self_contained runs the native
+  driver through bench/compose_native.sh so an unresolved plan is not counted
+  as solved. The standalone external-backend visitor example was deleted.
+- Current README, proof guide, design documents and private helper/comment
+  names were updated. Historical measurement notes are explicitly marked
+  frozen, rather than rewritten as new in-house evidence.
+
+Reproducibility policy
+
+Regenerable evidence: all DPA membership bits, the JSON language membership
+rows, native serialization/exports, and fresh seeded samples. Passing C/Lean
+receipt requests can be replayed without rewriting their original receipts.
+The independent evaluator also checks finite-word semantics directly.
+
+Verify-only historical evidence: general realizability, finite/Moore verdicts,
+exact normalization/API equivalence, old reducer/lift/API differentials,
+historical random streams/AST serialization, and old generated driver programs.
+Mixed suites keep their old payloads and provenance; fresh crosschecks are
+reported separately. No data is relabeled. Historical driver text is never
+executed. Formula/controller exports still compare exactly; driver changes are
+covered by current protocol/UNKNOWN tests. See test/fixtures/golden/README.md.
+
+The extended guard scans tools, scripts, bench, test, src, include, examples,
+.github, docs and root build/README files. The explicit historical allowlist is
+hash-bound (16 entries); executable imports/commands/includes cannot acquire a
+historical-data exception. Only the scanner and its mutation test retain policy vocabulary; executable
+readers have no backend-name exceptions. Renamed artifacts match by cluster stem.
+
+The original payloads, dates, version records, receipt hashes and receipts stay
+byte-identical. Only the golden README changes. An additive source-binding
+ledger (tools/analysis/oracle-retirement.json) records seven comment/private-name
+source changes and the provenance guard update; the original receipt bytes
+remain unchanged and all automaton dump hashes are replayed.
+
+No universal C refinement, memory safety, compiler correctness, BDD refinement,
+caller extraction of the whole objective, or caller normalization is claimed.
+No general synthesis verdict is inferred from bounded memberships.
+
+Verification commands
+
+Working directory is the worktree root, except for the lake command. Heavy
+commands used TMPDIR=$PWD/build-sprint/tmp, CARGO_BUILD_JOBS=1,
+LEAN_NUM_THREADS=1, LEAN_STACK_SIZE_KB=2048 and LEAN_MAIN_USE_THREAD=0.
+The existing Meson build options were inspected: release, research_tools=true,
+cpu=baseline. No external reference package was installed or invoked.
+
+ninja -C build-sprint/release -j1
+python3 tools/golden/test_gates.py
+python3 tools/golden/regenerate.py --build build-sprint/release --translation
+python3 tools/golden/regenerate.py --build build-sprint/release
+meson test -C build-sprint/release --no-rebuild --num-processes 1 --print-errorlogs
+(cd proofs && "$HOME/.elan/bin/lake" build)
+python3 test/cli/check_no_external_oracles.py .
+python3 test/cli/check_golden_provenance.py .
+git diff --check
+
+The full formatter command (clang-format 22.1.8) was:
+
+git ls-files -z --cached --others --exclude-standard -- \
+  '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' \
+  ':!:external/**' ':!:build*/**' |
+while IFS= read -r -d '' file; do
+  if [ -f "$file" ]; then printf '%s\0' "$file"; fi
+done |
+env PYTHONPATH="$PWD/build-sprint/format" xargs -0 -r \
+  build-sprint/format/bin/clang-format --dry-run --Werror
+
+Logs and fresh generated evidence are below build-sprint/oracle-retirement/;
+no scratch or generated random data was added to the committed golden corpus.
+
+The proof replay checks unbounded language claims independently of the Python
+membership parser. Correcting an infix precedence regression in that new parser
+did not change the C/Lean replay or any receipt; all memberships and native
+verdict crosschecks were rerun with the corrected parser.
+
+Additional verification commands:
+
+meson test -C build-sprint/release --no-rebuild --num-processes 1 \
+  proof_source_references --print-errorlogs
+python3 tools/golden/regenerate.py --build build-sprint/release --only exports \
+  --output build-sprint/oracle-retirement/export-final
+python3 tools/golden/dpa_pi2_converse.py --build build-sprint/release \
+  --output build-sprint/oracle-retirement/pi2 --max-size 1 --random-count 0
+
+Results
+
+- Serial release/research build completed successfully.
+- 541 x 512 = 276,992 committed DPA membership bits reproduced exactly;
+  archived infix and prefix formulas independently agree. The reconstructed
+  membership.tsv is byte-identical. 2,272 JSON memberships also agree.
+- Fresh seeded corpus: 126 formulas x 192 lassos = 24,192 memberships;
+  native DPA construction agrees with direct semantics.
+- All 21 frozen suites / 2,943 records verified. Across 289 verdict lookups
+  (104 unique requests), 214 native certificate-backed results agree and
+  75 remain unknown. Five normalization and three API equivalence pairs
+  pass 512-lasso sampling each. Four pruning objectives are byte-identical.
+- All 4,134 TV1 and 68 TVD1 passing receipts revalidated with Lean 4.35.0;
+  every automaton dump hash is unchanged. The rewritten bounded Pi2 tool
+  additionally validates 706 targeted cases: zero unknowns, zero failures.
+- Full release research suite ran all 403 tests: 402 passed, one failed on a
+  stale proof-documentation reference (controller emission moved from line
+  1057 to 1063). The reference was corrected and its focused rerun passed 1/1.
+  All runtime tests passed; no failed test remains unresolved. This was a
+  documentation-only repair, so the other 402 tests were not repeated.
+- Full Lean build passed (43 jobs, serial thread settings). Validator self-test:
+  54 protocol checks, zero failures.
+- Gates passed: 15,920 direct semantic checks; 20 dependency mutants,
+  decline-everything, and four failed-certificate scenarios rejected.
+- Current export verification rerun passed after removing the final special
+  historical-name exception from executable readers.
+- The guard passed: 787 scanned files and 16 hash-bound historical entries.
+  An additional inventory of every tracked/unignored file found no forbidden
+  names outside those historical files and guard/mutation vocabulary.
+- Full clang-format 22.1.8 dry-run/Werror and git diff --check passed.
+
+All 35 historical payload/receipt files are byte-identical to the
+starting checkout. The golden README is the sole change within that directory;
+its current total is 3,758,177 bytes, below the 4,400,000-byte cap. No golden data
+was added. Six route TSV expectations outside that directory changed only for
+new unresolved route/reason wording. Receipt-bound source changes are recorded
+in the additive ledger; the original receipts themselves were not edited.
+
+No work remains on the requested removal. Frozen general/finite/Moore verdicts
+and historical exact-equivalence claims intentionally remain historical; unknown
+crosschecks are not new verdicts. No push, PR or issue was created. The commit
+containing this report carries the two requested author/session trailers.

@@ -3,7 +3,7 @@
 
 /// aiger.h — a minimal ASCII-AIGER (`aag`) toolkit: build an and-inverter graph
 /// (inputs / latches / and-gates / named outputs), compile a temporal-free
-/// Boolean formula into it, read an `aag` (e.g. from `ltlsynt --aiger`), and
+/// Boolean formula into it, read an `aag` strategy, and
 /// merge one AIG into another by signal name (shared inputs, outputs wired by
 /// name).  Enough to stitch certified combinational controllers and per-cluster
 /// synthesized strategies into one controller circuit.
@@ -87,7 +87,8 @@ void aig_strip_output_prefix(Aig *g, const char *prefix);
 
 /// Rename signal `from` to `to` wherever it appears (inputs, outputs, and the
 /// lookup registry).  Used to map a controller a backend produced under
-/// renamed atoms (e.g. lowercased for ltlsynt) back to the spec's names.
+/// renamed atoms (e.g. lowercased for solver interfaces) back to the spec's
+/// names.
 void aig_rename_signal(Aig *g, const char *from, const char *to);
 
 /// Compile a temporal-free Boolean node into `g` (AP names resolved via
