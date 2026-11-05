@@ -5,8 +5,8 @@
 /// controllers it already certified (`o := value`), and the rest of the spec as
 /// independent residual clusters (output-disjoint, so `E -> AND Gi == AND
 /// (E -> Gi)`), one LTL job each.  With --output-dir it also writes a
-/// compose.sh that runs a configurable external solver per cluster (default
-/// `ltlsynt`/`ltlfsynt`). The spec is
+/// compose.sh that reports native results or UNKNOWN for residual clusters.
+/// An explicitly selected command can handle unresolved clusters. The spec is
 /// realizable iff every cluster is; a full controller is the emitted
 /// controllers plus one per cluster.
 ///
@@ -90,9 +90,10 @@ static void usage(const char *prog) {
       ".ltl, compose.sh\n"
       "  --solver COMMAND             synthesis executable in compose.sh; "
       "overrides TLSFCOMPOSE_SOLVER\n"
-      "                               default: ltlsynt (infinite), ltlfsynt "
-      "(finite); empty env uses default\n"
-      "                               requires the default solver's CLI; "
+      "                               default: UNKNOWN; no residual solver "
+      "is selected\n"
+      "                               protocol: --ins/--outs, -F, "
+      "--realizability; "
       "use a wrapper script for extra arguments\n"
       "  --overwrite-semantics VALUE  replace SEMANTICS\n"
       "  --overwrite-target VALUE     replace TARGET\n"
@@ -120,7 +121,7 @@ static bool parse_preprocess_policy(const char *s, PreprocessPolicy *out) {
 
 static const char *route_kind_name(ComposeRouteKind kind) {
   switch (kind) {
-  case ROUTE_OUTPUT_FREE_LTLSYNT:
+  case ROUTE_OUTPUT_FREE_UNKNOWN:
     return "output-free";
   case ROUTE_DIRECT_SAFETY:
     return "direct-safety";
@@ -138,8 +139,8 @@ static const char *route_kind_name(ComposeRouteKind kind) {
     return "until-monitor-gr1";
   case ROUTE_GR1:
     return "gr1";
-  case ROUTE_LTLSYNT:
-    return "ltlsynt";
+  case ROUTE_UNKNOWN:
+    return "unresolved";
   default:
     return "unknown";
   }
@@ -152,7 +153,7 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
     return buf;
   }
   switch (route->kind) {
-  case ROUTE_OUTPUT_FREE_LTLSYNT:
+  case ROUTE_OUTPUT_FREE_UNKNOWN:
     snprintf(buf, buf_sz, "output-free guarantee check");
     break;
   case ROUTE_DIRECT_SAFETY:
@@ -170,9 +171,9 @@ static const char *route_stats_reason(const ComposeRoute *route, bool finite,
   case ROUTE_BOUNDED_EXPERIMENTAL:
     snprintf(buf, buf_sz, "selected explicit experimental bounded path");
     break;
-  case ROUTE_LTLSYNT:
+  case ROUTE_UNKNOWN:
   default:
-    (void)cluster_ltlsynt_reason(&route->shape, finite, buf, buf_sz);
+    (void)cluster_unknown_reason(&route->shape, finite, buf, buf_sz);
     break;
   }
   return buf;
@@ -204,11 +205,11 @@ static size_t formula_bytes(const Node *root, LtlFormat fmt, bool finite) {
 static void output_free_route(TlsfSpec *spec, const Node *root,
                               ComposeRoute *out) {
   *out = (ComposeRoute){
-      .kind = ROUTE_OUTPUT_FREE_LTLSYNT,
+      .kind = ROUTE_OUTPUT_FREE_UNKNOWN,
       .uses_oxidd = false,
       .exact = true,
-      .label =
-          semantics_is_finite(spec->info.semantics) ? "ltlfsynt" : "ltlsynt",
+      .label = semantics_is_finite(spec->info.semantics) ? "unresolved-finite"
+                                                         : "unresolved",
       .shape = cluster_shape(spec, root),
       .root = root,
   };
@@ -245,9 +246,9 @@ static void route_policy_stats_finalize(RoutePolicyStats *stats) {
   }
 }
 
-static void force_ltlsynt_policy_route(ComposeRoute *route, const char *label,
+static void force_unknown_policy_route(ComposeRoute *route, const char *label,
                                        const char *reason) {
-  route->kind = ROUTE_LTLSYNT;
+  route->kind = ROUTE_UNKNOWN;
   route->uses_oxidd = false;
   route->exact = true;
   route->label = label;
@@ -260,11 +261,11 @@ static void apply_preprocess_policy(ComposeRoute *route,
   if (!route->uses_oxidd)
     return;
   if (policy == PREPROCESS_OFF) {
-    force_ltlsynt_policy_route(route, "ltlsynt fallback (policy off)",
+    force_unknown_policy_route(route, "unresolved fallback (policy off)",
                                "preprocess policy off");
   } else if (policy == PREPROCESS_PROFITABLE && stats &&
              !stats->profitable_use_oxidd) {
-    force_ltlsynt_policy_route(route, "ltlsynt fallback (policy profitable)",
+    force_unknown_policy_route(route, "unresolved fallback (policy profitable)",
                                "preprocess policy profitable skipped OxiDD");
   }
 }
@@ -379,8 +380,9 @@ static bool emit_route_stats(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
             route.shape.has_weak_until ? 1 : 0, route.shape.has_release ? 1 : 0,
             liveness_class_name(live.kind), live.n_response, live.n_recurrence,
             live.n_eventual, live.n_until, live.has_nested_temporal ? 1 : 0,
-            route_kind_name(route.kind), route.label ? route.label : "ltlsynt",
-            route.exact ? 1 : 0, route.uses_oxidd ? 1 : 0,
+            route_kind_name(route.kind),
+            route.label ? route.label : "unresolved", route.exact ? 1 : 0,
+            route.uses_oxidd ? 1 : 0,
             route_stats_reason(&route, finite, reason, sizeof reason));
   }
   return true;
@@ -423,12 +425,17 @@ static void compose_sh_header(FILE *sh, bool finite, Target target,
       "{ rm -f \"$f\"; echo 'SPEC UNKNOWN'; exit 2; }\n",
       finite ? "finite" : "infinite",
       target == TARGET_MOORE ? "Moore" : "Mealy",
-      solver && *solver ? "the selected external solver" : "Spot");
+      solver && *solver ? "the selected solver"
+                        : "native checks (otherwise UNKNOWN)");
   fputs("  ", sh);
   if (solver && *solver)
     print_shell_word(sh, solver);
-  else
-    fputs(finite ? "ltlfsynt" : "ltlsynt", sh);
+  else {
+    fputs("echo \"$1: UNKNOWN (unresolved residual)\"; rm -f \"$f\"; "
+          "echo 'SPEC UNKNOWN'; exit 2\n}\n",
+          sh);
+    return;
+  }
   if (finite)
     fprintf(sh, " --semantics=%s", target == TARGET_MOORE ? "Moore" : "Mealy");
   fprintf(sh, " --ins=\"$2\" --outs=\"$3\" -F \"$f\" "
@@ -458,11 +465,11 @@ static void print_string_list(FILE *out, char *const *items, uint32_t count) {
     fprintf(out, "%s%s", i ? "," : "", items[i]);
 }
 
-// Spot lowercases literal I/O names AND regex text. Encode each byte in hex
-// to preserve case and escape all regex metacharacters, then anchor the match.
+// Encode interface bytes in anchored regexes to preserve case and escape
+// metacharacters in the selected command protocol.
 // These expressions are also safe inside the generated shell's double quotes.
-static void print_spot_signal_list(FILE *out, char *const *items,
-                                   uint32_t count) {
+static void print_solver_signal_list(FILE *out, char *const *items,
+                                     uint32_t count) {
   for (uint32_t i = 0; i < count; i++) {
     fprintf(out, "%s/^", i ? "," : "");
     for (const unsigned char *p = (const unsigned char *)items[i]; *p; p++)
@@ -481,23 +488,22 @@ static bool finish_output(FILE *out, bool close_file) {
   return (close_file ? fclose(out) : fflush(out)) == 0 && !failed;
 }
 
-static bool emit_spot_solver_formula(FILE *out, TlsfSpec *spec,
-                                     ConstraintCover *cov,
-                                     const ResidualPlan *rplan, uint32_t k,
-                                     bool *seen, bool finite, bool encode_moore,
-                                     bool lowercase) {
+static bool emit_solver_formula(FILE *out, TlsfSpec *spec, ConstraintCover *cov,
+                                const ResidualPlan *rplan, uint32_t k,
+                                bool *seen, bool finite, bool encode_moore,
+                                bool lowercase) {
   bool output_free = rplan->keys[k] == cov->aps.count;
   const Node *root = residual_plan_build_cluster(
       spec, cov, rplan, rplan->keys[k], false, !output_free, seen);
   if (!root || arena_failed(spec->arena))
     return false;
-  // Spot's ltlsynt has no Moore switch. For infinite words, a Moore game phi
+  // For the verdict command protocol, an infinite Moore game phi
   // is realizable iff the Mealy game phi[i := X i] is: the Mealy controller's
   // extra initial input is a dummy; thereafter it sees exactly the Moore
   // controller's input history. Shift ALL environment atoms, including
   // implicit inputs. This encoding is only for verdicts; its Mealy strategy
   // would need the corresponding initial-step adjustment before use as Moore.
-  // It is invalid for finite words, which use ltlfsynt --semantics instead.
+  // Finite games instead carry explicit --semantics in the command protocol.
   if (encode_moore)
     for (uint32_t a = 0; a < cov->aps.count; a++) {
       if (!seen[a] || !residual_signal_matches(cov, a, AP_FLAG_INPUT))
@@ -510,7 +516,7 @@ static bool emit_spot_solver_formula(FILE *out, TlsfSpec *spec,
       if (!root || arena_failed(spec->arena))
         return false;
     }
-  return print_spot_ltl(out, root, finite, lowercase);
+  return print_quoted_ltl(out, root, finite, lowercase);
 }
 
 static int merge_aiger_files(char *const *files, uint32_t count,
@@ -894,8 +900,8 @@ int main(int argc, char *argv[]) {
   // refutes a weakening of the spec (drops temporal guarantees, keeps every
   // assumption, bails on any temporal assumption), so its UNREALIZABLE is
   // trustworthy and it never claims REALIZABLE.  Fires before the heavy
-  // recognize/certify/residual stages, matching ltlsynt's whole-formula fast
-  // path for trivially unrealizable inputs.
+  // recognize/certify/residual stages, matching a native solver's whole-formula
+  // fast path for trivially unrealizable inputs.
   if (precheck_trivially_unreal(cov)) {
     if (route_stats)
       fprintf(stderr, "route-stats: unreal_precheck=1 "
@@ -1122,7 +1128,7 @@ int main(int argc, char *argv[]) {
         break;
       }
       bool encode_moore = !finite && spec->info.target == TARGET_MOORE;
-      const char *solver_ext = encode_moore ? "mealy" : "spot";
+      const char *solver_ext = encode_moore ? "mealy" : "formula";
       snprintf(path, sizeof path, "%s/cluster.%u.%s", out_dir, k, solver_ext);
       FILE *sf = fopen(path, "w");
       if (!sf) {
@@ -1130,8 +1136,8 @@ int main(int argc, char *argv[]) {
         rc = 1;
         break;
       }
-      bool encoded = emit_spot_solver_formula(sf, spec, cov, rplan, k, seen,
-                                              finite, encode_moore, lowercase);
+      bool encoded = emit_solver_formula(sf, spec, cov, rplan, k, seen, finite,
+                                         encode_moore, lowercase);
       if (!finish_output(sf, true) || !encoded) {
         rc = 1;
         break;
@@ -1146,9 +1152,9 @@ int main(int argc, char *argv[]) {
         break;
       }
       fprintf(shf, "run cluster.%u.ltl \"", k);
-      print_spot_signal_list(shf, cluster->inputs, cluster->n_inputs);
+      print_solver_signal_list(shf, cluster->inputs, cluster->n_inputs);
       fprintf(shf, "\" \"");
-      print_spot_signal_list(shf, cluster->outputs, cluster->n_outputs);
+      print_solver_signal_list(shf, cluster->outputs, cluster->n_outputs);
       fprintf(shf, "\" cluster.%u.%s %s\n", k, solver_ext,
               oxidd_solved ? "solved" : "pending");
       fprintf(out, "c cluster %u file=cluster.%u.ltl outs=", k, k);

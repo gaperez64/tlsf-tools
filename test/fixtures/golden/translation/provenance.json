@@ -390,5 +390,47 @@
         "current_sha256": "6c5820bf2d67b808f5726e3867a689e59a76a00a4b64cd31028f619040f35264"
       }
     }
+  },
+  "dag_extension": {
+    "receipt": "test/fixtures/golden/translation/dag/provenance.json",
+    "sha256": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff",
+    "reason": "Separate fresh DAG validation; historical TV1 dumps remain unchanged.",
+    "sources": {
+      "proofs/TlsfProofs/Dpa/Validation/Dump.lean": {
+        "previous_sha256": "93b2996fdff2ac1f374e55306e95b05c4988468ceb8f8777195cce44ab6b295c",
+        "current_sha256": "8652fb7fd88483b362dd3254b4665f7bbe300ca22112ad20e3f1a926060cd53f"
+      },
+      "proofs/TlsfProofs/Dpa/Validation/ProtocolChecks.lean": {
+        "previous_sha256": "93caa8cb37fef8b30e3826376b1d7f9e19e6a6e172d92a52df7f3fd8405666d5",
+        "current_sha256": "80512cbaaf7ad1581bad38a18f54f42c9c978d78f21b3a44e27ce91652e84bf2"
+      },
+      "test/unit/dpa_dump.c": {
+        "previous_sha256": "286213f4107335a89a8ac50ef07b0fe81510e615455e0c63f0711b802421805f",
+        "current_sha256": "7a9cd355ae52435a89438987628213e3c85a3aed77f058f3abf09266167cd551"
+      },
+      "tools/golden/translation_validate.py": {
+        "previous_sha256": "b3144ead22ea128fd8f204d2f2b14925978b1642ffd74e5d7a9ac210b9074062",
+        "current_sha256": "d60ccbf1c6a2a9406cb6068969fc8c191bcbd1aa234e7b28fa3da9912e111b99"
+      }
+    },
+    "test_source_rebindings": {
+      "date": "2026-11-05",
+      "reason": "Restore the default native_both_api test on macOS and register the direct bounded native export stream regression on every platform. Rebind the test registry and provenance guard; retain the original DAG receipt, validation date, source revision, reports, and every automaton hash. No translator, dumper, or proof source changed. Add Linux coverage of the production BSD export callbacks and Darwin-style eager unbounded buffer publication. Intercept glibc fortified fprintf in objective_alloc so optimized Ubuntu builds exercise the same one-shot write failures as other builds.",
+      "checks": [
+        "native_both_api",
+        "dpa_dag_translation_hashes",
+        "golden_provenance"
+      ],
+      "sources": {
+        "test/unit/meson.build": {
+          "previous_sha256": "0c87dd97040d7e8a3bdf4c34955ac8f62f4f1274fed14775a1cec800fa703cf4",
+          "current_sha256": "29275a77ebb809261286b7118bb9650355709e5f582db5d0467e049d1e0f99d8"
+        },
+        "test/cli/check_golden_provenance.py": {
+          "previous_sha256": "d2a7f493aa2d8fbaf7233d7698e044a8123ff6e868216783262e40b4e5e30f8b",
+          "current_sha256": "9ac9cc196158dcefad55ab33f16c5eb1e5b1814dd1afc53fa4dcc4550e3bc61e"
+        }
+      }
+    }
   }
 }

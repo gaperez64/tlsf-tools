@@ -7,7 +7,7 @@
 /// mirror the corresponding `syfco` transformations.  Each pass allocates new
 /// nodes from the arena; the input tree is left untouched.  Every transform is
 /// equivalence-preserving, so the rewritten formula can be checked against the
-/// original with `ltlfilt --equivalent-to`.
+/// original on sampled words with the independent direct-semantics evaluator.
 ///
 /// Operator replacement:
 ///   RW_NO_WEAK_UNTIL : a W b => (a U b) || G a

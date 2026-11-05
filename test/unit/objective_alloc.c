@@ -3,6 +3,7 @@
 #include "conversion_internal.h"
 #include "section_pattern.h"
 #include "rewrite.h"
+#include "templates_internal.h"
 #include "tlsf/ast_api.h"
 #include "tlsf/convert.h"
 #include "tlsf/pipeline.h"
@@ -25,6 +26,7 @@
 static size_t fail_at, allocations, match_size;
 static bool armed, fired, fail_slab, assembly_only;
 static bool rewrite_only, cover_only, composition_only;
+static bool composition_arena_only;
 static bool slab_at_assembly;
 static bool heap_after_assembly, heap_armed;
 static size_t heap_at, heap_count;
@@ -117,6 +119,23 @@ int __wrap_fprintf(FILE *out, const char *fmt, ...) {
   va_end(args);
   return rc;
 }
+#ifdef __GLIBC__
+// Ubuntu enables _FORTIFY_SOURCE by default in optimized builds. Its stdio
+// headers redirect fprintf to __fprintf_chk, bypassing the ordinary wrapper.
+// Keep the same one-shot failure without setting the FILE error indicator,
+// and preserve fortification on successful writes.
+int __vfprintf_chk(FILE *, int, const char *, va_list);
+int __wrap___fprintf_chk(FILE *, int, const char *, ...);
+int __wrap___fprintf_chk(FILE *out, int flag, const char *fmt, ...) {
+  if (write_fault(out))
+    return -1;
+  va_list args;
+  va_start(args, fmt);
+  int rc = __vfprintf_chk(out, flag, fmt, args);
+  va_end(args);
+  return rc;
+}
+#endif
 int __real_fputs(const char *, FILE *);
 int __wrap_fputs(const char *, FILE *);
 int __wrap_fputs(const char *s, FILE *out) {
@@ -202,9 +221,18 @@ CsnfComposition *__wrap_csnf_compose(const Csnf *);
 CsnfComposition *__wrap_csnf_compose(const Csnf *c) {
   if (composition_only)
     heap_armed = true;
+  if (composition_arena_only) {
+    CHECK(!arena_failed(c->cov->arena));
+    armed = true;
+    allocations = 0;
+  }
   CsnfComposition *r = __real_csnf_compose(c);
   if (composition_only)
     heap_armed = false;
+  if (composition_arena_only) {
+    armed = false;
+    CHECK(!fired || (arena_failed(c->cov->arena) && !r));
+  }
   return r;
 }
 
@@ -214,6 +242,7 @@ static void reset(size_t nth) {
   armed = true;
   fired = fail_slab = assembly_only = slab_at_assembly = false;
   rewrite_only = cover_only = composition_only = false;
+  composition_arena_only = false;
   heap_after_assembly = heap_armed = false;
   heap_at = heap_count = 0;
   stream_armed = false;
@@ -617,6 +646,61 @@ static void composition_sweep(const char *source, uint32_t accepted,
   printf("composition allocation sweep: %zu failures rejected\n", count);
 }
 
+static void arm_composition_arena(size_t nth) {
+  reset(nth);
+  armed = false;
+  composition_arena_only = true;
+}
+
+static void composition_arena_sweep(const char *source, NodeKind value_kind) {
+  size_t count = 0;
+  for (size_t n = 0; n <= count + 1; ++n) {
+    arm_composition_arena(n);
+    FILE *in = fmemopen((void *)source, strlen(source), "r");
+    CHECK(in);
+    TlsfPipelineError error = {0};
+    TlsfPipelineOptions opts = {
+        .certify = true, .template_mask = TPL_ALL, .error = &error};
+    TlsfPipeline *p = tlsf_pipeline_load(in, &opts);
+    fclose(in);
+    if (n == 0 || n == count + 1) {
+      CHECK(!fired && p && error.status == TLSF_PIPELINE_OK);
+      CHECK(!arena_failed(p->cover->arena));
+      CsnfComposition *comp = p->composition;
+      CHECK(comp->naccepted == 1 && comp->nresidual == 0);
+      CHECK(comp->nelim == 1 && comp->elim[0].value);
+      CHECK(comp->elim[0].value->kind == value_kind);
+      CHECK(comp->fully_solved && comp->neliminated == p->cover->count);
+      if (n == 0) {
+        count = allocations;
+        CHECK(count >= 3);
+      } else {
+        // A previously failed arena must also be rejected, even if later
+        // allocations can succeed from spare slab space.
+        CHECK(!arena_alloc_aligned(p->cover->arena, SIZE_MAX, 8));
+        CHECK(arena_alloc_aligned(p->cover->arena, 1, 1));
+        CHECK(!__real_csnf_compose(p->csnf));
+      }
+      tlsf_pipeline_free(p);
+      continue;
+    }
+    CHECK(fired && !p && error.status == TLSF_PIPELINE_LIMIT);
+    CHECK(!strcmp(error.stage, "compose"));
+    CHECK(strstr(error.message, "out of memory"));
+
+    arm_composition_arena(n);
+    TlsfAst *ast = tlsf_ast_from_string(source, nullptr);
+    CHECK(fired && !ast && !tlsf_ast_root(ast));
+    tlsf_ast_free(ast);
+
+    arm_composition_arena(n);
+    TlsfDecomposeResult *result = tlsf_decompose_string(source, nullptr);
+    CHECK(fired && !result);
+    tlsf_decompose_result_free(result);
+  }
+  printf("composition arena sweep: %zu failures rejected\n", count);
+}
+
 static void rewrite_checks(void) {
   const char *source =
       "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
@@ -717,6 +801,25 @@ static void intern_sweeps(void) {
 }
 
 int main(void) {
+  // Issue #90's minimal reaction, a longer OR, and both constant builders.
+  const char *composition_bodies[] = {
+      "G(a -> p); G(b -> p);",
+      "G(a -> p); G(b -> p); G(c -> p);",
+      "G(a -> !p); G(b -> !p);",
+      "F p;",
+      "F G p;",
+      "G(p <-> a);",
+  };
+  const NodeKind value_kinds[] = {NODE_OR,   NODE_OR,   NODE_FALSE,
+                                  NODE_TRUE, NODE_TRUE, NODE_AP};
+  for (size_t i = 0; i < sizeof value_kinds / sizeof *value_kinds; ++i) {
+    char source[512];
+    snprintf(source, sizeof source,
+             "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
+             "INPUTS { %s } OUTPUTS { p; } GUARANTEES { %s } }",
+             i == 1 ? "a; b; c;" : "a; b;", composition_bodies[i]);
+    composition_arena_sweep(source, value_kinds[i]);
+  }
   composition_sweep("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
                     "INPUTS { q; } OUTPUTS { p; } GUARANTEES { G(p <-> q); } }",
                     1, 0, 0, 1);

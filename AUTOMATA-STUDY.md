@@ -31,8 +31,8 @@ Selectors may use only `guard_*` and explicit TLSF metadata (such as I/O counts)
 never paths, filenames, automaton metrics, or solver results. Production proposals
 require zero losses/opposite verdicts on grouped holdouts, non-worse PAR-2, and
 useful alternate-only wins in at least two families. No production selector is
-included. Acacia owns Spot-dependent generation/replay; tlsf-tools passes files,
-without Spot linkage/types. `examples/tlsf2spot.cpp` stays outside Meson/CI.
+included. The selected generator owns generation/replay; tlsf-tools passes files
+and does not link to an external automata backend.
 This workflow ends at bundle generation. External evaluation must separate
 timeouts/resource limits/errors, detect conflicting verdicts, and report
 losses/gains against `off`.

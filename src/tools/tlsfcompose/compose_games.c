@@ -570,7 +570,8 @@ Aig *build_aig_game(ConstraintCover *cov, const bool *seen, const Node *root) {
 // creates a cycling liveness obligation (e.g. G(on→X(act W off)), G(off→X(!act
 // W on))) that the safety game cannot model exactly, producing false UNREALs.
 // Rejecting bare W/R in the antecedent causes these clusters to fall through to
-// ltlsynt.  G-wrapped W/R in the antecedent (G(req→X(a W b))) is still exact.
+// unresolved.  G-wrapped W/R in the antecedent (G(req→X(a W b))) is still
+// exact.
 static bool wr_antecedent_supported(const Node *n) {
   switch (n->kind) {
   case NODE_TRUE:

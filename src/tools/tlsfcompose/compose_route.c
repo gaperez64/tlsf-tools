@@ -46,10 +46,10 @@ bool compose_route_select_sections(TlsfSpec *spec, const Node *root,
   if (view)
     shape.gr_level = section_pattern_gr_level(view);
   *out = (ComposeRoute){
-      .kind = ROUTE_LTLSYNT,
+      .kind = ROUTE_UNKNOWN,
       .uses_oxidd = false,
       .exact = true,
-      .label = "ltlsynt fallback",
+      .label = "unresolved fallback",
       .shape = shape,
       .root = root,
   };
@@ -59,9 +59,11 @@ bool compose_route_select_sections(TlsfSpec *spec, const Node *root,
   // decides the effective move order here. Never feed an output-first or
   // finite objective to these encodings.
   if (finite || spec->info.target == TARGET_MOORE) {
-    out->label = finite ? "ltlfsynt fallback" : "ltlsynt fallback (Moore)";
-    out->reason_override = finite ? "finite-word game requires ltlfsynt"
-                                  : "Moore target requires output-first play";
+    out->label =
+        finite ? "unresolved-finite fallback" : "unresolved fallback (Moore)";
+    out->reason_override =
+        finite ? "finite-word game has no native residual solver"
+               : "Moore target requires output-first play";
     return true;
   }
 

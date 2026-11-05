@@ -37,8 +37,8 @@ static void print_signals(FILE *out, const SignalDecl *sigs, uint32_t count) {
 }
 
 // Comma-separated (no spaces) scalar signal names — ready to paste into
-// `ltlsynt --ins=…/--outs=…`.  Expects the post-expansion spec, where buses are
-// unrolled and parameters resolved so every SignalDecl is scalar.
+// the scalar synthesis interface.  Expects the post-expansion spec, where buses
+// are unrolled and parameters resolved so every SignalDecl is scalar.
 static void print_signals_csv(FILE *out, const SignalDecl *sigs, uint32_t n) {
   for (uint32_t i = 0; i < n; i++)
     fprintf(out, "%s%s", i ? "," : "", sigs[i].name);
@@ -175,8 +175,8 @@ typedef enum {
   SEL_INFO,
   SEL_INPUTS,
   SEL_OUTPUTS,
-  SEL_INS,  // expanded scalar inputs, ltlsynt --ins format
-  SEL_OUTS, // expanded scalar outputs, ltlsynt --outs format
+  SEL_INS,  // expanded scalar inputs, scalar CSV format
+  SEL_OUTS, // expanded scalar outputs, scalar CSV format
   SEL_GR,
   SEL_BOUNDED_TEMPORAL,
   SEL_CHECK,
@@ -189,7 +189,7 @@ static void usage(const char *prog) {
           "  --title, --description, --semantics, --target, --tags\n"
           "  --parameters, --info, --input-signals, --output-signals\n"
           "  --expanded-ins, --expanded-outs   expanded scalar signal CSV "
-          "(buses unrolled, params resolved; for ltlsynt --ins/--outs)\n"
+          "(buses unrolled, params resolved; for scalar interfaces)\n"
           "  --generalized-reactivity   the GR(k) level (or NOT in GR)\n"
           "  --bounded-temporal         expanded X[k]/G[lo:hi]/F[lo:hi] "
           "origins\n"
@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
   case SEL_INS:
   case SEL_OUTS:
     // Expanded scalar signal list (buses unrolled, parameters resolved) — what
-    // the synthesis atoms actually are, ready for `ltlsynt --ins/--outs`.
+    // the synthesis atoms actually are, ready for scalar solver interfaces.
     if (expand(spec, nullptr, 0) != 0) {
       fprintf(stderr, "tlsfinfo: cannot expand spec for signal listing\n");
       rc = 1;

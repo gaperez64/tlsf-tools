@@ -1,3 +1,7 @@
+> Frozen historical measurement report. References below describe the retired
+> Spot 2.16 origin of the measurements, not current setup or commands. Current
+> verification uses [in-house checks](../../test/fixtures/golden/README.md).
+
 # Syntactic X protection in default admission
 
 Keep syntactic X protection in both modes. It preserves default admission but
@@ -87,12 +91,13 @@ warnings, while C++ retains anonymous-struct warnings in `include/tlsf/ast.h`.
 
 ## Inventory limits and reproduction
 
-The full 69-objective rerun needs missing `semml-only.list` or its 45 admitted
-names. Neither the list at `../../otfpar/semml-only.list` nor original raw
-results are committed; the materialized corpus and 1,524-name mapping exist.
-The 24 named declines in [STAGE2-INVENTORY.md](STAGE2-INVENTORY.md) are only a
-recoverable subset. Historical 45/69 and 69/69 totals are not fresh full runs
-on either revision. On that subset:
+The current 69-objective expansion inventory and the Owl comparison are in
+[STATE-COUNTS.md](STATE-COUNTS.md). The paired parent/HEAD rerun over all 69
+was not done for this audit: `semml-only.list` was unavailable at the time and
+the original raw results were not committed. The 24 named declines in
+[STAGE2-INVENTORY.md](STAGE2-INVENTORY.md) are only a recoverable subset.
+Historical 45/69 and 69/69 totals are not fresh full runs on either revision.
+On that subset:
 
 | Observation, over the named 24 only | Parent | HEAD |
 | --- | ---: | ---: |

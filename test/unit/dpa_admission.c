@@ -4,10 +4,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "../../tools/dpa_state_counts.h"
 
 // External inventories supply paths. Only --expand enumerates successors;
 // its TSV distinguishes admissions, completed counts and censored counts.
 int main(int argc, char **argv) {
+  if (argc > 2 && !strcmp(argv[1], "--expand") && !strcmp(argv[2], "--measure"))
+    return dpa_state_counts_main(argc - 3, argv + 3);
   bool expand = argc > 1 && !strcmp(argv[1], "--expand");
   int first = expand ? 2 : 1;
   unsigned admitted[2] = {0};

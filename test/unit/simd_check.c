@@ -11,61 +11,55 @@ static uint64_t next_word(uint64_t *state) {
   return *state ^ (*state >> 29);
 }
 
-static uint32_t scalar_popcount(const uint64_t *words, uint32_t n) {
+// An independent bit-by-bit reference, rather than the kernel's builtin.
+static uint32_t scalar_popcount(uint64_t word) {
   uint32_t acc = 0;
-  for (uint32_t i = 0; i < n; i++)
-    acc += (uint32_t)__builtin_popcountll(words[i]);
-  return acc;
-}
-
-static uint32_t scalar_and_popcount(const uint64_t *a, const uint64_t *b,
-                                    uint32_t n) {
-  uint32_t acc = 0;
-  for (uint32_t i = 0; i < n; i++)
-    acc += (uint32_t)__builtin_popcountll(a[i] & b[i]);
+  for (unsigned i = 0; i < 64; ++i)
+    acc += (uint32_t)((word >> i) & 1u);
   return acc;
 }
 
 int main(void) {
-  static const uint32_t sizes[] = {0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 1000};
-  uint64_t a[MAX_WORDS];
-  uint64_t b[MAX_WORDS];
-  uint64_t dst[MAX_WORDS];
-  uint64_t expect[MAX_WORDS];
-
-  for (uint32_t si = 0; si < sizeof(sizes) / sizeof(sizes[0]); si++) {
-    uint32_t n = sizes[si];
-    uint64_t state = UINT64_C(0x9e3779b97f4a7c15) ^ n;
-    for (uint32_t i = 0; i < n; i++) {
-      a[i] = next_word(&state);
-      b[i] = next_word(&state);
-      dst[i] = next_word(&state);
-      expect[i] = dst[i] | b[i];
-    }
-
-    tlsf_words_or(dst, b, n);
-    for (uint32_t i = 0; i < n; i++) {
-      if (dst[i] != expect[i]) {
-        fprintf(stderr, "tlsf_words_or mismatch n=%u i=%u\n", n, i);
-        return 1;
+  uint64_t a[MAX_WORDS + 9], b[MAX_WORDS + 9];
+  uint64_t dst[MAX_WORDS + 9], expect[MAX_WORDS + 9];
+  uint32_t counts[MAX_WORDS + 1];
+  tlsf_words_or(NULL, NULL, 0);
+  if (tlsf_words_popcount(NULL, 0) != 0)
+    return 1;
+  // Every length and every word alignment modulo 64 bytes: covers all tails
+  // for 128/256/512-bit vectors, without assuming one of those widths.
+  for (unsigned pattern = 0; pattern < 4; ++pattern) {
+    for (uint32_t offset = 0; offset < 8; ++offset) {
+      uint64_t state = UINT64_C(0x9e3779b97f4a7c15) ^ offset;
+      for (uint32_t i = 0; i < MAX_WORDS + 9; ++i) {
+        a[i] = pattern == 0   ? 0
+               : pattern == 1 ? UINT64_MAX
+               : pattern == 2 ? UINT64_C(0x5555555555555555)
+                              : next_word(&state);
+        b[i] = next_word(&state);
       }
-    }
-
-    uint32_t got_pop = tlsf_words_popcount(a, n);
-    uint32_t expect_pop = scalar_popcount(a, n);
-    if (got_pop != expect_pop) {
-      fprintf(stderr, "tlsf_words_popcount mismatch n=%u got=%u expect=%u\n", n,
-              got_pop, expect_pop);
-      return 1;
-    }
-
-    uint32_t got_and = tlsf_words_and_popcount(a, b, n);
-    uint32_t expect_and = scalar_and_popcount(a, b, n);
-    if (got_and != expect_and) {
-      fprintf(stderr,
-              "tlsf_words_and_popcount mismatch n=%u got=%u expect=%u\n", n,
-              got_and, expect_and);
-      return 1;
+      counts[0] = 0;
+      for (uint32_t i = 0; i < MAX_WORDS; ++i)
+        counts[i + 1] = counts[i] + scalar_popcount(a[offset + i]);
+      for (uint32_t n = 0; n <= MAX_WORDS; ++n) {
+        for (uint32_t i = 0; i < MAX_WORDS + 9; ++i) {
+          dst[i] = a[i];
+          expect[i] = i >= offset && i < offset + n ? a[i] | b[i] : a[i];
+        }
+        tlsf_words_or(dst + offset, b + offset, n);
+        for (uint32_t i = 0; i < MAX_WORDS + 9; ++i)
+          if (dst[i] != expect[i]) {
+            fprintf(stderr, "tlsf_words_or mismatch n=%u offset=%u i=%u\n", n,
+                    offset, i);
+            return 1;
+          }
+        uint32_t got = tlsf_words_popcount(a + offset, n);
+        if (got != counts[n]) {
+          fprintf(stderr, "tlsf_words_popcount mismatch n=%u offset=%u\n", n,
+                  offset);
+          return 1;
+        }
+      }
     }
   }
 

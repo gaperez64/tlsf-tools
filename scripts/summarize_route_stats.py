@@ -17,7 +17,7 @@ def is_external_residual(row):
     uses_oxidd = row.get("uses_oxidd")
     if uses_oxidd in ("0", "1"):
         return uses_oxidd == "0"
-    if row.get("route") in {"ltlsynt", "output-free"}:
+    if row.get("route") in {"unresolved", "output-free"}:
         return True
     backend = row.get("backend", "")
     return bool(backend) and not backend.startswith("OxiDD")

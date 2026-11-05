@@ -112,7 +112,121 @@ static void scratch_budget(void) {
   tlsf_dpa_free(c);
   free(nodes);
 }
+
+static void invalid(const TlsfDpaFormulaNode *nodes, uint32_t count,
+                    uint32_t root) {
+  TlsfDpa *c = (void *)1;
+  assert(create(nodes, count, root, TLSF_DPA_PARITY, nullptr, &c).code ==
+         TLSF_DPA_INVALID);
+  assert(!c);
+}
+
+// FormulaDag.Node.valid relies on every branch of these record checks.
+// Mutate unreachable records too: validation is independent of root traversal.
+static void record_contract(void) {
+  static const unsigned arities[] = {0, 0, 0, 1, 2, 2, 2, 2,
+                                     1, 0, 1, 1, 2, 2, 2, 2};
+  for (unsigned kind = 0; kind < TLSF_AST_KIND_COUNT; ++kind) {
+    TlsfDpaFormulaNode nodes[] = {
+        {TLSF_AST_TRUE, NIL, NIL, NIL}, ATOM(0), {kind, NIL, NIL, NIL}};
+    unsigned arity = arities[kind];
+    if (arity)
+      nodes[2].left = 1;
+    if (arity == 2)
+      nodes[2].right = 1; // Shared child is legal for every binary operator.
+    if (kind == TLSF_AST_AP)
+      nodes[2].ap = 2;
+    if (kind == TLSF_AST_X_STRONG) {
+      invalid(nodes, 3, 0);
+      continue;
+    }
+    TlsfDpa *c;
+    assert(create(nodes, 3, 2, TLSF_DPA_PARITY, nullptr, &c).code ==
+           TLSF_DPA_OK);
+    tlsf_dpa_free(c);
+    TlsfDpaFormulaNode valid = nodes[2];
+    nodes[2].left = arity ? 2 : 0; // Self reference or extra nullary child.
+    invalid(nodes, 3, 0);
+    nodes[2].left = arity ? NIL : 1;
+    invalid(nodes, 3, 0);
+    nodes[2] = valid;
+    nodes[2].right = arity == 2 ? 2 : 0;
+    invalid(nodes, 3, 0);
+    nodes[2].right = arity == 2 ? NIL : 1;
+    invalid(nodes, 3, 0);
+    nodes[2] = valid;
+    nodes[2].ap = kind == TLSF_AST_AP ? 3 : 0;
+    invalid(nodes, 3, 0);
+    nodes[2].ap = kind == TLSF_AST_AP ? NIL : 1;
+    invalid(nodes, 3, 0);
+  }
+  TlsfDpaFormulaNode nodes[] = {{TLSF_AST_TRUE, NIL, NIL, NIL},
+                                {TLSF_AST_FALSE, NIL, NIL, NIL}};
+  TlsfDpa *c;
+  for (uint32_t root = 0; root < 2; ++root) {
+    assert(create(nodes, 2, root, TLSF_DPA_PARITY, nullptr, &c).code ==
+           TLSF_DPA_OK);
+    assert(tlsf_dpa_expand(c).code == TLSF_DPA_OK);
+    const unsigned word[] = {0};
+    assert(repeats(c, word, 1) == (root == 0));
+    tlsf_dpa_free(c);
+  }
+  nodes[1].kind = TLSF_AST_KIND_COUNT;
+  invalid(nodes, 2, 0);
+  nodes[1].kind = (TlsfAstKind)-1;
+  invalid(nodes, 2, 0);
+  nodes[1] = (TlsfDpaFormulaNode)UNARY(TLSF_AST_X, 2); // Forward child.
+  invalid(nodes, 2, 0);
+  invalid(nullptr, 1, 0);
+  invalid(nodes, 0, 0);
+  invalid(nodes, 2, 2);
+  assert(create(nodes, 2, 0, TLSF_DPA_PARITY, nullptr, nullptr).code ==
+         TLSF_DPA_INVALID);
+}
+
+static void declaration_contract(void) {
+  const TlsfDpaFormulaNode truth = {TLSF_AST_TRUE, NIL, NIL, NIL};
+  const char *bad[][2] = {{nullptr, "unused"}, {"", "unused"}, {"A", "A"},
+                          {"A", "B"},          {"A", nullptr}, {"A", ""}};
+  for (TlsfDpaKind kind = TLSF_DPA_PARITY; kind <= TLSF_DPA_BUCHI; ++kind) {
+    TlsfDpa *c;
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; ++i) {
+      c = (void *)1;
+      assert(tlsf_dpa_create_from_dag(&truth, 1, 0, bad[i], 2, outputs, 1, kind,
+                                      nullptr, &c)
+                 .code == TLSF_DPA_INVALID);
+      assert(!c); // Even unused declarations must be nonempty and distinct.
+    }
+    assert(tlsf_dpa_create_from_dag(&truth, 1, 0, nullptr, 1, outputs, 1, kind,
+                                    nullptr, &c)
+                   .code == TLSF_DPA_INVALID &&
+           !c);
+    assert(tlsf_dpa_create_from_dag(&truth, 1, 0, inputs, 2, nullptr, 1, kind,
+                                    nullptr, &c)
+                   .code == TLSF_DPA_INVALID &&
+           !c);
+    assert(tlsf_dpa_create_from_dag(&truth, 1, 0, inputs, UINT32_MAX, outputs,
+                                    1, kind, nullptr, &c)
+                   .code == TLSF_DPA_INVALID &&
+           !c);
+    assert(tlsf_dpa_create_from_dag(&truth, 1, 0, nullptr, 0, nullptr, 0, kind,
+                                    nullptr, &c)
+               .code == TLSF_DPA_OK);
+    tlsf_dpa_free(c);
+    TlsfDpaFormulaNode atom = ATOM(0);
+    assert(tlsf_dpa_create_from_dag(&atom, 1, 0, nullptr, 0, nullptr, 0, kind,
+                                    nullptr, &c)
+                   .code == TLSF_DPA_INVALID &&
+           !c);
+  }
+  TlsfDpa *c = (void *)1;
+  assert(create(&truth, 1, 0, (TlsfDpaKind)2, nullptr, &c).code ==
+             TLSF_DPA_INVALID &&
+         !c);
+}
 int main(void) {
+  record_contract();
+  declaration_contract();
   // Shared GF(A) is referenced twice. Input data may disappear before
   // expansion.
   const TlsfDpaFormulaNode formula[] = {ATOM(0), UNARY(TLSF_AST_F, 0),
@@ -139,47 +253,6 @@ int main(void) {
     tlsf_dpa_free(c);
   }
   TlsfDpa *c = (void *)1;
-  TlsfDpaFormulaNode malformed[4];
-  for (unsigned mutation = 0; mutation < 7; ++mutation) {
-    memcpy(malformed, formula, sizeof formula);
-    switch (mutation) {
-    case 0:
-      malformed[0].ap = 3;
-      break;
-    case 1:
-      malformed[1].left = 1;
-      break;
-    case 2:
-      malformed[1].right = 0;
-      break;
-    case 3:
-      malformed[2].ap = 0;
-      break;
-    case 4:
-      malformed[3].right = NIL;
-      break;
-    case 5:
-      malformed[3].kind = TLSF_AST_X_STRONG;
-      break;
-    case 6:
-      malformed[3].kind = TLSF_AST_KIND_COUNT;
-      break;
-    }
-    assert(create(malformed, 4, 0, TLSF_DPA_PARITY, nullptr, &c).code ==
-           TLSF_DPA_INVALID);
-    assert(!c); // Even unreachable records must validate.
-  }
-  assert(create(formula, 4, 4, TLSF_DPA_PARITY, nullptr, &c).code ==
-             TLSF_DPA_INVALID &&
-         !c);
-  assert(create(formula, 0, 0, TLSF_DPA_PARITY, nullptr, &c).code ==
-             TLSF_DPA_INVALID &&
-         !c);
-  const char *duplicate[] = {"A", "A"};
-  assert(tlsf_dpa_create_from_dag(formula, 4, 3, duplicate, 2, outputs, 1,
-                                  TLSF_DPA_PARITY, nullptr, &c)
-                 .code == TLSF_DPA_INVALID &&
-         !c);
   TlsfDpaBudget budget = {.max_host_bytes = 128};
   assert(create(formula, 4, 3, TLSF_DPA_PARITY, &budget, &c).reason ==
              TLSF_DPA_HOST_LIMIT &&

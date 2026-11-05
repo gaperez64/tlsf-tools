@@ -12,7 +12,7 @@ env = os.environ.copy()
 env.pop("TLSFCOMPOSE_SOLVER", None)
 help_result = subprocess.run([compose, "--help"], env=env, text=True,
                              capture_output=True, check=True)
-for text in ("--solver COMMAND", "TLSFCOMPOSE_SOLVER", "ltlsynt", "ltlfsynt",
+for text in ("--solver COMMAND", "TLSFCOMPOSE_SOLVER", "default: UNKNOWN",
              "wrapper script"):
     assert text in help_result.stderr, help_result
 for args in (["--solver"], ["--solver", ""]):
@@ -51,8 +51,10 @@ exit "$SOLVER_STATUS"
             subprocess.run(base, input=source, env={**env, **setting},
                            text=True, capture_output=True, check=True)
             driver = (out / "compose.sh").read_text()
-            expected = "  ltlfsynt --semantics=" + target if finite else "  ltlsynt --ins="
-            assert expected in driver, driver
+            assert "UNKNOWN (unresolved residual)" in driver, driver
+            declined = subprocess.run(["sh", str(out / "compose.sh")], env=env,
+                                      text=True, capture_output=True, timeout=10)
+            assert declined.returncode == 2 and "SPEC UNKNOWN" in declined.stdout, declined
         for selection in ("env", "cli"):
             generation_env = {**env, "TLSFCOMPOSE_SOLVER": str(stub)
                               if selection == "env" else "/must-not-run"}

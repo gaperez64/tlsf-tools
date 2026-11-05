@@ -1,6 +1,7 @@
 import TlsfProofs.Dpa.Validation.Finite
 import TlsfProofs.Dpa.Validation.Compact
 import TlsfProofs.Dpa.Validation.Normalize
+import TlsfProofs.Dpa.FormulaDag
 
 /-! Strict offline decoding. Request and dump each carry their AP order and
 formula; mismatches, incomplete rows, invalid indices and trailing tokens fail.
@@ -57,20 +58,66 @@ structure Request where
   buchi : Bool
   general : Bool
   names : Array String
-  source : Formula (Fin names.size)
+  astSource : Formula (Fin names.size)
+  dag : Option (Array FormulaDag.Node × Nat × Nat) := none
+  objective : Formula (Fin names.size) := .tt
+  negative : Bool := false
+
+/-- The DAG is the source of psi, rather than an unbound annotation on an AST. -/
+def Request.source (r : Request) : Formula (Fin r.names.size) :=
+  match r.dag with
+  | some (nodes, root, _) => FormulaDag.decodeNode nodes (FormulaDag.indexedAtom r.names.size) root
+  | none => r.astSource
+
+private def dagData (aps : Nat) : Parser (Array FormulaDag.Node × Nat) := do
+  expect "normalization"
+  expect "caller-trusted"
+  expect "dag"
+  let count ← natural
+  let root ← natural
+  unless 0 < count && count ≤ 4096 && root < count do throw "invalid DAG size/root"
+  let mut nodes := #[]
+  for i in List.range count do
+    let n : FormulaDag.Node := ⟨← natural, ← natural, ← natural, ← natural⟩
+    unless n.kind ≤ FormulaDag.nil && n.left ≤ FormulaDag.nil &&
+        n.right ≤ FormulaDag.nil && n.ap ≤ FormulaDag.nil && n.valid aps i do
+      throw "invalid DAG record"
+    nodes := nodes.push n
+  pure (nodes, root)
 
 private def readRequest : Parser Request := do
-  expect "TV1"
+  let magic ← takeToken
+  unless magic == "TV1" || magic == "TVD1" do throw "unknown entry point"
   let kind ← takeToken
   unless kind == "parity" || kind == "buchi" do throw "unknown acceptance kind"
   let admission ← takeToken
   unless admission == "default" || admission == "general" do throw "unknown admission mode"
-  let count ← natural
+  let inputs ← natural
+  let outputs ← if magic == "TVD1" then natural else pure 0
+  let count := inputs + outputs
   unless count ≤ 16 do throw "AP resource limit exceeded"
   let names := (← (List.range count).mapM (fun _ => takeToken)).toArray
   unless names.toList.eraseDups.length == names.size do throw "duplicate AP name"
-  let source ← formula names 1025
-  pure ⟨kind == "buchi", admission == "general", names, source⟩
+  if magic == "TVD1" then
+    let sign ← takeToken
+    unless sign == "positive" || sign == "negative" do throw "invalid objective polarity"
+    expect "objective"
+    let objective ← formula names 1025
+    let (nodes, root) ← dagData count
+    pure { buchi := kind == "buchi"
+           general := admission == "general"
+           names := names
+           astSource := .tt
+           dag := some (nodes, root, inputs)
+           objective := objective
+           negative := sign == "negative" }
+  else
+    let source ← formula names 1025
+    pure { buchi := kind == "buchi"
+           general := admission == "general"
+           names := names
+           astSource := source
+           objective := source }
 
 private def tokens (s : String) : List String :=
   ((s.splitOn "\n").flatMap (fun line => (line.splitOn "\t").flatMap
@@ -101,16 +148,27 @@ structure Dump (ap : Nat) where
     accepting := fun i => d.acceptance.getD i.val false }
 
 private def readDump (r : Request) : Parser (Dump r.names.size) := do
-  expect "TV1"
+  expect (if r.dag.isSome then "TVD1" else "TV1")
   expect (if r.buchi then "buchi" else "parity")
   expect (if r.general then "general" else "default")
-  let count ← natural
+  let inputs ← natural
+  let outputs ← if r.dag.isSome then natural else pure 0
+  let count := inputs + outputs
   unless count == r.names.size do throw "AP count mismatch"
   for name in r.names do
     let got ← takeToken
     unless got == name do throw s!"AP order mismatch: expected {name}, got {got}"
-  let source ← formula r.names 1025
-  unless source == r.source do throw "formula mismatch"
+  if let some (nodes, root, ni) := r.dag then
+    unless inputs == ni do throw "AP partition mismatch"
+    expect (if r.negative then "negative" else "positive")
+    expect "objective"
+    let objective ← formula r.names 1025
+    unless objective == r.objective do throw "objective mismatch"
+    let (actualNodes, actualRoot) ← dagData r.names.size
+    unless actualNodes == nodes && actualRoot == root do throw "DAG mismatch"
+  else
+    let source ← formula r.names 1025
+    unless source == r.source do throw "formula mismatch"
   expect "states"
   let size ← natural
   if hn : 0 < size then
@@ -268,5 +326,43 @@ theorem validate_buchi_sound (r : Request) (d : Dump r.names.size) (fuel : Nat)
       cases hh : checkBuchiCompact d.buchi reference.machine <;>
         simp_all [validate, pure, throw]
     exact (checkBuchiCompact_sound _ _ hc w).trans (reference.language w)
+
+theorem validate_dag_parity_sound (r : Request) (d : Dump r.names.size) (fuel : Nat)
+    (hk : r.buchi = false) (h : validate r d fuel = .ok ())
+    (hd : r.dag = some (nodes, root, inputs)) (w : Nat → Alphabet r.names.size) :
+    d.parity.Accepts w ↔
+      FormulaDag.denoteNode nodes (FormulaDag.indexedWord (fun n => decode (w n))) root 0 := by
+  apply (validate_parity_sound r d fuel hk h w).trans
+  simp only [Request.source, hd]
+  exact FormulaDag.decode_indexed_meaning _ _ _ _
+
+theorem validate_dag_buchi_sound (r : Request) (d : Dump r.names.size) (fuel : Nat)
+    (hk : r.buchi = true) (h : validate r d fuel = .ok ())
+    (hd : r.dag = some (nodes, root, inputs)) (w : Nat → Alphabet r.names.size) :
+    d.buchi.Accepts w ↔
+      FormulaDag.denoteNode nodes (FormulaDag.indexedWord (fun n => decode (w n))) root 0 := by
+  apply (validate_buchi_sound r d fuel hk h w).trans
+  simp only [Request.source, hd]
+  exact FormulaDag.decode_indexed_meaning _ _ _ _
+
+/-- Caller-supplied equivalence of normalized psi and the signed WHOLE phi.
+The parser records this trust boundary; validation does not discharge it. -/
+def NormalizationPremise (r : Request) : Prop :=
+  ∀ w j, Sat none w r.source j ↔
+    Sat none w (if r.negative then .neg r.objective else r.objective) j
+
+theorem validate_signed_parity_sound (r : Request) (d : Dump r.names.size) (fuel : Nat)
+    (hk : r.buchi = false) (h : validate r d fuel = .ok ())
+    (premise : NormalizationPremise r) (w : Nat → Alphabet r.names.size) :
+    d.parity.Accepts w ↔ Sat none (fun n => decode (w n))
+      (if r.negative then .neg r.objective else r.objective) 0 :=
+  (validate_parity_sound r d fuel hk h w).trans (premise _ 0)
+
+theorem validate_signed_buchi_sound (r : Request) (d : Dump r.names.size) (fuel : Nat)
+    (hk : r.buchi = true) (h : validate r d fuel = .ok ())
+    (premise : NormalizationPremise r) (w : Nat → Alphabet r.names.size) :
+    d.buchi.Accepts w ↔ Sat none (fun n => decode (w n))
+      (if r.negative then .neg r.objective else r.objective) 0 :=
+  (validate_buchi_sound r d fuel hk h w).trans (premise _ 0)
 
 end Tlsf.Dpa.Validation

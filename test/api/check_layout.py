@@ -2,7 +2,7 @@
 """Check the source layout rules (issue #40) against a configured build.
 
 1. Each source file is compiled into exactly one target; the exceptions are
-   the test-only fault-injection builds and their shared probe main.
+   the test-only fault-injection and platform-adapter builds and shared probes.
 2. The installed tlsf headers are exactly include/tlsf/, plus the generated version.h.
 3. (Enforced by compilation: test/api sees include/ only.)
 4. Nothing in src/lib includes a tool header, and nothing in include/tlsf
@@ -35,23 +35,34 @@ for target in targets:
                 compiled[path.relative_to(root)].append(target["name"])
 for source, owners in sorted(compiled.items()):
     fault_owners = {
-        pathlib.Path("src/lib/arena.c"): {"objective_alloc"},
+        pathlib.Path("src/lib/arena.c"): {"objective_alloc", "composition-fault",
+                                        "tlsfbenchgraph-composition-fault",
+                                        "tlsfresidual-composition-fault",
+                                        "tlsftemplates-composition-fault"},
         pathlib.Path("src/tools/tlsf2ltl/main.c"): {"objective-cli"},
-        pathlib.Path("src/tools/tlsfresidual/main.c"): {"residual-fault"},
-        pathlib.Path("src/tools/tlsftemplates/main.c"): {"template-fault"},
+        pathlib.Path("src/tools/tlsfbenchgraph/main.c"): {"tlsfbenchgraph-composition-fault"},
+        pathlib.Path("src/tools/tlsfresidual/main.c"): {"residual-fault",
+                                                     "tlsfresidual-composition-fault"},
+        pathlib.Path("src/tools/tlsftemplates/main.c"): {"template-fault",
+                                                      "tlsftemplates-composition-fault"},
         pathlib.Path("src/tools/tlsfcompose/main.c"): {"composition-fault"},
         pathlib.Path("src/tools/tlsfcompose/compose_analysis.c"): {"composition-fault"},
         pathlib.Path("src/tools/tlsfcompose/compose_games.c"): {"composition-fault"},
         pathlib.Path("src/tools/tlsfcompose/compose_oxidd.c"): {"composition-fault"},
         pathlib.Path("src/tools/tlsfcompose/compose_route.c"): {"composition-fault"},
         pathlib.Path("test/unit/research_fault.c"): {"residual-fault", "template-fault",
-                                                   "composition-fault"},
+                                                   "composition-fault",
+                                                   "tlsfbenchgraph-composition-fault",
+                                                   "tlsfresidual-composition-fault",
+                                                   "tlsftemplates-composition-fault"},
         pathlib.Path("src/lib/gr1_reduction.cc"): {"native_contract_api"},
+        pathlib.Path("src/lib/gr1_oxidd.c"): {"gr1_export_stream_bsd"},
         pathlib.Path("src/lib/gr1_lift.cc"): {"native_lift_api", "native_both_api",
                                                "native_real_both_api", "env_rank_fault_probe"},
         pathlib.Path("src/lib/gr1_env_lift.cc"): {"native_both_api",
                                                    "native_real_both_api", "env_rank_fault_probe"},
         pathlib.Path("test/unit/env_rank_probe.cpp"): {"env_rank_fault_probe"},
+        pathlib.Path("test/unit/gr1_export_stream.c"): {"gr1_export_stream_bsd"},
     }
     extra = sorted(set(owners) - fault_owners.get(source, set()))
     if len(extra) > 1:

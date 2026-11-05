@@ -79,6 +79,39 @@ jobs:
               --errors-for-leak-kinds=definite,indirect ./build/$args >/dev/null
           done
 
+  build-macos:
+    runs-on: macos-15
+    env:
+      CARGO_BUILD_JOBS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Verify arm64 runner and install toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          brew update
+          brew install ninja flex bison
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-native
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
+      - name: Build stable tools and library, then run regressions
+        run: |
+          meson setup build-macos --buildtype=release -Dresearch_tools=false -Dcpu=neon
+          meson compile -C build-macos -j1
+          meson test -C build-macos --no-rebuild --num-processes 1 --print-errorlogs
+      - name: Explain platform exclusions
+        run: |
+          echo 'SKIP dpa_contract, dpa_deadline, objective_alloc, native_api_failure: require GNU ld --wrap (objective_alloc also uses /proc/self/fd).'
+          echo 'SKIP oxidd_runtime_*: Linux RLIMIT_AS worker-stack contract.'
+          echo 'native_both_api RSS measurement/assertions run on macOS using Mach task_info and Darwin ru_maxrss byte units.'
+
   build-clang:
     runs-on: ubuntu-24.04
     steps:
@@ -224,8 +257,9 @@ jobs:
           meson test -C build-native-ci --num-processes 1 --print-errorlogs
           # The configuration Acacia-Bonsai builds as a subproject.
           meson setup build-native-lib \
-            -Dresearch_tools=false -Dcpp_std=c++23
+            --buildtype=release -Dresearch_tools=false -Dcpp_std=c++23
           meson compile -C build-native-lib -j1
+          meson test -C build-native-lib --no-rebuild --num-processes 1 --print-errorlogs
 
   coverage:
     runs-on: ubuntu-24.04

@@ -146,7 +146,8 @@ static void variable_orders(void) {
   oxidd_bdd_manager_unref(manager);
   oxidd_resolved_order_free(&order);
 
-  char path[] = "/tmp/tlsfsolve-order-XXXXXX";
+  // Meson runs tests in the build directory; keep scratch on that filesystem.
+  char path[] = "tlsfsolve-order-XXXXXX";
   int fd = mkstemp(path);
   CHECK(fd >= 0);
   FILE *file = fdopen(fd, "w");

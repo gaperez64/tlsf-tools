@@ -1,9 +1,25 @@
 # Internal units: these may include libtlsf's private headers.
 
+gr1_export_stream = executable('gr1_export_stream', 'gr1_export_stream.c',
+  dependencies: tlsf_internal_dep)
+test('gr1_export_stream', gr1_export_stream)
+if host_machine.system() == 'linux'
+  # glibc has fopencookie, but no funopen. Compile the production BSD branch
+  # against a test bridge, including Darwin's eager open_memstream publication.
+  gr1_export_stream_bsd = executable('gr1_export_stream_bsd',
+    'gr1_export_stream.c', 'gr1_export_stdio.c',
+    '../../src/lib/gr1_oxidd.c', c_args: ['-DTLSF_GR1_EXPORT_TEST_BSD'],
+    dependencies: tlsf_internal_dep)
+  test('gr1_export_stream_bsd', gr1_export_stream_bsd)
+endif
+
 dpa_dump = executable('dpa_dump', 'dpa_dump.c', dependencies: tlsf_internal_dep)
 test('dpa_translation_hashes', dpa_dump,
   args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/hashes.tsv'],
   timeout: 300, is_parallel: false)
+test('dpa_dag_translation_hashes', dpa_dump,
+  args: ['--golden', meson.project_source_root() / 'test/fixtures/golden/translation/dag/hashes.tsv'],
+  timeout: 120, is_parallel: false)
 if research_tools
   tv_inventory = executable('tv_inventory', '../../tools/golden/tv_inventory.cc',
     link_args: ['-Wl,--wrap=dpa_buchi_create'], dependencies: tlsf_internal_dep)
@@ -12,22 +28,26 @@ endif
 dpa_equivalence = executable('dpa_equivalence', 'dpa_equivalence.cpp',
   cpp_args: ['-DDPA_GOLDEN_DIR="' + (meson.project_source_root() / 'test/fixtures/golden/dpa') + '"'],
   dependencies: tlsf_internal_dep)
-dpa_contract = executable('dpa_contract', 'dpa_contract.c',
-  c_args: ['-UNDEBUG'],
-  link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite',
-    '-Wl,--wrap=oxidd_bdd_not', '-Wl,--wrap=oxidd_bdd_and',
-    '-Wl,--wrap=oxidd_bdd_or', '-Wl,--wrap=oxidd_bdd_cofactor_false',
-    '-Wl,--wrap=oxidd_bdd_cofactor_true'],
-  dependencies: tlsf_internal_dep)
-test('dpa_contract', dpa_contract, timeout: 120)
-# Use the existing production library. Non-LTO test allocation/manager seams
-# keep the observers visible even when that library was built with LTO.
-dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',
-  c_args: ['-UNDEBUG'],
-  override_options: ['b_lto=false'],
-  link_args: ['-Wl,--wrap=clock_gettime', '-Wl,--wrap=free'],
-  dependencies: tlsf_internal_dep)
-test('dpa_deadline', dpa_deadline, timeout: 120)
+if host_machine.system() == 'linux'
+  dpa_contract = executable('dpa_contract', 'dpa_contract.c',
+    c_args: ['-UNDEBUG'],
+    link_args: ['-Wl,--wrap=oxidd_host_calloc', '-Wl,--wrap=oxidd_bdd_ite',
+      '-Wl,--wrap=oxidd_bdd_not', '-Wl,--wrap=oxidd_bdd_and',
+      '-Wl,--wrap=oxidd_bdd_or', '-Wl,--wrap=oxidd_bdd_cofactor_false',
+      '-Wl,--wrap=oxidd_bdd_cofactor_true'],
+    dependencies: tlsf_internal_dep)
+  test('dpa_contract', dpa_contract, timeout: 120)
+  # Use the existing production library. Non-LTO test allocation/manager seams
+  # keep the observers visible even when that library was built with LTO.
+  dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',
+    c_args: ['-UNDEBUG'],
+    override_options: ['b_lto=false'],
+    link_args: ['-Wl,--wrap=clock_gettime', '-Wl,--wrap=free'],
+    dependencies: tlsf_internal_dep)
+  test('dpa_deadline', dpa_deadline, timeout: 120)
+else
+  message('SKIP dpa_contract and dpa_deadline: require GNU ld --wrap')
+endif
 test('dpa_equivalence', dpa_equivalence, timeout: 120)
 # Full rows captured from the unchanged 3463a86 library with --write-rows.
 test('dpa_row_identity', dpa_equivalence, args: ['--rows'], timeout: 120)
@@ -51,19 +71,24 @@ dpa_admission = executable('dpa_admission', 'dpa_admission.c',
 test('dpa_delta2', python3, args: [files('dpa_delta2.py'), dpa_equivalence,
   meson.project_source_root() / 'test/fixtures/golden/dpa/delta2.ltl'], timeout: 300)
 
-objective_cli = static_library('objective-cli',
-  files('../../src/tools/tlsf2ltl/main.c'),
-  c_args: ['-Dmain=objective_cli_main'], dependencies: tool_dep)
-objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
-  files('../../src/lib/arena.c'), c_args: ['-DTLSF_ARENA_FAULT'],
-  link_with: objective_cli,
-  link_args: ['-Wl,--wrap=build_spec_formula', '-Wl,--wrap=malloc',
-              '-Wl,--wrap=calloc', '-Wl,--wrap=realloc',
-              '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
-              '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
-              '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
-  dependencies: tool_dep)
-test('objective_alloc', objective_alloc_exe)
+if host_machine.system() == 'linux'
+  objective_cli = static_library('objective-cli',
+    files('../../src/tools/tlsf2ltl/main.c'),
+    c_args: ['-Dmain=objective_cli_main'], dependencies: tool_dep)
+  objective_alloc_exe = executable('objective_alloc', 'objective_alloc.c',
+    files('../../src/lib/arena.c'), c_args: ['-DTLSF_ARENA_FAULT'],
+    link_with: objective_cli,
+    link_args: ['-Wl,--wrap=build_spec_formula', '-Wl,--wrap=malloc',
+                '-Wl,--wrap=calloc', '-Wl,--wrap=realloc',
+                '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
+                '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
+                '-Wl,--wrap=__fprintf_chk',
+                '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
+    dependencies: tool_dep)
+  test('objective_alloc', objective_alloc_exe, timeout: 120)
+else
+  message('SKIP objective_alloc: requires GNU ld --wrap and /proc/self/fd')
+endif
 
 if research_tools
   pruning_cache = executable('pruning_cache', 'pruning_cache.c',
@@ -84,11 +109,20 @@ if research_tools
                 '-Wl,--wrap=open_memstream'],
     dependencies: tool_dep)
   composition_fault = executable('composition-fault', 'research_fault.c',
-    tools['tlsfcompose']['sources'],
-    c_args: ['-DCOMPOSITION_FAULT'],
+    tools['tlsfcompose']['sources'], files('../../src/lib/arena.c'),
+    c_args: ['-DCOMPOSITION_FAULT', '-DTLSF_ARENA_FAULT'],
     link_args: ['-Wl,--wrap=csnf_compose', '-Wl,--wrap=malloc',
                 '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
     dependencies: tools['tlsfcompose']['dependencies'])
+  composition_callers = {'tlsfcompose': composition_fault}
+  foreach name : ['tlsftemplates', 'tlsfresidual', 'tlsfbenchgraph']
+    composition_callers += {name: executable(name + '-composition-fault',
+      'research_fault.c', tools[name]['sources'], files('../../src/lib/arena.c'),
+      c_args: ['-DCOMPOSITION_FAULT', '-DTLSF_ARENA_FAULT'],
+      link_args: ['-Wl,--wrap=csnf_compose', '-Wl,--wrap=malloc',
+                  '-Wl,--wrap=calloc', '-Wl,--wrap=realloc'],
+      dependencies: tools[name]['dependencies'])}
+  endforeach
 endif
 
 # Header-only: the SIMD kernels in src/lib/simd.h.
@@ -168,6 +202,8 @@ if host_machine.system() == 'linux'
     test('oxidd_runtime_' + mib, oxidd_runtime_exe, args: [mib],
          is_parallel: false)
   endforeach
+else
+  message('SKIP oxidd_runtime_*: Linux RLIMIT_AS worker-stack contract')
 endif
 
 # Diagnostic inventory; not a test and never used by the production reducer.

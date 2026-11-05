@@ -86,14 +86,14 @@ def main():
         )
         build = root / "build"
         run("meson", "setup", "--wrap-mode=nodownload", str(build), str(fixture))
-        run("ninja", "-C", str(build), "app")
+        run("ninja", "-C", str(build), "-j1", "app")
         assert run(str(build / "app")).stdout.strip() == "1"
         first_digest = hashlib.sha256((build / "app").read_bytes()).hexdigest()
         first_header = (build / "oxidd_build_stamp.h").read_text()
 
         good_stamp = stamp.read_text()
         stamp.write_text(good_stamp.replace(f"commit={current}", f"commit={other}"))
-        build_mismatch = run("ninja", "-C", str(build), "app", expect=1)
+        build_mismatch = run("ninja", "-C", str(build), "-j1", "app", expect=1)
         failure = build_mismatch.stdout + build_mismatch.stderr
         assert other in failure and current in failure, failure
         assert "Rebuild with meson compile" in failure, failure
@@ -101,7 +101,7 @@ def main():
 
         build_archive(root, 2)
         run(*cmd, "write", str(oxidd), str(archive), str(stamp))
-        run("ninja", "-C", str(build), "app")
+        run("ninja", "-C", str(build), "-j1", "app")
         assert run(str(build / "app")).stdout.strip() == "2"
         assert (build / "oxidd_build_stamp.h").read_text() != first_header
         assert hashlib.sha256((build / "app").read_bytes()).hexdigest() != first_digest

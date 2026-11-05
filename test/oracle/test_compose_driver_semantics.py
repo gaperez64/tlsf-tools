@@ -35,18 +35,14 @@ def check(semantics, target, formula, expected_formula, expected_solver_formula,
         assert text == f"c outs={residual_outputs}\nc ins={inputs}\n{expected_formula}\n", text
         driver = out / "compose.sh"
         script = driver.read_text()
-        if finite:
-            assert "ltlfsynt --semantics=" + target in script, script
-            assert "  ltlsynt " not in script, script
-        else:
-            assert "ltlsynt --ins=" in script, script
-            if expected_solver_formula is not None:
-                encoded = out / "cluster.0.mealy"
-                names = "|".join(re.escape(n) for n in ("p", inputs) if n)
-                quoted = re.sub(r"\b(?:" + names + r")\b",
-                                lambda m: '"' + m[0] + '"', expected_solver_formula)
-                assert encoded.read_text().strip() == quoted
-                assert 'run cluster.0.ltl' in script and 'cluster.0.mealy' in script
+        assert "UNKNOWN (unresolved residual)" in script, script
+        if not finite and expected_solver_formula is not None:
+            encoded = out / "cluster.0.mealy"
+            names = "|".join(re.escape(n) for n in ("p", inputs) if n)
+            quoted = re.sub(r"\b(?:" + names + r")\b",
+                            lambda m: '"' + m[0] + '"', expected_solver_formula)
+            assert encoded.read_text().strip() == quoted
+            assert 'run cluster.0.ltl' in script and 'cluster.0.mealy' in script
         gold.artifacts(out)
         # The generated driver must derive status from the selected command,
         # preserve solver errors as UNKNOWN, and never trust stale controllers.
@@ -91,7 +87,7 @@ elif mode == "wrapper":
                                         ("Moore,Finite", "Moore", "G(p <-> q)"),
                                         ("Moore", "Moore", "G(p <-> q)"),
                                         ("Mealy", "Moore", "G(p <-> q)")):
-        for backend in ("ltlsynt", "acacia"):
+        for backend in ("command", "acacia"):
             with tempfile.TemporaryDirectory() as tmp:
                 source = Path(tmp) / "spec.tlsf"
                 source.write_text(f"INFO {{ SEMANTICS: {semantics} TARGET: {target} }} "

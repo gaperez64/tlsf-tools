@@ -112,15 +112,44 @@ static bool edge(TlsfDpa *c, uint32_t state, uint32_t mask,
   return matches == 1;
 }
 
+static void header(FILE *out, const char *kind, const char *admission,
+                   unsigned ni, unsigned no, char *const *names,
+                   const Node *objective, const char *polarity,
+                   const TlsfDpaFormulaNode *dag, unsigned count,
+                   unsigned root) {
+  fprintf(out, "%s %s %s %u", dag ? "TVD1" : "TV1", kind, admission, ni);
+  if (dag)
+    fprintf(out, " %u", no);
+  fputc('\n', out);
+  for (unsigned i = 0; i < ni + no; ++i)
+    fprintf(out, "%s\n", names[i]);
+  if (dag)
+    fprintf(out, "%s objective\n", polarity);
+  prefix(out, (const TlsfAstNode *)objective);
+  if (dag) {
+    fprintf(out, "\nnormalization caller-trusted\ndag %u %u\n", count, root);
+    for (unsigned i = 0; i < count; ++i)
+      fprintf(out, "%u %u %u %u\n", (unsigned)dag[i].kind, dag[i].left,
+              dag[i].right, dag[i].ap);
+  } else
+    fputc('\n', out);
+}
+
 static int dump(FILE *in, FILE *out) {
   char magic[4096], kind[4096], admission[4096], extra[4096];
-  unsigned aps = 0;
-  if (!token(in, magic) || strcmp(magic, "TV1") || !token(in, kind) ||
-      (strcmp(kind, "parity") && strcmp(kind, "buchi")) ||
+  unsigned ni = 0, no = 0;
+  if (!token(in, magic) || (strcmp(magic, "TV1") && strcmp(magic, "TVD1")) ||
+      !token(in, kind) || (strcmp(kind, "parity") && strcmp(kind, "buchi")) ||
       !token(in, admission) ||
       (strcmp(admission, "default") && strcmp(admission, "general")) ||
-      fscanf(in, "%u", &aps) != 1 || aps > 16)
+      fscanf(in, "%u", &ni) != 1 || ni > 16)
     return 2;
+  bool dag_entry = !strcmp(magic, "TVD1");
+  if (dag_entry && (fscanf(in, "%u", &no) != 1 || no > 16 - ni))
+    return 2;
+  unsigned aps = ni + no, node_count = 0, root = 0;
+  char polarity[4096] = "positive";
+  TlsfDpaFormulaNode *dag = NULL;
   char *names[16] = {0};
   Arena *arena = arena_new(4096);
   TlsfDpa *c = NULL;
@@ -135,8 +164,33 @@ static int dump(FILE *in, FILE *out) {
       if (!strcmp(names[i], names[j]))
         goto done;
   }
+  if (dag_entry &&
+      (!token(in, polarity) ||
+       (strcmp(polarity, "positive") && strcmp(polarity, "negative")) ||
+       !token(in, extra) || strcmp(extra, "objective")))
+    goto done;
   Node *f = formula(in, arena, 0);
-  if (!f || token(in, extra))
+  if (!f)
+    goto done;
+  if (dag_entry) {
+    if (!token(in, extra) || strcmp(extra, "normalization") ||
+        !token(in, extra) || strcmp(extra, "caller-trusted") ||
+        !token(in, extra) || strcmp(extra, "dag") ||
+        fscanf(in, "%u %u", &node_count, &root) != 2 || !node_count ||
+        node_count > 4096)
+      goto done;
+    dag = calloc(node_count, sizeof *dag);
+    if (!dag)
+      goto done;
+    for (unsigned i = 0; i < node_count; ++i) {
+      unsigned op;
+      if (fscanf(in, "%u %u %u %u", &op, &dag[i].left, &dag[i].right,
+                 &dag[i].ap) != 4)
+        goto done;
+      dag[i].kind = (TlsfAstKind)op;
+    }
+  }
+  if (token(in, extra))
     goto done;
   TlsfDpaBudget budget = {.max_states = 10000,
                           .max_host_bytes = 256u << 20,
@@ -146,18 +200,20 @@ static int dump(FILE *in, FILE *out) {
   bool buchi = !strcmp(kind, "buchi");
   char klass;
   TlsfDpaStatus status =
-      buchi
+      dag_entry ? tlsf_dpa_create_from_dag(
+                      dag, node_count, root, (const char *const *)names, ni,
+                      (const char *const *)(names + ni), no,
+                      buchi ? TLSF_DPA_BUCHI : TLSF_DPA_PARITY, &budget, &c)
+      : buchi
           ? dpa_buchi_create((const TlsfAstNode *)f, (const char *const *)names,
                              aps, &budget, &c, &klass)
           : tlsf_dpa_create((const TlsfAstNode *)f, (const char *const *)names,
                             aps, NULL, 0, &budget, &c);
   if (status.code == TLSF_DPA_DECLINED &&
       status.reason == TLSF_DPA_UNSUPPORTED) {
-    fprintf(out, "TV1 %s %s %u\n", kind, admission, aps);
-    for (unsigned i = 0; i < aps; ++i)
-      fprintf(out, "%s\n", names[i]);
-    prefix(out, (const TlsfAstNode *)f);
-    fputs("\ndeclined unsupported\n", out);
+    header(out, kind, admission, ni, no, names, f, polarity, dag, node_count,
+           root);
+    fputs("declined unsupported\n", out);
     result = 77;
     goto done;
   }
@@ -193,11 +249,9 @@ static int dump(FILE *in, FILE *out) {
         queue[reached++] = e.successor;
       }
     }
-  fprintf(out, "TV1 %s %s %u\n", kind, admission, aps);
-  for (unsigned i = 0; i < aps; ++i)
-    fprintf(out, "%s\n", names[i]);
-  prefix(out, (const TlsfAstNode *)f);
-  fprintf(out, "\nstates %zu\n", reached);
+  header(out, kind, admission, ni, no, names, f, polarity, dag, node_count,
+         root);
+  fprintf(out, "states %zu\n", reached);
   for (size_t i = 0; i < reached; ++i) {
     TlsfDpaEdge first;
     if (!edge(c, queue[i], 0, &first))
@@ -217,6 +271,9 @@ static int dump(FILE *in, FILE *out) {
       }
       fprintf(out, "%zu %u %u %u\n", i, mask, ids[e.successor], e.priority);
     }
+  if (tlsf_dpa_status(c).code != TLSF_DPA_OK ||
+      tlsf_dpa_state_count(c) != count)
+    goto done;
   fputs("end\n", out);
   result = ferror(out) ? 2 : 0;
 done:
@@ -224,6 +281,7 @@ done:
     free(names[i]);
   free(queue);
   free(ids);
+  free(dag);
   tlsf_dpa_free(c);
   arena_free(arena);
   return result;

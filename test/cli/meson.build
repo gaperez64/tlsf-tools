@@ -1,10 +1,15 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
 if python3.found()
+  test('reference_semantics_and_oracle_guard', python3,
+    args: [files('../../tools/golden/test_gates.py')], timeout: 60)
   test('proof_source_references', python3,
     args: [files('check_proof_references.py'), meson.project_source_root()])
   test('bench_matrix_setup_failure', python3,
     args: [files('check_bench_matrix.py'),
+           meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
+  test('bench_basename_last_wins', python3,
+    args: [files('check_bench_baseline.py'),
            meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
   test('frontend_provenance', python3,
     args: [files('test_frontend_provenance.py'),
@@ -338,6 +343,10 @@ if python3.found()
     test('composition_alloc_failure_' + name, python3,
       args: [research_failures, 'composition', exe['tlsfcompose'],
              files(cases / name + '.tlsf'), composition_fault])
+  endforeach
+  foreach name, fault : composition_callers
+    test('composition_arena_failure_' + name, python3,
+      args: [files('check_composition_arena_failures.py'), name, exe[name], fault])
   endforeach
   test('residual_cluster_alloc_failure', python3,
     args: [research_failures, 'cluster', exe['tlsfresidual'],
