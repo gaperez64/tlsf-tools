@@ -29,6 +29,13 @@ def check_frozen_additions(guard, root):
     reference = receipt["additive_update"]
     ledger = json.loads((ROOT / reference["ledger"]).read_text())
     payload = (ROOT / name).read_bytes()
+    # Equality must preserve scalar types even through nested objects/arrays.
+    for value in (True, 1.0, 1.0000000000000001):
+        before = {"nested": [1]}
+        after = {"nested": [value]}
+        assert not guard.same_json_value(before, after)
+        assert not guard.same_json_value(after, before)
+    assert guard.same_json_value({"nested": [1, True, 1.0]}, {"nested": [1, True, 1.0]})
     historical = guard.frozen_payload(ROOT, name, receipt)
     assert hashlib.sha256(historical).hexdigest() == receipt["sha256"]
     path = root / name
@@ -53,6 +60,59 @@ def check_frozen_additions(guard, root):
     binding = publish(payload, copy.deepcopy(ledger))
     assert guard.frozen_payload(root, name, binding) == historical
     cases = 0
+
+    def reject(candidate, update, label):
+        nonlocal cases
+        binding = publish(candidate, update, rehash=True)
+        # The restoration boundary itself must reject mutants, even when all
+        # mutable hashes are refreshed and the historical freeze is unchanged.
+        assert binding["sha256"] == receipt["sha256"]
+        assert_rejected(lambda: guard.frozen_payload(root, name, binding), label)
+        cases += 1
+
+    def insert(offset, text, record=True):
+        update = copy.deepcopy(ledger)
+        entries = update["manifest_additions"]["insertions"]
+        for entry in entries:
+            if entry["offset"] >= offset:
+                entry["offset"] += len(text)
+        if record:
+            entries.append({"offset": offset, "text": text.decode()})
+            entries.sort(key=lambda entry: entry["offset"])
+        return payload[:offset] + text + payload[offset:], update
+
+    # Reproduce the review attacks with a third recorded insertion. Each
+    # removal still recovers the exact historical bytes, so hashes alone
+    # cannot reject these changes to the extended manifest.
+    index = payload.index(b'"index": 1,') + len(b'"index": 1')
+    count = payload.index(b'"cases": 436,') + len(b'"cases": 436')
+    for offset, text, label in (
+            (index, b', "index": true', "duplicate historical index shadowed by bool"),
+            (count, b'.0000000000000001', "historical integer rounded through float"),
+            (0, b' ', "recorded leading whitespace"),
+            (index, b', "unapproved": true', "third field insertion")):
+        candidate, update = insert(offset, text)
+        reject(candidate, update, label)
+    # An unrecorded whitespace change compares equal as parsed JSON; the
+    # restoration boundary must verify the original byte hash as well.
+    candidate, update = insert(0, b' ', record=False)
+    reject(candidate, update, "unrecorded historical whitespace")
+    # Exercise duplicate-key rejection with only the two approved insertions,
+    # including an equal-valued duplicate that ordinary dict equality hides.
+    for text in (b', "index": 1', b', "index": true'):
+        candidate, update = insert(index, text, record=False)
+        reject(candidate, update, "duplicate historical key")
+    update = copy.deepcopy(ledger)
+    offset = update["manifest_additions"]["insertions"][0]["offset"]
+    update["manifest_additions"]["insertions"][0]["offset"] = float(offset)
+    reject(payload, update, "non-integer insertion offset")
+    # A duplicate in the ledger is invalid too, even with a matching hash.
+    binding = publish(payload, copy.deepcopy(ledger))
+    raw = ledger_path.read_bytes().replace(b'"date":', b'"date": "shadowed", "date":', 1)
+    ledger_path.write_bytes(raw)
+    binding["additive_update"]["sha256"] = hashlib.sha256(raw).hexdigest()
+    assert_rejected(lambda: guard.frozen_payload(root, name, binding), "duplicate ledger key")
+    cases += 1
     # Rehashing the current manifest and ledger cannot authorize changes to
     # the original entries, their ordering, or their whitespace.
     for candidate in (payload + b"\n", payload.replace(b'"status":', b'"changed_status":', 1),
@@ -63,6 +123,11 @@ def check_frozen_additions(guard, root):
     # Even with freshly recorded insertions, only the two named in-house
     # fields are allowed, and their values cannot introduce a dependency.
     for before, after in ((b'"row_identity": {', b'"unrecorded": true, "row_identity": {'),
+                          (b'"row_identity": {', b'"row_identity": { '),
+                          (b'"automata": 112', b'"automata": 112.0000000000000001'),
+                          (b'"automata": 112', b'"automata": NaN'),
+                          (b'"automata": 112', b'"automata": 112, "automata": 112'),
+                          (b'"row_identity": {', b'"wrong_path": {'),
                           (b'"dpa_row_identity"', json.dumps(next(iter(guard.MODULES))).encode())):
         candidate = payload.replace(before, after, 1)
         assert candidate != payload

@@ -86,7 +86,7 @@
     },
     "test/cli/check_no_external_oracles.py": {
       "previous_sha256": "38d3e3779a6ae6dfb1b9db89c165798d8e57c619fac9ac7baf15c68e2ef0aa9c",
-      "current_sha256": "a01413f9b9164404d77445cd4b5a1b718c74bd70d54de264d83d17c48d349f10"
+      "current_sha256": "5b1594d338d713c3f9a8e6ae5ada9e0d9f6f0dd2017c52f473104c85e01ac1bd"
     },
     "test/cli/check_proof_references.py": {
       "previous_sha256": "7a2c43807e1a02b6a3229fd09111dd589a2a6f223ba8c65c5d707cb79f9fd697",
@@ -106,7 +106,7 @@
     },
     "tools/golden/test_gates.py": {
       "previous_sha256": "882c08e25c8880007ae0cc759545d69354229b14c3761ece05bbca14587aa3df",
-      "current_sha256": "9d60414a9bab6bbc553ac3726a8b8e76e3e6d5ebb4815274d03062910531009a"
+      "current_sha256": "d5c3550f346bdc99b5d1b05e168adec76e436a9be787e4861b5092f1815681d8"
     }
   },
   "preserved_artifacts_sha256": {
