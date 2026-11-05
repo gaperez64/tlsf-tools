@@ -45,7 +45,11 @@
   },
   "test/fixtures/golden/provenance.json": {
     "reason": "Frozen historical evidence; never executed or renewed.",
-    "sha256": "92f6be7e02fabe92e092137a5f9ec5e26f677465d36fb452a98cf1f8b31eefb1"
+    "sha256": "92f6be7e02fabe92e092137a5f9ec5e26f677465d36fb452a98cf1f8b31eefb1",
+    "additive_update": {
+      "ledger": "tools/analysis/dpa-row-layout.json",
+      "sha256": "a155e7038bf4f347c4eca8dbbc863d2a1297c4ea3b31955ffc356a08da19bb7b"
+    }
   },
   "test/fixtures/golden/review4-comment.json": {
     "reason": "Frozen historical evidence; never executed or renewed.",

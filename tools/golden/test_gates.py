@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Independent evaluator boundaries and external-oracle guard mutation tests."""
+import copy
+import hashlib
 import importlib.util
 import itertools
 import json
@@ -19,6 +21,61 @@ def assert_rejected(action, label):
     except AssertionError:
         return
     raise AssertionError((label, "guard accepted mutant"))
+
+
+def check_frozen_additions(guard, root):
+    name = "test/fixtures/golden/provenance.json"
+    receipt = json.loads((ROOT / "tools/golden/historical-files.json").read_text())[name]
+    reference = receipt["additive_update"]
+    ledger = json.loads((ROOT / reference["ledger"]).read_text())
+    payload = (ROOT / name).read_bytes()
+    historical = guard.frozen_payload(ROOT, name, receipt)
+    assert hashlib.sha256(historical).hexdigest() == receipt["sha256"]
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path = root / reference["ledger"]
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def verify(binding):
+        restored = guard.frozen_payload(root, name, binding)
+        assert hashlib.sha256(restored).hexdigest() == receipt["sha256"]
+
+    def publish(candidate, update, rehash=False):
+        binding = copy.deepcopy(receipt)
+        if rehash:
+            update["manifest_additions"]["current_sha256"] = hashlib.sha256(candidate).hexdigest()
+        raw = (json.dumps(update, indent=2) + "\n").encode()
+        binding["additive_update"]["sha256"] = hashlib.sha256(raw).hexdigest()
+        path.write_bytes(candidate)
+        ledger_path.write_bytes(raw)
+        return binding
+
+    binding = publish(payload, copy.deepcopy(ledger))
+    assert guard.frozen_payload(root, name, binding) == historical
+    cases = 0
+    # Rehashing the current manifest and ledger cannot authorize changes to
+    # the original entries, their ordering, or their whitespace.
+    for candidate in (payload + b"\n", payload.replace(b'"status":', b'"changed_status":', 1),
+                      payload.replace(b'"automata": 112', b'"automata": 113', 1)):
+        binding = publish(candidate, copy.deepcopy(ledger), rehash=True)
+        assert_rejected(lambda: verify(binding), "historical/addition edit")
+        cases += 1
+    # Even with freshly recorded insertions, only the two named in-house
+    # fields are allowed, and their values cannot introduce a dependency.
+    for before, after in ((b'"row_identity": {', b'"unrecorded": true, "row_identity": {'),
+                          (b'"dpa_row_identity"', json.dumps(next(iter(guard.MODULES))).encode())):
+        candidate = payload.replace(before, after, 1)
+        assert candidate != payload
+        update = copy.deepcopy(ledger)
+        for entry in update["manifest_additions"]["insertions"]:
+            entry["text"] = entry["text"].replace(before.decode(), after.decode(), 1)
+        binding = publish(candidate, update, rehash=True)
+        assert_rejected(lambda: verify(binding), "unapproved addition")
+        cases += 1
+    binding = publish(payload, copy.deepcopy(ledger))
+    ledger_path.write_bytes(ledger_path.read_bytes() + b"\n")
+    assert_rejected(lambda: verify(binding), "changed addition ledger")
+    return cases + 1
 
 
 def check_guard_mutations(guard, root):
@@ -121,6 +178,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=ROOT / "build-sprint/tmp") as temp:
         root = Path(temp)
         mutants = check_guard_mutations(guard, root)
+        frozen_mutants = check_frozen_additions(guard, root)
         fake = root / "build/test/api/native_reduction"
         fake.parent.mkdir(parents=True)
         fake.write_text('#!/bin/sh\necho "injected erroneous decline" >&2\nexit 3\n')
@@ -152,6 +210,7 @@ def main():
     print(f"offline gates: {cases} direct semantic checks; {mutants} forbidden dependency mutants, "
           f"{len(guard.DATA['python_mutants'])} direct AST rejections, "
           f"{len(guard.DATA['valid_python'])} legitimate snippets accepted; "
+          f"{frozen_mutants} frozen-provenance mutants rejected; "
           "decline-everything and four failed certificates rejected; historical files untouched")
 
 

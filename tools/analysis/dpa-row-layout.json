@@ -1,0 +1,134 @@
+{
+  "date": "2026-11-05",
+  "baseline_revision": "c1b7c13e99d0fb95b7d7559133f61cdc50b61065",
+  "reason": "Reconcile reachable-row DAG expansion, budgeted reusable row/joint scratch, and tagged tables with stable record chunks with the merged source-ledger chain. Proof edits move correspondence comments only. Append bindings after the runtime and native-limit updates rather than rewriting the original TV1 and DAG receipts or earlier ledgers. Preserve every historical automaton/report hash and permit only the in-house rows.tsv binding and row_identity metadata in the mixed manifest; removing the two byte insertions must recover its original full-file hash.",
+  "checks": [
+    "full_release_research_tests",
+    "dpa_translation_hashes",
+    "dpa_dag_translation_hashes",
+    "dpa_deadline",
+    "dpa_row_identity",
+    "proof_source_references",
+    "golden_provenance",
+    "no_external_oracles",
+    "lake_build",
+    "clang_format"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "proofs/README.md": {
+      "previous_sha256": "6ad1d25f0c2476da4aab1be6311b0b98c5a24d682f2226f2ea89248fa26fab95",
+      "current_sha256": "21d5e389e847560446b370905f38be771c64373b56760fc779591674f6bc6b4a"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Admission.lean": {
+      "previous_sha256": "e9c5c29fb7c01b4cf0fb282bef8c398071a6fdf0148421cbacc434376d133d64",
+      "current_sha256": "2ae7a58f78c12eb1f9c7d63be2c119f6e7158e7820b2db10e4901f46b69adaa0"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Buchi.lean": {
+      "previous_sha256": "52e9f7136ff02f42de0bca440389ed2e49ae1edbe90ccc623e1901e9c268f0b9",
+      "current_sha256": "9f9ee0bd6b583f00e57bec19a932457158cb18b947b366b023a1d0f480219532"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Classes.lean": {
+      "previous_sha256": "c1ee4b88aa8553a07badb4a2f7306fa9852e0cb1cdf3a88424c9bece2e6e05a1",
+      "current_sha256": "8790d5667c52c15086ad1599f405e2368ff77115a54ef7420c82e47f7f39eaf8"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Component.lean": {
+      "previous_sha256": "b3bbc97120706e5e8c02d4d78658015fdae03b095664eb0e7c0e7b7994caab64",
+      "current_sha256": "cbdbde8a20f36169ba3acc6578931075751c3fcdbe6cae211b54442d8983e42a"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Dual.lean": {
+      "previous_sha256": "e87d25ae48eed180a0575139e9d845685d28000f2425acc0920f5559df0b0e56",
+      "current_sha256": "0a96b00dac69f75db1c4faced3ae305e26cffcdcfc5a817bf29d54fa09bec97b"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Extractor.lean": {
+      "previous_sha256": "d2ee11496c480fa5779dad692cd35acfccd8f921a96735ea1c907ae26c805b88",
+      "current_sha256": "2ce997d40fe09e4373171199ec61229d3e0c5050f66e60c642ba36ac51b2b154"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Factoring.lean": {
+      "previous_sha256": "3bfec864458c820a8c66911e4b7482a22e12a414383df2f58b75a329bb95e561",
+      "current_sha256": "841b1876ed6b7dec21472fe219fe6d14d0dc2a56b46f5761247d6b02641b4ba2"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Selection.lean": {
+      "previous_sha256": "8ccd61abed380b118e41c7b46b84250a8fbcefbdf2906534dca85e7a6d256383",
+      "current_sha256": "f62e3b799d45959b93252c3ab543296d71d05f8c7e350b3f0148f5d9ea7dddf7"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Tags.lean": {
+      "previous_sha256": "cfe796657331040803d6ea2c08c8722271c5bab6a49e218f7ab86cd231437ca1",
+      "current_sha256": "908b002f1e3198259f67f81191a617ac5732d6f004457566f8b8c091bb9dd9e2"
+    },
+    "proofs/TlsfProofs/Dpa/Impl/Transport.lean": {
+      "previous_sha256": "6aced4cb3ed633618be4c313ca11fbd5727057f010c795e2fc00ca355707ebf4",
+      "current_sha256": "60d55993e36385ee5f8a2f86a7e359eb87cfbed960d1525aba5b2b7a893a00cb"
+    },
+    "src/lib/dpa.c": {
+      "previous_sha256": "94288a3d7e968cbea33a45b57229f6e95434f82e9025041aa4840283dcb798bd",
+      "current_sha256": "18161ff5235bd1e702dd9cf6cb5eaabb41e3f99ee6344194e99b1c2bb3c0b060"
+    },
+    "src/lib/dpa_dela.c": {
+      "previous_sha256": "1035f54f0d61d9cff9a372001b42c80b9c7f539957d831c5290ce69ab4118add",
+      "current_sha256": "0e64927e7eee3a8db7be650aeea94e0bb7a5b2e8c8831c38343109b2cc42abbb"
+    },
+    "src/lib/dpa_formula.c": {
+      "previous_sha256": "3859ad88a0725b526fdf2a88263fa687d2e705ab862b2db4bfa718b7ca67b739",
+      "current_sha256": "6fa59d32278bd2b5a25e937fff23a523e612a728de39f249b3409de1564fabb0"
+    },
+    "src/lib/dpa_internal.h": {
+      "previous_sha256": "1bf11b47c6734bdf6d7f452b58834058f4acc632bba78afff5cb02cb86e45b2e",
+      "current_sha256": "240c3084a2691c414b50e9c3e0b484f975d70ae9afec4a5ae3398b4a7e62666c"
+    },
+    "src/lib/dpa_zielonka.c": {
+      "previous_sha256": "853aa04bab3f17f2326c8891b47f884527f5c83e65405e9d52225ba3ee79b059",
+      "current_sha256": "6c5820bf2d67b808f5726e3867a689e59a76a00a4b64cd31028f619040f35264"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "2250f6ced7877398830c2a6ca50708d2d6c5764be0b44c05a07cdeac5e9f4d61",
+      "current_sha256": "977cbd83b57074321fd15b0e4b7322a33b530874c195335cddd945efb4bd8b14"
+    },
+    "test/cli/check_no_external_oracles.py": {
+      "previous_sha256": "38d3e3779a6ae6dfb1b9db89c165798d8e57c619fac9ac7baf15c68e2ef0aa9c",
+      "current_sha256": "a01413f9b9164404d77445cd4b5a1b718c74bd70d54de264d83d17c48d349f10"
+    },
+    "test/cli/check_proof_references.py": {
+      "previous_sha256": "7a2c43807e1a02b6a3229fd09111dd589a2a6f223ba8c65c5d707cb79f9fd697",
+      "current_sha256": "1dde6d38e7bb96b024354f408b0aea3457294c27c1bf70e96634c25edf55da88"
+    },
+    "test/unit/dpa_contract.c": {
+      "previous_sha256": "6b910e844574d235baa1461e05e8be6cf4f7bf5ee4d2376f54200247b44f3e16",
+      "current_sha256": "f35a35e3a96f70137b0001d1edfa48a42e52634953b5b1b90b0afc5fda7f82b0"
+    },
+    "test/unit/dpa_equivalence.cpp": {
+      "previous_sha256": "0e9f413ef16e67012240e9660b1cae3cd3ae0f3984ce8adada29449cd3edcc60",
+      "current_sha256": "65a54fcece8b962c8864308b4e48ea245250cd415316df573759d43a7eadf741"
+    },
+    "test/unit/meson.build": {
+      "previous_sha256": "29275a77ebb809261286b7118bb9650355709e5f582db5d0467e049d1e0f99d8",
+      "current_sha256": "9d75d09cfd10f836b5491ee6ba7c2e80e9313f5fb3a1e65cc70961ec94f4a436"
+    },
+    "tools/golden/test_gates.py": {
+      "previous_sha256": "882c08e25c8880007ae0cc759545d69354229b14c3761ece05bbca14587aa3df",
+      "current_sha256": "9d60414a9bab6bbc553ac3726a8b8e76e3e6d5ebb4815274d03062910531009a"
+    }
+  },
+  "preserved_artifacts_sha256": {
+    "test/fixtures/golden/translation/hashes.tsv": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+    "test/fixtures/golden/translation/report.json": "92e9bd4f9479c19078bf58f19a87f57a8a7c33efef6d8bc521cda4f80efb3f93",
+    "test/fixtures/golden/translation/dag/hashes.tsv": "d1f653d526b5a5478a101ef4b589236a20004fb2329c5c3ab1abdbfa0faf5df4",
+    "test/fixtures/golden/translation/dag/report.json": "f0c5c39883aba3444404db92306adba589751c7b232bae510645d4b911e7f220",
+    "test/fixtures/golden/translation/dag/provenance.json": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff"
+  },
+  "manifest_additions": {
+    "file": "test/fixtures/golden/provenance.json",
+    "previous_sha256": "92f6be7e02fabe92e092137a5f9ec5e26f677465d36fb452a98cf1f8b31eefb1",
+    "current_sha256": "6bf73e92242d941452a0822c67ac3f8f0876b170a01435e8db44e53cbdce5554",
+    "insertions": [
+      {
+        "offset": 152959,
+        "text": ",\n      \"rows.tsv\": \"ac1b44e32d20f2119a7b153d908b34344456721b5465321ac2369dcc2982ba07\""
+      },
+      {
+        "offset": 153051,
+        "text": ",\n    \"row_identity\": {\n      \"baseline_revision\": \"3463a862275967a590b5ed91faf43ac205187ae5\",\n      \"capture\": \"dpa_equivalence --write-rows test/fixtures/golden/dpa/rows.tsv\",\n      \"check\": \"dpa_row_identity\",\n      \"automata\": 112,\n      \"states\": 810,\n      \"edges\": 3942\n    }"
+      }
+    ]
+  }
+}

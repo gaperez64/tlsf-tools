@@ -142,13 +142,45 @@ def inspect_python(path, text):
                     path, node.lineno, "external oracle import")
 
 
+def frozen_payload(root, name, receipt):
+    """Undo only recorded in-house additions, preserving every historical byte."""
+    payload = (root / name).read_bytes()
+    if "additive_update" not in receipt:
+        return payload
+    reference = receipt["additive_update"]
+    ledger_bytes = (root / reference["ledger"]).read_bytes()
+    assert hashlib.sha256(ledger_bytes).hexdigest() == reference["sha256"], "changed addition ledger"
+    ledger = json.loads(ledger_bytes)
+    assert ledger["date"] and ledger["reason"] and ledger["checks"]
+    update = ledger["manifest_additions"]
+    assert name == update["file"] == "test/fixtures/golden/provenance.json"
+    assert update["previous_sha256"] == receipt["sha256"]
+    assert hashlib.sha256(payload).hexdigest() == update["current_sha256"], "changed extended manifest"
+    current = json.loads(payload)
+    additions = {
+        "rows.tsv": current["dpa"]["files_sha256"].pop("rows.tsv"),
+        "row_identity": current["dpa"].pop("row_identity"),
+    }
+    assert not FORBIDDEN.search(json.dumps(additions)), "external oracle in added data"
+    # Offsets refer to the final payload. Removing in reverse order restores
+    # the original whitespace and ordering as well as the historical values.
+    offsets = [entry["offset"] for entry in update["insertions"]]
+    assert offsets == sorted(set(offsets)) and offsets
+    for entry in reversed(update["insertions"]):
+        offset, added = entry["offset"], entry["text"].encode()
+        assert offset >= 0 and added and payload[offset:offset + len(added)] == added
+        payload = payload[:offset] + payload[offset + len(added):]
+    assert json.loads(payload) == current, "only the two in-house fields may be added"
+    return payload
+
+
 def check(root):
     read_data(root)
     frozen = json.loads((root / "tools/golden/historical-files.json").read_text())
     for name, receipt in frozen.items():
         path = root / name
         assert path.suffix in (".json", ".md", ".tlsf") and receipt["reason"], name
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == receipt["sha256"], (name, "frozen documentation/data changed")
+        assert hashlib.sha256(frozen_payload(root, name, receipt)).hexdigest() == receipt["sha256"], (name, "frozen documentation/data changed")
     count = 0
     for directory in ("tools", "scripts", "bench", "test", "src", "include", "examples", ".github", "docs"):
         for path in sorted((root / directory).rglob("*")):

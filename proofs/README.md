@@ -513,6 +513,13 @@ language claim. These are fresh per-instance, unbounded-language checks; they
 do **not** establish universal C implementation refinement, memory safety, BDD
 refinement, compiler correctness, or correctness of unvalidated runtime inputs.
 
+The row-layout optimization retains both the TV1 and DAG validation receipts,
+reports, and dump hashes. Its dated [source ledger](../tools/analysis/dpa-row-layout.json)
+extends the existing rebinding chain after the runtime and native-limit updates;
+it also binds the moved proof references and the 112 in-house row snapshots.
+The oracle guard reverses only the two recorded manifest additions and checks
+the original full-file hash, preserving every historical provenance byte.
+
 ### Source map
 
 These locations identify semantic algorithms and C operations covered by dump
