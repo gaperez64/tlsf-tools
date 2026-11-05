@@ -364,8 +364,8 @@
       }
     },
     "test_source_rebindings": {
-      "date": "2026-11-04",
-      "reason": "Restore the default native_both_api test on macOS and register the direct bounded native export stream regression on every platform. Rebind the test registry and provenance guard; retain the original DAG receipt, validation date, source revision, reports, and every automaton hash. No translator, dumper, or proof source changed. Add Linux coverage of the production BSD export callbacks and Darwin-style eager unbounded buffer publication.",
+      "date": "2026-11-05",
+      "reason": "Restore the default native_both_api test on macOS and register the direct bounded native export stream regression on every platform. Rebind the test registry and provenance guard; retain the original DAG receipt, validation date, source revision, reports, and every automaton hash. No translator, dumper, or proof source changed. Add Linux coverage of the production BSD export callbacks and Darwin-style eager unbounded buffer publication. Intercept glibc fortified fprintf in objective_alloc so optimized Ubuntu builds exercise the same one-shot write failures as other builds.",
       "checks": [
         "native_both_api",
         "dpa_dag_translation_hashes",
@@ -374,7 +374,7 @@
       "sources": {
         "test/unit/meson.build": {
           "previous_sha256": "0c87dd97040d7e8a3bdf4c34955ac8f62f4f1274fed14775a1cec800fa703cf4",
-          "current_sha256": "52561ab27d45c45ed7b7bc213616f022609bda8218aa695093b6801f19029c2f"
+          "current_sha256": "29275a77ebb809261286b7118bb9650355709e5f582db5d0467e049d1e0f99d8"
         },
         "test/cli/check_golden_provenance.py": {
           "previous_sha256": "d2a7f493aa2d8fbaf7233d7698e044a8123ff6e868216783262e40b4e5e30f8b",
