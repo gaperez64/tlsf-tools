@@ -7,8 +7,9 @@ Replay all checked-in corpora with
 `meson test -C build-fz-gcc --num-processes 1 fuzz-roundtrip fuzz-alloc fuzz-dpa`.
 Build clang targets with `CC=clang CXX=clang++ meson setup build-fz-clang -Dfuzz=true`
 and `ninja -C build-fz-clang -j 1`. Seeds contain decoder bytes named by their
-SHA-1; keep generated artifacts in build directories. The decoder, replay main
-and shared DPA checks each compile once. The allocation target links the library's
+SHA-1; keep generated artifacts in build directories. The decoder and replay main
+each compile once; harnesses and shared DPA checks compile per mode (replay/fuzzer).
+The allocation target links the library's
 arena directly; no source-layout exception is needed.
 
 `alloc` checks allocation failure through parsing, whole-objective conversion,
@@ -111,44 +112,41 @@ its formula passes rebuild nodes, while its prenormalization list writes are not
 on the `tlsf_convert` path. No changes to those siblings were needed for this
 in-place-mutation defect.
 
-GCC gcov execution counts recorded before F3 follow. Shared C counts
-combine `alloc` and `dpa`; both unarmed and armed alloc runs contribute. Each check
-is reached by the checked-in corpus. Reproduce from `build-fz-gcc` using
-`/home/gperez/GIT-repos/acacia-bonsai/.venv/bin/python review-coverage.py`.
-The script, `review-coverage.txt`, `review-coverage-build.log`, replay logs and
-`review-{roundtrip,alloc,dpa,dpa_checks}.gcov.json.gz` are build artifacts. Only
-ordinary replay mains run; coverage-guided clang executables are built separately.
+The checked-in coverage witness runs with both GCC and Clang:
 
-| Check | Hits | Oracle |
-| --- | ---: | --- |
-| R1 | 47 | Decoder text parses |
-| R2 | 47 | Printed text parses |
-| R3 | 47 | Canonical printing is stable |
-| A1 | 154 | DPA code/reason permitted by these budgets |
-| A2 | 72 | Parsing succeeds unless a refusal fired |
-| A3 | 6 | Creation failure publishes NULL |
-| A4 | 1 | Expansion failure publishes an empty row |
-| A5 | 54 | Discovered states respect the budget |
-| A6 | 72 | Armed C allocations are freed |
-| A7 | 36 | Unfired runs match their baseline result/status |
-| A8 | 100 | Successful expansion publishes a nonempty row |
-| D1 | 243 | DPA code/reason permitted by these budgets |
-| D2 | 744 | Label DAGs are acyclic |
-| D3 | 744 | Label/child IDs resolve to valid node kinds |
-| D4 | 153 | Decision APs are in range |
-| D5 | 45 | Copied alphabet count matches, at most eight |
-| D6 | 3 | Declined expansion publishes an empty row |
-| D7 | 192 | Successful rows are nonempty |
-| D8 | 438 | Priorities respect the advertised maximum |
-| D9 | 285 | Discovered states respect the budget |
-| D10 | 3792 | Every assignment matches exactly one edge |
-| D11 | 3 | Creation failure publishes NULL |
-| D12 | 34 | Decoder and printer text parse |
-| C1 | 392 | Copied partition count includes unused declarations |
-| C2 | 1052 | Every copied and previously borrowed AP name matches |
-| C3 | 1331 | Every inspected label resolves |
-| C4 | 2258 | Previously borrowed rows survive later work |
-| C5 | 1043 | Previously borrowed label nodes and IDs survive |
-| C6 | 296 | Context state_count respects max_states after every request |
-| C7 | 4 | Decline is reported by context status |
-| C8 | 4 | Later requests retain the decline and empty row |
+```
+meson test -C build-fz-gcc --num-processes 1 fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
+```
+
+`CHECK(id, cond)` keeps the why-comment and `if (!(cond)) abort()` behavior.
+Replay counts hits; `--witness R|A|D CORPUS` prints counts and fails for any
+unreached check in that target (including shared C checks for alloc/dpa).
+The shared ID inventory makes new checks participate automatically. Only replay
+builds define `FUZZ_REPLAY`; libFuzzer compiles out recording and diagnostics.
+This needs no compiler coverage flags or extra tools and runs in every normal
+Meson suite. PR CI also runs just the three replays and three witnesses in a
+separate Clang `-Dfuzz=true` job. A5/D9 now check that successor IDs name discovered states;
+C6 checks the state budget. D5 duplicated the earlier C1 and was removed.
+
+`mutants.json` records one exact one-line **library** mutation and seed SHA-1 per
+remaining check, plus reasons for removed checks. Run manually after configuring
+and building a GCC build:
+
+```
+python3 test/fuzz/mutants.py build-fz-gcc
+```
+
+The stdlib-only runner copies `src/lib` to a temporary directory, recompiles each
+mutated source using the build's compiler flags, and relinks a temporary replay.
+It never edits working-tree sources or archives. Each seed must pass the original
+replay, then die by SIGABRT at its recorded check; another crash/check is a failure.
+Compiler and replay diagnostics go to `BUILD/fuzz-mutants.log`. This slow check is
+outside the default Meson suite.
+
+`.github/workflows/fuzz.yml` runs weekly and via **Run workflow**: Clang builds all
+fuzzers, checks the witnesses, then runs each target sequentially for 600 seconds
+with a 2048 MiB RSS limit. GCC replays the grown corpora and checks the mutants.
+Any finding fails the job; corpora, failing inputs and logs upload even on failure.
+Both workflows set `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1` for every
+fuzzer and replay, so a UBSan diagnostic fails the job immediately.
+Download the artifact to reproduce a finding with the corresponding plain replay.

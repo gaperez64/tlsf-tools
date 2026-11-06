@@ -1,0 +1,276 @@
+[
+  {
+    "check": "R1",
+    "file": "src/lib/spec_parse.c",
+    "line": 8,
+    "old": "  TlsfSpec *spec = spec_new();",
+    "new": "  TlsfSpec *spec = nullptr;",
+    "target": "roundtrip",
+    "seed": "042a9f965ce99f42520174cfaae91c257285833a"
+  },
+  {
+    "check": "R2",
+    "file": "src/lib/print_tlsf.c",
+    "line": 414,
+    "old": "  fprintf(out, \"INFO {\\n\");",
+    "new": "  fprintf(out, \"BROKEN {\\n\");",
+    "target": "roundtrip",
+    "seed": "042a9f965ce99f42520174cfaae91c257285833a"
+  },
+  {
+    "check": "R3",
+    "file": "src/lib/print_tlsf.c",
+    "line": 262,
+    "old": "    print_nonfinal(out, n->lhs);",
+    "new": "    print_formula(out, n->lhs);",
+    "target": "roundtrip",
+    "seed": "7f5851fb06f5fb378f99aafaa25bb45b65112792"
+  },
+  {
+    "check": "A1",
+    "file": "src/lib/dpa.c",
+    "line": 22,
+    "old": "    c->status = (TlsfDpaStatus){TLSF_DPA_DECLINED, reason};",
+    "new": "    c->status = (TlsfDpaStatus){TLSF_DPA_INTERNAL, reason};",
+    "target": "alloc",
+    "seed": "186b5693eb1318d834e3e29283b9a644c1208f4a"
+  },
+  {
+    "check": "A2",
+    "file": "src/lib/spec_parse.c",
+    "line": 8,
+    "old": "  TlsfSpec *spec = spec_new();",
+    "new": "  TlsfSpec *spec = nullptr;",
+    "target": "alloc",
+    "seed": "094a9272f96da1c15c989687fc2091e576ee6053"
+  },
+  {
+    "check": "A3",
+    "file": "src/lib/dpa.c",
+    "line": 229,
+    "old": "  *out = nullptr;",
+    "new": "  (void)out;",
+    "target": "alloc",
+    "seed": "2e6f0435ab52790486a65c8e32b6a98f3b3e85a6"
+  },
+  {
+    "check": "A4",
+    "file": "src/lib/dpa.c",
+    "line": 710,
+    "old": "    *count = 0;",
+    "new": "    *count = 1;",
+    "target": "alloc",
+    "seed": "186b5693eb1318d834e3e29283b9a644c1208f4a"
+  },
+  {
+    "check": "A5",
+    "file": "src/lib/dpa.c",
+    "line": 811,
+    "old": "        row[at++] = (TlsfDpaEdge){label, d->low, d->high};",
+    "new": "        row[at++] = (TlsfDpaEdge){label, UINT32_MAX, d->high};",
+    "target": "alloc",
+    "seed": "094a9272f96da1c15c989687fc2091e576ee6053"
+  },
+  {
+    "check": "A6",
+    "file": "src/lib/spec.c",
+    "line": 41,
+    "old": "  arena_free(s->arena);",
+    "new": "  (void)s->arena;",
+    "target": "alloc",
+    "seed": "094a9272f96da1c15c989687fc2091e576ee6053"
+  },
+  {
+    "check": "A7",
+    "file": "src/lib/conversion.c",
+    "line": 342,
+    "old": "  if (!text)",
+    "new": "  static unsigned used; if (!text || used++)",
+    "target": "alloc",
+    "seed": "094a9272f96da1c15c989687fc2091e576ee6053"
+  },
+  {
+    "check": "A8",
+    "file": "src/lib/dpa.c",
+    "line": 826,
+    "old": "  *count = s->count;",
+    "new": "  *count = 0;",
+    "target": "alloc",
+    "seed": "094a9272f96da1c15c989687fc2091e576ee6053"
+  },
+  {
+    "check": "D1",
+    "file": "src/lib/dpa.c",
+    "line": 22,
+    "old": "    c->status = (TlsfDpaStatus){TLSF_DPA_DECLINED, reason};",
+    "new": "    c->status = (TlsfDpaStatus){TLSF_DPA_INTERNAL, reason};",
+    "target": "dpa",
+    "seed": "778426c2ba37811083abb813862ea142470dd1fd"
+  },
+  {
+    "check": "D2",
+    "file": "src/lib/dpa.c",
+    "line": 656,
+    "old": "      cl->low, cl->high};",
+    "new": "      f, cl->high};",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D3",
+    "file": "src/lib/dpa.c",
+    "line": 655,
+    "old": "      f < 2 ? (f ? TLSF_DPA_TRUE : TLSF_DPA_FALSE) : TLSF_DPA_DECISION, cl->var,",
+    "new": "      (TlsfDpaLabelKind)99, cl->var,",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D4",
+    "file": "src/lib/dpa.c",
+    "line": 655,
+    "old": "      f < 2 ? (f ? TLSF_DPA_TRUE : TLSF_DPA_FALSE) : TLSF_DPA_DECISION, cl->var,",
+    "new": "      f < 2 ? (f ? TLSF_DPA_TRUE : TLSF_DPA_FALSE) : TLSF_DPA_DECISION, c->aps,",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D5",
+    "removed": "Identical alphabet-count predicate to C1, which runs first in checks_init. No count mutant can reach D5 before C1 aborts. Keep C1."
+  },
+  {
+    "check": "D6",
+    "file": "src/lib/dpa.c",
+    "line": 710,
+    "old": "    *count = 0;",
+    "new": "    *count = 1;",
+    "target": "dpa",
+    "seed": "9dfc38efe0195547bee4f9546025e2c8e02f2f98"
+  },
+  {
+    "check": "D7",
+    "file": "src/lib/dpa.c",
+    "line": 826,
+    "old": "  *count = s->count;",
+    "new": "  *count = 0;",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D8",
+    "file": "src/lib/dpa.c",
+    "line": 811,
+    "old": "        row[at++] = (TlsfDpaEdge){label, d->low, d->high};",
+    "new": "        row[at++] = (TlsfDpaEdge){label, d->low, UINT32_MAX};",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D9",
+    "file": "src/lib/dpa.c",
+    "line": 811,
+    "old": "        row[at++] = (TlsfDpaEdge){label, d->low, d->high};",
+    "new": "        row[at++] = (TlsfDpaEdge){label, UINT32_MAX, d->high};",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D10",
+    "file": "src/lib/dpa.c",
+    "line": 826,
+    "old": "  *count = s->count;",
+    "new": "  *count = s->count - (s->count > 1);",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "D11",
+    "file": "src/lib/dpa.c",
+    "line": 229,
+    "old": "  *out = nullptr;",
+    "new": "  (void)out;",
+    "target": "dpa",
+    "seed": "778426c2ba37811083abb813862ea142470dd1fd"
+  },
+  {
+    "check": "D12",
+    "file": "src/lib/spec_parse.c",
+    "line": 8,
+    "old": "  TlsfSpec *spec = spec_new();",
+    "new": "  TlsfSpec *spec = nullptr;",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "C1",
+    "file": "src/lib/dpa.c",
+    "line": 629,
+    "old": "uint32_t tlsf_dpa_ap_count(const TlsfDpa *c) { return c ? c->aps : 0; }",
+    "new": "uint32_t tlsf_dpa_ap_count(const TlsfDpa *c) { return c ? c->aps + 1 : 0; }",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "C2",
+    "file": "src/lib/dpa.c",
+    "line": 631,
+    "old": "  return c && ap < c->aps ? c->names[ap] : nullptr;",
+    "new": "  return c && ap < c->aps ? c->names[0] : nullptr;",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "C3",
+    "file": "src/lib/dpa.c",
+    "line": 674,
+    "old": "  return cl->label == DPA_BAD ? nullptr : &cl->description;",
+    "new": "  return nullptr;",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "C4",
+    "file": "src/lib/dpa.c",
+    "line": 804,
+    "old": "      row = dpa_alloc(c, leaves, sizeof *row);",
+    "new": "      row = id && leaves <= ((DpaState *)c->states.items[0])->count ? ((DpaState *)c->states.items[0])->edges : dpa_alloc(c, leaves, sizeof *row);",
+    "target": "dpa",
+    "seed": "59e4642b2050ce3d1d11bf87da66c85fd8c3cb4b"
+  },
+  {
+    "check": "C5",
+    "file": "src/lib/dpa.c",
+    "line": 642,
+    "old": "  if (cl->label != DPA_BAD)",
+    "new": "  if (cl->label != DPA_BAD && (cl->description.ap++, true))",
+    "target": "dpa",
+    "seed": "035321f0091faa59e308df392d11a2429cf11925"
+  },
+  {
+    "check": "C6",
+    "file": "src/lib/dpa.c",
+    "line": 636,
+    "old": "size_t tlsf_dpa_state_count(const TlsfDpa *c) { return c ? c->states.n : 0; }",
+    "new": "size_t tlsf_dpa_state_count(const TlsfDpa *c) { return c ? c->states.n + 1 : 0; }",
+    "target": "dpa",
+    "seed": "9dfc38efe0195547bee4f9546025e2c8e02f2f98"
+  },
+  {
+    "check": "C7",
+    "file": "src/lib/dpa.c",
+    "line": 624,
+    "old": "  return c ? c->status : (TlsfDpaStatus){TLSF_DPA_INVALID, TLSF_DPA_NONE};",
+    "new": "  return c ? (TlsfDpaStatus){TLSF_DPA_OK, TLSF_DPA_NONE} : (TlsfDpaStatus){TLSF_DPA_INVALID, TLSF_DPA_NONE};",
+    "target": "dpa",
+    "seed": "9dfc38efe0195547bee4f9546025e2c8e02f2f98"
+  },
+  {
+    "check": "C8",
+    "file": "src/lib/dpa.c",
+    "line": 714,
+    "old": "    return c->status;",
+    "new": "    return (TlsfDpaStatus){TLSF_DPA_OK, TLSF_DPA_NONE};",
+    "target": "dpa",
+    "seed": "9dfc38efe0195547bee4f9546025e2c8e02f2f98"
+  }
+]

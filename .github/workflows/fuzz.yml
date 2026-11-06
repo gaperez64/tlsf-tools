@@ -1,0 +1,81 @@
+name: Weekly fuzz checks
+
+on:
+  schedule:
+    - cron: '31 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '1'
+      ASAN_OPTIONS: detect_leaks=0
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build flex bison clang gcc-14 g++-14
+      - uses: ./.github/actions/setup-native
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
+      - name: Build fuzzers and GCC replays
+        run: |
+          CC=clang CXX=clang++ meson setup build-fuzz -Dfuzz=true
+          ninja -C build-fuzz -j 1
+          CC=gcc-14 CXX=g++-14 meson setup build-mutants
+          ninja -C build-mutants -j 1 test/fuzz/fuzz-roundtrip-replay \
+            test/fuzz/fuzz-alloc-replay test/fuzz/fuzz-dpa-replay
+      - name: Check seed witnesses
+        run: |
+          meson test -C build-fuzz --no-rebuild --num-processes 1 --print-errorlogs \
+            fuzz-roundtrip fuzz-alloc fuzz-dpa \
+            fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
+      - name: Fuzz each target for ten minutes
+        run: |
+          status=0
+          for target in roundtrip alloc dpa; do
+            mkdir -p "build-fuzz/corpus/$target" "build-fuzz/findings/$target"
+            cp -a "test/fuzz/corpus/$target/." "build-fuzz/corpus/$target/"
+            if ! "build-fuzz/test/fuzz/fuzz-$target" "build-fuzz/corpus/$target" \
+                -max_total_time=600 -rss_limit_mb=2048 -timeout=30 \
+                -artifact_prefix="build-fuzz/findings/$target/" \
+                >"build-fuzz/$target.log" 2>&1; then
+              status=1
+            fi
+            tail -n 10 "build-fuzz/$target.log"
+          done
+          exit "$status"
+      - name: Replay grown corpora with GCC
+        if: ${{ !cancelled() }}
+        run: |
+          for target in roundtrip alloc dpa; do
+            "build-mutants/test/fuzz/fuzz-$target-replay" "build-fuzz/corpus/$target" \
+              >"build-mutants/$target.log" 2>&1
+          done
+      - name: Verify every library mutant
+        if: ${{ !cancelled() }}
+        run: python3 test/fuzz/mutants.py build-mutants
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-corpora-and-findings
+          path: |
+            build-fuzz/corpus/
+            build-fuzz/findings/
+            build-fuzz/*.log
+            build-mutants/*.log
+          if-no-files-found: warn

@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "check.h"
 #include "decode.h"
 
 #include <dirent.h>
@@ -7,6 +8,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+
+static size_t hits[FUZZ_CHECK_COUNT];
+void fuzz_check_hit(FuzzCheck id) { ++hits[id]; }
+
+static int witness(char group) {
+#define FUZZ_NAME(id) #id,
+  const char *names[] = {FUZZ_CHECKS(FUZZ_NAME)};
+#undef FUZZ_NAME
+  int result = 0;
+  for (size_t i = 0; i < FUZZ_CHECK_COUNT; ++i) {
+    if (names[i][0] != group && !(group != 'R' && names[i][0] == 'C'))
+      continue;
+    printf("%s %zu\n", names[i], hits[i]);
+    if (!hits[i]) {
+      fprintf(stderr, "unreached check: %s\n", names[i]);
+      result = 1;
+    }
+  }
+  return result;
+}
 
 static int replay(const char *path) {
   struct stat st;
@@ -58,12 +79,22 @@ error:
 }
 
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    fprintf(stderr, "usage: %s FILE_OR_DIRECTORY...\n", argv[0]);
+  char group = 0;
+  int first = 1;
+  if (argc > 2 && !strcmp(argv[1], "--witness") && strlen(argv[2]) == 1 &&
+      strchr("RAD", argv[2][0])) {
+    group = argv[2][0];
+    first = 3;
+  }
+  if (argc <= first) {
+    fprintf(stderr, "usage: %s [--witness R|A|D] FILE_OR_DIRECTORY...\n",
+            argv[0]);
     return 1;
   }
   int result = 0;
-  for (int i = 1; i < argc; ++i)
+  for (int i = first; i < argc; ++i)
     result |= replay(argv[i]);
+  if (group)
+    result |= witness(group);
   return result;
 }

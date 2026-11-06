@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "check.h"
 #include "decode.h"
 #include "tlsf/print_tlsf.h"
 
@@ -28,8 +29,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   fclose(stream);
   // R1: The decoder's grammar is total: its output must always be parseable
   // TLSF.
-  if (!(first))
-    abort();
+  CHECK(R1, first);
 
   size_t first_size = 0, second_size = 0;
   char *once = printed(first, &first_size);
@@ -45,8 +45,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   fclose(stream);
   // R2: Printing a parsed TLSF spec must produce TLSF accepted by the same
   // parser.
-  if (!(second))
-    abort();
+  CHECK(R2, second);
 
   char *twice = printed(second, &second_size);
   spec_free(second);
@@ -54,8 +53,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     // R3: Canonical printing must be stable under reparsing: syntax and
     // precedence must preserve the represented tree (see README for this
     // oracle's scope).
-    if (!(first_size == second_size && memcmp(once, twice, first_size) == 0))
-      abort();
+    CHECK(R3,
+          first_size == second_size && memcmp(once, twice, first_size) == 0);
   }
   free(twice);
   free(once);

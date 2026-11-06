@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "check.h"
 #include "decode.h"
 #include "dpa_checks.h"
 #include "tlsf/convert.h"
@@ -10,8 +11,7 @@
 
 static bool ok(TlsfDpaStatus status) {
   // D1: Only documented reasons for these budgets may decline valid LTL.
-  if (!(fuzz_dpa_reason(status, true)))
-    abort();
+  CHECK(D1, fuzz_dpa_reason(status, true));
   return status.code == TLSF_DPA_OK;
 }
 
@@ -21,14 +21,13 @@ static bool label_valid(FuzzDpaChecks *c, TlsfDpaLabel label, uint32_t aps,
                         size_t depth) {
   const TlsfDpaLabelNode *node = tlsf_dpa_label_node(c->dpa, label);
   // D3: Every exposed label and child must name a Boolean/decision node.
-  if (!(node && (node->kind == TLSF_DPA_FALSE || node->kind == TLSF_DPA_TRUE ||
-                 node->kind == TLSF_DPA_DECISION)))
-    abort();
+  CHECK(D3,
+        node && (node->kind == TLSF_DPA_FALSE || node->kind == TLSF_DPA_TRUE ||
+                 node->kind == TLSF_DPA_DECISION));
   if (!fuzz_dpa_label(c, label))
     return false;
   // D2: A visiting node cannot be its own descendant in a label DAG.
-  if (!(c->labels[label].visit != 1))
-    abort();
+  CHECK(D2, c->labels[label].visit != 1);
   if (c->labels[label].visit == 2)
     return true;
   if (depth == 256)
@@ -36,8 +35,7 @@ static bool label_valid(FuzzDpaChecks *c, TlsfDpaLabel label, uint32_t aps,
   c->labels[label].visit = 1;
   if (node->kind == TLSF_DPA_DECISION) {
     // D4: Decisions address the copied input-then-output alphabet (dpa.h:62).
-    if (!(node->ap < aps))
-      abort();
+    CHECK(D4, node->ap < aps);
     if (!label_valid(c, node->low, aps, depth + 1) ||
         !label_valid(c, node->high, aps, depth + 1))
       return false;
@@ -67,9 +65,6 @@ static void inspect(TlsfDpa *dpa, const TlsfConversionResult *spec,
   FuzzDpaChecks checks;
   fuzz_dpa_checks_init(&checks, dpa, spec, budget->max_states);
   uint32_t aps = tlsf_dpa_ap_count(dpa);
-  // D5: Creation preserves all declarations; the decoder emits at most 8 APs.
-  if (!(aps == spec->n_inputs + spec->n_outputs && aps <= 8))
-    abort();
   TlsfDpaState queue[64] = {tlsf_dpa_initial(dpa)};
   size_t count = 1;
   for (size_t at = 0; at < count; ++at) {
@@ -79,30 +74,25 @@ static void inspect(TlsfDpa *dpa, const TlsfConversionResult *spec,
     bool success = ok(status);
     if (!success) {
       // D6: Declined expansion must publish no partial row (dpa.h:107-110).
-      if (!(!edges && !n))
-        abort();
+      CHECK(D6, !edges && !n);
       fuzz_dpa_post(&checks, status, queue[at], edges, n);
       break;
     }
     // D7: Successful successor requests return a nonempty whole row.
-    if (!(edges && n))
-      abort();
+    CHECK(D7, edges && n);
     fuzz_dpa_post(&checks, status, queue[at], edges, n);
     for (size_t e = 0; e < n; ++e) {
       if (!label_valid(&checks, edges[e].label, aps, 0))
         goto done;
       // D8: Edge priorities cannot exceed the advertised global maximum.
-      if (!(edges[e].priority <= tlsf_dpa_max_priority(dpa)))
-        abort();
+      CHECK(D8, edges[e].priority <= tlsf_dpa_max_priority(dpa));
+      // D9: Successor IDs must index discovered states, never a missing state.
+      CHECK(D9, edges[e].successor < tlsf_dpa_state_count(dpa));
       size_t i = 0;
       while (i < count && queue[i] != edges[e].successor)
         ++i;
-      if (i == count) {
-        // D9: A successful row must respect the 64-state construction budget.
-        if (!(count < 64))
-          abort();
+      if (i == count)
         queue[count++] = edges[e].successor;
-      }
     }
     for (unsigned letter = 0; letter < (1u << aps); ++letter) {
       ++checks.assignment; // At most 64 rows * 256 letters per context.
@@ -110,8 +100,7 @@ static void inspect(TlsfDpa *dpa, const TlsfConversionResult *spec,
       for (size_t e = 0; e < n; ++e)
         matches += holds(&checks, edges[e].label, letter);
       // D10: Disjoint labels covering true match every letter exactly once.
-      if (!(matches == 1))
-        abort();
+      CHECK(D10, matches == 1);
     }
   }
 done:
@@ -183,8 +172,7 @@ static void construct(const TlsfConversionResult *spec,
     inspect(dpa, spec, budget);
   else {
     // D11: Both constructors promise NULL output after any failure (dpa.h:66).
-    if (!(!dpa))
-      abort();
+    CHECK(D11, !dpa);
   }
   tlsf_dpa_free(dpa);
 }
@@ -196,8 +184,7 @@ static TlsfSpec *parse(char *text, size_t length) {
   TlsfSpec *spec = spec_parse(stream, "fuzz-dpa");
   fclose(stream);
   // D12: Decoder and printer text must parse; neither may introduce bad syntax.
-  if (!(spec))
-    abort();
+  CHECK(D12, spec);
   return spec;
 }
 

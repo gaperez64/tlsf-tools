@@ -1,3 +1,4 @@
+#include "check.h"
 #include "dpa_checks.h"
 #include <stdlib.h>
 #include <string.h>
@@ -16,17 +17,15 @@ bool fuzz_dpa_reason(TlsfDpaStatus status, bool host_limit) {
 static void alphabet(FuzzDpaChecks *c) {
   uint32_t count = c->spec->n_inputs + c->spec->n_outputs;
   // C1: The copied partition includes unused APs, inputs before outputs.
-  if (!(tlsf_dpa_ap_count(c->dpa) == count && count <= 8))
-    abort();
+  CHECK(C1, tlsf_dpa_ap_count(c->dpa) == count && count <= 8);
   for (uint32_t i = 0; i < count; ++i) {
     const char *expected = i < c->spec->n_inputs
                                ? c->spec->inputs[i]
                                : c->spec->outputs[i - c->spec->n_inputs];
     const char *name = tlsf_dpa_ap_name(c->dpa, i);
     // C2: Each copied name and each previously borrowed name stays readable.
-    if (!(name && !strcmp(name, expected) &&
-          (!c->names[i] || !strcmp(c->names[i], expected))))
-      abort();
+    CHECK(C2, name && !strcmp(name, expected) &&
+                  (!c->names[i] || !strcmp(c->names[i], expected)));
     c->names[i] = name;
   }
 }
@@ -40,8 +39,7 @@ void fuzz_dpa_checks_init(FuzzDpaChecks *c, TlsfDpa *dpa,
 bool fuzz_dpa_label(FuzzDpaChecks *c, TlsfDpaLabel id) {
   const TlsfDpaLabelNode *node = tlsf_dpa_label_node(c->dpa, id);
   // C3: Every borrowed label, including a row's root, must resolve.
-  if (!(node))
-    abort();
+  CHECK(C3, node);
   if (id >= c->label_capacity) {
     size_t capacity = c->label_capacity ? c->label_capacity : 16;
     while (capacity <= id)
@@ -68,9 +66,8 @@ static void borrowed(FuzzDpaChecks *c) {
       const TlsfDpaEdge *old = &c->rows[r].copy[e];
       const TlsfDpaEdge *now = &c->rows[r].borrowed[e];
       // C4: Previously borrowed whole rows remain inspectable until free.
-      if (!(now->label == old->label && now->successor == old->successor &&
-            now->priority == old->priority))
-        abort();
+      CHECK(C4, now->label == old->label && now->successor == old->successor &&
+                    now->priority == old->priority);
     }
   for (size_t i = 0; i < c->label_capacity; ++i) {
     const FuzzLabel *label = &c->labels[i];
@@ -78,31 +75,28 @@ static void borrowed(FuzzDpaChecks *c) {
       continue;
     const TlsfDpaLabelNode *now = label->borrowed, *old = &label->copy;
     // C5: Borrowed label nodes and their IDs survive later work, even decline.
-    if (!(tlsf_dpa_label_node(c->dpa, (TlsfDpaLabel)i) == now &&
-          now->kind == old->kind && now->ap == old->ap &&
-          now->low == old->low && now->high == old->high))
-      abort();
+    CHECK(C5, tlsf_dpa_label_node(c->dpa, (TlsfDpaLabel)i) == now &&
+                  now->kind == old->kind && now->ap == old->ap &&
+                  now->low == old->low && now->high == old->high);
   }
 }
 
 void fuzz_dpa_post(FuzzDpaChecks *c, TlsfDpaStatus status, TlsfDpaState state,
                    const TlsfDpaEdge *edges, size_t count) {
   // C6: Every successor request, including a decline, respects max_states.
-  if (!(tlsf_dpa_state_count(c->dpa) <= c->max_states))
-    abort();
+  CHECK(C6, tlsf_dpa_state_count(c->dpa) <= c->max_states);
   borrowed(c);
   if (status.code != TLSF_DPA_OK) {
     TlsfDpaStatus saved = tlsf_dpa_status(c->dpa);
     // C7: Failed expansion permanently declines the context (dpa.h:109).
-    if (!(saved.code == status.code && saved.reason == status.reason))
-      abort();
+    CHECK(C7, saved.code == status.code && saved.reason == status.reason);
     const TlsfDpaEdge *again = (const TlsfDpaEdge *)(uintptr_t)1;
     size_t n = SIZE_MAX;
     saved = tlsf_dpa_successors(c->dpa, state, &again, &n);
     // C8: Later work returns the same nonconclusive status and no partial row.
-    if (!(saved.code == status.code && saved.reason == status.reason &&
-          !again && !n && tlsf_dpa_state_count(c->dpa) <= c->max_states))
-      abort();
+    CHECK(C8, saved.code == status.code && saved.reason == status.reason &&
+                  !again && !n &&
+                  tlsf_dpa_state_count(c->dpa) <= c->max_states);
     borrowed(c);
     return;
   }
