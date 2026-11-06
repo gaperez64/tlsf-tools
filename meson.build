@@ -32,7 +32,9 @@ if fuzz
     error('-Dfuzz=true requires Clang for both C and C++ (CC=clang CXX=clang++)')
   endif
   # Instrument the library as well as the harness; only fuzz targets get main.
+  # C drivers do not link the C++ UBSan runtime needed by vptr checks.
   add_project_arguments('-fsanitize=fuzzer-no-link,address,undefined',
+                        '-fno-sanitize=vptr',
                         '-fno-omit-frame-pointer', language: ['c', 'cpp'])
   add_project_link_arguments('-fsanitize=address,undefined',
                              language: ['c', 'cpp'])
