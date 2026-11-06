@@ -1,0 +1,31 @@
+INFO {
+  TITLE:       "fuzz";
+  DESCRIPTION: "generated";
+  SEMANTICS:   Finite,Mealy;
+  TARGET:      Moore;
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 1;
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    i0;
+  }
+
+  OUTPUTS {
+    ob[0..(n - 1)];
+  }
+
+    INITIALLY {
+      ((*[k IN {1, 2}] k) == 2);
+      true;
+    }
+
+}

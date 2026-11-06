@@ -1,0 +1,44 @@
+INFO { TITLE: "big operators"; SEMANTICS: Mealy; TARGET: Mealy; }
+MAIN {
+  INPUTS { i0; }
+  OUTPUTS { o0; }
+  GUARANTEE {
+    // Arithmetic, comparisons and membership; both indexed arithmetic forms.
+    ((+[k IN {1, 2}] k) + 1) == 4;
+    ((*[k IN {1, 2}] k) - 1) == 1;
+    ((+[k IN {1, 2}] k) * 2) == 6;
+    ((*[k IN {1, 2}] k) / 2) == 1;
+    ((+[k IN {1, 2}] k) % 2) == 1;
+    (+[k IN {1, 2}] k) == 3;
+    (*[k IN {1, 2}] k) != 3;
+    (+[k IN {1, 2}] k) < 4;
+    (*[k IN {1, 2}] k) <= 2;
+    (+[k IN {1, 2}] k) > 2;
+    (*[k IN {1, 2}] k) >= 2;
+    (+[k IN {1, 2}] k) IN {3};
+
+    // Set binaries and both indexed set forms.
+    SIZE (((+)[k IN {{1}, {2}}] k) (+) {3}) == 3;
+    SIZE (((*)[k IN {{1, 2}, {2, 3}}] k) (*) {2}) == 1;
+    SIZE (((+)[k IN {{1}, {2}}] k) (-) {1}) == 1;
+
+    // Boolean and temporal binaries; both indexed Boolean forms.
+    (&&[k IN {1, 2}] i0) && o0;
+    (||[k IN {1, 2}] i0) || o0;
+    (&&[k IN {1, 2}] i0) -> o0;
+    (||[k IN {1, 2}] i0) <-> o0;
+    (&&[k IN {1, 2}] i0) U o0;
+    (||[k IN {1, 2}] i0) R o0;
+    (&&[k IN {1, 2}] i0) W o0;
+
+    // A lower bound is followed by comparisons in the same context.
+    &&[(*[k IN {1, 2}] k) <= j <= 3] o0;
+
+    // Final and explicitly delimited operands keep their existing spelling.
+    o0 && (&&[k IN {1, 2}] i0);
+    3 == (+[k IN {1, 2}] k);
+    !(&&[k IN {1, 2}] i0);
+    X[+[k IN {1, 2}] k] o0;
+    F[0:2] (&&[k IN {1, 2}] i0);
+  }
+}

@@ -811,6 +811,16 @@ test('tlsf_subst_defs', check,
 test('tlsf_reemit_quant', check,
   args: [files(cases / 'expand_demo.reemit.tlsf'),
          exe['tlsf2tlsf'], files(cases / 'expand_demo.tlsf')])
+# Big operators must not consume a following operator. Check the first print
+# against an explicit golden and reparse that golden to check the fixed point.
+printer = meson.current_source_dir() / '..' / 'fixtures' / 'printer'
+foreach name : ['bigop_parens', 'bigop_contexts']
+  foreach suffix : ['', '.reemit']
+    test('tlsf_' + name + suffix, check,
+      args: [files(printer / name + '.reemit.tlsf'), exe['tlsf2tlsf'],
+             files(printer / name + suffix + '.tlsf')])
+  endforeach
+endforeach
 test('err_tlsf_bad_param', xfail,
   args: [exe['tlsf2tlsf'], '--param', 'nope=1', files(cases / 'defs.tlsf')])
 
