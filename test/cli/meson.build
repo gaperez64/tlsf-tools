@@ -816,6 +816,8 @@ test('tlsf_reemit_quant', check,
 # Big operators must not consume a following operator. Check the first print
 # against an explicit golden and reparse that golden to check the fixed point.
 printer = meson.current_source_dir() / '..' / 'fixtures' / 'printer'
+# Issue #108: weak/strong indexed next must both survive set deduplication,
+# regardless of element order. The two committed .ltl files keep both conjuncts.
 foreach name : ['finite_set_next', 'finite_set_next_reversed']
   test('ltl_' + name, check,
     args: [files(printer / name + '.ltl'), exe['tlsf2ltl'], '--format', 'ltl',

@@ -260,7 +260,27 @@ for name, digest in vptr_update["preserved_artifacts_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
 
-def rebound_digest(name, historical, updates=(retirement, runtime_update, limits_update, row_update, tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)):
+dedup_update = json.loads((root.parents[2] / "tools/analysis/set-dedup-108.json").read_text())
+assert dedup_update["date"] and dedup_update["reason"]
+assert dedup_update["checks"] == [
+    "set_dedup", "set_dedup_field_inventory", "ltl_finite_set_next",
+    "ltl_finite_set_next_reversed", "full_meson_tests", "lake_build",
+    "proof_source_references", "golden_provenance", "no_external_oracles",
+]
+assert dedup_update["changed_golden_hashes"] == 0
+assert set(dedup_update["source_rebindings"]) == {
+    "proofs/README.md", "proofs/TlsfProofs.lean", "src/lib/expand.c",
+    "test/cli/meson.build", "test/unit/meson.build",
+    "test/cli/check_golden_provenance.py",
+}
+assert set(dedup_update["preserved_artifacts_sha256"]) == set(vptr_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/fuzz-vptr-portability.json",
+}
+for name, digest in dedup_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+def rebound_digest(name, historical, updates=(retirement, runtime_update, limits_update, row_update, tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)):
     for update in updates:
         binding = update["source_rebindings"].get(name)
         if binding:
@@ -269,14 +289,15 @@ def rebound_digest(name, historical, updates=(retirement, runtime_update, limits
     return historical
 
 
-for update, successors in ((row_update, (tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
-                           (tv1_update, (fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
-                           (fuzz_update, (f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
-                           (f3_update, (expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
-                           (expansion_update, (provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
-                           (provenance_rollback, (substitution_update, success_update, shared_update, vptr_update)),
-                           (substitution_update, (success_update, shared_update, vptr_update)),
-                           (success_update, (shared_update, vptr_update)), (shared_update, (vptr_update,)), (vptr_update, ())):
+for update, successors in ((row_update, (tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
+                           (tv1_update, (fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
+                           (fuzz_update, (f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
+                           (f3_update, (expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
+                           (expansion_update, (provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
+                           (provenance_rollback, (substitution_update, success_update, shared_update, vptr_update, dedup_update)),
+                           (substitution_update, (success_update, shared_update, vptr_update, dedup_update)),
+                           (success_update, (shared_update, vptr_update, dedup_update)), (shared_update, (vptr_update, dedup_update)),
+                           (vptr_update, (dedup_update,)), (dedup_update, ())):
     for name, binding in update["source_rebindings"].items():
         assert set(binding) == {"previous_sha256", "current_sha256"}
         assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
