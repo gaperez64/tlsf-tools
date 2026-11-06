@@ -120,8 +120,7 @@ private def readRequest : Parser Request := do
            objective := source }
 
 private def tokens (s : String) : List String :=
-  ((s.splitOn "\n").flatMap (fun line => (line.splitOn "\t").flatMap
-    (fun part => part.splitOn " "))).filter (fun t => !t.isEmpty)
+  (s.splitToList (fun c => " \t\n\x0b\x0c\r".contains c)).filter (fun t => !t.isEmpty)
 
 private def complete (p : Parser α) (s : String) : Except String α := do
   let (result, rest) ← p.run (tokens s)

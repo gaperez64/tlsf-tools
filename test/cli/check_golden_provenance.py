@@ -66,11 +66,6 @@ assert set(row_update["source_rebindings"]) == {
     "test/cli/check_proof_references.py", "test/unit/dpa_contract.c",
     "test/unit/dpa_equivalence.cpp", "test/unit/meson.build", "tools/golden/test_gates.py",
 }
-for name, binding in row_update["source_rebindings"].items():
-    assert set(binding) == {"previous_sha256", "current_sha256"}
-    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
-    assert binding["previous_sha256"] != binding["current_sha256"], name
-    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == binding["current_sha256"], name
 assert set(row_update["preserved_artifacts_sha256"]) == {
     "test/fixtures/golden/translation/hashes.tsv",
     "test/fixtures/golden/translation/report.json",
@@ -82,13 +77,63 @@ for name, digest in row_update["preserved_artifacts_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
 
-def rebound_digest(name, historical):
-    for update in (retirement, runtime_update, limits_update, row_update):
+tv1_update = json.loads((root.parents[2] / "tools/analysis/tv1-whitespace.json").read_text())
+assert tv1_update["date"] and tv1_update["reason"]
+assert tv1_update["checks"] == [
+    "golden_provenance", "lake_build", "validator_self_test",
+    "translation_validate_tests", "translation_receipt_replay",
+    "meson_tests", "no_external_oracles", "reference_semantics_and_oracle_guard",
+]
+assert tv1_update["changed_golden_hashes"] == 0
+assert set(tv1_update["source_rebindings"]) == {
+    "proofs/TlsfProofs/Dpa/Validation/Dump.lean",
+    "proofs/TlsfProofs/Dpa/Validation/ProtocolChecks.lean",
+    "test/cli/check_golden_provenance.py",
+}
+for name, binding in tv1_update["source_rebindings"].items():
+    assert set(binding) == {"previous_sha256", "current_sha256"}
+    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
+    assert binding["previous_sha256"] != binding["current_sha256"], name
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == binding["current_sha256"], name
+assert set(tv1_update["preserved_artifacts_sha256"]) == {
+    "test/fixtures/golden/translation/hashes.tsv",
+    "test/fixtures/golden/translation/report.json",
+    "test/fixtures/golden/translation/provenance.json",
+    "test/fixtures/golden/translation/dag/hashes.tsv",
+    "test/fixtures/golden/translation/dag/report.json",
+    "test/fixtures/golden/translation/dag/provenance.json",
+    "tools/analysis/dpa-row-layout.json", "tools/golden/historical-files.json",
+}
+for name, digest in tv1_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+replay = tv1_update["translation_replay"]
+assert replay["receipt"] == "tools/analysis/tv1-whitespace/translation-replay.txt"
+assert replay["validated_artifacts"] == sum(
+    len((root / suite / "hashes.tsv").read_text().splitlines())
+    for suite in ("translation", "translation/dag"))
+assert "4.35.0" in replay["lean"]
+assert replay["protocol_self_test"] == "57 protocol checks, 0 failures"
+assert re.fullmatch("[0-9a-f]{64}", replay["validator_executable_sha256"])
+receipt = root.parents[2] / replay["receipt"]
+assert hashlib.sha256(receipt.read_bytes()).hexdigest() == replay["sha256"]
+assert receipt.read_text() == f"{replay['validated_artifacts']} passing requests revalidated by {replay['lean']}\n"
+
+
+def rebound_digest(name, historical, updates=(retirement, runtime_update, limits_update, row_update, tv1_update)):
+    for update in updates:
         binding = update["source_rebindings"].get(name)
         if binding:
             assert historical == binding["previous_sha256"], (name, "wrong historical source binding")
             historical = binding["current_sha256"]
     return historical
+
+
+for name, binding in row_update["source_rebindings"].items():
+    assert set(binding) == {"previous_sha256", "current_sha256"}
+    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
+    assert binding["previous_sha256"] != binding["current_sha256"], name
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == rebound_digest(
+        name, binding["current_sha256"], (tv1_update,)), name
 
 
 manifest = json.loads((root / "provenance.json").read_text())

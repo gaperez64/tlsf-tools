@@ -80,6 +80,9 @@ private def delay32 : Parity (Fin 2) (Fin 32) :=
 
 def protocolChecks : List (String × Bool) := [
   ("complete-parity-dump", probe request dump),
+  ("CRLF-request", probe (request ++ "\r\n") dump),
+  ("VT-whitespace", probe (request.replace " " "\x0b") (dump.replace " " "\x0b")),
+  ("FF-whitespace", probe (request.replace " " "\x0c") (dump.replace " " "\x0c")),
   ("AP-order-mismatch", !probe "TV1 parity default 2 a b G F $a"
     "TV1 parity default 2 b a G F $a states 1 0 end"),
   ("AP-count-mismatch", !probe request (dump.replace "default 1" "default 2")),

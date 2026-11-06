@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-05",
+  "baseline_revision": "8a0ce94b0572f120d28ba228d02d72e4da628c62",
+  "reason": "Issue #104: split Lean TV1 tokens on the six C isspace characters; add CRLF, VT and FF protocol regressions. Append source bindings after the row-layout ledger. Replay every historical TV1/DAG passing request with the rebuilt validator using tools/golden/verify_translation.py; preserve every historical receipt, report, ledger and automaton hash byte for byte.",
+  "checks": [
+    "golden_provenance",
+    "lake_build",
+    "validator_self_test",
+    "translation_validate_tests",
+    "translation_receipt_replay",
+    "meson_tests",
+    "no_external_oracles",
+    "reference_semantics_and_oracle_guard"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "proofs/TlsfProofs/Dpa/Validation/Dump.lean": {
+      "previous_sha256": "8652fb7fd88483b362dd3254b4665f7bbe300ca22112ad20e3f1a926060cd53f",
+      "current_sha256": "1f3956ccbd6a6eb46966bb8b595ffc1a16e72f4214a91944ecd358bc8f637b92"
+    },
+    "proofs/TlsfProofs/Dpa/Validation/ProtocolChecks.lean": {
+      "previous_sha256": "80512cbaaf7ad1581bad38a18f54f42c9c978d78f21b3a44e27ce91652e84bf2",
+      "current_sha256": "c58a56a7fedcd5cd8c3f4ec53973eaa7b8fdd554df7380658ca46c17c819e052"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "977cbd83b57074321fd15b0e4b7322a33b530874c195335cddd945efb4bd8b14",
+      "current_sha256": "c50210ca55609104bf9384753194f7658e08146820544c662c2702e9c84cd1de"
+    }
+  },
+  "preserved_artifacts_sha256": {
+    "test/fixtures/golden/translation/hashes.tsv": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+    "test/fixtures/golden/translation/report.json": "92e9bd4f9479c19078bf58f19a87f57a8a7c33efef6d8bc521cda4f80efb3f93",
+    "test/fixtures/golden/translation/provenance.json": "bbd1fa042f14c548fa16af5e5eacff970f8d20971ed9816edb927f8ff496d222",
+    "test/fixtures/golden/translation/dag/hashes.tsv": "d1f653d526b5a5478a101ef4b589236a20004fb2329c5c3ab1abdbfa0faf5df4",
+    "test/fixtures/golden/translation/dag/report.json": "f0c5c39883aba3444404db92306adba589751c7b232bae510645d4b911e7f220",
+    "test/fixtures/golden/translation/dag/provenance.json": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff",
+    "tools/analysis/dpa-row-layout.json": "7a2e3032ca6b951f9771d79bdb6d0d28eada1d3ed77507b39ce30c4f33c14fe2",
+    "tools/golden/historical-files.json": "42282d2857d2f579c57d671ca989ecf6a173d98b34eb40f96ba09ecdcd54cae6"
+  },
+  "translation_replay": {
+    "receipt": "tools/analysis/tv1-whitespace/translation-replay.txt",
+    "sha256": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00",
+    "validated_artifacts": 4202,
+    "lean": "Lean (version 4.35.0, x86_64-unknown-linux-gnu, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)",
+    "validator_executable_sha256": "03fd3a9610a1587311ac5bcebee3121dee5cfb3f1bc66dc9dbc927c70d002fe7",
+    "protocol_self_test": "57 protocol checks, 0 failures"
+  }
+}
