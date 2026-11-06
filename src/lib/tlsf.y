@@ -33,6 +33,8 @@
     while (old && old[n])
       n++;
     Node **arr = ARENA_ALLOC_N(a, Node *, n + 2);
+    if (!arr)
+      return nullptr;
     for (size_t i = 0; i < n; i++)
       arr[i] = old[i];
     arr[n] = item;
@@ -47,6 +49,8 @@
     while (old && old[n])
       n++;
     const char **arr = ARENA_ALLOC_N(a, const char *, n + 2);
+    if (!arr)
+      return nullptr;
     for (size_t i = 0; i < n; i++)
       arr[i] = old[i];
     arr[n] = s;
@@ -70,6 +74,8 @@
 
   static Node *mk_ite(Arena *a, Node *cond, Node *then_, Node *else_) {
     Node *n = ARENA_ALLOC(a, Node);
+    if (!n)
+      return nullptr;
     n->kind = NODE_ITE;
     n->if_cond = cond;
     n->if_then = then_;
@@ -79,6 +85,8 @@
 
   static Node *mk_cmp(Arena *a, int kind, Node *lhs, Node *rhs) {
     Node *n = ARENA_ALLOC(a, Node);
+    if (!n)
+      return nullptr;
     n->kind = (NodeKind)kind;
     n->lhs = lhs;
     n->rhs = rhs;
@@ -87,6 +95,8 @@
 
   static Node *mk_unary(Arena *a, NodeKind kind, Node *arg) {
     Node *n = ARENA_ALLOC(a, Node);
+    if (!n)
+      return nullptr;
     n->kind = kind;
     n->arg = arg;
     return n;
@@ -94,6 +104,8 @@
 
   static Node *mk_binary(Arena *a, NodeKind kind, Node *lhs, Node *rhs) {
     Node *n = ARENA_ALLOC(a, Node);
+    if (!n)
+      return nullptr;
     n->kind = kind;
     n->lhs = lhs;
     n->rhs = rhs;
@@ -102,6 +114,8 @@
 
   static Node *mk_set(Arena *a, NodeKind kind, Node **elems) {
     Node *n = ARENA_ALLOC(a, Node);
+    if (!n)
+      return nullptr;
     n->kind = kind;
     n->set_elems = elems;
     n->set_size = node_list_len(elems);
@@ -162,8 +176,14 @@
       /* Preserve GCC's right-first node allocation order. */
       Node *rhs = node_ap(a, label);
       Node *lhs = node_ap(a, sig);
+      if (!rhs || !lhs)
+        return nullptr;
       Node *eq = mk_cmp(a, NODE_CMP_EQ, lhs, rhs);
+      if (!eq)
+        return nullptr;
       acc = acc ? node_or(a, acc, eq) : eq;
+      if (!acc)
+        return nullptr;
     }
     return acc ? acc : node_true(a);
   }
@@ -291,7 +311,7 @@
 
 spec
   : info_section global_section_opt main_section
-  | error { YYABORT; }
+  | error { if (arena_failed(spec->arena)) YYNOMEM; YYABORT; }
   ;
 
 /* =========================================================================
@@ -447,7 +467,7 @@ enum_values
   : TOK_BITS
     { $$ = $1; }
   | enum_values TOK_COMMA TOK_BITS
-    { $$ = join_enum_values(spec, $1, $3); if (!$$) YYNOMEM; }
+    { if (!($$ = join_enum_values(spec, $1, $3))) YYNOMEM; }
   ;
 
 /* Definition guard chain:  cond : value  cond : value  ...  (right-nested ITE,
@@ -463,9 +483,11 @@ enum_values
  * the result against syfco. */
 cases
   : cond TOK_COLON ltl_expr
-    { $$ = mk_ite(spec->arena, $1, $3, node_false(spec->arena)); }
+    { Node *otherwise = node_false(spec->arena);
+      if (!otherwise) YYNOMEM;
+      if (!($$ = mk_ite(spec->arena, $1, $3, otherwise))) YYNOMEM; }
   | cond TOK_COLON ltl_expr cases
-    { $$ = mk_ite(spec->arena, $1, $3, $4); }
+    { if (!($$ = mk_ite(spec->arena, $1, $3, $4))) YYNOMEM; }
   ;
 
 /* A guard is a comparison between integer expressions.  (TLSF definition
@@ -473,11 +495,11 @@ cases
  * boundary unambiguous.) */
 cond
   : ltl_expr cmp_op ltl_expr
-    { $$ = mk_cmp(spec->arena, (int)$2, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, (int)$2, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_MATCH ltl_expr
-    { $$ = mk_binary(spec->arena, NODE_MATCH, $1, $3); }
+    { if (!($$ = mk_binary(spec->arena, NODE_MATCH, $1, $3))) YYNOMEM; }
   | TOK_OTHERWISE
-    { $$ = node_true(spec->arena); } /* catch-all default guard */
+    { if (!($$ = node_true(spec->arena))) YYNOMEM; } /* catch-all default guard */
   ;
 
 cmp_op
@@ -491,9 +513,9 @@ cmp_op
 
 ident_list
   : TOK_IDENT
-    { $$ = slist_append(spec->arena, nullptr, $1); }
+    { if (!($$ = slist_append(spec->arena, nullptr, $1))) YYNOMEM; }
   | ident_list TOK_COMMA TOK_IDENT
-    { $$ = slist_append(spec->arena, $1, $3); }
+    { if (!($$ = slist_append(spec->arena, $1, $3))) YYNOMEM; }
   ;
 
 /* =========================================================================
@@ -563,7 +585,8 @@ signal_decl
       Node *hi = ARENA_ALLOC(spec->arena, Node);
       if (!lo || !hi)
         YYNOMEM;
-      hi->kind = NODE_INT_SUB; hi->lhs = $3; hi->rhs = node_int(spec->arena, 1);
+      hi->kind = NODE_INT_SUB; hi->lhs = $3;
+      if (!(hi->rhs = node_int(spec->arena, 1))) YYNOMEM;
       if (!spec_add_signal(spec, spec->cur_is_output, $1, true, lo, hi))
         YYNOMEM; }
   /* enum-typed signal: TYPE name; declares a bus of the enum's bit width and
@@ -577,6 +600,7 @@ signal_decl
       }
       Node *lo = node_int(spec->arena, 0);
       Node *hi = node_int(spec->arena, (int64_t)et->width - 1);
+      if (!lo || !hi) YYNOMEM;
       if (!spec_add_signal(spec, spec->cur_is_output, $2, true, lo, hi))
         YYNOMEM;
       SignalDecl *signals =
@@ -585,6 +609,7 @@ signal_decl
           spec->cur_is_output ? spec->output_count : spec->input_count;
       signals[count - 1u].origin_is_enum = true;
       Node *valid = mk_enum_validity(spec, et, $2);
+      if (!valid) YYNOMEM;
       FormulaList *list =
           spec->cur_is_output ? &spec->assert_ : &spec->require;
       if (!formula_list_push(spec, list, valid))
@@ -654,62 +679,58 @@ formula_items
 
 ltl_expr
   : TOK_TRUE
-    { $$ = node_true(spec->arena); }
+    { if (!($$ = node_true(spec->arena))) YYNOMEM; }
   | TOK_FALSE
-    { $$ = node_false(spec->arena); }
+    { if (!($$ = node_false(spec->arena))) YYNOMEM; }
   | TOK_IDENT
-    { $$ = node_ap(spec->arena, $1); }
+    { if (!($$ = node_ap(spec->arena, $1))) YYNOMEM; }
 
   /* Integer atoms / arithmetic.  TLSF has a single untyped expression
      grammar; numeric vs. boolean use is resolved during expansion.  An
      identifier in integer position is the bare TOK_IDENT (a NODE_AP) looked
      up as a variable by the evaluator. */
   | TOK_INTEGER
-    { $$ = node_int(spec->arena, $1); }
+    { if (!($$ = node_int(spec->arena, $1))) YYNOMEM; }
   | TOK_SIZEOF TOK_IDENT
     { Node *n = ARENA_ALLOC(spec->arena, Node);
+      if (!n) YYNOMEM;
       n->kind = NODE_SIZEOF; n->sizeof_name = $2; $$ = n; }
   | TOK_SET_SIZE ltl_expr %prec TOK_SET_SIZE
-    { $$ = mk_unary(spec->arena, NODE_SET_SIZE, $2); }
+    { if (!($$ = mk_unary(spec->arena, NODE_SET_SIZE, $2))) YYNOMEM; }
   | TOK_SET_MIN ltl_expr %prec TOK_SET_MIN
-    { $$ = mk_unary(spec->arena, NODE_SET_MIN, $2); }
+    { if (!($$ = mk_unary(spec->arena, NODE_SET_MIN, $2))) YYNOMEM; }
   | TOK_SET_MAX ltl_expr %prec TOK_SET_MAX
-    { $$ = mk_unary(spec->arena, NODE_SET_MAX, $2); }
+    { if (!($$ = mk_unary(spec->arena, NODE_SET_MAX, $2))) YYNOMEM; }
   | TOK_BAR ltl_expr TOK_BAR
-    { $$ = mk_unary(spec->arena, NODE_SET_SIZE, $2); }
+    { if (!($$ = mk_unary(spec->arena, NODE_SET_SIZE, $2))) YYNOMEM; }
   | ltl_expr TOK_PLUS ltl_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_ADD; $$->lhs = $1; $$->rhs = $3; }
+    { if (!($$ = mk_binary(spec->arena, NODE_INT_ADD, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_MINUS ltl_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_SUB; $$->lhs = $1; $$->rhs = $3; }
+    { if (!($$ = mk_binary(spec->arena, NODE_INT_SUB, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_STAR ltl_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_MUL; $$->lhs = $1; $$->rhs = $3; }
+    { if (!($$ = mk_binary(spec->arena, NODE_INT_MUL, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_SLASH ltl_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_DIV; $$->lhs = $1; $$->rhs = $3; }
+    { if (!($$ = mk_binary(spec->arena, NODE_INT_DIV, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_PERCENT ltl_expr
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_MOD; $$->lhs = $1; $$->rhs = $3; }
+    { if (!($$ = mk_binary(spec->arena, NODE_INT_MOD, $1, $3))) YYNOMEM; }
   | TOK_MINUS ltl_expr %prec TOK_UMINUS
-    { $$ = ARENA_ALLOC(spec->arena, Node);
-      $$->kind = NODE_INT_NEG; $$->arg = $2; }
+    { if (!($$ = mk_unary(spec->arena, NODE_INT_NEG, $2))) YYNOMEM; }
 
   /* Set expressions. */
   | set_literal
     { $$ = $1; }
   | ltl_expr TOK_SET_UNION ltl_expr
-    { $$ = mk_binary(spec->arena, NODE_SET_UNION, $1, $3); }
+    { if (!($$ = mk_binary(spec->arena, NODE_SET_UNION, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_SET_INTER ltl_expr
-    { $$ = mk_binary(spec->arena, NODE_SET_INTER, $1, $3); }
+    { if (!($$ = mk_binary(spec->arena, NODE_SET_INTER, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_SET_DIFF ltl_expr
-    { $$ = mk_binary(spec->arena, NODE_SET_DIFF, $1, $3); }
+    { if (!($$ = mk_binary(spec->arena, NODE_SET_DIFF, $1, $3))) YYNOMEM; }
 
   /* Bus signal indexing: name[expr] */
   | TOK_IDENT TOK_LBRACKET ltl_expr TOK_RBRACKET
     {
       Node *n = ARENA_ALLOC(spec->arena, Node);
+      if (!n) YYNOMEM;
       n->kind      = NODE_BUS_INDEX;
       n->bus_name  = $1;
       n->bus_index = $3;
@@ -720,6 +741,7 @@ ltl_expr
   | TOK_IDENT TOK_LPAREN call_arg_list TOK_RPAREN
     {
       Node *n = ARENA_ALLOC(spec->arena, Node);
+      if (!n) YYNOMEM;
       n->kind      = NODE_DEF_CALL;
       n->callee    = $1;
       n->call_args = $3;
@@ -733,54 +755,54 @@ ltl_expr
 
   /* Boolean connectives */
   | TOK_NOT ltl_expr
-    { $$ = node_not(spec->arena, $2); }
+    { if (!($$ = node_not(spec->arena, $2))) YYNOMEM; }
   | ltl_expr TOK_AND ltl_expr
-    { $$ = node_and(spec->arena, $1, $3); }
+    { if (!($$ = node_and(spec->arena, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_OR ltl_expr
-    { $$ = node_or(spec->arena, $1, $3); }
+    { if (!($$ = node_or(spec->arena, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_IMPL ltl_expr
-    { $$ = node_impl(spec->arena, $1, $3); }
+    { if (!($$ = node_impl(spec->arena, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_EQUIV ltl_expr
-    { $$ = node_equiv(spec->arena, $1, $3); }
+    { if (!($$ = node_equiv(spec->arena, $1, $3))) YYNOMEM; }
 
   /* Formula-level equality: a bus compared against an enum label expands to a
      bit-match during expansion; integer == in this position folds to a
      constant.  (Only == / != appear at formula level; the ordered comparisons
      remain confined to definition guards.) */
   | ltl_expr TOK_EQ ltl_expr
-    { $$ = mk_cmp(spec->arena, NODE_CMP_EQ, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, NODE_CMP_EQ, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_NEQ ltl_expr
-    { $$ = mk_cmp(spec->arena, NODE_CMP_NE, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, NODE_CMP_NE, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_LT ltl_expr
-    { $$ = mk_cmp(spec->arena, NODE_CMP_LT, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, NODE_CMP_LT, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_LEQ ltl_expr
-    { $$ = mk_cmp(spec->arena, NODE_CMP_LE, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, NODE_CMP_LE, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_GT ltl_expr
-    { $$ = mk_cmp(spec->arena, NODE_CMP_GT, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, NODE_CMP_GT, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_GEQ ltl_expr
-    { $$ = mk_cmp(spec->arena, NODE_CMP_GE, $1, $3); }
+    { if (!($$ = mk_cmp(spec->arena, NODE_CMP_GE, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_IN ltl_expr
-    { $$ = mk_binary(spec->arena, NODE_IN, $1, $3); }
+    { if (!($$ = mk_binary(spec->arena, NODE_IN, $1, $3))) YYNOMEM; }
 
   /* Unary temporal */
   | TOK_NEXT ltl_expr
-    { $$ = node_x(spec->arena, $2); }
+    { if (!($$ = node_x(spec->arena, $2))) YYNOMEM; }
   | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
-    { $$ = node_next_n(spec->arena, $3, $5); }
+    { if (!($$ = node_next_n(spec->arena, $3, $5))) YYNOMEM; }
   | TOK_NEXT TOK_LBRACKET_STRONG ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded X is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_next_n(spec->arena, $3, $5); $$->bounded.strong = true; }
+      if (!($$ = node_next_n(spec->arena, $3, $5))) YYNOMEM; $$->bounded.strong = true; }
   | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET_STRONG ltl_expr %prec TOK_NEXT
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded X is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_next_n(spec->arena, $3, $5); $$->bounded.strong = true; }
+      if (!($$ = node_next_n(spec->arena, $3, $5))) YYNOMEM; $$->bounded.strong = true; }
   | TOK_SNEXT ltl_expr
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(),
@@ -789,12 +811,12 @@ ltl_expr
                 @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_x_strong(spec->arena, $2); }
+      if (!($$ = node_x_strong(spec->arena, $2))) YYNOMEM; }
   | TOK_FINALLY ltl_expr
-    { $$ = node_f(spec->arena, $2); }
+    { if (!($$ = node_f(spec->arena, $2))) YYNOMEM; }
   | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_FINALLY
-    { $$ = node_f_range(spec->arena, $3, $5, $7); }
+    { if (!($$ = node_f_range(spec->arena, $3, $5, $7))) YYNOMEM; }
   | TOK_FINALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_FINALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
@@ -802,7 +824,7 @@ ltl_expr
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_f_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
+      if (!($$ = node_f_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
   | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
     %prec TOK_FINALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
@@ -810,12 +832,12 @@ ltl_expr
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_f_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
+      if (!($$ = node_f_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
   | TOK_GLOBALLY ltl_expr
-    { $$ = node_g(spec->arena, $2); }
+    { if (!($$ = node_g(spec->arena, $2))) YYNOMEM; }
   | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_GLOBALLY
-    { $$ = node_g_range(spec->arena, $3, $5, $7); }
+    { if (!($$ = node_g_range(spec->arena, $3, $5, $7))) YYNOMEM; }
   | TOK_GLOBALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
     %prec TOK_GLOBALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
@@ -823,7 +845,7 @@ ltl_expr
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_g_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
+      if (!($$ = node_g_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
   | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
     %prec TOK_GLOBALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
@@ -831,15 +853,15 @@ ltl_expr
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      $$ = node_g_range(spec->arena, $3, $5, $7); $$->bounded.strong = true; }
+      if (!($$ = node_g_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
 
   /* Binary temporal */
   | ltl_expr TOK_UNTIL ltl_expr
-    { $$ = node_u(spec->arena, $1, $3); }
+    { if (!($$ = node_u(spec->arena, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_RELEASE ltl_expr
-    { $$ = node_r(spec->arena, $1, $3); }
+    { if (!($$ = node_r(spec->arena, $1, $3))) YYNOMEM; }
   | ltl_expr TOK_WEAK ltl_expr
-    { $$ = node_w(spec->arena, $1, $3); }
+    { if (!($$ = node_w(spec->arena, $1, $3))) YYNOMEM; }
 
   /* Generalized reductions over one or more range/set binders. */
   | TOK_AND TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
@@ -858,28 +880,29 @@ ltl_expr
 
 set_literal
   : TOK_LBRACE TOK_RBRACE
-    { $$ = mk_set(spec->arena, NODE_SET, nullptr); }
+    { if (!($$ = mk_set(spec->arena, NODE_SET, nullptr))) YYNOMEM; }
   | TOK_LBRACE nonempty_expr_list TOK_RBRACE
-    { $$ = mk_set(spec->arena, NODE_SET, $2); }
+    { if (!($$ = mk_set(spec->arena, NODE_SET, $2))) YYNOMEM; }
   | TOK_LBRACE ltl_expr TOK_COMMA ltl_expr TOK_DOTDOT ltl_expr TOK_RBRACE
     { Node **xs = node_list_append(spec->arena, nullptr, $2);
-      xs = node_list_append(spec->arena, xs, $4);
-      xs = node_list_append(spec->arena, xs, $6);
-      $$ = mk_set(spec->arena, NODE_SET_ENUM, xs); }
+      if (!xs) YYNOMEM;
+      if (!(xs = node_list_append(spec->arena, xs, $4))) YYNOMEM;
+      if (!(xs = node_list_append(spec->arena, xs, $6))) YYNOMEM;
+      if (!($$ = mk_set(spec->arena, NODE_SET_ENUM, xs))) YYNOMEM; }
   ;
 
 nonempty_expr_list
   : ltl_expr
-    { $$ = node_list_append(spec->arena, nullptr, $1); }
+    { if (!($$ = node_list_append(spec->arena, nullptr, $1))) YYNOMEM; }
   | nonempty_expr_list TOK_COMMA ltl_expr
-    { $$ = node_list_append(spec->arena, $1, $3); }
+    { if (!($$ = node_list_append(spec->arena, $1, $3))) YYNOMEM; }
   ;
 
 bound_list
   : bound_spec
-    { $$ = node_list_append(spec->arena, nullptr, $1); }
+    { if (!($$ = node_list_append(spec->arena, nullptr, $1))) YYNOMEM; }
   | bound_list TOK_COMMA bound_spec
-    { $$ = node_list_append(spec->arena, $1, $3); }
+    { if (!($$ = node_list_append(spec->arena, $1, $3))) YYNOMEM; }
   ;
 
 /* Quantifier bound: lo (<|<=) var (<|<=) hi.  Builds a partial quantifier
@@ -888,6 +911,7 @@ bound_spec
   : ltl_expr lt_or_leq[loS] TOK_IDENT[v] lt_or_leq[hiS] ltl_expr
     {
       Node *n = ARENA_ALLOC(spec->arena, Node);
+      if (!n) YYNOMEM;
       n->qvar = $v;
       n->qlo = $1;
       n->qhi = $5;
@@ -897,6 +921,7 @@ bound_spec
     }
   | TOK_IDENT[v] TOK_IN ltl_expr
     { Node *n = ARENA_ALLOC(spec->arena, Node);
+      if (!n) YYNOMEM;
       n->qvar = $v;
       n->qset = $3;
       $$ = n; }
@@ -912,9 +937,9 @@ call_arg_list
   : %empty
     { $$ = nullptr; }
   | ltl_expr
-    { $$ = node_list_append(spec->arena, nullptr, $1); }
+    { if (!($$ = node_list_append(spec->arena, nullptr, $1))) YYNOMEM; }
   | call_arg_list TOK_COMMA ltl_expr
-    { $$ = node_list_append(spec->arena, $1, $3); }
+    { if (!($$ = node_list_append(spec->arena, $1, $3))) YYNOMEM; }
   ;
 
 %%

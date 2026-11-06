@@ -2,7 +2,6 @@
 #include "decode.h"
 #include "tlsf/print_tlsf.h"
 
-#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,14 +24,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   FILE *stream = fmemopen(text, length, "r");
   if (!stream)
     return 0;
-  errno = 0;
   TlsfSpec *first = spec_parse(stream, "fuzz-decoder");
-  bool exhausted = !first && errno == ENOMEM;
   fclose(stream);
-  if (exhausted)
-    return 0;
-  // The decoder's grammar is total: its output must always be parseable TLSF.
-  if (!first)
+  // R1: The decoder's grammar is total: its output must always be parseable
+  // TLSF.
+  if (!(first))
     abort();
 
   size_t first_size = 0, second_size = 0;
@@ -45,23 +41,19 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     free(once);
     return 0;
   }
-  errno = 0;
   TlsfSpec *second = spec_parse(stream, "fuzz-printed");
-  exhausted = !second && errno == ENOMEM;
   fclose(stream);
-  if (exhausted) {
-    free(once);
-    return 0;
-  }
-  // Printing a parsed TLSF spec must produce TLSF accepted by the same parser.
-  if (!second)
+  // R2: Printing a parsed TLSF spec must produce TLSF accepted by the same
+  // parser.
+  if (!(second))
     abort();
 
   char *twice = printed(second, &second_size);
   spec_free(second);
   if (twice) {
-    // Canonical printing must be stable under reparsing: syntax and precedence
-    // must preserve the represented tree (see README for this oracle's scope).
+    // R3: Canonical printing must be stable under reparsing: syntax and
+    // precedence must preserve the represented tree (see README for this
+    // oracle's scope).
     if (!(first_size == second_size && memcmp(once, twice, first_size) == 0))
       abort();
   }
