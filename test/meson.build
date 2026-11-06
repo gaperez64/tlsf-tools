@@ -15,6 +15,7 @@ add_test_setup('default', env: test_env, is_default: true)
 
 subdir('fixtures')
 subdir('unit')
+subdir('fuzz')
 subdir('api')
 subdir('cli')
 if research_tools

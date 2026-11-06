@@ -8,6 +8,21 @@
 // (identical operators to ltlxba except TLSF uses ! not !, same symbols)
 // ---------------------------------------------------------------------------
 
+static void print_formula(FILE *out, const Node *n);
+
+// A big operator's body extends rightwards: close it before printing more of
+// the surrounding expression. Delimited or final operands need no extra pair.
+static void print_nonfinal(FILE *out, const Node *n) {
+  bool paren = n->kind == NODE_FORALL || n->kind == NODE_EXISTS ||
+               n->kind == NODE_SUM || n->kind == NODE_PRODUCT ||
+               n->kind == NODE_SET_BIG_UNION || n->kind == NODE_SET_BIG_INTER;
+  if (paren)
+    fprintf(out, "(");
+  print_formula(out, n);
+  if (paren)
+    fprintf(out, ")");
+}
+
 static void print_formula(FILE *out, const Node *n) {
   assert(n);
   switch (n->kind) {
@@ -28,28 +43,28 @@ static void print_formula(FILE *out, const Node *n) {
     return;
   case NODE_AND:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " && ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_OR:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " || ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_IMPL:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " -> ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_EQUIV:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " <-> ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
@@ -78,21 +93,21 @@ static void print_formula(FILE *out, const Node *n) {
 
   case NODE_U:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " U ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_R:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " R ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_W:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " W ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
@@ -115,35 +130,35 @@ static void print_formula(FILE *out, const Node *n) {
     return;
   case NODE_INT_ADD:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " + ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_INT_SUB:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " - ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_INT_MUL:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " * ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_INT_DIV:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " / ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
     return;
   case NODE_INT_MOD:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " %% ");
     print_formula(out, n->rhs);
     fprintf(out, ")");
@@ -184,7 +199,7 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_SET_INTER:
   case NODE_SET_DIFF:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " %s ",
             n->kind == NODE_SET_UNION   ? "(+)"
             : n->kind == NODE_SET_INTER ? "(*)"
@@ -216,7 +231,7 @@ static void print_formula(FILE *out, const Node *n) {
       fprintf(out, "%s IN ", n->qvar);
       print_formula(out, n->qset);
     } else {
-      print_formula(out, n->qlo);
+      print_nonfinal(out, n->qlo);
       fprintf(out, " %s %s %s ", n->qlo_strict ? "<" : "<=", n->qvar,
               n->qhi_strict ? "<" : "<=");
       print_formula(out, n->qhi);
@@ -244,7 +259,7 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_CMP_GE: {
     static const char *ops[] = {"==", "!=", "<", "<=", ">", ">="};
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " %s ", ops[n->kind - NODE_CMP_EQ]);
     print_formula(out, n->rhs);
     fprintf(out, ")");
@@ -254,7 +269,7 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_IN:
   case NODE_MATCH:
     fprintf(out, "(");
-    print_formula(out, n->lhs);
+    print_nonfinal(out, n->lhs);
     fprintf(out, " %s ", n->kind == NODE_IN ? "IN" : "~");
     print_formula(out, n->rhs);
     fprintf(out, ")");
@@ -263,7 +278,7 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_ITE:
     print_formula(out, n->if_cond);
     fprintf(out, " : ");
-    print_formula(out, n->if_then);
+    print_nonfinal(out, n->if_then);
     fprintf(out, "  ");
     print_formula(out, n->if_else);
     return;

@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-06",
+  "baseline_revision": "8c5f3a20ab2649efe230f5424534b3e5725d766c",
+  "reason": "Issue #369: add generated-input roundtrip tests and opt-in Clang libFuzzer instrumentation; parenthesize nonfinal big operators in TLSF printing. Append source bindings after the TV1 whitespace ledger. Replay the frozen native records and all TV1/DAG passing requests with tools/golden/verify_translation.py; preserve historical receipts, ledgers, reports and golden payloads byte for byte.",
+  "checks": [
+    "gcc_full_tests",
+    "clang_full_tests",
+    "translation_receipt_replay",
+    "no_benchmark_hardcoding",
+    "clang_format"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "meson.build": {
+      "previous_sha256": "05cf9eb32bbc3063fd0c43e26fa67e374aa95c86753a9fa4b8d61410651e2aa1",
+      "current_sha256": "25d683835a89778d84eb706886da2d0e62cc8f0beee1eda40534790a98d3bb51"
+    },
+    "meson.options": {
+      "previous_sha256": "bc52b2c31d19f85df8c1ef75cf09783de8c714de24438e74ccab2a14012337b9",
+      "current_sha256": "581fbb8c59c9ced503ddda07be26019963746761fa9e231d9e5cf16120d93264"
+    },
+    "src/lib/print_tlsf.c": {
+      "previous_sha256": "04d86b950df2e57980008d9b73fcd15858258df9459246693d7dd6e6ad41b4e2",
+      "current_sha256": "497623242d8eb43d42a792ac6b616fd67cf190103ff65bda03e0dd670754968a"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "c50210ca55609104bf9384753194f7658e08146820544c662c2702e9c84cd1de",
+      "current_sha256": "9c39ec1c08a89e0bfb5ef15b742a18d45d49f538e89eb060d7d87f1a5e54db42"
+    }
+  },
+  "preserved_artifacts_sha256": {
+    "test/fixtures/golden/translation/hashes.tsv": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+    "test/fixtures/golden/translation/report.json": "92e9bd4f9479c19078bf58f19a87f57a8a7c33efef6d8bc521cda4f80efb3f93",
+    "test/fixtures/golden/translation/provenance.json": "bbd1fa042f14c548fa16af5e5eacff970f8d20971ed9816edb927f8ff496d222",
+    "test/fixtures/golden/translation/dag/hashes.tsv": "d1f653d526b5a5478a101ef4b589236a20004fb2329c5c3ab1abdbfa0faf5df4",
+    "test/fixtures/golden/translation/dag/report.json": "f0c5c39883aba3444404db92306adba589751c7b232bae510645d4b911e7f220",
+    "test/fixtures/golden/translation/dag/provenance.json": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff",
+    "tools/analysis/dpa-row-layout.json": "7a2e3032ca6b951f9771d79bdb6d0d28eada1d3ed77507b39ce30c4f33c14fe2",
+    "tools/golden/historical-files.json": "42282d2857d2f579c57d671ca989ecf6a173d98b34eb40f96ba09ecdcd54cae6",
+    "tools/analysis/tv1-whitespace.json": "a4436589685a6e8183fb2c6ba58079e9cfb9c20c50b64cb2cca40442baebd1ba",
+    "tools/analysis/tv1-whitespace/translation-replay.txt": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00"
+  },
+  "translation_replay": {
+    "receipt": "tools/analysis/generated-input-tests/translation-replay.txt",
+    "sha256": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00",
+    "validated_artifacts": 4202,
+    "lean": "Lean (version 4.35.0, x86_64-unknown-linux-gnu, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)",
+    "validator_executable_sha256": "03fd3a9610a1587311ac5bcebee3121dee5cfb3f1bc66dc9dbc927c70d002fe7",
+    "protocol_self_test": "57 protocol checks, 0 failures"
+  }
+}

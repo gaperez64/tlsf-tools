@@ -1,5 +1,8 @@
 # tlsf-tools meson options
 
+option('fuzz', type: 'boolean', value: false,
+       description: 'Build libFuzzer targets with Clang, ASan and UBSan')
+
 option(
   'sanitize',
   type: 'combo',

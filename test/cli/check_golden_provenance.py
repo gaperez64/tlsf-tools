@@ -90,11 +90,6 @@ assert set(tv1_update["source_rebindings"]) == {
     "proofs/TlsfProofs/Dpa/Validation/ProtocolChecks.lean",
     "test/cli/check_golden_provenance.py",
 }
-for name, binding in tv1_update["source_rebindings"].items():
-    assert set(binding) == {"previous_sha256", "current_sha256"}
-    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
-    assert binding["previous_sha256"] != binding["current_sha256"], name
-    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == binding["current_sha256"], name
 assert set(tv1_update["preserved_artifacts_sha256"]) == {
     "test/fixtures/golden/translation/hashes.tsv",
     "test/fixtures/golden/translation/report.json",
@@ -119,7 +114,153 @@ assert hashlib.sha256(receipt.read_bytes()).hexdigest() == replay["sha256"]
 assert receipt.read_text() == f"{replay['validated_artifacts']} passing requests revalidated by {replay['lean']}\n"
 
 
-def rebound_digest(name, historical, updates=(retirement, runtime_update, limits_update, row_update, tv1_update)):
+fuzz_update = json.loads((root.parents[2] / "tools/analysis/generated-input-tests.json").read_text())
+assert fuzz_update["date"] and fuzz_update["reason"]
+assert fuzz_update["checks"] == [
+    "gcc_full_tests", "clang_full_tests", "translation_receipt_replay",
+    "no_benchmark_hardcoding", "clang_format",
+]
+assert fuzz_update["changed_golden_hashes"] == 0
+assert set(fuzz_update["source_rebindings"]) == {
+    "meson.build", "meson.options", "src/lib/print_tlsf.c",
+    "test/cli/check_golden_provenance.py",
+}
+for name, binding in fuzz_update["source_rebindings"].items():
+    assert set(binding) == {"previous_sha256", "current_sha256"}
+    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
+    assert binding["previous_sha256"] != binding["current_sha256"], name
+assert set(fuzz_update["preserved_artifacts_sha256"]) == set(tv1_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/tv1-whitespace.json", "tools/analysis/tv1-whitespace/translation-replay.txt",
+}
+for name, digest in fuzz_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+replay = fuzz_update["translation_replay"]
+assert replay["receipt"] == "tools/analysis/generated-input-tests/translation-replay.txt"
+assert replay["validated_artifacts"] == tv1_update["translation_replay"]["validated_artifacts"]
+assert "4.35.0" in replay["lean"]
+assert replay["protocol_self_test"] == "57 protocol checks, 0 failures"
+assert re.fullmatch("[0-9a-f]{64}", replay["validator_executable_sha256"])
+receipt = root.parents[2] / replay["receipt"]
+assert hashlib.sha256(receipt.read_bytes()).hexdigest() == replay["sha256"]
+assert receipt.read_text() == f"{replay['validated_artifacts']} passing requests revalidated by {replay['lean']}\n"
+
+
+f3_update = json.loads((root.parents[2] / "tools/analysis/f3-target-adaptation.json").read_text())
+assert f3_update["date"] and f3_update["reason"]
+assert f3_update["checks"] == [
+    "gcc_full_tests", "f3_alloc_replay", "clang_fuzz_build",
+    "clang_layout_provenance_replays", "target_adaptation", "objective_alloc",
+    "no_benchmark_hardcoding", "clang_format",
+]
+assert f3_update["changed_golden_hashes"] == 0
+assert set(f3_update["source_rebindings"]) == {
+    "src/lib/expand.c", "src/lib/spec.c", "test/cli/check_golden_provenance.py",
+}
+golden_files = {str(path.relative_to(root.parents[2])) for path in root.rglob("*") if path.is_file()}
+assert set(f3_update["preserved_artifacts_sha256"]) == golden_files | set(fuzz_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/generated-input-tests.json",
+    "tools/analysis/generated-input-tests/translation-replay.txt",
+}
+for name, digest in f3_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+expansion_update = json.loads((root.parents[2] / "tools/analysis/expansion-allocation-and-equality.json").read_text())
+assert expansion_update["date"] and expansion_update["reason"]
+assert expansion_update["checks"] == [
+    "gcc_full_tests", "clang_fuzz_build", "clang_layout_provenance_replays",
+    "target_adaptation", "objective_alloc", "finite_set_next_goldens",
+    "native_and_translation_replay", "no_benchmark_hardcoding", "clang_format",
+]
+assert expansion_update["changed_golden_hashes"] == 0
+assert set(expansion_update["source_rebindings"]) == {
+    "src/lib/expand.c", "test/cli/check_golden_provenance.py",
+}
+assert set(expansion_update["preserved_artifacts_sha256"]) == set(f3_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/f3-target-adaptation.json",
+}
+for name, digest in expansion_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+provenance_rollback = json.loads((root.parents[2] / "tools/analysis/expansion-provenance-rollback.json").read_text())
+assert provenance_rollback["date"] and provenance_rollback["reason"]
+assert provenance_rollback["checks"] == [
+    "gcc_full_tests", "clang_layout_provenance_replays", "objective_alloc",
+    "native_and_translation_replay", "no_benchmark_hardcoding", "clang_format",
+    "successful_provenance_byte_identity",
+]
+assert provenance_rollback["changed_golden_hashes"] == 0
+assert set(provenance_rollback["source_rebindings"]) == {
+    "src/lib/expand.c", "test/cli/check_golden_provenance.py",
+}
+assert set(provenance_rollback["preserved_artifacts_sha256"]) == set(expansion_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/expansion-allocation-and-equality.json",
+}
+for name, digest in provenance_rollback["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+substitution_update = json.loads((root.parents[2] / "tools/analysis/expansion-substitution-provenance.json").read_text())
+assert substitution_update["date"] and substitution_update["reason"]
+assert substitution_update["checks"] == provenance_rollback["checks"]
+assert substitution_update["changed_golden_hashes"] == 0
+assert set(substitution_update["source_rebindings"]) == {
+    "src/lib/expand.c", "test/cli/check_golden_provenance.py",
+}
+assert set(substitution_update["preserved_artifacts_sha256"]) == set(provenance_rollback["preserved_artifacts_sha256"]) | {
+    "tools/analysis/expansion-provenance-rollback.json",
+}
+for name, digest in substitution_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+success_update = json.loads((root.parents[2] / "tools/analysis/expansion-success-provenance.json").read_text())
+assert success_update["date"] and success_update["reason"]
+assert success_update["checks"] == substitution_update["checks"]
+assert success_update["changed_golden_hashes"] == 0
+assert set(success_update["source_rebindings"]) == {
+    "src/lib/expand.c", "test/cli/check_golden_provenance.py",
+}
+assert set(success_update["preserved_artifacts_sha256"]) == set(substitution_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/expansion-substitution-provenance.json",
+}
+for name, digest in success_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+shared_update = json.loads((root.parents[2] / "tools/analysis/expansion-shared-provenance.json").read_text())
+assert shared_update["date"] and shared_update["reason"]
+assert shared_update["checks"] == success_update["checks"]
+assert shared_update["changed_golden_hashes"] == 0
+assert set(shared_update["source_rebindings"]) == {
+    "src/lib/expand.c", "test/cli/check_golden_provenance.py",
+}
+assert set(shared_update["preserved_artifacts_sha256"]) == set(success_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/expansion-success-provenance.json",
+}
+for name, digest in shared_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+vptr_update = json.loads((root.parents[2] / "tools/analysis/fuzz-vptr-portability.json").read_text())
+assert vptr_update["date"] and vptr_update["reason"]
+assert vptr_update["checks"] == [
+    "clang_fuzz_build", "clang_c_driver_link", "clang_provenance_replays",
+    "gcc_full_tests", "clang_format",
+]
+assert vptr_update["changed_golden_hashes"] == 0
+assert set(vptr_update["source_rebindings"]) == {
+    "meson.build", "test/cli/check_golden_provenance.py",
+}
+assert set(vptr_update["preserved_artifacts_sha256"]) == set(shared_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/expansion-shared-provenance.json",
+}
+for name, digest in vptr_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
+def rebound_digest(name, historical, updates=(retirement, runtime_update, limits_update, row_update, tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)):
     for update in updates:
         binding = update["source_rebindings"].get(name)
         if binding:
@@ -128,12 +269,20 @@ def rebound_digest(name, historical, updates=(retirement, runtime_update, limits
     return historical
 
 
-for name, binding in row_update["source_rebindings"].items():
-    assert set(binding) == {"previous_sha256", "current_sha256"}
-    assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
-    assert binding["previous_sha256"] != binding["current_sha256"], name
-    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == rebound_digest(
-        name, binding["current_sha256"], (tv1_update,)), name
+for update, successors in ((row_update, (tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
+                           (tv1_update, (fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
+                           (fuzz_update, (f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
+                           (f3_update, (expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
+                           (expansion_update, (provenance_rollback, substitution_update, success_update, shared_update, vptr_update)),
+                           (provenance_rollback, (substitution_update, success_update, shared_update, vptr_update)),
+                           (substitution_update, (success_update, shared_update, vptr_update)),
+                           (success_update, (shared_update, vptr_update)), (shared_update, (vptr_update,)), (vptr_update, ())):
+    for name, binding in update["source_rebindings"].items():
+        assert set(binding) == {"previous_sha256", "current_sha256"}
+        assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name
+        assert binding["previous_sha256"] != binding["current_sha256"], name
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == rebound_digest(
+            name, binding["current_sha256"], successors), name
 
 
 manifest = json.loads((root / "provenance.json").read_text())

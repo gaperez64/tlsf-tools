@@ -150,6 +150,39 @@ jobs:
           path: build-clang/compiler-order/
           if-no-files-found: error
 
+  fuzz-replay-clang:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_BUILD_JOBS: '1'
+      ASAN_OPTIONS: detect_leaks=0
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build flex bison clang
+      - uses: ./.github/actions/setup-native
+      - name: Install Meson
+        run: pip install 'meson==1.12.1'
+      - name: Configure, build and replay
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          meson setup build-fuzz-replay -Dfuzz=true
+          ninja -C build-fuzz-replay -j 1
+          meson test -C build-fuzz-replay --no-rebuild --num-processes 1 --print-errorlogs \
+            fuzz-roundtrip fuzz-alloc fuzz-dpa \
+            fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
+
   compiler-order:
     runs-on: ubuntu-24.04
     needs: [build-test, build-clang]

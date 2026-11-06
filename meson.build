@@ -26,6 +26,19 @@ pkg = import('pkgconfig')
 
 cc = meson.get_compiler('c')
 research_tools = get_option('research_tools')
+fuzz = get_option('fuzz')
+if fuzz
+  if cc.get_id() != 'clang' or meson.get_compiler('cpp').get_id() != 'clang'
+    error('-Dfuzz=true requires Clang for both C and C++ (CC=clang CXX=clang++)')
+  endif
+  # Instrument the library as well as the harness; only fuzz targets get main.
+  # C drivers do not link the C++ UBSan runtime needed by vptr checks.
+  add_project_arguments('-fsanitize=fuzzer-no-link,address,undefined',
+                        '-fno-sanitize=vptr',
+                        '-fno-omit-frame-pointer', language: ['c', 'cpp'])
+  add_project_link_arguments('-fsanitize=address,undefined',
+                             language: ['c', 'cpp'])
+endif
 
 c23_flag = cc.get_supported_arguments(['-std=c23', '-std=c2x'])
 add_project_arguments(c23_flag, language: 'c')
