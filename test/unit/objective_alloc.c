@@ -7,6 +7,8 @@
 #include "tlsf/ast_api.h"
 #include "tlsf/convert.h"
 #include "tlsf/pipeline.h"
+#include "tlsf/print_tlsf.h"
+#include <yyjson.h>
 
 // Keep the gate active in release builds too.
 #define CHECK(condition)                                                       \
@@ -386,6 +388,389 @@ static TlsfSpec *prepared(const char *source, ClassifiedSpec **cs) {
   *cs = classify_spec(spec);
   CHECK(*cs);
   return spec;
+}
+
+static void adaptation_checks(void) {
+  // Share an operator both within a formula and across all six sections.
+  // Every failed allocation must leave every original slot untouched.
+  for (unsigned moore = 0; moore < 2; ++moore) {
+    size_t count = 0;
+    for (size_t nth = 0; nth <= count; ++nth) {
+      reset(0);
+      TlsfSpec *s = spec_new();
+      CHECK(s);
+      s->info.semantics = moore ? SEM_MOORE : SEM_MEALY;
+      s->info.target = moore ? TARGET_MEALY : TARGET_MOORE;
+      const char *name = intern(s->intern, "p");
+      CHECK(name);
+      CHECK(spec_add_signal(s, !moore, name, false, nullptr, nullptr));
+      Node *atom = node_ap(s->arena, name);
+      Node *shared = node_not(s->arena, atom);
+      Node *root = node_and(s->arena, shared, shared);
+      CHECK(root);
+      FormulaList *lists[] = {&s->initially, &s->require, &s->assume,
+                              &s->preset,    &s->assert_, &s->guarantee};
+      for (size_t k = 0; k < sizeof lists / sizeof *lists; ++k) {
+        CHECK(formula_list_push(s, lists[k], root));
+        CHECK(formula_list_push(s, lists[k], atom));
+      }
+      reset(nth);
+      bool ok = spec_adapt_target(s);
+      armed = false;
+      CHECK(root->lhs == shared && root->rhs == shared);
+      if (!nth) {
+        count = allocations;
+        CHECK(ok && !fired && count);
+        CHECK(shared->arg->kind == NODE_X && shared->arg->arg == atom);
+        char *text = conversion_render_ltl(root, LTL_FMT_LTLXBA, false, false);
+        CHECK(text && !strcmp(text, "!X p && !X p"));
+        free(text);
+      } else {
+        CHECK(!ok && fired && allocations == nth);
+        CHECK(shared->arg == atom);
+        CHECK(!spec_adapt_target(s));
+      }
+      for (size_t k = 0; k < sizeof lists / sizeof *lists; ++k) {
+        CHECK(lists[k]->formulas[0] == root);
+        Node *f = lists[k]->formulas[1];
+        CHECK(nth ? f == atom : f->kind == NODE_X && f->arg == atom);
+      }
+      CHECK(atom->kind == NODE_AP && atom->name == name);
+      spec_free(s);
+    }
+  }
+  reset(0);
+}
+
+static char *expansion_text(const TlsfSpec *spec) {
+  char *text = nullptr;
+  size_t size = 0;
+  FILE *out = open_memstream(&text, &size);
+  CHECK(out);
+  print_tlsf(out, spec, true);
+  CHECK(fclose(out) == 0 && text);
+  return text;
+}
+
+static void snapshot_node(FILE *out, const Node *n) {
+  if (!n)
+    return;
+  CHECK(fwrite(n, sizeof *n, 1, out) == 1);
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_INT:
+  case NODE_AP:
+  case NODE_INT_VAR:
+  case NODE_SIZEOF:
+    break;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+  case NODE_INT_NEG:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+    snapshot_node(out, n->arg);
+    break;
+  case NODE_BUS_INDEX:
+    snapshot_node(out, n->bus_index);
+    break;
+  case NODE_DEF_CALL:
+  case NODE_PATTERN:
+    for (uint16_t i = 0; i < n->call_argc; ++i)
+      snapshot_node(out, n->call_args[i]);
+    break;
+  case NODE_ITE:
+    snapshot_node(out, n->if_cond);
+    snapshot_node(out, n->if_then);
+    snapshot_node(out, n->if_else);
+    break;
+  case NODE_FORALL:
+  case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
+  case NODE_G_RANGE:
+  case NODE_F_RANGE:
+    snapshot_node(out, n->qlo);
+    snapshot_node(out, n->qhi);
+    if (n->kind != NODE_G_RANGE && n->kind != NODE_F_RANGE)
+      snapshot_node(out, n->qset);
+    snapshot_node(out, n->qbody);
+    break;
+  case NODE_SET:
+  case NODE_SET_ENUM:
+    for (uint16_t i = 0; i < n->set_size; ++i)
+      snapshot_node(out, n->set_elems[i]);
+    break;
+  default:
+    snapshot_node(out, n->lhs);
+    snapshot_node(out, n->rhs);
+    break;
+  }
+  snapshot_node(out, n->bounded.body);
+}
+
+// Printing omits source IDs, bindings and bounded metadata. Capture the raw
+// source nodes too, including definitions and signal-bound expressions.
+static char *expansion_nodes(const TlsfSpec *spec, size_t *size) {
+  char *data = nullptr;
+  FILE *out = open_memstream(&data, size);
+  CHECK(out);
+  for (uint16_t i = 0; i < spec->def_count; ++i)
+    snapshot_node(out, spec->defs[i].body);
+  const FormulaList *lists[] = {&spec->initially, &spec->preset,
+                                &spec->require,   &spec->assert_,
+                                &spec->assume,    &spec->guarantee};
+  for (size_t k = 0; k < sizeof lists / sizeof *lists; ++k)
+    for (uint32_t i = 0; i < lists[k]->count; ++i)
+      snapshot_node(out, lists[k]->formulas[i]);
+  const SignalDecl *signals[] = {spec->inputs, spec->outputs};
+  const uint32_t counts[] = {spec->input_count, spec->output_count};
+  for (size_t k = 0; k < 2; ++k)
+    for (uint32_t i = 0; i < counts[k]; ++i) {
+      snapshot_node(out, signals[k][i].bus_lo_expr);
+      snapshot_node(out, signals[k][i].bus_hi_expr);
+    }
+  CHECK(fclose(out) == 0 && data);
+  return data;
+}
+
+static void expansion_sweep(const char *source, bool semantic_error,
+                            bool preexisting_id) {
+  for (unsigned provenance = 0; provenance < 2; ++provenance) {
+    size_t count = 0;
+    for (size_t nth = 0; nth <= count + 1; ++nth) {
+      reset(0);
+      FILE *fp = fmemopen((void *)source, strlen(source), "r");
+      CHECK(fp);
+      TlsfSpec *s = spec_parse(fp, "expansion-alloc");
+      fclose(fp);
+      CHECK(s);
+      s->capture_provenance = provenance;
+      if (preexisting_id) {
+        Node *call = s->guarantee.formulas[0];
+        CHECK(call->kind == NODE_DEF_CALL && call->call_argc == 1);
+        CHECK(call->call_args[0]->source_id == 0);
+        call->source_id = 73;
+      }
+      armed = false;
+      TlsfSpec before;
+      memcpy(&before, s, sizeof before);
+      char *original = expansion_text(s);
+      size_t original_size = 0;
+      char *original_nodes = expansion_nodes(s, &original_size);
+      const ParamOverride override = {.name = "N", .value = 2};
+      reset(nth);
+      int rc = expand(s, &override, s->param_count ? 1 : 0);
+      armed = false;
+      if (!nth || nth == count + 1) {
+        CHECK((rc != 0) == semantic_error);
+        CHECK(!fired && !arena_failed(s->arena));
+        if (!nth) {
+          count = allocations;
+          CHECK(count);
+        }
+        for (uint32_t i = 0; i < s->input_count; ++i)
+          CHECK(s->inputs[i].name);
+        for (uint32_t i = 0; i < s->output_count; ++i)
+          CHECK(s->outputs[i].name);
+      } else {
+        CHECK(rc != 0 && fired && allocations == nth);
+        CHECK(arena_failed(s->arena));
+      }
+      if (rc != 0) {
+        for (unsigned repeat = 0; repeat < 3; ++repeat) {
+          CHECK(!memcmp(s, &before, sizeof before));
+          char *after = expansion_text(s);
+          CHECK(!strcmp(original, after));
+          free(after);
+          size_t after_size = 0;
+          char *after_nodes = expansion_nodes(s, &after_size);
+          CHECK(original_size == after_size);
+          CHECK(!memcmp(original_nodes, after_nodes, original_size));
+          free(after_nodes);
+          if (repeat < 2)
+            CHECK(expand(s, &override, s->param_count ? 1 : 0) != 0);
+        }
+      }
+      free(original);
+      free(original_nodes);
+      spec_free(s);
+    }
+    printf("expansion arena sweep (provenance %u, semantic error %u, "
+           "preexisting ID %u): %zu failures rejected\n",
+           provenance, semantic_error, preexisting_id, count);
+  }
+  reset(0);
+}
+
+static void expansion_provenance_checks(void) {
+  const char *definitions[] = {
+      "f(x) = x && X x;",
+      "f(x) = x && x;",
+      "f(x) = g(x) && h(x); g(y) = y && y; h(z) = z && z;",
+      "f(x) = X x && x;",
+  };
+  for (size_t i = 0; i < sizeof definitions / sizeof *definitions; ++i) {
+    reset(0);
+    char source[256];
+    snprintf(source, sizeof source,
+             "INFO { SEMANTICS: Mealy TARGET: Mealy } "
+             "GLOBAL { DEFINITIONS { %s } } "
+             "MAIN { INPUTS { %s; } GUARANTEES { f(%s); } }",
+             definitions[i], i == 3 ? "x" : "p", i == 3 ? "X x" : "p");
+    FILE *fp = fmemopen(source, strlen(source), "r");
+    CHECK(fp);
+    TlsfSpec *s = spec_parse(fp, "expansion-provenance");
+    CHECK(fclose(fp) == 0 && s);
+    Node *call = s->guarantee.formulas[0];
+    call->source_id = 73;
+    // Leave the outer formals unnumbered too: the first nested call's
+    // fallback must survive the second nested substitution.
+    if (i >= 2)
+      s->defs[0].body->source_id = 72;
+    if (i == 3) {
+      // Recursion gives the shared X x its fallback before copying its ID.
+      Node *body = s->defs[0].body;
+      call->call_args[0] = body->lhs;
+      body->lhs->arg->source_id = 5;
+    }
+    Node *actual = call->call_args[0];
+    CHECK(actual->source_id == 0);
+    Node before_actual = *actual;
+    char *json = nullptr;
+    size_t size = 0;
+    FILE *out = open_memstream(&json, &size);
+    CHECK(out);
+    char hash[65];
+    CHECK(tlsf_pipeline_source_sha256(source, strlen(source), hash));
+    CHECK(tlsf_pipeline_expand_spec(s, nullptr, 0, out, hash, false, nullptr) ==
+          0);
+    CHECK(fclose(out) == 0 && json);
+    CHECK(!memcmp(actual, &before_actual, sizeof before_actual));
+    yyjson_doc *doc = yyjson_read(json, size, 0);
+    CHECK(doc);
+    yyjson_val *rows = yyjson_obj_get(yyjson_doc_get_root(doc), "conjuncts");
+    CHECK(yyjson_arr_size(rows) == (i == 2 ? 4 : 2));
+    for (size_t j = 0; j < yyjson_arr_size(rows); ++j) {
+      yyjson_val *row = yyjson_arr_get(rows, j);
+      // Historical values: first formal 2, X 3, shared-DAG fallback 5.
+      CHECK(yyjson_get_uint(yyjson_obj_get(row, "source_node_id")) ==
+            (i == 3             ? 5
+             : i == 0 && j == 1 ? 3
+                                : 2));
+    }
+    yyjson_doc_free(doc);
+    free(json);
+    spec_free(s);
+  }
+  reset(0);
+}
+
+static void expansion_checks(void) {
+  expansion_provenance_checks();
+  // Substituting a bus bound or an argument below a pre-numbered call must
+  // leave shared arguments untouched, including after repeated semantic errors.
+  for (unsigned semantic_error = 0; semantic_error < 2; ++semantic_error)
+    for (unsigned preexisting_id = 0; preexisting_id < 2; ++preexisting_id) {
+      char source[256];
+      snprintf(source, sizeof source,
+               "INFO { SEMANTICS: Mealy TARGET: Mealy } "
+               "GLOBAL { DEFINITIONS { id(n) = n; } } "
+               "MAIN { INPUTS { b[id(2)]; } GUARANTEES { %s %s } }",
+               preexisting_id ? "id(p);" : "p;",
+               semantic_error ? "missing();" : "");
+      expansion_sweep(source, semantic_error, preexisting_id);
+    }
+  // Roll back only newly assigned IDs, on semantic errors as well as OOM.
+  for (unsigned oom = 0; oom < 2; ++oom) {
+    reset(0);
+    TlsfSpec *s = spec_new();
+    CHECK(s);
+    Node *atom = node_ap(s->arena, "p");
+    Node *root = node_x(s->arena, atom);
+    CHECK(root && formula_list_push(s, &s->guarantee, root));
+    atom->source_id = 73;
+    s->capture_provenance = true;
+    Node before_root = *root, before_atom = *atom;
+    const ParamOverride unknown = {.name = "unknown", .value = 1};
+    reset(oom ? 3 : 0);
+    CHECK(expand(s, oom ? nullptr : &unknown, oom ? 0 : 1) != 0);
+    armed = false;
+    CHECK(fired == (bool)oom);
+    CHECK(!memcmp(root, &before_root, sizeof before_root));
+    CHECK(!memcmp(atom, &before_atom, sizeof before_atom));
+    spec_free(s);
+  }
+  const char *bodies[] = {"X(G[0:2]((X true) U true))", "X[3](!p)",
+                          "F[1:3](!p)", "G[0:2](p || !p)"};
+  for (size_t b = 0; b < sizeof bodies / sizeof *bodies; ++b) {
+    char source[256];
+    snprintf(source, sizeof source,
+             "INFO { SEMANTICS: Strict,Mealy TARGET: Moore } "
+             "MAIN { INITIALLY { %s; } }",
+             bodies[b]);
+    expansion_sweep(source, false, false);
+  }
+  const char *cases[] = {
+      // Provenance must not leak root/child IDs when allocation 2 is refused.
+      "MAIN { GUARANTEES { X p; } }",
+      // The minimal definition repro; then every section and multiple slots.
+      "GLOBAL { DEFINITIONS { repeat(x) = x && X x; } } "
+      "MAIN { GUARANTEES { repeat(p); } }",
+      "GLOBAL { DEFINITIONS { repeat(x) = x && X x; } } MAIN { "
+      "INITIALLY { repeat(p); repeat(q); } REQUIRE { repeat(p); } "
+      "ASSUMPTIONS { repeat(p); } PRESET { repeat(p); } "
+      "ASSERT { repeat(p); } GUARANTEES { repeat(p); repeat(q); } }",
+      // Numeric and Boolean definition evaluators and nested calls.
+      "GLOBAL { DEFINITIONS { inc(n) = n + 1; "
+      "choose(n) = inc(n) > 0 : X[inc(n)] p otherwise : q; } } "
+      "MAIN { GUARANTEES { choose(1); } }",
+      // Pattern bindings, recursive substitutions, and unmatched guards.
+      "GLOBAL { DEFINITIONS { strip(f) = f ~ G x : (x && X x) "
+      "otherwise : false; } } "
+      "MAIN { GUARANTEES { strip(G p); strip(p); } }",
+      // Formula-valued membership domains, including a definition as a value.
+      "GLOBAL { DEFINITIONS { repeat(x) = x && X x; "
+      "all(x) = &&[f IN {x, X x, repeat(x)}] (f && X f); } } "
+      "MAIN { GUARANTEES { all(p); ||[f IN {p, q}] f; } }",
+      // Range domains, empty domains, set enums, set definitions and reducers.
+      "GLOBAL { DEFINITIONS { s(n) = {n, n + 1 .. n + 2}; "
+      "range(x) = &&[0 < i <= 2] x; "
+      "sets(x) = (+)[v IN {{x}, {x + 1}}] v; "
+      "both(x) = (*)[v IN {{x}, {x, x + 1}}] v; } } "
+      "MAIN { GUARANTEES { range(p); &&[i IN s(0)] X[i] p; "
+      "&&[i IN {}] p; ||[i IN {}] p; "
+      "SIZE (sets(1) (+) both(1)) == 2; "
+      "(SUM[i IN s(1)] i) == 6; (PROD[i IN {1, 2}] i) == 2; } }",
+      // Bus formal names, indices, SIZEOF, computed bounds and overrides.
+      "GLOBAL { PARAMETERS { N = 3; } DEFINITIONS { "
+      "bit(b, i) = b[i] && X b[i]; width(b) = SIZEOF b; } } "
+      "MAIN { INPUTS { b[N]; } OUTPUTS { c[2]; } "
+      "GUARANTEES { bit(b, 0); width(b) == 2; } }",
+      // Signal-only expansions must reject OOM too, in either signal list.
+      "MAIN { INPUTS { b[2]; } }",
+      "MAIN { OUTPUTS { b[2]; } }",
+      // Enum matches exercise bit names, negation, conjunction and disjunction.
+      "GLOBAL { DEFINITIONS { enum Mode = Ready: 10,01; } } "
+      "MAIN { INPUTS { Mode b; } GUARANTEES { b == Ready; b != Ready; } }",
+      // Attaching bounded metadata must not mutate an input atom on failure.
+      "MAIN { GUARANTEES { X[0] p; G[0:0] q; F[0:0] r; X s; } }",
+      // Substitution of bounded formula bodies and their strong flags.
+      "GLOBAL { DEFINITIONS { window(x) = G[0:2] x && F[1:2] x; } } "
+      "MAIN { GUARANTEES { window(p); } }",
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof *cases; ++i) {
+    char source[2048];
+    snprintf(source, sizeof source,
+             "INFO { SEMANTICS: Mealy TARGET: Mealy } %s", cases[i]);
+    expansion_sweep(source, false, false);
+  }
 }
 
 static void assembly_checks(const char *source, const char *expected,
@@ -801,6 +1186,8 @@ static void intern_sweeps(void) {
 }
 
 int main(void) {
+  adaptation_checks();
+  expansion_checks();
   // Issue #90's minimal reaction, a longer OR, and both constant builders.
   const char *composition_bodies[] = {
       "G(a -> p); G(b -> p);",

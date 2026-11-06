@@ -1,6 +1,8 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
 if python3.found()
+  test('target_adaptation', python3,
+    args: [files('check_target_adaptation.py'), exe['tlsf2ltl']])
   test('reference_semantics_and_oracle_guard', python3,
     args: [files('../../tools/golden/test_gates.py')], timeout: 60)
   test('proof_source_references', python3,
@@ -814,6 +816,11 @@ test('tlsf_reemit_quant', check,
 # Big operators must not consume a following operator. Check the first print
 # against an explicit golden and reparse that golden to check the fixed point.
 printer = meson.current_source_dir() / '..' / 'fixtures' / 'printer'
+foreach name : ['finite_set_next', 'finite_set_next_reversed']
+  test('ltl_' + name, check,
+    args: [files(printer / name + '.ltl'), exe['tlsf2ltl'], '--format', 'ltl',
+           files(printer / name + '.tlsf')])
+endforeach
 foreach name : ['bigop_parens', 'bigop_contexts']
   foreach suffix : ['', '.reemit']
     test('tlsf_' + name + suffix, check,

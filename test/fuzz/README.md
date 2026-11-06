@@ -66,7 +66,7 @@ The contract does not promise equal graphs, priorities or row order across
 constructions. There is no cross-construction structural or language-equivalence
 oracle, nor any deadline, cancellation, foreign allocator or Buchi check.
 
-The corpus has 47 `roundtrip`, 36 `alloc` and 17 `dpa` seeds. It covers finite
+The corpus has 47 `roundtrip`, 37 `alloc` and 17 `dpa` seeds. It covers finite
 rejection, both admission modes, eight APs, delayed equalities reaching the state
 limit, unsupported syntax, and bus/definition/bounded expansion. The F2 campaign
 witness is `alloc/2ded5dfeb4389047799fb8f29774ee8ade90d60f` (unaltered campaign bytes).
@@ -76,7 +76,42 @@ A separate parser-only sweep (`build-fz-gcc/review-parser-sweep.{c,py,log}`)
 refused all 3347 allocation positions across 55 generated, enum, guarded-definition
 and printer sources; every refusal returned NULL and released tracked storage.
 
-Fresh GCC gcov execution counts at every property check follow. Shared C counts
+F3 is `alloc/efb619532ad1f5aa1e9eee965554088417712d9d` (the original 17 bytes).
+In the original GCC replay, refusal 45 failed `node_x` inside bounded-G
+expansion of `X(G[0:2]((X true) U true))`. Expansion left `ok` true and published
+a NULL formula; `wrap_signal_aps` crashed on its first visit to that root.
+This witness does not revisit a shared operator. Expansion now propagates OOM,
+checks bounded results before metadata writes, and publishes only valid roots.
+Target adaptation separately defers all child/root replacements until every
+allocation succeeds, stopping at the first failure. Thus failure leaves all six
+sections untouched, even for caller-built DAGs with shared operators.
+
+`target_adaptation` compares 532 conversions against explicitly single-shifted
+formulas with matching semantics/target (which bypass adaptation). Both the
+original and fixed GCC binaries pass. It covers G/F ranges, nested bounds,
+indexed/zero next, nullary/parameterized/guarded definitions and pattern guards,
+range/set/formula-valued big operators, indexed buses, all six sections separately
+and together, both timing
+directions and strict semantics. Expansion rebuilds operator nodes per occurrence
+but reuses scalar APs/constants, including definition and big-operator leaves;
+indexed bus accesses create fresh AP nodes. Bounded metadata also aliases a body,
+but adaptation does not traverse metadata. Shared leaves are never mutated, so
+these parsed constructs did not double-wrap. `objective_alloc` additionally
+checks a shared NOT operator within AND and across all six lists: each AP must
+have exactly one X on success (the inline golden is `!X p && !X p`), and every
+refused allocation must leave every original slot intact. It also sweeps expansion
+failures for F3, indexed X, F and G.
+
+Sibling audit: `expand.c` needed the root-publication/failure-propagation fixes.
+Its substitution builds fresh nodes rather than rewriting source children.
+`nnf.c`, `rewrite.c`, `ast_api.c`'s lowercase clone, and `section_pattern.c`'s
+formula builder likewise build fresh results and reject failure before publishing
+them; their source trees retain their children. `normalize.c` was also inspected:
+its formula passes rebuild nodes, while its prenormalization list writes are not
+on the `tlsf_convert` path. No changes to those siblings were needed for this
+in-place-mutation defect.
+
+GCC gcov execution counts recorded before F3 follow. Shared C counts
 combine `alloc` and `dpa`; both unarmed and armed alloc runs contribute. Each check
 is reached by the checked-in corpus. Reproduce from `build-fz-gcc` using
 `/home/gperez/GIT-repos/acacia-bonsai/.venv/bin/python review-coverage.py`.

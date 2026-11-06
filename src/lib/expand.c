@@ -24,11 +24,26 @@ typedef struct Binding {
   int64_t value;
 } Binding;
 
+typedef struct SubstCopy {
+  const Node *source;
+  Node node;
+  struct SubstCopy *next;
+} SubstCopy;
+
 typedef struct Env {
   Binding b;
   const struct Env *parent;
   uint32_t binder_id;
+  SubstCopy **copies;
 } Env;
+
+static const Node *subst_source(const Node *n, const Env *env) {
+  if (n && !n->source_id)
+    for (SubstCopy *copy = *env->copies; copy; copy = copy->next)
+      if (copy->source == n)
+        return &copy->node;
+  return n;
+}
 
 static bool env_lookup(const Env *env, const char *name, int64_t *out) {
   for (const Env *e = env; e; e = e->parent)
@@ -66,18 +81,11 @@ static const char *subst_name(const char *name, const char *const *formals,
   return name;
 }
 
-static Node *subst_impl(Arena *a, const Node *n, const char *const *formals,
-                        Node *const *actuals, uint16_t nf);
 static Node *subst(Arena *a, const Node *n, const char *const *formals,
-                   Node *const *actuals, uint16_t nf) {
-  Node *result = subst_impl(a, n, formals, actuals, nf);
-  if (result && result != n && result->source_id == 0)
-    result->source_id = n->source_id;
-  return result;
-}
-
-static Node *subst_impl(Arena *a, const Node *n, const char *const *formals,
-                        Node *const *actuals, uint16_t nf) {
+                   Node *const *actuals, uint16_t nf, const Env *env) {
+  n = subst_source(n, env);
+  if (!n || arena_failed(a))
+    return nullptr;
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
@@ -87,41 +95,64 @@ static Node *subst_impl(Arena *a, const Node *n, const char *const *formals,
   case NODE_AP:
   case NODE_INT_VAR:
     for (uint16_t k = 0; k < nf; k++)
-      if (formals[k] == n->name)
-        return actuals[k];
+      if (formals[k] == n->name) {
+        Node *actual = (Node *)subst_source(actuals[k], env);
+        if (actual == n || actual->source_id || !n->source_id)
+          return actual;
+        // Keep the old first-use fallback, but annotate a private copy.
+        // Reuse it across substitutions so shared unnumbered actuals keep
+        // the same ID without changing any caller-owned node.
+        SubstCopy *copy = ARENA_ALLOC(a, SubstCopy);
+        if (!copy)
+          return nullptr;
+        *copy = (SubstCopy){
+            .source = actual, .node = *actual, .next = *env->copies};
+        copy->node.source_id = n->source_id;
+        *env->copies = copy;
+        return &copy->node;
+      }
     return (Node *)n;
 
+  default:
+    break;
+  }
+
+  Node *m = ARENA_ALLOC(a, Node);
+  if (!m)
+    return nullptr;
+  m->kind = n->kind;
+#define SUBST(field)                                                           \
+  do {                                                                         \
+    if (!(m->field = subst(a, n->field, formals, actuals, nf, env)))           \
+      return nullptr;                                                          \
+  } while (0)
+
+  switch (n->kind) {
   case NODE_SIZEOF: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = NODE_SIZEOF;
     m->sizeof_name = subst_name(n->sizeof_name, formals, actuals, nf);
-    return m;
+    break;
   }
   case NODE_BUS_INDEX: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = NODE_BUS_INDEX;
     m->bus_name = subst_name(n->bus_name, formals, actuals, nf);
-    m->bus_index = subst(a, n->bus_index, formals, actuals, nf);
-    return m;
+    SUBST(bus_index);
+    break;
   }
   case NODE_DEF_CALL:
   case NODE_PATTERN: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
     m->callee = n->callee;
     m->call_argc = n->call_argc;
     m->call_args = ARENA_ALLOC_N(a, Node *, n->call_argc);
+    if (!m->call_args)
+      return nullptr;
     for (uint16_t i = 0; i < n->call_argc; i++)
-      m->call_args[i] = subst(a, n->call_args[i], formals, actuals, nf);
-    return m;
+      SUBST(call_args[i]);
+    break;
   }
   case NODE_ITE: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = NODE_ITE;
-    m->if_cond = subst(a, n->if_cond, formals, actuals, nf);
-    m->if_then = subst(a, n->if_then, formals, actuals, nf);
-    m->if_else = subst(a, n->if_else, formals, actuals, nf);
-    return m;
+    SUBST(if_cond);
+    SUBST(if_then);
+    SUBST(if_else);
+    break;
   }
   case NODE_FORALL:
   case NODE_EXISTS:
@@ -129,73 +160,66 @@ static Node *subst_impl(Arena *a, const Node *n, const char *const *formals,
   case NODE_PRODUCT:
   case NODE_SET_BIG_UNION:
   case NODE_SET_BIG_INTER: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
     m->qvar = n->qvar;
-    m->qlo = n->qlo ? subst(a, n->qlo, formals, actuals, nf) : nullptr;
-    m->qhi = n->qhi ? subst(a, n->qhi, formals, actuals, nf) : nullptr;
-    m->qset = n->qset ? subst(a, n->qset, formals, actuals, nf) : nullptr;
-    m->qbody = subst(a, n->qbody, formals, actuals, nf);
+    if (n->qlo)
+      SUBST(qlo);
+    if (n->qhi)
+      SUBST(qhi);
+    if (n->qset)
+      SUBST(qset);
+    SUBST(qbody);
     m->qlo_strict = n->qlo_strict;
     m->qhi_strict = n->qhi_strict;
-    return m;
+    break;
   }
   case NODE_G_RANGE:
   case NODE_F_RANGE: {
     // Bounded temporal: only the bounds and body are used (no qvar/strict).
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
-    m->qlo = subst(a, n->qlo, formals, actuals, nf);
-    m->qhi = subst(a, n->qhi, formals, actuals, nf);
-    m->qbody = subst(a, n->qbody, formals, actuals, nf);
+    SUBST(qlo);
+    SUBST(qhi);
+    SUBST(qbody);
     m->bounded.strong = n->bounded.strong;
-    return m;
+    break;
   }
   case NODE_SET:
   case NODE_SET_ENUM: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
     m->set_size = n->set_size;
     m->set_elems = ARENA_ALLOC_N(a, Node *, n->set_size);
+    if (!m->set_elems)
+      return nullptr;
     for (uint16_t i = 0; i < n->set_size; i++)
-      m->set_elems[i] = subst(a, n->set_elems[i], formals, actuals, nf);
-    return m;
+      SUBST(set_elems[i]);
+    break;
   }
   case NODE_NOT:
   case NODE_X:
   case NODE_X_STRONG:
   case NODE_F:
   case NODE_G:
-  case NODE_INT_NEG: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
-    m->arg = subst(a, n->arg, formals, actuals, nf);
-    return m;
-  }
+  case NODE_INT_NEG:
   case NODE_SET_SIZE:
   case NODE_SET_MIN:
   case NODE_SET_MAX: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
-    m->arg = subst(a, n->arg, formals, actuals, nf);
-    return m;
+    SUBST(arg);
+    break;
   }
   case NODE_NEXT_N: {
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
-    m->lhs = subst(a, n->lhs, formals, actuals, nf);
-    m->rhs = subst(a, n->rhs, formals, actuals, nf);
+    SUBST(lhs);
+    SUBST(rhs);
     m->bounded.strong = n->bounded.strong;
-    return m;
+    break;
   }
   default: { // all binary nodes (boolean / temporal / arithmetic / compare)
-    Node *m = ARENA_ALLOC(a, Node);
-    m->kind = n->kind;
-    m->lhs = subst(a, n->lhs, formals, actuals, nf);
-    m->rhs = subst(a, n->rhs, formals, actuals, nf);
-    return m;
+    SUBST(lhs);
+    SUBST(rhs);
+    break;
   }
   }
+#undef SUBST
+  // Recursion may introduce a fallback for a shared source node.
+  // Only annotate the fresh copy after resolving that fallback.
+  m->source_id = subst_source(n, env)->source_id;
+  return m;
 }
 
 // ===========================================================================
@@ -343,9 +367,9 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
               n->callee, n->call_argc);
       return false;
     }
-    Node *body =
-        subst(spec->arena, d->body, d->params, n->call_args, d->param_count);
-    return eval_int(spec, body, env, out, depth + 1);
+    Node *body = subst(spec->arena, d->body, d->params, n->call_args,
+                       d->param_count, env);
+    return body && eval_int(spec, body, env, out, depth + 1);
   }
   case NODE_ITE: {
     Node *branch;
@@ -500,9 +524,9 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
               n->callee, n->call_argc);
       return false;
     }
-    Node *body =
-        subst(spec->arena, d->body, d->params, n->call_args, d->param_count);
-    return eval_bool(spec, body, env, out, depth + 1);
+    Node *body = subst(spec->arena, d->body, d->params, n->call_args,
+                       d->param_count, env);
+    return body && eval_bool(spec, body, env, out, depth + 1);
   }
   default:
     fprintf(tlsf_diagnostic_stream(),
@@ -520,6 +544,9 @@ static bool node_structural_equal(const Node *lhs, const Node *rhs) {
     return true;
   if (!lhs || !rhs || lhs->kind != rhs->kind)
     return false;
+  // Compare the active payload of every kind. Source IDs, origin bindings and
+  // expanded bounded metadata describe provenance, not formula meaning. The
+  // strong flag is semantic on the three pre-expansion bounded kinds below.
   switch (lhs->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
@@ -583,10 +610,40 @@ static bool node_structural_equal(const Node *lhs, const Node *rhs) {
       if (!node_structural_equal(lhs->set_elems[i], rhs->set_elems[i]))
         return false;
     return true;
-  default:
+  case NODE_NEXT_N:
+    return lhs->bounded.strong == rhs->bounded.strong &&
+           node_structural_equal(lhs->lhs, rhs->lhs) &&
+           node_structural_equal(lhs->rhs, rhs->rhs);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_R:
+  case NODE_W:
+  case NODE_U:
+  case NODE_M:
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD:
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+  case NODE_IN:
+  case NODE_MATCH:
     return node_structural_equal(lhs->lhs, rhs->lhs) &&
            node_structural_equal(lhs->rhs, rhs->rhs);
+  case NODE_KIND_COUNT:
+    return false;
   }
+  return false;
 }
 
 static bool value_equal(const EvalValue *lhs, const EvalValue *rhs) {
@@ -684,9 +741,9 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
               n->callee, n->call_argc);
       return false;
     }
-    Node *body =
-        subst(spec->arena, d->body, d->params, n->call_args, d->param_count);
-    return eval_value(spec, body, env, out, depth + 1);
+    Node *body = subst(spec->arena, d->body, d->params, n->call_args,
+                       d->param_count, env);
+    return body && eval_value(spec, body, env, out, depth + 1);
   }
   case NODE_ITE: {
     Node *branch;
@@ -739,6 +796,8 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
     for (int64_t value = first;
          (step > 0 && value <= last) || (step < 0 && value >= last);) {
       Node *source = node_int(arena, value);
+      if (!source)
+        return false;
       EvalValue item = {
           .kind = EVAL_VALUE_INT, .integer = value, .source = source};
       if (!set_add(arena, set, item))
@@ -791,8 +850,9 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
               n->callee, n->call_argc);
       return false;
     }
-    Node *body = subst(arena, d->body, d->params, n->call_args, d->param_count);
-    return eval_set(spec, body, env, out, depth + 1);
+    Node *body =
+        subst(arena, d->body, d->params, n->call_args, d->param_count, env);
+    return body && eval_set(spec, body, env, out, depth + 1);
   }
   if (n->kind == NODE_ITE) {
     Node *branch;
@@ -825,6 +885,8 @@ static bool eval_domain(const TlsfSpec *spec, const Node *n, const Env *env,
     EvalValue item = {.kind = EVAL_VALUE_INT,
                       .integer = value,
                       .source = node_int(spec->arena, value)};
+    if (!item.source)
+      return false;
     if (!set_add(spec->arena, set, item))
       return false;
     if (value == INT64_MAX)
@@ -838,12 +900,14 @@ static bool eval_domain(const TlsfSpec *spec, const Node *n, const Env *env,
 static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
                                 const Env *env, const EvalValue *value,
                                 Env *child, const Env **body_env, Node **body) {
+  n = subst_source(n, env);
   *body = n->qbody;
   *body_env = env;
   if (value->kind == EVAL_VALUE_INT) {
     *child = (Env){.b = {.name = n->qvar, .value = value->integer},
                    .parent = env,
-                   .binder_id = n->source_id};
+                   .binder_id = n->source_id,
+                   .copies = env->copies};
     *body_env = child;
     return true;
   }
@@ -856,7 +920,7 @@ static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
     ((TlsfSpec *)spec)->provenance_ambiguous = true;
   const char *formal = n->qvar;
   Node *actual = (Node *)value->source;
-  *body = subst(spec->arena, n->qbody, &formal, &actual, 1);
+  *body = subst(spec->arena, n->qbody, &formal, &actual, 1, env);
   return *body != nullptr;
 }
 
@@ -1051,8 +1115,10 @@ static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
     return true;
   }
   const char **formals = ARENA_ALLOC_N(spec->arena, const char *, count);
+  if (!formals)
+    return false;
   Node **actuals = ARENA_ALLOC_N(spec->arena, Node *, count);
-  if (!formals || !actuals)
+  if (!actuals)
     return false;
   uint16_t i = 0;
   for (PatternBinding *b = bindings; b; b = b->next) {
@@ -1060,7 +1126,7 @@ static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
     actuals[i] = b->value;
     i++;
   }
-  *out = subst(spec->arena, n->if_then, formals, actuals, count);
+  *out = subst(spec->arena, n->if_then, formals, actuals, count, env);
   return *out != nullptr;
 }
 
@@ -1072,6 +1138,25 @@ static const char *bus_elem_name(TlsfSpec *spec, const char *bus, int64_t idx) {
   char buf[256];
   snprintf(buf, sizeof buf, "%s_%lld", bus, (long long)idx);
   return intern(spec->intern, buf);
+}
+
+static Node *bus_elem_node(TlsfSpec *spec, const char *bus, int64_t idx) {
+  const char *name = bus_elem_name(spec, bus, idx);
+  return name ? node_ap(spec->arena, name) : nullptr;
+}
+
+static Node *with_bounded(Arena *arena, const Node *node, const Node *source,
+                          BoundedTemporalOrigin origin, int64_t lo, int64_t hi,
+                          Node *body) {
+  // A zero bound can return a source atom directly. Never attach metadata to
+  // that shared input: expansion must leave it untouched on failure.
+  Node *copy = ARENA_ALLOC(arena, Node);
+  if (!copy)
+    return nullptr;
+  *copy = *node;
+  copy->bounded.strong = source->bounded.strong;
+  node_set_bounded(copy, origin, lo, hi, body);
+  return copy;
 }
 
 static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
@@ -1102,14 +1187,25 @@ static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
     acc = !acc ? term
                : (is_all ? node_and(spec->arena, acc, term)
                          : node_or(spec->arena, acc, term));
+    if (!acc)
+      return nullptr;
   }
   return acc;
 }
 
 static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
                          bool *ok, int depth) {
+  n = subst_source(n, env);
+  if (!*ok || !n || arena_failed(spec->arena)) {
+    *ok = false;
+    return nullptr;
+  }
   Node *result = expand_node_impl(spec, n, env, ok, depth);
-  if (!result || !spec->capture_provenance)
+  if (!result || arena_failed(spec->arena)) {
+    *ok = false;
+    return nullptr;
+  }
+  if (!spec->capture_provenance)
     return result;
   Node *copy = ARENA_ALLOC(spec->arena, Node);
   if (!copy) {
@@ -1158,6 +1254,8 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
 #define XBINARY(ctor)                                                          \
   do {                                                                         \
     Node *l = expand_node(spec, n->lhs, env, ok, depth);                       \
+    if (!*ok)                                                                  \
+      return nullptr;                                                          \
     Node *r = expand_node(spec, n->rhs, env, ok, depth);                       \
     if (!*ok)                                                                  \
       return nullptr;                                                          \
@@ -1239,17 +1337,29 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
         for (size_t i = 0; i < width; i++) {
           if (valuation[i] == '*')
             continue;
-          Node *elem = node_ap(a, bus_elem_name(spec, bus->name, (int64_t)i));
+          Node *elem = bus_elem_node(spec, bus->name, (int64_t)i);
+          if (!elem)
+            return nullptr;
           Node *term = valuation[i] == '1' ? elem : node_not(a, elem);
+          if (!term)
+            return nullptr;
           match = match ? node_and(a, match, term) : term;
+          if (!match)
+            return nullptr;
         }
         if (!match)
           match = node_true(a);
+        if (!match)
+          return nullptr;
         allowed = allowed ? node_or(a, allowed, match) : match;
+        if (!allowed)
+          return nullptr;
         valuation = end ? end + 1 : valuation + width;
       }
       if (!allowed)
         allowed = node_false(a);
+      if (!allowed)
+        return nullptr;
       return n->kind == NODE_CMP_NE ? node_not(a, allowed) : allowed;
     }
 
@@ -1280,7 +1390,7 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
       *ok = false;
       return nullptr;
     }
-    return node_ap(a, bus_elem_name(spec, n->bus_name, idx));
+    return bus_elem_node(spec, n->bus_name, idx);
   }
 
   case NODE_FORALL:
@@ -1303,11 +1413,12 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
     if (!*ok)
       return nullptr;
     Node *body = expanded_body;
-    for (int64_t i = 0; i < count; i++)
+    for (int64_t i = 0; i < count; i++) {
       body = n->bounded.strong ? node_x_strong(a, body) : node_x(a, body);
-    body->bounded.strong = n->bounded.strong;
-    node_set_bounded(body, BOUNDED_NEXT, count, count, expanded_body);
-    return body;
+      if (!body)
+        return nullptr;
+    }
+    return with_bounded(a, body, n, BOUNDED_NEXT, count, count, expanded_body);
   }
 
   case NODE_G_RANGE:
@@ -1336,19 +1447,24 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
         return nullptr;
       if (!meta_body)
         meta_body = body;
-      for (int64_t i = 0; i < k; i++)
+      for (int64_t i = 0; i < k; i++) {
         body = n->bounded.strong ? node_x_strong(a, body) : node_x(a, body);
+        if (!body)
+          return nullptr;
+      }
       acc =
           acc ? (conj ? node_and(a, acc, body) : node_or(a, acc, body)) : body;
+      if (!acc)
+        return nullptr;
     }
     // Empty range (lo > hi): empty conjunction is true, empty disjunction
     // false.
     if (!acc)
       acc = conj ? node_true(a) : node_false(a);
-    acc->bounded.strong = n->bounded.strong;
-    node_set_bounded(acc, conj ? BOUNDED_G_RANGE : BOUNDED_F_RANGE, lo, hi,
-                     meta_body);
-    return acc;
+    if (!acc)
+      return nullptr;
+    return with_bounded(a, acc, n, conj ? BOUNDED_G_RANGE : BOUNDED_F_RANGE, lo,
+                        hi, meta_body);
   }
 
   // Definition guard: evaluate the condition, expand the chosen branch.
@@ -1370,7 +1486,10 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
       *ok = false;
       return nullptr;
     }
-    Node *body = subst(a, d->body, d->params, n->call_args, d->param_count);
+    Node *body =
+        subst(a, d->body, d->params, n->call_args, d->param_count, env);
+    if (!body)
+      return nullptr;
     return expand_node(spec, body, env, ok, depth + 1);
   }
 
@@ -1394,8 +1513,7 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
 // Parameter environment and signal explosion
 // ===========================================================================
 
-static Env *build_param_env(TlsfSpec *spec) {
-  Env *head = nullptr;
+static Env *build_param_env(TlsfSpec *spec, Env *head) {
   for (uint16_t i = 0; i < spec->param_count; i++) {
     Env *e = ARENA_ALLOC(spec->arena, Env);
     if (!e)
@@ -1403,6 +1521,7 @@ static Env *build_param_env(TlsfSpec *spec) {
     e->b.name = spec->params[i].name;
     e->b.value = spec->params[i].value;
     e->parent = head;
+    e->copies = head->copies;
     head = e;
   }
   return head;
@@ -1480,10 +1599,26 @@ static bool proves_bit_width(const TlsfSpec *spec, const Node *width) {
   return proves_floor_log2(find_def(spec, step->callee, 1));
 }
 
-static void assign_node_ids(Node *n, uint32_t *next) {
-  if (!n || n->source_id)
+typedef struct SourceIdChange {
+  Node *node;
+  struct SourceIdChange *next;
+} SourceIdChange;
+
+typedef struct {
+  Arena *arena;
+  uint32_t next;
+  SourceIdChange *changes;
+} SourceIds;
+
+static void assign_node_ids(Node *n, SourceIds *ids) {
+  if (!n || n->source_id || arena_failed(ids->arena))
     return;
-  n->source_id = (*next)++;
+  SourceIdChange *change = ARENA_ALLOC(ids->arena, SourceIdChange);
+  if (!change)
+    return;
+  *change = (SourceIdChange){.node = n, .next = ids->changes};
+  ids->changes = change;
+  n->source_id = ids->next++;
   switch (n->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
@@ -1501,20 +1636,20 @@ static void assign_node_ids(Node *n, uint32_t *next) {
   case NODE_SET_SIZE:
   case NODE_SET_MIN:
   case NODE_SET_MAX:
-    assign_node_ids(n->arg, next);
+    assign_node_ids(n->arg, ids);
     return;
   case NODE_BUS_INDEX:
-    assign_node_ids(n->bus_index, next);
+    assign_node_ids(n->bus_index, ids);
     return;
   case NODE_DEF_CALL:
   case NODE_PATTERN:
     for (uint16_t i = 0; i < n->call_argc; i++)
-      assign_node_ids(n->call_args[i], next);
+      assign_node_ids(n->call_args[i], ids);
     return;
   case NODE_ITE:
-    assign_node_ids(n->if_cond, next);
-    assign_node_ids(n->if_then, next);
-    assign_node_ids(n->if_else, next);
+    assign_node_ids(n->if_cond, ids);
+    assign_node_ids(n->if_then, ids);
+    assign_node_ids(n->if_else, ids);
     return;
   case NODE_FORALL:
   case NODE_EXISTS:
@@ -1524,33 +1659,32 @@ static void assign_node_ids(Node *n, uint32_t *next) {
   case NODE_SET_BIG_INTER:
   case NODE_G_RANGE:
   case NODE_F_RANGE:
-    assign_node_ids(n->qlo, next);
-    assign_node_ids(n->qhi, next);
+    assign_node_ids(n->qlo, ids);
+    assign_node_ids(n->qhi, ids);
     if (n->kind != NODE_G_RANGE && n->kind != NODE_F_RANGE)
-      assign_node_ids(n->qset, next);
-    assign_node_ids(n->qbody, next);
+      assign_node_ids(n->qset, ids);
+    assign_node_ids(n->qbody, ids);
     return;
   case NODE_SET:
   case NODE_SET_ENUM:
     for (uint16_t i = 0; i < n->set_size; i++)
-      assign_node_ids(n->set_elems[i], next);
+      assign_node_ids(n->set_elems[i], ids);
     return;
   default:
-    assign_node_ids(n->lhs, next);
-    assign_node_ids(n->rhs, next);
+    assign_node_ids(n->lhs, ids);
+    assign_node_ids(n->rhs, ids);
     return;
   }
 }
 
-static void assign_source_ids(TlsfSpec *spec) {
-  uint32_t next = 1;
+static void assign_source_ids(TlsfSpec *spec, SourceIds *ids) {
   for (uint16_t i = 0; i < spec->def_count; i++)
-    assign_node_ids(spec->defs[i].body, &next);
+    assign_node_ids(spec->defs[i].body, ids);
   FormulaList *lists[] = {&spec->initially, &spec->preset, &spec->require,
                           &spec->assert_,   &spec->assume, &spec->guarantee};
   for (size_t k = 0; k < sizeof lists / sizeof *lists; k++)
     for (uint32_t i = 0; i < lists[k]->count; i++)
-      assign_node_ids(lists[k]->formulas[i], &next);
+      assign_node_ids(lists[k]->formulas[i], ids);
 }
 
 static int explode_signals(TlsfSpec *spec, bool is_output) {
@@ -1578,8 +1712,9 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
       continue;
     }
     for (int64_t v = s->bus_lo; v <= (int64_t)s->bus_hi; v++) {
-      if (!spec_add_signal(spec, is_output, bus_elem_name(spec, s->name, v),
-                           false, nullptr, nullptr))
+      const char *name = bus_elem_name(spec, s->name, v);
+      if (!name ||
+          !spec_add_signal(spec, is_output, name, false, nullptr, nullptr))
         return -1;
       SignalDecl *expanded = is_output ? &spec->outputs[spec->output_count - 1]
                                        : &spec->inputs[spec->input_count - 1];
@@ -1602,15 +1737,13 @@ static int explode_signals(TlsfSpec *spec, bool is_output) {
 // Public entry point
 // ===========================================================================
 
-int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
-  assert(spec);
-
-  if (spec->capture_provenance)
-    assign_source_ids(spec);
-
+static int expand_impl(TlsfSpec *spec, const ParamOverride *overrides,
+                       size_t n_overrides) {
   // --- Phase 1: resolve parameter values (apply overrides over defaults). ---
   for (size_t i = 0; i < n_overrides; i++) {
     const char *iname = intern(spec->intern, overrides[i].name);
+    if (!iname)
+      return -1;
     bool found = false;
     for (uint16_t j = 0; j < spec->param_count; j++)
       if (spec->params[j].name == iname) {
@@ -1633,7 +1766,9 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
       return -1;
     }
 
-  Env *env = build_param_env(spec);
+  SubstCopy *copies = nullptr;
+  Env base = {.copies = &copies};
+  Env *env = build_param_env(spec, &base);
   if (arena_failed(spec->arena))
     return -1;
 
@@ -1686,10 +1821,10 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
 #define EXPAND_LIST(list)                                                      \
   do {                                                                         \
     for (uint32_t _i = 0; _i < (list).count; _i++) {                           \
-      (list).formulas[_i] =                                                    \
-          expand_node(spec, (list).formulas[_i], env, &ok, 0);                 \
-      if (!ok)                                                                 \
+      Node *expanded = expand_node(spec, (list).formulas[_i], env, &ok, 0);    \
+      if (!ok || !expanded)                                                    \
         return -1;                                                             \
+      (list).formulas[_i] = expanded;                                          \
     }                                                                          \
   } while (0)
 
@@ -1712,5 +1847,53 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
   spec->param_count = 0;
   spec->defs = nullptr;
   spec->def_count = 0;
+  return arena_failed(spec->arena) ? -1 : 0;
+}
+
+int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
+  assert(spec);
+  if (arena_failed(spec->arena))
+    return -1;
+
+  // Stage mutable arrays and publish once. Nodes are rebuilt by expand_node;
+  // neither a later formula nor signal-allocation failure may expose a partial
+  // expansion through an earlier slot.
+  TlsfSpec next = *spec;
+#define COPY_ARRAY(field, type, count)                                         \
+  do {                                                                         \
+    if (count) {                                                               \
+      next.field = ARENA_ALLOC_N(spec->arena, type, count);                    \
+      if (!next.field)                                                         \
+        return -1;                                                             \
+      memcpy(next.field, spec->field, count * sizeof *next.field);             \
+    }                                                                          \
+  } while (0)
+  COPY_ARRAY(params, ParamDecl, spec->param_count);
+  COPY_ARRAY(inputs, SignalDecl, spec->input_count);
+  COPY_ARRAY(outputs, SignalDecl, spec->output_count);
+  COPY_ARRAY(initially.formulas, Node *, spec->initially.capacity);
+  COPY_ARRAY(require.formulas, Node *, spec->require.capacity);
+  COPY_ARRAY(assume.formulas, Node *, spec->assume.capacity);
+  COPY_ARRAY(preset.formulas, Node *, spec->preset.capacity);
+  COPY_ARRAY(assert_.formulas, Node *, spec->assert_.capacity);
+  COPY_ARRAY(guarantee.formulas, Node *, spec->guarantee.capacity);
+#undef COPY_ARRAY
+  ParamDecl *resolved_params = next.params;
+  // Source nodes are shared with the caller. Undo only IDs assigned here if
+  // expansion fails, including a failure while recording the assignments.
+  SourceIds ids = {.arena = spec->arena, .next = 1};
+  if (spec->capture_provenance)
+    assign_source_ids(&next, &ids);
+  if (arena_failed(spec->arena) ||
+      expand_impl(&next, overrides, n_overrides) != 0) {
+    for (SourceIdChange *change = ids.changes; change; change = change->next)
+      change->node->source_id = 0;
+    return -1;
+  }
+  // Provenance retains the original parameter array after GLOBAL is cleared.
+  if (spec->param_count)
+    memcpy(spec->params, resolved_params,
+           spec->param_count * sizeof *resolved_params);
+  *spec = next;
   return 0;
 }

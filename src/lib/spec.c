@@ -49,24 +49,43 @@ static bool signal_name_in(const char *name, const SignalDecl *signals,
   return false;
 }
 
-static Node *wrap_signal_aps(Arena *arena, Node *node,
-                             const SignalDecl *outputs, uint32_t count,
-                             bool shift_outputs) {
+typedef struct SignalWrap {
+  Node **slot;
+  Node *wrapped;
+  struct SignalWrap *next;
+} SignalWrap;
+
+// Defer every write until all allocations succeed. A shared child slot may be
+// visited repeatedly; each replacement wraps its original AP, never a prior X.
+static bool wrap_signal_aps(Arena *arena, Node **slot,
+                            const SignalDecl *outputs, uint32_t count,
+                            bool shift_outputs, SignalWrap **wraps) {
+  Node *node = *slot;
+  if (!node || arena_failed(arena))
+    return false;
   switch (node->kind) {
-  case NODE_AP:
+  case NODE_AP: {
     // Every atom outside OUTPUTS is an environment input, including implicit
     // (undeclared) atoms, just as in residual_signal_matches().
-    return signal_name_in(node->name, outputs, count) == shift_outputs
-               ? node_x(arena, node)
-               : node;
+    if (signal_name_in(node->name, outputs, count) != shift_outputs)
+      return true;
+    Node *wrapped = node_x(arena, node);
+    if (!wrapped)
+      return false;
+    SignalWrap *wrap = ARENA_ALLOC(arena, SignalWrap);
+    if (!wrap)
+      return false;
+    *wrap = (SignalWrap){.slot = slot, .wrapped = wrapped, .next = *wraps};
+    *wraps = wrap;
+    return true;
+  }
   case NODE_NOT:
   case NODE_X:
   case NODE_X_STRONG:
   case NODE_F:
   case NODE_G:
-    node->arg =
-        wrap_signal_aps(arena, node->arg, outputs, count, shift_outputs);
-    return node->arg ? node : nullptr;
+    return wrap_signal_aps(arena, &node->arg, outputs, count, shift_outputs,
+                           wraps);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
@@ -75,13 +94,12 @@ static Node *wrap_signal_aps(Arena *arena, Node *node,
   case NODE_R:
   case NODE_W:
   case NODE_M:
-    node->lhs =
-        wrap_signal_aps(arena, node->lhs, outputs, count, shift_outputs);
-    node->rhs =
-        wrap_signal_aps(arena, node->rhs, outputs, count, shift_outputs);
-    return node->lhs && node->rhs ? node : nullptr;
+    return wrap_signal_aps(arena, &node->lhs, outputs, count, shift_outputs,
+                           wraps) &&
+           wrap_signal_aps(arena, &node->rhs, outputs, count, shift_outputs,
+                           wraps);
   default:
-    return node;
+    return true;
   }
 }
 
@@ -99,6 +117,8 @@ bool spec_validate_target_adaptation(const TlsfSpec *s, const char *prog) {
 }
 
 bool spec_adapt_target(TlsfSpec *s) {
+  if (arena_failed(s->arena))
+    return false;
   bool semantics_moore = semantics_is_moore(s->info.semantics);
   bool target_moore = s->info.target == TARGET_MOORE;
   if (semantics_moore == target_moore)
@@ -106,13 +126,12 @@ bool spec_adapt_target(TlsfSpec *s) {
   if (semantics_is_finite(s->info.semantics))
     return false;
 
+  SignalWrap *wraps = nullptr;
 #define WRAP_LIST(list)                                                        \
   do {                                                                         \
     for (uint32_t i = 0; i < (list).count; i++) {                              \
-      (list).formulas[i] =                                                     \
-          wrap_signal_aps(s->arena, (list).formulas[i], s->outputs,            \
-                          s->output_count, !semantics_moore);                  \
-      if (!(list).formulas[i])                                                 \
+      if (!wrap_signal_aps(s->arena, &(list).formulas[i], s->outputs,          \
+                           s->output_count, !semantics_moore, &wraps))         \
         return false;                                                          \
     }                                                                          \
   } while (0)
@@ -123,6 +142,8 @@ bool spec_adapt_target(TlsfSpec *s) {
   WRAP_LIST(s->assert_);
   WRAP_LIST(s->guarantee);
 #undef WRAP_LIST
+  for (SignalWrap *wrap = wraps; wrap; wrap = wrap->next)
+    *wrap->slot = wrap->wrapped;
   return true;
 }
 

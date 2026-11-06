@@ -1,0 +1,72 @@
+{
+  "date": "2026-11-06",
+  "reason": "Issue #369 review round three: substitution annotates only freshly allocated copies, never shared original arguments. Remove the wrapper that could assign an untracked ID to a bus-bound argument or an unnumbered argument below a preexisting call ID. Sweep both cases across allocation refusals, missing() semantic errors and repeated expand() calls, with and without provenance. Preserve successful TLSF and provenance output and every historical golden payload and prior ledger byte for byte.",
+  "checks": [
+    "gcc_full_tests",
+    "clang_layout_provenance_replays",
+    "objective_alloc",
+    "native_and_translation_replay",
+    "no_benchmark_hardcoding",
+    "clang_format",
+    "successful_provenance_byte_identity"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "src/lib/expand.c": {
+      "previous_sha256": "ee9fc710432d0c593731391066921794fb524c8dfbf429e06d88ac5867a55cfc",
+      "current_sha256": "044683df4701f86917ac4781ed6135fabbe3c7de869b2c68323e99e8269300e1"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "af56d73ee81900204058a0d14beee6bb31bccd92de4454664fa839f369d936b0",
+      "current_sha256": "30b1a4e2888b01b6b519127eae2ec453d34b55d03829645672e1a8891ccc29b3"
+    }
+  },
+  "preserved_artifacts_sha256": {
+    "test/fixtures/golden/README.md": "eb4ec20a564049d2723095153ba4214eecbdd977f353102e977de6ef422a4337",
+    "test/fixtures/golden/assumption-pruning.json": "54a9501b92a91a2706a9b098e82a4e67a8d53022b081cc2aadc4697d57184ae7",
+    "test/fixtures/golden/compose-finite.json": "a2c54bf0ec13187b525e4b39612922d73a0b926b70331f1b653c24ead3612277",
+    "test/fixtures/golden/compose-implicit.json": "1fe86d9b4063747409564a6fa8877229ac55cae24d97852d6e076c1b7b4a870a",
+    "test/fixtures/golden/compose-moore.json": "e907782e278cb4f652f898dac63257bdf40e60f3147086127f3055d729ce52a5",
+    "test/fixtures/golden/compose-wrapper.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "test/fixtures/golden/conversion.json": "6720fe17886a0f6e4d5aa18ff80cc099e62f86ece96868cb9bcf833993dd8812",
+    "test/fixtures/golden/decomposition.json": "89f2b300381b6c5c2ae3fdd395e6189af18b8b9fbe909a06a1d263bddc57b24d",
+    "test/fixtures/golden/disjoint-assumptions.json": "a08694611c824085dd5953c92b2469131f5aa59f5a2780ce86ef9596fe21a1b7",
+    "test/fixtures/golden/dpa/delta2.ltl": "37383570aa255750cf47b089381f766efe988fe3d15989813284e8c78d348002",
+    "test/fixtures/golden/dpa/limits.tsv": "5a6452a828f3584db6520a228cc76b30af925bfda9db8257164df9a9dac07758",
+    "test/fixtures/golden/dpa/membership.tsv": "f7d6d355df13a7869006c8fde7422993c6e4c44ef6551686e75fe389f11df788",
+    "test/fixtures/golden/dpa/random.ltl": "dbf98d2cc11c27f6778d82115cd81891c22128f85f72dc3996d52512ff941838",
+    "test/fixtures/golden/dpa/rows.tsv": "ac1b44e32d20f2119a7b153d908b34344456721b5465321ac2369dcc2982ba07",
+    "test/fixtures/golden/dpa/words.txt": "d96a3010290f73d0e5136a5caa6bfd2a48c9288c37bc3fa4513e97685f917614",
+    "test/fixtures/golden/monitor-game.json": "8345867d4de7027cb9b62e6cff40358650fec323550d8941f12d0a2aa438cf22",
+    "test/fixtures/golden/native-api-8b158d7.json": "8c514303678c0cc930abd65caf1d2cae13fd07925de3f4e5b1a9f5f1c23203fa",
+    "test/fixtures/golden/native-language.json": "79f89ce48d45a63f412a03b0fc03083df146baf237932ca5a341df991a3e97e4",
+    "test/fixtures/golden/native-lift.json": "c0aae6729669e41eccf17531027459e7c14d788bc5d83bc012774c1b7e62c978",
+    "test/fixtures/golden/native-reduction.json": "cb5de484a7c9119e2462172fd675e3615ab7aceca58076ee917456090166dc74",
+    "test/fixtures/golden/norm-match-safe-1.json": "4824a16fe5b33ace62737d790894aa44cef93ea5acd10c536defcc69376de680",
+    "test/fixtures/golden/norm-route-safe-1.json": "bf349ba805e57e2a5d1034bd923fd09d4dc49566e076dc8f556a788745a205d4",
+    "test/fixtures/golden/norm-sickert-bounded.json": "462d4ff077de85da6663a3eff9fb1282a0f2d3f24b4c785eba75300b8624c4e2",
+    "test/fixtures/golden/norm-sickert-stage2-2.json": "a14ba1b4cf73584dd2177569af7ca22848ee1f62015cae891ee9cdd0eb607a92",
+    "test/fixtures/golden/norm-sickert-stage3-1.json": "462d4ff077de85da6663a3eff9fb1282a0f2d3f24b4c785eba75300b8624c4e2",
+    "test/fixtures/golden/provenance.json": "6bf73e92242d941452a0822c67ac3f8f0876b170a01435e8db44e53cbdce5554",
+    "test/fixtures/golden/review4-comment.json": "109a5de48e5f151ae250e3a71e61b0940a2943502c5f1763021f02680f230c27",
+    "test/fixtures/golden/review4-lowercase.json": "68925777e40d0a28e02066baf19d968768975b0ffebe95377de4219f7f175529",
+    "test/fixtures/golden/review4-signals.json": "591eaa8c32aa92a71d0f958fbaeef1faa69a794c93e527e3e126e753b879fb9b",
+    "test/fixtures/golden/skipped.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "test/fixtures/golden/tool-versions.json": "cd57574a1d8eca2fe7b01ff8006d868f705ee3a2d6824b5593281daeb59083a5",
+    "test/fixtures/golden/translation/dag/hashes.tsv": "d1f653d526b5a5478a101ef4b589236a20004fb2329c5c3ab1abdbfa0faf5df4",
+    "test/fixtures/golden/translation/dag/provenance.json": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff",
+    "test/fixtures/golden/translation/dag/report.json": "f0c5c39883aba3444404db92306adba589751c7b232bae510645d4b911e7f220",
+    "test/fixtures/golden/translation/hashes.tsv": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+    "test/fixtures/golden/translation/provenance.json": "bbd1fa042f14c548fa16af5e5eacff970f8d20971ed9816edb927f8ff496d222",
+    "test/fixtures/golden/translation/report.json": "92e9bd4f9479c19078bf58f19a87f57a8a7c33efef6d8bc521cda4f80efb3f93",
+    "tools/analysis/dpa-row-layout.json": "7a2e3032ca6b951f9771d79bdb6d0d28eada1d3ed77507b39ce30c4f33c14fe2",
+    "tools/analysis/generated-input-tests.json": "d6afd53f4e4d95619df09fcf68b76e83080acdf702fb26fad94a9a3fbe53b23a",
+    "tools/analysis/generated-input-tests/translation-replay.txt": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00",
+    "tools/analysis/tv1-whitespace.json": "a4436589685a6e8183fb2c6ba58079e9cfb9c20c50b64cb2cca40442baebd1ba",
+    "tools/analysis/tv1-whitespace/translation-replay.txt": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00",
+    "tools/golden/historical-files.json": "42282d2857d2f579c57d671ca989ecf6a173d98b34eb40f96ba09ecdcd54cae6",
+    "tools/analysis/f3-target-adaptation.json": "3d1be77801149ca103b8f403c9f0853e7dad073e451dafa176ca76ef3472bf4d",
+    "tools/analysis/expansion-allocation-and-equality.json": "241cf4b76790dc179a0055f234b1a8ea758a1e93e9bb85b1eaf94fdae428e0a7",
+    "tools/analysis/expansion-provenance-rollback.json": "646a467e596bc547e7f55bb15e51529c9383117bd657cc93d10639f9e3c8cbb4"
+  }
+}
