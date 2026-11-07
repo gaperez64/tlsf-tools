@@ -24,7 +24,7 @@
     },
     "src/lib/expand.c": {
       "previous_sha256": "f5592478f8d221c889bf7a9b5cfc4a123823010f7dfbf8c931ee7a39dd838b65",
-      "current_sha256": "73fee6b031cb1fff3389f48082b93401a7fe7b6697a8a16b3e4f2b66b44a1d27"
+      "current_sha256": "4413d5d01314e4f36dafc8e4900c9a45a8884d489301e78895a242be93ec98f1"
     },
     "test/cli/meson.build": {
       "previous_sha256": "771829c26cfd1d8195daa4c7107a6397e9a67f967286f1aba6cc6d1c184c3da9",
