@@ -1,5 +1,16 @@
 # Internal units: these may include libtlsf's private headers.
 
+# Track the declarations as configure dependencies too: a new field must be
+# classified even when it fits in existing union storage or struct padding.
+run_command(python3, files('set_dedup_field_inventory.py'),
+  meson.project_source_root(), files('../../include/tlsf/ast.h'),
+  files('../../proofs/TlsfProofs/SetDedup.lean'), check: true)
+set_dedup = executable('set_dedup', 'set_dedup.c',
+  c_args: ['-UNDEBUG', '-Werror=switch'], dependencies: tlsf_internal_dep)
+test('set_dedup', set_dedup)
+test('set_dedup_field_inventory', python3,
+  args: [files('set_dedup_field_inventory.py'), meson.project_source_root()])
+
 gr1_export_stream = executable('gr1_export_stream', 'gr1_export_stream.c',
   dependencies: tlsf_internal_dep)
 test('gr1_export_stream', gr1_export_stream)
