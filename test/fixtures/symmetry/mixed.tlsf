@@ -1,0 +1,11 @@
+INFO { TITLE: "mixed buses" SEMANTICS: Moore,Strict TARGET: Moore }
+MAIN {
+  INPUTS { source[2..4]; unused; }
+  OUTPUTS { sink[2..4]; spare[9..10]; }
+  INITIALLY { &&[2 <= i <= 4] source[i]; }
+  PRESET { &&[2 <= i <= 4] !sink[i]; }
+  REQUIRE { &&[2 <= i <= 4] source[i]; }
+  ASSERT { &&[2 <= i <= 4] (source[i] <-> sink[i]); }
+  ASSUMPTIONS { &&[2 <= i <= 4] G F source[i]; }
+  GUARANTEES { &&[2 <= i <= 4] G F sink[i]; }
+}

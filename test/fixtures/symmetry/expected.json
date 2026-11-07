@@ -1,0 +1,26 @@
+{
+  "symmetric": {
+    "families": [["request", 0, 2, false], ["grant", 0, 2, true]],
+    "groups": ["symmetric"],
+    "verified": [[true, true, true]],
+    "summary": {"n_families": 2, "n_ranges": 1, "range_sizes": [3]}
+  },
+  "cyclic": {
+    "families": [["token", 0, 3, true]],
+    "groups": ["cyclic"],
+    "verified": [[false, false, false, true]],
+    "summary": {"n_families": 1, "n_ranges": 1, "range_sizes": [4]}
+  },
+  "asymmetric": {
+    "families": [["flag", 0, 2, true]],
+    "groups": ["none"],
+    "verified": [[false, true, false]],
+    "summary": {"n_families": 1, "n_ranges": 1, "range_sizes": [3]}
+  },
+  "mixed": {
+    "families": [["source", 2, 4, false], ["sink", 2, 4, true], ["spare", 9, 10, true]],
+    "groups": ["symmetric", "symmetric"],
+    "verified": [[true, true, true], [true, true]],
+    "summary": {"n_families": 3, "n_ranges": 2, "range_sizes": [3, 2]}
+  }
+}

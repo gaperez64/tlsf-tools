@@ -1,0 +1,5 @@
+INFO { TITLE: "distinguished index" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  OUTPUTS { flag[0..2]; }
+  GUARANTEES { G flag[0]; }
+}

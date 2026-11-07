@@ -1,0 +1,11 @@
+INFO { TITLE: "symmetric bus" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { PARAMETERS { n = 3; } }
+MAIN {
+  INPUTS { request[0..n-1]; }
+  OUTPUTS { grant[0..n-1]; }
+  ASSUMPTIONS { &&[0 <= i < n] G F !request[i]; }
+  GUARANTEES {
+    &&[0 <= i < n] G (request[i] -> F grant[i]);
+    &&[0 <= i < n] &&[i < j < n] G !(grant[i] && grant[j]);
+  }
+}

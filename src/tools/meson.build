@@ -25,6 +25,8 @@ tools = {
 
 if research_tools
   tools += {
+    'tlsfsym': {'sources': files('tlsfsym/main.cpp'),
+                 'dependencies': tool_dep},
     'tlsftemplates': {'sources': files('tlsftemplates/main.c'),
                       'dependencies': tool_dep},
     'tlsfbenchgraph': {'sources': files('tlsfbenchgraph/main.c'),
