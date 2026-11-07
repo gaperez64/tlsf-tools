@@ -550,15 +550,17 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
 // bounded.hi                           Cached expanded bound, not syntax.
 // bounded.body                         Cached pre-unrolling body for printers.
 // bounded.strong (except NEXT_N/G_RANGE/F_RANGE)
-//                                      Expanded kind/children carry next strength.
+//                                      Expanded kind/children carry next
+//                                      strength.
 // Inactive union arms                  No payload for the current kind.
 // qvar/qset/qlo_strict/qhi_strict on G_RANGE/F_RANGE
 //                                      Shared binder storage; ranges use only
 //                                      qlo/qhi/qbody and bounded.strong.
 // call_args/set_elems pointer addresses Ordered contents, not storage identity.
 // Struct/union padding                 No value or denotation.
-// test/unit/set_dedup.c checks the layout at compile time and mutates each field;
-// set_dedup_field_inventory.py catches additions even inside padding/unions.
+// test/unit/set_dedup.c checks the layout at compile time and mutates each
+// field; set_dedup_field_inventory.py catches additions even inside
+// padding/unions.
 static bool node_structural_equal(const Node *lhs, const Node *rhs) {
   if (lhs == rhs)
     return true;
