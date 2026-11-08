@@ -22,7 +22,8 @@
 
 /* Emitted into the parser source after YYSTYPE/YYLTYPE are defined. */
 %code {
-  int  yylex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
+  int tlsf_case_lex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
+  #define yylex tlsf_case_lex
   void yyerror(YYLTYPE *lloc, yyscan_t scanner, TlsfSpec *spec,
                const char *msg);
 
@@ -197,22 +198,17 @@
 %define api.pure
 %define parse.error detailed
 
-/* TLSF case-definitions (`cond : value  cond : value  ...`) have no separator
- * between a case's value and the next case's guard, so the value `ltl_expr` is
- * juxtaposed against the next guard's `ltl_expr`.  The language is unambiguous
- * — a guard always contains a comparison operator (or is `otherwise`) and a
- * value never does — but proving which it is can require scanning past a whole
- * value expression to reach the comparison, i.e. unbounded lookahead.  LALR(1)
- * cannot do that, so a deterministic grammar would mis-resolve
- *     v - w      (value `v-w`)   vs   v   followed by guard `-w CMP ...`
- * and the `(` of a call vs. a parenthesised next guard.  A GLR parser explores
- * both and keeps the one that yields a valid parse, which is exactly correct
- * here.  The two conflict points (1 shift/reduce on TOK_LPAREN, 10
- * reduce/reduce on the binary-vs-unary `-` boundary) are asserted below so the
- * build stays clean and bison errors out if the grammar ever drifts. */
+/* GLR preserves case-boundary alternatives until the next guard's colon.
+ * The previous five shift/reduce conflicts (call, set-list comma and three
+ * binder boundaries) remain, with seven intentional case-completion conflicts
+ * on MINUS, PLUS, STAR, AND, OR, SET_UNION and SET_INTER. Each can continue a
+ * value or start a guard (the latter six with '['). Giving single_case a
+ * precedence would silently discard these alternatives. Two more '<'/'<='
+ * conflicts retain the same range-binder lookahead for guarded bounds. There
+ * are no reduce/reduce conflicts. See the §4.6 reading beside cases below. */
 %glr-parser
-%expect 53
-%expect-rr 19
+%expect 14
+%expect-rr 0
 
 %param  { yyscan_t scanner }
 %parse-param { TlsfSpec *spec }
@@ -269,26 +265,29 @@
 %token TOK_LBRACKET_STRONG TOK_RBRACKET_STRONG
 %token TOK_LBRACE TOK_RBRACE
 %token TOK_COMMA TOK_SEMI TOK_COLON TOK_ASSIGN TOK_DOTDOT TOK_BAR
+/* Injected only at boundaries selected by the compatibility pre-pass. */
+%token TOK_CASE_BOUNDARY
 
 /* -------------------------------------------------------------------------
  * Type declarations for non-terminals
  * --------------------------------------------------------------------- */
-%type <node>      ltl_expr bound_spec cond cases set_literal
-%type <ival>      lt_or_leq cmp_op
+%type <node>      ltl_expr expr bound_spec cases guarded_expr single_case case_head set_literal
+%type <ival>      lt_or_leq
 %type <sval>      signal_name enum_values
 %type <slist>     ident_list
 %type <node_list> call_arg_list nonempty_expr_list bound_list
 
 /* -------------------------------------------------------------------------
- * Operator precedence (lowest → highest) — matches syfco / TLSF paper.
- * Temporal binary ops (W/U/R) bind looser than all propositional connectives,
- * contrary to standard LTL textbooks but consistent with syfco's parser:
- *   a && b W c  parses as  (a && b) W c
- *   a -> b W c  parses as  (a -> b) W c
+ * Operator precedence (lowest → highest): TLSF v1.1 Table 1, p.118.
+ * W binds tighter than U, which binds tighter than R. All three bind looser
+ * than implication/equivalence. The extensions X[n], X[!n], X[!], F/G ranges
+ * retain unary temporal precedence; unary minus retains numeric precedence.
  * --------------------------------------------------------------------- */
-%right TOK_WEAK
-%right TOK_UNTIL
+%precedence TOK_EXPR
+%left  TOK_MATCH
 %left  TOK_RELEASE
+%right TOK_UNTIL
+%right TOK_WEAK
 %right TOK_IMPL TOK_EQUIV
 %left  TOK_OR
 %left  TOK_AND
@@ -298,10 +297,11 @@
 %left  TOK_SET_UNION
 %left  TOK_SET_INTER
 %right TOK_SET_DIFF
+%precedence TOK_BIG_SET
 %left  TOK_PLUS TOK_MINUS
 %right TOK_SLASH TOK_PERCENT
 %left  TOK_STAR
-%precedence TOK_UMINUS TOK_SET_SIZE TOK_SET_MIN TOK_SET_MAX
+%precedence TOK_UMINUS TOK_SET_SIZE TOK_SET_MIN TOK_SET_MAX TOK_BIG_NUM
 
 %%
 
@@ -424,14 +424,16 @@ def_entries
   | def_entries def_entry
   ;
 
+/* Without an `otherwise` tail, a whole case list can also parse as a chained
+ * ':' expression. Prefer the case list, as main does at these boundaries. */
 def_entry
-  : TOK_IDENT TOK_ASSIGN ltl_expr TOK_SEMI
+  : TOK_IDENT TOK_ASSIGN ltl_expr TOK_SEMI %dprec 1
     { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
-  | TOK_IDENT TOK_ASSIGN cases TOK_SEMI
+  | TOK_IDENT TOK_ASSIGN cases TOK_SEMI %dprec 2
     { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
-  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN ltl_expr TOK_SEMI
+  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN ltl_expr TOK_SEMI %dprec 1
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
-  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI
+  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI %dprec 2
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
   /* enum NAME = LABEL: valuation[,valuation...] ... ;  Each valuation is a
      width-bearing word over 0, 1, and *. */
@@ -470,45 +472,57 @@ enum_values
     { if (!($$ = join_enum_values(spec, $1, $3))) YYNOMEM; }
   ;
 
-/* Definition guard chain:  cond : value  cond : value  ...  (right-nested ITE,
- * with a `false` default if no guard holds).
+/* TLSF v1.1 §4.6 gives consecutive function cases no separator, (ec)+.
+ * ONE boundary rule: first run main's exact LALR/GLR grammar on each complete
+ * definition, and inject TOK_CASE_BOUNDARY at its selected next-guard starts.
+ * case_boundaries.c replays the original tokens; tlsf_boundary.y is the frozen
+ * origin/main grammar. This preserves its static precedence AND surviving GLR
+ * partition without imposing its expression trees on the Table 1 parser.
  *
- * TLSF separates a case's value from the next case's guard only by whitespace,
- * so `value <next-guard>` are two adjacent expressions.  This is not LALR(1)
- * conflict-free (it yields a handful of reduce/reduce conflicts on the binary
- * operators).  The conflicts are benign for well-formed specs: a guard is
- * `expr CMP expr` or `otherwise`, and a guard can never *begin* with a binary
- * operator, so bison's default resolution always ends the value at the right
- * point.  Verified by parsing/expanding the full SYNTCOMP corpus and checking
- * the result against syfco. */
+ * In 0 -n < 0 or o (n) == 1, lookahead kills continuations leaving no guard.
+ * In SUM[k IN {1}] k -id(n) < 0, main's low reduction precedence shifts '-'
+ * into the value, leaving '(n) < 0' as the next guard. Longest-value heuristics
+ * alone are insufficient: 0 -z == zero(true) must end before '-z', since bare
+ * '(true)' is not main's cond; main also excludes outer matches from values.
+ *
+ * If main rejects a definition (including ambiguity), no boundary is injected:
+ * the Table 1 grammar may accept its newly supported expressions, or report
+ * ambiguity itself. No guessed partition is chosen. Each selected guard/value
+ * follows Table 1; nested ':' expressions require delimiters. single_case has
+ * no static precedence, preserving lookahead for definitions main rejects. */
 cases
-  : cond TOK_COLON ltl_expr
+  : single_case case_separator single_case
+    { if (!($$ = mk_ite(spec->arena, $1->if_cond, $1->if_then, $3))) YYNOMEM; }
+  | single_case case_separator cases
+    { if (!($$ = mk_ite(spec->arena, $1->if_cond, $1->if_then, $3))) YYNOMEM; }
+  ;
+
+case_separator
+  : %empty
+  | TOK_CASE_BOUNDARY
+  ;
+
+single_case
+  : case_head expr
     { Node *otherwise = node_false(spec->arena);
-      if (!otherwise) YYNOMEM;
-      if (!($$ = mk_ite(spec->arena, $1, $3, otherwise))) YYNOMEM; }
-  | cond TOK_COLON ltl_expr cases
-    { if (!($$ = mk_ite(spec->arena, $1, $3, $4))) YYNOMEM; }
+      if (!otherwise ||
+          !($$ = mk_ite(spec->arena, $1, $2, otherwise))) YYNOMEM; }
   ;
 
-/* A guard is a comparison between integer expressions.  (TLSF definition
- * guards in practice are always comparisons, which keeps the value/guard
- * boundary unambiguous.) */
-cond
-  : ltl_expr cmp_op ltl_expr
-    { if (!($$ = mk_cmp(spec->arena, (int)$2, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_MATCH ltl_expr
-    { if (!($$ = mk_binary(spec->arena, NODE_MATCH, $1, $3))) YYNOMEM; }
-  | TOK_OTHERWISE
-    { if (!($$ = node_true(spec->arena))) YYNOMEM; } /* catch-all default guard */
+case_head
+  : expr TOK_COLON
+    { $$ = $1; }
+  | TOK_OTHERWISE TOK_COLON
+    { if (!($$ = node_true(spec->arena))) YYNOMEM; }
   ;
 
-cmp_op
-  : TOK_EQ  { $$ = NODE_CMP_EQ; }
-  | TOK_NEQ { $$ = NODE_CMP_NE; }
-  | TOK_LT  { $$ = NODE_CMP_LT; }
-  | TOK_LEQ { $$ = NODE_CMP_LE; }
-  | TOK_GT  { $$ = NODE_CMP_GT; }
-  | TOK_GEQ { $$ = NODE_CMP_GE; }
+guarded_expr
+  : single_case
+    { $$ = $1; }
+  | guarded_expr TOK_COLON expr %prec TOK_EXPR
+    { Node *otherwise = node_false(spec->arena);
+      if (!otherwise ||
+          !($$ = mk_ite(spec->arena, $1, $3, otherwise))) YYNOMEM; }
   ;
 
 ident_list
@@ -672,12 +686,20 @@ formula_items
 /* =========================================================================
  * LTL expression grammar
  *
- * Precedence is entirely handled by %left/%right declarations above, so
- * the grammar here is flat (single non-terminal).  Bison resolves the
- * shift-reduce conflicts by precedence.
+ * ':' is structurally left-associative in guarded_expr. All other operators
+ * use the flat expr grammar and Table 1 declarations above. Keeping expr
+ * separate also prevents chained ':' expressions from swallowing case
+ * boundaries. Parentheses, calls, sets and indices admit full ltl_expr.
  * ===================================================================== */
 
 ltl_expr
+  : expr
+    { $$ = $1; }
+  | guarded_expr %prec TOK_EXPR
+    { $$ = $1; }
+  ;
+
+expr
   : TOK_TRUE
     { if (!($$ = node_true(spec->arena))) YYNOMEM; }
   | TOK_FALSE
@@ -695,35 +717,35 @@ ltl_expr
     { Node *n = ARENA_ALLOC(spec->arena, Node);
       if (!n) YYNOMEM;
       n->kind = NODE_SIZEOF; n->sizeof_name = $2; $$ = n; }
-  | TOK_SET_SIZE ltl_expr %prec TOK_SET_SIZE
+  | TOK_SET_SIZE expr %prec TOK_SET_SIZE
     { if (!($$ = mk_unary(spec->arena, NODE_SET_SIZE, $2))) YYNOMEM; }
-  | TOK_SET_MIN ltl_expr %prec TOK_SET_MIN
+  | TOK_SET_MIN expr %prec TOK_SET_MIN
     { if (!($$ = mk_unary(spec->arena, NODE_SET_MIN, $2))) YYNOMEM; }
-  | TOK_SET_MAX ltl_expr %prec TOK_SET_MAX
+  | TOK_SET_MAX expr %prec TOK_SET_MAX
     { if (!($$ = mk_unary(spec->arena, NODE_SET_MAX, $2))) YYNOMEM; }
   | TOK_BAR ltl_expr TOK_BAR
     { if (!($$ = mk_unary(spec->arena, NODE_SET_SIZE, $2))) YYNOMEM; }
-  | ltl_expr TOK_PLUS ltl_expr
+  | expr TOK_PLUS expr
     { if (!($$ = mk_binary(spec->arena, NODE_INT_ADD, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_MINUS ltl_expr
+  | expr TOK_MINUS expr
     { if (!($$ = mk_binary(spec->arena, NODE_INT_SUB, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_STAR ltl_expr
+  | expr TOK_STAR expr
     { if (!($$ = mk_binary(spec->arena, NODE_INT_MUL, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_SLASH ltl_expr
+  | expr TOK_SLASH expr
     { if (!($$ = mk_binary(spec->arena, NODE_INT_DIV, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_PERCENT ltl_expr
+  | expr TOK_PERCENT expr
     { if (!($$ = mk_binary(spec->arena, NODE_INT_MOD, $1, $3))) YYNOMEM; }
-  | TOK_MINUS ltl_expr %prec TOK_UMINUS
+  | TOK_MINUS expr %prec TOK_UMINUS
     { if (!($$ = mk_unary(spec->arena, NODE_INT_NEG, $2))) YYNOMEM; }
 
   /* Set expressions. */
   | set_literal
     { $$ = $1; }
-  | ltl_expr TOK_SET_UNION ltl_expr
+  | expr TOK_SET_UNION expr
     { if (!($$ = mk_binary(spec->arena, NODE_SET_UNION, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_SET_INTER ltl_expr
+  | expr TOK_SET_INTER expr
     { if (!($$ = mk_binary(spec->arena, NODE_SET_INTER, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_SET_DIFF ltl_expr
+  | expr TOK_SET_DIFF expr
     { if (!($$ = mk_binary(spec->arena, NODE_SET_DIFF, $1, $3))) YYNOMEM; }
 
   /* Bus signal indexing: name[expr] */
@@ -754,56 +776,60 @@ ltl_expr
     { $$ = $2; }
 
   /* Boolean connectives */
-  | TOK_NOT ltl_expr
+  | TOK_NOT expr
     { if (!($$ = node_not(spec->arena, $2))) YYNOMEM; }
-  | ltl_expr TOK_AND ltl_expr
+  | expr TOK_AND expr
     { if (!($$ = node_and(spec->arena, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_OR ltl_expr
+  | expr TOK_OR expr
     { if (!($$ = node_or(spec->arena, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_IMPL ltl_expr
+  | expr TOK_IMPL expr
     { if (!($$ = node_impl(spec->arena, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_EQUIV ltl_expr
+  | expr TOK_EQUIV expr
     { if (!($$ = node_equiv(spec->arena, $1, $3))) YYNOMEM; }
 
   /* Formula-level equality: a bus compared against an enum label expands to a
      bit-match during expansion; integer == in this position folds to a
      constant.  (Only == / != appear at formula level; the ordered comparisons
      remain confined to definition guards.) */
-  | ltl_expr TOK_EQ ltl_expr
+  | expr TOK_EQ expr
     { if (!($$ = mk_cmp(spec->arena, NODE_CMP_EQ, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_NEQ ltl_expr
+  | expr TOK_NEQ expr
     { if (!($$ = mk_cmp(spec->arena, NODE_CMP_NE, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_LT ltl_expr
+  | expr TOK_LT expr
     { if (!($$ = mk_cmp(spec->arena, NODE_CMP_LT, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_LEQ ltl_expr
+  | expr TOK_LEQ expr
     { if (!($$ = mk_cmp(spec->arena, NODE_CMP_LE, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_GT ltl_expr
+  | expr TOK_GT expr
     { if (!($$ = mk_cmp(spec->arena, NODE_CMP_GT, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_GEQ ltl_expr
+  | expr TOK_GEQ expr
     { if (!($$ = mk_cmp(spec->arena, NODE_CMP_GE, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_IN ltl_expr
+  | expr TOK_IN expr
     { if (!($$ = mk_binary(spec->arena, NODE_IN, $1, $3))) YYNOMEM; }
 
+  /* Table 1's two loosest expression operators. */
+  | expr TOK_MATCH expr
+    { if (!($$ = mk_binary(spec->arena, NODE_MATCH, $1, $3))) YYNOMEM; }
+
   /* Unary temporal */
-  | TOK_NEXT ltl_expr
+  | TOK_NEXT expr
     { if (!($$ = node_x(spec->arena, $2))) YYNOMEM; }
-  | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
+  | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET expr %prec TOK_NEXT
     { if (!($$ = node_next_n(spec->arena, $3, $5))) YYNOMEM; }
-  | TOK_NEXT TOK_LBRACKET_STRONG ltl_expr TOK_RBRACKET ltl_expr %prec TOK_NEXT
+  | TOK_NEXT TOK_LBRACKET_STRONG ltl_expr TOK_RBRACKET expr %prec TOK_NEXT
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded X is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
       if (!($$ = node_next_n(spec->arena, $3, $5))) YYNOMEM; $$->bounded.strong = true; }
-  | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET_STRONG ltl_expr %prec TOK_NEXT
+  | TOK_NEXT TOK_LBRACKET ltl_expr TOK_RBRACKET_STRONG expr %prec TOK_NEXT
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded X is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
       if (!($$ = node_next_n(spec->arena, $3, $5))) YYNOMEM; $$->bounded.strong = true; }
-  | TOK_SNEXT ltl_expr
+  | TOK_SNEXT expr
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(),
                 "%d:%d: parse error: X[!] is only valid under finite "
@@ -812,69 +838,72 @@ ltl_expr
         YYERROR;
       }
       if (!($$ = node_x_strong(spec->arena, $2))) YYNOMEM; }
-  | TOK_FINALLY ltl_expr
+  | TOK_FINALLY expr
     { if (!($$ = node_f(spec->arena, $2))) YYNOMEM; }
-  | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
+  /* Read the outermost ':' as the range delimiter. Reusing the structurally
+   * left-associative guard pair preserves F[true:1:2] = F[(true:1):2], without
+   * introducing another colon-versus-delimiter ambiguity. */
+  | TOK_FINALLY TOK_LBRACKET guarded_expr TOK_RBRACKET expr
     %prec TOK_FINALLY
-    { if (!($$ = node_f_range(spec->arena, $3, $5, $7))) YYNOMEM; }
-  | TOK_FINALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
-    %prec TOK_FINALLY
-    { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded F is only valid "
-                "under finite semantics\n", @1.first_line, @1.first_column);
-        YYERROR;
-      }
-      if (!($$ = node_f_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
-  | TOK_FINALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
+    { if (!($$ = node_f_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; }
+  | TOK_FINALLY TOK_LBRACKET_STRONG guarded_expr TOK_RBRACKET expr
     %prec TOK_FINALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded F is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      if (!($$ = node_f_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
-  | TOK_GLOBALLY ltl_expr
+      if (!($$ = node_f_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; $$->bounded.strong = true; }
+  | TOK_FINALLY TOK_LBRACKET guarded_expr TOK_RBRACKET_STRONG expr
+    %prec TOK_FINALLY
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded F is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      if (!($$ = node_f_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; $$->bounded.strong = true; }
+  | TOK_GLOBALLY expr
     { if (!($$ = node_g(spec->arena, $2))) YYNOMEM; }
-  | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
+  | TOK_GLOBALLY TOK_LBRACKET guarded_expr TOK_RBRACKET expr
     %prec TOK_GLOBALLY
-    { if (!($$ = node_g_range(spec->arena, $3, $5, $7))) YYNOMEM; }
-  | TOK_GLOBALLY TOK_LBRACKET_STRONG ltl_expr TOK_COLON ltl_expr TOK_RBRACKET ltl_expr
-    %prec TOK_GLOBALLY
-    { if (!semantics_is_finite(spec->info.semantics)) {
-        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded G is only valid "
-                "under finite semantics\n", @1.first_line, @1.first_column);
-        YYERROR;
-      }
-      if (!($$ = node_g_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
-  | TOK_GLOBALLY TOK_LBRACKET ltl_expr TOK_COLON ltl_expr TOK_RBRACKET_STRONG ltl_expr
+    { if (!($$ = node_g_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; }
+  | TOK_GLOBALLY TOK_LBRACKET_STRONG guarded_expr TOK_RBRACKET expr
     %prec TOK_GLOBALLY
     { if (!semantics_is_finite(spec->info.semantics)) {
         fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded G is only valid "
                 "under finite semantics\n", @1.first_line, @1.first_column);
         YYERROR;
       }
-      if (!($$ = node_g_range(spec->arena, $3, $5, $7))) YYNOMEM; $$->bounded.strong = true; }
+      if (!($$ = node_g_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; $$->bounded.strong = true; }
+  | TOK_GLOBALLY TOK_LBRACKET guarded_expr TOK_RBRACKET_STRONG expr
+    %prec TOK_GLOBALLY
+    { if (!semantics_is_finite(spec->info.semantics)) {
+        fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: strong bounded G is only valid "
+                "under finite semantics\n", @1.first_line, @1.first_column);
+        YYERROR;
+      }
+      if (!($$ = node_g_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; $$->bounded.strong = true; }
 
   /* Binary temporal */
-  | ltl_expr TOK_UNTIL ltl_expr
+  | expr TOK_UNTIL expr
     { if (!($$ = node_u(spec->arena, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_RELEASE ltl_expr
+  | expr TOK_RELEASE expr
     { if (!($$ = node_r(spec->arena, $1, $3))) YYNOMEM; }
-  | ltl_expr TOK_WEAK ltl_expr
+  | expr TOK_WEAK expr
     { if (!($$ = node_w(spec->arena, $1, $3))) YYNOMEM; }
 
   /* Generalized reductions over one or more range/set binders. */
-  | TOK_AND TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+  | TOK_AND TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_GLOBALLY
     { $$ = mk_reduction(NODE_FORALL, $3, $5); }
-  | TOK_OR TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+  | TOK_OR TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_GLOBALLY
     { $$ = mk_reduction(NODE_EXISTS, $3, $5); }
-  | TOK_PLUS TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+  | TOK_PLUS TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_NUM
     { $$ = mk_reduction(NODE_SUM, $3, $5); }
-  | TOK_STAR TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+  | TOK_STAR TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_NUM
     { $$ = mk_reduction(NODE_PRODUCT, $3, $5); }
-  | TOK_SET_UNION TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+  | TOK_SET_UNION TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_SET
     { $$ = mk_reduction(NODE_SET_BIG_UNION, $3, $5); }
-  | TOK_SET_INTER TOK_LBRACKET bound_list TOK_RBRACKET ltl_expr %prec TOK_GLOBALLY
+  | TOK_SET_INTER TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_SET
     { $$ = mk_reduction(NODE_SET_BIG_INTER, $3, $5); }
   ;
 

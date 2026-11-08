@@ -13,6 +13,13 @@ bison_out = custom_target(
   command: [bison, '--defines=@OUTPUT1@', '--output=@OUTPUT0@',
             '--warnings=all', '@INPUT@'],
 )
+boundary_out = custom_target(
+  'tlsf_boundary_parse',
+  input: 'tlsf_boundary.y',
+  output: ['tlsf_boundary_parse.c', 'tlsf_boundary_parse.h'],
+  command: [bison, '--defines=@OUTPUT1@', '--output=@OUTPUT0@',
+            '--warnings=all', '@INPUT@'],
+)
 
 build_info_conf = configuration_data()
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
@@ -28,6 +35,7 @@ lib_sources = files(
   'ast.c',
   'ast_api.c',
   'classify.c',
+  'case_boundaries.c',
   'cover.c',
   'conversion.c',
   'dpa.c',
@@ -37,6 +45,7 @@ lib_sources = files(
   'decompose.c',
   'diagnostic.c',
   'expand.c',
+  'expand_check.c',
   'env_witness.c',
   'gr.c',
   'intern.c',
@@ -64,6 +73,8 @@ lib_sources = files(
   flex_out[1], # tlsf_lex.h: spec_parse.c includes it.
   bison_out[0],
   bison_out[1], # tlsf_parse.h: compile the lexer only after it exists.
+  boundary_out[0],
+  boundary_out[1],
 ]
 lib_sources += files(
   'precheck_unreal.c', 'oxidd_runtime.c', 'gr1_check.c', 'gr1_oxidd.c',

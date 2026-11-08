@@ -1,0 +1,68 @@
+INFO
+{
+  TITLE:       ""
+  DESCRIPTION: "
+                This is a new version of full_arbiter:
+                it is modularized (that is a syntactic difference)
+                but more importantly it uses W where previous spec
+                used R (the prev spec was for Moore semantics actually!).
+               "
+  SEMANTICS:   Mealy
+  TARGET:      Mealy
+}
+
+GLOBAL
+{
+  PARAMETERS {
+n = 3;
+  }
+
+  DEFINITIONS
+  {
+    // copied from simple arbiter
+    mutual_exclusion(bus) = mone(bus,0,(SIZEOF bus) - 1);
+    none(bus,i,j) = &&[i <= t <= j] !bus[t];
+    mone(bus,i,j) =
+    i > j : false
+    i == j : true
+    i < j :
+      (none(bus, i, m(i,j)) && mone(bus, m(i,j) + 1, j)) ||
+      (mone(bus, i, m(i,j)) && none(bus, m(i,j) + 1, j));
+    m(i,j) = (i + j) / 2;
+
+    //
+
+    lower_grant_eventually(tlsf110_r,tlsf110_g) =
+      G(tlsf110_g && (G !tlsf110_r) -> F !tlsf110_g);
+
+    no_spurious_grants(tlsf110_r,tlsf110_g) =
+    (
+      (!tlsf110_g W tlsf110_r) &&                         // initially
+      G(tlsf110_g && X(!tlsf110_r && !tlsf110_g) -> X(!tlsf110_g W tlsf110_r))    // always
+    );
+
+    every_req_is_granted(tlsf110_r,tlsf110_g) = G(tlsf110_r -> F tlsf110_g);
+  }
+}
+
+MAIN
+{
+  INPUTS  { r[n]; }
+  OUTPUTS { g[n]; }
+
+  GUARANTEES
+  {
+    G mutual_exclusion(g);
+
+    &&[0 <= i < n]
+    (
+      no_spurious_grants(r[i], g[i]) &&
+      lower_grant_eventually(r[i], g[i]) &&
+      every_req_is_granted(r[i], g[i])
+    );
+  }
+}
+//#!SYNTCOMP
+//STATUS : unknown
+//REF_SIZE : 0
+//#

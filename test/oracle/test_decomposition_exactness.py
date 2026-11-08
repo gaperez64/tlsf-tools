@@ -138,12 +138,29 @@ for chain in ("direct", "chain"):
     assert "register after Phase B: rejected" in text, text
     realizable(INFINITE, text.splitlines()[-1], "r", False)
 
-# Unflagged atoms are emitted as environment inputs. The invariant certifier
-# must not silently evaluate them as false, with or without Skolem outputs.
+# §§4.1–4.3 rejects unbound atoms. With a declared input, the invariant certifier
+# must not silently evaluate it as false, with or without Skolem outputs.
 for body in ("!u", "!u && p"):
     source = ("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
               f"OUTPUTS {{ p; }} GUARANTEES {{ G({body}); }} }}")
     for tool in (convert, residual, compose):
+        result = subprocess.run([tool], input=source, text=True,
+                                capture_output=True, timeout=5)
+        assert result.returncode != 0 and not result.stdout, result
+        assert "expand: scoping:" in result.stderr, result
+    source = source.replace("MAIN {", "MAIN { INPUTS { u; }", 1)
+    for tool in (convert, residual, compose):
+        if tool == compose:
+            result = subprocess.run([tool], input=source, text=True,
+                                    capture_output=True, timeout=5)
+            if result.returncode == 1:
+                assert "spec is UNREALIZABLE" in result.stderr, result
+                # Declaring u also enables the existing boolean pre-check.
+                # Compare that verdict against the same frozen source winner.
+                original = subprocess.check_output([convert], input=source,
+                                                   text=True, timeout=5)
+                realizable(INFINITE, original, "p", False, "u")
+                continue
         text = subprocess.check_output([tool], input=source, text=True, timeout=5)
         lines = [line for line in text.splitlines()
                  if not line.startswith(("c ", "ctl "))]

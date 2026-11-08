@@ -25,6 +25,7 @@ expected_node = """
 NodeKind kind;
 uint32_t source_id;
 const OriginBinding *origin_bindings;
+bool resolved_signal;
 const char *name;
 int64_t ival;
 Node *arg;

@@ -6,6 +6,63 @@ definitions (including recursive cases), sets, reductions, structural pattern
 guards, buses, bounded temporal operators, `enum` types, and `SIZEOF` into ground
 TLSF or equivalent LTL.
 
+TLSF v1.1 conformance: expansion uses lexical scope for definitions, function
+arguments and big operators (§§4.1–4.2, 4.6–4.7). Free identifiers, conflicting
+binding categories, non-bus indexing and enum labels outside bus comparisons
+are rejected (§§4.3–4.6), including in unused definitions and unselected guards.
+We deliberately read §4.6's “fresh” function arguments lexically, compatibly
+with the SYNTCOMP corpus: an argument may shadow any global name within its
+function body, taking its category from the actual argument. Big-operator and
+pattern binders still reject clashes with declared names. Enum comparisons
+require equal bus and valuation widths (§4.4), checked against the actual bus
+after domain filtering and argument resolution. Exact global alias chains are
+also checked in unused definitions and unselected guards. Function types are
+instantiated per call, including recursion (§4.6), with the boolean/signal
+embedding into LTL (§4.3) and a bounded inference/expansion recursion guard.
+Bus aliases resolve for indexing, `SIZEOF` and set identity; evaluated indices
+must lie within the resolved declaration bounds (§4.5). To preserve distinct
+signals in flattened output (§4.5), a signal declaration named `<bus>_<i>` is
+rejected if that bit belongs to another declared bus; this check uses complete
+names and resolved widths, including overrides. Flattened names have no
+fixed-size buffer limit.
+Formula-valued set elements retain closed high-level syntax, with identity
+determined by their desugared core formulas (§4.8); weak and strong next remain
+distinct. These rules change behavior relative to earlier releases, including
+set cardinality and membership. Finite semantics and strong indexed next remain
+supported extensions.
+
+Expression precedence and associativity follow TLSF v1.1 Table 1 (p.118),
+including all alternative operator names. Multiplication binds tighter than
+right-associative division/modulo; implication and equivalence share one
+right-associative level. `W` binds tighter than `U`, then `R`; `W`/`U` associate
+right and `R` associates left. Pattern matching and guards bind loosest, so
+`n == 0 || n == 2 : o` tests the whole disjunction. Numeric reductions have
+level 1, set reductions level 5 and boolean reductions level 11.
+TLSF §4.6 gives consecutive function cases no separator (`(ec)+`). For each
+complete definition, a compatibility pre-pass runs the frozen main grammar
+(`src/lib/tlsf_boundary.y`) and records its selected case boundaries. The
+Table 1 parser then receives a boundary token before each selected next guard.
+This preserves main's static precedence and GLR choice of partition, while
+applying Table 1 independently within each selected guard and value.
+Thus `n == 0 : 0 -n < 0 : 1` ends value `0` before unary `-n`, and
+`n == 0 : o (n) == 1 : !o` ends value `o` before guard `(n) == 1`.
+In `n == 0 : SUM[k IN {1}] k -id(n) < 0 : 1`, main's low reduction precedence
+instead extends the value through `-id`, leaving `(n) < 0` as the next guard.
+A longest-value rule alone would fail on `0 -z == zero(true) : 1`, where main
+requires the boundary before `-z`. The pre-pass uses main's actual grammar
+rather than a token-specific heuristic. If main rejects the definition,
+including ambiguity, the Table 1 parser receives the original tokens and can
+accept newly supported expressions or reject an unresolved split. General
+boolean guards remain supported; parentheses delimit nested `:` expressions.
+There are no deliberate Table 1 precedence deviations. Existing extensions
+`X[n]`, strong next (`X[!]`, `X[!n]`, `X[n!]`) and bounded `F`/`G` (including
+strong bounds) retain level 11; unary minus retains level 1. `GEQ` remains an
+alias of `>=`. `M` remains an ordinary TLSF identifier; infix `M` is rejected.
+Existing keyword reuse also accepts infix `SUM` at level 4, `PROD` at level 2,
+`FORALL` at level 12 and `EXISTS` at level 13; indexed `PLUS`/`MUL` use level 1.
+The LTL output printer retains the separate ASCII LTL precedence documented
+below; use `--parenthesize` when inspecting the exact temporal tree.
+
 | Stable tool | Purpose |
 |---|---|
 | `tlsf2ltl` | Convert expanded TLSF to LTL. |

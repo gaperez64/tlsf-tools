@@ -280,7 +280,165 @@ for name, digest in dedup_update["preserved_artifacts_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
 
-def rebound_digest(name, historical, updates=(retirement, runtime_update, limits_update, row_update, tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)):
+scoping_update = json.loads((root.parents[2] / "tools/analysis/tlsf-scoping-110.json").read_text())
+precedence_update = scoping_update["precedence110j"]
+boundary_update = scoping_update["precedence110k"]
+partition_update = scoping_update["precedence110l"]
+assert partition_update["date"] and partition_update["reason"]
+assert partition_update["changed_golden_hashes"] == 0
+assert set(partition_update["source_rebindings"]) == {
+    "README.md", "src/lib/tlsf.y", "test/cli/check_case_boundaries_110.py",
+    "test/cli/check_golden_provenance.py", "src/lib/meson.build",
+    "src/lib/spec_parse.c",
+}
+assert set(partition_update["added_sources_sha256"]) == {
+    "src/lib/case_boundaries.c", "src/lib/case_boundaries.h",
+    "src/lib/tlsf_boundary.y",
+}
+for name, digest in partition_update["added_sources_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+assert boundary_update["date"] and boundary_update["reason"]
+assert boundary_update["changed_golden_hashes"] == 0
+assert set(boundary_update["source_rebindings"]) == {
+    "README.md", "src/lib/tlsf.y", "test/cli/check_golden_provenance.py",
+    "test/cli/meson.build",
+}
+assert set(boundary_update["added_sources_sha256"]) == {
+    "test/cli/check_case_boundaries_110.py",
+}
+for name, digest in boundary_update["added_sources_sha256"].items():
+    binding = partition_update["source_rebindings"].get(name)
+    if binding:
+        assert binding["previous_sha256"] == digest, name
+        digest = binding["current_sha256"]
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+assert precedence_update["date"] and precedence_update["reason"]
+assert precedence_update["changed_golden_hashes"] == 0
+assert set(precedence_update["added_sources_sha256"]) == {
+    "test/cli/check_precedence_110.py", "test/fixtures/scoping110/precedence_v12.ltl",
+}
+for name, digest in precedence_update["added_sources_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+for name, replacement in precedence_update["fixture_replacements"].items():
+    assert replacement["reason"]
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == replacement["previous_sha256"]
+    assert replacement["replacement"] in precedence_update["added_sources_sha256"]
+    assert replacement["current_sha256"] == precedence_update["added_sources_sha256"][replacement["replacement"]]
+assert set(precedence_update["record_replacements"]) == {"native-reduction"}
+patches = precedence_update["record_replacements"]["native-reduction"]
+assert len(patches) == 4
+records = json.loads((root / "native-reduction.json").read_text())
+for patch, semantics in zip(patches, ("exact", "strict", "exact", "strict")):
+    index = patch["index"]
+    assert patch["reason"]
+    assert records[index:index + len(patch["before"])] == patch["before"]
+    if patch["source"] == "test/fixtures/cases/precedence_v12.tlsf":
+        assert patch["before"][0] == ["status", ["precedence_v12.tlsf", semantics, 0]]
+        assert patch["after"] == [
+            ["status", ["precedence_v12.tlsf", semantics, 3]],
+            ["decline", "reduce status 1: mp-class: outside proved DPA Buchi fragment\n"],
+        ]
+    else:
+        assert patch["source"] == "test/fixtures/cases/recursion.reemit.tlsf"
+        assert patch["before"][0] == patch["after"][0] == [
+            "status", ["recursion.reemit.tlsf", semantics, 2]]
+        assert patch["after"][1] == [
+            "decline", "pipeline: parse: 15:74: parse error: syntax error, unexpected TOK_SEMI\n"]
+    assert hashlib.sha256((root.parents[2] / patch["source"]).read_bytes()).hexdigest() == patch["source_sha256"]
+assert scoping_update["date"] and scoping_update["reason"]
+assert scoping_update["changed_golden_hashes"] == 0
+assert set(scoping_update["source_rebindings"]) == {
+    "README.md", "include/tlsf/ast.h", "proofs/README.md", "proofs/TlsfProofs/SetDedup.lean",
+    "src/lib/expand.c", "src/lib/spec.c", "src/lib/meson.build", "test/api/convert.cpp",
+    "test/api/decompose_cpp.cpp", "test/cli/check_golden_provenance.py",
+    "test/cli/meson.build", "test/oracle/golden.py",
+    "test/unit/meson.build", "test/unit/set_dedup_field_inventory.py",
+    "test/unit/objective_alloc.c", "test/unit/set_dedup.c",
+    "test/cli/check_exactness_guards.py",
+    "test/oracle/test_compose_driver_semantics.py",
+    "test/oracle/test_decomposition_exactness.py",
+    "test/oracle/test_review4_exports.py",
+    "test/cli/test_frontend_provenance.py", "test/oracle/test_gr1_monitor_game.py",
+}
+assert set(scoping_update["added_sources_sha256"]) == {
+    "src/lib/expand_check.c", "src/lib/expand_check.h",
+    "test/cli/check_scoping_110.py", "test/cli/scoping_110_reviews.json",
+    "test/unit/expansion_scope.c", "tools/analysis/impact110.py",
+    "test/fixtures/scoping110/aiger_unclassified_atom.stderr",
+    "test/fixtures/scoping110/issue110.tlsf",
+    "test/fixtures/scoping110/cup_overlap.tlsf",
+    "test/fixtures/scoping110/identity_sugar.tlsf",
+    "test/fixtures/scoping110/identity_strength.tlsf",
+    "test/fixtures/scoping110/pattern_conflict_v12.stderr",
+    "test/fixtures/scoping110/undeclared_at_atom.stderr",
+    *("test/fixtures/scoping110/monitor/" + name + ".tlsf" for name in (
+        "arbiter_on_inpchange_pb_2_pe_", "arbiter_pb_2_pe_",
+        "arbiter_pb_3_pe_", "arbiter_pb_4_pe_")),
+}
+assert set(scoping_update["preserved_artifacts_sha256"]) >= set(dedup_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/set-dedup-108.json",
+}
+for name, digest in scoping_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+for name, digest in scoping_update["added_sources_sha256"].items():
+    binding = precedence_update["source_rebindings"].get(name)
+    if binding:
+        assert binding["previous_sha256"] == digest, name
+        digest = binding["current_sha256"]
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+for name, entry in scoping_update["fixture_replacements"].items():
+    assert entry["reason"] and entry["replacement"] in scoping_update["added_sources_sha256"]
+    assert entry["previous_sha256"] == scoping_update["preserved_artifacts_sha256"][name]
+    assert entry["current_sha256"] == scoping_update["added_sources_sha256"][entry["replacement"]]
+assert scoping_update["golden_source_hash_replacements"] == {
+    entry["previous_sha256"]: entry["current_sha256"]
+    for entry in scoping_update["fixture_replacements"].values()
+}
+assert len(scoping_update["expectation_changes"]) == 6
+for entry in scoping_update["expectation_changes"]:
+    assert entry["file"] in scoping_update["preserved_artifacts_sha256"]
+    assert entry["reason"] and entry["before"] and entry["after"]
+assert set(scoping_update["record_replacements"]) == {"native-reduction", "monitor-game"}
+assert len(scoping_update["record_replacements"]["native-reduction"]) == 12
+assert len(scoping_update["record_replacements"]["monitor-game"]) == 1
+for suite, patches in scoping_update["record_replacements"].items():
+    records = json.loads((root / (suite + ".json")).read_text())
+    end = 0
+    for patch in patches:
+        index = patch["index"]
+        assert index >= end and patch["reason"]
+        end = index + len(patch["before"])
+        assert records[index:end] == patch["before"]
+        if suite == "native-reduction":
+            assert patch["source"] in scoping_update["preserved_artifacts_sha256"]
+        else:
+            assert patch["source_generator"] == "test/oracle/test_gr1_monitor_game.py"
+            assert patch["source_generator"] in scoping_update["source_rebindings"]
+            assert hashlib.sha256(patch["source_text"].encode()).hexdigest() == patch["source_sha256"]
+            assert patch["before"][0] == ["reduce", ["collision", "exact", 3]]
+            assert patch["after"][0] == ["reduce", ["collision", "exact", 2]]
+            assert "collides with flattened bus bit" in patch["after"][1][1]
+        assert patch["after"][0][0] == ("status" if suite == "native-reduction" else "reduce")
+        assert patch["after"][0][1][-1] == 2
+        assert patch["after"][0][1][:2] == patch["before"][0][1][:2]
+        assert patch["after"][1][0] == "decline"
+        assert "pipeline: expand: expand: " in patch["after"][1][1]
+for suite, count in scoping_update["golden_source_hash_occurrences"].items():
+    payload = (root / (suite + ".json")).read_text()
+    assert sum(payload.count(digest) for digest in
+               scoping_update["golden_source_hash_replacements"]) == count > 0
+assert len(scoping_update["generated_source_repairs"]) == 4
+for repair in scoping_update["generated_source_repairs"]:
+    assert repair["file"] in scoping_update["source_rebindings"] and repair["reason"]
+
+UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
+           fuzz_update, f3_update, expansion_update, provenance_rollback,
+           substitution_update, success_update, shared_update, vptr_update,
+           dedup_update, scoping_update, precedence_update, boundary_update,
+           partition_update)
+
+
+def rebound_digest(name, historical, updates=UPDATES):
     for update in updates:
         binding = update["source_rebindings"].get(name)
         if binding:
@@ -289,15 +447,8 @@ def rebound_digest(name, historical, updates=(retirement, runtime_update, limits
     return historical
 
 
-for update, successors in ((row_update, (tv1_update, fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
-                           (tv1_update, (fuzz_update, f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
-                           (fuzz_update, (f3_update, expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
-                           (f3_update, (expansion_update, provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
-                           (expansion_update, (provenance_rollback, substitution_update, success_update, shared_update, vptr_update, dedup_update)),
-                           (provenance_rollback, (substitution_update, success_update, shared_update, vptr_update, dedup_update)),
-                           (substitution_update, (success_update, shared_update, vptr_update, dedup_update)),
-                           (success_update, (shared_update, vptr_update, dedup_update)), (shared_update, (vptr_update, dedup_update)),
-                           (vptr_update, (dedup_update,)), (dedup_update, ())):
+for index, update in enumerate(UPDATES[3:], 3):
+    successors = UPDATES[index + 1:]
     for name, binding in update["source_rebindings"].items():
         assert set(binding) == {"previous_sha256", "current_sha256"}
         assert all(re.fullmatch("[0-9a-f]{64}", digest) for digest in binding.values()), name

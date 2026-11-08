@@ -1,0 +1,2504 @@
+{
+  "date": "2026-11-07",
+  "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.8 lexical scoping, identifier categories, numeric closing for #110 and separate desugared set identity. Deliberately read \u00a74.6 fresh function arguments lexically, compatible with SYNTCOMP: arguments may shadow any global and take the actual category. Historical goldens and ledgers are preserved; original monitor fixtures and their historical source hashes are used without rebinding. Review110e fixes distinguish resolved atoms, use literal range keys, embed bus signals into compatible keys, and enforce enum widths after resolution. Review110f fixes reject flattened bus-bit declaration collisions after width resolution, admit recursive signal/boolean-to-LTL embedding, check dynamic enum widths only against expanded bus values, and resolve bus aliases for indexing/SIZEOF/identity. Review110g fixes use complete arena-allocated flattened signal names, independent per-call recursive type instances with bounded constraint solving, evaluated bus-index bounds, and exact lexical alias widths even in unused definitions/unselected branches. Review110h findings 1\u20132 resolve bus-width dependencies on demand before consulting bounds, reject width cycles, and choose generated fairness binders fresh against every global declaration. Finding 3 remains rejected and the parser is unchanged.",
+  "checks": [
+    "scoping_110",
+    "expansion_scope",
+    "set_dedup",
+    "objective_alloc",
+    "full_meson_tests",
+    "lake_build",
+    "clang_format_22_1_8",
+    "proof_source_references",
+    "golden_provenance",
+    "no_external_oracles",
+    "impact110f_sequential_17s",
+    "impact110g_sequential_17s",
+    "impact110h_sequential_17s",
+    "impact110i_sequential_17s"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "README.md": {
+      "previous_sha256": "c87a61aec91cd7376f429247bfb4ee4d741d22b02a8ec39331cfd9910e033eb1",
+      "current_sha256": "5e9b4c02d4555b64f655a4fa61b61e1b59bb8cc6f6bb1c32abd9668117c78cb9"
+    },
+    "include/tlsf/ast.h": {
+      "previous_sha256": "5db6bdfe004b7e013d755cc2abca5013a95511f89d24799f51e0bc5958cc6e09",
+      "current_sha256": "8a87d780855a3d7420ca9916581222bf569c42f1c4e1d8d0d6f26a234af5b372"
+    },
+    "proofs/README.md": {
+      "previous_sha256": "93befa4376f86f4288c078406bdb76bcebbbe6766a16e803f701d1d36b16b414",
+      "current_sha256": "b97064a426fcb7913578c2b394a3732f48977f5170a1ac5361fa8ae4330d74af"
+    },
+    "proofs/TlsfProofs/SetDedup.lean": {
+      "previous_sha256": "cc6ba2344ab97881ce9b1df8e5fe614d529676e1faa5dd859d324f8581108d1f",
+      "current_sha256": "ea62cf5ec05c4f7f4a8e175dd38cfa8d737e3c67f0231c7728fa2a6ec00a109e"
+    },
+    "src/lib/expand.c": {
+      "previous_sha256": "4413d5d01314e4f36dafc8e4900c9a45a8884d489301e78895a242be93ec98f1",
+      "current_sha256": "adc7a549d9c9f2c8f33d721c930ec3cbc67c1b46f07eb827ab6faba40cd97cf5"
+    },
+    "src/lib/meson.build": {
+      "previous_sha256": "1845318f70fd909d24a6c38408d63219c3247cf1751032a7a5d9c7bda82c2ec7",
+      "current_sha256": "54e9dc9be6187796e90fd0349473e7ce31121d4ed775185998e28f51c99d450b"
+    },
+    "test/api/convert.cpp": {
+      "previous_sha256": "8c2d990aaa52321aaa036427ecb575a0c5df62756e0752f066c2e159ce68c79a",
+      "current_sha256": "df352f85cfcb2d5bc0597e76ac4c473eb15d8288a185e009569deab0f53303c2"
+    },
+    "test/api/decompose_cpp.cpp": {
+      "previous_sha256": "2c887afdcb6a1939bdb1e3304a0033ab473268fee645e9df2b007795ccd89a53",
+      "current_sha256": "e43cfa1d4a93f4d2fcdcea99c2a06eccc7ca0c20f96c90fc8fb0304f1e70eb5c"
+    },
+    "test/cli/check_exactness_guards.py": {
+      "previous_sha256": "046116bc8f0a184e0290b37c535db38595669e0b9c3dcdb1751b952276b19731",
+      "current_sha256": "f96ea82cbbd21532cc8052a52fee2e902f5a3ea672b0ded7a0cdb62650578065"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "5273b9a3ae5f5ce8d00939315e96aea4f2ff34b577ae15ee5af0776ae347ca4e",
+      "current_sha256": "ca3f5d61345d89a8d24da8ec9bd2d7e45981961b82e6a867c610734e66c3dae4"
+    },
+    "test/cli/meson.build": {
+      "previous_sha256": "bd5f8239946bf83f5a5c406b8089c57fe947576c0d77aab667bc88dcd2178ce3",
+      "current_sha256": "6913819d677bbdd3c0aaca0978ff33fb7ff0ab983413e3c279b7ae25cd243c7e"
+    },
+    "test/cli/test_frontend_provenance.py": {
+      "previous_sha256": "06b3531335d344f6128f6b060261253744e669c362d628fc93ddf38ab80b90b6",
+      "current_sha256": "2cc1038488fedb5a7055931441ba41b35a53dc4f2dd6730b0f16c1ef38b9e9e2"
+    },
+    "test/oracle/golden.py": {
+      "previous_sha256": "7ea9a23bd743c3f9418a21cc03316af4e314a8dc85fbfd40d730b94134e1693b",
+      "current_sha256": "adbb4e99a066e2f260ef10aacdde217418385d2eaf679bd8e2975b0e73d2bbbd"
+    },
+    "test/oracle/test_compose_driver_semantics.py": {
+      "previous_sha256": "24a153e3b6134534914e727e092cbb6c8048e5545e1cada5e7afb106dd0b8749",
+      "current_sha256": "dbe232c7991b4c6a676b5f6272792a10d24d31070b4260e567a0667f1af77abc"
+    },
+    "test/oracle/test_decomposition_exactness.py": {
+      "previous_sha256": "9cf8aa152c6823497a9a852f190ba9157f79d7b1545a72b70fa4ede37ab19910",
+      "current_sha256": "cf8260df451fce89dbb5a3120fb1afa55c1abe2937011edfdb73fa56479b4a1d"
+    },
+    "test/oracle/test_gr1_monitor_game.py": {
+      "previous_sha256": "f0f1b9cc3fac2643639c9a477835e308124cec37fc25dbef4669ead845364df8",
+      "current_sha256": "26884423d4bbdda74a37347e32a927b9810390275e75b7b9394e93cfd7dbf8d0"
+    },
+    "test/oracle/test_review4_exports.py": {
+      "previous_sha256": "b2ef99cd65b11077986cfb5386a47467119614af793c140d3959ca6bf62d665e",
+      "current_sha256": "c04d7145a8b92ce4c47f206e6fa7ad0029938eb971b88bd3c28e00f94a86402c"
+    },
+    "test/unit/meson.build": {
+      "previous_sha256": "8a82f4bcfc5ce1c20e726ad7d213de57cda9e5a93c4d9a0740f6fb639b305bae",
+      "current_sha256": "0869bf1ae9ddeacfe5b6c3cb61ad5b77f235509a7343c96160f4f6616ca3873e"
+    },
+    "test/unit/objective_alloc.c": {
+      "previous_sha256": "a19ae2a11317bf82176f5b67e02426c3f464c025e9bf60ec79bfd2eb6af23cf7",
+      "current_sha256": "c8bc0ff181ba00d79d9a4bd2fc917b7e9fa42d7c14084e27bfe8a96234160c3b"
+    },
+    "test/unit/set_dedup.c": {
+      "previous_sha256": "e8d9545b3d13d5630720f3fdc5f11890b319058bfe1bb1a8e6c7bdb05d23ebf7",
+      "current_sha256": "25ee2dff333459df7bc1ebc6c69af95d44abd0a8cbaadbc1cf4e6763fdc6e04e"
+    },
+    "test/unit/set_dedup_field_inventory.py": {
+      "previous_sha256": "680e65bf37741f2f3dbad7d4fc8efb000f0f59b879336b77f48e33ee013a23b3",
+      "current_sha256": "4f220cfa71642353733ac6572b88a6b7b46b480e0634d9116dfd00f40d21616d"
+    },
+    "src/lib/spec.c": {
+      "previous_sha256": "009e90403c9f0868c11b0987667072a598ecb712dc1447cf9f7ed9c94254b8ed",
+      "current_sha256": "3818726be80719464d9a306a98d207d6455f95c1669a57c25e5312ce4bda9a71"
+    }
+  },
+  "preserved_artifacts_sha256": {
+    "test/fixtures/golden/README.md": "eb4ec20a564049d2723095153ba4214eecbdd977f353102e977de6ef422a4337",
+    "test/fixtures/golden/assumption-pruning.json": "54a9501b92a91a2706a9b098e82a4e67a8d53022b081cc2aadc4697d57184ae7",
+    "test/fixtures/golden/compose-finite.json": "a2c54bf0ec13187b525e4b39612922d73a0b926b70331f1b653c24ead3612277",
+    "test/fixtures/golden/compose-implicit.json": "1fe86d9b4063747409564a6fa8877229ac55cae24d97852d6e076c1b7b4a870a",
+    "test/fixtures/golden/compose-moore.json": "e907782e278cb4f652f898dac63257bdf40e60f3147086127f3055d729ce52a5",
+    "test/fixtures/golden/compose-wrapper.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "test/fixtures/golden/conversion.json": "6720fe17886a0f6e4d5aa18ff80cc099e62f86ece96868cb9bcf833993dd8812",
+    "test/fixtures/golden/decomposition.json": "89f2b300381b6c5c2ae3fdd395e6189af18b8b9fbe909a06a1d263bddc57b24d",
+    "test/fixtures/golden/disjoint-assumptions.json": "a08694611c824085dd5953c92b2469131f5aa59f5a2780ce86ef9596fe21a1b7",
+    "test/fixtures/golden/dpa/delta2.ltl": "37383570aa255750cf47b089381f766efe988fe3d15989813284e8c78d348002",
+    "test/fixtures/golden/dpa/limits.tsv": "5a6452a828f3584db6520a228cc76b30af925bfda9db8257164df9a9dac07758",
+    "test/fixtures/golden/dpa/membership.tsv": "f7d6d355df13a7869006c8fde7422993c6e4c44ef6551686e75fe389f11df788",
+    "test/fixtures/golden/dpa/random.ltl": "dbf98d2cc11c27f6778d82115cd81891c22128f85f72dc3996d52512ff941838",
+    "test/fixtures/golden/dpa/rows.tsv": "ac1b44e32d20f2119a7b153d908b34344456721b5465321ac2369dcc2982ba07",
+    "test/fixtures/golden/dpa/words.txt": "d96a3010290f73d0e5136a5caa6bfd2a48c9288c37bc3fa4513e97685f917614",
+    "test/fixtures/golden/monitor-game.json": "8345867d4de7027cb9b62e6cff40358650fec323550d8941f12d0a2aa438cf22",
+    "test/fixtures/golden/native-api-8b158d7.json": "8c514303678c0cc930abd65caf1d2cae13fd07925de3f4e5b1a9f5f1c23203fa",
+    "test/fixtures/golden/native-language.json": "79f89ce48d45a63f412a03b0fc03083df146baf237932ca5a341df991a3e97e4",
+    "test/fixtures/golden/native-lift.json": "c0aae6729669e41eccf17531027459e7c14d788bc5d83bc012774c1b7e62c978",
+    "test/fixtures/golden/native-reduction.json": "cb5de484a7c9119e2462172fd675e3615ab7aceca58076ee917456090166dc74",
+    "test/fixtures/golden/norm-match-safe-1.json": "4824a16fe5b33ace62737d790894aa44cef93ea5acd10c536defcc69376de680",
+    "test/fixtures/golden/norm-route-safe-1.json": "bf349ba805e57e2a5d1034bd923fd09d4dc49566e076dc8f556a788745a205d4",
+    "test/fixtures/golden/norm-sickert-bounded.json": "462d4ff077de85da6663a3eff9fb1282a0f2d3f24b4c785eba75300b8624c4e2",
+    "test/fixtures/golden/norm-sickert-stage2-2.json": "a14ba1b4cf73584dd2177569af7ca22848ee1f62015cae891ee9cdd0eb607a92",
+    "test/fixtures/golden/norm-sickert-stage3-1.json": "462d4ff077de85da6663a3eff9fb1282a0f2d3f24b4c785eba75300b8624c4e2",
+    "test/fixtures/golden/provenance.json": "6bf73e92242d941452a0822c67ac3f8f0876b170a01435e8db44e53cbdce5554",
+    "test/fixtures/golden/review4-comment.json": "109a5de48e5f151ae250e3a71e61b0940a2943502c5f1763021f02680f230c27",
+    "test/fixtures/golden/review4-lowercase.json": "68925777e40d0a28e02066baf19d968768975b0ffebe95377de4219f7f175529",
+    "test/fixtures/golden/review4-signals.json": "591eaa8c32aa92a71d0f958fbaeef1faa69a794c93e527e3e126e753b879fb9b",
+    "test/fixtures/golden/skipped.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "test/fixtures/golden/tool-versions.json": "cd57574a1d8eca2fe7b01ff8006d868f705ee3a2d6824b5593281daeb59083a5",
+    "test/fixtures/golden/translation/dag/hashes.tsv": "d1f653d526b5a5478a101ef4b589236a20004fb2329c5c3ab1abdbfa0faf5df4",
+    "test/fixtures/golden/translation/dag/provenance.json": "66558564c205fc75ad3a03eac8cf64e21b5593ef60a07918e9bcf9ba7be3c4ff",
+    "test/fixtures/golden/translation/dag/report.json": "f0c5c39883aba3444404db92306adba589751c7b232bae510645d4b911e7f220",
+    "test/fixtures/golden/translation/hashes.tsv": "36ca145fb92ce5771615a709531d38a5e7aa64b600665df13677fecfd854a891",
+    "test/fixtures/golden/translation/provenance.json": "bbd1fa042f14c548fa16af5e5eacff970f8d20971ed9816edb927f8ff496d222",
+    "test/fixtures/golden/translation/report.json": "92e9bd4f9479c19078bf58f19a87f57a8a7c33efef6d8bc521cda4f80efb3f93",
+    "tools/analysis/dpa-row-layout.json": "7a2e3032ca6b951f9771d79bdb6d0d28eada1d3ed77507b39ce30c4f33c14fe2",
+    "tools/analysis/generated-input-tests.json": "d6afd53f4e4d95619df09fcf68b76e83080acdf702fb26fad94a9a3fbe53b23a",
+    "tools/analysis/generated-input-tests/translation-replay.txt": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00",
+    "tools/analysis/tv1-whitespace.json": "a4436589685a6e8183fb2c6ba58079e9cfb9c20c50b64cb2cca40442baebd1ba",
+    "tools/analysis/tv1-whitespace/translation-replay.txt": "295edb0130f7db755a2ff020deff1c5251eb806f3c2889fd4537e692dac1bf00",
+    "tools/golden/historical-files.json": "42282d2857d2f579c57d671ca989ecf6a173d98b34eb40f96ba09ecdcd54cae6",
+    "tools/analysis/f3-target-adaptation.json": "3d1be77801149ca103b8f403c9f0853e7dad073e451dafa176ca76ef3472bf4d",
+    "tools/analysis/expansion-allocation-and-equality.json": "241cf4b76790dc179a0055f234b1a8ea758a1e93e9bb85b1eaf94fdae428e0a7",
+    "tools/analysis/expansion-provenance-rollback.json": "646a467e596bc547e7f55bb15e51529c9383117bd657cc93d10639f9e3c8cbb4",
+    "tools/analysis/expansion-substitution-provenance.json": "41ad46b05890e243441e80694e927860f4dfb5fc71f5775d69dc10b7d01345ab",
+    "tools/analysis/expansion-success-provenance.json": "219da01daa0bbbcca094f1bec3d0bedab827fa1a571185fe259b06c950a48a39",
+    "tools/analysis/expansion-shared-provenance.json": "30996a7bf7eb77b02e29112189b9a90683ebf4bbbefd8d2ca633c7be22c09c82",
+    "tools/analysis/fuzz-vptr-portability.json": "b08126c7e79b739e8a0adb148093849681bd2a9e06d2986821fa8e290860e881",
+    "tools/analysis/set-dedup-108.json": "0df6871e898fb91f0a179a7be8ec0780625c7adc34c9f829c9551c2e4ab0ceb6",
+    "test/fixtures/arbiter_simple.tlsf": "fa5dfe0c73e17cd2448b9add33d85be1983ad7331d2d60c0df1745da9b8302ad",
+    "test/fixtures/cases/Patterns_GFand_gfand01.ltl": "b6ff93649d74f7de7e7ccaae3674f5a0322d2f89de6bdc09f3de211b51dc0e0b",
+    "test/fixtures/cases/Patterns_GFand_gfand01.tlsf": "d828ec045eb1771cfb2f997a75089d9ae7402b58d7ba2e5ebd85ad1862c4fc99",
+    "test/fixtures/cases/Patterns_GFand_gfand05.ltl": "2a764aaf2acab0c27cc955732e57aeee906e8d391d07c3249edb389e1b9e7b1e",
+    "test/fixtures/cases/Patterns_GFand_gfand05.tlsf": "eb542d73e5bf42e5bdd82123672fcbe741fc99dea181cc8682a9e1976258edd5",
+    "test/fixtures/cases/Patterns_Uright_uright02.ltl": "66b4aa17d369ce0987d5b35ed42252ed22a7182141cb245d7fc271eca5529cf6",
+    "test/fixtures/cases/Patterns_Uright_uright02.tlsf": "1b06f2ba0bd44641999b2d18731b06c4341dd04f56cc8e7ccfea88b46074772a",
+    "test/fixtures/cases/Patterns_Uright_uright06.basic.tlsf": "3534f823da83c04af349cd9262618f646c0d55705d201668b56d40ebecb0e421",
+    "test/fixtures/cases/Patterns_Uright_uright06.full.ltl": "0739527c6d5576202bd3413d92f85c552a24c603dc64fdfbd13c2e17387c4789",
+    "test/fixtures/cases/Patterns_Uright_uright06.info": "c8a83069bad6f9e4707cfaea44deb10c1bf787f42b14eeea24ffd9a5789b8588",
+    "test/fixtures/cases/Patterns_Uright_uright06.ltl": "8f5b3fb19ff97ee871dc4648d1ad6e399e9c9c3bbd5bf2dcf581e517562a0c05",
+    "test/fixtures/cases/Patterns_Uright_uright06.tlsf": "ecd8d5970ffb5a37cb06d21b251e4fd014fa6c2e1d524f4fba5e6217e6929ad2",
+    "test/fixtures/cases/Random_Lydia_case_03_50_05.ltl": "a0a7fced6935308d453788199ac14ca9a62137b99d5497e12b4c64a1d53b13ce",
+    "test/fixtures/cases/Random_Lydia_case_03_50_05.tlsf": "7fbaff2e996b066c474aab4123dc2a9e1b52ffc309c0cca3a7fe8a6182fc0c98",
+    "test/fixtures/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.ltl": "0a88495dcb0339ee2604f99128deae3552f2fb7ff9825b557d1a80c3dc9fca85",
+    "test/fixtures/cases/Two-player-Game_Nim_nim_02_System-first_nim_02_02.tlsf": "582019afeaba9ff65180a08f6094a2046bcacff8c4742abb004c3ec803ad48c0",
+    "test/fixtures/cases/aiger_unclassified_atom.aag": "90a5a70aa5012e51de3c4c5a85229235ae575c64defb2f72358f622c07b6f5e4",
+    "test/fixtures/cases/aiger_unclassified_atom.compose": "06cd52eb2298b669469d77ba459614c00e138fc88c4f954bac65a85529f4e69f",
+    "test/fixtures/cases/aiger_unclassified_atom.tlsf": "b2d8bd85d090398a600bf3de952f70f92f68c56271e654fa3ced70ee3998e220",
+    "test/fixtures/cases/aliases_v12.ltl": "2d9f7fc7cc202c122bc590c695fecbe1a74a3a0c8e8e4d5574300b358bd95cef",
+    "test/fixtures/cases/aliases_v12.tlsf": "63a6b00bd14d68d4787eb0ce73db52b25f11e24d7428b40f3a4e1051bb6a4119",
+    "test/fixtures/cases/arbiter1formula.nnfbool.tlsf": "2aae3fd62d1b2c6b866160e39a10fc7bd0a7c2a4ec575b31a4744e3050b06d7d",
+    "test/fixtures/cases/arbiter1formula.norm.tlsf": "b1e23d9fbdbd6cb41b4d9eecee8253b92978a52f0a11a50ca9f26cc91c2ddb5c",
+    "test/fixtures/cases/arbiter1formula.tlsf": "8cbbbf54ba3e95d8f08602742a0418e9219e282f6c7107545304ebbe8d95af78",
+    "test/fixtures/cases/arbiter1formula.trace.txt": "34872ea6bc86d6fea02a71d44deace498df8d87ccbd4e1a6506feea8fbbe498c",
+    "test/fixtures/cases/arbiter2.csnf": "d89b88e58ac0d0cb870a73771327bec86fbf8c42a087edf8db324812309b439d",
+    "test/fixtures/cases/arbiter2.tlsf": "9d7bf9783744499ca11de2f7f8f0c0edc2acc0f8ec072daabeb6d3fbbaade8a6",
+    "test/fixtures/cases/arbiter_nomutex.check": "51f04a40761009e0bcd42acf87decb33a593d4e91b30a1ac75ec09b8152fdca7",
+    "test/fixtures/cases/arbiter_nomutex.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/arbiter_nomutex.tlsf": "beb611071e572e17fc6637fa5b813d38e125ca8148f4d4cfb4c426ea24a7afd4",
+    "test/fixtures/cases/arbiter_simple.liveness.ltl": "0afa7a364dbe6ae04e3ed76160511f84aa4523ed1f69181b3a8eb9454c688467",
+    "test/fixtures/cases/arbiter_simple.ltl": "7b4c2b7f950278e4c363e167863926960763a3f5eba48fd56fd24adb8b289d4d",
+    "test/fixtures/cases/arbiter_simple.safety.ltl": "670fa6b4dd4b2cd7222c0137cd206ec3798719c690d2a3f5f341dbc4459172ce",
+    "test/fixtures/cases/assume_delay_real.tlsf": "85c05ba1e684fde63e4e6140e4aff5d2ccecd487ac6b991b18e16184f8a9fe2c",
+    "test/fixtures/cases/bad_expand.tlsf": "b02f9ff5ad23b82b1604d0a72799abbb886bfe608d9638a73a919e70d5184859",
+    "test/fixtures/cases/bad_infix_m.stderr": "b2ece471ec4460adea07038df8beed0c3c0fdcdac518d437cd021bbd722bf131",
+    "test/fixtures/cases/bad_infix_m.tlsf": "f56c9d4a9d7b68326467901cbe21be8486e40d2bd30af1e23af1c7f0530178b1",
+    "test/fixtures/cases/bad_syntax.tlsf": "32f0f14073d75219d4208ad57f192d701ffd47b81782dd55289fcf5180048213",
+    "test/fixtures/cases/bench.tsv": "cec87c275367890be126920bffac07388b35e7d0ce9e31371bced04cef145561",
+    "test/fixtures/cases/big_setminus.stderr": "4f90bf10399fee83471bf9b655fd484d5437ffa506b7ce34858c0b0779f60a00",
+    "test/fixtures/cases/big_setminus.tlsf": "5e2bd3e106b36e5d87efb350079dfd1bc4d75fdcd686749fa7e663cae4d29374",
+    "test/fixtures/cases/bounded_corpus.tsv": "dff085b451299cbd6765de37889bf3739b68586502481fb8d6e7d1a1d6719f69",
+    "test/fixtures/cases/bounded_resp.tlsf": "3d653c2f578a23a995f05a76e26da59fabe3ece352599366af4dc4d75a875906",
+    "test/fixtures/cases/bounded_until.tlsf": "fbce4137ccc20d754c19de9f560d2c3cc7d116f3819f32f97f12ab31548b4abc",
+    "test/fixtures/cases/bounded_wuntil.tlsf": "e1a74ea53b19e522f126ebfcd566373919a2370605183e1fa4bb617d64d84751",
+    "test/fixtures/cases/cluster_assume.residual": "4e76f838c1dacbb89c0e7e07214c0db5d536ab82791e68f6050cd0a1df24c63e",
+    "test/fixtures/cases/cluster_assume.tlsf": "651b114df545de07f66fb99b920ad531b5903bdb609da9b63d597bdba588af2a",
+    "test/fixtures/cases/cluster_prune.compose": "359bedd2a5476ef9ae17cbad176b0cdc20a83283cbc53ac50cd3d4c1ab57978c",
+    "test/fixtures/cases/cluster_prune.tlsf": "613e44e75b124be18c929f3d5624de183384863dc09a2dee37534c4d6439d4f3",
+    "test/fixtures/cases/cluster_prune_safe.tlsf": "a21a1ee7c5d744d2e7cc35d8dabb289fc100033de4c87550178e62e0336c4905",
+    "test/fixtures/cases/cluster_split.compose": "6de60a1252a4c9f44235abd942bafea04164fd802407a6d26ef01d791f019eb7",
+    "test/fixtures/cases/cluster_split.residual": "edbb84dee7366563dc4e8bc35177ce49259b52d754aa5354df2becd897c81bbe",
+    "test/fixtures/cases/cluster_split.single": "80b85fec690649610754c8b04e40fc98955c9cf1f564cc4f77e41ca1fce3e522",
+    "test/fixtures/cases/cluster_split.tlsf": "400ded915fa557c580df2e2d6223bbb88f850a08e3b4f9842905b5ad23637094",
+    "test/fixtures/cases/collapse_demo.s0.ltl": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+    "test/fixtures/cases/collapse_demo.tlsf": "bbc538636e6eeb56b4529a5cfa41e3b296586d03ede3f803a6659efca572394d",
+    "test/fixtures/cases/compose_conflict.check": "2bd0fbc62fa03bf7260dc91abdaee014371071cd4c35fd019bcf3cdfe7ae079d",
+    "test/fixtures/cases/compose_conflict.csnf": "74ddd64175380d590f2b42d85a9a01a403f22ebf546bc91c695fe64afdf30573",
+    "test/fixtures/cases/compose_conflict.residual": "e6c6e76c3982ee9b8a6b59fab69780efbee052ee2c3c50ec5ce9c15129ade7d8",
+    "test/fixtures/cases/compose_conflict.tlsf": "385d9d750bf13019abac2ef6834bd57ce8e27a0f0bd9652aa07dba1ef57554f9",
+    "test/fixtures/cases/compose_cycle.check": "26abeec65673de34294a1d3cf10f16e4b5d14d117ee9039fcfd7e8725819487d",
+    "test/fixtures/cases/compose_cycle.csnf": "f622fd8d64c4c148e910bcde19da0f7b1d7e4863c475ada948719546e8b5c5fa",
+    "test/fixtures/cases/compose_cycle.residual": "f28447152caae1e6a5e9d24f3f57371cc656ba00abc5df25f2d7634b1a78b3b6",
+    "test/fixtures/cases/compose_cycle.tlsf": "ccef34684a29d9d151adf1471750c66db1eb5fa41d6536ea6dd7c1a3ecfbe71c",
+    "test/fixtures/cases/compose_demo.compose": "8f2b2afa727408a270ba4fb7aa40a52e0b8083dc69458b59ccc3028492353349",
+    "test/fixtures/cases/compose_demo.merged.aag": "3599bd0a486a932b37665b6e326131e9882b8877052c6c2bbbe8c6224a56c4c1",
+    "test/fixtures/cases/compose_demo.response_monitor.route_stats": "a43701c08a41681062a2f3ac9a5e2a9c3a71ebc91b70fba996857f447a5ff257",
+    "test/fixtures/cases/compose_demo.route_stats": "2b696f517a882451878206c6c8d8bede53d20dd56de5bcfcc745d1a55b1b57db",
+    "test/fixtures/cases/compose_demo.tlsf": "777403d352504b29d649155f7bac86fc114295eef59fbfd87b2c96515a6f7b0e",
+    "test/fixtures/cases/compose_not_g_is_liveness.tlsf": "c39769bb6be55a61fd436ca9be476ca4e8dcfe2c267277187fbf76a55eda29a0",
+    "test/fixtures/cases/compose_partial.check": "b351834f0784cd70ea195ebf29950bbac06a27b458139b46b62a182d49cff218",
+    "test/fixtures/cases/compose_partial.csnf": "5c4f24266af4599f6096c07f2ab716c92c121773225385c2b895fcf2805d3251",
+    "test/fixtures/cases/compose_partial.residual": "4365d39b778bf21b7b297a5fe52263d5eabe13fefc2ec0daccefa286b71122fd",
+    "test/fixtures/cases/compose_partial.tlsf": "b6fb4c1c4335431f595fef9061dbf3a03b447cad296a70e13e7a6bc96c811ed2",
+    "test/fixtures/cases/composition_alloc.tlsf": "1f01013327c100c617520103dff25d01fd6fed7a85af2d665765c0a5d9fb441f",
+    "test/fixtures/cases/conv_mealy_moore.ltl": "42a31aa440845d876117fbb69c07ce5ae275a886aa796f1adab159e5c70dcffc",
+    "test/fixtures/cases/conv_mealy_moore.tlsf": "ad11470bcb0766cf13a9da9066bf7e78019b1547d9b2879b3b1f3ce34c46aaec",
+    "test/fixtures/cases/conv_moore_mealy.ltl": "63f8565ef288551f6b96b411556b7fa0e2e9b7f0734facc5789e08ca6cb0ebbf",
+    "test/fixtures/cases/conv_moore_mealy.os.ltl": "63f8565ef288551f6b96b411556b7fa0e2e9b7f0734facc5789e08ca6cb0ebbf",
+    "test/fixtures/cases/conv_moore_mealy.tlsf": "4c94a8f319cfb6bb08e5752a6d3e5121a401f7751055e091ce882d1e53329869",
+    "test/fixtures/cases/dbuchi_switch.aag": "1edc2bdf2b70c92fd554f5a841bb16ec243bdea269767a7cb26f0e643a142065",
+    "test/fixtures/cases/dbuchi_switch.csnf": "b5a0341bf3885a6cb02ae41fe5b8d3f9b7457af707634675293aa6acb9d037f9",
+    "test/fixtures/cases/dbuchi_switch.tlsf": "a0b38560d934b8e18c96260450653887915802b6130ccd538077284f8601100a",
+    "test/fixtures/cases/dbuchi_switch_finite.csnf": "6d7abcaf99b2b1a7ec23fd81d7c4f78239d06d6941cdc49a728a2b5a6ef59ebf",
+    "test/fixtures/cases/dbuchi_switch_finite.tlsf": "c45921aaa153e61f401e8f9c658b83c7b925f05696c01e45b82e8a02235d6096",
+    "test/fixtures/cases/ddef_demo.csnf": "a2573f573fc51bcf62821bb1fe35b4a73e9b914a8470684b2843d40bfdaf0b2c",
+    "test/fixtures/cases/ddef_demo.tlsf": "0652af3c770ed95f626b56ce91930cd46edb45a176bbaeca4b8acb931191cffe",
+    "test/fixtures/cases/ddef_strong_fin.csnf": "cb27faaa5fea472b55465a6a295136b31813b6711891433fcde82da77175b312",
+    "test/fixtures/cases/ddef_strong_fin.tlsf": "97ca4351f86f262ad34819fe5e1d1e5fb6def7ad76e33dddedeb3fc50ddc6dee",
+    "test/fixtures/cases/def_demo.aag": "58bca6d378f5e53bbd33f88bde89887019f4f991f07acb6c37742e3c33f58fa9",
+    "test/fixtures/cases/def_demo.csnf": "70c325ac9a24705d8213016898e58ee1a6560ed89d271cccd0b14cfb6e3c63b2",
+    "test/fixtures/cases/def_demo.tlsf": "a6e093af003be7bbe7c722649198d489583e11dd0e71ffa5c36a551d341060cc",
+    "test/fixtures/cases/definition-assumption.tlsf": "5773bfb139696096e3f1bbf818cd9edf1ee9477be9370bda6fab1125fa4efd8c",
+    "test/fixtures/cases/definition-future.tlsf": "96ddb34a5309aa37a51c8b5fb8c1aed3d0b368f0b3d6bfa19e996d4ed680d8d2",
+    "test/fixtures/cases/definition-guarantee-use.tlsf": "9dd49d35bc98924992f33e06a858edb4b3690252c243113003fcfb17a1fadc50",
+    "test/fixtures/cases/definition-preset-use.tlsf": "c6ba951b1290a47305eb5d578716339b5ec61521916b15eec3ba2683ccb0f1a6",
+    "test/fixtures/cases/definition-preset.tlsf": "ac9903004daad878888bf279c8702b954145d96cf92f421e1bb99bb7b89fa6fe",
+    "test/fixtures/cases/definition-register-use.tlsf": "a447027e08797a9036848765879b56db571cbeae24a1a59bd44e267d7bafc155",
+    "test/fixtures/cases/definition-strict-assert.tlsf": "a4964d83c576641aaaefddd8dc217b0fdeca9453dc50c13686e2cfbe6fbc0939",
+    "test/fixtures/cases/defs.gr": "6f6aace3f492f7c608e2e56647f42a9acb97545bdd77a4a14954c7689cf0c047",
+    "test/fixtures/cases/defs.reemit.tlsf": "4ba9870c8ef987d5b4428397b6db33acd3bbbf835d6cb15b3ae819789d12d0e6",
+    "test/fixtures/cases/defs.subst.tlsf": "80c5ff1e93175b5ed1bb6468a0b1e3f5878a895958d919c7eec4bdd517821826",
+    "test/fixtures/cases/defs.tlsf": "57f5e070475791e9311d6eeed6db8993f9776dd4177d6b9478a7006c22670174",
+    "test/fixtures/cases/delayed-definition-finite.tlsf": "ffd8652cfb7b6ebaf2e5520528bb6e55ca983b19d32444fff996efe11a6cef10",
+    "test/fixtures/cases/delayed-definition-future.tlsf": "bd136df5a555681818a8f8a37e3d821bda671ff6e92bfa422c85ff94aaeb8284",
+    "test/fixtures/cases/delayed_global.route_stats": "211f0f0095c478bf64479229ffcc38306ce8673b7c43d73308e76649c40c59c1",
+    "test/fixtures/cases/delayed_global.tlsf": "aab2321e5633b3f19ff896a5877a0a235c64f2ffa8e6c78cb8387dc52774c4b2",
+    "test/fixtures/cases/disjoint_assumptions.tlsf": "90c32b996cad351ac607b736a0c1d4241a019aa802325642b33c1994a3312260",
+    "test/fixtures/cases/empty": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "test/fixtures/cases/enum_demo.basic.tlsf": "d16db65386ed88d900c6bc4c44ec7177365cbbaadaa7e8ae8c13b619a545b7f3",
+    "test/fixtures/cases/enum_demo.ltl": "0ed9ce1f4528a0869412faeab89a73787c200dccb5a983e340d1a744793046bb",
+    "test/fixtures/cases/enum_demo.tlsf": "b5fa57cd1a0acfcff14fe303b8728ba8504b862900a873d100b54b19d00b4b2a",
+    "test/fixtures/cases/enum_wildcards_strict.ltl": "3573117b7e7b4e39f078c876e18c9253b0972c068902f31e4fbecaf389a1618d",
+    "test/fixtures/cases/enum_wildcards_strict.tlsf": "f2c2b8968911c49fbb478b0295fbbe38649b046188d26f6d484d862d03c3007d",
+    "test/fixtures/cases/err_bus_empty_range.stderr": "311e037e67fa7b4c830bf690a7f4c7d0b7d7566f732d48f33bffd58a4af84940",
+    "test/fixtures/cases/err_bus_out_of_range.stderr": "a6a3affe388cba366732e447505c479396aa9dc0e976c4f904a05852ec65bceb",
+    "test/fixtures/cases/err_divzero.tlsf": "60a722ebc52b21c2133a2ea35baf68d1f00edf30ac5c20dc5ba1e10ae0304e9a",
+    "test/fixtures/cases/err_enum_width.tlsf": "d446b767a806f2201e82fbd064bc42b7205aecf302c6b8829f2615f61a384f93",
+    "test/fixtures/cases/err_param_empty_value.stderr": "a2b673c3dbd88e2e79faea2bb363b9b0a759772a967d5261473242263ba0cc2c",
+    "test/fixtures/cases/err_param_out_of_range.stderr": "c258c0fce78d9a2377404890f23e4636b76484ffaeb3abc05d54d11d8727a1cb",
+    "test/fixtures/cases/err_recursion.tlsf": "4706016111b922d81b46f1b0c603a372cc1ef4460bd4028e12913eac40dd90a8",
+    "test/fixtures/cases/err_sizeof.tlsf": "56595bb3b47beb916485e45d1068b34345e8bccca6182c6a3f04ee146f9aaa8f",
+    "test/fixtures/cases/eventual_output.route_stats": "cef2a42cbe8b80882f86e921318bcc156cb8eac0e5fe25221a6d0f4def0e6017",
+    "test/fixtures/cases/eventual_output.tlsf": "0e43e288a496dbdc7f7585c07ece50e3b5d2ab2c2829e48e75343a64491cfaa7",
+    "test/fixtures/cases/expand_demo.basic.tlsf": "e292a75bd24c8e97dd77bbf34f334d7e5b7268dfe4eaae2555b18e755745b5cb",
+    "test/fixtures/cases/expand_demo.ltl": "ebb778a2cba3826f824ac2d08ddd78a88fe51a75bef27b7b93e1218b309cf007",
+    "test/fixtures/cases/expand_demo.n2.ltl": "95ec9aab9eddee39dc14846e552844dc9e1c9a742c3dbd8bed64341eea5e4bfe",
+    "test/fixtures/cases/expand_demo.reemit.tlsf": "e00da25751349b662766f6db66b4813b32f960090b71b4ba67b275862a7b0f98",
+    "test/fixtures/cases/expand_demo.tlsf": "94cc31396ff654bba20c241a36d84ae1f479d6726965b9941ec50696b0739e53",
+    "test/fixtures/cases/fair_environment.basic.tlsf": "e7e3bd711ffbc62804db7908f56286438ea1a791e22ffab151d3588d5fca6837",
+    "test/fixtures/cases/fair_environment.liveness.ltl": "8e5b53dc2e0f210d5101b5d0c067e2a275b573c9a9253183998b2efca08a0ac7",
+    "test/fixtures/cases/fair_environment.ltl": "61f3f7fa6602f8434c5b3c1dc6b069ba1f62e350bcaba59d4ed6d4e29db8fd4c",
+    "test/fixtures/cases/fair_environment.no_finally.ltl": "0567c4bce262a22e4a61593661727765200aac59d3d259b1e529831f49c1b1fd",
+    "test/fixtures/cases/fair_environment.reemit.tlsf": "2dfc6126a9b9b60c4322c75f3bd86f31b8c3c080c65da324782cf1fd752e1cc8",
+    "test/fixtures/cases/fair_environment.safety.ltl": "acaeb02596eb05059d6264ef53ea0c4ba047234629ad0c943db32a06331c5d5a",
+    "test/fixtures/cases/fair_environment.tlsf": "57006ba3be89c16f131afa452a0aad41be04fd0707d00471e91d64ac85ea2065",
+    "test/fixtures/cases/fair_environment_ltl.stderr": "7be6a8c75d58de502dd46a7e0a82a7d4b4d4ace43a72757eb8cbe96fea8b077e",
+    "test/fixtures/cases/fair_environment_no_inputs.ltl": "9f7cf7dee34edaf1993ae84d5f9d9dd0d6f4b0eda693570e63c55cf05a01ca8e",
+    "test/fixtures/cases/fair_environment_no_inputs.reemit.tlsf": "8237669e0b2dbabb3bb553b7b7c477146a9391d00a8c13c848e746e410a2008c",
+    "test/fixtures/cases/fair_environment_no_inputs.tlsf": "ec27032061e25053a555ce3778cd92339b59e3b87179b028d078d9a53b370da8",
+    "test/fixtures/cases/fair_environment_tlsf.stderr": "bc79c8cdb2262043a5bfa691afe962f8237df1493790fb4666195c5c01304d96",
+    "test/fixtures/cases/fdelay_blocked.csnf": "8cf5fb399c4e6fee6380926f4f98fbe8d6296d024f11d89837c5acfe897c4583",
+    "test/fixtures/cases/fdelay_blocked.tlsf": "b52b7d9a37f7b6c9334866d1e76a9667eb646aff20ce8644b05907f4f1c09e4e",
+    "test/fixtures/cases/fdelay_demo.csnf": "fc39943894ad9297409ee228afa80fdbdf57a9cd9ab644d785e9bafaab5a98cf",
+    "test/fixtures/cases/fdelay_demo.tlsf": "e76fd1ae42b874d366501ed372c824a0d49e23d077dbdca925f544eb216643c4",
+    "test/fixtures/cases/fdelay_strong_fin.csnf": "047d4957183c7db019cda5508d89a76ecbeaf744fa282a344d45b79e13ed9323",
+    "test/fixtures/cases/fdelay_strong_fin.tlsf": "a561077d0fe18f26c31b58e9f9e6a25607fa7e4705122e20d1a8a33aeb54800a",
+    "test/fixtures/cases/finite-cluster-end.tlsf": "6a3f3775919808afeaf15d4965853f871ca210868723eb2dfbce6e8d7bd168ff",
+    "test/fixtures/cases/finite-next.tlsf": "8856e97d28c9bf929e16551f6fa58539c918284e3512f1ec799fc43e1d208ca6",
+    "test/fixtures/cases/finite_wm.ltl": "ab3d5fea5b0a618559bdafc2bfcf355644139979d72b22e4c120bb6ee2c4b4de",
+    "test/fixtures/cases/finite_wm.tlsf": "6f39f3a5abd7b7ac709ae00fec1617032963f4a593fedd2570198e675404c688",
+    "test/fixtures/cases/gnext_demo.csnf": "e38a856436f27a0c1dee8395accdedd909208e033d6c0d773fa12ee6ad488bf6",
+    "test/fixtures/cases/gnext_demo.tlsf": "88b874feb07391a6196a3c1e8fb6f005604339143897b22d4abce6e1ac345192",
+    "test/fixtures/cases/gnext_one_sided.csnf": "8a80205b17d3e431dff78ea01d262e7ae680f98fe608acd34958271a0b03afc5",
+    "test/fixtures/cases/gnext_one_sided.tlsf": "01bc3728e45bdfd48a410e5094bc2e22cb6db99c1b579112584c842066c6fe34",
+    "test/fixtures/cases/gnext_strong_fin.csnf": "4fd0176d699c5ee94e200f4640b1a3122720abbfc5797d127ed8d9fc5e27dfbb",
+    "test/fixtures/cases/gnext_strong_fin.tlsf": "a7614fb244472a882fe4144aa8a60e6ea6f782c55ec37ae368bfdbdb55b17583",
+    "test/fixtures/cases/gnext_unsafe.csnf": "64db62f4b7230118ebb2769e5f5f17c45b0f0f4cf1e8409992a33f1eb62a403c",
+    "test/fixtures/cases/gnext_unsafe.tlsf": "13d8e6a02ee39ca52a42621ad1309c36485d3a4ec15b9436182aead734b49cbd",
+    "test/fixtures/cases/gr0_spec.gr": "6f6aace3f492f7c608e2e56647f42a9acb97545bdd77a4a14954c7689cf0c047",
+    "test/fixtures/cases/gr0_spec.tlsf": "3facadbf6e57988543b4c5b64eda85488b867b17f0c942740983cebd792a764a",
+    "test/fixtures/cases/gr1_fair1.aag": "76641c049ace20b58184a3e52b93f9203493d1af4ce7d12211fbc1020e6f31c8",
+    "test/fixtures/cases/gr1_fair2.aag": "df763841b54e84331b963ba89b5eb1112034761dce890ea2f9a6dba09bc3c089",
+    "test/fixtures/cases/gr1_fairness_alternating.aag": "ba479888adaaabbacd73d05d0ae2a62e4584d1b8400cb79e5ed06f91f2f2639b",
+    "test/fixtures/cases/gr1_init.tlsf": "477190893e6e3c2477acf8a651eaa8a8398734c4427d7b7325afd73958511189",
+    "test/fixtures/cases/gr1_input_fairness.aag": "21d2842540a92c2548106b6eeee5432e2c340b0ebb76a73328f93c5d470c2c6f",
+    "test/fixtures/cases/gr1_multifair.tlsf": "aff584dceb8a9d26c97e075715878f7816d221dc29d321b5d43efcb7dc316aaf",
+    "test/fixtures/cases/gr1_preset.tlsf": "46d4f89058caba99db8e3503fe1c16e19cff88c31c4119921e50965907829a9b",
+    "test/fixtures/cases/gr1_recurrence.route_stats": "2431faab60a068327a1ae58b92a264f1e1bda22e35d32cb04e8adb0c58267e76",
+    "test/fixtures/cases/gr1_recurrence.tlsf": "3651b5cf039f54c74cf39c0628d637ac7a497766d3f4874e002552a1210c93c7",
+    "test/fixtures/cases/gr1_response.tlsf": "f370034be90ae49ceacfd26507b70ba65653a66f43a7da88121966c4e51b2a99",
+    "test/fixtures/cases/gr1_spec.gr": "82c9c918e5ea088c8dfab7fe56bc500cc7b14194166eff8a9c622ef7fca98e20",
+    "test/fixtures/cases/gr1_spec.policy_off.route_stats": "736deee55e9267a53523a6d27c95130e28ad1dd512db450e2374daff35386ecc",
+    "test/fixtures/cases/gr1_spec.route_stats": "095b5b8029767d5b9a378c180067a235e1621d29e7b6b6ef2d6ffbed4924733c",
+    "test/fixtures/cases/gr1_spec.tlsf": "1c848750310a1ed1f0aa1852ec0791e599f1d827dbd4f90f6599546f18d223fc",
+    "test/fixtures/cases/gr1_streett.tlsf": "32772885409678e261e3192c3a8a8769c1a173b2353b76fb5936d4c59d568db7",
+    "test/fixtures/cases/gr1_strict.tlsf": "3fac8d11ef74480a5c1c7e4c7f5e799a25c1445677a01e079d1e8b1754e9e040",
+    "test/fixtures/cases/gr1_strict_multi.tlsf": "82a0bdc8f8d66483625330ceac229ebf949907eba4b774774c49ccfc749e5848",
+    "test/fixtures/cases/gr1_strict_sticky.tlsf": "175f3794309cdef0e12e6eda5aa94a83f48236c9dbcc99850004c2c886dadb47",
+    "test/fixtures/cases/gr1_weak.tlsf": "fbbdcabd942632e9dcb1fc3add8332ae6974edacf07ee313954a2d256768b429",
+    "test/fixtures/cases/gr2_spec.gr": "ddda1e651b32d274771a3b359e589d0d7b0f9eb5ce6465f560adc9e3083b32e7",
+    "test/fixtures/cases/gr2_spec.tlsf": "2156fad3db2dc0bea08acd31b57a3bcaaa804b9be225a3e931b7d92749b82301",
+    "test/fixtures/cases/gr4_spec.gr": "0b1a9355df2685278484aa4887c426bb298a43762b4b022d3bfcb8f845ed3aa9",
+    "test/fixtures/cases/gr4_spec.tlsf": "6860e9e84b7431947e7adab269acc2043db6060a1208ff95d3ecd37785d4cab9",
+    "test/fixtures/cases/ident_m.ltl": "63658fcd4c3ec95f584d651d8b6da86db4617faa3ab98490ab21fe14c8231262",
+    "test/fixtures/cases/ident_m.tlsf": "654464d878dae950a279df789c945b68e964ff9305851c7bc61be10f6f2e9978",
+    "test/fixtures/cases/ident_m_enum.ltl": "73783829b4c4c68d81c11fee28f47c5c8feb5a52588445da22ce0894d1004fc4",
+    "test/fixtures/cases/ident_m_enum.tlsf": "461ca04e9e1d75fe6c99de228f4224116c6b6950a75be0eafb2dc9dff3aa67a5",
+    "test/fixtures/cases/ident_m_formal.ltl": "957b201413f927ca9c9f17fcff62b3452f3e7c8370cb025a28831477305008e1",
+    "test/fixtures/cases/ident_m_formal.tlsf": "dbf1cd802a164bdc7a6ab06cd48d95d0fe852a531f06e72944ee60ec94d1db65",
+    "test/fixtures/cases/ident_m_function.ltl": "1441aaf89d55081bc5634e7b37a671e232b787d6bcd1d6f34ddd83a4e11efbe8",
+    "test/fixtures/cases/ident_m_function.tlsf": "33ca51b2ab3f53deff0321be5122aabd70ce6ff1231dfeeda30110b79861b24c",
+    "test/fixtures/cases/ident_m_quantifier.ltl": "9fe90f4ee576318b9c91a0a0060146602c1574a0dba5bb0dec93a503feddd31e",
+    "test/fixtures/cases/ident_m_quantifier.tlsf": "4d8bb159fc53f7b3bb15b8590d4196afe3ee2c8a27d9d07883d98275133f53c0",
+    "test/fixtures/cases/ident_m_signal.ltl": "e1da7577278371057c9ff319f3736e9c3373a81a2ace867c231488fcb7c3e2b9",
+    "test/fixtures/cases/ident_m_signal.tlsf": "8da068a590af2e2d2b434d34ea575a23870f6fd7871b02e4a42fc5e31e3229de",
+    "test/fixtures/cases/initial_x_assume.route_stats": "b550371add672524de62a97315d341884f53bdc1fd9f0ef699eadce895b6760b",
+    "test/fixtures/cases/initial_x_assume.tlsf": "9c23eed94009b3a9dbada303de91e79f85b9ecb70ae083c44cc90ab3745ca000",
+    "test/fixtures/cases/input_gua_skip.aag": "82ca89d48ea7bd6b24347dda162fdd5faff589cc644a1e665060db9bbcf2a25e",
+    "test/fixtures/cases/input_gua_skip.compose": "8d40c4f92296fd405716ca4421593f463690044945008a6cf7165ff9c8067a4f",
+    "test/fixtures/cases/input_gua_skip.tlsf": "f4402c8d79703c088c3ce3cab9a2d7e757ff2973e40f63b3f46fa4e37a5b2691",
+    "test/fixtures/cases/inv_const.csnf": "eb824ae277522d89f22d6f285dea6a50c9a08a9c1b567244f5e5a8744ef46f7f",
+    "test/fixtures/cases/inv_const.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/inv_const.tlsf": "3b5cf1f9e857184baa0d79ac332499a81b2245bfb4c16854fa4e3d9db2cc1cde",
+    "test/fixtures/cases/inv_decline.csnf": "88b273809f3d9e56f6cf920b25925ea090aa04be33264e51ddbd21bf879ddf37",
+    "test/fixtures/cases/inv_decline.residual": "d62ca7e14b4b732b0f1d5112d10a5c895089af2da9352ce230de921bd6793462",
+    "test/fixtures/cases/inv_decline.tlsf": "1104bb58c2044f7ec9f0a840e89de3e1eeb62737a6951834a5fe3cc74436d75f",
+    "test/fixtures/cases/inv_multi.csnf": "5cfe22a6d282b6b2b11d136d4d8f12678ce85ccbc93cf4b7f2678885549f894a",
+    "test/fixtures/cases/inv_multi.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/inv_multi.tlsf": "89e5ffa768c647ca5a42b40200f8cf287655477382c28ca3dc2092eff0b68143",
+    "test/fixtures/cases/inv_skolem.aag": "5a5681ad4356ee6b3c5e3e3063de4be5f23084fd26c5540238ec0ff9526708e7",
+    "test/fixtures/cases/inv_skolem.csnf": "84b1fd85b2d0fd78051d3b4f4ee02c785b324af3debb26db03e65c861643771d",
+    "test/fixtures/cases/inv_skolem.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/inv_skolem.tlsf": "a3200f5e614a35d086a09f1bc97ee136d9af81a9a7033de9c87bb1f364eb3d1c",
+    "test/fixtures/cases/inv_valid.csnf": "e8ace78f3a1aafd02be81513fcbd7d35e312e0d3f278c000a717d56f44be6b5e",
+    "test/fixtures/cases/inv_valid.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/inv_valid.tlsf": "e50c372b44d00146e94c1f6c48bdd78263b74d147210e4ded069f44486a76197",
+    "test/fixtures/cases/invariant-assumption.tlsf": "0da535f62a0c9e5a182dc75bf39e8244f2918a8b4f3ad1cb353af2ac161ac326",
+    "test/fixtures/cases/liveness_eventual.route_stats": "21342cee3a4e99f73b55661ad81a3026159d00cff82cf8e10c0997bcdaf8fb36",
+    "test/fixtures/cases/liveness_eventual.tlsf": "055976fedb6250a188feba4a5672357c7d816b44bfc9554e0f9ea317981f13b5",
+    "test/fixtures/cases/liveness_mixed.route_stats": "6ec13c284ed448c57e65cc8778058f602c09402876a9ff123736f652673048f7",
+    "test/fixtures/cases/liveness_mixed.tlsf": "3b634ec9122c107a77229f5a31f373c82869ff6c3dec885bc9a4b09e15443c8a",
+    "test/fixtures/cases/liveness_nested.route_stats": "331d667532ddcf180a063f87e953ece3cb81dcee477dc1dcf4ec987159b6c395",
+    "test/fixtures/cases/liveness_nested.tlsf": "42e3da1ef93baa4591f6010853f5c1cc0447352ce35b4ef4a82757d6f558043e",
+    "test/fixtures/cases/liveness_until.route_stats": "4ad4f744ebf3bee79cb09c38981fc67995a4510118dcd05ab14a1701f3d48bc9",
+    "test/fixtures/cases/liveness_until.tlsf": "2400b51506c1cde418cd3d6c16a3f8aa97566f4ef971c79da107107c7d644a7c",
+    "test/fixtures/cases/mealy2moore_const.in.aag": "5f3589f8152506aecbc27f752afc0fbd567ab9fdaab9d5488b75ab1ff3d50ae0",
+    "test/fixtures/cases/mealy2moore_const.out.aag": "b6924d78036b7b9adc715a19747fe7633b71512bc22e2fcfb775b875e5261d7d",
+    "test/fixtures/cases/mealy2moore_latch.in.aag": "30d6603d1cc8cfeb9de2f6b002e740db285eda77636bc8e1786c479a967f0e04",
+    "test/fixtures/cases/mealy2moore_latch.out.aag": "21daa10e926d8ead2f746527d8168b56706675aaeed14e61f578b10ee9ac9db1",
+    "test/fixtures/cases/mealy2moore_simple.in.aag": "11af21c80a7967c11c2c5a3f1154efdc23d1d37d5723c847e8f223e89d7e1f31",
+    "test/fixtures/cases/mealy2moore_simple.out.aag": "cc21f21207daf258fa3ac892860fd599d2d01597f1565ed4c88d59879697052c",
+    "test/fixtures/cases/meta.all": "aa7c64153e8daa3d51308776fc02feccd105bad1b4642d7099fd3b089d2c3e88",
+    "test/fixtures/cases/meta.check": "009d962905920ad0e3ff46c6987fad36418982deb81796fd1f58e326d167c268",
+    "test/fixtures/cases/meta.description": "8f1c14f0bd5a0f4e6be405769cd8128a76a1df5682c4daed55d326c83bae92e9",
+    "test/fixtures/cases/meta.expanded_ins": "ec2c72d21aad7d9a9ecefb4d177b5c746a8c34e446ac79082ef695e1305c6f06",
+    "test/fixtures/cases/meta.expanded_outs": "d3aaf91eabc73c75b93c70ed7b46b62edc471f23e65fa7f4f0976a113b7c2630",
+    "test/fixtures/cases/meta.info": "88eb03da2e11bf9803d50f1ad0e36023b2c635b3938413a34af1bf8c5eae9c4a",
+    "test/fixtures/cases/meta.inputs": "3b7c63e948242155050e681d0779af34905cde21032e9a481aed0e40134a920a",
+    "test/fixtures/cases/meta.outputs": "d3aaf91eabc73c75b93c70ed7b46b62edc471f23e65fa7f4f0976a113b7c2630",
+    "test/fixtures/cases/meta.params": "a23d70a52e6bc3f71b6d387a8ca494e5911421f550763e6e1c6419cf18e4e26d",
+    "test/fixtures/cases/meta.reemit.tlsf": "9e291ecc53633cd1f106101e33346ed92d8ef8fd3dc2dc5a1db83b16ee4cc5d4",
+    "test/fixtures/cases/meta.semantics": "9337c06f923a9b5d4b9fe3c21778ca84093a4f54b7e3c8566fc73178f4cd3392",
+    "test/fixtures/cases/meta.tags": "50105e5a4ac402a3d26c0e2a038c8f21ce450739ad509d27b8a89ea7c90a13d7",
+    "test/fixtures/cases/meta.target": "5af15b4f45b9d6a45b760003e977841ca2a8d8d1be95d3c5a3de2be15ae0f50a",
+    "test/fixtures/cases/meta.title": "56163618a3e76d449835b7a58c378b8a530cea1c80457837dd97d61729656d8f",
+    "test/fixtures/cases/meta.tlsf": "db6fd565e9c3170e8dccb786a6f17f42d76718c1ce8ad220bcff6ccf8b92aae7",
+    "test/fixtures/cases/mutual_exclusion.ltl": "249dc5c7dea08e9b8cac97779758a2a4969115132ec4263b2c58af50b78f5211",
+    "test/fixtures/cases/mutual_exclusion.norm3.tlsf": "238203ad1f2d9fa92b50589c3158c6782572ae2b2c0ba11daef6cf7d0de5264b",
+    "test/fixtures/cases/mutual_exclusion.tlsf": "5c905188c53cadef5b2f5075c672a39efcf387a48591cec179ed287f8e132b4f",
+    "test/fixtures/cases/next_n.bounded": "de3412ed2e9ac927b62b9b06c5c49c48f5c2df70c1e32343382af6a2409dd45c",
+    "test/fixtures/cases/next_n.ltl": "da874f8b3f3ad6e2d3f29251efca4d1f2d902e550fd48ff2efae1483d9e30d50",
+    "test/fixtures/cases/next_n.tlsf": "abf02cc15e03dcb44bdfcfa7680cd3343c4295290f8f2df59119a9217fee5673",
+    "test/fixtures/cases/nnf_m_v12.nnf.ltl": "c4e916cd9b6585fb5b773842ce97bb745c2ea889aa6d89daad89cbdfa6e33eb6",
+    "test/fixtures/cases/nnf_m_v12.norm.tlsf": "6b13fd7001fb8d3af9f72dff1761cde11b2095329deb747971f32ca1e798ba91",
+    "test/fixtures/cases/nnf_m_v12.nsr.ltl": "cc024d12f660b07ed106796def034c6922ceacec57c228e763d7046ffc063775",
+    "test/fixtures/cases/nnf_m_v12.tlsf": "ac669f8163eaaabb3aaecf82e3c7fc26a31c19c6eb40fcbaba6aaadfc8abc01c",
+    "test/fixtures/cases/normalization_bounded_bool.tlsf": "db00290481260afc687223c18aa300fc1b0287a8d329c977fd2c8d34ff148773",
+    "test/fixtures/cases/normalization_match.matchsafe.tlsf": "38829c51deabe2989aebf9527c9269531231ac8aec301f8cdde9f0c66ebd3bfa",
+    "test/fixtures/cases/normalization_match.tlsf": "29cab566af2b3f7e04083228f228d258d229db47f4f9efb0210eb5fb5a292e3f",
+    "test/fixtures/cases/normalization_patterns.matchsafe.tlsf": "3f083d7663e8d812e6365d5966bdcd2ff106d3727f3a804c6a6820fba24bbca9",
+    "test/fixtures/cases/normalization_patterns.tlsf": "eec89725c960318ddd24134e806291301062f8d400b5f959056e7e2459f554f1",
+    "test/fixtures/cases/normalization_patterns.tmpl_matchsafe.txt": "07b10f0a3485c4aa7597d894454af2fc969aa4f337c63a53cc960a7b3525f834",
+    "test/fixtures/cases/normalization_pre_split.tlsf": "f75eccbf27a61ec8c7ff9c4d756ecf32f9f192319145ab7ef75e7a9a14af1b65",
+    "test/fixtures/cases/normalization_route.routesafe.tlsf": "a216b762d4674a5f09a846ccb1611a50c6a33c623e85e927b4ea92648595abf3",
+    "test/fixtures/cases/normalization_route.tlsf": "d9124650120e2c59bf3b8260c51e41080d97ee5abdb438144731541893796c18",
+    "test/fixtures/cases/normalization_sickert2.s2.tlsf": "dd803fb24c2bb0a9b3d32a592bd45a40de729fdcc39bc00d1f80394f3453332f",
+    "test/fixtures/cases/normalization_sickert2.tlsf": "30450add3eafba110f562b6823f43490041351ddfe481a1338e8518e866f1540",
+    "test/fixtures/cases/normalization_sickert3.s3.tlsf": "b6cea9ea40e485d20d4d930949759bee93a21cc8ba74eab387cdc21c2ee93ca5",
+    "test/fixtures/cases/normalization_sickert3.tlsf": "ad5b552d3222aec7ad4f0e143fdbefffae01907addd9a15c59e76ae38a29ade7",
+    "test/fixtures/cases/normalization_xn.split.tlsf": "b528c0697d9f1886f9e99a08feeac288c64672b0ffdee420cbb94f2719c00a9f",
+    "test/fixtures/cases/normalization_xn.tlsf": "5789f68dba796e60712153ff86417a3cda9f648d631ac150f30de598c98c2521",
+    "test/fixtures/cases/notgr_spec.gr": "b30757d875457c61b7f2f14cdbb1869f6a6a3aa70124da773d4b56f49342acb2",
+    "test/fixtures/cases/notgr_spec.tlsf": "f72ddf9267388cdbf47890db37f0bb981980856c415941484739ac730959f5dd",
+    "test/fixtures/cases/operators.full.ltl": "a6e5c4df44d0e696af801d6ce3e6d3a1b579b0392bdbb017cb8094a010da3ee0",
+    "test/fixtures/cases/operators.latex.ltl": "c4e6efc000c5368a1ab346defc0e53e69b0328fa923b3036c52d2c0629a4419d",
+    "test/fixtures/cases/operators.ltl": "468453f22735dea7707ccbd251790e29c3b5711a157ea07d6b873954b0338d57",
+    "test/fixtures/cases/operators.ltlfmt.ltl": "468453f22735dea7707ccbd251790e29c3b5711a157ea07d6b873954b0338d57",
+    "test/fixtures/cases/operators.nd.ltl": "8c117c0b206a18e427f48fa3b75cc8a37e74fedefd9f9eb33d6e1a31ab2a0311",
+    "test/fixtures/cases/operators.nr.ltl": "33b28440b5994c62eafd581e899b0d90da9bb44427b4c54c3607b4ebc8c933de",
+    "test/fixtures/cases/operators.nsr.ltl": "468453f22735dea7707ccbd251790e29c3b5711a157ea07d6b873954b0338d57",
+    "test/fixtures/cases/operators.s1.ltl": "cea261c5bbfa7e898cb0b1f4f2209f750dd44225133e688cad19e952fad9086c",
+    "test/fixtures/cases/operators.tlsf": "7986cb81a590418de4a1782e05b6a802cdc9a5a595aeafa7590bd847f9f2786d",
+    "test/fixtures/cases/param_demo.subst.tlsf": "9872ea32639f780a7ead331967f14395bee73007d4fab0b64ce8c0ba80860b92",
+    "test/fixtures/cases/param_demo.tlsf": "e1dd0b6b009e9340a7060ea42c6cc474b98d5811853eba92ad6aa0708860aa2c",
+    "test/fixtures/cases/pattern_conflict_v12.stderr": "3b6c0fadac09b1853338ac3885be2be6dccfb5d388bae5f26c4ab89a9048c24c",
+    "test/fixtures/cases/pattern_conflict_v12.tlsf": "1c56da82c008970c50a613fa4ea9578be79082eb9ca71543d8d3327968a13e82",
+    "test/fixtures/cases/pattern_v12.ltl": "3bcfd8fc2ee3dc6d7124f20530fd6bcab0964158d7a63264fa6e8a13b1b99750",
+    "test/fixtures/cases/pattern_v12.tlsf": "679542ba3e0f029101288e17e88a2fea271b9864774285a334b9d80f1eab8b1e",
+    "test/fixtures/cases/persist_free.csnf": "a33ff1399963362e308c6873c1f305d922cb56ed6b9f78e3c94f841dcadfad90",
+    "test/fixtures/cases/persist_free.tlsf": "96bd93e2903bb4a14f047e9743997d5e047a1d49b856517401e47d1466952510",
+    "test/fixtures/cases/policy_profitable_skip.route_stats": "591404486b1fb95040bdc9349f91e9fe1cc58f7dc8ebe7594d0ebcfe1a9531a0",
+    "test/fixtures/cases/policy_profitable_skip.tlsf": "616c33948c37d8eb770619240cb0258fba7f2d7619acb743b669d498847a373c",
+    "test/fixtures/cases/precedence_v12.ltl": "c8eed9d0a78d84c34763d8bc2837580b022d43400714e3dba622543f572d65a7",
+    "test/fixtures/cases/precedence_v12.tlsf": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6",
+    "test/fixtures/cases/precheck_assume_rescues.tlsf": "4f86f15deea6798951de63ea8dacfad386d35e38292e33cad4fbcfe3cad08b92",
+    "test/fixtures/cases/precheck_input_only.tlsf": "0ae7a2441d84f33427aa683ebec1320a9471d96b2509dd809be99b04c49e0106",
+    "test/fixtures/cases/precheck_outputs_rescue.tlsf": "ab8061b6d090190fb0457d021b3a3c3dbe705d3aeb144eda159341802bbe08bf",
+    "test/fixtures/cases/precheck_real_unknown.tlsf": "ecaba9ce3dbbee0b77043515c9e68e7058baa1ad135fd1d36ace1bcafdb6e795",
+    "test/fixtures/cases/precheck_temporal_assume_bail.tlsf": "f089155528c00e94b11313b85b0fb4a036f0e2ee521b77d26fe29ecd1571a2e3",
+    "test/fixtures/cases/primes.compose": "c4c36858c2689dd19b882bc6f01baccfdc30213cd95a47856ec733fb5e486a3a",
+    "test/fixtures/cases/primes.compose.stderr": "3005c162d0c05e59d9cdc59664e57b818d5662ca4390cb819749ebefb3cea09c",
+    "test/fixtures/cases/primes.inputs": "b8b09dbde96d2f7f87e860885ef1b3f3f5c750bb5666e4faed6ede0de9d8822f",
+    "test/fixtures/cases/primes.ltl": "fd6561b120c0c75f0c474c8644734af0879403bf71436d6e366a0389aa55d361",
+    "test/fixtures/cases/primes.ltlxba.stderr": "d8652ab6bccae5697a708809c8e77b1547f08506fc4c201350bc1dd48f2bd4d6",
+    "test/fixtures/cases/primes.realizability.stderr": "4aac9469c462fcac1e7806b00ae3d0b4e0394d60fa2100712caaec1cdedd6ea8",
+    "test/fixtures/cases/primes.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/primes.residual.stderr": "a6a57963457f532857cfe961183d86d8dbc3f9aaeb113bea5de1c1d26830cb8b",
+    "test/fixtures/cases/primes.tlsf": "f694e17617d17ba7f8912a027a11e1dd94883241060ff307d9584af09ff4a3d0",
+    "test/fixtures/cases/ranges.bounded": "33baceae17628f7f0e0e18b0fae539428f0941878a601f43377dc40c5353b41c",
+    "test/fixtures/cases/ranges.ltl": "eb6753f44e70463be181311428cfddc4a67bcb01c0df124b6c3c14b7df0cfb0d",
+    "test/fixtures/cases/ranges.reemit.tlsf": "6927a9c9df6401f94077e5a72243a6e4f2e9629784b69282d7f863de0aec2a17",
+    "test/fixtures/cases/ranges.tlsf": "a42c40aeb5ca3f6f4e5b78440d8c05c2a6ed593210b1f8406e712bc353e11116",
+    "test/fixtures/cases/reach_blocked.csnf": "593922e65c23676871d040e7953f6ff52e4deda4977059f518de3253ce3d960f",
+    "test/fixtures/cases/reach_blocked.residual": "598da717de03fd4d2706b3bcc0b75b49f3d633d0179a8377ebd837e6d9f13bce",
+    "test/fixtures/cases/reach_blocked.tlsf": "183bba0c7712b558d2b61f22ca0dc08861455ad771d7ef171bdd455ae3e06d4d",
+    "test/fixtures/cases/reach_free.csnf": "c1e90c45e272ed0b34fc644fbf7f760bb1177cfb59aae60f3093b37286dea4fb",
+    "test/fixtures/cases/reach_free.tlsf": "2aac51ae087dba7902569724a6afa977ce36a7e9932ac9172e8a979a6d07f5cd",
+    "test/fixtures/cases/reaction_multi.csnf": "7eba417e01fb208bdd6eac5422c93c96bacb2f1a1bb1a9986000d819523231c2",
+    "test/fixtures/cases/reaction_multi.tlsf": "d3f640d31e7add811d5dc2713240717fedf59c1d39f589fcb0860a4eacfe7fec",
+    "test/fixtures/cases/reaction_ok.aag": "73d15915de2e940b4cee14294bb7249674ee66e251441d15b28c41204f086698",
+    "test/fixtures/cases/reaction_ok.check": "c9c504d08cd13c4ad0d889c0f97434d97e00a4e14d0261375f1e59170edf765a",
+    "test/fixtures/cases/reaction_ok.csnf": "a9653eb186cd0ca16ee63d56b43079969df2921ab1d42dbfef924436641292b5",
+    "test/fixtures/cases/reaction_ok.route_stats": "a79ba8ffc31d159465f43b76a078e1efe4a2b30d6747f93ebd4baa7f60407ab2",
+    "test/fixtures/cases/reaction_ok.tlsf": "97b51835bda1e2589724aba44866d0626d6802d8629d1fb7e36c57af654467a4",
+    "test/fixtures/cases/reaction_unsafe.csnf": "ba435d8c031ac2fab8850458c99866ae86b7bd7a2202bbc89578326b9046ce93",
+    "test/fixtures/cases/reaction_unsafe.tlsf": "c6eeded41fc73aaf5ef5b1f4831197654b21f519604012752661f024a3ae66c3",
+    "test/fixtures/cases/recursion.ltl": "e4a205316c94e9d91ddd04fc7f00b15a9c2c828ddc43f08e4fc2c238e81d0497",
+    "test/fixtures/cases/recursion.reemit.tlsf": "87ccfd6edaba68327e68006814aed305c2b4ba42db76d8ae8a1d5dfe333b2540",
+    "test/fixtures/cases/recursion.tlsf": "e293ee1349ef5ea8b8574b45ed073559ffcd4faeb390474518790ae17b12d6bb",
+    "test/fixtures/cases/residual_false.tlsf": "7a50672ae9a225b549cedf2db9ba8f7800d49299adc4432d26c22bb229eecb33",
+    "test/fixtures/cases/residual_ltl_format.residual": "edbb84dee7366563dc4e8bc35177ce49259b52d754aa5354df2becd897c81bbe",
+    "test/fixtures/cases/residual_param_demo.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/resp1.tlsf": "e821823727cbfdb050b8246f4b97d225c169922d1508b7d21005d27f628e2ed0",
+    "test/fixtures/cases/response_blocked.csnf": "fbea1ec9293347535148468ccb4da4f7edf46abdce61ecba4b4392cdfca2b5cb",
+    "test/fixtures/cases/response_blocked.tlsf": "67edf86cff5573f4f1260bcb3243f4b92098b3acb95de2de39314f933863aa7d",
+    "test/fixtures/cases/response_free.csnf": "c010354ea602afa060db0de6c6976c594688b2ba7afebe214537beb9f2e69221",
+    "test/fixtures/cases/response_free.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/response_free.tlsf": "2c9999ae0dc397c4431bc67afa6e527dfca94d1b3f8e11797b3a88046dcdfd53",
+    "test/fixtures/cases/response_same_cycle.route_stats": "7e5a91e043abe262d31d82450c327ade7dd23317aa91b2c9c148bd54374a7dd8",
+    "test/fixtures/cases/response_same_cycle.tlsf": "0f9e7ccb7beba2d2b868b072061d607c159725c3ae2433f9104d4102f64939c5",
+    "test/fixtures/cases/rewrites.pfi.ltl": "aa55c84cb54bfb09a02d3a7df8119e1c713b2605031ba088171137e1c36c02c5",
+    "test/fixtures/cases/rewrites.pfo.ltl": "7ef174f593a1ef23a079b7d16d3642584f03a6ed20a390b1f1778762c03a3611",
+    "test/fixtures/cases/rewrites.pgi.ltl": "2b7b73c4f8485983ec997006df7a49067b415cd3b4b6595d6f4921c5eaa2959a",
+    "test/fixtures/cases/rewrites.pgo.ltl": "f728482e30804a6eaafbb114b3fd47b5dda277416b28d23bdb8a2b1901bc5931",
+    "test/fixtures/cases/rewrites.pxi.ltl": "34c91b3dd324eb800476acae19a5663524a3590e3b3daa21b4af765285b7fd43",
+    "test/fixtures/cases/rewrites.pxo.ltl": "5049a691852d5a39e8bd2e438cfcaf04a9736c9a126506b444cdc35a5c81b89b",
+    "test/fixtures/cases/rewrites.tlsf": "3fa2a4e9986c0aa04611b3cea90428d7a9a812a2bae5802d319fea8f2e90fa32",
+    "test/fixtures/cases/roundrobin2.csnf": "fe76a473e65897d5aa948321225b58414fae83ebed6064a6e6f4a8f69e914a2c",
+    "test/fixtures/cases/roundrobin2.tlsf": "ca4ee1c3e978da5d81f994686ba9a76d0793ef976bf9d069affea611eeb8f70a",
+    "test/fixtures/cases/route_norm_xgf.tlsf": "6920008df124b6867380c7d4f1a1c0173a9768aaa8075245c0a3ca6231be9864",
+    "test/fixtures/cases/sections.ltl": "3a73f429d6b9871183b60137f29dd3fcd79f15a5b993d3f88b4f62d47b0d3f13",
+    "test/fixtures/cases/sections.strict.ltl": "1f0f3ebe16cf7e32f23b52b480370b930e37eb6f05bea6dbe86891fd19dc6f36",
+    "test/fixtures/cases/sections.tlsf": "9bf4c35487a2bcfd0d32eede44507068bb3c74af555d66f1c34b0c33abc2f4d5",
+    "test/fixtures/cases/sections_strict.tlsf": "ab4679096fef1884449376895b197bc8d48a3767188ce85bbb6aa6cc156cda4d",
+    "test/fixtures/cases/server_merge.check": "c83300db670436a8a50e833c4732d68219fcb26098217f8af31ae5a7fd95ab74",
+    "test/fixtures/cases/server_merge.residual": "b240f401a2b276697c582801ab17f0160c12e7f1ce3fe31674f6053eb7f90c4f",
+    "test/fixtures/cases/server_merge.tlsf": "86cbf87eb5e32e67bde9443344e64a2c15df00cce013beb8b494fff208275994",
+    "test/fixtures/cases/sets_v12.ltl": "262baff4fa21bbf31e55c10dc94d4a28c66015b41620148f2a32dd72da63cf03",
+    "test/fixtures/cases/sets_v12.reemit.tlsf": "572048cbd30eec69f73869940b674aa0d6240f1edc753e3b45d3cb460c205b75",
+    "test/fixtures/cases/sets_v12.tlsf": "08efe4748a14d4e370f5c483cffe56ff7d2e09a9131534d7087a0d24fa8c9a92",
+    "test/fixtures/cases/simplify_demo.s0.ltl": "8e77846943e2e1360f35314cd138434a82afb565e476099ed25c010624f8ab2c",
+    "test/fixtures/cases/simplify_demo.s1.ltl": "a6002e568c246c9cfc12c11fdbbac55145167b775748d552b4447cba56c72f76",
+    "test/fixtures/cases/simplify_demo.tlsf": "921cf87143395eb79f47682444b9f7500ee29d7181848362c5c2446653e6e265",
+    "test/fixtures/cases/solve_failure.stderr": "8d495a308092b3f795e5a1e0393276aeaa275a8a9f25131829413f986ffc7d32",
+    "test/fixtures/cases/solve_multi_bad_unreal.aag": "22e5e1ea08e658a032c8f3aca07f25d79c26145e81c5219535f4239b36654712",
+    "test/fixtures/cases/solve_real.aag": "f6a039581ed18aab7bdc123796f965a12c70124dd239b57f220b28d67fa9a1fc",
+    "test/fixtures/cases/solve_real.out.aag": "d4c885bcae8aa6bc7b7684b40a0463f849af51978a1a6d22040709470f1b46af",
+    "test/fixtures/cases/solve_real_unnamed_output.aag": "0399e7d6013fd522973fe5d1450ccdf64b2fa63c009dfcbeb3982a1bbe80aeb3",
+    "test/fixtures/cases/solve_unreal.aag": "64f61e8be6adbd129f7ac7f81e59837e6d499c2907b63804418627aa43b4aacc",
+    "test/fixtures/cases/solve_unreal.stderr": "5ee318b1a0e80d9d254bba5b0c967cb96388ef86989fb91d9b5b05539133bc8a",
+    "test/fixtures/cases/solve_wrapper_fake.aag": "ee1310c396c5cc577149db46794249d6063fe51e4d1d19b86f51a94b8aef3c99",
+    "test/fixtures/cases/solve_wrapper_fake_liveness.aag": "662b36f28e677bfd7688fe6c09134fc9d5e3fd2460f2cbbfc90f06f48c00d36f",
+    "test/fixtures/cases/strict_preset_liveness.ltl": "518180464734d3126061d3f78f39cd0e367c9d191eecc0f2a7d3eb20e1723998",
+    "test/fixtures/cases/strict_preset_liveness.tlsf": "87071d05530139278f71779fc4cc031d4e577b60246b779d8d65d01bde2995a2",
+    "test/fixtures/cases/strict_safety.route_stats": "e624ce7732d7239cb2061416ac04b4c7ec6fafd7bc209c1155c8d18a2524d965",
+    "test/fixtures/cases/strict_safety.tlsf": "7a3122ab4d7a94550b8b3d59fe4b1d585d0244c69f7fbf6b2087cd726004071f",
+    "test/fixtures/cases/strong_bounds_v12.ltl": "8f67fdf350dadbd24e7d3a59af94c2565bb7be494175930febb480bed9c15231",
+    "test/fixtures/cases/strong_bounds_v12.tlsf": "ebbe3264426d7c68068bf4471f096c7d45a08bbf5f4282d9c9d86f10463feea4",
+    "test/fixtures/cases/strong_next_infinite.tlsf": "f660580893520c9d0de56d4c44aa2c34720730f5a042a41428bf30d69c41d4fa",
+    "test/fixtures/cases/subst_reduce.check": "cd56d4a02e65c7e81c57bd32337dd6c592f6af40bd41f4c0147ef16905c278e4",
+    "test/fixtures/cases/subst_reduce.residual": "c791a4e7a0d9a819a310304a10a6148402b561486e3b8f3ef03fb8cb4a72a99e",
+    "test/fixtures/cases/subst_reduce.tlsf": "edbc40a5247439a68bbe05d688631f1fff8e62d6057171bc103af8db7a97d068",
+    "test/fixtures/cases/target-moore-mealy.tlsf": "9d0dbcd9757dfcdc69da518e01e572ec98bbcfb8b924ab507675e09be1ead92f",
+    "test/fixtures/cases/template_failure.tlsf": "1f01013327c100c617520103dff25d01fd6fed7a85af2d665765c0a5d9fb441f",
+    "test/fixtures/cases/tmpl_list_templates.txt": "3259d57a95ce8273f8e56a35cbbf25b20326abd11745c6e6f460adb340957bf2",
+    "test/fixtures/cases/tmpl_param_demo.csnf": "559c16f6d92b07317afc333b2e7a039b99c9e99f5da14c2bd07fd23cc33d5255",
+    "test/fixtures/cases/toggle_demo.csnf": "d4145f15d95ff7db073550c6ac0d56d69ef5236808766dffa6ab16a375803af7",
+    "test/fixtures/cases/toggle_demo.tlsf": "1c19ce2ffb17bcef1506919a46c070a462a9590bba1d42d1aad236ffcbdf5586",
+    "test/fixtures/cases/toggle_strong_fin.csnf": "2d9938e5cbf74705034830bcd1b167082487e265c44f75294b4f99b79c8225b1",
+    "test/fixtures/cases/toggle_strong_fin.tlsf": "a256ed8cdfe55f13e41c919b41436333274dd3bbb77649533b24b15cd77d99f3",
+    "test/fixtures/cases/truths_demo.s0.ltl": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+    "test/fixtures/cases/truths_demo.tlsf": "476b9ae91696177b91acb8afdd09ddf51d638e605d2d66593ac3ac399a379dec",
+    "test/fixtures/cases/undeclared_at_atom.stderr": "16223262e07b2b5c8540e445bec636f872ba4416066aa28f2fe5ccb4337aae25",
+    "test/fixtures/cases/undeclared_at_atom.tlsf": "5d4207180aac23b18cfd0020a1e0e6602711e2a3ce4ed9f3d4998d8227f804ac",
+    "test/fixtures/cases/undef_def.tlsf": "10960702083c2cddc8264e76d45e978277fdc8ad55c31568a5dff00a86c124b5",
+    "test/fixtures/cases/until_input_target.route_stats": "975f29703bf6ae3cb12cabaeddf8707d70cb4f3172cf4e88a344fe9da9fb69f6",
+    "test/fixtures/cases/until_input_target.tlsf": "1bcaecd8392c3ca7736ae87eba35b11d0b459ec331878863fea52c3aea3e0c6a",
+    "test/fixtures/cases/upper_atoms.lower.compose": "344e2be621cdac78b45e339b4b58fa47712840c60ee089373c215ebe8272faf8",
+    "test/fixtures/cases/upper_atoms.lower.residual": "38f50474de8175558aa9bd9304ba557ef5fc11ba8e98af1f073b2babf518175a",
+    "test/fixtures/cases/upper_atoms.ltl": "49915a08b0c18f36c9d1065e6f9a8c6a085b7faf86f50668f1143118f1f94727",
+    "test/fixtures/cases/upper_atoms.ltlxba.ltl": "52e529d772a5c5c4f1d199a20fac6f3f14ba98d3109537c05c9f72cbe41412f9",
+    "test/fixtures/cases/upper_atoms.merged.aag": "1e70719c8a4ec86432ec81031f4cad14c531af44394e194d9475447cd4faa76e",
+    "test/fixtures/cases/upper_atoms.tlsf": "17b63146cbfcbccb77b1e26c7d219a66760f4c58d010703cf2e3bd17f7e9c4eb",
+    "test/fixtures/cases/wr_assume.tlsf": "850e8833ed9b54fc2a3d35fcd3ff5d4ac28bac1a05c3e4f7546d9709bfbf2aaa",
+    "test/fixtures/cases/wr_distributable_impl.tlsf": "186715089fd5fdd3b08f196205fc514c8e1df11902e6dce2aeb790b17b1199e6",
+    "test/fixtures/cases/wr_gated_collapse.tlsf": "92f13db73a99bf8ff734e34e72a986da89413beb9aa639a1ca3c5d9663fb437f",
+    "test/fixtures/cases/wr_gated_nox.tlsf": "b6c81d088dc803219efc3813a4ac2228cea5552eebb16d986b4b3b8a7377921f",
+    "test/fixtures/cases/wr_impl_bare_w_antecedent.tlsf": "ccac9838895669e670cfe9eda6ad1a440d78cda9ba272bb0e0231612e7f33522",
+    "test/fixtures/cases/wr_r_collapse.tlsf": "d59fa4f0dc6b93304b1acfcb8a95c5f2ed3e68348817ee3caa5b21832c49d27f",
+    "test/fixtures/cases/wr_r_x_in_body.tlsf": "ccdc4563e17c005fcaa59618311ae29f8b267102da256719607a0db8b779c3bf",
+    "test/fixtures/cases/wr_rel_resp.tlsf": "e9ecd54b86f33878e4d07ed8d5e61d1fabe35ca63215391616fef3527fd6e580",
+    "test/fixtures/cases/wr_release.tlsf": "edd3f05dc1bacda8b155d1cc00c01c0a51894e872254ed6de1ce977ad551907e",
+    "test/fixtures/cases/wr_resp_nox.tlsf": "be77791fafc6d77186cd883f9aefd5d7571c2cf83b4734dd5fd1166063b73768",
+    "test/fixtures/cases/wr_response.route_stats": "4ac77dfb48f2b00808b52266ef8d4ae1925e6a7967128a327f5b1bbf57e6a7b5",
+    "test/fixtures/cases/wr_response.tlsf": "727d422a4e525f7dfef816b4d6c6d94d044e8870d02793d03c37354a62ee65b7",
+    "test/fixtures/cases/wr_under_real.output_dir": "94f092bc8b67874959308c9454797c374a3125b7cd3499de21e20383da4db2d4",
+    "test/fixtures/cases/wr_under_real.tlsf": "ca26d43f0063b239eab0e702485c59e749758e96299d7b7072f6820c6fc1df4a",
+    "test/fixtures/cases/wr_xdelay2.tlsf": "f1b7aea905ff8a69531e911744079189dd63316da831f473648bb086e6a921cf",
+    "test/fixtures/fake_automata_generator.py": "f9a16cb0dc103aac4dcf43fa1cbb90dd5e05ca77df069749a1e3e14fe6965456",
+    "test/fixtures/fake_backend.sh": "f8df260616956b46b8eab5d2b9b6de17123bc323a57f4df8c526648c6e095b3d",
+    "test/fixtures/gr1_monitor_game/README.md": "3897c60f8f8932486486750e45da2c90bead92150a68defa891cf9b1c7b8a297",
+    "test/fixtures/gr1_monitor_game/arbiter_n2.aag": "1a2f4530730149766203f0624c8a40891e7ff32c4a9440cbd515ca63efbd11ca",
+    "test/fixtures/gr1_monitor_game/arbiter_on_inpchange_pb_2_pe_.tlsf": "8951fd16d62ef7bc0646925ee883ae3e843d17331d468b4972e0eb209aea0a38",
+    "test/fixtures/gr1_monitor_game/arbiter_pb_2_pe_.tlsf": "ebc0b259b3c810cb081c38e374eec7309760433f08d01652823561e85f505e12",
+    "test/fixtures/gr1_monitor_game/arbiter_pb_3_pe_.tlsf": "c78e19abfe2cdcf9106a42fd88689513f46dec7cae005be02d36e29a3fc68708",
+    "test/fixtures/gr1_monitor_game/arbiter_pb_4_pe_.tlsf": "6fe2905cb06fb73e5ae93c019978d41dc84a6c95d5a5a6a484acd7e28cefaac7",
+    "test/fixtures/gr1_monitor_game/round_robin_arbiter_unreal2_pb_2_pe_.tlsf": "1d2efe4a482915c316c761b9fbbf2128e38defdcbb9de3b7a2e494b32953f16d",
+    "test/fixtures/gr1_monitor_game/round_robin_arbiter_unreal2_pb_3_pe_.tlsf": "71588f323b2b31357525710759d0420cdb6d137d17e4b3e16116c91606b7f577",
+    "test/fixtures/meson.build": "022666d920bd1198d1b05ac2e6582e1589fbde73197ff1993d6ce62f917b8781",
+    "test/fixtures/oxidd-manager-lifetime/target.certificate.aag": "3e94c94379f59b8d9de028ccabb8efa377c92b6834c5f5cc962b06601fb7cf60",
+    "test/fixtures/oxidd-manager-lifetime/target.certificate.aag.json": "1cefe3f963721538c1a9a250167585662711245fc8ab986d146a4f82eefcacf7",
+    "test/fixtures/oxidd-manager-lifetime/target.game.aag": "a9d5a9bbc366bdbaeb159ea779b8654c35afb9c19c433eb4d2f1bc0264540b0e",
+    "test/fixtures/oxidd-manager-lifetime/target.policy.aag": "2a04e6aa1b1bfa19e2eff81b1bcd57e9d8f1c58a9c3d003a8e78be033860b248",
+    "test/fixtures/oxidd-manager-lifetime/target.policy.aag.json": "d2364bb771da3af5974b4385f59028dd8f9bff47ac7514af19a1374d180bd253",
+    "test/fixtures/printer/bigop_contexts.reemit.tlsf": "ece90bb185149bc3e9123f95815d0071c50c327007156399d0da3b3a22c263f3",
+    "test/fixtures/printer/bigop_contexts.tlsf": "de5118dbb2948e590dc1366cf1422d9f5da5993cbe91883cb6912269dc127ff4",
+    "test/fixtures/printer/bigop_parens.reemit.tlsf": "36a597f7f6ab5d8b6b10872966b61f6b9eb63e76ddd1712003003834664230ae",
+    "test/fixtures/printer/bigop_parens.tlsf": "00fb07c8f7ed86e6a52e3654625f1edafae2e41f54d3b7d834749476d107af91",
+    "test/fixtures/printer/finite_set_next.ltl": "9276ca1cf4babaa4767eab16831510124633676195735da55b1fb194fa4dd696",
+    "test/fixtures/printer/finite_set_next.tlsf": "a662912acde2e020ec49b9b54595e1de4646f88ae4ba81a03b539d106c18087b",
+    "test/fixtures/printer/finite_set_next_reversed.ltl": "6f838ccdf41de32cc439dc9cb149366d6f2b8741e550f53410a8af18c87306ee",
+    "test/fixtures/printer/finite_set_next_reversed.tlsf": "5019857c7405b6c6005317bb429345c3e1ba44a39c16d55c6cedee3bfafacf47",
+    "test/fixtures/tlsfsolve_failure_stub.c": "e4c873da7c963e288b4376da25c78d7718be7869dc6385502cdfa4513e5b4988"
+  },
+  "fixture_replacements": {},
+  "golden_source_hash_replacements": {},
+  "expectation_changes": [
+    {
+      "file": "test/fixtures/cases/aiger_unclassified_atom.compose",
+      "before": "residual cluster output",
+      "after": "scoping diagnostic for BURST4",
+      "reason": "\u00a7\u00a74.1\u20134.3: undeclared atoms are no longer implicit inputs."
+    },
+    {
+      "file": "test/fixtures/cases/undeclared_at_atom.stderr",
+      "before": "ltlxba atom diagnostic",
+      "after": "scoping diagnostic for ack@1",
+      "reason": "\u00a7\u00a74.1\u20134.3: expansion rejects the free identifier before printing."
+    },
+    {
+      "file": "test/fixtures/cases/pattern_conflict_v12.stderr",
+      "before": "runtime pattern Binding Error",
+      "after": "static typing diagnostic for a",
+      "reason": "\u00a74.6: validate pattern freshness before choosing a branch."
+    },
+    {
+      "file": "test/fixtures/cases/enum_demo.basic.tlsf",
+      "before": "accepted without enum declarations",
+      "after": "typing rejection",
+      "reason": "\u00a7\u00a74.3\u20134.4: the historical basic fixture retains comparisons against A,B,C but drops their enum declarations; it is not a well-typed standalone spec."
+    },
+    {
+      "file": "test/fixtures/golden/native-reduction.json",
+      "before": "historical statuses/diagnostics for six fixtures in exact and strict modes",
+      "after": "12 additive rejection records; successful artifact blocks retired only for now-invalid enum_demo.basic",
+      "reason": "\u00a7\u00a74.1\u20134.6: early lexical/type rejection; see record_replacements for exact before/after records, including unchanged rejection statuses with clearer diagnostics."
+    },
+    {
+      "file": "test/fixtures/golden/monitor-game.json",
+      "before": "collision/exact: reducer status 3; expanded TLSF signal names are not unique",
+      "after": "collision/exact: expansion status 2; declaration a_0 collides with flattened bus bit a[0]",
+      "reason": "Section 4.5 signal distinction, owner-authorized fail-closed declaration rule; additive exact record replacement, preserving the historical payload."
+    }
+  ],
+  "record_replacements": {
+    "native-reduction": [
+      {
+        "index": 28,
+        "before": [
+          [
+            "status",
+            [
+              "aiger_unclassified_atom.tlsf",
+              "exact",
+              3
+            ]
+          ],
+          [
+            "decline",
+            "reduce status 1: formula: lowered formula has undeclared APs\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "aiger_unclassified_atom.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: scoping: free identifier 'BURST4' is not bound lexically\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: scoping: free identifier 'BURST4' is not bound lexically",
+        "source": "test/fixtures/cases/aiger_unclassified_atom.tlsf"
+      },
+      {
+        "index": 30,
+        "before": [
+          [
+            "status",
+            [
+              "aiger_unclassified_atom.tlsf",
+              "strict",
+              3
+            ]
+          ],
+          [
+            "decline",
+            "reduce status 1: formula: lowered formula has undeclared APs\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "aiger_unclassified_atom.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: scoping: free identifier 'BURST4' is not bound lexically\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: scoping: free identifier 'BURST4' is not bound lexically",
+        "source": "test/fixtures/cases/aiger_unclassified_atom.tlsf"
+      },
+      {
+        "index": 420,
+        "before": [
+          [
+            "status",
+            [
+              "enum_demo.basic.tlsf",
+              "exact",
+              0
+            ]
+          ],
+          [
+            ".aag",
+            "aag 4 3 1 1 0 0 0 1 0\n2\n4\n6\n8 8 1\n0\n1\n0\ni0 uncontrollable_i0\ni1 controllable_o0\ni2 controllable_o1\nl0 monitor_0_state_0\no0 bad\nj0 guarantee_monitor_0\nc\ngenerated by gr1_monitor_game.py; one-hot DBA monitors\n"
+          ],
+          [
+            ".json",
+            {
+              "schema": "tlsf-tools.gr1-monitor-game.provenance.v3",
+              "provenance_source": "frontend",
+              "semantics": "exact",
+              "latch_encoding": "one-hot",
+              "inputs": [
+                {
+                  "name": "go",
+                  "base_name": "go",
+                  "index_tuple": [],
+                  "provenance_source": "frontend",
+                  "game_symbol": "uncontrollable_i0",
+                  "game_literal": 2,
+                  "direction": "input",
+                  "declaration_id": "input:1",
+                  "source_name": "go",
+                  "dimensions": 0,
+                  "bounds": [
+                    0,
+                    0
+                  ],
+                  "width": 1,
+                  "width_kind": "scalar",
+                  "width_expression": null,
+                  "width_parameter_ids": [],
+                  "width_binding_complete": true,
+                  "index_role": "scalar"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "st_0",
+                  "base_name": "st",
+                  "index_tuple": [
+                    0
+                  ],
+                  "provenance_source": "frontend",
+                  "game_symbol": "controllable_o0",
+                  "game_literal": 4,
+                  "direction": "output",
+                  "declaration_id": "output:1",
+                  "source_name": "st",
+                  "dimensions": 1,
+                  "bounds": [
+                    0,
+                    1
+                  ],
+                  "width": 2,
+                  "width_kind": "range",
+                  "width_expression": "1",
+                  "width_parameter_ids": [],
+                  "width_binding_complete": true,
+                  "index_role": "element"
+                },
+                {
+                  "name": "st_1",
+                  "base_name": "st",
+                  "index_tuple": [
+                    1
+                  ],
+                  "provenance_source": "frontend",
+                  "game_symbol": "controllable_o1",
+                  "game_literal": 6,
+                  "direction": "output",
+                  "declaration_id": "output:1",
+                  "source_name": "st",
+                  "dimensions": 1,
+                  "bounds": [
+                    0,
+                    1
+                  ],
+                  "width": 2,
+                  "width_kind": "range",
+                  "width_expression": "1",
+                  "width_parameter_ids": [],
+                  "width_binding_complete": true,
+                  "index_role": "element"
+                }
+              ],
+              "source_parameters": [],
+              "source_conjuncts": [
+                {
+                  "block": "ASSERT",
+                  "source_formula_id": "ASSERT:1",
+                  "source_node_id": 1,
+                  "generated_position": 0,
+                  "formula": "((false || false) || false)",
+                  "bindings": [],
+                  "signals": [],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "0",
+                  "signal_refs": []
+                },
+                {
+                  "block": "GUARANTEE",
+                  "source_formula_id": "GUARANTEE:1",
+                  "source_node_id": 12,
+                  "generated_position": 0,
+                  "formula": "G ((go -> false))",
+                  "bindings": [],
+                  "signals": [
+                    "go"
+                  ],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "G(!(go))",
+                  "signal_refs": [
+                    {
+                      "declaration_id": "input:1",
+                      "index_tuple": [],
+                      "index_role": "scalar"
+                    }
+                  ]
+                },
+                {
+                  "block": "GUARANTEE",
+                  "source_formula_id": "GUARANTEE:2",
+                  "source_node_id": 18,
+                  "generated_position": 0,
+                  "formula": "G ((false -> go))",
+                  "bindings": [],
+                  "signals": [
+                    "go"
+                  ],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "1",
+                  "signal_refs": [
+                    {
+                      "declaration_id": "input:1",
+                      "index_tuple": [],
+                      "index_role": "scalar"
+                    }
+                  ]
+                },
+                {
+                  "block": "GUARANTEE",
+                  "source_formula_id": "GUARANTEE:3",
+                  "source_node_id": 24,
+                  "generated_position": 0,
+                  "formula": "G (!(false))",
+                  "bindings": [],
+                  "signals": [],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "1",
+                  "signal_refs": []
+                }
+              ],
+              "monitors": [
+                {
+                  "monitor": 0,
+                  "side": "guarantee",
+                  "mp_class": "B",
+                  "conjunct": "0",
+                  "construction_formula": "0",
+                  "template": "0",
+                  "template_source": "frontend",
+                  "index_tuple": [],
+                  "support": {
+                    "buses": {},
+                    "scalars": []
+                  },
+                  "arity_kind": "local",
+                  "state_count": 1,
+                  "latch_literals": [
+                    8
+                  ],
+                  "role": "justice",
+                  "source_origin": {
+                    "block": "ASSERT",
+                    "source_formula_id": "ASSERT:1",
+                    "source_node_id": 1,
+                    "generated_position": 0,
+                    "bindings": [],
+                    "index_tuple": [],
+                    "signal_refs": [],
+                    "signals": []
+                  },
+                  "provenance_source": "frontend",
+                  "justice_index": 0,
+                  "source_binding": {
+                    "source_formula_id": "ASSERT:1",
+                    "generated_position": 0,
+                    "source_node_id": 1
+                  }
+                }
+              ],
+              "violated_latch_literal": null,
+              "source_origin_metadata": {
+                "available": true,
+                "provenance_source": "frontend",
+                "reason": null,
+                "source_sha256": "d16db65386ed88d900c6bc4c44ec7177365cbbaadaa7e8ae8c13b619a545b7f3"
+              }
+            }
+          ],
+          [
+            ".symbols",
+            "tlsf-tools.game-symbol-map.v1\n85e0d2ac944501cf8c59660a4e1917c322daede985115b771001162f4769990c\nI\tuncontrollable_i0\tgo\nO\tcontrollable_o0\tst_0\nO\tcontrollable_o1\tst_1\n"
+          ],
+          [
+            ".metadata.json",
+            {
+              "schema": "tlsf-tools.gr1-monitor-game.metadata.v1",
+              "semantics": "exact",
+              "game_sha256": "85e0d2ac944501cf8c59660a4e1917c322daede985115b771001162f4769990c",
+              "source_sha256": "d16db65386ed88d900c6bc4c44ec7177365cbbaadaa7e8ae8c13b619a545b7f3",
+              "monitor_count": 1,
+              "fallback_monitor_count": 0,
+              "justice_count": 1,
+              "fairness_count": 0
+            }
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "enum_demo.basic.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: comparison requires numbers or a bus and enum label\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: typing: comparison requires numbers or a bus and enum label",
+        "source": "test/fixtures/cases/enum_demo.basic.tlsf"
+      },
+      {
+        "index": 425,
+        "before": [
+          [
+            "status",
+            [
+              "enum_demo.basic.tlsf",
+              "strict",
+              0
+            ]
+          ],
+          [
+            ".aag",
+            "aag 4 3 1 1 0 0 0 1 0\n2\n4\n6\n8 8 1\n8\n1\n1\ni0 uncontrollable_i0\ni1 controllable_o0\ni2 controllable_o1\nl0 monitor_0_state_0\no0 bad\nj0 guarantee_monitor_0\nc\ngenerated by gr1_monitor_game.py; one-hot DBA monitors\n"
+          ],
+          [
+            ".json",
+            {
+              "schema": "tlsf-tools.gr1-monitor-game.provenance.v3",
+              "provenance_source": "frontend",
+              "semantics": "strict",
+              "latch_encoding": "one-hot",
+              "inputs": [
+                {
+                  "name": "go",
+                  "base_name": "go",
+                  "index_tuple": [],
+                  "provenance_source": "frontend",
+                  "game_symbol": "uncontrollable_i0",
+                  "game_literal": 2,
+                  "direction": "input",
+                  "declaration_id": "input:1",
+                  "source_name": "go",
+                  "dimensions": 0,
+                  "bounds": [
+                    0,
+                    0
+                  ],
+                  "width": 1,
+                  "width_kind": "scalar",
+                  "width_expression": null,
+                  "width_parameter_ids": [],
+                  "width_binding_complete": true,
+                  "index_role": "scalar"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "st_0",
+                  "base_name": "st",
+                  "index_tuple": [
+                    0
+                  ],
+                  "provenance_source": "frontend",
+                  "game_symbol": "controllable_o0",
+                  "game_literal": 4,
+                  "direction": "output",
+                  "declaration_id": "output:1",
+                  "source_name": "st",
+                  "dimensions": 1,
+                  "bounds": [
+                    0,
+                    1
+                  ],
+                  "width": 2,
+                  "width_kind": "range",
+                  "width_expression": "1",
+                  "width_parameter_ids": [],
+                  "width_binding_complete": true,
+                  "index_role": "element"
+                },
+                {
+                  "name": "st_1",
+                  "base_name": "st",
+                  "index_tuple": [
+                    1
+                  ],
+                  "provenance_source": "frontend",
+                  "game_symbol": "controllable_o1",
+                  "game_literal": 6,
+                  "direction": "output",
+                  "declaration_id": "output:1",
+                  "source_name": "st",
+                  "dimensions": 1,
+                  "bounds": [
+                    0,
+                    1
+                  ],
+                  "width": 2,
+                  "width_kind": "range",
+                  "width_expression": "1",
+                  "width_parameter_ids": [],
+                  "width_binding_complete": true,
+                  "index_role": "element"
+                }
+              ],
+              "source_parameters": [],
+              "source_conjuncts": [
+                {
+                  "block": "ASSERT",
+                  "source_formula_id": "ASSERT:1",
+                  "source_node_id": 1,
+                  "generated_position": 0,
+                  "formula": "((false || false) || false)",
+                  "bindings": [],
+                  "signals": [],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "0",
+                  "signal_refs": []
+                },
+                {
+                  "block": "GUARANTEE",
+                  "source_formula_id": "GUARANTEE:1",
+                  "source_node_id": 12,
+                  "generated_position": 0,
+                  "formula": "G ((go -> false))",
+                  "bindings": [],
+                  "signals": [
+                    "go"
+                  ],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "G(!(go))",
+                  "signal_refs": [
+                    {
+                      "declaration_id": "input:1",
+                      "index_tuple": [],
+                      "index_role": "scalar"
+                    }
+                  ]
+                },
+                {
+                  "block": "GUARANTEE",
+                  "source_formula_id": "GUARANTEE:2",
+                  "source_node_id": 18,
+                  "generated_position": 0,
+                  "formula": "G ((false -> go))",
+                  "bindings": [],
+                  "signals": [
+                    "go"
+                  ],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "1",
+                  "signal_refs": [
+                    {
+                      "declaration_id": "input:1",
+                      "index_tuple": [],
+                      "index_role": "scalar"
+                    }
+                  ]
+                },
+                {
+                  "block": "GUARANTEE",
+                  "source_formula_id": "GUARANTEE:3",
+                  "source_node_id": 24,
+                  "generated_position": 0,
+                  "formula": "G (!(false))",
+                  "bindings": [],
+                  "signals": [],
+                  "unresolved_signal_reference": false,
+                  "normalized_formula": "1",
+                  "signal_refs": []
+                }
+              ],
+              "monitors": [
+                {
+                  "monitor": 0,
+                  "side": "guarantee",
+                  "mp_class": "B",
+                  "conjunct": "0",
+                  "construction_formula": "0",
+                  "template": "0",
+                  "template_source": "frontend",
+                  "index_tuple": [],
+                  "support": {
+                    "buses": {},
+                    "scalars": []
+                  },
+                  "arity_kind": "local",
+                  "state_count": 1,
+                  "latch_literals": [
+                    8
+                  ],
+                  "role": "bad",
+                  "source_origin": {
+                    "block": "ASSERT",
+                    "source_formula_id": "ASSERT:1",
+                    "source_node_id": 1,
+                    "generated_position": 0,
+                    "bindings": [],
+                    "index_tuple": [],
+                    "signal_refs": [],
+                    "signals": []
+                  },
+                  "provenance_source": "frontend",
+                  "source_binding": {
+                    "source_formula_id": "ASSERT:1",
+                    "generated_position": 0,
+                    "source_node_id": 1
+                  }
+                }
+              ],
+              "violated_latch_literal": null,
+              "source_origin_metadata": {
+                "available": true,
+                "provenance_source": "frontend",
+                "reason": null,
+                "source_sha256": "d16db65386ed88d900c6bc4c44ec7177365cbbaadaa7e8ae8c13b619a545b7f3"
+              }
+            }
+          ],
+          [
+            ".symbols",
+            "tlsf-tools.game-symbol-map.v1\n4a69f49c0a5873bb912dac6bb9cb709b834ee42c19914ddaacb8e97cf412542a\nI\tuncontrollable_i0\tgo\nO\tcontrollable_o0\tst_0\nO\tcontrollable_o1\tst_1\n"
+          ],
+          [
+            ".metadata.json",
+            {
+              "schema": "tlsf-tools.gr1-monitor-game.metadata.v1",
+              "semantics": "strict",
+              "game_sha256": "4a69f49c0a5873bb912dac6bb9cb709b834ee42c19914ddaacb8e97cf412542a",
+              "source_sha256": "d16db65386ed88d900c6bc4c44ec7177365cbbaadaa7e8ae8c13b619a545b7f3",
+              "monitor_count": 1,
+              "fallback_monitor_count": 0,
+              "justice_count": 1,
+              "fairness_count": 0
+            }
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "enum_demo.basic.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: comparison requires numbers or a bus and enum label\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: typing: comparison requires numbers or a bus and enum label",
+        "source": "test/fixtures/cases/enum_demo.basic.tlsf"
+      },
+      {
+        "index": 456,
+        "before": [
+          [
+            "status",
+            [
+              "err_sizeof.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: SIZEOF of unknown signal 'nope'\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "err_sizeof.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: scoping: free identifier 'nope' is not bound lexically\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: scoping: free identifier 'nope' is not bound lexically",
+        "source": "test/fixtures/cases/err_sizeof.tlsf"
+      },
+      {
+        "index": 458,
+        "before": [
+          [
+            "status",
+            [
+              "err_sizeof.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: SIZEOF of unknown signal 'nope'\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "err_sizeof.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: scoping: free identifier 'nope' is not bound lexically\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: scoping: free identifier 'nope' is not bound lexically",
+        "source": "test/fixtures/cases/err_sizeof.tlsf"
+      },
+      {
+        "index": 1100,
+        "before": [
+          [
+            "status",
+            [
+              "pattern_conflict_v12.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: Binding Error: pattern identifier 'a' has a conflicting definition\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "pattern_conflict_v12.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: binding collides with a declared identifier: a\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: typing: binding collides with a declared identifier: a",
+        "source": "test/fixtures/cases/pattern_conflict_v12.tlsf"
+      },
+      {
+        "index": 1102,
+        "before": [
+          [
+            "status",
+            [
+              "pattern_conflict_v12.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: Binding Error: pattern identifier 'a' has a conflicting definition\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "pattern_conflict_v12.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: binding collides with a declared identifier: a\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: typing: binding collides with a declared identifier: a",
+        "source": "test/fixtures/cases/pattern_conflict_v12.tlsf"
+      },
+      {
+        "index": 1480,
+        "before": [
+          [
+            "status",
+            [
+              "undeclared_at_atom.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "reduce status 7: reduce: >>> G ((uncontrollable_i0 -> controllable_o0) U ack@1)\n\n                                                   ^\nsyntax error, unexpected invalid token\n\n>>> G ((uncontrollable_i0 -> controllable_o0) U ack@1)\n\n                                                  \n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "undeclared_at_atom.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: scoping: free identifier 'ack@1' is not bound lexically\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: scoping: free identifier 'ack@1' is not bound lexically",
+        "source": "test/fixtures/cases/undeclared_at_atom.tlsf"
+      },
+      {
+        "index": 1482,
+        "before": [
+          [
+            "status",
+            [
+              "undeclared_at_atom.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "reduce status 7: reduce: >>> G ((uncontrollable_i0 -> controllable_o0) U ack@1)\n\n                                                   ^\nsyntax error, unexpected invalid token\n\n>>> G ((uncontrollable_i0 -> controllable_o0) U ack@1)\n\n                                                  \n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "undeclared_at_atom.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: scoping: free identifier 'ack@1' is not bound lexically\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: scoping: free identifier 'ack@1' is not bound lexically",
+        "source": "test/fixtures/cases/undeclared_at_atom.tlsf"
+      },
+      {
+        "index": 1484,
+        "before": [
+          [
+            "status",
+            [
+              "undef_def.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: no definition 'nope'/1\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "undef_def.tlsf",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: undefined function or wrong argument count: nope\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: typing: undefined function or wrong argument count: nope",
+        "source": "test/fixtures/cases/undef_def.tlsf"
+      },
+      {
+        "index": 1486,
+        "before": [
+          [
+            "status",
+            [
+              "undef_def.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: no definition 'nope'/1\n"
+          ]
+        ],
+        "after": [
+          [
+            "status",
+            [
+              "undef_def.tlsf",
+              "strict",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: undefined function or wrong argument count: nope\n"
+          ]
+        ],
+        "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.6: expand: typing: undefined function or wrong argument count: nope",
+        "source": "test/fixtures/cases/undef_def.tlsf"
+      }
+    ],
+    "monitor-game": [
+      {
+        "index": 128,
+        "before": [
+          [
+            "reduce",
+            [
+              "collision",
+              "exact",
+              3
+            ]
+          ],
+          [
+            "decline",
+            "reduce status 1: signals: expanded TLSF signal names are not unique\n"
+          ]
+        ],
+        "after": [
+          [
+            "reduce",
+            [
+              "collision",
+              "exact",
+              2
+            ]
+          ],
+          [
+            "decline",
+            "pipeline: expand: expand: typing: signal declaration 'a_0' collides with flattened bus bit 'a[0]'\n"
+          ]
+        ],
+        "reason": "Owner-authorized section 4.5 fail-closed flattened bus-bit declaration rule: reject a_0 colliding with a[0] during expansion, before monitor construction.",
+        "source_generator": "test/oracle/test_gr1_monitor_game.py",
+        "source_text": "INFO {\n  TITLE: \"language check\"\n  DESCRIPTION: \"generated\"\n  SEMANTICS: Mealy\n  TARGET: Mealy\n}\nMAIN {\n  INPUTS { a[0..1]; a_0; }\n  OUTPUTS { o; }\n  ASSUMPTIONS { true; }\n  GUARANTEES { G (a_0 -> o); }\n}\n",
+        "source_sha256": "58d6951f0ebb61b8840364690736d53f6eec51c522b929dc8f53eab86463f2cd"
+      }
+    ]
+  },
+  "added_sources_sha256": {
+    "src/lib/expand_check.c": "4011890fa64cad2f93af9e20738473a41ecef4cf7b72b36e80b90775b1b9a029",
+    "src/lib/expand_check.h": "151eb18baa4ea53d20d21014a64901c1b6d8822289ccb2db067e28ee53153b25",
+    "test/cli/check_scoping_110.py": "83c90172239e8300da0dd322b2a76d5e8aac4e72e566c3ccfd0d9bf588e7280f",
+    "test/cli/scoping_110_reviews.json": "5535afd35318d2053539a2c18d61fa0fcb129f55e397e7f30564a8c8335f85c3",
+    "test/fixtures/scoping110/aiger_unclassified_atom.stderr": "25f212893cdb94f8eac71218dba7cdc37f2548de8f3d463fbf5130b39f9cad4e",
+    "test/fixtures/scoping110/cup_overlap.tlsf": "21b22fe8198affe1e83c5e958527c454014435df164a7454ab6ec35c658a24b3",
+    "test/fixtures/scoping110/identity_strength.tlsf": "a2ba1f6339cba094ede9da63a70204a879a2bbc12e19cdeca2bd4aba9618ed72",
+    "test/fixtures/scoping110/identity_sugar.tlsf": "dd14f366e0ca0c18cf895fef1e58b8ffc1f86a060f9c1c96cc5a00adee1205a6",
+    "test/fixtures/scoping110/issue110.tlsf": "66e06421b00ba4ca52291c04fe66302224c1ba6f624525deafafc3281476418f",
+    "test/fixtures/scoping110/monitor/arbiter_on_inpchange_pb_2_pe_.tlsf": "6f2112518afcc1ae5ff53b1858ce2bc6d8f2f0c9ef7ba806d8eb0d1e03e2dca8",
+    "test/fixtures/scoping110/monitor/arbiter_pb_2_pe_.tlsf": "a24e877d3391007975625ccfd4d0c3030e425f96f68773749f82c53ee1dcc2c1",
+    "test/fixtures/scoping110/monitor/arbiter_pb_3_pe_.tlsf": "bd57031e8f400f9b3b380bf6901b75b3b252e6321c4d4769537fda94abbe5476",
+    "test/fixtures/scoping110/monitor/arbiter_pb_4_pe_.tlsf": "dcdf9e9fa3f53cd035ad20e4a4dd772f362c5fca9092a384960cc37cd4a64c1f",
+    "test/fixtures/scoping110/pattern_conflict_v12.stderr": "4a8ad491093da89fde953759cdd380b1e6428f060a3b41ae2830a729f83dcfe7",
+    "test/fixtures/scoping110/undeclared_at_atom.stderr": "be241718ead6f939b5f14f627e565da890636e4f28810dba8798ee1e9f433072",
+    "test/unit/expansion_scope.c": "83da75cf0d1f2b743af753d1151033e5017075727f27f91945243adaa947cb82",
+    "tools/analysis/impact110.py": "76925016f770093025fbb03bb22dc997efb83fc720291f25bb97fceb45c65bc1"
+  },
+  "golden_source_hash_occurrences": {},
+  "generated_source_repairs": [
+    {
+      "file": "test/cli/check_exactness_guards.py",
+      "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.3: formerly implicit atoms now reject; declared replacements retain existing target adaptation, solver/verdict and export comparisons."
+    },
+    {
+      "file": "test/oracle/test_compose_driver_semantics.py",
+      "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.3: formerly implicit atoms now reject; declared replacements retain existing target adaptation, solver/verdict and export comparisons."
+    },
+    {
+      "file": "test/oracle/test_decomposition_exactness.py",
+      "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.3: formerly implicit atoms now reject; declared replacements retain existing target adaptation, solver/verdict and export comparisons."
+    },
+    {
+      "file": "test/oracle/test_review4_exports.py",
+      "reason": "TLSF v1.1 \u00a7\u00a74.1\u20134.3: formerly implicit atoms now reject; declared replacements retain existing target adaptation, solver/verdict and export comparisons."
+    }
+  ],
+  "review110f_fixes": {
+    "flattened_signal_names": "Reject any signal declaration named <bus>_<i> for an actual declared bus bit, after resolving widths and parameter overrides; preserve injective identity in all expanded formats.",
+    "recursive_arguments": "TLSF v1.1 section 4.3 signal/boolean embedding into LTL remains available in recursive signatures; boolean-only constraints still narrow masks and logical operands.",
+    "enum_widths": "Static checks are exact only for direct unshadowed bus declarations. Runtime checks use the actual bus after argument substitution, lexical shadowing, branch selection and set difference/intersection.",
+    "bus_aliases": "Resolve lexical definitions and actuals to the declared bus before indexing, SIZEOF and identity-key expansion.",
+    "regressions": "571 CLI cases, including 30 exact third-review probes; C units cover boolean-only recursive guards in both inference orders, width selection and declaration-name collisions.",
+    "impact": "impact110g.tsv: same 1817 input paths and classified rows as impact110f.tsv, 1586 corpus cases byte-identical to main, no timeouts or other differences.",
+    "integration_expectations": "Frontend provenance now asserts collision rejection without emitted artifacts and accepts a noncolliding out-of-width scalar control. The original monitor-game collision source is retained, with additive records moving its rejection from monitor construction to expansion (status 3 to 2)."
+  },
+  "review110g_fixes": {
+    "flattened_names": "One complete arena-allocated/interned name constructor is shared by formula/key atoms, flattened declarations and declaration collision checks. Audited expansion, interners, identity keys and all library output printers: no other source-derived fixed name buffers on this path. LTL/LaTeX/quoted-LTL and TLSF printers stream full names.",
+    "recursive_instantiation": "Each function call copies its declaration type graph independently, preserving argument/result sharing within the instance. Recursive actuals never unify with caller formals. A fixed point propagates real type constraints through recursive/mutual calls; type copying and convergence have 2000-level guards matching expansion.",
+    "index_bounds": "Evaluated indices must lie within the resolved declared bus interval before producing an atom, including aliases, actuals and stored-set keys. Negative/out-of-range accesses reject with the resolved bus name, offending index and bounds; unselected accesses are not evaluated.",
+    "exact_alias_widths": "Static width validation follows only exact nullary identifier alias chains, using the alias declaration GLOBAL environment. It applies in unused definitions/unselected branches. Shadowed variables, selected/computed bus values and filtered domains retain exact checks against the actual expanded bus; no width propagation through type constraints.",
+    "regressions": "19 exact review110h probes appended to the review manifest; 341 additional paired/rejection cases, for 931 CLI cases plus 3 basic-TLSF complete-name roundtrips. C scope units add long-name, recursive/mutual-instantiation, true type-error, resolved index and exact alias-width checks.",
+    "impact": "impact110h.tsv: same 1817 paths; 1586 corpus cases accepted with byte-identical output to main, zero corpus changes/out-of-range rejections, zero timeouts or other differences. The six pre-existing test-input differences retain their prior classifications.",
+    "historical_artifacts": "No historical golden, fixture or ledger changed. Existing previous_sha256 and preserved artifact bindings retained; current hashes refreshed additively."
+  },
+  "review110h_fixes": {
+    "bus_bounds": "Shared unresolved/visiting/resolved declaration states resolve referenced bus bounds in the GLOBAL environment before SIZEOF, indexing, identity-key and enum-width reads. All declarations resolve before static width/name checks; cycles reject with a diagnostic instead of reading placeholder bounds. Dependency-state allocations short-circuit on the first failure, preserving the existing objective_alloc fault-sweep invariant.",
+    "fairness_binder": "Keep __tlsf_fair_i when unused; otherwise suffix until unused among inputs, outputs, parameters, definitions/functions, enum labels and enum types. The declaration freshness checker remains unchanged.",
+    "regressions": "22 additional CLI cases bring the total to 953, plus three complete-name basic-TLSF roundtrips and a fresh-fairness TLSF roundtrip. Cover both exact width examples, forward/chained/alias dependencies, cycles through SIZEOF/index/enum keys, actual enum widths, every global declaration category for fairness collisions, suffix retries and unchanged compound-guard rejection. C scope units add the two width examples and cycles; internal set-dedup setup supplies the shared dependency state.",
+    "historical_artifacts": "Existing previous_sha256 and preserved-artifact bindings retained. Add src/lib/spec.c source binding and refresh current source/test/document hashes; no historical golden, fixture or ledger changed.",
+    "impact": "impact110i.tsv: same 1817 paths and byte-identical TSV to impact110h.tsv; 1586 corpus cases accepted with byte-identical output to main, zero corpus changes, timeouts or other differences. Same six pre-existing test differences. tlsf2tlsf --fair-environment matches main on all 225 existing test TLSF fixtures, including the unchanged re-emission/basic/no-input fairness goldens."
+  },
+  "precedence110j": {
+    "date": "2026-11-07",
+    "reason": "TLSF v1.1 Table 1 (Jacobs, Klein, Schirmer, arXiv:1604.02284, p.118): exact precedence/associativity, full-expression guards and pattern matches. Historical ledger entries and goldens are unchanged; replacements are additive.",
+    "checks": [
+      "precedence_110",
+      "scoping_110",
+      "golden_provenance",
+      "full_meson_tests",
+      "lake_build",
+      "clang_format_22_1_8",
+      "impact110j_sequential_17s"
+    ],
+    "changed_golden_hashes": 0,
+    "source_rebindings": {
+      "README.md": {
+        "previous_sha256": "5e9b4c02d4555b64f655a4fa61b61e1b59bb8cc6f6bb1c32abd9668117c78cb9",
+        "current_sha256": "536cd65eec12c418d55f04d32d0fe49a75958287d76d2738dc1cf93c9509be8a"
+      },
+      "src/lib/tlsf.y": {
+        "previous_sha256": "ecd52597b0e81a0ba4461da7fc49223b9258d23215a35ee43cd653323d0fe00d",
+        "current_sha256": "8da2d2c277a8928a95929f03d9dd8aa1d82ec6fbac2d407412884c51e2be502d"
+      },
+      "test/cli/check_golden_provenance.py": {
+        "previous_sha256": "ca3f5d61345d89a8d24da8ec9bd2d7e45981961b82e6a867c610734e66c3dae4",
+        "current_sha256": "da96d595c0fa5ee787aca27d02f094c6c96d08cd3c5f9d9ca0e0f1db9877f326"
+      },
+      "test/cli/check_scoping_110.py": {
+        "previous_sha256": "83c90172239e8300da0dd322b2a76d5e8aac4e72e566c3ccfd0d9bf588e7280f",
+        "current_sha256": "f27970f868e9ad62ea63a409efe01b5c9184c13f671caff6abf0e0cd0c34cc45"
+      },
+      "test/cli/meson.build": {
+        "previous_sha256": "6913819d677bbdd3c0aaca0978ff33fb7ff0ab983413e3c279b7ae25cd243c7e",
+        "current_sha256": "a674afa254cd5df7ca7ecd174f52092339c66eaf8beff311724cf92a2f7ebbca"
+      },
+      "test/oracle/golden.py": {
+        "previous_sha256": "adbb4e99a066e2f260ef10aacdde217418385d2eaf679bd8e2975b0e73d2bbbd",
+        "current_sha256": "dab92913d2a49137b3dbe5cace374484243724b7cf56e7e07057bea556fc07ea"
+      }
+    },
+    "added_sources_sha256": {
+      "test/cli/check_precedence_110.py": "4cf65e6e5375757af465179ab253ab946e927475010fdb00ec597844cced56a2",
+      "test/fixtures/scoping110/precedence_v12.ltl": "8c674a88919ee5dbe5f5c65dc742aa3d3bcb664c855310bf81a977e349a15e12"
+    },
+    "fixture_replacements": {
+      "test/fixtures/cases/precedence_v12.ltl": {
+        "previous_sha256": "c8eed9d0a78d84c34763d8bc2837580b022d43400714e3dba622543f572d65a7",
+        "current_sha256": "8c674a88919ee5dbe5f5c65dc742aa3d3bcb664c855310bf81a977e349a15e12",
+        "replacement": "test/fixtures/scoping110/precedence_v12.ltl",
+        "reason": "Table 1 rows 15\u201316: a U b W c is a U (b W c), replacing the historical (a U b) W c expectation. R remains left-associative."
+      }
+    },
+    "record_replacements": {
+      "native-reduction": [
+        {
+          "index": 1128,
+          "source": "test/fixtures/cases/precedence_v12.tlsf",
+          "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6",
+          "reason": "Table 1 rows 15\u201316 change (a U b) W c to a U (b W c). The native monitor reducer declines this correctly parsed nested temporal formula as outside its proved fragment (status 3), instead of emitting the historical monitor game.",
+          "before": [
+            [
+              "status",
+              [
+                "precedence_v12.tlsf",
+                "exact",
+                0
+              ]
+            ],
+            [
+              ".aag",
+              "aag 74 4 10 1 60 0 0 2 0\n2\n4\n6\n8\n10 69 1\n12 75 0\n14 77 0\n16 79 0\n18 85 0\n20 125 1\n22 127 0\n24 129 0\n26 135 0\n28 141 0\n0\n1\n1\n143\n149\n30 4 7\n32 10 30\n34 6 10\n36 2 5\n38 7 36\n40 10 38\n42 3 5\n44 7 42\n46 10 44\n48 14 30\n50 4 6\n52 14 50\n54 14 38\n56 6 36\n58 14 56\n60 14 42\n62 4 16\n64 16 36\n66 16 42\n68 33 49\n70 13 35\n72 53 70\n74 63 72\n76 41 55\n78 59 65\n80 47 61\n82 67 80\n84 19 82\n86 7 20\n88 5 6\n90 20 88\n92 3 4\n94 6 92\n96 20 94\n98 2 4\n100 6 98\n102 20 100\n104 5 7\n106 22 104\n108 22 88\n110 7 92\n112 22 110\n114 22 94\n116 22 98\n118 5 24\n120 24 92\n122 24 98\n124 91 109\n126 97 115\n128 113 121\n130 87 107\n132 119 130\n134 27 132\n136 103 117\n138 123 136\n140 29 138\n142 11 13\n144 21 23\n146 25 144\n148 29 146\ni0 uncontrollable_i0\ni1 uncontrollable_i1\ni2 uncontrollable_i2\ni3 controllable_o0\nl0 monitor_0_state_0\nl1 monitor_0_state_1\nl2 monitor_0_state_2\nl3 monitor_0_state_3\nl4 monitor_0_state_4\nl5 monitor_1_state_0\nl6 monitor_1_state_1\nl7 monitor_1_state_2\nl8 monitor_1_state_3\nl9 monitor_1_state_4\no0 bad\nj0 guarantee_monitor_0\nj1 guarantee_monitor_1\nc\ngenerated by gr1_monitor_game.py; one-hot DBA monitors\n"
+            ],
+            [
+              ".json",
+              {
+                "schema": "tlsf-tools.gr1-monitor-game.provenance.v3",
+                "provenance_source": "frontend",
+                "semantics": "exact",
+                "latch_encoding": "one-hot",
+                "inputs": [
+                  {
+                    "name": "a",
+                    "base_name": "a",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "uncontrollable_i0",
+                    "game_literal": 2,
+                    "direction": "input",
+                    "declaration_id": "input:1",
+                    "source_name": "a",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  },
+                  {
+                    "name": "b",
+                    "base_name": "b",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "uncontrollable_i1",
+                    "game_literal": 4,
+                    "direction": "input",
+                    "declaration_id": "input:2",
+                    "source_name": "b",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  },
+                  {
+                    "name": "c",
+                    "base_name": "c",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "uncontrollable_i2",
+                    "game_literal": 6,
+                    "direction": "input",
+                    "declaration_id": "input:3",
+                    "source_name": "c",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "name": "o",
+                    "base_name": "o",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "controllable_o0",
+                    "game_literal": 8,
+                    "direction": "output",
+                    "declaration_id": "output:1",
+                    "source_name": "o",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  }
+                ],
+                "source_parameters": [],
+                "source_conjuncts": [
+                  {
+                    "block": "GUARANTEE",
+                    "source_formula_id": "GUARANTEE:1",
+                    "source_node_id": 1,
+                    "generated_position": 0,
+                    "formula": "((a U b) W c)",
+                    "bindings": [],
+                    "signals": [
+                      "a",
+                      "b",
+                      "c"
+                    ],
+                    "unresolved_signal_reference": false,
+                    "normalized_formula": "((a U b) W c)",
+                    "signal_refs": [
+                      {
+                        "declaration_id": "input:1",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:2",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:3",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      }
+                    ]
+                  },
+                  {
+                    "block": "GUARANTEE",
+                    "source_formula_id": "GUARANTEE:2",
+                    "source_node_id": 6,
+                    "generated_position": 0,
+                    "formula": "((a R b) R c)",
+                    "bindings": [],
+                    "signals": [
+                      "a",
+                      "b",
+                      "c"
+                    ],
+                    "unresolved_signal_reference": false,
+                    "normalized_formula": "((a R b) R c)",
+                    "signal_refs": [
+                      {
+                        "declaration_id": "input:1",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:2",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:3",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      }
+                    ]
+                  }
+                ],
+                "monitors": [
+                  {
+                    "monitor": 0,
+                    "side": "guarantee",
+                    "mp_class": "R",
+                    "conjunct": "((a U b) W c)",
+                    "construction_formula": "((a U b) W c)",
+                    "template": "((s_input_1 U s_input_2) W s_input_3)",
+                    "template_source": "frontend",
+                    "index_tuple": [],
+                    "support": {
+                      "buses": {},
+                      "scalars": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "arity_kind": "local",
+                    "state_count": 5,
+                    "latch_literals": [
+                      10,
+                      12,
+                      14,
+                      16,
+                      18
+                    ],
+                    "role": "justice",
+                    "source_origin": {
+                      "block": "GUARANTEE",
+                      "source_formula_id": "GUARANTEE:1",
+                      "source_node_id": 1,
+                      "generated_position": 0,
+                      "bindings": [],
+                      "index_tuple": [],
+                      "signal_refs": [
+                        {
+                          "declaration_id": "input:1",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:2",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:3",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        }
+                      ],
+                      "signals": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "provenance_source": "frontend",
+                    "justice_index": 0,
+                    "source_binding": {
+                      "source_formula_id": "GUARANTEE:1",
+                      "generated_position": 0,
+                      "source_node_id": 1
+                    }
+                  },
+                  {
+                    "monitor": 1,
+                    "side": "guarantee",
+                    "mp_class": "S",
+                    "conjunct": "((a R b) R c)",
+                    "construction_formula": "((a R b) R c)",
+                    "template": "((s_input_1 R s_input_2) R s_input_3)",
+                    "template_source": "frontend",
+                    "index_tuple": [],
+                    "support": {
+                      "buses": {},
+                      "scalars": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "arity_kind": "local",
+                    "state_count": 5,
+                    "latch_literals": [
+                      20,
+                      22,
+                      24,
+                      26,
+                      28
+                    ],
+                    "role": "justice",
+                    "source_origin": {
+                      "block": "GUARANTEE",
+                      "source_formula_id": "GUARANTEE:2",
+                      "source_node_id": 6,
+                      "generated_position": 0,
+                      "bindings": [],
+                      "index_tuple": [],
+                      "signal_refs": [
+                        {
+                          "declaration_id": "input:1",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:2",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:3",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        }
+                      ],
+                      "signals": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "provenance_source": "frontend",
+                    "justice_index": 1,
+                    "source_binding": {
+                      "source_formula_id": "GUARANTEE:2",
+                      "generated_position": 0,
+                      "source_node_id": 6
+                    }
+                  }
+                ],
+                "violated_latch_literal": null,
+                "source_origin_metadata": {
+                  "available": true,
+                  "provenance_source": "frontend",
+                  "reason": null,
+                  "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6"
+                }
+              }
+            ],
+            [
+              ".symbols",
+              "tlsf-tools.game-symbol-map.v1\n877aa4b939ab642d3f6d5057be9b4907c82089571e7c6ef903e0ef99f29219a9\nI\tuncontrollable_i0\ta\nI\tuncontrollable_i1\tb\nI\tuncontrollable_i2\tc\nO\tcontrollable_o0\to\n"
+            ],
+            [
+              ".metadata.json",
+              {
+                "schema": "tlsf-tools.gr1-monitor-game.metadata.v1",
+                "semantics": "exact",
+                "game_sha256": "877aa4b939ab642d3f6d5057be9b4907c82089571e7c6ef903e0ef99f29219a9",
+                "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6",
+                "monitor_count": 2,
+                "fallback_monitor_count": 0,
+                "justice_count": 2,
+                "fairness_count": 0
+              }
+            ]
+          ],
+          "after": [
+            [
+              "status",
+              [
+                "precedence_v12.tlsf",
+                "exact",
+                3
+              ]
+            ],
+            [
+              "decline",
+              "reduce status 1: mp-class: outside proved DPA Buchi fragment\n"
+            ]
+          ]
+        },
+        {
+          "index": 1133,
+          "source": "test/fixtures/cases/precedence_v12.tlsf",
+          "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6",
+          "reason": "Table 1 rows 15\u201316 change (a U b) W c to a U (b W c). The native monitor reducer declines this correctly parsed nested temporal formula as outside its proved fragment (status 3), instead of emitting the historical monitor game.",
+          "before": [
+            [
+              "status",
+              [
+                "precedence_v12.tlsf",
+                "strict",
+                0
+              ]
+            ],
+            [
+              ".aag",
+              "aag 74 4 10 1 60 0 0 1 0\n2\n4\n6\n8\n10 69 1\n12 75 0\n14 77 0\n16 79 0\n18 85 0\n20 125 1\n22 127 0\n24 129 0\n26 135 0\n28 141 0\n26\n1\n143\n30 4 7\n32 10 30\n34 6 10\n36 2 5\n38 7 36\n40 10 38\n42 3 5\n44 7 42\n46 10 44\n48 14 30\n50 4 6\n52 14 50\n54 14 38\n56 6 36\n58 14 56\n60 14 42\n62 4 16\n64 16 36\n66 16 42\n68 33 49\n70 13 35\n72 53 70\n74 63 72\n76 41 55\n78 59 65\n80 47 61\n82 67 80\n84 19 82\n86 7 20\n88 5 6\n90 20 88\n92 3 4\n94 6 92\n96 20 94\n98 2 4\n100 6 98\n102 20 100\n104 5 7\n106 22 104\n108 22 88\n110 7 92\n112 22 110\n114 22 94\n116 22 98\n118 5 24\n120 24 92\n122 24 98\n124 91 109\n126 97 115\n128 113 121\n130 87 107\n132 119 130\n134 27 132\n136 103 117\n138 123 136\n140 29 138\n142 11 13\n144 21 23\n146 25 144\n148 29 146\ni0 uncontrollable_i0\ni1 uncontrollable_i1\ni2 uncontrollable_i2\ni3 controllable_o0\nl0 monitor_0_state_0\nl1 monitor_0_state_1\nl2 monitor_0_state_2\nl3 monitor_0_state_3\nl4 monitor_0_state_4\nl5 monitor_1_state_0\nl6 monitor_1_state_1\nl7 monitor_1_state_2\nl8 monitor_1_state_3\nl9 monitor_1_state_4\no0 bad\nj0 guarantee_monitor_0\nc\ngenerated by gr1_monitor_game.py; one-hot DBA monitors\n"
+            ],
+            [
+              ".json",
+              {
+                "schema": "tlsf-tools.gr1-monitor-game.provenance.v3",
+                "provenance_source": "frontend",
+                "semantics": "strict",
+                "latch_encoding": "one-hot",
+                "inputs": [
+                  {
+                    "name": "a",
+                    "base_name": "a",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "uncontrollable_i0",
+                    "game_literal": 2,
+                    "direction": "input",
+                    "declaration_id": "input:1",
+                    "source_name": "a",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  },
+                  {
+                    "name": "b",
+                    "base_name": "b",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "uncontrollable_i1",
+                    "game_literal": 4,
+                    "direction": "input",
+                    "declaration_id": "input:2",
+                    "source_name": "b",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  },
+                  {
+                    "name": "c",
+                    "base_name": "c",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "uncontrollable_i2",
+                    "game_literal": 6,
+                    "direction": "input",
+                    "declaration_id": "input:3",
+                    "source_name": "c",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "name": "o",
+                    "base_name": "o",
+                    "index_tuple": [],
+                    "provenance_source": "frontend",
+                    "game_symbol": "controllable_o0",
+                    "game_literal": 8,
+                    "direction": "output",
+                    "declaration_id": "output:1",
+                    "source_name": "o",
+                    "dimensions": 0,
+                    "bounds": [
+                      0,
+                      0
+                    ],
+                    "width": 1,
+                    "width_kind": "scalar",
+                    "width_expression": null,
+                    "width_parameter_ids": [],
+                    "width_binding_complete": true,
+                    "index_role": "scalar"
+                  }
+                ],
+                "source_parameters": [],
+                "source_conjuncts": [
+                  {
+                    "block": "GUARANTEE",
+                    "source_formula_id": "GUARANTEE:1",
+                    "source_node_id": 1,
+                    "generated_position": 0,
+                    "formula": "((a U b) W c)",
+                    "bindings": [],
+                    "signals": [
+                      "a",
+                      "b",
+                      "c"
+                    ],
+                    "unresolved_signal_reference": false,
+                    "normalized_formula": "((a U b) W c)",
+                    "signal_refs": [
+                      {
+                        "declaration_id": "input:1",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:2",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:3",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      }
+                    ]
+                  },
+                  {
+                    "block": "GUARANTEE",
+                    "source_formula_id": "GUARANTEE:2",
+                    "source_node_id": 6,
+                    "generated_position": 0,
+                    "formula": "((a R b) R c)",
+                    "bindings": [],
+                    "signals": [
+                      "a",
+                      "b",
+                      "c"
+                    ],
+                    "unresolved_signal_reference": false,
+                    "normalized_formula": "((a R b) R c)",
+                    "signal_refs": [
+                      {
+                        "declaration_id": "input:1",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:2",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      },
+                      {
+                        "declaration_id": "input:3",
+                        "index_tuple": [],
+                        "index_role": "scalar"
+                      }
+                    ]
+                  }
+                ],
+                "monitors": [
+                  {
+                    "monitor": 0,
+                    "side": "guarantee",
+                    "mp_class": "R",
+                    "conjunct": "((a U b) W c)",
+                    "construction_formula": "((a U b) W c)",
+                    "template": "((s_input_1 U s_input_2) W s_input_3)",
+                    "template_source": "frontend",
+                    "index_tuple": [],
+                    "support": {
+                      "buses": {},
+                      "scalars": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "arity_kind": "local",
+                    "state_count": 5,
+                    "latch_literals": [
+                      10,
+                      12,
+                      14,
+                      16,
+                      18
+                    ],
+                    "role": "justice",
+                    "source_origin": {
+                      "block": "GUARANTEE",
+                      "source_formula_id": "GUARANTEE:1",
+                      "source_node_id": 1,
+                      "generated_position": 0,
+                      "bindings": [],
+                      "index_tuple": [],
+                      "signal_refs": [
+                        {
+                          "declaration_id": "input:1",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:2",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:3",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        }
+                      ],
+                      "signals": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "provenance_source": "frontend",
+                    "justice_index": 0,
+                    "source_binding": {
+                      "source_formula_id": "GUARANTEE:1",
+                      "generated_position": 0,
+                      "source_node_id": 1
+                    }
+                  },
+                  {
+                    "monitor": 1,
+                    "side": "guarantee",
+                    "mp_class": "S",
+                    "conjunct": "((a R b) R c)",
+                    "construction_formula": "((a R b) R c)",
+                    "template": "((s_input_1 R s_input_2) R s_input_3)",
+                    "template_source": "frontend",
+                    "index_tuple": [],
+                    "support": {
+                      "buses": {},
+                      "scalars": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "arity_kind": "local",
+                    "state_count": 5,
+                    "latch_literals": [
+                      20,
+                      22,
+                      24,
+                      26,
+                      28
+                    ],
+                    "role": "bad",
+                    "source_origin": {
+                      "block": "GUARANTEE",
+                      "source_formula_id": "GUARANTEE:2",
+                      "source_node_id": 6,
+                      "generated_position": 0,
+                      "bindings": [],
+                      "index_tuple": [],
+                      "signal_refs": [
+                        {
+                          "declaration_id": "input:1",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:2",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        },
+                        {
+                          "declaration_id": "input:3",
+                          "index_tuple": [],
+                          "index_role": "scalar"
+                        }
+                      ],
+                      "signals": [
+                        "a",
+                        "b",
+                        "c"
+                      ]
+                    },
+                    "provenance_source": "frontend",
+                    "source_binding": {
+                      "source_formula_id": "GUARANTEE:2",
+                      "generated_position": 0,
+                      "source_node_id": 6
+                    }
+                  }
+                ],
+                "violated_latch_literal": null,
+                "source_origin_metadata": {
+                  "available": true,
+                  "provenance_source": "frontend",
+                  "reason": null,
+                  "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6"
+                }
+              }
+            ],
+            [
+              ".symbols",
+              "tlsf-tools.game-symbol-map.v1\n564129bb52756b15cd9b43e87e305b5d4d798437a547b7dce44f385c2235ab98\nI\tuncontrollable_i0\ta\nI\tuncontrollable_i1\tb\nI\tuncontrollable_i2\tc\nO\tcontrollable_o0\to\n"
+            ],
+            [
+              ".metadata.json",
+              {
+                "schema": "tlsf-tools.gr1-monitor-game.metadata.v1",
+                "semantics": "strict",
+                "game_sha256": "564129bb52756b15cd9b43e87e305b5d4d798437a547b7dce44f385c2235ab98",
+                "source_sha256": "7ea74b2bbfa3a870a4ef77d0fd4cf1eda70bb581cda4a7de94a95d45cb5872a6",
+                "monitor_count": 2,
+                "fallback_monitor_count": 0,
+                "justice_count": 1,
+                "fairness_count": 0
+              }
+            ]
+          ],
+          "after": [
+            [
+              "status",
+              [
+                "precedence_v12.tlsf",
+                "strict",
+                3
+              ]
+            ],
+            [
+              "decline",
+              "reduce status 1: mp-class: outside proved DPA Buchi fragment\n"
+            ]
+          ]
+        },
+        {
+          "index": 1268,
+          "source": "test/fixtures/cases/recursion.reemit.tlsf",
+          "source_sha256": "87ccfd6edaba68327e68006814aed305c2b4ba42db76d8ae8a1d5dfe333b2540",
+          "reason": "Boolean guards now parse according to Table 1 row 19; this historical printer fixture still rejects its trailing unguarded false, with the diagnostic at the final semicolon instead of the formerly unsupported boolean guard colon. Rejection status is unchanged.",
+          "before": [
+            [
+              "status",
+              [
+                "recursion.reemit.tlsf",
+                "exact",
+                2
+              ]
+            ],
+            [
+              "decline",
+              "pipeline: parse: 15:26: parse error: syntax error, unexpected TOK_COLON\n"
+            ]
+          ],
+          "after": [
+            [
+              "status",
+              [
+                "recursion.reemit.tlsf",
+                "exact",
+                2
+              ]
+            ],
+            [
+              "decline",
+              "pipeline: parse: 15:74: parse error: syntax error, unexpected TOK_SEMI\n"
+            ]
+          ]
+        },
+        {
+          "index": 1270,
+          "source": "test/fixtures/cases/recursion.reemit.tlsf",
+          "source_sha256": "87ccfd6edaba68327e68006814aed305c2b4ba42db76d8ae8a1d5dfe333b2540",
+          "reason": "Boolean guards now parse according to Table 1 row 19; this historical printer fixture still rejects its trailing unguarded false, with the diagnostic at the final semicolon instead of the formerly unsupported boolean guard colon. Rejection status is unchanged.",
+          "before": [
+            [
+              "status",
+              [
+                "recursion.reemit.tlsf",
+                "strict",
+                2
+              ]
+            ],
+            [
+              "decline",
+              "pipeline: parse: 15:26: parse error: syntax error, unexpected TOK_COLON\n"
+            ]
+          ],
+          "after": [
+            [
+              "status",
+              [
+                "recursion.reemit.tlsf",
+                "strict",
+                2
+              ]
+            ],
+            [
+              "decline",
+              "pipeline: parse: 15:74: parse error: syntax error, unexpected TOK_SEMI\n"
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "precedence110k": {
+    "date": "2026-11-07",
+    "reason": "Retain main's reading of the TLSF v1.1 \u00a74.6 (ec)+ case-separator ambiguity at unary-minus, call/parenthesised-guard and shared reduction-prefix boundaries; Table 1 still governs each case. Historical sections and all golden hashes are unchanged.",
+    "checks": [
+      "precedence_110",
+      "case_boundaries_110",
+      "case_boundaries_vs_main",
+      "golden_provenance",
+      "full_meson_tests",
+      "lake_build",
+      "clang_format_22_1_8",
+      "impact110k_sequential_17s"
+    ],
+    "changed_golden_hashes": 0,
+    "source_rebindings": {
+      "README.md": {
+        "previous_sha256": "536cd65eec12c418d55f04d32d0fe49a75958287d76d2738dc1cf93c9509be8a",
+        "current_sha256": "fad0509f4d5750f6ece5a91a57e33fed67bf11cc3ca3045ebbc315f1b8583242"
+      },
+      "src/lib/tlsf.y": {
+        "previous_sha256": "8da2d2c277a8928a95929f03d9dd8aa1d82ec6fbac2d407412884c51e2be502d",
+        "current_sha256": "f651baa79e274daf421cf76d7783ff959dd2d23c0f7a824630d7666bd2a0c98f"
+      },
+      "test/cli/check_golden_provenance.py": {
+        "previous_sha256": "da96d595c0fa5ee787aca27d02f094c6c96d08cd3c5f9d9ca0e0f1db9877f326",
+        "current_sha256": "f9d6b95f7486c2d3b9d8719c189cddc0d4919f4421f73c22ce58bf83940c7040"
+      },
+      "test/cli/meson.build": {
+        "previous_sha256": "a674afa254cd5df7ca7ecd174f52092339c66eaf8beff311724cf92a2f7ebbca",
+        "current_sha256": "bd49fc08d5da05b8302888d5e7ba472d9f56f8a625a707785e71d6f998b934c3"
+      }
+    },
+    "added_sources_sha256": {
+      "test/cli/check_case_boundaries_110.py": "75b677540a1e495cc32917828b420952c0adbaff42870195d7059a554c7f374c"
+    }
+  },
+  "precedence110l": {
+    "date": "2026-11-08",
+    "reason": "TLSF v1.1 \u00a74.6: one compatibility pre-pass uses the frozen main LALR/GLR grammar to select case boundaries and replays tokens with explicit separators; the normal parser applies Table 1 within the selected cases. Historical receipts and golden bytes remain unchanged.",
+    "checks": [
+      "precedence_110",
+      "case_boundaries_110",
+      "differential110l_generated_partitions",
+      "golden_provenance",
+      "full_meson_tests",
+      "lake_build",
+      "clang_format_22_1_8",
+      "impact110l_sequential_17s"
+    ],
+    "changed_golden_hashes": 0,
+    "source_rebindings": {
+      "README.md": {
+        "previous_sha256": "fad0509f4d5750f6ece5a91a57e33fed67bf11cc3ca3045ebbc315f1b8583242",
+        "current_sha256": "ccfba8ca4a3b32e52b6b06a77d39103049f50abef5ba4e4a4bc6c13e1c989694"
+      },
+      "src/lib/tlsf.y": {
+        "previous_sha256": "f651baa79e274daf421cf76d7783ff959dd2d23c0f7a824630d7666bd2a0c98f",
+        "current_sha256": "87ae5e0e2056b7b8606378b100e2dfeb6f7eb581f86c7a6fe019d6ff2d7b75a9"
+      },
+      "test/cli/check_case_boundaries_110.py": {
+        "previous_sha256": "75b677540a1e495cc32917828b420952c0adbaff42870195d7059a554c7f374c",
+        "current_sha256": "62740f6d841cc0cd607d88ac4bd8037eda5c44d4ca5aeea5c429c9b345de1238"
+      },
+      "test/cli/check_golden_provenance.py": {
+        "previous_sha256": "f9d6b95f7486c2d3b9d8719c189cddc0d4919f4421f73c22ce58bf83940c7040",
+        "current_sha256": "c921f025d6f235017fb6fdeb38fe79dd166f8b7783afb7871ec8329fa0b0a671"
+      },
+      "src/lib/meson.build": {
+        "previous_sha256": "54e9dc9be6187796e90fd0349473e7ce31121d4ed775185998e28f51c99d450b",
+        "current_sha256": "ec1037a2cd815761bd82f1d0e297ebdb39075118aded074f85e232a76f9d959f"
+      },
+      "src/lib/spec_parse.c": {
+        "previous_sha256": "567c8d3180f4ac44a4961cb7bb8b33a3ebcd8bb4ace73c15288f2bad6853b109",
+        "current_sha256": "dc896bf41e6dc4fec679edfe9fda6d4d98329f1b27b6e749c736516bc441d05e"
+      }
+    },
+    "added_sources_sha256": {
+      "src/lib/case_boundaries.c": "03545629fac1f6ad8d87e146f700cc001c3cd85599389109849d21d8c31f38de",
+      "src/lib/case_boundaries.h": "dc3de46c26533177ffe0f950405f22dc2d9a213e9836136b6bb8e2c232634a9a",
+      "src/lib/tlsf_boundary.y": "c546b24780442925e979fc28486f25eae7e24e8f503cc4eeb6b0c245c31cc6ac"
+    },
+    "frozen_main_grammar": {
+      "commit": "f872a3a421882a916308aa5b3104abe9d2fc4cfc",
+      "source_sha256": "ecd52597b0e81a0ba4461da7fc49223b9258d23215a35ee43cd653323d0fe00d",
+      "adaptations": [
+        "API/token namespace",
+        "token replay through a synthetic finite wrapper",
+        "silent syntax diagnostics",
+        "case-position receipts"
+      ]
+    }
+  }
+}

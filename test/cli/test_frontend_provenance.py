@@ -66,12 +66,18 @@ MAIN {
 }
 ''')
     output = directory / "collision.json"
-    run(str(tool), "--provenance-out", str(output),
-        "--output", str(directory / "collision-basic.tlsf"), str(source))
-    data = json.loads(output.read_text())
-    assert data["ambiguous"] is True
-    assert [s["name"] for s in data["signals"]].count("a_0") == 2
-    assert any(c["unresolved_signal_reference"] for c in data["conjuncts"])
+    basic = directory / "collision-basic.tlsf"
+    result = subprocess.run([str(tool), "--provenance-out", str(output),
+                             "--output", str(basic), str(source)],
+                            text=True, capture_output=True, timeout=30)
+    assert result.returncode != 0 and not result.stdout, result
+    assert "signal declaration 'a_0' collides with flattened bus bit 'a[0]'" in result.stderr
+    assert not output.exists() and not basic.exists()
+    # A scalar resembling an out-of-width bit is distinct and remains valid.
+    source.write_text(source.read_text().replace("a_0", "a_2"))
+    data, _ = make_provenance(tool, source, directory)
+    assert [s["name"] for s in data["signals"]] == ["a_0", "a_1", "a_2", "o"]
+    assert not any(c["unresolved_signal_reference"] for c in data["conjuncts"])
 
 
 def differential(args, source: pathlib.Path, directory: pathlib.Path) -> dict:

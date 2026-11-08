@@ -212,12 +212,44 @@ static Node *fair_input_formula(TlsfSpec *spec, const SignalDecl *signal,
   return quantified;
 }
 
+// §4.6–4.7 freshness also applies to generated binders. Preserve the usual
+// spelling for re-emission, suffixing only when a declaration already uses it.
+static bool declared_name(const TlsfSpec *spec, const char *name) {
+  if (signal_name_in(name, spec->inputs, spec->input_count) ||
+      signal_name_in(name, spec->outputs, spec->output_count))
+    return true;
+  for (uint16_t i = 0; i < spec->param_count; i++)
+    if (spec->params[i].name == name)
+      return true;
+  for (uint16_t i = 0; i < spec->def_count; i++)
+    if (spec->defs[i].name == name)
+      return true;
+  for (uint16_t i = 0; i < spec->enum_label_count; i++)
+    if (spec->enum_labels[i].name == name)
+      return true;
+  for (uint16_t i = 0; i < spec->enum_type_count; i++)
+    if (spec->enum_types[i].name == name)
+      return true;
+  return false;
+}
+
+static const char *fair_index_name(TlsfSpec *spec) {
+  const char *name = intern(spec->intern, "__tlsf_fair_i");
+  for (uint64_t suffix = 1; name && declared_name(spec, name); suffix++) {
+    char buffer[64];
+    snprintf(buffer, sizeof buffer, "__tlsf_fair_i_%llu",
+             (unsigned long long)suffix);
+    name = intern(spec->intern, buffer);
+  }
+  return name;
+}
+
 bool spec_add_fair_environment(TlsfSpec *spec) {
   const char *index = nullptr;
   for (uint32_t i = 0; i < spec->input_count; i++) {
     const SignalDecl *signal = &spec->inputs[i];
     if (signal->is_bus && !index) {
-      index = intern(spec->intern, "__tlsf_fair_i");
+      index = fair_index_name(spec);
       if (!index)
         return false;
     }

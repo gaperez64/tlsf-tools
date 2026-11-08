@@ -1,0 +1,4 @@
+INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }
+MAIN { OUTPUTS { o; }
+GUARANTEES { &&[f IN CUP[k IN {1,2}] {X[k] o, X[1] o}] f; }
+}

@@ -8,7 +8,8 @@ substitution, or expansion in a fixed environment preserves equality. The
 explicit lowering below records the core and bounded temporal cases; the
 environment supplies the existing integer/guard evaluator and expansion of
 names, calls, patterns, bus accesses, and reductions. Those evaluators are not
-verified here. There is no claim about two different environments.
+verified here. Issue #110 additionally covers different environments under
+the explicit premise that their desugared cores are equal.
 -/
 namespace Tlsf.SetDedup
 
@@ -42,7 +43,8 @@ inductive SetKind where
 
 mutual
   /-- Active payloads only. `absent` represents a null optional child (qset or
-  range endpoints). Names model interned identifiers. Array lengths model
+  range endpoints). Names model interned identifiers. The C resolved_signal marker controls
+  source lookup only; it is erased when comparing captured/core atom syntax. Array lengths model
   call_argc/set_size; array addresses and unused union arms are not syntax. -/
   inductive HNode where
     | absent | tt | ff
@@ -157,6 +159,24 @@ def boundedRange (kind : RangeKind) (strong : Bool) (lo hi : Nat)
   rangeFold (kind == .globally)
     ((List.range' lo (hi + 1 - lo)).map (fun k => indexedNext strong k body))
 
+/-- Literal §4.8 range sugar, used for set identity keys. Ordinary output
+keeps the equivalent distributed `boundedRange` spelling. -/
+def literalRangeTail (all strong : Bool) (body : Formula α) : Nat → Formula α
+  | 0 => body
+  | n+1 => if all then .conj body (indexedNext strong 1 (literalRangeTail all strong body n))
+      else .disj body (indexedNext strong 1 (literalRangeTail all strong body n))
+
+def literalRange (kind : RangeKind) (strong : Bool) (lo hi : Nat)
+    (body : Formula α) : Formula α :=
+  if lo > hi then (if kind == .globally then .tt else .ff)
+  else indexedNext strong lo (literalRangeTail (kind == .globally) strong body (hi - lo))
+
+theorem section48_eventually (a : Formula α) :
+    literalRange .eventually false 2 3 a = .next (.next (.disj a (.next a))) := rfl
+
+theorem section48_globally (a : Formula α) :
+    literalRange .globally false 1 3 a = .next (.conj a (.next (.conj a (.next a)))) := rfl
+
 /-- A fixed admitted expansion environment. `integer` gives successfully
 evaluated nonnegative counts/bounds (negative bounds are rejected by C).
 `guard` evaluates ordinary definition guards. `resolve` gives the expansion
@@ -168,6 +188,7 @@ structure LowerEnv (α : Type) where
   integer : HNode → Nat
   guard : HNode → Bool
   resolve : HNode → Formula α
+  range : RangeKind → Bool → Nat → Nat → Formula α → Formula α := boundedRange
 
 /-- Temporal lowering in expand_node. Remaining evaluation is supplied by the
 same fixed environment for both nodes. Formula-valued binders are included in
@@ -190,7 +211,7 @@ def lower (env : LowerEnv α) : HNode → Formula α
   | .binary .strongRelease a b => .strongRelease (lower env a) (lower env b)
   | .nextN strong count body => indexedNext strong (env.integer count) (lower env body)
   | .range kind lo hi body strong =>
-      boundedRange kind strong (env.integer lo) (env.integer hi) (lower env body)
+      env.range kind strong (env.integer lo) (env.integer hi) (lower env body)
   | .ite (.binary .matchGuard a p) t e =>
       env.resolve (.ite (.binary .matchGuard a p) t e)
   | .ite c t e => if env.guard c then lower env t else lower env e
@@ -222,6 +243,32 @@ theorem dedup_disj (env : LowerEnv α) {a b : HNode} (h : structEq a b = true) :
   simp only [Sat, or_self]
   exact ⟨And.right, fun hs => ⟨sat_inRange hs, hs⟩⟩
 
+/-- Issue #110: identity compares desugared cores, even when the closed
+high-level elements (and the environments used to lower them) differ.
+The trusted C obligations are closing and correspondence with `lower`.
+The length is arbitrary: `none` is infinite and `some n` is finite. -/
+theorem coreEq_denotation (left right : LowerEnv α) {a b : HNode}
+    (h : lower left a = lower right b) :
+    ∀ len w j, Sat len w (lower left a) j ↔ Sat len w (lower right b) j := by
+  rw [h]
+  exact fun _ _ _ => Iff.rfl
+
+theorem dedup_core_conj (left right : LowerEnv α) {a b : HNode}
+    (h : lower left a = lower right b) :
+    Sat len w (.conj (lower left a) (lower right b)) j ↔
+      Sat len w (lower left a) j := by
+  rw [← h]
+  simp only [Sat, and_self]
+  exact ⟨And.right, fun hs => ⟨sat_inRange hs, hs⟩⟩
+
+theorem dedup_core_disj (left right : LowerEnv α) {a b : HNode}
+    (h : lower left a = lower right b) :
+    Sat len w (.disj (lower left a) (lower right b)) j ↔
+      Sat len w (lower left a) j := by
+  rw [← h]
+  simp only [Sat, or_self]
+  exact ⟨And.right, fun hs => ⟨sat_inRange hs, hs⟩⟩
+
 def weakOne : HNode := .nextN false (.int 1) .tt
 def strongOne : HNode := .nextN true (.int 1) .tt
 
@@ -232,6 +279,12 @@ def literalEnv : LowerEnv String where
   integer := fun n => match n with | .int i => i.toNat | _ => 0
   guard := fun _ => false
   resolve := fun n => match n with | .ap s => .ap s | _ => .ff
+
+/-- §4.8's indexed-next sugar has a different high-level spelling but the
+same core identity. `indexedNext` reuses `Rewrites.next_power`. -/
+theorem issue110_next_sugar (name : String) :
+    lower literalEnv (.nextN false (.int 1) (.ap name)) =
+      lower literalEnv (.unary .next (.ap name)) := rfl
 
 theorem issue108_terminal (w : Word String) :
     Sat (some 1) w (lower literalEnv weakOne) 0 ∧

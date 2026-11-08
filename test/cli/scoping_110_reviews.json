@@ -1,0 +1,1508 @@
+[
+  {
+    "name": "review110-combined-probes/bus-regression.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = x[0]; } }\nMAIN { OUTPUTS { b[1]; x[1]; }\n  GUARANTEES { &&[f IN CUP[b IN {1}] {d(b)}] f; }\n}\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/bus_alias.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = &&[k IN {1}] x[0]; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN {d(o)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/bus_chain.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL {  DEFINITIONS { d(x) = e(x); e(z) = z[0]; } }\nMAIN { OUTPUTS { b[1]; x[1]; z[1]; o; } GUARANTEES { &&[b IN {1}] d(b); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/bus_formal.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = x[0]; } }\nMAIN { OUTPUTS { b[1]; x[1]; o; } GUARANTEES { &&[b IN {1}] d(b); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/bus_formal_set.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = x[0]; } }\nMAIN { OUTPUTS { b[1]; x[1]; o; } GUARANTEES { &&[f IN CUP[b IN {1}] {d(b)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/bus_index_and_count.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL {  DEFINITIONS { d(x,n) = x[n]; } }\nMAIN { OUTPUTS { b[2]; x[2]; o; } GUARANTEES { &&[b IN {1}] d(b,b); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/callerformal_binder.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(k) = &&[k IN {2}] e; e = k == 1 : true otherwise : false; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN {d(1)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/capture_alias.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = e(x); e(x) = k == 1 : true otherwise : false; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN {X d(0)}] &&[k IN {1}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/chain_call.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = e(x); e(x) = z; z = k == 1 : true otherwise : false; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {X[k] d(0)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/chain_formal_shadow.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(k) = e(0); e(k) = z; z = k == 1 : true otherwise : false; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {X[k] d(0)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum-neq.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {b != k}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum-nested.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {&&[g IN {b == k}] g}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum-range.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {G[!0:0] (b == k)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum-regression.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; }\n  GUARANTEES { &&[f IN CUP[k IN {1}] {b == k}] f; }\n}\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum-reverse.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {k == b}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum-strong_next.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {X[!1] (b == k)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_call.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { Choice b; } GUARANTEES { &&[k IN {1}] id(b == k); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { Choice b; } GUARANTEES { &&[k IN {1}] (b == k); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_global_param.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { PARAMETERS { k = 1; } DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN {b == k}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_plain.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { Choice b; } GUARANTEES { b == k; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "G (!b_0 || b_0) && !b_0\n"
+  },
+  {
+    "name": "review110-combined-probes/enum_shadow_call.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { Choice b; } GUARANTEES { &&[k IN {1}] id(k); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_simple_call.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[k IN {1}] id(b == k); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_simple_call_in_set.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {id(b == k)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_simple_direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[k IN {1}] (b == k); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_simple_stored.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {b == k}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_simple_unequal.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {b != k}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_size.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { Choice b; } GUARANTEES { &&[f IN CUP[k IN {1}] {X (b == k)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/enum_stored.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; id(x) = x; } }\nMAIN { OUTPUTS { Choice b; } GUARANTEES { &&[f IN CUP[k IN {1}] {b == k}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/formal_uses_outer.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = &&[k IN {2}] X[x] o; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[k IN {1}] d(k); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/formula_hidden.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = e; e = k; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN {&&[k IN {o}] X d(0)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/formula_scoped_actual.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { id(x) = x; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN {o}] &&[o IN {1}] (id(f) == 1); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/guard.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {X[k] d}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/guard_error.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : X[missing] o otherwise : o; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {X[k] d}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/integer_hidden.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = e; e = k == 1 : true otherwise : false; } }\nMAIN { INPUTS { k; } OUTPUTS { o; } GUARANTEES { &&[f IN {&&[k IN {1}] X d(0)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/pair-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } }\nMAIN { INPUTS { k; j; i; } OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (&&[g IN CAP[k IN {1,2}] {X[k] o}] g); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/pair-stored.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } }\nMAIN { INPUTS { k; j; i; } OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {&&[g IN CAP[k IN {1,2}] {X[k] o}] g}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/width_direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } }\nMAIN { OUTPUTS { b[2]; x[1]; o; } GUARANTEES { &&[b IN {1}] X[SIZEOF b] o; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/width_formal.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } }\nMAIN { OUTPUTS { b[2]; x[1]; o; } GUARANTEES { &&[b IN {1}] d(b); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110-combined-probes/width_formal_set.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } }\nMAIN { OUTPUTS { b[2]; x[1]; o; } GUARANTEES { &&[f IN CUP[b IN {1}] {d(b)}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/call-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] use(f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/copy-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Moore; TARGET: Moore; } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { G[0:2] o || X (G[0:2] o); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "o && X o && X X o || X (o && X o && X X o)\n"
+  },
+  {
+    "name": "review110c-probes/copy-stored.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Moore; TARGET: Moore; } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[S IN {{G[0:2] o}}] &&[f IN S] (f || X f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "o && X o && X X o || X (o && X o && X X o)\n"
+  },
+  {
+    "name": "review110c-probes/enum-core-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; } } MAIN { OUTPUTS { b[1]; c[1]; o; } GUARANTEES { c == b[0]; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-core-ite.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; } } MAIN { OUTPUTS { b[1]; c[1]; o; } GUARANTEES { &&[f IN {X[0] b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-core.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; } } MAIN { OUTPUTS { b[1]; c[1]; o; } GUARANTEES { &&[f IN {b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-0-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-0-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c == (b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-1-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (f == c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-1-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (b[0]) == c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-2-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (c != f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-2-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c != (b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-3-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (f != c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-3-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (b[0]) != c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-4-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (check(f)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-4-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { check(b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-5-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (!f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-5-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { !(b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-6-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {b[0]}] (X[!] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-0-6-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { X[!] (b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-0-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-0-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c == (X[0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-1-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (f == c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-1-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (X[0] b[0]) == c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-2-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (c != f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-2-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c != (X[0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-3-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (f != c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-3-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (X[0] b[0]) != c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-4-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (check(f)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-4-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { check(X[0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-5-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (!f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-5-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { !(X[0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-6-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {X[0] b[0]}] (X[!] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-1-6-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { X[!] (X[0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-0-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-0-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c == (G[0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-1-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (f == c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-1-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (G[0:0] b[0]) == c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-2-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (c != f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-2-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c != (G[0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-3-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (f != c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-3-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (G[0:0] b[0]) != c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-4-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (check(f)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-4-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { check(G[0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-5-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (!f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-5-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { !(G[0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-6-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {G[0:0] b[0]}] (X[!] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-2-6-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { X[!] (G[0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-0-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-0-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c == (F[!0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-1-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (f == c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-1-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (F[!0:0] b[0]) == c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-2-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (c != f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-2-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c != (F[!0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-3-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (f != c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-3-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (F[!0:0] b[0]) != c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-4-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (check(f)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-4-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { check(F[!0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-5-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (!f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-5-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { !(F[!0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-6-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {F[!0:0] b[0]}] (X[!] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-3-6-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { X[!] (F[!0:0] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-0-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-0-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c == (&&[k IN {1}] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-1-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (f == c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-1-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (&&[k IN {1}] b[0]) == c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-2-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (c != f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-2-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c != (&&[k IN {1}] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-3-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (f != c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-3-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (&&[k IN {1}] b[0]) != c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-4-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (check(f)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-4-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { check(&&[k IN {1}] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-5-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (!f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-5-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { !(&&[k IN {1}] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-6-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {&&[k IN {1}] b[0]}] (X[!] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-4-6-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { X[!] (&&[k IN {1}] b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-0-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (c == f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-0-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c == (choose(0)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-1-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (f == c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-1-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (choose(0)) == c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-2-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (c != f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-2-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { c != (choose(0)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-3-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (f != c); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-3-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { (choose(0)) != c; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-4-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (check(f)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-4-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { check(choose(0)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-5-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (!f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-5-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { !(choose(0)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-6-0.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { &&[f IN {choose(0)}] (X[!] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-matrix-5-6-1.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; check(x) = c == x; choose(x) = 1 == 1 : b[0] otherwise : false; } } MAIN { OUTPUTS { b[1]; c[1]; } GUARANTEES { X[!] (choose(0)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/enum-minimal.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = b_0: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; c[1]; }\n GUARANTEES { &&[f IN {b[0]}] (c == f); }\n}\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/exists-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] ||[i IN {1}] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/forall-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] &&[i IN {1}] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/formula-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] &&[i IN {o}] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/frange-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] &&[i IN {1}] F[!i:i] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/grange-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] &&[i IN {1}] G[i:i] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/identifier-core.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = x[0]; } } MAIN { OUTPUTS { b[1]; o; } GUARANTEES { &&[f IN {X[0] b}] d(f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/identifier-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = x[0]; } } MAIN { OUTPUTS { b[1]; o; } GUARANTEES { d(X[0] b); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/int-formula.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; } GUARANTEES { &&[o IN {1}] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/inter-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] &&[g IN CAP[i IN {1}] {f}] g; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/matrix-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } } MAIN { INPUTS { k; j; i; } OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (&&[g IN CAP[k IN {1,2}] {X[k] o}] g); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/matrix-stored.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } } MAIN { INPUTS { k; j; i; } OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {&&[g IN CAP[k IN {1,2}] {X[k] o}] g}] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/product-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] X[*[i IN {1}] SIZE {f}] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/sizeof-core.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } } MAIN { OUTPUTS { b[2]; o; } GUARANTEES { &&[f IN {X[0] b}] d(f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/sizeof-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } } MAIN { OUTPUTS { b[2]; o; } GUARANTEES { d(X[0] b); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/sizeof-scalar-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { d(X[0] i); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/sizeof-scalar-stored.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { d(x) = X[SIZEOF x] o; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X[0] i}] d(f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/sum-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] X[+[i IN {1}] SIZE {f}] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/syntax-diff.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; } GUARANTEES { &&[f IN ({X[1] o} (-) {X o})] false; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "true\n"
+  },
+  {
+    "name": "review110c-probes/syntax-equality.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; } GUARANTEES { X[1] o == X o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110c-probes/syntax-member.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; } GUARANTEES { X[1] o IN {X o}; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "X false\n"
+  },
+  {
+    "name": "review110c-probes/syntax-size.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; } GUARANTEES { SIZE {X[1] o, X o} == 2; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "false\n"
+  },
+  {
+    "name": "review110c-probes/syntax-sum.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; } GUARANTEES { X[+[f IN {X[1] o, X o}] 1] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "X o\n"
+  },
+  {
+    "name": "review110c-probes/union-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { use(x) = &&[i IN {o}] x; } } MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEES { &&[f IN {X i}] &&[g IN CUP[i IN {1}] {f}] g; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/blocker-capture.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; } }\nMAIN { OUTPUTS { o; }\n  GUARANTEES { &&[k IN {1}] &&[f IN {&&[k IN {o}] X d}] f; }\n}\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/blocker-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { b[1]; }\n  GUARANTEES { &&[f IN CAP[b IN {1,2}] {b[0]}] f; }\n}\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/bus-alias-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(x) = x[0]; } }\nMAIN { OUTPUTS { b[1]; x[1]; o; } GUARANTEES { SIZE (CUP[b IN {1,2}] {X d(b)}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/bus-identity-sum.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } }\nMAIN { OUTPUTS { b[1]; o; } GUARANTEES { X[+[f IN CUP[b IN {1,2}] {b[0]}] 1] o; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/bus-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } }\nMAIN { OUTPUTS { b[1]; o; } GUARANTEES { SIZE (CUP[b IN {1,2}] {b[0]}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/bus-inter-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[f IN CAP[b IN {1,2}] {b[0]}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/enum-identity-control.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; o; } GUARANTEES { SIZE {b == k} == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "true\n"
+  },
+  {
+    "name": "review110d-probes/enum-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { enum Choice = k: 0 other: 1; } }\nMAIN { OUTPUTS { b[1]; o; } GUARANTEES { SIZE (CUP[k IN {1,2}] {b == k}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/formal-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d(k) = X[k] o; } }\nMAIN { OUTPUTS { o; } GUARANTEES { SIZE (CUP[k IN {1,2}] {X d(1)}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "true\n"
+  },
+  {
+    "name": "review110d-probes/formula-shadow-exists.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[k IN {1}] &&[f IN {||[k IN {o}] X d}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/formula-shadow-hidden-cup.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[f IN CUP[k IN {1}] {&&[k IN {o}] X d}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/formula-shadow-hidden-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[k IN {1}] &&[k IN {o}] X d; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/formula-shadow-hidden-fail-direct.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[k IN {1}] &&[k IN {o}] X bad; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/formula-shadow-hidden-fail.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[k IN {1}] &&[f IN {&&[k IN {o}] X bad}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/formula-shadow-hidden.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; bad = k == 1 : X[missing] o otherwise : o; } }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[k IN {1}] &&[f IN {&&[k IN {o}] X d}] f; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-0-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (&&[k IN {o}] X d); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-0-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {&&[k IN {o}] X d}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-1-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (||[k IN {o}] X d); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-1-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {||[k IN {o}] X d}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-2-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (X[+[k IN {o}] num] o); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-2-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {X[+[k IN {o}] num] o}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-3-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (X[*[k IN {o}] num] o); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-3-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {X[*[k IN {o}] num] o}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-4-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (&&[f IN CUP[k IN {o}] s] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-4-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {&&[f IN CUP[k IN {o}] s] f}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-5-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (&&[f IN CAP[k IN {o}] s] f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-5-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {&&[f IN CAP[k IN {o}] s] f}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-6-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (G[0:0] (&&[k IN {o}] X d)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-6-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {G[0:0] (&&[k IN {o}] X d)}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-7-False.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] (F[!0:0] (&&[k IN {o}] X d)); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/hidden-binder-7-True.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { d = k == 1 : true otherwise : false; s = k == 1 : {X o} otherwise : {o}; num = k == 1 : 1 otherwise : 2; } } MAIN { OUTPUTS { o; } GUARANTEES { &&[k IN {1}] &&[v IN {F[!0:0] (&&[k IN {o}] X d)}] v; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: scoping:"
+  },
+  {
+    "name": "review110d-probes/identity-binder-shadow.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { SIZE (CUP[k IN {1,2}] {&&[k IN {1}] X[k] o}) == 1; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "true\n"
+  },
+  {
+    "name": "review110d-probes/identity-bus-diff.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[f IN ((CUP[b IN {1}] {b[0]}) (-) (CUP[b IN {2}] {b[0]}))] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/identity-bus-membership.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { &&[b IN {2}] (b[0] IN (CUP[b IN {1}] {b[0]})); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/identity-bus-nested.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { SIZE (CUP[b IN {1,2}] {{b[0]}}) == 1; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/identity-bus-seteq.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { (CUP[b IN {1}] {b[0]}) == (CUP[b IN {2}] {b[0]}); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/identity-next-strong.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { SIZE (CUP[b IN {1,2}] {X[!SIZEOF b] o}) == 1; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/identity-next-weak.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { SIZE (CUP[b IN {1,2}] {X[SIZEOF b] o}) == 1; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/identity-range.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nMAIN { OUTPUTS { o; b[1]; } GUARANTEES { SIZE (CUP[b IN {1,2}] {F[SIZEOF b:SIZEOF b] o}) == 1; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/match-regular.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { use(c) = c ~ X p : p otherwise : false; } }\nMAIN { OUTPUTS { o; } GUARANTEES { &&[f IN CUP[k IN {1}] {X[k] o}] &&[k IN {2}] use(f); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "o\n"
+  },
+  {
+    "name": "review110d-probes/pattern-projection.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS { pick(x) = x ~ X k : k otherwise : false; } }\nMAIN { OUTPUTS { o; } GUARANTEES { SIZE (CUP[k IN {1,2}] {X pick(X o)}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "output": "true\n"
+  },
+  {
+    "name": "review110d-probes/signal-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } }\nMAIN { OUTPUTS { b; o; } GUARANTEES { SIZE (CUP[b IN {1,2}] {X b}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110d-probes/sizeof-identity.tlsf",
+    "source": "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {  } }\nMAIN { OUTPUTS { b[1]; o; } GUARANTEES { SIZE (CUP[b IN {1,2}] {X[SIZEOF b] o}) == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.1\u20134.8; reviewed counterexample or direct control",
+    "diagnostic": "expand: typing:"
+  },
+  {
+    "name": "review110e-probes/finding-capture-accepted.tlsf",
+    "source": "INFO { TITLE: \"review110\" DESCRIPTION: \"Conformance counterexample\" SEMANTICS: Mealy TARGET: Mealy }\nGLOBAL { DEFINITIONS { use(x) = x ~ X p : &&[b_0 IN {1}] &&[f IN {p}] f otherwise : false; } }\nMAIN { INPUTS { } OUTPUTS { b[1]; } GUARANTEE { use(X b[0]); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110e-probes/finding-capture.tlsf",
+    "source": "INFO { TITLE: \"review110\" DESCRIPTION: \"Conformance counterexample\" SEMANTICS: Mealy TARGET: Mealy }\nGLOBAL { DEFINITIONS { use(x) = x ~ X p : &&[b_0 IN {1}] &&[f IN {X p}] f otherwise : false; } }\nMAIN { INPUTS { } OUTPUTS { b[1]; } GUARANTEE { use(X b[0]); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "X b_0\n"
+  },
+  {
+    "name": "review110e-probes/finding-range-g.tlsf",
+    "source": "INFO { TITLE: \"review110\" DESCRIPTION: \"Conformance counterexample\" SEMANTICS: Mealy TARGET: Mealy }\nMAIN { INPUTS { } OUTPUTS { o; } GUARANTEE { SIZE {G[1:3] o, X (o && X (o && X o))} == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "true\n"
+  },
+  {
+    "name": "review110e-probes/finding-range.tlsf",
+    "source": "INFO { TITLE: \"review110\" DESCRIPTION: \"Conformance counterexample\" SEMANTICS: Mealy TARGET: Mealy }\nMAIN { INPUTS { } OUTPUTS { o; } GUARANTEE { SIZE {F[2:3] o, X X (o || X o)} == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "true\n"
+  },
+  {
+    "name": "review110e-probes/finding-signal.tlsf",
+    "source": "INFO { TITLE: \"review110\" DESCRIPTION: \"Conformance counterexample\" SEMANTICS: Mealy TARGET: Mealy }\nMAIN { INPUTS { } OUTPUTS { b[1]; } GUARANTEE { SIZE {X[0] b[0], b[0]} == 1; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "true\n"
+  },
+  {
+    "name": "review110e-probes/identity-highlevel-shape.tlsf",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { b_0 = !o; use(x) = x ~ X p : p otherwise : false; } } MAIN { OUTPUTS { b[1]; o; } GUARANTEES { SIZE {use(X b[0]), !o} == 1; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "false\n"
+  },
+  {
+    "name": "review110e-probes/pattern-reresolve.tlsf",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { b_0 = !o; use(x) = x ~ X p : p otherwise : false; } } MAIN { OUTPUTS { b[1]; o; } GUARANTEES { use(X b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110e-probes/stored-pattern-reresolve-name.tlsf",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { b_0 = X o; use(x) = x ~ X p : p otherwise : false; } } MAIN { OUTPUTS { b[1]; o; } GUARANTEES { &&[f IN {use(X b[0])}] f; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110e-probes/stored-pattern-reresolve.tlsf",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { b_0 = !o; use(x) = x ~ X p : p otherwise : false; } } MAIN { OUTPUTS { b[1]; o; } GUARANTEES { &&[f IN {X b[0]}] use(f); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110e-probes/pattern-generated-actual.tlsf",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { id(x) = x; use(x) = x ~ X p : &&[b_0 IN {1}] id(p) otherwise : false; } } MAIN { OUTPUTS { b[1]; } GUARANTEES { use(X b[0]); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3, 4.6\u20134.8: resolved atoms retain their category; literal sugar identity",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110e-probes/finding-enum-width.tlsf",
+    "source": "INFO { TITLE: \"review110\" DESCRIPTION: \"Conformance counterexample\" SEMANTICS: Mealy TARGET: Mealy }\nGLOBAL { DEFINITIONS { enum E = label: 00 other: 11; } }\nMAIN { INPUTS { } OUTPUTS { b[1]; } GUARANTEE { b == label; } }\n",
+    "rule": "TLSF v1.1 \u00a74.4: equal bus/valuation widths after resolution",
+    "diagnostic": "enum comparison width mismatch"
+  },
+  {
+    "name": "review110f-alias-before-caller",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; f(x) = x; } } MAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEES { f(alias[0]); } }",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110f-alias-bus-difference",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; } } MAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEES { &&[f IN ({alias[0]} (-) {b[0]})] f; } }",
+    "output": "true\n"
+  },
+  {
+    "name": "review110f-alias-index",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; } } MAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEES { alias[0]; } }",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110f-alias-key",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; } } MAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEES { SIZE {X[0] alias[0], b[0]} == 1; } }",
+    "output": "true\n"
+  },
+  {
+    "name": "review110f-alias-pattern",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; } } MAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEES { &&[f IN {alias[0]}] f; } }",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110f-alias-sizeof",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; } } MAIN { INPUTS {} OUTPUTS { b[2]; o; } GUARANTEES { X[SIZEOF alias] o; } }",
+    "output": "X X o\n"
+  },
+  {
+    "name": "review110f-arg-bus-shadow-control",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; f(x) = &&[v IN {c}] v == label; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { f(b); } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-arg-bus-shadow",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; f(v) = &&[v IN {c}] v == label; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { f(b); } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-branch-width",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; pick(x) = x == 1 : c otherwise : b; use(x) = x == label; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { use(pick(1)); } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-difference-control",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { c == label; } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-difference-width",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; use(x) = x == label; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { &&[v IN ({b,c} (-) {b})] use(v); } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-intersection-width",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; use(x) = x == label; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { &&[v IN ({b,c} (*) {c})] use(v); } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-shadow-control",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { &&[v IN {b}] &&[w IN {c}] w == label; } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-shadow-identity",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { SIZE {&&[v IN {b}] &&[v IN {c}] v == label} == 1; } }",
+    "output": "true\n"
+  },
+  {
+    "name": "review110f-bus-shadow",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEES { &&[v IN {b}] &&[v IN {c}] v == label; } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-bus-sizeof-alias-inst",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; get(x) = X[SIZEOF x] o; } } MAIN { INPUTS {} OUTPUTS { b[2]; o; } GUARANTEES { get(alias); } }",
+    "output": "X X o\n"
+  },
+  {
+    "name": "review110f-filter-direct",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEE { &&[v IN ({b,c} (-) {b})] v == label; } }",
+    "output": "!c_0 && !c_1\n"
+  },
+  {
+    "name": "review110f-function-bus-alias",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; get(x) = x[0]; } } MAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEES { get(alias); } }",
+    "output": "b_0\n"
+  },
+  {
+    "name": "review110f-recursive-fixedresult",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { wrap(x,n) = n == 0 : X x otherwise : wrap(X x,n-1); } } MAIN { INPUTS {} OUTPUTS { o; } GUARANTEES { wrap(o,1); } }",
+    "output": "X X o\n"
+  },
+  {
+    "name": "review110f-recursive-next-bool",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { wrap(x,n) = n == 0 : x otherwise : wrap(X x,n-1); } } MAIN { INPUTS {} OUTPUTS { o; } GUARANTEES { wrap(true,1); } }",
+    "output": "X true\n"
+  },
+  {
+    "name": "review110f-recursive-next-ltl",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { wrap(x,n) = n == 0 : x otherwise : wrap(X x,n-1); } } MAIN { INPUTS {} OUTPUTS { o; } GUARANTEES { wrap(X[0] o,1); } }",
+    "output": "X o\n"
+  },
+  {
+    "name": "review110f-recursive-next-signal",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { wrap(x,n) = n == 0 : x otherwise : wrap(X x,n-1); } } MAIN { INPUTS {} OUTPUTS { o; } GUARANTEES { wrap(o,1); } }",
+    "output": "X o\n"
+  },
+  {
+    "name": "review110f-recursive-set-signal",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { wrap(s,n) = n == 0 : s otherwise : wrap(CUP[x IN s] {X x},n-1); } } MAIN { INPUTS {} OUTPUTS { o; } GUARANTEES { SIZE wrap({o},1) == 1; } }",
+    "output": "true\n"
+  },
+  {
+    "name": "review110f-set-width-leak",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 0 other: 1; use(x) = SIZE {x,c} == 2 : x == label otherwise : false; } } MAIN { INPUTS {} OUTPUTS { b[1]; c[2]; } GUARANTEE { use(b); } }",
+    "output": "!b_0\n"
+  },
+  {
+    "name": "review110f-distinct-signal-diff",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { b[1]; b_0; o; } GUARANTEES { SIZE ({b[0]} (-) {b_0}) == 1; } }",
+    "diagnostic": "collides with flattened bus bit"
+  },
+  {
+    "name": "review110f-distinct-signal-identity",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { b[1]; b_0; o; } GUARANTEES { SIZE {b[0],b_0} == 2; } }",
+    "diagnostic": "collides with flattened bus bit"
+  },
+  {
+    "name": "review110f-distinct-signal-nested",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { b[1]; b_0; o; } GUARANTEES { SIZE {{b[0]}, {b_0}} == 2; } }",
+    "diagnostic": "collides with flattened bus bit"
+  },
+  {
+    "name": "review110f-distinct-signal-next",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { b[1]; b_0; o; } GUARANTEES { X[SIZE {b[0],b_0}] o; } }",
+    "diagnostic": "collides with flattened bus bit"
+  },
+  {
+    "name": "review110f-distinct-signal-reversed",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { b[1]; b_0; o; } GUARANTEES { SIZE {b_0,b[0]} == 2; } }",
+    "diagnostic": "collides with flattened bus bit"
+  },
+  {
+    "name": "review110f-signal-busbit-collision",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS {  } } MAIN { INPUTS {} OUTPUTS { b[1]; b_0; } GUARANTEES { (b[0] <-> b_0); } }",
+    "diagnostic": "collides with flattened bus bit"
+  },
+  {
+    "name": "review110g/long-bus-254",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[2]; o; } GUARANTEE { X[SIZE {bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[0], bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[1]}] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "X X o\n"
+  },
+  {
+    "name": "review110g/long-key-nested",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[2]; o; } GUARANTEE { X[SIZE {{bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[0]}, {bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[1]}}] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "X X o\n"
+  },
+  {
+    "name": "review110g/long-key-difference",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[2]; o; } GUARANTEE { &&[v IN ({bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[0]} (-) {bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[1]})] false; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "false\n"
+  },
+  {
+    "name": "review110g/long-key-intersection",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[2]; o; } GUARANTEE { &&[v IN ({bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[0]} (*) {bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[1]})] false; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "true\n"
+  },
+  {
+    "name": "review110g/long-key-sum",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } MAIN { INPUTS {} OUTPUTS { bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[2]; o; } GUARANTEE { X[+[v IN {bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[0], bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb[1]}] 1] o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "X X o\n"
+  },
+  {
+    "name": "review110g/polymorphic-recursive-set",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { f(x,n) = n == 0 : o otherwise : f({x},n-1); } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { f(1,1); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "o\n"
+  },
+  {
+    "name": "review110g/polymorphic-recursive-num",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { f(x,n) = n == 0 : o otherwise : f(1,n-1); } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { f(o,1); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "o\n"
+  },
+  {
+    "name": "review110g/polymorphic-mutual",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { f(x,n) = n == 0 : o otherwise : g({x},n-1); g(y,n) = f(y,n); } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { f(1,1); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "o\n"
+  },
+  {
+    "name": "review110g/polymorphic-select",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { f(x,n) = n == 0 : o otherwise : f(b,n-1); } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { f(1,1); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "o\n"
+  },
+  {
+    "name": "review110g/out-of-bounds",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS {  } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { b[1]; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "bus index out of range"
+  },
+  {
+    "name": "review110g/negative-index",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS {  } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { b[-1]; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "bus index out of range"
+  },
+  {
+    "name": "review110g/alias-oob",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { alias = b; } } MAIN { INPUTS {} OUTPUTS { o; b[1]; c[2]; } GUARANTEE { alias[1]; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "bus index out of range"
+  },
+  {
+    "name": "review110g/unused-alias-width",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; alias = b; unused = alias == label; } } MAIN { INPUTS {} OUTPUTS { o; b[1]; } GUARANTEE { o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "enum comparison width mismatch"
+  },
+  {
+    "name": "review110g/dead-alias-width",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; alias = b; unused(x) = 1 == 1 : o otherwise : alias == label; } } MAIN { INPUTS {} OUTPUTS { o; b[1]; } GUARANTEE { unused(0); } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "enum comparison width mismatch"
+  },
+  {
+    "name": "review110g/alias-width-control",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; alias = b; unused = b == label; } } MAIN { INPUTS {} OUTPUTS { o; b[1]; } GUARANTEE { o; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "enum comparison width mismatch"
+  },
+  {
+    "name": "review110g/alias-width-used",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; } GLOBAL { DEFINITIONS { enum E = label: 00 other: 11; alias = b; unused = alias == label; } } MAIN { INPUTS {} OUTPUTS { o; b[1]; } GUARANTEE { unused; } }",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "enum comparison width mismatch"
+  },
+  {
+    "name": "review110g/recursive-minimal",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {\n  f(x,n) = n == 0 : o otherwise : f({x},n-1);\n} }\nMAIN { INPUTS {} OUTPUTS { o; } GUARANTEE { f(1,1); } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "output": "o\n"
+  },
+  {
+    "name": "review110g/index-minimal",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; }\nMAIN { INPUTS {} OUTPUTS { b[1]; } GUARANTEE { b[1]; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "bus index out of range"
+  },
+  {
+    "name": "review110g/alias-width-minimal",
+    "source": "INFO { SEMANTICS: Mealy; TARGET: Mealy; }\nGLOBAL { DEFINITIONS {\n  enum E = label: 00 other: 11;\n  alias = b;\n  bad = alias == label;\n} }\nMAIN { INPUTS {} OUTPUTS { b[1]; o; } GUARANTEE { o; } }\n",
+    "rule": "TLSF v1.1 \u00a7\u00a74.3\u20134.6; fourth-round exact review probe",
+    "diagnostic": "enum comparison width mismatch"
+  }
+]
