@@ -16,9 +16,17 @@ def check(semantics, target, formula, expected_formula, expected_solver_formula,
     finite = "Finite" in semantics
     original_moore = semantics.startswith("Moore")
     assert gold.verdict(formula, inputs, "p", finite, original_moore) == expected
-    declaration = "" if implicit or not inputs else f"INPUTS {{ {inputs}; }}"
+    declaration = f"INPUTS {{ {inputs}; }}" if inputs else ""
     source = (f"INFO {{ SEMANTICS: {semantics} TARGET: {target} }} MAIN {{ "
               f"{declaration} OUTPUTS {{ p; }} GUARANTEES {{ {formula}; }} }}")
+    if implicit:
+        # §§4.1–4.3: reject the historical implicit spelling, then retain its
+        # frozen export/verdict comparisons using the declared interface.
+        refused = subprocess.run([compose, *extra_args],
+                                 input=source.replace(declaration, "", 1),
+                                 text=True, capture_output=True, timeout=10)
+        assert refused.returncode != 0 and not refused.stdout, refused
+        assert "expand: scoping:" in refused.stderr, refused
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp)
         result = subprocess.run([compose, "--output-dir", tmp,

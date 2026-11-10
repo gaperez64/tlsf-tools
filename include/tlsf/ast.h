@@ -141,6 +141,10 @@ struct Node {
   // positions, including positions in definitions, before substitution.
   uint32_t source_id;
   const OriginBinding *origin_bindings;
+  // NODE_AP only: expansion has resolved this atom to a signal. Its printed
+  // name may coincide with a source binder/definition (e.g. bus bit b_0).
+  // Never perform source-name lookup or substitution on a resolved atom.
+  bool resolved_signal;
 
   union {
     // NODE_AP, NODE_INT_VAR, NODE_DEF_CALL (callee name before arg list)

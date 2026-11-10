@@ -8,6 +8,9 @@ run_command(python3, files('set_dedup_field_inventory.py'),
 set_dedup = executable('set_dedup', 'set_dedup.c',
   c_args: ['-UNDEBUG', '-Werror=switch'], dependencies: tlsf_internal_dep)
 test('set_dedup', set_dedup)
+expansion_scope = executable('expansion_scope', 'expansion_scope.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('expansion_scope', expansion_scope)
 test('set_dedup_field_inventory', python3,
   args: [files('set_dedup_field_inventory.py'), meson.project_source_root()])
 

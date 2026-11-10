@@ -13,7 +13,6 @@ bison_out = custom_target(
   command: [bison, '--defines=@OUTPUT1@', '--output=@OUTPUT0@',
             '--warnings=all', '@INPUT@'],
 )
-
 build_info_conf = configuration_data()
 build_info_conf.set('TLSF_BUILD_RESEARCH', research_tools ? 1 : 0)
 configure_file(output: 'build_config.h', configuration: build_info_conf)
@@ -37,6 +36,7 @@ lib_sources = files(
   'decompose.c',
   'diagnostic.c',
   'expand.c',
+  'expand_check.c',
   'env_witness.c',
   'gr.c',
   'intern.c',

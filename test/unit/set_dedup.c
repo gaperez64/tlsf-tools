@@ -1,7 +1,9 @@
 // Follow the internal-validator tests: include the implementation to reach its
 // static helper, without adding a production symbol or public header.
+#define _POSIX_C_SOURCE 200809L
 #include "../../src/lib/expand.c"
 #include <stddef.h>
+#include <stdlib.h>
 
 // Layout census, independent of the production declaration. The source-field
 // inventory test additionally catches fields added inside union/padding space.
@@ -9,6 +11,7 @@ typedef struct {
   NodeKind kind;
   uint32_t source_id;
   const OriginBinding *origin_bindings;
+  bool resolved_signal;
   union {
     struct {
       const char *qvar;
@@ -55,7 +58,133 @@ static void equal(const Node *a, const Node *b, bool expected) {
     equal(&a, &changed, true);                                                 \
   } while (0)
 
+static void identity_keys(void) {
+  char source[] = "INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; } "
+                  "MAIN { OUTPUTS { o; b[1]; } GUARANTEES { "
+                  "&&[f IN {X[1] o, X o, X[!1] o}] f; "
+                  "&&[f IN CUP[k IN {1,2}] {X[k] o, X[1] o}] f; "
+                  "&&[s IN {{X[1] o}, {X o}}] &&[f IN s] f; "
+                  "&&[f IN {b[0], X[0] b[0]}] f; "
+                  "&&[f IN {F[2:3] o, X X (o || X o)}] f; "
+                  "&&[f IN {G[1:3] o, X (o && X (o && X o))}] f; } }";
+  FILE *fp = fmemopen(source, strlen(source), "r");
+  assert(fp);
+  TlsfSpec *s = spec_parse(fp, "identity-unit");
+  fclose(fp);
+  assert(s && expand_check(s));
+  SubstCopy *copies = nullptr;
+  BoundState states[2] = {0};
+  BusBounds bounds = {.states = {nullptr, states}};
+  Env env = {.copies = &copies, .bounds = &bounds};
+  env.globals = &env;
+  EvalSet *set;
+  assert(eval_set(s, s->guarantee.formulas[0]->qset, &env, &set, 0));
+  assert(set->count == 2);
+  assert(set->items[0].node->kind == NODE_NEXT_N);
+  assert(set->items[0].key->kind == NODE_X);
+  assert(set->items[1].key->kind == NODE_X_STRONG);
+  assert(set->items[0].source == set->items[0].node);
+  assert(eval_set(s, s->guarantee.formulas[1]->qset, &env, &set, 0));
+  assert(set->count == 2);
+  assert(set->items[0].node->lhs->kind == NODE_INT);
+  assert(set->items[0].node->lhs->ival == 1);
+  assert(set->items[1].node->lhs->ival == 2);
+  assert(eval_set(s, s->guarantee.formulas[2]->qset, &env, &set, 0));
+  assert(set->count == 1 && set->items[0].set->count == 1);
+  assert(eval_set(s, s->guarantee.formulas[3]->qset, &env, &set, 0));
+  assert(set->count == 1);
+  assert(set->items[0].node->kind == NODE_BUS_INDEX);
+  assert(set->items[0].source == set->items[0].node);
+  assert(set->items[0].key->kind == NODE_AP);
+  assert(set->items[0].key->resolved_signal);
+  for (unsigned i = 4; i < 6; i++) {
+    assert(eval_set(s, s->guarantee.formulas[i]->qset, &env, &set, 0));
+    assert(set->count == 1);
+    assert(set->items[0].node->kind == (i == 4 ? NODE_F_RANGE : NODE_G_RANGE));
+    assert(set->items[0].key->kind == NODE_X);
+  }
+  spec_free(s);
+}
+
+static void resolved_atoms(void) {
+  char source[] = "INFO { SEMANTICS: Mealy; TARGET: Mealy; } "
+                  "GLOBAL { DEFINITIONS { b_0 = 7; id(x) = x; } } "
+                  "MAIN { OUTPUTS { b[1]; } GUARANTEES { b[0]; } }";
+  FILE *fp = fmemopen(source, strlen(source), "r");
+  assert(fp);
+  TlsfSpec *s = spec_parse(fp, "resolved-atoms-unit");
+  fclose(fp);
+  assert(s);
+  SubstCopy *copies = nullptr;
+  Env env = {.copies = &copies};
+  env.globals = &env;
+  Node *atom = bus_elem_node(s, intern(s->intern, "b"), 0);
+  assert(atom && atom->resolved_signal);
+  Node *identifier = node_ap(s->arena, atom->name);
+  Env child = {.b = {atom->name, 11},
+               .parent = &env,
+               .copies = &copies,
+               .globals = &env};
+  assert(close_numeric(s->arena, atom, &child) == atom);
+  Node *number = close_numeric(s->arena, identifier, &child);
+  assert(number && number->kind == NODE_INT && number->ival == 11);
+  int64_t integer;
+  assert(eval_int(s, identifier, &child, &integer, 0) && integer == 11);
+  char *message = nullptr;
+  size_t message_size = 0;
+  FILE *err = open_memstream(&message, &message_size);
+  assert(err);
+  FILE *previous = tlsf_diagnostic_swap(err);
+  assert(!eval_int(s, atom, &child, &integer, 0));
+  tlsf_diagnostic_swap(previous);
+  fclose(err);
+  free(message);
+  EvalValue value;
+  assert(eval_value(s, atom, &child, &value, 0));
+  assert(value.kind == EVAL_VALUE_NODE && value.source == atom);
+  const DefDecl *id = find_def(s, intern(s->intern, "id"), 1);
+  assert(id);
+  Node *actuals[] = {atom};
+  Node *body = instantiate(s, id, actuals, &child, 0);
+  assert(body && body->resolved_signal && body->name == atom->name);
+  bool ok = true;
+  assert(expand_node(s, body, &child, &ok, 0) == body && ok);
+  spec_free(s);
+}
+
+static void lexical_provenance(void) {
+  char source[] = "INFO { SEMANTICS: Mealy; TARGET: Mealy; } "
+                  "GLOBAL { DEFINITIONS { copy(x) = x && X x; d = X o; } } "
+                  "MAIN { OUTPUTS { o; } GUARANTEES { "
+                  "&&[k IN {1,2}] copy(o); copy(d); } }";
+  FILE *fp = fmemopen(source, strlen(source), "r");
+  assert(fp);
+  TlsfSpec *s = spec_parse(fp, "lexical-provenance-unit");
+  fclose(fp);
+  assert(s);
+  Node *actual = s->guarantee.formulas[1]->call_args[0];
+  s->capture_provenance = true;
+  assert(expand(s, nullptr, 0) == 0);
+  Node *fold = s->guarantee.formulas[0];
+  assert(fold->kind == NODE_AND);
+  Node *atoms[] = {fold->lhs->lhs, fold->rhs->lhs};
+  for (unsigned i = 0; i < 2; i++) {
+    assert(atoms[i]->kind == NODE_AP);
+    assert(atoms[i]->origin_bindings);
+    assert(!strcmp(atoms[i]->origin_bindings->name, "k"));
+    assert(atoms[i]->origin_bindings->value == (int64_t)i + 1);
+  }
+  assert(actual->source_id);
+  Node *call = s->guarantee.formulas[1];
+  assert(call->kind == NODE_AND && call->lhs->kind == NODE_X);
+  assert(call->lhs->source_id == actual->source_id);
+  spec_free(s);
+}
+
 int main(void) {
+  identity_keys();
+  resolved_atoms();
+  lexical_provenance();
   Node t = {.kind = NODE_TRUE}, t_copy = t, f = {.kind = NODE_FALSE};
   Node *args[] = {&t, &t}, *same_args[] = {&t_copy, &t_copy};
   Node *first_diff[] = {&f, &t}, *last_diff[] = {&t, &f};
@@ -200,6 +329,7 @@ int main(void) {
     DIFFER(kind, kind == NODE_TRUE ? NODE_FALSE : NODE_TRUE);
     IGNORE(source_id, 123);
     IGNORE(origin_bindings, &binding);
+    IGNORE(resolved_signal, true);
     IGNORE(bounded.origin, BOUNDED_NEXT);
     IGNORE(bounded.lo, 4);
     IGNORE(bounded.hi, 9);

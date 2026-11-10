@@ -15,6 +15,13 @@ def output(tool, *args, source=None):
                                    timeout=10).strip()
 
 
+def reject_free(tool, *args, source):
+    result = subprocess.run([tool, *args], input=source, text=True,
+                            capture_output=True, timeout=10)
+    assert result.returncode != 0 and not result.stdout, result
+    assert "expand: scoping:" in result.stderr, result
+
+
 def formulas(text):
     return [line for line in text.splitlines()
             if not line.startswith(("c ", "ctl "))]
@@ -29,7 +36,8 @@ if name == "finite-adaptation-doc":
     assert "`tlsf_convert` refuses all finite semantics" in paragraph, paragraph
 elif name == "implicit-input-adaptation":
     # All six section roles, both adaptation directions, strict semantics and
-    # overrides must give implicit inputs exactly the declared-input timing.
+    # overrides retain declared-input timing. TLSF v1.1 §§4.1–4.3 rejects
+    # the former implicit-input spellings before target adaptation.
     roles = ("INITIALLY", "REQUIRE", "ASSUMPTIONS", "PRESET", "ASSERT", "GUARANTEES")
     for semantics, target, expected in (("Moore", "Mealy", "p <-> X u"),
                                         ("Mealy", "Moore", "X p <-> u")):
@@ -43,26 +51,28 @@ elif name == "implicit-input-adaptation":
                 implicit = base % ""
                 for tool in (convert, residual, compose, templates):
                     extra = ("--format", "csnf") if tool == templates else ()
-                    actual = output(tool, *extra, *args, source=implicit)
-                    reference = output(tool, *extra, *args, source=declared)
-                    assert actual == reference, (tool, role, actual, reference)
+                    reject_free(tool, *extra, *args, source=implicit)
+                    actual = output(tool, *extra, *args, source=declared)
                     if tool == templates or (tool == convert and role in (
                             "PRESET", "ASSERT", "GUARANTEES")):
                         assert expected in actual, actual
-    # Input metrics and constraint support also include undeclared atoms.
+    # Input metrics and constraint support include the declared environment.
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tlsf") as fixture:
         fixture.write("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
-                      "OUTPUTS { p; } GUARANTEES { G(p <-> X u); } }")
+                      "INPUTS { u; } OUTPUTS { p; } GUARANTEES { G(p <-> X u); } }")
         fixture.flush()
         metrics = next(csv.DictReader(io.StringIO(output(benchgraph, fixture.name)), delimiter="\t"))
         assert metrics["inputs"] == "1", metrics
     # Eventual/until monitors require an output-controlled goal. An implicit
-    # environment atom must cause the same conservative fallback as a declared
-    # input, rather than qualifying as an output-only goal.
+    # environment atom must reject; the declared input must cause a conservative
+    # fallback rather than qualifying as an output-only goal.
     for formula in ("F(p && u)", "p U (p && u)"):
         for declaration in ("", "INPUTS { u; }"):
             source = ("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
                       f"{declaration} OUTPUTS {{ p; }} GUARANTEES {{ {formula}; }} }}")
+            if not declaration:
+                reject_free(compose, "--route-stats", source=source)
+                continue
             route = next(csv.DictReader(io.StringIO(output(
                 compose, "--route-stats", source=source)), delimiter="\t"))
             assert route["uses_oxidd"] == "0" and route["route"] == "unresolved", route
@@ -207,10 +217,19 @@ elif name == "implicit-input-invariant":
     for body in ("!u", "!u && p"):
         source = ("INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { "
                   f"OUTPUTS {{ p; }} GUARANTEES {{ G({body}); }} }}")
+        for tool in (convert, templates, residual, compose):
+            reject_free(tool, source=source)
+        source = source.replace("MAIN {", "MAIN { INPUTS { u; }", 1)
         text = output(templates, "--certify", "--format", "csnf", source=source)
         assert "b 0 candidate safety-invariant" in text, text
         assert "\ncert " not in text, text
         for tool in (residual, compose):
+            if tool == compose:
+                result = subprocess.run([tool], input=source, text=True,
+                                        capture_output=True, timeout=10)
+                if result.returncode == 1:
+                    assert "spec is UNREALIZABLE" in result.stderr, result
+                    continue
             text = output(tool, source=source)
             assert "ctl " not in text, text
             assert "ins=u" in text, text

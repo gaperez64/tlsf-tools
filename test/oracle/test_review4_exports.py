@@ -51,16 +51,20 @@ if mode == "lowercase":
                                ("Mealy,Finite", "Mealy"), ("Moore,Finite", "Moore")):
         # Keep the case pair in the cluster's core so the satisfiable disjoint
         # environment pruning rule cannot remove the alphabet under test.
-        source = spec(semantics, target, "OUTPUTS { p; } PRESET { q <-> Q; } "
+        source = spec(semantics, target, "INPUTS { q; Q; } OUTPUTS { p; } PRESET { q <-> Q; } "
                       "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; }")
         for tool in (residual, compose):
             kept = run(tool, source=source)
+            if tool == compose and kept.returncode == 1:
+                assert "spec is UNREALIZABLE" in kept.stderr, kept
+                continue
             assert kept.returncode == 0, kept
             assert "c cluster 0 outs= ins=q,Q\n" in kept.stdout, kept
             assert "G (q <-> !Q) -> false" in kept.stdout, kept
-        # Both undeclared atoms, one declared input, and an implicit-input /
-        # declared-output pair, in every formula section (including unused APs).
-        for declaration in ("", "INPUTS { q; }", "OUTPUTS { q; }"):
+        # Free names reject before lowercasing (§§4.1–4.3); fully declared
+        # case pairs must still reject the lossy lowercase export.
+        for declaration in ("", "INPUTS { q; }", "OUTPUTS { q; }",
+                            "INPUTS { q; Q; }", "INPUTS { q; } OUTPUTS { Q; }"):
             for role in ("INITIALLY", "PRESET", "REQUIRE", "ASSERT",
                          "ASSUMPTIONS", "GUARANTEES"):
                 source = spec(semantics, target,
@@ -70,9 +74,12 @@ if mode == "lowercase":
                     result = run(*args, source=source)
                     assert result.returncode != 0, (args, source, result)
                     assert result.stdout == "", result
-                    assert "lowercasing would merge distinct signals" in result.stderr, result
-                    assert "'q'" in result.stderr and "'Q'" in result.stderr, result
-    source = spec("Mealy", "Mealy", "OUTPUTS { p; } "
+                    if "Q;" not in declaration:
+                        assert "expand: scoping:" in result.stderr, result
+                    else:
+                        assert "lowercasing would merge distinct signals" in result.stderr, result
+                        assert "'q'" in result.stderr and "'Q'" in result.stderr, result
+    source = spec("Mealy", "Mealy", "INPUTS { q; Q; } OUTPUTS { p; } "
                   "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; }")
     for backend in ("command", "acacia"):
         with tempfile.TemporaryDirectory() as tmp:
