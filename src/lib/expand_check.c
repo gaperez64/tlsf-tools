@@ -55,6 +55,7 @@ typedef struct Application {
 
 typedef struct Check {
   const TlsfSpec *spec;
+  Arena *arena;
   Signature *signatures;
   Application *applications;
   size_t revision;
@@ -63,9 +64,9 @@ typedef struct Check {
 } Check;
 
 static Type *type_new(Check *c, unsigned mask) {
-  if (!c->ok || arena_failed(c->spec->arena))
+  if (!c->ok || arena_failed(c->arena))
     return nullptr;
-  Type *t = ARENA_ALLOC(c->spec->arena, Type);
+  Type *t = ARENA_ALLOC(c->arena, Type);
   if (t)
     // §4.3: boolean expressions and signals can also be used as LTL. Keep
     // that embedding available in every independently instantiated call.
@@ -282,7 +283,7 @@ static Type *application(Check *c, const DefDecl *d, Type **args,
   const Signature *signature = &c->signatures[d - c->spec->defs];
   if (!d->param_count)
     return signature->result;
-  Application *call = ARENA_ALLOC(c->spec->arena, Application);
+  Application *call = ARENA_ALLOC(c->arena, Application);
   if (!call) {
     c->ok = false;
     return nullptr;
@@ -309,7 +310,7 @@ static Type *copy_type(Check *c, Type *source, TypeCopy **copies,
   for (TypeCopy *copy = *copies; copy; copy = copy->next)
     if (copy->source == source)
       return copy->copy;
-  TypeCopy *copy = ARENA_ALLOC(c->spec->arena, TypeCopy);
+  TypeCopy *copy = ARENA_ALLOC(c->arena, TypeCopy);
   Type *t = type_new(c, source->mask);
   if (!copy || !t) {
     c->ok = false;
@@ -339,7 +340,7 @@ static bool solve_applications(Check *c) {
       const Signature *s = call->signature;
       // Copy the whole scheme before unifying: actuals may occur in a recursive
       // declaration's own graph, and must not affect this copy halfway through.
-      Type **args = ARENA_ALLOC_N(c->spec->arena, Type *, s->def->param_count);
+      Type **args = ARENA_ALLOC_N(c->arena, Type *, s->def->param_count);
       if (!args)
         return false;
       for (uint16_t i = 0; i < s->def->param_count; i++)
@@ -399,7 +400,7 @@ static bool pattern_scope(Check *c, const Node *n, const Scope **scope,
     // Repeated pattern identifiers retain the existing syntactic match rule.
     if (local(*scope, n->name))
       return true;
-    Scope *entry = ARENA_ALLOC(c->spec->arena, Scope);
+    Scope *entry = ARENA_ALLOC(c->arena, Scope);
     if (!entry) {
       c->ok = false;
       return false;
@@ -476,7 +477,7 @@ static Type *infer(Check *c, const Node *n, const Scope *scope,
       type_error(c, "undefined function or wrong argument count", n->callee);
       return nullptr;
     }
-    Type **args = ARENA_ALLOC_N(c->spec->arena, Type *, n->call_argc);
+    Type **args = ARENA_ALLOC_N(c->arena, Type *, n->call_argc);
     if (!args) {
       c->ok = false;
       return nullptr;
@@ -712,11 +713,19 @@ static bool signal_names(Check *c) {
   return true;
 }
 
-static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
-  Check c = {.spec = spec, .ok = true, .resolved_widths = resolved_widths};
+static bool check_spec_in_arena(const TlsfSpec *spec, bool resolved_widths,
+                                Arena *arena) {
+  Check c = {.spec = spec,
+             .arena = arena,
+             .ok = true,
+             .resolved_widths = resolved_widths};
   if (resolved_widths && !signal_names(&c))
     return false;
-  c.signatures = ARENA_ALLOC_N(spec->arena, Signature, spec->def_count);
+  // Syntax and categories were checked before resolving bounds. Only enum
+  // comparisons and flattened signal names depend on the resolved widths.
+  if (resolved_widths && !spec->enum_label_count)
+    return true;
+  c.signatures = ARENA_ALLOC_N(arena, Signature, spec->def_count);
   if (!c.signatures)
     return false;
   // §4.3: an identifier has one category. Check the whole declaration space.
@@ -727,7 +736,7 @@ static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
     const char *name = (name_);                                                \
     if (local(names, name))                                                    \
       return type_error(&c, "duplicate declaration", name);                    \
-    Scope *entry = ARENA_ALLOC(spec->arena, Scope);                            \
+    Scope *entry = ARENA_ALLOC(arena, Scope);                                  \
     if (!entry)                                                                \
       return false;                                                            \
     *entry = (Scope){name, &declaration_marker, names};                        \
@@ -748,7 +757,7 @@ static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
 #undef DECLARE
   for (uint16_t i = 0; i < spec->def_count && c.ok; i++) {
     const DefDecl *d = &spec->defs[i];
-    Type **args = ARENA_ALLOC_N(spec->arena, Type *, d->param_count);
+    Type **args = ARENA_ALLOC_N(arena, Type *, d->param_count);
     if (!args)
       return false;
     for (uint16_t j = 0; j < d->param_count; j++) {
@@ -765,7 +774,7 @@ static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
     const Signature *s = &c.signatures[i];
     Scope *scope = nullptr;
     for (uint16_t j = 0; j < s->def->param_count; j++) {
-      Scope *entry = ARENA_ALLOC(spec->arena, Scope);
+      Scope *entry = ARENA_ALLOC(arena, Scope);
       if (!entry)
         return false;
       *entry = (Scope){s->def->params[j], s->args[j], scope};
@@ -791,7 +800,23 @@ static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
         need(&c, infer(&c, signals[k][i].bus_hi_expr, nullptr, 0), T_NUM,
              "bus bound must be numeric");
     }
-  return c.ok && solve_applications(&c) && !arena_failed(spec->arena);
+  return c.ok && solve_applications(&c) && !arena_failed(arena);
+}
+
+// Type graphs and scope entries never escape a check. Release them before
+// expansion rather than retaining both inference passes in the AST arena.
+static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
+  Arena *arena = arena_new(ARENA_DEFAULT_SLAB_SIZE);
+  if (!arena) {
+    arena_mark_failed(spec->arena);
+    return false;
+  }
+  bool ok = check_spec_in_arena(spec, resolved_widths, arena);
+  if (arena_failed(arena))
+    arena_mark_failed(spec->arena);
+  ok = ok && !arena_failed(spec->arena);
+  arena_free(arena);
+  return ok;
 }
 
 bool expand_check(const TlsfSpec *spec) { return check_spec(spec, false); }

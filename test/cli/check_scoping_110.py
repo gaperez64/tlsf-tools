@@ -450,7 +450,7 @@ for n, direct in ((0, "o"), (1, "!o"), (2, "o")):
     pair("compound-guard", f"f({n})", direct, definitions=
          "DEFINITIONS { f(n) = n == 0 || n == 2 : o otherwise : !o; }")
 
-with tempfile.TemporaryDirectory(prefix="scoping110-", dir=os.environ["TMPDIR"]) as temp:
+with tempfile.TemporaryDirectory(prefix="scoping110-", dir=os.environ.get("TMPDIR")) as temp:
     path = Path(temp) / "case.tlsf"
 
     def run(source, args=()):

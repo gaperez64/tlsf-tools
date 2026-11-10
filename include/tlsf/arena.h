@@ -33,6 +33,9 @@ typedef struct ArenaSlabArena Arena;
 /// Sticky for the lifetime of the arena, even if later allocations succeed.
 [[nodiscard]] bool arena_failed(const Arena *a);
 
+/// Propagate an allocation failure from temporary work owned by this arena.
+void arena_mark_failed(Arena *a);
+
 /// Free the arena and all memory it owns.  Safe to call with nullptr.
 void arena_free(Arena *a);
 

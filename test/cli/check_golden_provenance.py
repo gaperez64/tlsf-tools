@@ -284,6 +284,24 @@ scoping_update = json.loads((root.parents[2] / "tools/analysis/tlsf-scoping-110.
 precedence_update = scoping_update["precedence110j"]
 boundary_update = scoping_update["precedence110k"]
 partition_update = scoping_update["precedence110l"]
+perf_update = scoping_update["perf112"]
+assert perf_update["date"] and perf_update["reason"]
+assert perf_update["changed_golden_hashes"] == 0
+assert set(perf_update["source_rebindings"]) == {
+    "include/tlsf/arena.h", "src/lib/arena.c", "src/lib/expand_check.c",
+    "test/cli/check_scoping_110.py",
+    "test/cli/check_golden_provenance.py",
+}
+
+
+def perf_digest(name, historical):
+    binding = perf_update["source_rebindings"].get(name)
+    if binding:
+        assert historical == binding["previous_sha256"], name
+        return binding["current_sha256"]
+    return historical
+
+
 assert partition_update["date"] and partition_update["reason"]
 assert partition_update["changed_golden_hashes"] == 0
 assert set(partition_update["source_rebindings"]) == {
@@ -385,7 +403,7 @@ for name, digest in scoping_update["added_sources_sha256"].items():
     if binding:
         assert binding["previous_sha256"] == digest, name
         digest = binding["current_sha256"]
-    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == perf_digest(name, digest), name
 for name, entry in scoping_update["fixture_replacements"].items():
     assert entry["reason"] and entry["replacement"] in scoping_update["added_sources_sha256"]
     assert entry["previous_sha256"] == scoping_update["preserved_artifacts_sha256"][name]
@@ -435,7 +453,7 @@ UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
-           partition_update)
+           partition_update, perf_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):

@@ -2500,5 +2500,32 @@
         "case-position receipts"
       ]
     }
+  },
+  "perf112": {
+    "date": "2026-11-08",
+    "reason": "PR #112: release checker type graphs before expansion; after the first syntax/category check, omit repeated inference when there are no enum labels (flattened-name checks remain). Permit unset TMPDIR in scoping regressions. Preserve all historical receipts and golden payloads. Propagate temporary checker allocation failures to the spec arena to preserve its sticky failure and transactional expansion contract.",
+    "changed_golden_hashes": 0,
+    "source_rebindings": {
+      "src/lib/expand_check.c": {
+        "previous_sha256": "4011890fa64cad2f93af9e20738473a41ecef4cf7b72b36e80b90775b1b9a029",
+        "current_sha256": "53fa46317ba5be206f2714c2fdd9ea436450143c7e803abe89821df46ce3dd4c"
+      },
+      "test/cli/check_scoping_110.py": {
+        "previous_sha256": "f27970f868e9ad62ea63a409efe01b5c9184c13f671caff6abf0e0cd0c34cc45",
+        "current_sha256": "a957eaabd620a509c557fadac74a584c7488fa00b9938f6396d831892ea22787"
+      },
+      "test/cli/check_golden_provenance.py": {
+        "previous_sha256": "c921f025d6f235017fb6fdeb38fe79dd166f8b7783afb7871ec8329fa0b0a671",
+        "current_sha256": "42dde8b8b2d10aeab6392dc31b8f37f9defcd46882942596794baef452618c27"
+      },
+      "include/tlsf/arena.h": {
+        "previous_sha256": "a9c975e3f56b26124b7c18a0b74f11a0e506d875da7e90f582fc2d5c961a5578",
+        "current_sha256": "d9e78f836162b498aea5c443af0efa79ea9836de11d4e18027b4f6b8f869ecba"
+      },
+      "src/lib/arena.c": {
+        "previous_sha256": "360d4ae95b34409e6207121f84a341ab75ef2eb6d7d8ff80bbbf1c35c2b820a6",
+        "current_sha256": "f69186eabed5160a27310ecd74f0b056196012030a3576da92860302cd3aef96"
+      }
+    }
   }
 }
