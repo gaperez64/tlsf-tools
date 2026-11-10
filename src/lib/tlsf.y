@@ -18,14 +18,63 @@
   #define YY_TYPEDEF_YY_SCANNER_T
   typedef void *yyscan_t;
   #endif
+  typedef struct TlsfParseInput TlsfParseInput;
+}
+
+%code provides {
+  int tlsf_parse(yyscan_t scanner, TlsfSpec *spec);
 }
 
 /* Emitted into the parser source after YYSTYPE/YYLTYPE are defined. */
 %code {
-  int tlsf_case_lex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
-  #define yylex tlsf_case_lex
-  void yyerror(YYLTYPE *lloc, yyscan_t scanner, TlsfSpec *spec,
+  int yylex(YYSTYPE *lval, YYLTYPE *lloc, yyscan_t scanner);
+  void yyerror(YYLTYPE *lloc, TlsfParseInput *input, TlsfSpec *spec,
                const char *msg);
+
+  /* The six operator spellings also denote reductions when followed by '['.
+   * Label that notation with one token of lexical lookahead, including across
+   * comments/newlines handled by the existing lexer. This never chooses a case
+   * boundary or builds an expression; ordinary precedence below does that.
+   * Distinct heads let it shift binary continuations without swallowing the
+   * next case's reduction. The flat expression grammar also preserves prefix
+   * composition such as MIN CUP[k IN {1}] {k} (tiers would exclude that form).
+   * Storage belongs to this parse, not the scanner or a global token replay. */
+  struct TlsfParseInput {
+    yyscan_t scanner;
+    bool pending;
+    int token;
+    YYSTYPE value;
+    YYLTYPE location;
+  };
+
+  static int expression_lex(YYSTYPE *value, YYLTYPE *location,
+                            TlsfParseInput *input) {
+    int token;
+    if (input->pending) {
+      token = input->token;
+      *value = input->value;
+      *location = input->location;
+      input->pending = false;
+    } else {
+      token = yylex(value, location, input->scanner);
+    }
+    int head;
+    switch (token) {
+    case TOK_PLUS:      head = TOK_SUM_HEAD; break;
+    case TOK_STAR:      head = TOK_PRODUCT_HEAD; break;
+    case TOK_AND:       head = TOK_FORALL_HEAD; break;
+    case TOK_OR:        head = TOK_EXISTS_HEAD; break;
+    case TOK_SET_UNION: head = TOK_UNION_HEAD; break;
+    case TOK_SET_INTER: head = TOK_INTER_HEAD; break;
+    default: return token;
+    }
+    input->value = (YYSTYPE){0};
+    input->location = *location;
+    input->token = yylex(&input->value, &input->location, input->scanner);
+    input->pending = true;
+    return input->token == TOK_LBRACKET ? head : token;
+  }
+  #define yylex expression_lex
 
   /* Append `item` to a nullptr-terminated Node* array, returning a fresh
    * array (the arena has no realloc; lists are short so the copy is cheap). */
@@ -198,19 +247,19 @@
 %define api.pure
 %define parse.error detailed
 
-/* GLR preserves case-boundary alternatives until the next guard's colon.
- * The previous five shift/reduce conflicts (call, set-list comma and three
- * binder boundaries) remain, with seven intentional case-completion conflicts
- * on MINUS, PLUS, STAR, AND, OR, SET_UNION and SET_INTER. Each can continue a
- * value or start a guard (the latter six with '['). Giving single_case a
- * precedence would silently discard these alternatives. Two more '<'/'<='
- * conflicts retain the same range-binder lookahead for guarded bounds. There
- * are no reduce/reduce conflicts. See the §4.6 reading beside cases below. */
+/* Three shift/reduce conflicts, zero reduce/reduce; no dynamic precedence.
+ * LT and LEQ retain a comparison versus the first range-binder delimiter in
+ * bound_spec until the later identifier/comparison delimiters decide it.
+ * COMMA retains {first,second,...} versus {first,second..last} until '..' or
+ * the following comma/brace. If complete parses still tie (e.g. two possible
+ * range-binder identifiers), reject explicitly instead of selecting by order.
+ * Binary/reduction starts are lexically distinct above; case completion and
+ * identifier-call '(' use ordinary static precedence. */
 %glr-parser
-%expect 14
+%expect 3
 %expect-rr 0
 
-%param  { yyscan_t scanner }
+%param  { TlsfParseInput *input }
 %parse-param { TlsfSpec *spec }
 
 %locations
@@ -259,14 +308,15 @@
 /* Keyword operators */
 %token TOK_SIZEOF TOK_SET_SIZE TOK_SET_MIN TOK_SET_MAX TOK_OTHERWISE
 %token TOK_SET_UNION TOK_SET_INTER TOK_SET_DIFF TOK_IN TOK_MATCH
+/* Reduction notation, distinguished from the same binary spelling. */
+%token TOK_SUM_HEAD TOK_PRODUCT_HEAD TOK_FORALL_HEAD TOK_EXISTS_HEAD
+%token TOK_UNION_HEAD TOK_INTER_HEAD
 
 /* Punctuation */
 %token TOK_LPAREN TOK_RPAREN TOK_LBRACKET TOK_RBRACKET
 %token TOK_LBRACKET_STRONG TOK_RBRACKET_STRONG
 %token TOK_LBRACE TOK_RBRACE
 %token TOK_COMMA TOK_SEMI TOK_COLON TOK_ASSIGN TOK_DOTDOT TOK_BAR
-/* Injected only at boundaries selected by the compatibility pre-pass. */
-%token TOK_CASE_BOUNDARY
 
 /* -------------------------------------------------------------------------
  * Type declarations for non-terminals
@@ -284,6 +334,7 @@
  * retain unary temporal precedence; unary minus retains numeric precedence.
  * --------------------------------------------------------------------- */
 %precedence TOK_EXPR
+%precedence TOK_LPAREN
 %left  TOK_MATCH
 %left  TOK_RELEASE
 %right TOK_UNTIL
@@ -424,16 +475,14 @@ def_entries
   | def_entries def_entry
   ;
 
-/* Without an `otherwise` tail, a whole case list can also parse as a chained
- * ':' expression. Prefer the case list, as main does at these boundaries. */
 def_entry
-  : TOK_IDENT TOK_ASSIGN ltl_expr TOK_SEMI %dprec 1
+  : TOK_IDENT TOK_ASSIGN ltl_expr TOK_SEMI
     { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
-  | TOK_IDENT TOK_ASSIGN cases TOK_SEMI %dprec 2
+  | TOK_IDENT TOK_ASSIGN cases TOK_SEMI
     { if (!spec_add_def(spec, $1, nullptr, 0, $3)) YYNOMEM; }
-  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN ltl_expr TOK_SEMI %dprec 1
+  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN ltl_expr TOK_SEMI
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
-  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI %dprec 2
+  | TOK_IDENT TOK_LPAREN ident_list TOK_RPAREN TOK_ASSIGN cases TOK_SEMI
     { if (!spec_add_def(spec, $1, $3, node_str_len($3), $6)) YYNOMEM; }
   /* enum NAME = LABEL: valuation[,valuation...] ... ;  Each valuation is a
      width-bearing word over 0, 1, and *. */
@@ -472,38 +521,21 @@ enum_values
     { if (!($$ = join_enum_values(spec, $1, $3))) YYNOMEM; }
   ;
 
-/* TLSF v1.1 §4.6 gives consecutive function cases no separator, (ec)+.
- * ONE boundary rule: first run main's exact LALR/GLR grammar on each complete
- * definition, and inject TOK_CASE_BOUNDARY at its selected next-guard starts.
- * case_boundaries.c replays the original tokens; tlsf_boundary.y is the frozen
- * origin/main grammar. This preserves its static precedence AND surviving GLR
- * partition without imposing its expression trees on the Table 1 parser.
- *
- * In 0 -n < 0 or o (n) == 1, lookahead kills continuations leaving no guard.
- * In SUM[k IN {1}] k -id(n) < 0, main's low reduction precedence shifts '-'
- * into the value, leaving '(n) < 0' as the next guard. Longest-value heuristics
- * alone are insufficient: 0 -z == zero(true) must end before '-z', since bare
- * '(true)' is not main's cond; main also excludes outer matches from values.
- *
- * If main rejects a definition (including ambiguity), no boundary is injected:
- * the Table 1 grammar may accept its newly supported expressions, or report
- * ambiguity itself. No guessed partition is chosen. Each selected guard/value
- * follows Table 1; nested ':' expressions require delimiters. single_case has
- * no static precedence, preserving lookahead for definitions main rejects. */
+/* TLSF v1.1 §4.6 gives cases no separator, (ec)+. Longest match:
+ * finish a guard/value only when its expression cannot continue. TOK_EXPR is
+ * below every expression operator and '(' (identifier calls); single_case
+ * therefore shifts continuations. A following ':' extends guarded_expr with
+ * Table 1 row 19's left association, including within a case list. Delimiters
+ * can force an earlier boundary: (value) (guard) : value. */
 cases
-  : single_case case_separator single_case
-    { if (!($$ = mk_ite(spec->arena, $1->if_cond, $1->if_then, $3))) YYNOMEM; }
-  | single_case case_separator cases
-    { if (!($$ = mk_ite(spec->arena, $1->if_cond, $1->if_then, $3))) YYNOMEM; }
-  ;
-
-case_separator
-  : %empty
-  | TOK_CASE_BOUNDARY
+  : guarded_expr guarded_expr
+    { if (!($$ = mk_ite(spec->arena, $1->if_cond, $1->if_then, $2))) YYNOMEM; }
+  | guarded_expr cases
+    { if (!($$ = mk_ite(spec->arena, $1->if_cond, $1->if_then, $2))) YYNOMEM; }
   ;
 
 single_case
-  : case_head expr
+  : case_head expr %prec TOK_EXPR
     { Node *otherwise = node_false(spec->arena);
       if (!otherwise ||
           !($$ = mk_ite(spec->arena, $1, $2, otherwise))) YYNOMEM; }
@@ -687,9 +719,9 @@ formula_items
  * LTL expression grammar
  *
  * ':' is structurally left-associative in guarded_expr. All other operators
- * use the flat expr grammar and Table 1 declarations above. Keeping expr
- * separate also prevents chained ':' expressions from swallowing case
- * boundaries. Parentheses, calls, sets and indices admit full ltl_expr.
+ * use the flat expr grammar and Table 1 declarations above, preserving prefix
+ * composition even across levels (e.g. MIN CUP[...] {...}). A chained ':'
+ * stays in the current case. Parentheses/calls/sets/indices admit ltl_expr.
  * ===================================================================== */
 
 ltl_expr
@@ -704,7 +736,7 @@ expr
     { if (!($$ = node_true(spec->arena))) YYNOMEM; }
   | TOK_FALSE
     { if (!($$ = node_false(spec->arena))) YYNOMEM; }
-  | TOK_IDENT
+  | TOK_IDENT %prec TOK_EXPR
     { if (!($$ = node_ap(spec->arena, $1))) YYNOMEM; }
 
   /* Integer atoms / arithmetic.  TLSF has a single untyped expression
@@ -840,9 +872,9 @@ expr
       if (!($$ = node_x_strong(spec->arena, $2))) YYNOMEM; }
   | TOK_FINALLY expr
     { if (!($$ = node_f(spec->arena, $2))) YYNOMEM; }
-  /* Read the outermost ':' as the range delimiter. Reusing the structurally
-   * left-associative guard pair preserves F[true:1:2] = F[(true:1):2], without
-   * introducing another colon-versus-delimiter ambiguity. */
+  /* Read the outermost ':' as the temporal range delimiter. The structural
+   * pair in guarded_expr carries the two numerical bounds without introducing
+   * another colon-versus-delimiter ambiguity. */
   | TOK_FINALLY TOK_LBRACKET guarded_expr TOK_RBRACKET expr
     %prec TOK_FINALLY
     { if (!($$ = node_f_range(spec->arena, $3->if_cond, $3->if_then, $5))) YYNOMEM; }
@@ -893,17 +925,17 @@ expr
     { if (!($$ = node_w(spec->arena, $1, $3))) YYNOMEM; }
 
   /* Generalized reductions over one or more range/set binders. */
-  | TOK_AND TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_GLOBALLY
+  | TOK_FORALL_HEAD TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_GLOBALLY
     { $$ = mk_reduction(NODE_FORALL, $3, $5); }
-  | TOK_OR TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_GLOBALLY
+  | TOK_EXISTS_HEAD TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_GLOBALLY
     { $$ = mk_reduction(NODE_EXISTS, $3, $5); }
-  | TOK_PLUS TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_NUM
+  | TOK_SUM_HEAD TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_NUM
     { $$ = mk_reduction(NODE_SUM, $3, $5); }
-  | TOK_STAR TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_NUM
+  | TOK_PRODUCT_HEAD TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_NUM
     { $$ = mk_reduction(NODE_PRODUCT, $3, $5); }
-  | TOK_SET_UNION TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_SET
+  | TOK_UNION_HEAD TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_SET
     { $$ = mk_reduction(NODE_SET_BIG_UNION, $3, $5); }
-  | TOK_SET_INTER TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_SET
+  | TOK_INTER_HEAD TOK_LBRACKET bound_list TOK_RBRACKET expr %prec TOK_BIG_SET
     { $$ = mk_reduction(NODE_SET_BIG_INTER, $3, $5); }
   ;
 
@@ -935,9 +967,10 @@ bound_list
   ;
 
 /* Quantifier bound: lo (<|<=) var (<|<=) hi.  Builds a partial quantifier
- * node (kind set later by the caller); qbody is filled in afterwards. */
+ * node (kind set later by the caller); qbody is filled in afterwards.
+ * TLSF §4.7 requires numerical bounds; §4.6 guards belong to function cases. */
 bound_spec
-  : ltl_expr lt_or_leq[loS] TOK_IDENT[v] lt_or_leq[hiS] ltl_expr
+  : expr lt_or_leq[loS] TOK_IDENT[v] lt_or_leq[hiS] expr
     {
       Node *n = ARENA_ALLOC(spec->arena, Node);
       if (!n) YYNOMEM;
@@ -977,10 +1010,17 @@ call_arg_list
  * Error reporting
  * ===================================================================== */
 
-void yyerror(YYLTYPE *lloc, yyscan_t scanner,
+void yyerror(YYLTYPE *lloc, TlsfParseInput *input,
              TlsfSpec *spec, const char *msg) {
-  (void)scanner;
+  (void)input;
   (void)spec;
+  if (strcmp(msg, "syntax is ambiguous") == 0)
+    msg = "ambiguous function case boundary or expression";
   fprintf(tlsf_diagnostic_stream(), "%d:%d: parse error: %s\n",
           lloc->first_line, lloc->first_column, msg);
+}
+
+int tlsf_parse(yyscan_t scanner, TlsfSpec *spec) {
+  TlsfParseInput input = {.scanner = scanner};
+  return yyparse(&input, spec);
 }

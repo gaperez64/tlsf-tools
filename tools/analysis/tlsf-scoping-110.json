@@ -2527,5 +2527,60 @@
         "current_sha256": "f69186eabed5160a27310ecd74f0b056196012030a3576da92860302cd3aef96"
       }
     }
+  },
+  "grammar112g": {
+    "date": "2026-11-10",
+    "reason": "One TLSF grammar implements \u00a74.6 longest match with flat Table 1 precedence and six distinct reduction-head tokens. One raw-token lexical lookahead labels the notation, without selecting case boundaries. Remove the frozen main compatibility parser and whole-definition token replay. Preserve prefix composition, all earlier bindings and all historical goldens. Range bounds are numerical expressions (\u00a74.7); reject \u00a74.6 guards in either bound while preserving plain reduction and F/G ranges.",
+    "changed_golden_hashes": 0,
+    "checks": [
+      "precedence_110_464",
+      "case_boundaries_110",
+      "cross_level_prefix_composition",
+      "guarded_range_bounds_rejected",
+      "plain_reduction_and_temporal_ranges",
+      "generated_main_differential_classified",
+      "impact112g_sequential_17s",
+      "golden_provenance",
+      "full_meson_tests",
+      "TMPDIR_unset",
+      "lake_build",
+      "clang_format_22_1_8",
+      "bench_check"
+    ],
+    "source_rebindings": {
+      "README.md": {
+        "previous_sha256": "ccfba8ca4a3b32e52b6b06a77d39103049f50abef5ba4e4a4bc6c13e1c989694",
+        "current_sha256": "e5eba9b35a3bfcd0f9e30c9277158f1d6dc1740343a3bbf9dd2a794e7f24b24c"
+      },
+      "proofs/README.md": {
+        "previous_sha256": "b97064a426fcb7913578c2b394a3732f48977f5170a1ac5361fa8ae4330d74af",
+        "current_sha256": "5c93a26e0d9f71ef8ef31afd4b589e36fbeb53b11539a1a20571d4e05b31421d"
+      },
+      "src/lib/tlsf.y": {
+        "previous_sha256": "87ae5e0e2056b7b8606378b100e2dfeb6f7eb581f86c7a6fe019d6ff2d7b75a9",
+        "current_sha256": "4cc4753fb8992cd06f5f64eab4ac5245a58b82f35884a49110c038632c95bc2e"
+      },
+      "src/lib/meson.build": {
+        "previous_sha256": "ec1037a2cd815761bd82f1d0e297ebdb39075118aded074f85e232a76f9d959f",
+        "current_sha256": "d19cefa2d7e2333725f3fb06a3b20b89cbb0d44395b87f46fec07344b0ae0e28"
+      },
+      "src/lib/spec_parse.c": {
+        "previous_sha256": "dc896bf41e6dc4fec679edfe9fda6d4d98329f1b27b6e749c736516bc441d05e",
+        "current_sha256": "7f38f538907699349c13400602fabbf8bcff7229149bc9b11fffdad0c59fa3db"
+      },
+      "test/cli/check_case_boundaries_110.py": {
+        "previous_sha256": "62740f6d841cc0cd607d88ac4bd8037eda5c44d4ca5aeea5c429c9b345de1238",
+        "current_sha256": "db6df5318bce94dde2f13fe29421054a8e33a6c652d71e6f88838ad34ab5e501"
+      },
+      "test/cli/check_golden_provenance.py": {
+        "previous_sha256": "42dde8b8b2d10aeab6392dc31b8f37f9defcd46882942596794baef452618c27",
+        "current_sha256": "2041aaad79a673cd74ce5dbc5386db646cc45cc3e9f77ec093e9a53c3c7ff282"
+      }
+    },
+    "removed_sources_sha256": {
+      "src/lib/case_boundaries.c": "03545629fac1f6ad8d87e146f700cc001c3cd85599389109849d21d8c31f38de",
+      "src/lib/case_boundaries.h": "dc3de46c26533177ffe0f950405f22dc2d9a213e9836136b6bb8e2c232634a9a",
+      "src/lib/tlsf_boundary.y": "c546b24780442925e979fc28486f25eae7e24e8f503cc4eeb6b0c245c31cc6ac"
+    }
   }
 }

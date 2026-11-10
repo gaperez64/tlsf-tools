@@ -219,6 +219,15 @@ different constructors. Cardinality/membership of sets that previously
 distinguished these sugar spellings intentionally change; these theorems make
 no preservation claim for the previous syntax-based cardinality.
 
+The single parser in `src/lib/tlsf.y` implements Table 1 operator binding and
+§4.6 longest match for consecutive cases; `src/lib/spec_parse.c` feeds the lexer
+through its per-parse, one-token reduction-head lookahead. The frozen compatibility parser and token-replay files have
+been removed. Parsing, boundary selection and ambiguity rejection are trusted C
+obligations, outside the Lean set-identity theorems. The additive `grammar112g`
+entry in [the scoping ledger](../tools/analysis/tlsf-scoping-110.json) records
+source rebindings and the hashes of the three removed compatibility files;
+all earlier receipts remain unchanged.
+
 **Trusted boundary.** The lexical/type checker at
 `src/lib/expand_check.c:242–801` implements TLSF v1.1
 §§4.1–4.7. Arguments may shadow globals under the deliberate lexical reading

@@ -285,6 +285,27 @@ precedence_update = scoping_update["precedence110j"]
 boundary_update = scoping_update["precedence110k"]
 partition_update = scoping_update["precedence110l"]
 perf_update = scoping_update["perf112"]
+grammar_update = scoping_update["grammar112g"]
+assert grammar_update["date"] and grammar_update["reason"]
+assert grammar_update["changed_golden_hashes"] == 0
+assert set(grammar_update["source_rebindings"]) == {
+    "README.md", "proofs/README.md", "src/lib/tlsf.y", "src/lib/meson.build",
+    "src/lib/spec_parse.c", "test/cli/check_case_boundaries_110.py",
+    "test/cli/check_golden_provenance.py",
+}
+assert grammar_update["removed_sources_sha256"] == partition_update["added_sources_sha256"]
+for name in grammar_update["removed_sources_sha256"]:
+    assert not (root.parents[2] / name).exists(), name
+
+
+def grammar_digest(name, historical):
+    binding = grammar_update["source_rebindings"].get(name)
+    if binding:
+        assert historical == binding["previous_sha256"], name
+        return binding["current_sha256"]
+    return historical
+
+
 assert perf_update["date"] and perf_update["reason"]
 assert perf_update["changed_golden_hashes"] == 0
 assert set(perf_update["source_rebindings"]) == {
@@ -298,8 +319,8 @@ def perf_digest(name, historical):
     binding = perf_update["source_rebindings"].get(name)
     if binding:
         assert historical == binding["previous_sha256"], name
-        return binding["current_sha256"]
-    return historical
+        historical = binding["current_sha256"]
+    return grammar_digest(name, historical)
 
 
 assert partition_update["date"] and partition_update["reason"]
@@ -313,8 +334,9 @@ assert set(partition_update["added_sources_sha256"]) == {
     "src/lib/case_boundaries.c", "src/lib/case_boundaries.h",
     "src/lib/tlsf_boundary.y",
 }
+# Removed files retain their original addition hashes in the retirement entry.
 for name, digest in partition_update["added_sources_sha256"].items():
-    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+    assert grammar_update["removed_sources_sha256"][name] == digest, name
 assert boundary_update["date"] and boundary_update["reason"]
 assert boundary_update["changed_golden_hashes"] == 0
 assert set(boundary_update["source_rebindings"]) == {
@@ -329,7 +351,7 @@ for name, digest in boundary_update["added_sources_sha256"].items():
     if binding:
         assert binding["previous_sha256"] == digest, name
         digest = binding["current_sha256"]
-    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == grammar_digest(name, digest), name
 assert precedence_update["date"] and precedence_update["reason"]
 assert precedence_update["changed_golden_hashes"] == 0
 assert set(precedence_update["added_sources_sha256"]) == {
@@ -453,7 +475,7 @@ UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
-           partition_update, perf_update)
+           partition_update, perf_update, grammar_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):

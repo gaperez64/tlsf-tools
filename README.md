@@ -38,22 +38,24 @@ right-associative level. `W` binds tighter than `U`, then `R`; `W`/`U` associate
 right and `R` associates left. Pattern matching and guards bind loosest, so
 `n == 0 || n == 2 : o` tests the whole disjunction. Numeric reductions have
 level 1, set reductions level 5 and boolean reductions level 11.
-TLSF §4.6 gives consecutive function cases no separator (`(ec)+`). For each
-complete definition, a compatibility pre-pass runs the frozen main grammar
-(`src/lib/tlsf_boundary.y`) and records its selected case boundaries. The
-Table 1 parser then receives a boundary token before each selected next guard.
-This preserves main's static precedence and GLR choice of partition, while
-applying Table 1 independently within each selected guard and value.
-Thus `n == 0 : 0 -n < 0 : 1` ends value `0` before unary `-n`, and
-`n == 0 : o (n) == 1 : !o` ends value `o` before guard `(n) == 1`.
-In `n == 0 : SUM[k IN {1}] k -id(n) < 0 : 1`, main's low reduction precedence
-instead extends the value through `-id`, leaving `(n) < 0` as the next guard.
-A longest-value rule alone would fail on `0 -z == zero(true) : 1`, where main
-requires the boundary before `-z`. The pre-pass uses main's actual grammar
-rather than a token-specific heuristic. If main rejects the definition,
-including ambiguity, the Table 1 parser receives the original tokens and can
-accept newly supported expressions or reject an unresolved split. General
-boolean guards remain supported; parentheses delimit nested `:` expressions.
+TLSF §4.6 gives consecutive function cases no separator (`(ec)+`). The single
+parser in `src/lib/tlsf.y` uses longest match: a guard or value continues as far
+as the Table 1 expression grammar allows. Binary minus continues the value,
+and `identifier (` continues as a call, even across whitespace or comments.
+Thus `n == 0 : 0 -n < 0 : 1` groups as `(n == 0 : (0 - n < 0)) : 1`
+(Table 1 row 19 associates `:` left). Similarly, `o (n)` becomes `o(n)`;
+normal type checking then applies. To force separate cases, write
+`n == 0 : (0) (-n < 0) : 1`. Reduction heads such as `&&[` start a new case
+when they cannot continue the preceding expression. `otherwise` also starts
+a new case. Prefix operators still compose across levels, for example
+`MIN CUP[k IN {1,2}] {k}`. These choices deliberately change earlier releases' readings.
+If delimiter/binder lookahead still leaves two complete readings with the same
+outer boundaries, parsing fails with `ambiguous function case boundary or
+expression`, for example `SUM[0 < i < 2 < j < 4] i` with two candidate binders.
+Parentheses around the intended bound resolve that ambiguity; no parse is guessed.
+Range bounds must be numerical expressions (§4.7); guards belong only to
+function cases (§4.6). Guarded bounds such as `SUM[true : 0 <= i < 2] i`
+are rejected. Plain range binders and bounded `F[l:u]`/`G[l:u]` remain supported.
 There are no deliberate Table 1 precedence deviations. Existing extensions
 `X[n]`, strong next (`X[!]`, `X[!n]`, `X[n!]`) and bounded `F`/`G` (including
 strong bounds) retain level 11; unary minus retains level 1. `GEQ` remains an
