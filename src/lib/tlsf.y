@@ -281,6 +281,8 @@
  * --------------------------------------------------------------------- */
 %token <sval> TOK_IDENT TOK_STRING
 %token <ival> TOK_INTEGER
+/* This magnitude is valid only as the operand of a direct unary minus. */
+%token TOK_MIN_MAGNITUDE "integer literal out of range"
 %token        TOK_ERROR
 
 /* Section / subsection keywords */
@@ -769,6 +771,8 @@ expr
     { if (!($$ = mk_binary(spec->arena, NODE_INT_MOD, $1, $3))) YYNOMEM; }
   | TOK_MINUS expr %prec TOK_UMINUS
     { if (!($$ = mk_unary(spec->arena, NODE_INT_NEG, $2))) YYNOMEM; }
+  | TOK_MINUS TOK_MIN_MAGNITUDE %prec TOK_UMINUS
+    { if (!($$ = node_int(spec->arena, INT64_MIN))) YYNOMEM; }
 
   /* Set expressions. */
   | set_literal

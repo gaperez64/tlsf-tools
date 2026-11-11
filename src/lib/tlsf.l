@@ -12,6 +12,7 @@
 #include "diagnostic.h"
 #include "tlsf_parse.h"
 
+#include <errno.h>
 #include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
@@ -211,7 +212,16 @@ Moore[ \t]*,[ \t]*Finite   { return TOK_FINITE_MOORE; }
 
   /* --- Integer literals --- */
 {INT}               {
-                      yylval->ival = strtoll(yytext, NULL, 10);
+                      errno = 0;
+                      unsigned long long value = strtoull(yytext, NULL, 10);
+                      if (errno == ERANGE || value > (unsigned long long)INT64_MAX + 1) {
+                        fprintf(tlsf_diagnostic_stream(), "%d:%d: integer literal out of range\n",
+                                yylloc->first_line, yylloc->first_column);
+                        return TOK_ERROR;
+                      }
+                      if (value == (unsigned long long)INT64_MAX + 1)
+                        return TOK_MIN_MAGNITUDE;
+                      yylval->ival = (int64_t)value;
                       return TOK_INTEGER;
                     }
 

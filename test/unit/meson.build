@@ -11,6 +11,9 @@ test('set_dedup', set_dedup)
 expansion_scope = executable('expansion_scope', 'expansion_scope.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('expansion_scope', expansion_scope)
+normalize_bounds = executable('normalize_bounds', 'normalize_bounds.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('normalize_bounds', normalize_bounds)
 test('set_dedup_field_inventory', python3,
   args: [files('set_dedup_field_inventory.py'), meson.project_source_root()])
 
