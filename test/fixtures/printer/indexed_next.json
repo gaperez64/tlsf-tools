@@ -1,0 +1,20 @@
+[
+  ["X[!1] X true", "X[!] X true"],
+  ["X X[!1] true", "X X[!] true"],
+  ["X[1] X[!] true", "X X[!] true"],
+  ["X[!] X[1] true", "X[!] X true"],
+  ["X[!1] X[1] true", "X[!] X true"],
+  ["X[1] X[!1] true", "X X[!] true"],
+  ["X[!1] X[!1] true", "X[!] X[!] true"],
+  ["X[!1] X[2] X true", "X[!] X X X true"],
+  ["X[!2] X[0] true", "X[!] X[!] true"],
+  ["X[!1] X[!2] X[!0] true", "X[!] X[!] X[!] true"],
+  ["X[!0] X true", "X true"],
+  ["X[0] X[!] true", "X[!] true"],
+  ["X[1!] X true", "X[!] X true"],
+  ["X[1] X[1] true", "X X true"],
+  ["X[1] X true", "X X true"],
+  ["X X[1] true", "X X true"],
+  ["X[2] X[0] true", "X X true"],
+  ["X[0] X true", "X true"]
+]

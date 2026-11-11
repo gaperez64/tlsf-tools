@@ -827,6 +827,12 @@ test('tlsf_reemit_quant', check,
 # Big operators must not consume a following operator. Check the first print
 # against an explicit golden and reparse that golden to check the fixed point.
 printer = meson.current_source_dir() / '..' / 'fixtures' / 'printer'
+test('strict_bounds_114', python3,
+  args: [files('check_strict_bounds.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
+         exe['tlsfnorm'], files(printer / 'strict_bounds.json')], timeout: 120)
+test('integer_next_115_117', python3,
+  args: [files('check_integer_next.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
+         exe['tlsfnorm'], printer], timeout: 120)
 # Issue #108: weak/strong indexed next must both survive set deduplication,
 # regardless of element order. The two committed .ltl files keep both conjuncts.
 foreach name : ['finite_set_next', 'finite_set_next_reversed']

@@ -471,11 +471,51 @@ assert len(scoping_update["generated_source_repairs"]) == 4
 for repair in scoping_update["generated_source_repairs"]:
     assert repair["file"] in scoping_update["source_rebindings"] and repair["reason"]
 
+strict_bounds_update = json.loads((root.parents[2] / "tools/analysis/strict-bounds-114.json").read_text())
+assert strict_bounds_update["date"] and strict_bounds_update["reason"]
+assert strict_bounds_update["checks"] == [
+    "gcc_full_tests", "strict_bounds_114", "normalize_bounds",
+    "native_and_translation_replay", "no_benchmark_hardcoding", "clang_format",
+]
+assert strict_bounds_update["changed_golden_hashes"] == 0
+assert set(strict_bounds_update["source_rebindings"]) == {
+    "src/lib/expand.c", "src/lib/normalize.c", "test/cli/meson.build",
+    "test/unit/meson.build", "test/cli/check_golden_provenance.py",
+}
+assert set(strict_bounds_update["preserved_artifacts_sha256"]) == set(scoping_update["preserved_artifacts_sha256"]) | {
+    "tools/analysis/tlsf-scoping-110.json",
+}
+for name, digest in strict_bounds_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+assert set(strict_bounds_update["added_sources_sha256"]) == {
+    "test/cli/check_strict_bounds.py", "test/fixtures/printer/strict_bounds.json",
+    "test/unit/normalize_bounds.c",
+}
+for name, digest in strict_bounds_update["added_sources_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+integer_next_update = json.loads((root.parents[2] / "tools/analysis/integer-next-115-117.json").read_text())
+assert integer_next_update["date"] and integer_next_update["reason"]
+assert integer_next_update["changed_golden_hashes"] == 0
+assert set(integer_next_update["source_rebindings"]) == {
+    "src/lib/expand.c", "src/lib/normalize.c", "src/lib/tlsf.l", "src/lib/tlsf.y",
+    "test/cli/meson.build", "test/cli/check_golden_provenance.py",
+}
+assert set(integer_next_update["added_sources_sha256"]) == {
+    "test/cli/check_integer_next.py", "test/fixtures/printer/checked_integer.json",
+    "test/fixtures/printer/indexed_next.json",
+}
+assert set(integer_next_update["preserved_artifacts_sha256"]) == {"tools/analysis/strict-bounds-114.json"}
+for field in ("added_sources_sha256", "preserved_artifacts_sha256"):
+    for name, digest in integer_next_update[field].items():
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
 UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
-           partition_update, perf_update, grammar_update)
+           partition_update, perf_update, grammar_update, strict_bounds_update,
+           integer_next_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):

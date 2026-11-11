@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-11",
+  "reason": "Issues #115-117 found during review of #114: reject overflowing integer operations and out-of-range literal magnitudes; preserve each finite next strength when merging or rebuilding. Keep the approved strict-endpoint guard and all frozen records unchanged; rebind sources additively.",
+  "checks": [
+    "gcc_full_tests",
+    "strict_bounds_114",
+    "normalize_bounds",
+    "integer_next_115_117",
+    "ubsan_regressions",
+    "native_and_translation_replay",
+    "golden_provenance",
+    "no_benchmark_hardcoding",
+    "clang_format_22.1.8"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "src/lib/expand.c": {
+      "previous_sha256": "3ce194ffa07d9f6b44732e6b907ca0128adc91a732a1cf09a998808bb3913999",
+      "current_sha256": "ab2445ddbf9991b4105b78844f7e0c5a830a7dd20a52691451b35d7a7196c16b"
+    },
+    "src/lib/normalize.c": {
+      "previous_sha256": "7834975d5ff3d3dcd36222e8be4aabe5efa31143c009e7da56b096f38b299bb9",
+      "current_sha256": "a100f94d354a9afd192e008fd897f8cee5be7ec677a1fd866696e51dd25c73ba"
+    },
+    "src/lib/tlsf.l": {
+      "previous_sha256": "028b59fa462e18309158dc775fe6a32eab752882419e2b31aabf88c861891646",
+      "current_sha256": "759e911b1645c2b4ba3e2b1fc43ec1614f487a04370b04074fcbf94fd1ae3ccb"
+    },
+    "src/lib/tlsf.y": {
+      "previous_sha256": "4cc4753fb8992cd06f5f64eab4ac5245a58b82f35884a49110c038632c95bc2e",
+      "current_sha256": "aa37b7463d19739b9760feca88719734c8d645290237a054d8c7eceadaf80873"
+    },
+    "test/cli/meson.build": {
+      "previous_sha256": "bb3b27bc2a918de38518bdece8600504262a91ef0da7e4c4483e1c2fc921fb32",
+      "current_sha256": "5e1461f60f07246c98a4397982b5ae07ca990bd85495d39b245422072cc30a1c"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "f087a06696820d7f06a835d02c4ff9969e2547ae355d3fcad0de545f9e447e13",
+      "current_sha256": "00416ade93bd37381ba72f0f777f67f1ee327d0f2eab536407456770633ad350"
+    }
+  },
+  "added_sources_sha256": {
+    "test/cli/check_integer_next.py": "95a3993a9108879f614d81ef78f09b35a6954bdcc8c033808caacb3469b671f4",
+    "test/fixtures/printer/checked_integer.json": "52155b0daca7cc03c593e829b777bbc99598ebc1a725857c982fe0300fc5c537",
+    "test/fixtures/printer/indexed_next.json": "1e47ea01c4281fdc882e07f0ef7de648457d36daa7e132b62bcd628c6d17d068"
+  },
+  "preserved_artifacts_sha256": {
+    "tools/analysis/strict-bounds-114.json": "21c0475f8f6fe99d7e3262ad4d86e9ac1c183f66883eeb7af6305a9641b02897"
+  },
+  "literal_rule": "Decimal magnitudes up to INT64_MAX are ordinary integers. Magnitude INT64_MAX+1 is accepted only directly after unary minus (whitespace, comments and leading zeros allowed), producing INT64_MIN. A positive magnitude in parentheses remains out of range; negating INT64_MIN is checked overflow.",
+  "arithmetic_audit": {
+    "eval_int": "Checked add/subtract/multiply; negation uses checked 0-a. Division/remainder reject zero and INT64_MIN/-1 before executing. Set sizes are uint32_t and bus widths use validated uint16_t endpoints, so their conversions and width arithmetic fit int64_t.",
+    "eval_int_reduction": "Check every sum/product accumulation, including intermediate overflow before a later cancellation or zero.",
+    "eval_set/eval_domain": "Check stepped-range stride subtraction; keep the guarded step increment, strict-endpoint shifts and inclusive-domain increment from #114.",
+    "pre_indexed_x": "Merge only representable nonnegative counts with equal strengths; preserve the outer strength when an inner rewrite forces reconstruction. Zero count remains the identity. Mixed chains keep the strength at each position."
+  }
+}

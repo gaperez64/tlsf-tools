@@ -472,6 +472,11 @@ static Node *instantiate(const TlsfSpec *spec, const DefDecl *d,
   return subst(spec->arena, d->body, d->params, closed, d->param_count, env);
 }
 
+static bool integer_overflow(const char *operation) {
+  fprintf(tlsf_diagnostic_stream(), "expand: integer %s overflow\n", operation);
+  return false;
+}
+
 static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
                      int64_t *out, int depth) {
   Env lexical = declaration_env(env);
@@ -546,7 +551,8 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
     int64_t a;
     if (!eval_int(spec, n->arg, env, &a, depth))
       return false;
-    *out = -a;
+    if (__builtin_sub_overflow((int64_t)0, a, out))
+      return integer_overflow("negation");
     return true;
   }
   case NODE_DEF_CALL: {
@@ -583,18 +589,26 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
     }
     switch (n->kind) {
     case NODE_INT_ADD:
-      *out = a + b;
+      if (__builtin_add_overflow(a, b, out))
+        return integer_overflow("addition");
       break;
     case NODE_INT_SUB:
-      *out = a - b;
+      // Also used by the implicit width-to-upper-bound conversion in b[N].
+      if (__builtin_sub_overflow(a, b, out))
+        return integer_overflow("subtraction");
       break;
     case NODE_INT_MUL:
-      *out = a * b;
+      if (__builtin_mul_overflow(a, b, out))
+        return integer_overflow("multiplication");
       break;
     case NODE_INT_DIV:
+      if (a == INT64_MIN && b == -1)
+        return integer_overflow("division");
       *out = a / b;
       break;
     default:
+      if (a == INT64_MIN && b == -1)
+        return integer_overflow("remainder");
       *out = a % b;
       break;
     }
@@ -1041,7 +1055,11 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
         !eval_int(spec, n->set_elems[1], env, &second, depth + 1) ||
         !eval_int(spec, n->set_elems[2], env, &last, depth + 1))
       return false;
-    int64_t step = second - first;
+    int64_t step;
+    if (__builtin_sub_overflow(second, first, &step)) {
+      fprintf(tlsf_diagnostic_stream(), "expand: step overflow in set range\n");
+      return false;
+    }
     if (step == 0) {
       fprintf(tlsf_diagnostic_stream(), "expand: zero step in set range\n");
       return false;
@@ -1131,11 +1149,17 @@ static bool eval_domain(const TlsfSpec *spec, const Node *n, const Env *env,
   if (!eval_int(spec, n->qlo, env, &lo, depth + 1) ||
       !eval_int(spec, n->qhi, env, &hi, depth + 1))
     return false;
-  int64_t first = n->qlo_strict ? lo + 1 : lo;
-  int64_t last = n->qhi_strict ? hi - 1 : hi;
   EvalSet *set = set_new(spec->arena);
   if (!set)
     return false;
+  // These strict endpoints admit no int64_t values; do not shift them.
+  if ((n->qlo_strict && lo == INT64_MAX) ||
+      (n->qhi_strict && hi == INT64_MIN)) {
+    *out = set;
+    return true;
+  }
+  int64_t first = n->qlo_strict ? lo + 1 : lo;
+  int64_t last = n->qhi_strict ? hi - 1 : hi;
   for (int64_t value = first; value <= last;) {
     EvalValue item = {.kind = EVAL_VALUE_INT,
                       .integer = value,
@@ -1197,7 +1221,9 @@ static bool eval_int_reduction(const TlsfSpec *spec, const Node *n,
                              &body) ||
         !eval_int(spec, body, body_env, &value, depth + 1))
       return false;
-    acc = n->kind == NODE_PRODUCT ? acc * value : acc + value;
+    if (n->kind == NODE_PRODUCT ? __builtin_mul_overflow(acc, value, &acc)
+                                : __builtin_add_overflow(acc, value, &acc))
+      return integer_overflow(n->kind == NODE_PRODUCT ? "product" : "sum");
   }
   *out = acc;
   return true;
@@ -1781,6 +1807,8 @@ static Node *expand_node_impl(TlsfSpec *spec, const Node *n, const Env *env,
           acc ? (conj ? node_and(a, acc, body) : node_or(a, acc, body)) : body;
       if (!acc)
         return nullptr;
+      if (k == INT64_MAX)
+        break;
     }
     // Empty range (lo > hi): empty conjunction is true, empty disjunction
     // false.

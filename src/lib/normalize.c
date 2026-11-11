@@ -655,27 +655,45 @@ static bool is_int_lit(const Node *n, int64_t *v) {
 //   X[0] p = p ; X[m](X[n] p)=X[m+n] p ; X[m](X p)=X[m+1] p ; X(X[n] p)=X[n+1]
 //   p
 // Recursion simplifies the body first, so a chain collapses in one traversal.
-// Finite-word-safe: counts are merged, never folded over true/false.
+// Finite-word-safe: merge only matching strengths, never fold over true/false.
 static Node *pre_indexed_x(Arena *a, Node *n) {
   switch (n->kind) {
   case NODE_NEXT_N: {
     Node *body = pre_indexed_x(a, n->rhs);
+    Node *count = n->lhs;
     int64_t c;
     if (is_int_lit(n->lhs, &c)) {
       if (c == 0)
         return body; // X[0] p = p
-      if (body->kind == NODE_X)
-        return node_next_n(a, node_int(a, c + 1), body->arg);
-      int64_t d;
-      if (body->kind == NODE_NEXT_N && is_int_lit(body->lhs, &d))
-        return node_next_n(a, node_int(a, c + d), body->rhs);
+      if (body->kind == NODE_X && !n->bounded.strong && c >= 0 &&
+          c < INT64_MAX) {
+        count = node_int(a, c + 1);
+        body = body->arg;
+      } else {
+        int64_t d;
+        if (body->kind == NODE_NEXT_N &&
+            n->bounded.strong == body->bounded.strong &&
+            is_int_lit(body->lhs, &d) && c >= 0 && d >= 0 &&
+            c <= INT64_MAX - d) {
+          count = node_int(a, c + d);
+          body = body->rhs;
+        }
+      }
     }
-    return body == n->rhs ? n : node_next_n(a, n->lhs, body);
+    if (body == n->rhs && count == n->lhs)
+      return n;
+    if (!count)
+      return nullptr;
+    Node *result = node_next_n(a, count, body);
+    if (result)
+      result->bounded.strong = n->bounded.strong;
+    return result;
   }
   case NODE_X: {
     Node *arg = pre_indexed_x(a, n->arg);
     int64_t d;
-    if (arg->kind == NODE_NEXT_N && is_int_lit(arg->lhs, &d))
+    if (arg->kind == NODE_NEXT_N && !arg->bounded.strong &&
+        is_int_lit(arg->lhs, &d) && d >= 0 && d < INT64_MAX)
       return node_next_n(a, node_int(a, d + 1), arg->rhs);
     return arg == n->arg ? n : node_x(a, arg);
   }
@@ -725,6 +743,9 @@ static Node *pre_bounded_bool(Arena *a, Node *n) {
       return node_false(a); // ||[..] false = false
     int64_t lo, hi;
     if (!n->qset && is_int_lit(n->qlo, &lo) && is_int_lit(n->qhi, &hi)) {
+      if ((n->qlo_strict && lo == INT64_MAX) ||
+          (n->qhi_strict && hi == INT64_MIN))
+        return all ? node_true(a) : node_false(a); // empty range
       int64_t l = lo + (n->qlo_strict ? 1 : 0);
       int64_t h = hi - (n->qhi_strict ? 1 : 0);
       if (l > h)
