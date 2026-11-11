@@ -682,7 +682,7 @@ static void expansion_checks(void) {
       snprintf(source, sizeof source,
                "INFO { SEMANTICS: Mealy TARGET: Mealy } "
                "GLOBAL { DEFINITIONS { id(n) = n; } } "
-               "MAIN { INPUTS { b[id(2)]; } GUARANTEES { %s %s } }",
+               "MAIN { INPUTS { p; b[id(2)]; } GUARANTEES { %s %s } }",
                preexisting_id ? "id(p);" : "p;",
                semantic_error ? "missing();" : "");
       expansion_sweep(source, semantic_error, preexisting_id);
@@ -713,44 +713,45 @@ static void expansion_checks(void) {
     char source[256];
     snprintf(source, sizeof source,
              "INFO { SEMANTICS: Strict,Mealy TARGET: Moore } "
-             "MAIN { INITIALLY { %s; } }",
+             "MAIN { INPUTS { p; } INITIALLY { %s; } }",
              bodies[b]);
     expansion_sweep(source, false, false);
   }
   const char *cases[] = {
       // Provenance must not leak root/child IDs when allocation 2 is refused.
-      "MAIN { GUARANTEES { X p; } }",
+      "MAIN { INPUTS { p; } GUARANTEES { X p; } }",
       // The minimal definition repro; then every section and multiple slots.
       "GLOBAL { DEFINITIONS { repeat(x) = x && X x; } } "
-      "MAIN { GUARANTEES { repeat(p); } }",
-      "GLOBAL { DEFINITIONS { repeat(x) = x && X x; } } MAIN { "
+      "MAIN { INPUTS { p; } GUARANTEES { repeat(p); } }",
+      "GLOBAL { DEFINITIONS { repeat(x) = x && X x; } } MAIN { INPUTS { p; q; "
+      "} "
       "INITIALLY { repeat(p); repeat(q); } REQUIRE { repeat(p); } "
       "ASSUMPTIONS { repeat(p); } PRESET { repeat(p); } "
       "ASSERT { repeat(p); } GUARANTEES { repeat(p); repeat(q); } }",
       // Numeric and Boolean definition evaluators and nested calls.
       "GLOBAL { DEFINITIONS { inc(n) = n + 1; "
       "choose(n) = inc(n) > 0 : X[inc(n)] p otherwise : q; } } "
-      "MAIN { GUARANTEES { choose(1); } }",
+      "MAIN { INPUTS { p; q; } GUARANTEES { choose(1); } }",
       // Pattern bindings, recursive substitutions, and unmatched guards.
       "GLOBAL { DEFINITIONS { strip(f) = f ~ G x : (x && X x) "
       "otherwise : false; } } "
-      "MAIN { GUARANTEES { strip(G p); strip(p); } }",
+      "MAIN { INPUTS { p; } GUARANTEES { strip(G p); strip(p); } }",
       // Formula-valued membership domains, including a definition as a value.
       "GLOBAL { DEFINITIONS { repeat(x) = x && X x; "
       "all(x) = &&[f IN {x, X x, repeat(x)}] (f && X f); } } "
-      "MAIN { GUARANTEES { all(p); ||[f IN {p, q}] f; } }",
+      "MAIN { INPUTS { p; q; } GUARANTEES { all(p); ||[f IN {p, q}] f; } }",
       // Range domains, empty domains, set enums, set definitions and reducers.
       "GLOBAL { DEFINITIONS { s(n) = {n, n + 1 .. n + 2}; "
       "range(x) = &&[0 < i <= 2] x; "
       "sets(x) = (+)[v IN {{x}, {x + 1}}] v; "
       "both(x) = (*)[v IN {{x}, {x, x + 1}}] v; } } "
-      "MAIN { GUARANTEES { range(p); &&[i IN s(0)] X[i] p; "
+      "MAIN { INPUTS { p; } GUARANTEES { range(p); &&[i IN s(0)] X[i] p; "
       "&&[i IN {}] p; ||[i IN {}] p; "
       "SIZE (sets(1) (+) both(1)) == 2; "
       "(SUM[i IN s(1)] i) == 6; (PROD[i IN {1, 2}] i) == 2; } }",
       // Bus formal names, indices, SIZEOF, computed bounds and overrides.
       "GLOBAL { PARAMETERS { N = 3; } DEFINITIONS { "
-      "bit(b, i) = b[i] && X b[i]; width(b) = SIZEOF b; } } "
+      "bit(bus, i) = bus[i] && X bus[i]; width(bus) = SIZEOF bus; } } "
       "MAIN { INPUTS { b[N]; } OUTPUTS { c[2]; } "
       "GUARANTEES { bit(b, 0); width(b) == 2; } }",
       // Signal-only expansions must reject OOM too, in either signal list.
@@ -760,10 +761,16 @@ static void expansion_checks(void) {
       "GLOBAL { DEFINITIONS { enum Mode = Ready: 10,01; } } "
       "MAIN { INPUTS { Mode b; } GUARANTEES { b == Ready; b != Ready; } }",
       // Attaching bounded metadata must not mutate an input atom on failure.
-      "MAIN { GUARANTEES { X[0] p; G[0:0] q; F[0:0] r; X s; } }",
+      "MAIN { INPUTS { p; q; r; s; } GUARANTEES { X[0] p; G[0:0] q; F[0:0] r; "
+      "X s; } }",
       // Substitution of bounded formula bodies and their strong flags.
       "GLOBAL { DEFINITIONS { window(x) = G[0:2] x && F[1:2] x; } } "
-      "MAIN { GUARANTEES { window(p); } }",
+      "MAIN { INPUTS { p; } GUARANTEES { window(p); } }",
+      // #110: close numeric bindings, compare separate core keys, substitute
+      // stored high-level elements through nested sets and function actuals.
+      "GLOBAL { DEFINITIONS { delay(x) = X[x] o; } } "
+      "MAIN { OUTPUTS { o; } GUARANTEES { "
+      "&&[s IN CUP[k IN {1,2}] {{delay(k), X[1] o}}] &&[f IN s] f; } }",
   };
   for (size_t i = 0; i < sizeof cases / sizeof *cases; ++i) {
     char source[2048];

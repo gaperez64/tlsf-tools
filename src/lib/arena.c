@@ -122,6 +122,8 @@ void *arena_alloc_array(Arena *a, size_t size, size_t count, size_t align) {
 
 bool arena_failed(const Arena *a) { return a->failed; }
 
+void arena_mark_failed(Arena *a) { a->failed = true; }
+
 void arena_free(Arena *a) {
   if (!a)
     return;

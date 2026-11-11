@@ -4,12 +4,21 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "golden"
+SCOPING = ROOT.parents[2] / "tools/analysis/tlsf-scoping-110.json"
 
 
 class Golden:
     def __init__(self, name):
         self.name = name
         self.records = json.loads((ROOT / (name + ".json")).read_text())
+        ledger = json.loads(SCOPING.read_text())
+        # Apply receipts to a private copy; historical payloads stay byte-exact.
+        patches = (ledger["record_replacements"].get(name, []) +
+                   ledger["precedence110j"]["record_replacements"].get(name, []))
+        for patch in sorted(patches, key=lambda patch: patch["index"], reverse=True):
+            index = patch["index"]
+            assert self.records[index:index + len(patch["before"])] == patch["before"]
+            self.records[index:index + len(patch["before"])] = patch["after"]
         self.position = 0
 
     def source(self, path):

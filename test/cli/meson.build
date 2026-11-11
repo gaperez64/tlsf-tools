@@ -1,6 +1,14 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
 if python3.found()
+  test('precedence_110', python3,
+    args: [files('check_precedence_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
+    timeout: 60)
+  test('case_boundaries_110', python3,
+    args: [files('check_case_boundaries_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
+    timeout: 60)
+  test('scoping_110', python3,
+    args: [files('check_scoping_110.py'), exe['tlsf2ltl']], timeout: 60)
   test('target_adaptation', python3,
     args: [files('check_target_adaptation.py'), exe['tlsf2ltl']])
   test('reference_semantics_and_oracle_guard', python3,
@@ -189,19 +197,22 @@ test('ltl_ident_m', check,
   args: [files(cases / 'ident_m.ltl'),
          exe['tlsf2ltl'], files(cases / 'ident_m.tlsf')])
 
-foreach c : ['ident_m_function', 'ident_m_signal', 'ident_m_formal',
+foreach c : ['ident_m_signal', 'ident_m_formal',
              'ident_m_enum', 'ident_m_quantifier']
   test('ltl_' + c, check,
     args: [files(cases / c + '.ltl'),
            exe['tlsf2ltl'], files(cases / c + '.tlsf')])
 endforeach
+test('ltl_ident_m_function', check,
+  args: [files(cases / 'ident_m_function.ltl'), exe['tlsf2ltl'],
+         files(cases / 'ident_m_function.tlsf')])
 
 test('err_infix_m_v12', check_fail_stderr,
   args: [files(cases / 'bad_infix_m.stderr'), exe['tlsf2ltl'],
          files(cases / 'bad_infix_m.tlsf')])
 
 test('ltl_precedence_v12', check,
-  args: [files(cases / 'precedence_v12.ltl'), exe['tlsf2ltl'],
+  args: [files('../fixtures/scoping110/precedence_v12.ltl'), exe['tlsf2ltl'],
          '--parenthesize', files(cases / 'precedence_v12.tlsf')])
 
 # The ltl dialect, since the spec declares @a (see ltlxba_rejects_primes).
@@ -225,7 +236,7 @@ test('ltl_pattern_v12', check,
   args: [files(cases / 'pattern_v12.ltl'), exe['tlsf2ltl'],
          files(cases / 'pattern_v12.tlsf')])
 test('err_pattern_conflict_v12', check_fail_stderr,
-  args: [files(cases / 'pattern_conflict_v12.stderr'), exe['tlsf2ltl'],
+  args: [files('../fixtures/scoping110/pattern_conflict_v12.stderr'), exe['tlsf2ltl'],
          files(cases / 'pattern_conflict_v12.tlsf')])
 
 test('ltl_nnf_m_v12', check,
@@ -436,8 +447,8 @@ test('compose_output_dir_under_real_wr', check_output_dir,
 test('compose_output_dir_over_unreal_wr', check_output_dir_fail,
   args: ['trusted one-sided OxiDD verdict', exe['tlsfcompose'], '--split',
          files(cases / 'wr_gated_collapse.tlsf')])
-test('compose_aiger_unclassified_atom', check,
-  args: [files(cases / 'aiger_unclassified_atom.compose'), exe['tlsfcompose'],
+test('compose_aiger_unclassified_atom', check_fail_stderr,
+  args: [files('../fixtures/scoping110/aiger_unclassified_atom.stderr'), exe['tlsfcompose'],
          files(cases / 'aiger_unclassified_atom.tlsf')])
 test('compose_route_stats_gr1', check,
   args: [files(cases / 'gr1_spec.route_stats'), exe['tlsfcompose'],
@@ -767,7 +778,7 @@ test('ltlxba_rejects_primes', check_fail_stderr,
   args: [files(cases / 'primes.ltlxba.stderr'), exe['tlsf2ltl'],
          files(cases / 'primes.tlsf')])
 test('ltlxba_rejects_undeclared_at', check_fail_stderr,
-  args: [files(cases / 'undeclared_at_atom.stderr'), exe['tlsf2ltl'],
+  args: [files('../fixtures/scoping110/undeclared_at_atom.stderr'), exe['tlsf2ltl'],
          files(cases / 'undeclared_at_atom.tlsf')])
 
 # Uppercase atom names: ltlxba lowercases them for the emitted backend
@@ -816,6 +827,8 @@ test('tlsf_reemit_quant', check,
 # Big operators must not consume a following operator. Check the first print
 # against an explicit golden and reparse that golden to check the fixed point.
 printer = meson.current_source_dir() / '..' / 'fixtures' / 'printer'
+# Issue #108: weak/strong indexed next must both survive set deduplication,
+# regardless of element order. The two committed .ltl files keep both conjuncts.
 foreach name : ['finite_set_next', 'finite_set_next_reversed']
   test('ltl_' + name, check,
     args: [files(printer / name + '.ltl'), exe['tlsf2ltl'], '--format', 'ltl',

@@ -1,0 +1,4 @@
+INFO { SEMANTICS: Finite,Mealy; TARGET: Mealy; }
+MAIN { OUTPUTS { o; }
+GUARANTEES { SIZE {X[1] o, X o} == 2; }
+}

@@ -18,7 +18,7 @@ TlsfSpec *spec_parse(FILE *in, const char *prog) {
   }
   yyset_extra(spec, scanner);
   yyset_in(in, scanner);
-  int rc = yyparse(scanner, spec);
+  int rc = tlsf_parse(scanner, spec);
   yylex_destroy(scanner);
 
   if (rc != 0 || arena_failed(spec->arena)) {

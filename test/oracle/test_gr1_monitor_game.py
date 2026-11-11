@@ -174,7 +174,7 @@ def main():
                 ("moore", tiny("i", "o", "true;", "G o;").replace("Mealy", "Moore"), 3),
                 ("duplicate", tiny("i", "o", "true;", "G o; G (o && true);"), 0),
                 ("numeric-scalar", tiny("i_1", "o", "true;", "G (i_1 -> F o);"), 0),
-                ("collision", tiny("a[0..1]; a_0", "o", "true;", "G (a_0 -> o);"), 3)):
+                ("collision", tiny("a[0..1]; a_0", "o", "true;", "G (a_0 -> o);"), 2)):
             source = directory / (label + ".tlsf")
             source.write_text(source_text)
             reduced = reduce(source, label, status=status)

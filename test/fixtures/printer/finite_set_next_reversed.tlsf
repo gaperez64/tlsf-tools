@@ -1,2 +1,4 @@
-INFO { SEMANTICS: Finite,Mealy TARGET: Mealy }
-MAIN { GUARANTEES { &&[f IN {X[!1] true, X[1] true}] f; } }
+INFO { TITLE: "t"; DESCRIPTION: "t"; SEMANTICS: Finite,Mealy; TARGET: Mealy; }
+MAIN { INPUTS { i; } OUTPUTS { o; }
+GUARANTEES { &&[f IN {X[!1] true, X[1] true}] f; }
+}

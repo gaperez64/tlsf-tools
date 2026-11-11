@@ -92,7 +92,16 @@ MAIN {
     const std::string implicit =
         "INFO { SEMANTICS: " + std::string(semantics) +
         " TARGET: Mealy } MAIN { OUTPUTS { p; } GUARANTEE { G(p <-> u); } }";
-    auto adapted = tlsf::decompose(implicit);
+    bool rejected_free = false;
+    try {
+      (void)tlsf::decompose(implicit);
+    } catch (const std::runtime_error &) {
+      rejected_free = true;
+    }
+    assert(rejected_free); // TLSF v1.1 §§4.1–4.3: u needs a declaration.
+    std::string declared = implicit;
+    declared.insert(declared.find("OUTPUTS"), "INPUTS { u; } ");
+    auto adapted = tlsf::decompose(declared);
     assert(adapted.preprocessed_ltl == "G (p <-> X u)");
     assert(adapted.residual_trust == tlsf::Trust::Exact);
     assert(adapted.clusters.size() == 1);
@@ -132,7 +141,7 @@ MAIN {
     const std::string header = "INFO { SEMANTICS: " + std::string(semantics) +
                                " TARGET: " + target + " } MAIN { ";
     const std::string implicit =
-        header + "OUTPUTS { p; } "
+        header + "INPUTS { q; Q; } OUTPUTS { p; } "
                  "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; } }";
     options.lowercase = false;
     result = tlsf::decompose(implicit, options);
@@ -144,7 +153,9 @@ MAIN {
     options.lowercase = true;
     TlsfDecomposeOptions c_options = {};
     c_options.lowercase = true;
-    for (const char *declaration : {"", "INPUTS { q; }", "OUTPUTS { q; }"})
+    for (const char *declaration :
+         {"", "INPUTS { q; }", "OUTPUTS { q; }", "INPUTS { q; Q; }",
+          "INPUTS { q; } OUTPUTS { Q; }"})
       for (const char *role : {"INITIALLY", "PRESET", "REQUIRE", "ASSERT",
                                "ASSUMPTIONS", "GUARANTEES"}) {
         const std::string source =

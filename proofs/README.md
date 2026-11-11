@@ -8,8 +8,9 @@ and component-strategy choice. Main-result audits permit only `propext`,
 `Classical.choice`, and `Quot.sound`.
 
 The proofs establish mathematical ports of definition elimination, clustering,
-conditional assumption pruning, selected rewrites, and an independent automaton
-construction/validator. They do not verify the C binary or other CSNF controllers.
+conditional assumption pruning, selected rewrites, set deduplication, and an
+independent automaton construction/validator. They do not verify the C binary or
+other CSNF controllers.
 
 ## Build
 
@@ -23,7 +24,7 @@ export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
 # Sequential per-module diagnostics
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites; do
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
   timeout 300 lake build "TlsfProofs.$module" || exit $?
 done
@@ -43,6 +44,7 @@ timeout 1500 lake build
 | `Pruning.lean` | `prune_realizable` for infinite ordinary/strict Mealy games. `Prunable isIn K D` requires input-only environment entries in D, disjoint from every K entry. `EnvSat D` witnesses `Initial D && G Require D && Assume D`; `envSat_of_word` bridges any satisfying infinite word, including lassos. Pinning D inputs and replay/locality transfer K obligations; adding D is pointwise weakening, also for strict safety. No finite theorem. |
 | `Examples.lean` | Game counterexamples, rejected guards, finite-next boundaries/split failure, both Boolean-fixture orientations, and a list order needing multiple passes. |
 | `Rewrites.lean` | NNF, weak/local/bottom-up rewrites, capped driver, pre-weak simplification, and spine decomposition. Exactness covers every valid position and word: both kinds in finite mode, infinite otherwise. |
+| `SetDedup.lean` | All 54 semantic Node payloads, including indexed weak/strong next, bounded F/G, ITE, calls/patterns, and binder syntax. `structEq_eq` proves structural equality implies identical syntax; `structEq_denotation` preserves finite/infinite denotation under every fixed lowering environment, including terminal and out-of-range queries. |
 
 `Admissible isIn strict kept ds passes` requires declared output definitions,
 Boolean right-hand sides, distinct names, decreasing dependency ranks below
@@ -156,13 +158,168 @@ malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
 or machine-size behavior. `NODE_NEXT_N` only recurses into its body
 (`src/lib/normalize.c:840–843`) and is outside `Formula`; indexed spine splitting,
 arithmetic, bounded quantifiers, and expansion to nexts remain unverified.
-`next_power` proves identities of the expanded mathematical sequence.
+`next_power` proves identities of the expanded mathematical sequence. This
+boundary concerns the rewrite ports; high-level structural equality and its
+deduplication consequence are proved separately below.
 
 RULES/finite-guard ports do not verify scheduler phases/growth checks, CLI
 plumbing, other passes, or Sickert transformations. Callers must check finite
 admission before infinite-mode passes. Printing/escaping and downstream X/X[!]
 interpretation (`print_ltlxba.c:242–249`) remain trusted; theorems neither execute
 C nor establish emitted trust tags.
+
+## Set deduplication (issue #108)
+
+Names here are in `Tlsf.SetDedup`. `HNode` models every active payload compared
+by `node_structural_equal`, with constructor tags distinguishing C node kinds.
+`HNodes` represents ordered child arrays; its length represents `call_argc` or
+`set_size`. `absent` represents null optional children. Identifier strings model
+interned names. Source IDs, origin bindings, inactive union members and expanded
+bounded metadata are omitted; `bounded.strong` is retained on `NODE_NEXT_N`,
+`NODE_G_RANGE`, and `NODE_F_RANGE`.
+
+`structEq` follows the C switch and field order, including count-before-array
+checks. Mutual structural induction proves `structEq_eq` / `nodesEq_eq` by
+constructor injectivity. `structEq_congr` then preserves **any** deterministic
+interpretation of the syntax. In particular `structEq_substitution` covers
+actual-argument and formula-valued binder substitution in a fixed body and
+environment. This argument uses only equality congruence; no nontrivial temporal
+identity or external literature is needed.
+
+`lower env` expands the core constructors, count-fold weak/strong indexed next,
+and the inclusive F/G range into the C loop's left-associated fold. Empty ranges
+give false/true respectively, and count zero is the identity. Ordinary ITEs
+select a branch using the environment's guard evaluator. `LowerEnv` explicitly
+supplies successfully evaluated nonnegative counts/bounds, guards, and expansion
+of names/nullary definitions, bus accesses, calls/patterns, comparisons and
+reductions. Pattern-guard ITEs also use that resolver because their selected
+branch substitutes captured terms. Correctness/termination of those C evaluators,
+overflow/rejection behavior, and the whole expansion pass remain trusted; their
+implementation is not a hypothesis needed for structural congruence: identical
+semantic syntax has identical results under any one such interpretation.
+
+`structEq_lower` and `structEq_denotation` establish equal lowering and `Sat`
+at every `len`, word and position, including `none` and `some n`. `dedup_conj`
+and `dedup_disj` show duplicate formula terms may be removed from conjunctions
+and disjunctions. `issue108_not_structEq`, `issue108_terminal`, and
+`issue108_denotations_differ` prove that `X[1] true` and `X[!1] true` compare
+unequal and have different denotations at position zero of **every** length-one
+word. The committed `finite_set_next{,_reversed}.ltl` CLI goldens retain both
+conjuncts in their input order: `X true && X[!] true` and its reversal.
+
+Issue #110 uses **desugared core identity** for formula set elements (TLSF v1.1
+§4.8), rather than equality of the stored high-level syntax. `coreEq_denotation`,
+`dedup_core_conj` and `dedup_core_disj` allow different source elements and
+different lowering environments under the explicit premise that their cores
+are equal. They prove equal `Sat` and duplicate-fold removal for every length,
+including finite `some n` and infinite `none`, without an in-range premise.
+`issue110_next_sugar` supplies the concrete `X[1] a` / `X a` instance, reusing
+`indexedNext` and `Rewrites.next_power`. Core weak and strong next remain
+different constructors. Cardinality/membership of sets that previously
+distinguished these sugar spellings intentionally change; these theorems make
+no preservation claim for the previous syntax-based cardinality.
+
+The single parser in `src/lib/tlsf.y` implements Table 1 operator binding and
+§4.6 longest match for consecutive cases; `src/lib/spec_parse.c` feeds the lexer
+through its per-parse, one-token reduction-head lookahead. The frozen compatibility parser and token-replay files have
+been removed. Parsing, boundary selection and ambiguity rejection are trusted C
+obligations, outside the Lean set-identity theorems. The additive `grammar112g`
+entry in [the scoping ledger](../tools/analysis/tlsf-scoping-110.json) records
+source rebindings and the hashes of the three removed compatibility files;
+all earlier receipts remain unchanged.
+
+**Trusted boundary.** The lexical/type checker at
+`src/lib/expand_check.c:242–801` implements TLSF v1.1
+§§4.1–4.7. Arguments may shadow globals under the deliberate lexical reading
+of §4.6 used by SYNTCOMP; their actuals determine their categories. Loop and
+pattern binders retain declaration freshness checks. Each application, including
+recursive calls, gets an independent copy of its declaration's type constraints
+(`src/lib/expand_check.c:277–357,749–775`). Sharing between arguments and results
+is preserved within each instance; recursive actuals are not unified with their
+caller's formals. Constraint solving and type-graph copying are bounded at 2000,
+matching expansion's recursion guard. Masks retain the §4.3 boolean/signal
+embedding into LTL; boolean-only uses still constrain logical operands
+(`src/lib/expand_check.c:65–169`). These algorithms and their convergence checks
+are trusted, not Lean-verified type inference.
+Declaration bounds resolve on demand in the GLOBAL environment with a shared
+unresolved/visiting/resolved dependency state (`src/lib/expand.c:294–357`).
+SIZEOF, index keys and expanded enum comparisons resolve their referenced bus
+before reading bounds; cyclic width dependencies reject with a diagnostic.
+Static width checks run after all declaration bounds resolve. This dependency
+resolution and cycle detection remain trusted C obligations. Generated
+fair-environment binders retain the usual spelling unless a declaration uses
+it, then suffix until fresh (`src/lib/spec.c:215–245`); the checker still
+requires binder freshness.
+Widths are value properties: static §4.4 checks cover direct declarations and
+exact nullary alias chains in their own lexical GLOBAL environment, including
+unused/dead syntax (`src/lib/expand_check.c:254–270,526–557`). Expansion checks
+every actual bus/valuation pair after lexical substitution and set filtering
+(`src/lib/expand.c:1597–1621`); no width constraints flow through category
+unification, shadowed bindings or removed set members. After all bounds resolve,
+declarations named like another bus's flattened bit are rejected before
+the specification formula lists expand (`src/lib/expand_check.c:670–713`). A shared arena-allocated
+constructor builds the complete interned name for this check, formula/key atoms
+and flattened declarations (`src/lib/expand_check.c:5–16`,
+`src/lib/expand.c:1399–1410,2039–2042`). Evaluated bus indices, including aliases
+and actuals, must lie within the resolved bus bounds (`src/lib/expand.c:1674–1697`).
+This deliberate fail-closed rule keeps §4.5 signal identity injective in keys and
+all output formats. LTL/LaTeX/quoted-LTL and TLSF printers stream full names.
+These C checks, allocation/name construction and printer correspondence are not
+proved.
+Capture-avoiding numeric closing at `src/lib/expand.c:111–277,421–445`, caller-side
+argument evaluation at `src/lib/expand.c:449–473`, and lexical declaration
+environments at `src/lib/expand.c:72–82,1535–1547,1805–1818,2108–2109` remain
+trusted. Caller origin bindings are diagnostic history only
+(`src/lib/expand.c:1480–1495`). Substitution closes free syntactic integer
+occurrences and masks an inner rebinding in its body, while still closing its
+domain (§4.7). Resolved signal atoms carry `resolved_signal`; substitution,
+numeric lookup and argument evaluation respect that phase marker
+(`src/lib/expand.c:122–141,486–506,962–981,1535–1547`). The marker is erased
+from structural comparison because captured/core atoms already denote signals.
+Formula-valued elements retain closed **high-level** syntax. Their separate
+identity keys embed bus-index signals into LTL at `src/lib/expand.c:998–1012`
+and lower ranges using the literal §4.8 nested spelling at
+`src/lib/expand.c:1743–1764`. Ordinary output retains the equivalent distributed
+range spelling. Lean `LowerEnv.range` selects `literalRange` for keys and
+`boundedRange` for ordinary lowering; `section48_eventually` and
+`section48_globally` check the two literal examples. The C correspondence and
+denotational agreement between these two range spellings remain trusted.
+Nested sets materialize stored children at `src/lib/expand.c:947–960`;
+non-numeric binders substitute the stored element at
+`src/lib/expand.c:1155–1183`. Consequently key expansion does not replace a
+later SIZEOF/bus actual or pattern subject with a normalized identifier.
+Lexical bus aliases resolve to their declared bus value before indexing and
+SIZEOF (`src/lib/expand.c:395–415,503–506,1674–1698`), so identity keys also
+refer to the resolved bus. Alias resolution and signal-name injectivity remain
+trusted C obligations.
+Pattern subjects retain ordinary expansion even during key computation
+(`src/lib/expand.c:1355–1363`). The obligations that C expansion agrees with
+Lean `lower`, and that closing preserves source meaning, remain trusted.
+The arbitrary `LowerEnv` resolvers do not discharge either obligation.
+Allocation rollback, interned identifiers, source-to-core correspondence and
+printer metadata also remain trusted. The C units, review regressions,
+allocation sweeps and sequential impact report are executable checks, not
+kernel proofs of these boundaries.
+
+Repeated pattern identifiers intentionally require the same captured syntax:
+in a pattern such as `p && p`, the second `p` must match the first captured
+term, including next strength. Logical equivalence of different syntax is not
+the matching relation. The same `structEq_eq` theorem makes an accepted repeated
+capture safe for substitution; no matching behavior changes here.
+
+The C↔Lean **field classification** is enforced by `set_dedup`: it includes the
+implementation, following existing internal-validator tests, and mutates each
+active field of every kind independently, plus every ignored provenance field.
+It also exercises `value_equal`/`set_add` and repeated pattern captures. Compile-time
+`sizeof`/`offsetof` checks audit Node and bounded-metadata layout. The
+`set_dedup_field_inventory` census checks every declared leaf field and the
+54-kind C↔Lean constructor/tag mapping, including additions hidden in union
+storage or padding; Meson runs it at configuration and as a test. The provenance
+table beside the comparison explains every omission. This is executable
+correspondence enforcement, not a kernel proof of C execution. Interning,
+well-formed acyclic ASTs/valid arrays, memory safety/allocation, and compiler
+correctness remain trusted. Printer correspondence, including interpretation
+of cached bounded metadata and emitted weak/strong next, is unchanged.
 
 ## C and Lean correspondence
 
@@ -172,6 +329,10 @@ ports, not verification of C or other CSNF template families.
 | C source in this working tree | Lean port / correspondence obligation |
 | --- | --- |
 | `src/lib/ast_query.h:14–35,52–79`; `src/lib/cover.c:35–77` | `Formula`, `Formula.atoms`, `Boolean`, `isIn`; cover support must match the expanded formula |
+| `src/lib/expand.c:737–865` | Field census, `HNode`, `HNodes`, `structEq`, `structEq_eq`, `nodesEq_eq`; enforced by `set_dedup` and `set_dedup_field_inventory` |
+| `src/lib/expand.c:867–908,998–1012` | Formula identity keys / duplicate removal: equal core implies `coreEq_denotation`, `dedup_core_conj`, `dedup_core_disj`; C lowering correspondence remains trusted |
+| `src/lib/expand.c:1155–1183,1282–1342,1376–1392` | Stored-element substitution and repeated pattern captures: `structEq_eq`, `structEq_substitution`; no change to pattern equality |
+| `src/lib/expand.c:1530–1578,1703–1818` | Core/indexed-next/range/ITE port: `lower`, `indexedNext`, `boundedRange`, `literalRange`; `issue108_terminal`, `issue108_denotations_differ`, `issue110_next_sugar` |
 | `src/lib/templates.c:72–136` | `subst`, `setLetter`, `setWord`, `sat_subst`, `subst_absent` |
 | `src/lib/recognize.c` (`match_definition`); `src/lib/templates_certify.c` (`certify_definition`) | `Definition.entry`, `flip`, `Admissible.outputs`, `Admissible.boolean`; the certifier rejects every temporal theta using `ast_has_temporal` |
 | `src/lib/templates.c:316–377,518–533` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
@@ -204,7 +365,10 @@ does not prove their controllers. `TRUST_EXACT` means realizability equivalence
 under certifier/composition guards; free reactions/registers may choose a winning
 strategy without forcing a unique value on every trace.
 
-C sets, lists, AP identifiers, AST constructors, and roles must match Lean.
+C set/list storage, AP identifiers, AST constructors, and roles must match Lean.
+Set-element structural equality and deduplication are proved above; C container
+invariants, nested-set extensional comparison, and evaluator correctness remain
+C obligations.
 Cover output sets must equal formula output atoms, including normalized/matching
 formulas: recognizing an equality must recover the same constraint/support.
 Expansion, preprocessing, other normalization, memory/allocation behavior, and
@@ -235,8 +399,10 @@ refuses finite/Moore contracts it does not implement.
 
 Empty Lean sections are `tt`; absent/dropped C sections must agree, including
 strict empty REQUIRE (`As W false = G As`). Successful views must retain every
-constraint/role. Only the listed expanded-core simplification/NNF/rewrites have
-exactness theorems; bounded expansion and high-level lowering remain trusted.
+constraint/role. The listed expanded-core simplification/NNF/rewrites and
+high-level set-element deduplication have exactness theorems. The bounded temporal
+lowering model is explicit in `SetDedup.lower`; refinement of C expansion to that
+model, integer and guard evaluation, definitions and reductions remain trusted.
 Lean retains the full signal type; C's unused-output filtering must preserve
 the game/formula under projection and arbitrary extension. Only decoder
 reconstruction may then assign eliminated outputs. Locality/substitution support
