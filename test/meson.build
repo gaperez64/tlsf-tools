@@ -15,6 +15,9 @@ add_test_setup('default', env: test_env, is_default: true)
 
 subdir('fixtures')
 subdir('unit')
+if research_tools
+  subdir('symmetry')
+endif
 subdir('fuzz')
 subdir('api')
 subdir('cli')
