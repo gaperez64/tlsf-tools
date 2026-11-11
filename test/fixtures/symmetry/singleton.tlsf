@@ -1,0 +1,5 @@
+INFO { TITLE: "singleton range" SEMANTICS: Mealy TARGET: Mealy }
+MAIN {
+  OUTPUTS { flag[7..7]; }
+  GUARANTEES { G flag[7]; }
+}

@@ -42,7 +42,7 @@ def check(result, expected):
         assert r["families"] == ids and r["n_families"] == len(ids)
         assert r["size"] == r["hi"] - r["lo"] + 1
         indices = list(range(r["lo"], r["hi"] + 1))
-        assert len(r["candidates"]) == len(indices)
+        assert len(r["candidates"]) == (len(indices) if len(indices) >= 2 else 0)
         for k, c in enumerate(r["candidates"]):
             image = indices.copy()
             if k == len(indices) - 1:
@@ -52,6 +52,8 @@ def check(result, expected):
                 assert c["kind"] == "adjacent"
                 image[k], image[k + 1] = image[k + 1], image[k]
             assert c["image"] == image
+            if c["verified"]:
+                assert c["image"] != indices
             assert c.get("reason") == (None if c["verified"] else "canonical forms differ")
 
 
@@ -76,9 +78,8 @@ with tempfile.TemporaryDirectory(dir=Path.cwd(), prefix="tlsfsym-") as tmp:
     assert r["summary"] == {"n_families": 0, "n_ranges": 0, "range_sizes": []}
 
     r = spec("OUTPUTS { q[7..7]; } GUARANTEES { G q[7]; }")
-    assert r["ranges"][0]["verified_group"] == "symmetric"
-    assert r["ranges"][0]["candidates"] == [
-        {"kind": "rotation", "image": [7], "verified": True}]
+    assert r["ranges"][0]["verified_group"] == "none"
+    assert r["ranges"][0]["candidates"] == []
 
     # Equal widths with different bounds are separate permutation domains.
     r = spec("OUTPUTS { q[0..1]; r[4..5]; } GUARANTEES { "

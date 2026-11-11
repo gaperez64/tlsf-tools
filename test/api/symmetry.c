@@ -65,8 +65,9 @@ static void check_fixture(const char *directory, const char *name,
     const TlsfSymmetryRange *range = &result->ranges[r];
     size_t width = (size_t)range->hi - range->lo + 1;
     assert(!range->reason && range->verdict == verdicts[r]);
-    assert(range->n_candidates == width && range->n_families);
-    for (size_t k = 0; k < width; ++k) {
+    assert(range->n_candidates == (width >= 2 ? width : 0) &&
+           range->n_families);
+    for (size_t k = 0; k < range->n_candidates; ++k) {
       const TlsfSymmetryCandidate *candidate = &range->candidates[k];
       bool rotation = k == width - 1;
       assert(candidate->kind ==
@@ -101,12 +102,15 @@ static void check_fixture(const char *directory, const char *name,
           expected[ap_index(c, family->members[i])] =
               ap_index(c, family->members[candidate->image[i] - range->lo]);
       }
+      bool moved = false;
       for (size_t i = 0; i < result->n_aps; ++i) {
         size_t to = g->image[i];
         assert(to == expected[i] && to < result->n_aps && !seen[to]);
         assert((i < c->n_inputs) == (to < c->n_inputs));
         seen[to] = true;
+        moved |= to != i;
       }
+      assert(moved); // The identity must never be returned as a generator.
       free(seen);
       free(expected);
     }
@@ -144,8 +148,28 @@ static void check_fixture(const char *directory, const char *name,
   tlsf_conversion_result_free(c);
   for (size_t i = 0; i < result->n_generators; ++i)
     assert(result->generators[i].image[0] < result->n_aps);
-  assert(result->ranges[0].candidates[0].image[0] >= result->ranges[0].lo);
+  for (size_t r = 0; r < result->n_ranges; ++r)
+    for (size_t k = 0; k < result->ranges[r].n_candidates; ++k)
+      assert(result->ranges[r].candidates[k].image[0] >= result->ranges[r].lo);
   tlsf_symmetry_result_free(result);
+}
+
+static void check_identity_map(const char *directory) {
+  TlsfConversionResult *c = read_fixture(directory, "asymmetric");
+  TlsfDecomposeIndexedFamily *family = &c->indexed_families[0];
+  assert(family->n_members == 3);
+  char **members = family->members;
+  char *aliases[] = {members[0], members[0], members[0]};
+  family->members = aliases;
+  // Even a nontrivial index permutation can induce the identity AP map when
+  // supplied with aliased family metadata. It must not become a generator.
+  TlsfSymmetryResult *result = NULL;
+  assert(tlsf_symmetry_detect(c, &result) == TLSF_SYMMETRY_OK);
+  assert(result->n_generators == 0 && result->n_ranges == 1);
+  assert(result->ranges[0].verdict == TLSF_SYMMETRY_NONE);
+  tlsf_symmetry_result_free(result);
+  family->members = members;
+  tlsf_conversion_result_free(c);
 }
 
 int main(int argc, char **argv) {
@@ -154,11 +178,13 @@ int main(int argc, char **argv) {
                                            TLSF_SYMMETRY_SYMMETRIC};
   const TlsfSymmetryVerdict cyclic[] = {TLSF_SYMMETRY_CYCLIC};
   const TlsfSymmetryVerdict none[] = {TLSF_SYMMETRY_NONE};
-  const unsigned all[] = {7, 3}, rotate[] = {8}, one_swap[] = {2};
+  const unsigned all[] = {7, 3}, rotate[] = {8}, one_swap[] = {2}, zero[] = {0};
   check_fixture(argv[1], "symmetric", 1, symmetric, all);
   check_fixture(argv[1], "cyclic", 1, cyclic, rotate);
   check_fixture(argv[1], "asymmetric", 1, none, one_swap);
   check_fixture(argv[1], "mixed", 2, symmetric, all);
+  check_fixture(argv[1], "singleton", 1, none, zero);
+  check_identity_map(argv[1]);
   TlsfSymmetryResult *result = NULL;
   assert(tlsf_symmetry_detect(NULL, &result) == TLSF_SYMMETRY_INVALID &&
          !result);

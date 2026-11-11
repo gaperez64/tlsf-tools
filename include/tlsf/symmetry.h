@@ -63,12 +63,14 @@ typedef struct {
 /// Verify declared index permutations of the converted whole objective.
 /// Families with identical bounds move together; other APs remain fixed.
 /// Ranges are sorted by (lo, hi); candidates are adjacent transpositions then
-/// rotation (including identity for a singleton). Only verified, bijective,
+/// rotation. Ranges with fewer than two indices have verdict NONE and no
+/// candidates or generators. Only verified, nonidentity, bijective,
 /// input/output-preserving AP maps appear in generators, in candidate order.
 ///
 /// Equality uses AND/OR associativity and commutativity and EQUIV
-/// commutativity. Inequality is inconclusive. SYMMETRIC means every adjacent
-/// swap verified; otherwise CYCLIC means the rotation verified, otherwise NONE.
+/// commutativity. Inequality is inconclusive. For at least two indices,
+/// SYMMETRIC means every adjacent swap verified; otherwise CYCLIC means the
+/// rotation verified, otherwise NONE.
 /// This is a lower bound, not a largest-subgroup claim. Enum families permute
 /// bits. Unsupported/deep objectives succeed with a reason and no generators.
 ///

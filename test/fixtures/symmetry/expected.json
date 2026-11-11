@@ -17,6 +17,12 @@
     "verified": [[false, true, false]],
     "summary": {"n_families": 1, "n_ranges": 1, "range_sizes": [3]}
   },
+  "singleton": {
+    "families": [["flag", 7, 7, true]],
+    "groups": ["none"],
+    "verified": [[]],
+    "summary": {"n_families": 1, "n_ranges": 1, "range_sizes": [1]}
+  },
   "mixed": {
     "families": [["source", 2, 4, false], ["sink", 2, 4, true], ["spare", 9, 10, true]],
     "groups": ["symmetric", "symmetric"],

@@ -183,10 +183,9 @@ TlsfSymmetryStatus detect(const TlsfConversionResult *c,
           members.back().push_back(it->second);
       }
     }
-    bool adjacent = !result->reason && !range.reason;
+    bool adjacent = size >= 2 && !result->reason && !range.reason;
     bool rotation = false;
-    // A singleton has an identity rotation and no adjacent transpositions.
-    if (!range.reason)
+    if (size >= 2 && !range.reason)
       for (size_t k = 0; k < size; ++k) {
         bool rotate = k == size - 1;
         std::vector<Id> permutation(aps.size());
@@ -204,9 +203,11 @@ TlsfSymmetryStatus detect(const TlsfConversionResult *c,
         // Check the complete AP permutation, including fixed scalar signals.
         std::vector<bool> seen(aps.size());
         bool valid = true;
+        bool identity = true;
         for (Id i = 0; i < permutation.size(); ++i) {
           Id to = permutation[i];
           valid &= !seen[to] && (i < c->n_inputs) == (to < c->n_inputs);
+          identity &= to == i;
           seen[to] = true;
         }
         if (!valid) {
@@ -214,7 +215,8 @@ TlsfSymmetryStatus detect(const TlsfConversionResult *c,
           adjacent = false;
           continue; // An invalid AP map is not a candidate.
         }
-        bool verified = !result->reason && dag.invariant(root, permutation);
+        bool verified =
+            !identity && !result->reason && dag.invariant(root, permutation);
         TlsfSymmetryCandidate candidate{};
         candidate.kind =
             rotate ? TLSF_SYMMETRY_ROTATION : TLSF_SYMMETRY_ADJACENT;
@@ -226,8 +228,9 @@ TlsfSymmetryStatus detect(const TlsfConversionResult *c,
               {result->range_views.size(), candidate.kind,
                result->permutations.back().data()});
         } else {
-          candidate.reason =
-              result->reason ? result->reason : "canonical forms differ";
+          candidate.reason = result->reason ? result->reason
+                             : identity     ? "identity AP permutation"
+                                            : "canonical forms differ";
         }
         storage.images.push_back(std::move(image));
         candidate.image = storage.images.back().data();
