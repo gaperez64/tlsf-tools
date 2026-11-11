@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-11",
+  "reason": "Move the existing tlsfsym canonical comparison into the normal library behind a C API. Register symmetry.cc and extend the provenance guard. Preserve historical validation receipts, translator/proof sources, and golden payloads.",
+  "checks": [
+    "gcc_normal_build",
+    "gcc_research_build",
+    "meson_tests",
+    "golden_provenance",
+    "source_layout",
+    "symmetry_api",
+    "tlsfsym_fixture_bytes",
+    "no_benchmark_hardcoding",
+    "clang_format"
+  ],
+  "changed_golden_hashes": 0,
+  "source_rebindings": {
+    "src/lib/meson.build": {
+      "previous_sha256": "d19cefa2d7e2333725f3fb06a3b20b89cbb0d44395b87f46fec07344b0ae0e28",
+      "current_sha256": "65a61851e813817413549de5092597d0910562ee13da6dfecb8040f24e02c238"
+    },
+    "test/cli/check_golden_provenance.py": {
+      "previous_sha256": "2041aaad79a673cd74ce5dbc5386db646cc45cc3e9f77ec093e9a53c3c7ff282",
+      "current_sha256": "576fcc7645e42fc50e3ecbe0b8cdeecdf30f6da6b06bc9b8a45b85ec5193bfb7"
+    }
+  }
+}

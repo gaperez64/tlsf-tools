@@ -1,5 +1,17 @@
 # Public-API clients. They see only include/ (through tlsf_dep), so a private
 # header here fails to compile, as it would for an installed consumer.
+symmetry_args = ['-UNDEBUG']
+symmetry_link_args = []
+if host_machine.system() == 'linux' and cc.sizeof('size_t') == 8
+  symmetry_args += ['-DSYMMETRY_ALLOC_FAILURE']
+  symmetry_link_args += ['-Wl,--wrap=_Znwm']
+endif
+symmetry_api = executable('symmetry_api', 'symmetry.c',
+  c_args: symmetry_args, link_args: symmetry_link_args,
+  link_language: 'c', dependencies: tlsf_dep)
+test('symmetry_api', symmetry_api,
+  args: [meson.project_source_root() / 'test/fixtures/symmetry'])
+
 dpa_dag = executable('dpa_dag', 'dpa_dag.c', c_args: ['-UNDEBUG'], dependencies: tlsf_dep)
 test('dpa_dag', dpa_dag)
 

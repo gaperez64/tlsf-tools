@@ -1,118 +1,20 @@
-#include "tlsf/convert.h"
+#include "tlsf/symmetry.h"
 #include "tlsf/version.h"
 extern "C" {
 #include "diagnostic.h"
 }
 #include <yyjson.h>
 
-#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
-#include <map>
 #include <memory>
-#include <numeric>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
-using Id = size_t;
 using Clock = std::chrono::steady_clock;
-
-struct Node {
-  TlsfAstKind kind;
-  Id ap = 0;
-  std::vector<Id> children;
-  bool operator==(const Node &) const = default;
-};
-
-struct Hash {
-  size_t operator()(const Node &n) const {
-    size_t h = static_cast<size_t>(n.kind) * 31 + n.ap;
-    for (Id child : n.children)
-      h = h * 31 + child;
-    return h;
-  }
-};
-
-// Hash collisions use full key equality. IDs are shared between the original
-// and renamed formulas. Only AND/OR associativity and commutativity, and EQUIV
-// commutativity, identify different syntax; all preserve infinite-word meaning.
-// The TLSF AST has no XOR kind (negated EQUIV already benefits from sorting).
-struct Dag {
-  std::vector<Node> nodes;
-  std::unordered_map<Node, Id, Hash> ids;
-
-  Id intern(Node n) {
-    if (n.kind == TLSF_AST_AND || n.kind == TLSF_AST_OR ||
-        n.kind == TLSF_AST_EQUIV)
-      std::sort(n.children.begin(), n.children.end());
-    auto [it, inserted] = ids.emplace(n, nodes.size());
-    if (inserted)
-      nodes.push_back(std::move(n));
-    return it->second;
-  }
-
-  Id from_ast(const TlsfAstNode *root,
-              const std::unordered_map<std::string, Id> &aps,
-              unsigned depth = 0) {
-    if (!root || depth > 1024)
-      throw std::runtime_error(
-          "missing objective or syntax depth exceeds 1024");
-    Node n{tlsf_ast_node_kind(root), 0, {}};
-    if (n.kind == TLSF_AST_KIND_COUNT || n.kind == TLSF_AST_X_STRONG)
-      throw std::runtime_error("unsupported objective node kind " +
-                               std::to_string(n.kind));
-    if (n.kind == TLSF_AST_AP) {
-      const char *name = tlsf_ast_node_ap_name(root);
-      auto it = aps.find(name ? name : "");
-      if (it == aps.end())
-        throw std::runtime_error("objective AP missing from partition");
-      n.ap = it->second;
-    } else if (n.kind == TLSF_AST_AND || n.kind == TLSF_AST_OR) {
-      // Collect the whole associative spine before interning, avoiding the
-      // quadratic intermediate vectors of a left-nested conjunction.
-      std::vector<std::pair<const TlsfAstNode *, unsigned>> pending{
-          {root, depth}};
-      while (!pending.empty()) {
-        auto [child, level] = pending.back();
-        pending.pop_back();
-        if (level > 1024)
-          throw std::runtime_error("syntax depth exceeds 1024");
-        if (tlsf_ast_node_kind(child) == n.kind) {
-          for (uint32_t i = 0; i < 2; ++i)
-            pending.emplace_back(tlsf_ast_node_child(child, i), level + 1);
-        } else {
-          n.children.push_back(from_ast(child, aps, level));
-        }
-      }
-    } else {
-      for (uint32_t i = 0; i < tlsf_ast_node_child_count(root); ++i)
-        n.children.push_back(
-            from_ast(tlsf_ast_node_child(root, i), aps, depth + 1));
-    }
-    return intern(std::move(n));
-  }
-
-  bool invariant(Id root, const std::vector<Id> &permutation) const {
-    // Each candidate gets the same original IDs, without retaining scratch
-    // nodes from earlier candidates. Renaming preserves flattened spines.
-    Dag renamed = *this;
-    std::vector<Id> image(nodes.size());
-    for (Id i = 0; i < nodes.size(); ++i) {
-      Node n = nodes[i];
-      if (n.kind == TLSF_AST_AP)
-        n.ap = permutation.at(n.ap);
-      for (Id &child : n.children)
-        child = image.at(child);
-      image[i] = renamed.intern(std::move(n));
-    }
-    return image.at(root) == root;
-  }
-};
 
 // yyjson is already a library dependency; keep all escaping and serialization
 // there. Fail rather than emitting an incomplete census on allocation failure.
@@ -203,16 +105,15 @@ static int census(const std::string &text, Clock::time_point start) {
   j.add(result, "inputs", j.names(c->inputs, c->n_inputs));
   j.add(result, "outputs", j.names(c->outputs, c->n_outputs));
 
-  std::unordered_map<std::string, Id> aps;
-  auto add_aps = [&](char **names, uint32_t count) {
-    for (uint32_t i = 0; i < count; ++i)
-      if (!aps.emplace(names[i], aps.size()).second)
-        throw std::runtime_error("duplicate AP in partition");
-  };
-  add_aps(c->inputs, c->n_inputs);
-  add_aps(c->outputs, c->n_outputs);
+  TlsfSymmetryResult *raw = nullptr;
+  TlsfSymmetryStatus status = tlsf_symmetry_detect(c.get(), &raw);
+  if (status == TLSF_SYMMETRY_NO_MEMORY)
+    throw std::bad_alloc();
+  if (status != TLSF_SYMMETRY_OK)
+    throw std::runtime_error("symmetry detection failed");
+  std::unique_ptr<TlsfSymmetryResult, decltype(&tlsf_symmetry_result_free)>
+      census{raw, tlsf_symmetry_result_free};
 
-  std::map<std::pair<uint16_t, uint16_t>, std::vector<uint32_t>> groups;
   for (uint32_t i = 0; i < c->n_indexed_families; ++i) {
     const auto &f = c->indexed_families[i];
     auto *family = j.object();
@@ -224,108 +125,52 @@ static int census(const std::string &text, Clock::time_point start) {
     j.boolean(family, "is_output", f.is_output);
     j.boolean(family, "is_enum", f.is_enum);
     j.push(families, family);
-    groups[{f.lo, f.hi}].push_back(i);
   }
-
-  Dag dag;
-  Id root = 0;
-  std::string reason;
-  try {
-    root = dag.from_ast(tlsf_ast_root(c->ast), aps);
-  } catch (const std::runtime_error &e) {
-    reason = e.what();
-  }
-  j.str(result, "status", reason.empty() ? "ok" : "unverified");
-  if (!reason.empty())
-    j.str(result, "reason", reason.c_str());
+  j.str(result, "status", census->reason ? "unverified" : "ok");
+  if (census->reason)
+    j.str(result, "reason", census->reason);
 
   auto *sizes = j.array();
-  for (const auto &[bounds, indices] : groups) {
-    const auto [lo, hi] = bounds;
-    size_t size = static_cast<size_t>(hi) - lo + 1;
+  for (size_t i = 0; i < census->n_ranges; ++i) {
+    const auto &r = census->ranges[i];
+    size_t size = static_cast<size_t>(r.hi) - r.lo + 1;
     auto *range = j.object();
     auto *candidates = j.array();
     auto *family_ids = j.array();
-    j.num(range, "lo", lo);
-    j.num(range, "hi", hi);
+    j.num(range, "lo", r.lo);
+    j.num(range, "hi", r.hi);
     j.num(range, "size", size);
-    j.num(range, "n_families", indices.size());
+    j.num(range, "n_families", r.n_families);
     j.add(range, "families", family_ids);
     j.add(range, "candidates", candidates);
     j.push(ranges, range);
     j.push(sizes, checked(yyjson_mut_uint(j.doc.get(), size)));
-
-    std::vector<std::vector<Id>> members;
-    std::string range_reason;
-    for (uint32_t index : indices) {
-      j.push(family_ids, checked(yyjson_mut_uint(j.doc.get(), index)));
-      const auto &f = c->indexed_families[index];
-      members.emplace_back();
-      if (f.n_members != size)
-        range_reason = "unresolved indexed family";
-      for (uint32_t k = 0; k < f.n_members; ++k) {
-        auto it = aps.find(f.members[k]);
-        if (it == aps.end() || (it->second >= c->n_inputs) != f.is_output)
-          range_reason = "family does not preserve the input/output partition";
-        else
-          members.back().push_back(it->second);
-      }
+    for (size_t k = 0; k < r.n_families; ++k)
+      j.push(family_ids, checked(yyjson_mut_uint(j.doc.get(), r.families[k])));
+    for (size_t k = 0; k < r.n_candidates; ++k) {
+      const auto &c = r.candidates[k];
+      auto *candidate = j.object();
+      auto *image = j.array();
+      j.str(candidate, "kind",
+            c.kind == TLSF_SYMMETRY_ROTATION ? "rotation" : "adjacent");
+      for (size_t n = 0; n < size; ++n)
+        j.push(image, checked(yyjson_mut_uint(j.doc.get(), c.image[n])));
+      j.add(candidate, "image", image);
+      j.boolean(candidate, "verified", c.generator != SIZE_MAX);
+      if (c.reason)
+        j.str(candidate, "reason", c.reason);
+      j.push(candidates, candidate);
     }
-    bool adjacent = reason.empty() && range_reason.empty();
-    bool rotation = false;
-    // A singleton has an identity rotation and no adjacent transpositions.
-    if (range_reason.empty())
-      for (size_t k = 0; k < size; ++k) {
-        bool rotate = k == size - 1;
-        std::vector<Id> permutation(aps.size());
-        std::iota(permutation.begin(), permutation.end(), 0);
-        auto *image = j.array();
-        for (size_t i = 0; i < size; ++i) {
-          size_t to = rotate       ? (i + 1) % size
-                      : i == k     ? k + 1
-                      : i == k + 1 ? k
-                                   : i;
-          j.push(image, checked(yyjson_mut_uint(j.doc.get(), lo + to)));
-          for (const auto &family : members)
-            permutation[family[i]] = family[to];
-        }
-        // Check the complete AP permutation, including fixed scalar signals.
-        std::vector<bool> seen(aps.size());
-        bool valid = true;
-        for (Id i = 0; i < permutation.size(); ++i) {
-          Id to = permutation[i];
-          valid &= !seen[to] && (i < c->n_inputs) == (to < c->n_inputs);
-          seen[to] = true;
-        }
-        if (!valid) {
-          range_reason = "index map is not a partition-preserving permutation";
-          adjacent = false;
-          continue; // An invalid AP map is not a candidate.
-        }
-        bool verified = reason.empty() && dag.invariant(root, permutation);
-        auto *candidate = j.object();
-        j.str(candidate, "kind", rotate ? "rotation" : "adjacent");
-        j.add(candidate, "image", image); // Position i is the image of lo+i.
-        j.boolean(candidate, "verified", verified);
-        if (!verified)
-          j.str(candidate, "reason",
-                reason.empty() ? "canonical forms differ" : reason.c_str());
-        j.push(candidates, candidate);
-        if (rotate)
-          rotation = verified;
-        else
-          adjacent &= verified;
-      }
-    if (!range_reason.empty())
-      j.str(range, "reason", range_reason.c_str());
+    if (r.reason)
+      j.str(range, "reason", r.reason);
     j.str(range, "verified_group",
-          adjacent   ? "symmetric"
-          : rotation ? "cyclic"
-                     : "none");
+          r.verdict == TLSF_SYMMETRY_SYMMETRIC ? "symmetric"
+          : r.verdict == TLSF_SYMMETRY_CYCLIC  ? "cyclic"
+                                               : "none");
   }
   auto *summary = j.object();
   j.num(summary, "n_families", c->n_indexed_families);
-  j.num(summary, "n_ranges", groups.size());
+  j.num(summary, "n_ranges", census->n_ranges);
   j.add(summary, "range_sizes", sizes);
   j.add(result, "summary", summary);
   j.print(result, start);

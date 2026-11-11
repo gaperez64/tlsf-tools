@@ -471,11 +471,20 @@ assert len(scoping_update["generated_source_repairs"]) == 4
 for repair in scoping_update["generated_source_repairs"]:
     assert repair["file"] in scoping_update["source_rebindings"] and repair["reason"]
 
+symmetry_update = json.loads((root.parents[2] / "tools/analysis/symmetry-api.json").read_text())
+# This extraction only changes library source registration. Keep historical
+# translator/proof receipts intact and bind the build/guard edits additively.
+assert symmetry_update["date"] and symmetry_update["reason"]
+assert symmetry_update["changed_golden_hashes"] == 0
+assert set(symmetry_update["source_rebindings"]) == {
+    "src/lib/meson.build", "test/cli/check_golden_provenance.py",
+}
+
 UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
-           partition_update, perf_update, grammar_update)
+           partition_update, perf_update, grammar_update, symmetry_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):

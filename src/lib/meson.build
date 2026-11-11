@@ -57,6 +57,7 @@ lib_sources = files(
   'sha256.c',
   'spec.c',
   'spec_parse.c',
+  'symmetry.cc',
   'templates.c',
   'templates_certify.c',
 ) + [

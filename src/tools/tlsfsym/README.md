@@ -7,9 +7,18 @@ From the repository root:
 
 ```sh
 meson setup build-research -Dresearch_tools=true --buildtype=release
-CARGO_BUILD_JOBS=1 meson compile -C build-research -j 1
+CARGO_BUILD_JOBS=2 meson compile -C build-research -j 2
 build-research/tlsfsym spec.tlsf  # verified index generators (JSON)
 ```
+
+Detection is available in every library build through `tlsf/symmetry.h`:
+call `tlsf_symmetry_detect(conversion, &result)` on a `TlsfConversionResult`
+and free the result with `tlsf_symmetry_result_free`. `generators` contains
+only verified full AP permutations, indexed into the conversion's inputs
+followed by outputs, tagged by range and kind. Ranges also carry verdicts and
+candidate diagnostics for this CLI. The result owns its storage independently
+of the conversion; allocation failures return `TLSF_SYMMETRY_NO_MEMORY` with
+no result. Detection has no global state and performs no conversion itself.
 
 `tlsfsym FILE` emits one JSON object. It uses `tlsf_convert(text, "Mealy")`'s
 expanded whole infinite-word objective and input/output partition, matching
@@ -25,7 +34,7 @@ The census is a lower bound: different concrete bounds are not coupled,
 families on the same range are only permuted together, enum families permute
 encoding bits, and canonical inequality is inconclusive.
 
-The tool hash-conses the converted AST, flattening AND/OR and sorting their
+The library hash-conses the converted AST, flattening AND/OR and sorting their
 children by node ID, and sorting the two EQUIV children. The AST has no XOR
 operator; negated EQUIV uses the same sorted children. Other operators retain
 their operand order. Hash collisions are resolved by full structural equality.
