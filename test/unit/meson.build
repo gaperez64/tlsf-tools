@@ -8,6 +8,10 @@ run_command(python3, files('set_dedup_field_inventory.py'),
 set_dedup = executable('set_dedup', 'set_dedup.c',
   c_args: ['-UNDEBUG', '-Werror=switch'], dependencies: tlsf_internal_dep)
 test('set_dedup', set_dedup)
+integer_literal = executable('integer_literal', 'integer_literal.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep,
+  sources: [bison_out[1], flex_out[1]])
+test('integer_literal_116', integer_literal)
 expansion_scope = executable('expansion_scope', 'expansion_scope.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('expansion_scope', expansion_scope)
