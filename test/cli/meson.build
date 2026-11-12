@@ -15,6 +15,9 @@ if python3.found()
     args: [files('../../tools/golden/test_gates.py')], timeout: 60)
   test('proof_source_references', python3,
     args: [files('check_proof_references.py'), meson.project_source_root()])
+  test('checked_arithmetic_cli_115', python3,
+    args: [files('check_checked_arithmetic.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
+           exe['tlsfnorm']], timeout: 120)
   test('integer_literal_cli_116', python3,
     args: [files('check_integer_literal.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
            exe['tlsfnorm']], timeout: 120)
