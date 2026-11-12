@@ -510,12 +510,37 @@ for field in ("added_sources_sha256", "preserved_artifacts_sha256"):
     for name, digest in integer_next_update[field].items():
         assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
+literal_update = json.loads((root.parents[2] / "tools/analysis/integer-literal-116.json").read_text())
+assert literal_update["date"] and literal_update["reason"]
+assert literal_update["changed_golden_hashes"] == 0
+assert literal_update["checks"] == [
+    "integer_literal_116", "integer_literal_cli_116", "proof_source_references",
+    "golden_provenance", "full_meson_tests", "lake_build", "lean_axiom_audit",
+]
+assert set(literal_update["source_rebindings"]) == {
+    "proofs/README.md", "proofs/TlsfProofs.lean", "test/unit/meson.build",
+    "test/cli/meson.build", "test/cli/check_golden_provenance.py",
+}
+assert set(literal_update["added_sources_sha256"]) == {
+    "proofs/TlsfProofs/IntegerLiteral.lean", "test/unit/integer_literal.c",
+    "test/cli/check_integer_literal.py",
+}
+assert set(literal_update["correspondence_sources_sha256"]) == {
+    "src/lib/tlsf.l", "src/lib/tlsf.y", "src/lib/expand.c", "src/lib/spec_parse.c",
+}
+assert set(literal_update["preserved_artifacts_sha256"]) == set(
+    strict_bounds_update["preserved_artifacts_sha256"]) | {
+        "tools/analysis/strict-bounds-114.json", "tools/analysis/integer-next-115-117.json",
+    }
+for name, digest in literal_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
 UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
            partition_update, perf_update, grammar_update, strict_bounds_update,
-           integer_next_update)
+           integer_next_update, literal_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):
@@ -525,6 +550,15 @@ def rebound_digest(name, historical, updates=UPDATES):
             assert historical == binding["previous_sha256"], (name, "wrong historical source binding")
             historical = binding["current_sha256"]
     return historical
+
+
+# New proof/test sources and unchanged correspondence sources may be rebound by
+# later ledgers; frozen receipts above must remain byte-for-byte unchanged.
+for field in ("added_sources_sha256", "correspondence_sources_sha256"):
+    for name, digest in literal_update[field].items():
+        successors = UPDATES[UPDATES.index(literal_update) + 1:]
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == rebound_digest(
+            name, digest, successors), name
 
 
 for index, update in enumerate(UPDATES[3:], 3):

@@ -15,6 +15,9 @@ if python3.found()
     args: [files('../../tools/golden/test_gates.py')], timeout: 60)
   test('proof_source_references', python3,
     args: [files('check_proof_references.py'), meson.project_source_root()])
+  test('integer_literal_cli_116', python3,
+    args: [files('check_integer_literal.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
+           exe['tlsfnorm']], timeout: 120)
   test('bench_matrix_setup_failure', python3,
     args: [files('check_bench_matrix.py'),
            meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])

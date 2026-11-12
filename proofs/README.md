@@ -8,9 +8,9 @@ and component-strategy choice. Main-result audits permit only `propext`,
 `Classical.choice`, and `Quot.sound`.
 
 The proofs establish mathematical ports of definition elimination, clustering,
-conditional assumption pruning, selected rewrites, set deduplication, and an
-independent automaton construction/validator. They do not verify the C binary or
-other CSNF controllers.
+conditional assumption pruning, selected rewrites, set deduplication, signed
+decimal decoding and range membership, and an independent automaton
+construction/validator. They do not verify the C binary or other CSNF controllers.
 
 ## Build
 
@@ -24,7 +24,7 @@ export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
 # Sequential per-module diagnostics
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup; do
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
   timeout 300 lake build "TlsfProofs.$module" || exit $?
 done
@@ -44,6 +44,7 @@ timeout 1500 lake build
 | `Pruning.lean` | `prune_realizable` for infinite ordinary/strict Mealy games. `Prunable isIn K D` requires input-only environment entries in D, disjoint from every K entry. `EnvSat D` witnesses `Initial D && G Require D && Assume D`; `envSat_of_word` bridges any satisfying infinite word, including lassos. Pinning D inputs and replay/locality transfer K obligations; adding D is pointwise weakening, also for strict safety. No finite theorem. |
 | `Examples.lean` | Game counterexamples, rejected guards, finite-next boundaries/split failure, both Boolean-fixture orientations, and a list order needing multiple passes. |
 | `Rewrites.lean` | NNF, weak/local/bottom-up rewrites, capped driver, pre-weak simplification, and spine decomposition. Exactness covers every valid position and word: both kinds in finite mode, infinite otherwise. |
+| `IntegerLiteral.lean` | Nonempty decimal tokens, the direct unary-minus minimum rule, parsed numeric ASTs and checked negation; exact signed-64 decoding, rejection, guarded endpoint conversion and interval membership. Universal/existential range denotations agree on finite/infinite words before game reduction. |
 | `SetDedup.lean` | All 54 semantic Node payloads, including indexed weak/strong next, bounded F/G, ITE, calls/patterns, and binder syntax. `structEq_eq` proves structural equality implies identical syntax; `structEq_denotation` preserves finite/infinite denotation under every fixed lowering environment, including terminal and out-of-range queries. |
 
 `Admissible isIn strict kept ds passes` requires declared output definitions,
@@ -157,7 +158,9 @@ equality. They cover successful expanded unbounded core transformations, not
 malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
 or machine-size behavior. `NODE_NEXT_N` only recurses into its body
 (`src/lib/normalize.c:840–843`) and is outside `Formula`; indexed spine splitting,
-arithmetic, bounded quantifiers, and expansion to nexts remain unverified.
+general arithmetic, bounded-quantifier body lowering, and expansion to nexts remain
+unverified. Signed-decimal decoding and reduction-domain membership are proved
+separately below.
 `next_power` proves identities of the expanded mathematical sequence. This
 boundary concerns the rewrite ports; high-level structural equality and its
 deduplication consequence are proved separately below.
@@ -321,6 +324,81 @@ well-formed acyclic ASTs/valid arrays, memory safety/allocation, and compiler
 correctness remain trusted. Printer correspondence, including interpretation
 of cached bounded metadata and emitted weak/strong next, is unchanged.
 
+## Integer literals and range domains (issue #116)
+
+[`TlsfProofs/IntegerLiteral.lean`](TlsfProofs/IntegerLiteral.lean) imports only
+`Init`; names here are in `Tlsf.IntegerLiteral`. `Digits` is a list of `Fin 10`,
+with nonemptiness checked by `lex`. `decimal` is the mathematical base-ten
+left fold, so arbitrarily long spellings and leading zeros have natural-number
+values without saturation. `I64` is the subtype of mathematical integers between
+`min64 = -2^63` and `max64 = 2^63-1`, not a wrapping cast.
+
+`lex_integer_iff`, `lex_min_iff`, and `lex_rejects_large` characterize the token
+classes. `positive_acceptance` and `negative_acceptance` give necessary and
+sufficient conditions for successful decoding: unsigned magnitudes are below
+`2^63`, and directly negated magnitudes are at most `2^63`. `leading_zero`
+proves prefixing zero preserves the value. `minimum_direct` explicitly yields
+`NODE_INT(INT64_MIN)`; `minimum_positive_rejected` rejects that magnitude alone
+and behind parentheses after minus. `minimum_negation_rejected` rejects a
+second negation of the minimum. `Syntax` includes recursive unary minus and
+parentheses. It models token adjacency after whitespace/comment skipping,
+including the `MINUS` keyword alias; it does not model unary plus (not accepted).
+
+`parse_exact` connects accepted syntax to the mathematical value of the parsed
+`NODE_INT`/`NODE_INT_NEG` AST. `parse_payloads_fit` proves every parsed integer
+payload fits, so the model's leaf check is redundant (C returns that payload
+unconditionally). `eval_exact` proves successful checked AST evaluation has that
+value; `decode_exact` combines them with signed-64 representability.
+Parsing a nested negation can succeed while numeric evaluation rejects overflow.
+An unevaluated expression in unused source is not claimed to have been checked
+by C. General arithmetic is outside `Syntax`; the alternative minimum spelling
+`(-9223372036854775807 - 1)` is an executable correspondence regression, not a
+proof of arbitrary C arithmetic.
+
+`endpoints_safe` proves both strict shifts fit after the extreme-empty guard.
+`endpoints_exact` equates normalized membership to the original strict/inclusive
+comparisons for **every mathematical integer**, given correctly decoded int64
+endpoints. `values_exact` proves the inclusive list has exactly those members,
+including inverted intervals; `successor_safe` justifies the C loop's guarded
+increment. `domain_values_exact` composes the guard and list, and
+`decoded_range_exact` / `decoded_values_exact` substitute the original literal
+values. For endpoints computed by other expressions, `domain_values_exact`
+applies once their exact evaluation and representability are established.
+
+`range_all_denotation` and `range_any_denotation` replace domain membership in
+universal/existential formula reductions for every `len`, word and position.
+`none` is infinite, `some n` finite; `inWord` uses the same position guard as
+`LTL.Sat`, including terminal/out-of-word positions. The body denotation is an
+arbitrary fixed function with the source integer bound to the loop variable.
+These are statements about the original formula language, prior to any game
+reduction. No system/environment ownership, player orientation, or realizability
+claim is changed or assumed. They do not prove body substitution or the whole
+TLSF expansion pass.
+
+| C source | Lean correspondence / executable enforcement |
+| --- | --- |
+| `src/lib/tlsf.l` (`INT`, integer action) | `Digits`, `decimal`, `lex`; `integer_literal_116` calls the generated lexer, including stale `errno`, the unsigned-64 overflow boundary and long leading-zero spellings |
+| `src/lib/tlsf.y` (`TOK_INTEGER`, unary `TOK_MINUS`, `TOK_MIN_MAGNITUDE`, parentheses) | `Syntax`, `parse`, `parse_exact`, explicit minimum/rejection lemmas; C unit inspects actual parsed node kinds and children |
+| `src/lib/expand.c` (`eval_int`, `NODE_INT`/`NODE_INT_NEG`) | `checked`, `eval`, `decode_exact`; unit checks payloads and negation overflow |
+| `src/lib/expand.c` (`eval_domain`) | `endpoints`, `values`, `domainValues`, membership/safety lemmas; unit compares every enumerated member of tiny extreme, middle, singleton and inverted domains under all four strictness combinations |
+| `test/cli/check_integer_literal.py` | Issue reproducer and adjacent singleton ranges, direct/zero-prefixed/comment-separated/arithmetic minimum spellings, reprinting and pre-bounded normalization, rejection diagnostics and empty stdout, under both word kinds |
+
+**Remaining trust.** This is a mathematical port, not verification of the C
+binary. Flex's digit recognition/token boundaries and comment skipping, libc
+`strtoull` (exact conversion or `ERANGE`, with an unsigned long long wide enough
+for `2^63`), the C guard/cast, Bison precedence/actions, AST payload representation,
+and compiler correctness remain trusted. The C unit and kernel-computed
+`boundary_witnesses` check their correspondence; finite testing is not a proof
+of libc or the generated parser. Checked arithmetic builtins, evaluation of
+other numeric syntax/definitions, binder substitution, C loop/list/set execution,
+allocation/resource-failure rejection, formula folding, and printer correspondence
+remain trusted. The list model describes successful materialization; no claim
+that huge intervals can be allocated is made. Existing #114 and #115–117 tests
+remain unchanged. The additive
+[`integer-literal-116.json`](../tools/analysis/integer-literal-116.json) ledger
+binds this proof, the tests and the unchanged C sources, and preserves all earlier
+receipts and golden payloads.
+
 ## C and Lean correspondence
 
 Locations are relative to this repository. They identify guarded mathematical
@@ -372,7 +450,8 @@ C obligations.
 Cover output sets must equal formula output atoms, including normalized/matching
 formulas: recognizing an equality must recover the same constraint/support.
 Expansion, preprocessing, other normalization, memory/allocation behavior, and
-machine bounds remain C obligations. Cycles must yield ranks below `nelim + 1`,
+machine bounds beyond the signed-decimal/range-domain port remain C obligations.
+Cycles must yield ranks below `nelim + 1`,
 providers distinct names, and section guards inspect every occurrence, including
 other definitions, exactly as `covers`. Boolean guards must reject all temporal
 constructors. Definition games are Mealy only; their certifier must decline Moore.
@@ -402,7 +481,9 @@ strict empty REQUIRE (`As W false = G As`). Successful views must retain every
 constraint/role. The listed expanded-core simplification/NNF/rewrites and
 high-level set-element deduplication have exactness theorems. The bounded temporal
 lowering model is explicit in `SetDedup.lower`; refinement of C expansion to that
-model, integer and guard evaluation, definitions and reductions remain trusted.
+model, general integer and guard evaluation, definitions and reduction-body
+substitution remain trusted. The integer-literal/range-domain port above discharges
+its stated mathematical sub-obligations; C execution still requires correspondence.
 Lean retains the full signal type; C's unused-output filtering must preserve
 the game/formula under projection and arbitrary extension. Only decoder
 reconstruction may then assign eliminated outputs. Locality/substitution support
