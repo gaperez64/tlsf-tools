@@ -559,12 +559,37 @@ assert set(arithmetic_update["preserved_artifacts_sha256"]) == set(
 for name, digest in arithmetic_update["preserved_artifacts_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
+next_strength_update = json.loads((root.parents[2] / "tools/analysis/next-strength-117.json").read_text())
+assert next_strength_update["date"] and next_strength_update["reason"]
+assert next_strength_update["changed_golden_hashes"] == 0
+assert next_strength_update["checks"] == [
+    "next_strength_117", "next_strength_cli_117", "proof_source_references",
+    "golden_provenance", "full_meson_tests", "lake_build", "lean_axiom_audit",
+]
+assert set(next_strength_update["source_rebindings"]) == {
+    "proofs/README.md", "proofs/TlsfProofs.lean", "test/unit/meson.build",
+    "test/cli/meson.build", "test/cli/check_golden_provenance.py",
+}
+assert set(next_strength_update["added_sources_sha256"]) == {
+    "proofs/TlsfProofs/NextStrength.lean", "test/unit/next_strength.c",
+    "test/cli/check_next_strength.py",
+}
+assert set(next_strength_update["correspondence_sources_sha256"]) == {
+    "src/lib/normalize.c", "src/lib/expand.c", "src/lib/ast.c",
+    "proofs/TlsfProofs/SetDedup.lean", "proofs/TlsfProofs/IntegerLiteral.lean",
+    "proofs/TlsfProofs/LTL.lean",
+}
+assert set(next_strength_update["preserved_artifacts_sha256"]) == set(
+    arithmetic_update["preserved_artifacts_sha256"]) | {"tools/analysis/checked-arithmetic-115.json"}
+for name, digest in next_strength_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
 UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
            partition_update, perf_update, grammar_update, strict_bounds_update,
-           integer_next_update, literal_update, arithmetic_update)
+           integer_next_update, literal_update, arithmetic_update, next_strength_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):
@@ -578,7 +603,7 @@ def rebound_digest(name, historical, updates=UPDATES):
 
 # New proof/test sources and unchanged correspondence sources may be rebound by
 # later ledgers; frozen receipts above must remain byte-for-byte unchanged.
-for update in (literal_update, arithmetic_update):
+for update in (literal_update, arithmetic_update, next_strength_update):
     for field in ("added_sources_sha256", "correspondence_sources_sha256"):
         for name, digest in update[field].items():
             successors = UPDATES[UPDATES.index(update) + 1:]

@@ -21,6 +21,9 @@ if python3.found()
   test('integer_literal_cli_116', python3,
     args: [files('check_integer_literal.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
            exe['tlsfnorm']], timeout: 120)
+  test('next_strength_cli_117', python3,
+    args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm']],
+    timeout: 120)
   test('bench_matrix_setup_failure', python3,
     args: [files('check_bench_matrix.py'),
            meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])

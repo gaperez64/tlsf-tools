@@ -10,6 +10,7 @@ import TlsfProofs.Rewrites
 import TlsfProofs.SetDedup
 import TlsfProofs.IntegerLiteral
 import TlsfProofs.CheckedArithmetic
+import TlsfProofs.NextStrength
 import TlsfProofs.Dpa.Refinements
 import TlsfProofs.Dpa.GeneralConverse
 import TlsfProofs.Dpa.Impl.Admission
