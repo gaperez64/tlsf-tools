@@ -21,6 +21,9 @@ test('expansion_scope', expansion_scope)
 normalize_bounds = executable('normalize_bounds', 'normalize_bounds.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('normalize_bounds', normalize_bounds)
+next_strength = executable('next_strength', 'next_strength.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('next_strength_117', next_strength)
 test('set_dedup_field_inventory', python3,
   args: [files('set_dedup_field_inventory.py'), meson.project_source_root()])
 

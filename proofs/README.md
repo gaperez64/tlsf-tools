@@ -9,7 +9,8 @@ and component-strategy choice. Main-result audits permit only `propext`,
 
 The proofs establish mathematical ports of definition elimination, clustering,
 conditional assumption pruning, selected rewrites, set deduplication, signed
-decimal decoding, checked integer evaluation and range reductions, and an independent automaton
+decimal decoding, checked integer evaluation and range reductions, strength-preserving
+indexed-next normalization, and an independent automaton
 construction/validator. They do not verify the C binary or other CSNF controllers.
 
 ## Build
@@ -24,7 +25,7 @@ export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
 # Sequential per-module diagnostics
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic; do
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic NextStrength; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
   timeout 300 lake build "TlsfProofs.$module" || exit $?
 done
@@ -47,6 +48,7 @@ timeout 1500 lake build
 | `CheckedArithmetic.lean` | Recursive numeric ASTs and binding environments; exact checked negation, +/−/×, truncating division/remainder and sum/product prefixes. Computed range membership and all six reduction denotations/empty cases, before game construction. |
 | `IntegerLiteral.lean` | Nonempty decimal tokens, the direct unary-minus minimum rule, parsed numeric ASTs and checked negation; exact signed-64 decoding, rejection, guarded endpoint conversion and interval membership. Universal/existential range denotations agree on finite/infinite words before game reduction. |
 | `SetDedup.lean` | All 54 semantic Node payloads, including indexed weak/strong next, bounded F/G, ITE, calls/patterns, and binder syntax. `structEq_eq` proves structural equality implies identical syntax; `structEq_denotation` preserves finite/infinite denotation under every fixed lowering environment, including terminal and out-of-range queries. |
+| `NextStrength.lean` | Actual `pre_indexed_x` branches on `HNode`, including strength and signed-64 count guards. `preIndexedX_lower` preserves the entire expanded constructor sequence; `preIndexedX_sat` gives finite/infinite equivalence, including reconstruction and mixed chains. |
 
 `Admissible isIn strict kept ds passes` requires declared output definitions,
 Boolean right-hand sides, distinct names, decreasing dependency ranks below
@@ -120,6 +122,7 @@ no valuation, core-shape, or flag-combination assumptions are added.
 | Conjunction of all decomposed parts | `decompose_exact f : Exact fin (conjoin (rewrite_decompose f)) f`; `decompose_has_part` supplies the nonempty-list premise needed for strong next |
 | Finite-safe temporal RULES rows | `route_push_g_in`, `route_push_x_in`, `route_push_strong_x_in`, `or_to_guarded_next_impl`, `or_to_guarded_strong_next_impl`, `or_to_response_impl`, `pre_spine_split_exact` |
 | Expanded indexed-next identities | `pre_x0`, `pre_xn_flatten`, `pre_xn_bool_distribute` for `next_power`, with both-word exactness |
+| High-level pre-indexed-X reduction | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`; zero, homogeneous merges, mixed-chain refusal, representability and reconstruction are proved separately below |
 | Reject all three finite-disabled metadata rows | `sickert_rules_refused`, `sickert_limit_lift_refused`, `sickert_gf_w_refused`, `sickert_fg_u_refused` show the finite guard returns false |
 | Counterexample to the unrestricted context equation | `sickert_finite_counterexample`: on one letter with p=true, `C[GF p]` is false and `(GF p && C[true]) || C[false]` is true for `C[z] = G(!z)` |
 
@@ -148,6 +151,7 @@ FF/GG are retained, and `pre_walk` leaves strong-next subtrees untouched like C.
 | `src/lib/rewrite.c:10,332–359` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
 | `src/lib/rewrite.c:380–415` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
 | `src/lib/normalize.c:770–860` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors |
+| `src/lib/normalize.c:659–731` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and the branch equivalences below |
 | `src/lib/normalize.c:864–899` | `pre_spine_split`, `pre_spine_split_exact` on the core; indexed-X high-level branch excluded |
 | `src/lib/normalize.c:88–142,419–435` | Temporal RULES identities; `SickertRule.equivalence_finite` and `finite_rule_allowed` model the finite-admission projection |
 | `src/lib/normalize.c:1006–1022` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
@@ -162,9 +166,11 @@ or machine-size behavior. `NODE_NEXT_N` only recurses into its body
 bounded-quantifier body lowering and expansion to nexts remain unverified by
 these rewrite ports. Signed-decimal decoding, checked arithmetic and reduction
 domains/folds are proved separately below.
-`next_power` proves identities of the expanded mathematical sequence. This
-boundary concerns the rewrite ports; high-level structural equality and its
-deduplication consequence are proved separately below.
+`next_power` proves identities of the expanded mathematical sequence. The
+separate `NextStrength` port below now covers the actual high-level
+`pre_indexed_x` arithmetic/strength guards and reconstruction; it does not verify
+the C expansion loop or the other indexed-next passes. High-level structural
+equality and its deduplication consequence are proved separately below.
 
 RULES/finite-guard ports do not verify scheduler phases/growth checks, CLI
 plumbing, other passes, or Sickert transformations. Callers must check finite
@@ -485,6 +491,62 @@ payloads are preserved by the additive
 [`checked-arithmetic-115.json`](../tools/analysis/checked-arithmetic-115.json)
 ledger and its provenance checker registration.
 
+## Indexed-next strength (issue #117)
+
+[`TlsfProofs/NextStrength.lean`](TlsfProofs/NextStrength.lean) uses only the
+existing core-only `SetDedup` and `IntegerLiteral` modules. Names are in
+`Tlsf.NextStrength`. `preIndexedX` ports the current C branch order and recursion
+frontier on `HNode`, retaining `bounded.strong` on every reconstructed
+`NODE_NEXT_N`. Counts are mathematical `Int` payloads with the exact signed-64
+guards used by C. `LiteralCounts env` requires that successfully evaluated
+nonnegative literal counts lower to their natural value; other expressions
+use the same fixed lowering environment on both sides.
+
+| Actual C branch | Guarantee |
+| --- | --- |
+| Indexed count zero, either strength | `indexed_zero`, `indexed_zero_sat`: return the rewritten body |
+| Weak indexed next over unary weak X | `indexed_unary_merge`, `indexed_unary_sat`: exact `c+1`, guarded by `0 <= c < INT64_MAX` (zero returns earlier) |
+| Indexed over indexed, matching strengths | `indexed_indexed_merge`, `indexed_indexed_sat`: exact `c+d`, including zero inner count and either homogeneous strength, under C's nonnegative/sum guard; outer zero takes the earlier branch |
+| Unary weak X over weak indexed next | `unary_indexed_merge`, `unary_indexed_sat`: exact `d+1` under C's increment guard |
+| Positive mixed indexed strengths, or indexed over strong unary X | `indexed_mixed`, `indexed_strongUnary`: retain both constructors; `weakUnary_strongIndexed` retains weak over strong indexed next |
+| Changed child without a merge, including strong outer nodes | `indexed_rebuild_sat`, `strongUnary_rebuild_sat`; whole-pass `preIndexedX_lower` supplies the child equality at every recursion depth |
+| Count representability | `increment_fits`, `addition_fits`: each admitted result fits signed-64 and conversion to Nat preserves the exact sum; `increment_guard_exact`, `addition_guard_exact` characterize representability and prove the guard's subtraction safe; failed guards reconstruct without arithmetic |
+
+`indexedNext_add` proves syntactic equality of the homogeneous expanded
+weak/strong constructor sequences for all natural counts, including zero.
+`indexed_lower` / `weakUnary_lower` combine that identity with every local C
+guard and fallback. Structural recursion gives `preIndexedX_lower` for **all**
+high-level nodes, including nested rewrites through NOT, F/G, both next kinds,
+and AND/OR/IMPL/EQUIV; counts and unsupported subtrees are untouched as in C.
+Strong unary X recurses and reconstructs, without merging even with a strong
+indexed child. No finite admission uses infinite-word coincidence.
+
+`preIndexedX_sat` therefore preserves `LTL.Sat` at every word and position,
+even outside a word; `preIndexedX_finite` explicitly quantifies over every valid
+finite position (which implies a nonempty word), and `preIndexedX_infinite`
+covers infinite words. These statements concern the original frontend
+objective, before game construction. System/environment orientation is unchanged.
+`issue117_terminal` records the one- and two-letter distinction from the issue.
+
+`branch_witnesses` supplies kernel-computed cases mirrored by the registered
+`next_strength_117` C unit test: both strengths, zeroes, homogeneous merges,
+boundary counts, overflow refusal, and symbolic-count/strong-outer reconstruction.
+Mixed-chain refusal is covered by the general lemmas `indexed_mixed`,
+`indexed_strongUnary`, and `weakUnary_strongIndexed`, and by the C test.
+`next_strength_cli_117` independently constructs expanded reference syntax and
+checks emitted objectives with `tools/golden/reference.py` over all valuations
+and positions of one-, two-, and three-letter words, including the three issue
+reproducers and the empty AP alphabet.
+
+No new C correction was needed after #118. The C/Lean AST mapping, exact C
+execution/compiler, allocation/pointer handling, evaluation of symbolic counts,
+body resolution, section assembly and printing remain trusted. Negative counts
+are not merged and remain expansion errors. Huge counts are proved with the
+guards and tested structurally without allocating their expansion. This does
+not verify other indexed passes or the expansion loop. The additive
+[`next-strength-117.json`](../tools/analysis/next-strength-117.json) ledger
+preserves prior proof/provenance receipts and all golden payloads.
+
 ## C and Lean correspondence
 
 Locations are relative to this repository. They identify guarded mathematical
@@ -497,6 +559,7 @@ ports, not verification of C or other CSNF template families.
 | `src/lib/expand.c:867–908,998–1012` | Formula identity keys / duplicate removal: equal core implies `coreEq_denotation`, `dedup_core_conj`, `dedup_core_disj`; C lowering correspondence remains trusted |
 | `src/lib/expand.c:1155–1183,1282–1342,1376–1392` | Stored-element substitution and repeated pattern captures: `structEq_eq`, `structEq_substitution`; no change to pattern equality |
 | `src/lib/expand.c:1530–1578,1703–1818` | Core/indexed-next/range/ITE port: `lower`, `indexedNext`, `boundedRange`, `literalRange`; `issue108_terminal`, `issue108_denotations_differ`, `issue110_next_sugar` |
+| `src/lib/normalize.c:659–731`; `src/lib/expand.c:1729–1754` | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`: guarded pre-indexed-X reduction preserves exact expanded weak/strong sequences; expansion execution remains trusted |
 | `src/lib/templates.c:72–136` | `subst`, `setLetter`, `setWord`, `sat_subst`, `subst_absent` |
 | `src/lib/recognize.c` (`match_definition`); `src/lib/templates_certify.c` (`certify_definition`) | `Definition.entry`, `flip`, `Admissible.outputs`, `Admissible.boolean`; the certifier rejects every temporal theta using `ast_has_temporal` |
 | `src/lib/templates.c:316–377,518–533` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
