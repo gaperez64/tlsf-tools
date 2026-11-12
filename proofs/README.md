@@ -9,7 +9,7 @@ and component-strategy choice. Main-result audits permit only `propext`,
 
 The proofs establish mathematical ports of definition elimination, clustering,
 conditional assumption pruning, selected rewrites, set deduplication, signed
-decimal decoding and range membership, and an independent automaton
+decimal decoding, checked integer evaluation and range reductions, and an independent automaton
 construction/validator. They do not verify the C binary or other CSNF controllers.
 
 ## Build
@@ -24,7 +24,7 @@ export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
 # Sequential per-module diagnostics
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral; do
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
   timeout 300 lake build "TlsfProofs.$module" || exit $?
 done
@@ -44,6 +44,7 @@ timeout 1500 lake build
 | `Pruning.lean` | `prune_realizable` for infinite ordinary/strict Mealy games. `Prunable isIn K D` requires input-only environment entries in D, disjoint from every K entry. `EnvSat D` witnesses `Initial D && G Require D && Assume D`; `envSat_of_word` bridges any satisfying infinite word, including lassos. Pinning D inputs and replay/locality transfer K obligations; adding D is pointwise weakening, also for strict safety. No finite theorem. |
 | `Examples.lean` | Game counterexamples, rejected guards, finite-next boundaries/split failure, both Boolean-fixture orientations, and a list order needing multiple passes. |
 | `Rewrites.lean` | NNF, weak/local/bottom-up rewrites, capped driver, pre-weak simplification, and spine decomposition. Exactness covers every valid position and word: both kinds in finite mode, infinite otherwise. |
+| `CheckedArithmetic.lean` | Recursive numeric ASTs and binding environments; exact checked negation, +/−/×, truncating division/remainder and sum/product prefixes. Computed range membership and all six reduction denotations/empty cases, before game construction. |
 | `IntegerLiteral.lean` | Nonempty decimal tokens, the direct unary-minus minimum rule, parsed numeric ASTs and checked negation; exact signed-64 decoding, rejection, guarded endpoint conversion and interval membership. Universal/existential range denotations agree on finite/infinite words before game reduction. |
 | `SetDedup.lean` | All 54 semantic Node payloads, including indexed weak/strong next, bounded F/G, ITE, calls/patterns, and binder syntax. `structEq_eq` proves structural equality implies identical syntax; `structEq_denotation` preserves finite/infinite denotation under every fixed lowering environment, including terminal and out-of-range queries. |
 
@@ -158,9 +159,9 @@ equality. They cover successful expanded unbounded core transformations, not
 malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
 or machine-size behavior. `NODE_NEXT_N` only recurses into its body
 (`src/lib/normalize.c:840–843`) and is outside `Formula`; indexed spine splitting,
-general arithmetic, bounded-quantifier body lowering, and expansion to nexts remain
-unverified. Signed-decimal decoding and reduction-domain membership are proved
-separately below.
+bounded-quantifier body lowering and expansion to nexts remain unverified by
+these rewrite ports. Signed-decimal decoding, checked arithmetic and reduction
+domains/folds are proved separately below.
 `next_power` proves identities of the expanded mathematical sequence. This
 boundary concerns the rewrite ports; high-level structural equality and its
 deduplication consequence are proved separately below.
@@ -353,7 +354,8 @@ Parsing a nested negation can succeed while numeric evaluation rejects overflow.
 An unevaluated expression in unused source is not claimed to have been checked
 by C. General arithmetic is outside `Syntax`; the alternative minimum spelling
 `(-9223372036854775807 - 1)` is an executable correspondence regression, not a
-proof of arbitrary C arithmetic.
+proof of arbitrary C arithmetic. The checked arithmetic port below extends the
+parsed numeric AST to all arithmetic operators and sum/product reductions.
 
 `endpoints_safe` proves both strict shifts fit after the extreme-empty guard.
 `endpoints_exact` equates normalized membership to the original strict/inclusive
@@ -389,8 +391,8 @@ binary. Flex's digit recognition/token boundaries and comment skipping, libc
 for `2^63`), the C guard/cast, Bison precedence/actions, AST payload representation,
 and compiler correctness remain trusted. The C unit and kernel-computed
 `boundary_witnesses` check their correspondence; finite testing is not a proof
-of libc or the generated parser. Checked arithmetic builtins, evaluation of
-other numeric syntax/definitions, binder substitution, C loop/list/set execution,
+of libc or the generated parser. Checked arithmetic builtins, definition/ITE/bus/set resolution, binder
+substitution, C loop/list/set execution,
 allocation/resource-failure rejection, formula folding, and printer correspondence
 remain trusted. The list model describes successful materialization; no claim
 that huge intervals can be allocated is made. Existing #114 and #115–117 tests
@@ -398,6 +400,90 @@ remain unchanged. The additive
 [`integer-literal-116.json`](../tools/analysis/integer-literal-116.json) ledger
 binds this proof, the tests and the unchanged C sources, and preserves all earlier
 receipts and golden payloads.
+
+## Checked arithmetic and reductions (issue #115)
+
+[`TlsfProofs/CheckedArithmetic.lean`](TlsfProofs/CheckedArithmetic.lean) imports
+`Init` and the core-only #116 module; names here are in `Tlsf.CheckedArithmetic`.
+`Expr` contains integer leaves, variables, recursive negation and all five binary
+operators, range sum/product reductions, and sum/product over a supplied ordered
+materialized set domain. `Environment` gives mathematical integer bindings;
+`bind` masks an outer binding. Definition calls, selected ITE branches, SIZEOF,
+and set size/min/max must first resolve to matching numeric syntax/payloads.
+Their resolver correspondence remains trusted; this is not a theorem about
+the entire C frontend. `literalExpr`, `literal_eval`, `literal_denote` and
+`parsed_literal_exact` reuse the #116 parsed-literal results at this boundary.
+
+`operation` uses mathematical integers. Division is `Int.tdiv` and remainder
+`Int.tmod`, with truncation toward zero, rather than Lean's Euclidean `/`/`%`.
+`Allowed` rejects zero divisors and **both** MIN / −1 and MIN % −1. `apply_iff`
+checks representability before a result is returned. `division_guard_exact` and
+`remainder_guard_exact` prove the result-fit check is redundant after C's explicit
+divisor/MIN/−1 guards. Negation uses `checked (-a)`
+(`negation_as_sub` connects this to C's checked `0-a`). `FoldDefined` requires
+every evaluated body and accumulator prefix to be defined and representable: later cancellation or a
+multiplication by zero cannot rescue an overflowing prefix.
+`prefix_overflow_rejected` checks both examples with the kernel.
+
+`eval_iff` is the complete mathematical contract: `eval e rho = some v` iff
+`Defined e rho` and `v.val = denote e rho`. `Defined` is a separate recursive
+predicate on the mathematical denotation, not a test for evaluator success.
+`eval_exact` exposes exactness, signed-64 fit and operation safety;
+`eval_rejects` says evaluation returns `none` iff this safety predicate fails.
+`evalFold_iff` establishes the same contract for every left-to-right accumulator
+prefix, starting at 0 for sums and 1 for products. Empty domains do not evaluate
+the body. This is a successful-computation model; the C depth/resource limits may
+reject additional evaluations. The iff does not promise allocation or execution
+of enormous domains, or numeric validation of unused source.
+
+`eval_domain_exact` composes `eval_iff` with #116's
+`domain_values_exact`, without duplicating its endpoint proof. For arbitrary
+strictness flags and every integer k, successful domain evaluation gives exactly
+`Fits k ∧ SourceMember (denote lo rho) (denote hi rho) ls us k`. This includes
+reversed bounds, all empty cases, both signed extremes, and endpoints containing
+nested sums/products. `domain_rejects_endpoint` prevents a failed endpoint from
+publishing a domain, even when the other bound would trigger an extreme-empty
+guard. #116's `endpoints_safe` and `successor_safe` justify strict shifts and the
+guarded inclusive-loop increment.
+
+`eval_range_reduction` connects numeric reduction evaluation to this very same
+`evalDomain`. `sum_exact` and `product_exact` identify the integer fold and all
+prefix safety conditions. `forall_exact`/`exists_exact` prove the first-term-seeded
+C Boolean folds implement universal/existential quantification; `union_exact`
+and `intersection_exact` prove extensional set membership (`union_empty_seed`
+justifies C's initial empty union), with empty intersection
+rejected. `range_all_denotation`, `range_any_denotation`, `range_union_exact` and
+`range_intersection_exact` substitute the original computed source endpoints.
+`six_empty_cases` records true, false, 0, 1, empty union and failed intersection.
+Formula results quantify over arbitrary body denotations, words and positions
+with #116's `inWord` guard, including finite and infinite words. They preserve
+the frontend objective before game construction; no player ownership, orientation,
+strategy or realizability conclusion is changed or inferred.
+
+| C source / executable check | Lean correspondence |
+| --- | --- |
+| `src/lib/expand.c` (`eval_int`, negation and binary operator switch) | `operation`, `Allowed`, `apply_iff`, `eval_iff`, `eval_exact`, `eval_rejects` |
+| `src/lib/expand.c` (`eval_domain`) | `evalDomain`, `eval_domain_exact`, `domain_rejects_endpoint`; reuses #116 endpoint/list safety |
+| `src/lib/expand.c` (`bind_reduction_body`, `eval_int_reduction`) | `bind`, `evalFold`, `FoldDefined`, `evalFold_iff`, `eval_range_reduction`, `sum_exact`, `product_exact` |
+| `src/lib/expand.c` (`expand_quantifier`, `eval_set_reduction`) | `formulaReduce`, `setReduce`, the four Boolean/set fold exactness results and `six_empty_cases` |
+| `test/unit/checked_arithmetic.c` (`checked_arithmetic_115`) | Calls the actual private evaluator: wide-integer operator oracle, binding shadowing, reduction prefixes/empty seeds/nesting, computed-domain membership under every strictness flag, and failed-domain/formula publication. `boundary_witnesses` and `issue115_rejected` are kernel-computed matching examples. |
+| `test/cli/check_checked_arithmetic.py` (`checked_arithmetic_cli_115`) | All three original small-final-endpoint reproducers, division/remainder overflow and zero, sum/product prefix overflow, all six reductions over computed/reversed/extreme bounds, all strictness flags, both word kinds and the input-assumption/output-guarantee objective orientation. Failures require diagnostics and empty stdout. |
+
+**Remaining trust.** These are mathematical ports with executable correspondence
+checks, not a kernel proof of C or compiler execution. GCC/Clang checked builtin
+semantics, C quotient/remainder semantics, the mapping of ASTs and interned names
+to `Expr`/`Environment`, numeric definition/ITE/bus/set resolution, parser/type
+checking, binder substitution/closing, C containers/deduplication/loop order,
+resource/depth-failure handling and allocation rollback remain trusted. Builtins
+may overwrite their scratch `out` on overflow; callers must test the returned
+boolean. The no-publication claim concerns successful results/domain/formula/CLI
+output, not preservation of every internal scratch slot on failure. Set folds
+use extensional predicates; their C equality/storage implementation is not proved.
+Body lowering, section-objective assembly and printers remain trusted; arbitrary
+body resolvers do not prove those obligations. Prior provenance and golden
+payloads are preserved by the additive
+[`checked-arithmetic-115.json`](../tools/analysis/checked-arithmetic-115.json)
+ledger and its provenance checker registration.
 
 ## C and Lean correspondence
 
@@ -450,7 +536,7 @@ C obligations.
 Cover output sets must equal formula output atoms, including normalized/matching
 formulas: recognizing an equality must recover the same constraint/support.
 Expansion, preprocessing, other normalization, memory/allocation behavior, and
-machine bounds beyond the signed-decimal/range-domain port remain C obligations.
+machine bounds beyond the signed-decimal/checked-arithmetic/range ports remain C obligations.
 Cycles must yield ranks below `nelim + 1`,
 providers distinct names, and section guards inspect every occurrence, including
 other definitions, exactly as `covers`. Boolean guards must reject all temporal

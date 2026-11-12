@@ -12,6 +12,9 @@ integer_literal = executable('integer_literal', 'integer_literal.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep,
   sources: [bison_out[1], flex_out[1]])
 test('integer_literal_116', integer_literal)
+checked_arithmetic = executable('checked_arithmetic', 'checked_arithmetic.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('checked_arithmetic_115', checked_arithmetic)
 expansion_scope = executable('expansion_scope', 'expansion_scope.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('expansion_scope', expansion_scope)
