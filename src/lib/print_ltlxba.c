@@ -293,37 +293,6 @@ static void emit(Printer *out, const Node *n, int min_prec, bool full,
 // Public formula entry points
 // ---------------------------------------------------------------------------
 
-bool print_ltlxba_formula(FILE *out, const Node *n, bool full_parens) {
-  Printer p = {.file = out};
-  emit(&p, n, 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
-  return !p.failed && !ferror(p.file);
-}
-
-bool print_ltlxba_list(FILE *file, Node *const *formulas, uint32_t count,
-                       bool full_parens) {
-  Printer p = {.file = file}, *out = &p;
-  if (count == 0) {
-    put_text(out, "true");
-    return !p.failed && !ferror(p.file);
-  }
-  if (count == 1) {
-    emit(out, formulas[0], 1, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
-    return !p.failed && !ferror(p.file);
-  }
-  // Conjunction (prec 3); wrap when full, otherwise leave bare at top level.
-  if (full_parens)
-    put_char('(', out);
-  for (uint32_t i = 0; i < count; i++) {
-    if (i > 0)
-      put_text(out, " && ");
-    // operand of &&
-    emit(out, formulas[i], 4, full_parens, /*finite=*/false, &SYNTAX_LTLXBA);
-  }
-  if (full_parens)
-    put_char(')', out);
-  return !p.failed && !ferror(p.file);
-}
-
 bool print_ltl(FILE *out, const Node *root, LtlFormat fmt, bool full_parens,
                bool finite, bool lower_atoms) {
   Printer p = {.file = out};
@@ -367,17 +336,6 @@ Node *build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
     return nullptr;
   Node *root = section_pattern_to_ltl(&view, want_safety, want_liveness);
   return arena_failed(spec->arena) ? nullptr : root;
-}
-
-bool print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                       const ClassifiedSpec *cs, PrintMode mode,
-                       bool full_parens) {
-  Node *root = build_spec_formula(spec, cs, mode);
-  if (!root)
-    return false;
-  bool finite = semantics_is_finite(spec->info.semantics);
-  return print_ltl(out, root, LTL_FMT_LTLXBA, full_parens, finite,
-                   /*lower_atoms=*/false);
 }
 
 static void atom_quoted_name(Printer *out, const char *name, bool lower) {

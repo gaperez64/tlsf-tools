@@ -117,8 +117,7 @@ TlsfAst *tlsf_ast_from_file_ex(FILE *fp,
   if (!ast->residual_plan)
     goto fail;
   ast->result = tlsf_decompose_result_from_plan(
-      pipeline->spec, pipeline->cover, pipeline->csnf, pipeline->composition,
-      ast->residual_plan, decompose_options);
+      pipeline->spec, pipeline->cover, ast->residual_plan, decompose_options);
   if (!ast->result)
     goto fail;
 

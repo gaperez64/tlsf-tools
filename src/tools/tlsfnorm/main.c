@@ -10,7 +10,7 @@
 #include "tlsf/expand.h"
 #include "tlsf/normalize.h"
 #include "tlsf/print_tlsf.h"
-#include "rewrite.h"
+#include "normalize_internal.h"
 #include "tlsf/spec.h"
 
 #include <stdio.h>
@@ -18,33 +18,34 @@
 #include <string.h>
 
 static void usage(const char *prog) {
-  fprintf(stderr,
-          "Usage: %s [OPTIONS] [FILE]\n"
-          "Local normalization of a TLSF spec, re-emitted as TLSF.\n"
-          "  --pre-passes SCHEDULE        high-level passes before expand()\n"
-          "  --passes SCHEDULE            post-expansion passes (default: "
-          "split)\n"
-          "  --normalize PROFILE          append a profile to --passes\n"
-          "  --norm-max-iter N            schedule-level iteration cap\n"
-          "  --norm-max-growth PERCENT    per-formula node growth cap\n"
-          "  --norm-max-nodes N           absolute node cap\n"
-          "  --norm-stats[=human|tsv]     normalization stats to stderr\n"
-          "  --norm-trace FILE            per-step TSV trace (- = stderr)\n"
-          "  --norm-soundness off|assert|verify   rule soundness gate "
-          "(default assert)\n"
-          "  --format tlsf|trace          output (default tlsf)\n"
-          "  --overwrite-semantics VALUE  replace SEMANTICS\n"
-          "  --overwrite-target VALUE     replace TARGET\n"
-          "  --param NAME=VALUE           override a parameter (repeatable)\n"
-          "  --output FILE                write to FILE (default stdout)\n"
-          "  --version, --help\n"
-          "Schedule grammar: pass[:N] comma-list, e.g. "
-          "match-safe:2,route-safe.\n"
-          "Passes: split nnf weak boolean bool-canon or-to-impl-pattern\n"
-          "  equiv-output-side mutex-demorgan route-safe sickert-stage2\n"
-          "  sickert-stage3 pre-indexed-x pre-bounded-bool pre-spine-split\n"
-          "Profiles: off match-safe route-safe pre-safe sickert-bounded\n",
-          prog);
+  fprintf(
+      stderr,
+      "Usage: %s [OPTIONS] [FILE]\n"
+      "Local normalization of a TLSF spec, re-emitted as TLSF.\n"
+      "  --pre-passes SCHEDULE        high-level passes before expand()\n"
+      "  --passes SCHEDULE            post-expansion passes (default: "
+      "split)\n"
+      "  --normalize PROFILE          append a profile to --passes\n"
+      "  --norm-max-iter N            schedule-level iteration cap\n"
+      "  --norm-max-growth PERCENT    per-formula node growth cap\n"
+      "  --norm-max-nodes N           absolute node cap\n"
+      "  --norm-stats[=human|tsv]     normalization stats to stderr\n"
+      "  --norm-trace FILE            per-step TSV trace (- = stderr)\n"
+      "  --norm-soundness off|assert|verify   schedule metadata gate\n"
+      "                               (default assert; verify is an alias)\n"
+      "  --format tlsf|trace          output (default tlsf)\n"
+      "  --overwrite-semantics VALUE  replace SEMANTICS\n"
+      "  --overwrite-target VALUE     replace TARGET\n"
+      "  --param NAME=VALUE           override a parameter (repeatable)\n"
+      "  --output FILE                write to FILE (default stdout)\n"
+      "  --version, --help\n"
+      "Schedule grammar: pass[:N] comma-list, e.g. "
+      "match-safe:2,route-safe.\n"
+      "Passes: split nnf weak boolean bool-canon or-to-impl-pattern\n"
+      "  equiv-output-side mutex-demorgan route-safe sickert-stage2\n"
+      "  sickert-stage3 pre-indexed-x pre-bounded-bool pre-spine-split\n"
+      "Profiles: off match-safe route-safe pre-safe sickert-bounded\n",
+      prog);
 }
 
 typedef enum { STATS_OFF, STATS_HUMAN, STATS_TSV } StatsMode;
@@ -59,7 +60,8 @@ static void apply_post(TlsfSpec *spec, FormulaList *L,
     FormulaList nl = {0};
     for (uint32_t i = 0; i < L->count; i++) {
       Node **parts;
-      uint32_t np = rewrite_decompose(spec->arena, L->formulas[i], &parts);
+      uint32_t np = tlsf_normalize_split(spec->arena, L->formulas[i], &parts,
+                                         false, stats);
       for (uint32_t p = 0; p < np; p++)
         (void)formula_list_push(spec, &nl, parts[p]);
     }
@@ -82,7 +84,7 @@ int main(int argc, char *argv[]) {
              *normalize_arg = nullptr;
   const char *trace_file = nullptr;
   StatsMode stats_mode = STATS_OFF;
-  int soundness = 1; // 0 off, 1 assert, 2 verify (default assert)
+  bool soundness = true; // assert and verify check the same schedule metadata
   uint32_t max_iter = 32, max_growth = 200, max_nodes = 20000;
   ParamOverride overrides[64];
   size_t n_overrides = 0;
@@ -118,11 +120,9 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(a, "--norm-soundness") == 0) {
       const char *v = NEED_ARG();
       if (!strcmp(v, "off"))
-        soundness = 0;
-      else if (!strcmp(v, "assert"))
-        soundness = 1;
-      else if (!strcmp(v, "verify"))
-        soundness = 2;
+        soundness = false;
+      else if (!strcmp(v, "assert") || !strcmp(v, "verify"))
+        soundness = true;
       else {
         fprintf(stderr, "tlsfnorm: bad --norm-soundness '%s'\n", v);
         return 1;
@@ -227,8 +227,8 @@ int main(int argc, char *argv[]) {
 
   bool finite = semantics_is_finite(spec->info.semantics);
 
-  // Soundness gate (always enforces finite-word safety; assert also enforces
-  // phase legality; off disables the gate entirely).
+  // assert/verify enforce finite-word safety and phase legality; off skips
+  // this metadata check. Neither spelling runs a semantic equivalence checker.
   FILE *tracefp = nullptr;
   if (trace_file) {
     tracefp = strcmp(trace_file, "-") == 0 ? stderr : fopen(trace_file, "w");
@@ -259,7 +259,7 @@ int main(int argc, char *argv[]) {
       input_file ? input_file : "<stdin>";
 
   TlsfNormRejectReason reason;
-  if (soundness >= 1) {
+  if (soundness) {
     if (!tlsf_norm_schedule_check(&pre, &pre_opts, "tlsfnorm", &reason) ||
         !tlsf_norm_schedule_check(&post, &post_opts, "tlsfnorm", &reason)) {
       spec_free(spec);
@@ -269,36 +269,9 @@ int main(int argc, char *argv[]) {
 
   // Pre-expansion passes operate on the high-level section formulas (before
   // expand(), while X[n]/&&[..]/buses/params are still present).
-  if (pre.count) {
-    FormulaList *plists[] = {&spec->initially, &spec->require,
-                             &spec->assume,    &spec->preset,
-                             &spec->assert_,   &spec->guarantee};
-    for (uint32_t pi = 0; pi < pre.count; pi++) {
-      TlsfNormPassSpec one = pre.items[pi];
-      for (int s = 0; s < 6; s++) {
-        if (one.pass == TLSF_NORM_PASS_PRE_SPINE_SPLIT) {
-          FormulaList nl = {0};
-          for (uint32_t k = 0; k < plists[s]->count; k++) {
-            Node **parts;
-            uint32_t np = tlsf_prenorm_spine_split(
-                spec->arena, plists[s]->formulas[k], &parts);
-            pre_stats.rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].attempts++;
-            if (np > 1)
-              pre_stats.rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].fired += np - 1;
-            for (uint32_t p = 0; p < np; p++)
-              (void)formula_list_push(spec, &nl, parts[p]);
-          }
-          *plists[s] = nl;
-          continue;
-        }
-        TlsfNormOptions o = pre_opts;
-        o.schedule = (TlsfNormSchedule){.items = &one, .count = 1};
-        for (uint32_t k = 0; k < plists[s]->count; k++)
-          plists[s]->formulas[k] = tlsf_normalize_formula(
-              spec->arena, plists[s]->formulas[k], &o, &pre_stats);
-      }
-    }
-  }
+  pre_opts.schedule = pre;
+  (void)tlsf_prenorm_spec(spec, &pre_opts,
+                          stats_mode == STATS_OFF ? nullptr : &pre_stats);
 
   if (expand(spec, overrides, n_overrides) != 0) {
     spec_free(spec);
@@ -319,7 +292,8 @@ int main(int argc, char *argv[]) {
   for (uint32_t p = 0; p < post.count; p++) {
     for (int s = 0; s < 6; s++) {
       uint32_t before = lists[s]->count;
-      apply_post(spec, lists[s], &post.items[p], &post_opts, &post_stats);
+      apply_post(spec, lists[s], &post.items[p], &post_opts,
+                 stats_mode == STATS_OFF ? nullptr : &post_stats);
       if (trace && lists[s]->count != before)
         fprintf(out, "c pass %s: %s %u -> %u\n",
                 tlsf_norm_pass_name(post.items[p].pass), names[s], before,

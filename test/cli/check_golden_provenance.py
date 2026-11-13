@@ -604,13 +604,59 @@ assert set(next_prepasses_update["preserved_artifacts_sha256"]) == set(
 for name, digest in next_prepasses_update["preserved_artifacts_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
+dead_api_update = json.loads((root.parents[2] / "tools/analysis/dead-api-20261113.json").read_text())
+assert dead_api_update["date"] and dead_api_update["reason"]
+assert dead_api_update["changed_golden_hashes"] == 0
+assert dead_api_update["checks"] == ['stable_meson_tests', 'research_meson_tests', 'conversion_export_goldens', 'infinite_prepass_outputs', 'dpa_translation_hashes', 'dpa_dag_translation_hashes', 'proof_source_references', 'golden_provenance', 'no_external_oracles', 'acacia_syntax_only', 'clang_format']
+assert set(dead_api_update["source_rebindings"]) == {
+    'README.md',
+    'include/tlsf/ast.h',
+    'include/tlsf/cover.h',
+    'include/tlsf/normalize.h',
+    'include/tlsf/oxidd_options.h',
+    'meson.build',
+    'proofs/README.md',
+    'src/lib/ast_api.c',
+    'src/lib/cover.c',
+    'src/lib/decompose.c',
+    'src/lib/decompose_internal.h',
+    'src/lib/normalize.c',
+    'src/lib/oxidd_common.c',
+    'src/lib/print_ltlxba.c',
+    'src/lib/print_ltlxba.h',
+    'src/lib/residual.c',
+    'src/lib/residual.h',
+    'src/lib/yyjson_builder.h',
+    'src/tools/tlsfcompose/main.c',
+    'src/tools/tlsfnorm/main.c',
+    'src/tools/tlsfsolve/main.c',
+    'test/api/meson.build',
+    'test/cli/check_golden_provenance.py',
+    'test/cli/check_tlsfnorm_help.py',
+    'test/cli/meson.build',
+    'test/meson.build',
+    'test/oracle/meson.build',
+    'test/unit/meson.build',
+    'test/unit/objective_alloc.c',
+}
+assert set(dead_api_update["added_sources_sha256"]) == {
+    "src/lib/normalize_internal.h", "test/unit/normalize_stats.c",
+}
+assert set(dead_api_update["preserved_artifacts_sha256"]) == {
+    str(path.relative_to(root.parents[2])) for path in root.rglob("*") if path.is_file()
+} | {"tools/analysis/next-strength-prepasses-122.json", "tools/golden/historical-files.json"}
+for field in ("added_sources_sha256", "preserved_artifacts_sha256"):
+    for name, digest in dead_api_update[field].items():
+        assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
+
 UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
            partition_update, perf_update, grammar_update, strict_bounds_update,
            integer_next_update, literal_update, arithmetic_update, next_strength_update,
-           next_prepasses_update)
+           next_prepasses_update, dead_api_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):

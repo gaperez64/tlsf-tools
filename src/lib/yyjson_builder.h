@@ -126,13 +126,6 @@ static inline yyjson_mut_val *jb_sint(JsonBuilder *builder, int64_t number) {
   return value;
 }
 
-static inline yyjson_mut_val *jb_real(JsonBuilder *builder, double number) {
-  yyjson_mut_val *value =
-      builder->doc ? yyjson_mut_real(builder->doc, number) : nullptr;
-  builder->failed |= !value;
-  return value;
-}
-
 static inline yyjson_mut_val *jb_bool(JsonBuilder *builder, bool boolean) {
   yyjson_mut_val *value =
       builder->doc ? yyjson_mut_bool(builder->doc, boolean) : nullptr;

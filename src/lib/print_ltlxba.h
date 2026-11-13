@@ -40,15 +40,6 @@ typedef enum PrintMode {
   PRINT_LIVENESS,
 } PrintMode;
 
-/// Print a single formula to `out` in ltlxba format.
-[[nodiscard]] bool print_ltlxba_formula(FILE *out, const Node *n,
-                                        bool full_parens);
-
-/// Print a conjunction of all formulas in `list` to `out`.
-/// Prints "true" for an empty list.
-[[nodiscard]] bool print_ltlxba_list(FILE *out, Node *const *formulas,
-                                     uint32_t count, bool full_parens);
-
 /// Assemble the single LTL formula defined by the (classified) spec, applying
 /// the strict / non-strict, safety/liveness and finite-word structure.  The
 /// returned node is allocated in `spec->arena`; nullptr on failure (an empty
@@ -71,12 +62,5 @@ typedef enum PrintMode {
 /// newline.
 [[nodiscard]] bool print_quoted_ltl(FILE *out, const Node *root, bool finite,
                                     bool lower_atoms);
-
-/// Convenience: assemble the spec formula (ltlxba dialect) and print it.
-/// Retained for callers that do not apply transforms.
-/// Returns false on assembly or write failure.
-[[nodiscard]] bool print_ltlxba_spec(FILE *out, const TlsfSpec *spec,
-                                     const ClassifiedSpec *cs, PrintMode mode,
-                                     bool full_parens);
 
 #endif // TLSF_PRINT_LTLXBA_H

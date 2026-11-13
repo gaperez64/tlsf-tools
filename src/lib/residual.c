@@ -65,17 +65,6 @@ bool residual_signal_matches(ConstraintCover *cov, uint32_t idx, uint8_t flag) {
   return flag == AP_FLAG_INPUT && f == 0;
 }
 
-void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
-                            uint8_t flag) {
-  bool first = true;
-  for (uint32_t a = 0; a < cov->aps.count; a++) {
-    if (!seen[a] || !residual_signal_matches(cov, a, flag))
-      continue;
-    fprintf(out, "%s%s", first ? "" : ",", ap_table_name(&cov->aps, a));
-    first = false;
-  }
-}
-
 // True if any AP occurring in `n` is set in `set` (length cov->aps.count).
 static bool residual_aps_hit(const Node *n, ConstraintCover *cov,
                              const bool *set) {

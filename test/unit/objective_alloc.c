@@ -794,12 +794,8 @@ static void assembly_checks(const char *source, const char *expected,
   for (size_t n = 1; n <= count; ++n) {
     spec = prepared(source, &cs);
     reset(n);
-    FILE *out = tmpfile();
-    CHECK(out);
-    CHECK(!print_ltlxba_spec(out, spec, cs, PRINT_ALL, false));
-    CHECK(fired && arena_failed(spec->arena) && ftell(out) == 0);
     CHECK(!build_spec_formula(spec, cs, PRINT_ALL));
-    fclose(out);
+    CHECK(fired && arena_failed(spec->arena));
     spec_free(spec);
   }
   // The existing AST/decomposition entry point must not publish a root, text,

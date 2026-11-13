@@ -1,6 +1,6 @@
 // NOLINTNEXTLINE(cert-dcl37-c)
 #define _POSIX_C_SOURCE 200809L
-#include "tlsf/normalize.h"
+#include "normalize_internal.h"
 
 #include "nnf.h"
 #include "rewrite.h"
@@ -57,18 +57,15 @@ const char *tlsf_norm_reject_name(TlsfNormRejectReason r) {
     return "finite_word";
   case TLSF_NORM_REJECT_PHASE:
     return "phase";
-  case TLSF_NORM_REJECT_NOT_APPLICABLE:
-    return "not_applicable";
   }
   return "?";
 }
 
 // ---------------------------------------------------------------------------
-// Rule metadata.  Booleans are: equiv_inf, equiv_fin, pre, match, route, vis,
-// may_grow, growth_cap%.
+// Rule soundness metadata: equiv_inf, equiv_fin, pre, match, route, visible.
 // ---------------------------------------------------------------------------
 
-#define RI(R, N, EI, EF, PR, MA, RO, VI, GROW, CAP, NOTE)                      \
+#define RI(R, N, EI, EF, PR, MA, RO, VI, NOTE)                                 \
   [R] = {.rule = R,                                                            \
          .name = N,                                                            \
          .equivalence_infinite = EI,                                           \
@@ -77,61 +74,59 @@ const char *tlsf_norm_reject_name(TlsfNormRejectReason r) {
          .allowed_match = MA,                                                  \
          .allowed_route = RO,                                                  \
          .allowed_visible = VI,                                                \
-         .may_increase_nodes = GROW,                                           \
-         .default_growth_cap_percent = CAP,                                    \
          .proof_note = NOTE}
 
 static const TlsfNormRuleInfo RULES[TLSF_NORM_RULE_COUNT] = {
     RI(TLSF_NORM_RULE_WEAK_DOUBLE_NEG, "weak-double-neg", true, true, false,
-       true, true, true, false, 0, "!!x = x"),
+       true, true, true, "!!x = x"),
     RI(TLSF_NORM_RULE_WEAK_CONST_FOLD, "weak-const-fold", true, true, false,
-       true, true, true, false, 0, "syfco -s0 constant folding"),
+       true, true, true, "syfco -s0 constant folding"),
     RI(TLSF_NORM_RULE_WEAK_IDEMPOTENT, "weak-idempotent", true, true, false,
-       true, true, true, false, 0, "x&&x=x, GGx=Gx, FFx=Fx"),
+       true, true, true, "x&&x=x, GGx=Gx, FFx=Fx"),
     RI(TLSF_NORM_RULE_BOOL_FLATTEN_AND, "bool-flatten-and", true, true, false,
-       true, true, true, false, 0, "associativity of &&"),
+       true, true, true, "associativity of &&"),
     RI(TLSF_NORM_RULE_BOOL_FLATTEN_OR, "bool-flatten-or", true, true, false,
-       true, true, true, false, 0, "associativity of ||"),
+       true, true, true, "associativity of ||"),
     RI(TLSF_NORM_RULE_BOOL_SORT_AND, "bool-sort-and", true, true, false, true,
-       true, true, false, 0, "commutativity + idempotence of &&"),
+       true, true, "commutativity + idempotence of &&"),
     RI(TLSF_NORM_RULE_BOOL_SORT_OR, "bool-sort-or", true, true, false, true,
-       true, true, false, 0, "commutativity + idempotence of ||"),
+       true, true, "commutativity + idempotence of ||"),
     RI(TLSF_NORM_RULE_OR_TO_RESPONSE_IMPL, "or-to-response-impl", true, true,
-       false, true, true, true, false, 0, "!r||Fg = r->Fg"),
+       false, true, true, true, "!r||Fg = r->Fg"),
     RI(TLSF_NORM_RULE_OR_TO_GUARDED_NEXT_IMPL, "or-to-guarded-next-impl", true,
-       true, false, true, true, true, false, 0, "!r||Xo = r->Xo"),
+       true, false, true, true, true, "!r||Xo = r->Xo"),
     RI(TLSF_NORM_RULE_EQUIV_OUTPUT_LEFT, "equiv-output-left", true, true, false,
-       true, true, true, false, 0, "a<->b = b<->a"),
+       true, true, true, "a<->b = b<->a"),
     RI(TLSF_NORM_RULE_MUTEX_DEMORGAN_PAIR, "mutex-demorgan-pair", true, true,
-       false, true, true, true, false, 0, "!a||!b = !(a&&b)"),
+       false, true, true, true, "!a||!b = !(a&&b)"),
     RI(TLSF_NORM_RULE_ROUTE_NNF, "route-nnf", true, true, false, true, true,
-       true, false, 0, "negation normal form"),
+       true, "negation normal form"),
     RI(TLSF_NORM_RULE_ROUTE_PUSH_G_IN, "route-push-g-in", true, true, false,
-       true, true, true, true, 200, "G(a&&b)=Ga&&Gb"),
+       true, true, true, "G(a&&b)=Ga&&Gb"),
     RI(TLSF_NORM_RULE_ROUTE_PUSH_X_IN, "route-push-x-in", true, true, false,
-       true, true, true, true, 200, "X(a&&b)=Xa&&Xb"),
+       true, true, true, "X(a&&b)=Xa&&Xb"),
     RI(TLSF_NORM_RULE_SICKERT_LIMIT_LIFT, "sickert-limit-lift", true, false,
-       false, true, true, true, true, 400, "C[GF p]=(GF p&&C[true])||C[false]"),
+       false, true, true, true, "C[GF p]=(GF p&&C[true])||C[false]"),
     RI(TLSF_NORM_RULE_SICKERT_GF_W, "sickert-gf-w", true, false, false, true,
-       true, true, true, 400, "GF C[a W b] = GF C[a U b]||(FG a&&GF C[true])"),
+       true, true, "GF C[a W b] = GF C[a U b]||(FG a&&GF C[true])"),
     RI(TLSF_NORM_RULE_SICKERT_FG_U, "sickert-fg-u", true, false, false, true,
-       true, true, true, 400, "FG C[a U b]=(GF b&&FG C[a W b])||FG C[false]"),
+       true, true, "FG C[a U b]=(GF b&&FG C[a W b])||FG C[false]"),
     RI(TLSF_NORM_RULE_PRE_X0, "pre-x0", true, true, true, false, false, false,
-       false, 0, "X[0] p = p"),
+       "X[0] p = p"),
     RI(TLSF_NORM_RULE_PRE_XN_FLATTEN, "pre-xn-flatten", true, true, true, false,
-       false, false, false, 0, "X[m]X[n] p = X[m+n] p"),
+       false, false, "X[m]X[n] p = X[m+n] p"),
     RI(TLSF_NORM_RULE_PRE_XN_BOOL_DISTRIBUTE, "pre-xn-bool-distribute", true,
-       true, true, false, false, false, true, 300, "X[n](a&&b)=X[n]a&&X[n]b"),
+       true, true, false, false, false, "X[n](a&&b)=X[n]a&&X[n]b"),
     RI(TLSF_NORM_RULE_PRE_BOUNDED_SINGLETON, "pre-bounded-singleton", true,
-       true, true, false, false, false, false, 0, "&&[i:i] p = p[i]"),
+       true, true, false, false, false, "&&[i:i] p = p[i]"),
     RI(TLSF_NORM_RULE_PRE_BOUNDED_EMPTY, "pre-bounded-empty", true, true, true,
-       false, false, false, false, 0, "&&[i:j>i] = true / ||[..] = false"),
+       false, false, false, "&&[i:j>i] = true / ||[..] = false"),
     RI(TLSF_NORM_RULE_PRE_BOUNDED_CONST_FOLD, "pre-bounded-const-fold", true,
-       true, true, false, false, false, false, 0, "&&[i:j] true = true"),
+       true, true, false, false, false, "&&[i:j] true = true"),
     RI(TLSF_NORM_RULE_PRE_SPINE_SPLIT, "pre-spine-split", true, true, true,
-       false, false, false, false, 0, "G(A&&B) -> G A, G B"),
+       false, false, false, "G(A&&B) -> G A, G B"),
     RI(TLSF_NORM_RULE_PRE_WEAK, "pre-weak", true, true, true, false, false,
-       false, false, 0, "high-level weak simplification"),
+       false, "high-level weak simplification"),
 };
 #undef RI
 
@@ -143,8 +138,7 @@ const char *tlsf_norm_rule_name(TlsfNormRule r) {
 }
 
 // ---------------------------------------------------------------------------
-// Pass -> rules mapping (for soundness/phase checking) and primary rule (for
-// stats attribution).
+// Pass -> rules mapping for soundness/phase checking.
 // ---------------------------------------------------------------------------
 
 static uint32_t pass_rules(TlsfNormPass p, TlsfNormRule out[4]) {
@@ -208,11 +202,6 @@ static uint32_t pass_rules(TlsfNormPass p, TlsfNormRule out[4]) {
   }
 }
 
-static TlsfNormRule pass_primary_rule(TlsfNormPass p) {
-  TlsfNormRule r[4];
-  return pass_rules(p, r) ? r[0] : TLSF_NORM_RULE_COUNT;
-}
-
 static bool rule_allowed_in_phase(const TlsfNormRuleInfo *ri,
                                   TlsfNormPhase phase) {
   switch (phase) {
@@ -228,25 +217,6 @@ static bool rule_allowed_in_phase(const TlsfNormRuleInfo *ri,
   default:
     return false;
   }
-}
-
-static bool pass_is_pre(TlsfNormPass p) {
-  return p == TLSF_NORM_PASS_PRE_INDEXED_X ||
-         p == TLSF_NORM_PASS_PRE_BOUNDED_BOOL ||
-         p == TLSF_NORM_PASS_PRE_SPINE_SPLIT || p == TLSF_NORM_PASS_PRE_WEAK;
-}
-
-bool tlsf_norm_schedule_is_pre(const TlsfNormSchedule *sch) {
-  for (uint32_t i = 0; i < sch->count; i++)
-    if (pass_is_pre(sch->items[i].pass))
-      return true;
-  return false;
-}
-bool tlsf_norm_schedule_is_post(const TlsfNormSchedule *sch) {
-  for (uint32_t i = 0; i < sch->count; i++)
-    if (!pass_is_pre(sch->items[i].pass))
-      return true;
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -943,13 +913,8 @@ bool tlsf_prenorm_spec(TlsfSpec *spec, const TlsfNormOptions *opts,
         FormulaList nl = {0};
         for (uint32_t k = 0; k < L->count; k++) {
           Node **parts;
-          uint32_t np =
-              tlsf_prenorm_spine_split(spec->arena, L->formulas[k], &parts);
-          if (stats) {
-            stats->rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].attempts++;
-            if (np > 1)
-              stats->rules[TLSF_NORM_RULE_PRE_SPINE_SPLIT].fired += np - 1;
-          }
+          uint32_t np = tlsf_normalize_split(spec->arena, L->formulas[k],
+                                             &parts, true, stats);
           for (uint32_t p = 0; p < np; p++)
             (void)formula_list_push(spec, &nl, parts[p]);
         }
@@ -1563,24 +1528,84 @@ static void trace_row(const TlsfNormOptions *o, TlsfNormPass pass,
           nb, na, changed ? 1 : 0, tlsf_norm_reject_name(reason));
 }
 
+static void stats_formulas(TlsfNormStats *s, Node *const *roots, uint32_t count,
+                           bool before) {
+  uint64_t nodes = 0;
+  TlsfObstacles ob = {0};
+  for (uint32_t i = 0; i < count; i++) {
+    nodes += ast_node_count(roots[i]);
+    tlsf_norm_count_obstacles(roots[i], &ob);
+  }
+  if (before) {
+    s->formulas_seen++;
+    s->nodes_before += nodes;
+    if (nodes > s->nodes_max_before)
+      s->nodes_max_before = nodes;
+    s->u_under_w_before += ob.u_under_w;
+    s->limit_under_temporal_before += ob.limit_under_temporal;
+    s->w_under_gf_before += ob.w_under_gf;
+    s->u_under_fg_before += ob.u_under_fg;
+  } else {
+    s->nodes_after += nodes;
+    if (nodes > s->nodes_max_after)
+      s->nodes_max_after = nodes;
+    s->u_under_w_after += ob.u_under_w;
+    s->limit_under_temporal_after += ob.limit_under_temporal;
+    s->w_under_gf_after += ob.w_under_gf;
+    s->u_under_fg_after += ob.u_under_fg;
+  }
+}
+
+static void stats_step(TlsfNormStats *s, TlsfNormPass pass, uint64_t nb,
+                       uint64_t na, uint64_t dt, bool changed,
+                       TlsfNormRejectReason rejection) {
+  TlsfNormPassStats *p = &s->passes[pass];
+  p->attempts++;
+  p->nodes_before_sum += nb;
+  p->nodes_after_sum += na;
+  p->time_ns += dt;
+  s->iterations_total++;
+  s->time_ns += dt;
+  if (rejection == TLSF_NORM_REJECT_NODES)
+    p->rejected_nodes++;
+  else if (rejection == TLSF_NORM_REJECT_GROWTH)
+    p->rejected_growth++;
+  else if (changed)
+    p->fired++;
+  else
+    p->noops++;
+}
+
+uint32_t tlsf_normalize_split(Arena *a, Node *root, Node ***out, bool pre,
+                              TlsfNormStats *stats) {
+  if (stats)
+    stats_formulas(stats, &root, 1, true);
+  uint64_t t0 = stats ? now_ns() : 0;
+  uint32_t count = pre ? tlsf_prenorm_spine_split(a, root, out)
+                       : rewrite_decompose(a, root, out);
+  if (stats) {
+    uint64_t dt = now_ns() - t0;
+    uint64_t na = 0;
+    for (uint32_t i = 0; i < count; i++)
+      na += ast_node_count((*out)[i]);
+    bool changed = count && (count != 1 || !node_eq(root, (*out)[0]));
+    stats_step(stats,
+               pre ? TLSF_NORM_PASS_PRE_SPINE_SPLIT : TLSF_NORM_PASS_SPLIT,
+               ast_node_count(root), na, dt, changed, TLSF_NORM_REJECT_NONE);
+    stats_formulas(stats, *out, count, false);
+    stats->formulas_changed += changed;
+  }
+  return count;
+}
+
 Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
                              TlsfNormStats *stats) {
   if (!root || opts->schedule.count == 0)
     return root;
 
   uint32_t n0 = ast_node_count(root);
-  if (stats) {
-    stats->formulas_seen++;
-    if (n0 > stats->nodes_max_before)
-      stats->nodes_max_before = n0;
-    stats->nodes_before += n0;
-    TlsfObstacles ob = {0};
-    tlsf_norm_count_obstacles(root, &ob);
-    stats->u_under_w_before += ob.u_under_w;
-    stats->limit_under_temporal_before += ob.limit_under_temporal;
-    stats->w_under_gf_before += ob.w_under_gf;
-    stats->u_under_fg_before += ob.u_under_fg;
-  }
+  if (stats)
+    stats_formulas(stats, &root, 1, true);
 
   Node *cur = root;
   bool any_changed = false, rejected = false;
@@ -1595,13 +1620,11 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
       iters = 1;
     if (iters > opts->max_iter_default && opts->max_iter_default)
       iters = opts->max_iter_default;
-    TlsfNormRule prim = pass_primary_rule(pass);
-
     for (uint32_t it = 0; it < iters; it++) {
       uint32_t nb = ast_node_count(cur);
-      uint64_t t0 = now_ns();
+      uint64_t t0 = stats ? now_ns() : 0;
       Node *cand = apply_pass_once(a, pass, cur, opts->finite_word);
-      uint64_t dt = now_ns() - t0;
+      uint64_t dt = stats ? now_ns() - t0 : 0;
       if (!cand)
         cand = cur;
       uint32_t na = ast_node_count(cand);
@@ -1614,31 +1637,15 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
                    (uint64_t)n0 + (uint64_t)n0 * opts->max_growth_percent / 100)
         rej = TLSF_NORM_REJECT_GROWTH;
 
+      bool changed = rej == TLSF_NORM_REJECT_NONE && !node_eq(cand, cur);
+      if (stats)
+        stats_step(stats, pass, nb, na, dt, changed, rej);
       if (rej != TLSF_NORM_REJECT_NONE) {
-        if (stats && prim < TLSF_NORM_RULE_COUNT) {
-          if (rej == TLSF_NORM_REJECT_NODES)
-            stats->rules[prim].rejected_nodes++;
-          else
-            stats->rules[prim].rejected_growth++;
-        }
         trace_row(opts, pass, it, nb, na, false, rej);
         rejected = true;
         break; // abandon this pass, keep last good `cur`
       }
 
-      bool changed = !node_eq(cand, cur);
-      if (stats && prim < TLSF_NORM_RULE_COUNT) {
-        TlsfNormRuleStats *r = &stats->rules[prim];
-        r->attempts++;
-        r->time_ns += dt;
-        r->nodes_before_sum += nb;
-        r->nodes_after_sum += na;
-        if (changed)
-          r->fired++;
-        else
-          r->noops++;
-        stats->iterations_total++;
-      }
       trace_row(opts, pass, it, nb, na, changed, TLSF_NORM_REJECT_NONE);
       cur = cand;
       if (changed)
@@ -1649,20 +1656,11 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
   }
 
   if (stats) {
-    uint32_t nf = ast_node_count(cur);
-    stats->nodes_after += nf;
-    if (nf > stats->nodes_max_after)
-      stats->nodes_max_after = nf;
+    stats_formulas(stats, &cur, 1, false);
     if (any_changed)
       stats->formulas_changed++;
     if (rejected)
       stats->formulas_rejected++;
-    TlsfObstacles ob = {0};
-    tlsf_norm_count_obstacles(cur, &ob);
-    stats->u_under_w_after += ob.u_under_w;
-    stats->limit_under_temporal_after += ob.limit_under_temporal;
-    stats->w_under_gf_after += ob.w_under_gf;
-    stats->u_under_fg_after += ob.u_under_fg;
   }
   return cur;
 }
@@ -1680,16 +1678,16 @@ void tlsf_norm_stats_print_human(FILE *out, const TlsfNormStats *s) {
           (unsigned long long)s->nodes_before,
           (unsigned long long)s->nodes_after, s->iterations_total,
           (double)s->time_ns / 1e6);
-  for (TlsfNormRule r = 0; r < TLSF_NORM_RULE_COUNT; r++) {
-    const TlsfNormRuleStats *rs = &s->rules[r];
-    if (rs->attempts == 0 && rs->rejected_growth == 0 &&
-        rs->rejected_nodes == 0)
+  for (TlsfNormPass p = 0; p < TLSF_NORM_PASS_COUNT; p++) {
+    const TlsfNormPassStats *rs = &s->passes[p];
+    if (rs->attempts == 0)
       continue;
     fprintf(out,
-            "  %s: fired=%llu noop=%llu rej_growth=%llu rej_nodes=%llu "
+            "  %s: attempts=%llu changed=%llu noop=%llu rej_growth=%llu "
+            "rej_nodes=%llu "
             "nodes=%llu->%llu\n",
-            tlsf_norm_rule_name(r), (unsigned long long)rs->fired,
-            (unsigned long long)rs->noops,
+            tlsf_norm_pass_name(p), (unsigned long long)rs->attempts,
+            (unsigned long long)rs->fired, (unsigned long long)rs->noops,
             (unsigned long long)rs->rejected_growth,
             (unsigned long long)rs->rejected_nodes,
             (unsigned long long)rs->nodes_before_sum,
@@ -1711,25 +1709,28 @@ void tlsf_norm_stats_print_human(FILE *out, const TlsfNormStats *s) {
 void tlsf_norm_stats_print_tsv_header(FILE *out) {
   fprintf(out, "phase\tschedule\tformulas_seen\tformulas_changed\t"
                "formulas_rejected\titerations_total\tnodes_before\t"
-               "nodes_after\ttime_ns\trules_fired_total\trejected_growth");
-  for (TlsfNormRule r = 0; r < TLSF_NORM_RULE_COUNT; r++)
-    fprintf(out, "\t%s", tlsf_norm_rule_name(r));
+               "nodes_after\ttime_ns\tpasses_changed_total\trejected_"
+               "growth\trejected_nodes");
+  for (TlsfNormPass p = 0; p < TLSF_NORM_PASS_COUNT; p++)
+    fprintf(out, "\t%s", tlsf_norm_pass_name(p));
   fprintf(out, "\n");
 }
 
 void tlsf_norm_stats_print_tsv_row(FILE *out, const TlsfNormStats *s) {
-  uint64_t fired = 0, rej = 0;
-  for (TlsfNormRule r = 0; r < TLSF_NORM_RULE_COUNT; r++) {
-    fired += s->rules[r].fired;
-    rej += s->rules[r].rejected_growth + s->rules[r].rejected_nodes;
+  uint64_t fired = 0, growth = 0, nodes = 0;
+  for (TlsfNormPass p = 0; p < TLSF_NORM_PASS_COUNT; p++) {
+    fired += s->passes[p].fired;
+    growth += s->passes[p].rejected_growth;
+    nodes += s->passes[p].rejected_nodes;
   }
-  fprintf(out, "%s\t%s\t%u\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t%llu",
+  fprintf(out, "%s\t%s\t%u\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu",
           tlsf_norm_phase_name(s->phase), s->schedule ? s->schedule : "off",
           s->formulas_seen, s->formulas_changed, s->formulas_rejected,
           s->iterations_total, (unsigned long long)s->nodes_before,
           (unsigned long long)s->nodes_after, (unsigned long long)s->time_ns,
-          (unsigned long long)fired, (unsigned long long)rej);
-  for (TlsfNormRule r = 0; r < TLSF_NORM_RULE_COUNT; r++)
-    fprintf(out, "\t%llu", (unsigned long long)s->rules[r].fired);
+          (unsigned long long)fired, (unsigned long long)growth,
+          (unsigned long long)nodes);
+  for (TlsfNormPass p = 0; p < TLSF_NORM_PASS_COUNT; p++)
+    fprintf(out, "\t%llu", (unsigned long long)s->passes[p].fired);
   fprintf(out, "\n");
 }

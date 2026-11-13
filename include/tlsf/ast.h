@@ -261,11 +261,6 @@ uint32_t ast_node_count(const Node *n);
 // Node predicates
 // ---------------------------------------------------------------------------
 
-/// True for operators that are safety-compatible (no liveness modality).
-static inline bool node_kind_is_safety(NodeKind k) {
-  return k != NODE_F && k != NODE_U && k != NODE_M;
-}
-
 /// True for temporal operators (any LTL modality).
 static inline bool node_kind_is_temporal(NodeKind k) {
   return k == NODE_X || k == NODE_X_STRONG || k == NODE_F || k == NODE_G ||

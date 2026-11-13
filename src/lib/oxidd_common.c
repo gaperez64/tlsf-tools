@@ -27,8 +27,7 @@ OxiddSolveOptions oxidd_solve_options_default(void) {
                              .trace = stderr,
                              .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
                              .safety_output_index = 0,
-                             .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
-                             .build_plan = OXIDD_BUILD_GATES};
+                             .var_order = OXIDD_VAR_ORDER_INPUT_FIRST};
 #else
   OxiddSolveOptions options = {
       .node_cap = 0,
@@ -40,7 +39,6 @@ OxiddSolveOptions oxidd_solve_options_default(void) {
       .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
       .safety_output_index = 0,
       .var_order = OXIDD_VAR_ORDER_INPUT_FIRST,
-      .build_plan = OXIDD_BUILD_GATES,
   };
   options.trace_gate = UINT32_MAX;
   options.trace_node_limit = 100000;

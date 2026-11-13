@@ -13,12 +13,13 @@
 ///   - Every rule constructs an *equivalent* AST; recognizers then parse exact
 ///     shapes.  No fuzzy/similarity matching lives here.
 ///   - Every rule carries soundness metadata (finite/infinite-word, allowed
-///     phases, growth).  Schedules requesting a rule in a disallowed phase or
+///     phases).  Schedules requesting a rule in a disallowed phase or
 ///     on the wrong word semantics are rejected.
 ///   - Rewrites that exceed growth/node caps are rejected: the original formula
 ///     is returned for that step and a rejection counter is incremented.
-///   - Everything is observable: per-pass and per-rule attempt/fire/reject
-///     counters, node deltas, time, and an optional per-step trace.
+///   - Pass invocations, changes, no-ops, cap rejections, node counts and
+///   rewrite
+///     time are observable, with an optional per-step trace.
 
 #include "tlsf/arena.h"
 #include "tlsf/ast.h"
@@ -92,7 +93,6 @@ typedef enum {
   TLSF_NORM_REJECT_NODES,
   TLSF_NORM_REJECT_FINITE_WORD,
   TLSF_NORM_REJECT_PHASE,
-  TLSF_NORM_REJECT_NOT_APPLICABLE,
 } TlsfNormRejectReason;
 
 // ---------------------------------------------------------------------------
@@ -108,8 +108,6 @@ typedef struct {
   bool allowed_match;
   bool allowed_route;
   bool allowed_visible;
-  bool may_increase_nodes;
-  uint32_t default_growth_cap_percent;
   const char *proof_note;
 } TlsfNormRuleInfo;
 
@@ -139,11 +137,6 @@ bool tlsf_norm_parse_schedule(Arena *a, const char *s, const char *tool,
 /// Canonical, comma-joined string form of a parsed schedule (arena-allocated).
 const char *tlsf_norm_schedule_string(Arena *a, const TlsfNormSchedule *sch);
 
-/// True if `sch` contains a pass that only operates before expand().
-bool tlsf_norm_schedule_is_pre(const TlsfNormSchedule *sch);
-/// True if `sch` contains a post-expansion pass.
-bool tlsf_norm_schedule_is_post(const TlsfNormSchedule *sch);
-
 // ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
@@ -154,12 +147,10 @@ typedef struct {
   uint64_t noops;
   uint64_t rejected_growth;
   uint64_t rejected_nodes;
-  uint64_t rejected_finite_word;
-  uint64_t rejected_not_applicable;
   uint64_t nodes_before_sum;
   uint64_t nodes_after_sum;
   uint64_t time_ns;
-} TlsfNormRuleStats;
+} TlsfNormPassStats;
 
 typedef struct {
   TlsfNormPhase phase;
@@ -180,11 +171,11 @@ typedef struct {
   uint64_t w_under_gf_before, w_under_gf_after;
   uint64_t u_under_fg_before, u_under_fg_after;
 
-  // Route classification counters before/after.
-  uint64_t safety_before, safety_after;
-  uint64_t liveness_before, liveness_after;
-
-  TlsfNormRuleStats rules[TLSF_NORM_RULE_COUNT];
+  // One attempt per pass invocation, including rejected candidates. `fired`
+  // counts accepted invocations changing the tree, not individual rule fires
+  // or the number of conjuncts produced by a split. Node sums include rejected
+  // candidates; aggregate nodes_after counts only accepted results.
+  TlsfNormPassStats passes[TLSF_NORM_PASS_COUNT];
 } TlsfNormStats;
 
 void tlsf_norm_stats_init(TlsfNormStats *s, TlsfNormPhase phase,
@@ -225,9 +216,7 @@ typedef struct {
   uint32_t max_growth_percent; ///< per-step growth cap vs input (default 200)
   uint32_t max_nodes;          ///< absolute node cap (default 20000; 0 = none)
   bool finite_word;            ///< spec uses finite-word semantics
-  bool record_stats;
-  bool soundness_assert; ///< reject rules not safe for the phase/semantics
-  FILE *trace;           ///< NULL means no per-step trace
+  FILE *trace;                 ///< NULL means no per-step trace
   const char *trace_file;
   const char *trace_constraint; ///< label for trace rows (may be NULL)
   const char *trace_role;
