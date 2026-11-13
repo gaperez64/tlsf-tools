@@ -694,6 +694,7 @@ static Node *pre_indexed_x(Arena *a, Node *n) {
     int64_t d;
     if (arg->kind == NODE_NEXT_N && !arg->bounded.strong &&
         is_int_lit(arg->lhs, &d) && d >= 0 && d < INT64_MAX)
+      // Both the unary outer X and the indexed child are weak.
       return node_next_n(a, node_int(a, d + 1), arg->rhs);
     return arg == n->arg ? n : node_x(a, arg);
   }
@@ -860,7 +861,12 @@ static Node *pre_weak(Arena *a, Node *n, bool finite) {
   }
   case NODE_NEXT_N: {
     Node *b = pre_weak(a, n->rhs, finite);
-    return b == n->rhs ? n : node_next_n(a, n->lhs, b);
+    if (b == n->rhs)
+      return n;
+    Node *result = node_next_n(a, n->lhs, b);
+    if (result)
+      result->bounded.strong = n->bounded.strong;
+    return result;
   }
   case NODE_U:
   case NODE_R:
@@ -903,8 +909,12 @@ static void prenorm_spine(Arena *a, Node *f, NodeVec *out) {
   case NODE_NEXT_N: {
     NodeVec sub = {0};
     prenorm_spine(a, f->rhs, &sub);
-    for (uint32_t i = 0; i < sub.n; i++)
-      nv_push(a, out, node_next_n(a, f->lhs, sub.v[i]));
+    for (uint32_t i = 0; i < sub.n; i++) {
+      Node *part = node_next_n(a, f->lhs, sub.v[i]);
+      if (part)
+        part->bounded.strong = f->bounded.strong;
+      nv_push(a, out, part);
+    }
     return;
   }
   default:
@@ -1435,18 +1445,21 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n, bool finite) {
   }
 }
 
-// Structural equality (reuse the conservative interned-pointer comparison).
+// Conservative equality for pre-expansion as well as expanded formulas.
+// Only descend through kinds whose complete semantic payload is handled here.
+// Source IDs, origin bindings and expanded bounded caches are provenance;
+// resolved_signal affects name lookup, and indexed-next strength is semantic.
 static bool node_eq(const Node *x, const Node *y) {
   if (x == y)
     return true;
-  if (x->kind != y->kind)
+  if (!x || !y || x->kind != y->kind)
     return false;
   switch (x->kind) {
   case NODE_TRUE:
   case NODE_FALSE:
     return true;
   case NODE_AP:
-    return x->name == y->name;
+    return x->name == y->name && x->resolved_signal == y->resolved_signal;
   case NODE_INT:
     return x->ival == y->ival;
   case NODE_NOT:
@@ -1455,9 +1468,62 @@ static bool node_eq(const Node *x, const Node *y) {
   case NODE_F:
   case NODE_G:
     return node_eq(x->arg, y->arg);
-  default:
+  case NODE_NEXT_N:
+    return x->bounded.strong == y->bounded.strong && node_eq(x->lhs, y->lhs) &&
+           node_eq(x->rhs, y->rhs);
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_R:
+  case NODE_W:
+  case NODE_U:
+  case NODE_M:
     return node_eq(x->lhs, y->lhs) && node_eq(x->rhs, y->rhs);
+  // Unhandled high-level payloads are unequal unless pointer-identical. In
+  // particular, ranges/reductions are not binary: their bodies and remaining
+  // bounds live beyond lhs/rhs in the union. Never read an inactive union arm.
+  case NODE_DEF_CALL:
+  case NODE_BUS_INDEX:
+  case NODE_PATTERN:
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD:
+  case NODE_INT_NEG:
+  case NODE_INT_VAR:
+  case NODE_SIZEOF:
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_ITE:
+  case NODE_G_RANGE:
+  case NODE_F_RANGE:
+  case NODE_SET:
+  case NODE_SET_ENUM:
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+  case NODE_SET_SIZE:
+  case NODE_SET_MIN:
+  case NODE_SET_MAX:
+  case NODE_IN:
+  case NODE_MATCH:
+  case NODE_FORALL:
+  case NODE_EXISTS:
+  case NODE_SUM:
+  case NODE_PRODUCT:
+  case NODE_SET_BIG_UNION:
+  case NODE_SET_BIG_INTER:
+  case NODE_KIND_COUNT:
+    return false;
   }
+  // Keep the switch exhaustive so a new kind produces a compiler warning.
+  return false;
 }
 
 static uint64_t now_ns(void) {

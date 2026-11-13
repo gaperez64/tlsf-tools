@@ -150,27 +150,30 @@ FF/GG are retained, and `pre_walk` leaves strong-next subtrees untouched like C.
 | `src/lib/rewrite.c:248–330` | `bottom_up`, `rw_pass`, `rw_pass_exact`; atom cases bypass local rewriting |
 | `src/lib/rewrite.c:10,332–359` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
 | `src/lib/rewrite.c:380–415` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
-| `src/lib/normalize.c:770–860` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors |
-| `src/lib/normalize.c:659–731` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and the branch equivalences below |
-| `src/lib/normalize.c:864–899` | `pre_spine_split`, `pre_spine_split_exact` on the core; indexed-X high-level branch excluded |
+| `src/lib/normalize.c:792–885` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors; local indexed reconstruction is covered separately below |
+| `src/lib/normalize.c:659–732` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and the branch equivalences below |
+| `src/lib/normalize.c:891–923` | `pre_spine_split`, `pre_spine_split_exact` on the core; local indexed distribution is covered separately below |
 | `src/lib/normalize.c:88–142,419–435` | Temporal RULES identities; `SickertRule.equivalence_finite` and `finite_rule_allowed` model the finite-admission projection |
-| `src/lib/normalize.c:1006–1022` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
-| `src/lib/normalize.c:1381–1413` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
+| `src/lib/normalize.c:1044–1053` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
+| `src/lib/normalize.c:1412–1438` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
 | `src/lib/print_ltlxba.c:214–216,242–249` | Trusted printer correspondence: NODE_X is weak X and NODE_X_STRONG uses X[!] for finite rendering |
 
 These ports require matching C/Lean ASTs, interned AP identifiers, and structural
 equality. They cover successful expanded unbounded core transformations, not
 malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
 or machine-size behavior. `NODE_NEXT_N` only recurses into its body
-(`src/lib/normalize.c:840–843`) and is outside `Formula`; indexed spine splitting,
+(`src/lib/normalize.c:862–870`) and is outside `Formula`; indexed spine splitting,
 bounded-quantifier body lowering and expansion to nexts remain unverified by
 these rewrite ports. Signed-decimal decoding, checked arithmetic and reduction
 domains/folds are proved separately below.
 `next_power` proves identities of the expanded mathematical sequence. The
 separate `NextStrength` port below now covers the actual high-level
 `pre_indexed_x` arithmetic/strength guards and reconstruction; it does not verify
-the C expansion loop or the other indexed-next passes. High-level structural
-equality and its deduplication consequence are proved separately below.
+the C expansion loop or the whole high-level pre-weak/spine passes. Their local
+indexed reconstruction/distribution steps are proved in the issue #122 extension
+below. The separate set-element comparator's high-level structural equality
+and deduplication consequence are proved below; these are not a refinement
+proof for normalization's conservative `node_eq` comparator.
 
 RULES/finite-guard ports do not verify scheduler phases/growth checks, CLI
 plumbing, other passes, or Sickert transformations. Callers must check finite
@@ -547,6 +550,48 @@ not verify other indexed passes or the expansion loop. The additive
 [`next-strength-117.json`](../tools/analysis/next-strength-117.json) ledger
 preserves prior proof/provenance receipts and all golden payloads.
 
+### Pre-weak and indexed spine reconstruction (issue #122)
+
+The `pre_indexed_x` port above stays unchanged. The `pre_weak` and
+`prenorm_spine` indexed branches are outside that whole-pass theorem:
+`pre_weak_exact` and `pre_spine_split_exact` in `Rewrites.lean` previously cover
+the expanded core, where indexed next has already been lowered.
+
+`NextStrength.indexedNext_congr` and `preWeak_indexed_rebuild` now cover the
+local high-level reconstruction step for every count and either strength,
+assuming the rewritten body has the same finite/infinite denotation at every
+position. `indexedNext_conj` and `preSpine_indexed_split` prove the indexed
+conjunction distribution used by the spine branch, including zero counts and
+terminal positions. These minimally extend the proved fragment; they do not
+claim a whole-pass refinement of the high-level C pre-weak/spine traversals.
+The existing `SetDedup.structEq_eq`, `structEq_denotation`, `dedup_conj` and
+`dedup_disj` concern expansion's complete comparator, not normalization's
+`node_eq`. Normalization now uses a conservative exhaustive switch: apart from
+pointer identity, only booleans, integer literals, atoms, core unary/binary
+constructors and indexed next can compare equal. Those branches compare all
+semantic payloads, including `resolved_signal` on atoms and `bounded.strong`
+on indexed next. Every other high-level kind returns false without reading
+union payloads. In particular, G/F ranges, reductions, calls, sets and ITEs
+cannot be treated as binary nodes with their remaining fields omitted. A new
+node kind triggers the compiler's missing-switch-case warning. Source IDs,
+origin bindings and expanded bounded caches carry provenance rather than
+formula meaning. No new C comparator refinement theorem is claimed; the
+local reconstruction/distribution lemmas and their premises are unchanged.
+
+The registered `next_strength_122_pre_weak`,
+`next_strength_122_pre_spine_split` and `next_strength_122_pre_safe` CLI checks
+use direct finite-word semantics for both issue witnesses in both operand
+orders, disjunction deduplication, changed-child reconstruction, counts 0/1/2,
+both strengths and nested spines. They also cover G/F range bodies, bounds and
+range strength, ranges inside indexed next, nested and unary wrappers,
+range/set reductions and definition calls, in both operand orders with both
+conjunction and disjunction. The additive
+[`next-strength-prepasses-122.json`](../tools/analysis/next-strength-prepasses-122.json)
+records the failing main regressions, constructor audit and validation, while
+preserving earlier ledgers and all golden bytes. C execution, allocation,
+AST correspondence, symbolic count evaluation and the frontend assembly remain
+trusted as above.
+
 ## C and Lean correspondence
 
 Locations are relative to this repository. They identify guarded mathematical
@@ -559,7 +604,7 @@ ports, not verification of C or other CSNF template families.
 | `src/lib/expand.c:867–908,998–1012` | Formula identity keys / duplicate removal: equal core implies `coreEq_denotation`, `dedup_core_conj`, `dedup_core_disj`; C lowering correspondence remains trusted |
 | `src/lib/expand.c:1155–1183,1282–1342,1376–1392` | Stored-element substitution and repeated pattern captures: `structEq_eq`, `structEq_substitution`; no change to pattern equality |
 | `src/lib/expand.c:1530–1578,1703–1818` | Core/indexed-next/range/ITE port: `lower`, `indexedNext`, `boundedRange`, `literalRange`; `issue108_terminal`, `issue108_denotations_differ`, `issue110_next_sugar` |
-| `src/lib/normalize.c:659–731`; `src/lib/expand.c:1729–1754` | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`: guarded pre-indexed-X reduction preserves exact expanded weak/strong sequences; expansion execution remains trusted |
+| `src/lib/normalize.c:659–732`; `src/lib/expand.c:1729–1754` | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`: guarded pre-indexed-X reduction preserves exact expanded weak/strong sequences; expansion execution remains trusted |
 | `src/lib/templates.c:72–136` | `subst`, `setLetter`, `setWord`, `sat_subst`, `subst_absent` |
 | `src/lib/recognize.c` (`match_definition`); `src/lib/templates_certify.c` (`certify_definition`) | `Definition.entry`, `flip`, `Admissible.outputs`, `Admissible.boolean`; the certifier rejects every temporal theta using `ast_has_temporal` |
 | `src/lib/templates.c:316–377,518–533` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
@@ -576,7 +621,7 @@ ports, not verification of C or other CSNF template families.
 | `src/lib/env_witness.c:190–229`; `src/lib/env_witness.h:6–7` | Only a completed positive witness check returns SATISFIABLE; `envSat_of_word` in `proofs/TlsfProofs/Pruning.lean:29–31` supplies `EnvSat` for `prune_realizable`; incomplete search keeps D |
 | `src/lib/residual.c:254–359` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
 | `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:78–89` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
-| `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:834–838` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
+| `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:856–861` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:69–75` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
 The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1063`.
