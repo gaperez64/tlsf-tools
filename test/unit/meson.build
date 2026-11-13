@@ -21,6 +21,9 @@ test('expansion_scope', expansion_scope)
 normalize_bounds = executable('normalize_bounds', 'normalize_bounds.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('normalize_bounds', normalize_bounds)
+normalize_stats = executable('normalize_stats', 'normalize_stats.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('normalize_stats', normalize_stats)
 next_strength = executable('next_strength', 'next_strength.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('next_strength_117', next_strength)
@@ -201,8 +204,6 @@ native_env_real_api_exe = executable('native_env_real_api',
   'native_env_real_api.cpp', dependencies: tlsf_internal_dep)
 test('native_env_real_negative_control', native_env_real_api_exe,
   timeout: 90, is_parallel: false)
-env_rank_probe_exe = executable('env_rank_probe', 'env_rank_probe.cpp',
-  dependencies: tlsf_internal_dep)
 env_rank_fault_probe_exe = executable('env_rank_fault_probe',
   'env_rank_probe.cpp', gr1_lift_source, gr1_env_lift_source,
   cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
@@ -235,7 +236,7 @@ endif
 
 # Diagnostic inventory; not a test and never used by the production reducer.
 gr1_admission = executable('gr1_admission', 'gr1_admission.cpp',
-  dependencies: tlsf_internal_dep)
+  dependencies: tlsf_internal_dep, build_by_default: false)
 gr1_general_policy = executable('gr1_general_policy', 'gr1_general_policy.c',
   dependencies: tlsf_internal_dep)
 test('gr1_general_policy', gr1_general_policy)

@@ -30,10 +30,8 @@ const char *role_name(Role r) {
 // AST walks
 // ---------------------------------------------------------------------------
 
-// Fill a constraint's support sets.  `neg` tracks occurrence polarity (NNF puts
-// negations only at leaves) and `nxt` tracks whether we are under an X.
-static void collect(Constraint *c, const ApTable *t, const Node *n, bool neg,
-                    bool nxt) {
+// Fill the input/output support sets.
+static void collect(Constraint *c, const ApTable *t, const Node *n) {
   switch (n->kind) {
   case NODE_AP: {
     int32_t idx = ap_table_find(t, n->name);
@@ -42,23 +40,16 @@ static void collect(Constraint *c, const ApTable *t, const Node *n, bool neg,
     uint8_t f = ap_table_flags(t, (uint32_t)idx);
     if ((f & AP_FLAG_INPUT) || f == 0)
       apset_set(&c->inputs, (uint32_t)idx);
-    if (f & AP_FLAG_OUTPUT) {
+    if (f & AP_FLAG_OUTPUT)
       apset_set(&c->outputs, (uint32_t)idx);
-      apset_set(neg ? &c->neg_outputs : &c->pos_outputs, (uint32_t)idx);
-      apset_set(nxt ? &c->next_outputs : &c->cur_outputs, (uint32_t)idx);
-    }
     return;
   }
   case NODE_NOT:
-    collect(c, t, n->arg, !neg, nxt);
-    return;
   case NODE_X:
   case NODE_X_STRONG:
-    collect(c, t, n->arg, neg, true);
-    return;
   case NODE_F:
   case NODE_G:
-    collect(c, t, n->arg, neg, nxt);
+    collect(c, t, n->arg);
     return;
   case NODE_AND:
   case NODE_OR:
@@ -68,8 +59,8 @@ static void collect(Constraint *c, const ApTable *t, const Node *n, bool neg,
   case NODE_R:
   case NODE_W:
   case NODE_M:
-    collect(c, t, n->lhs, neg, nxt);
-    collect(c, t, n->rhs, neg, nxt);
+    collect(c, t, n->lhs);
+    collect(c, t, n->rhs);
     return;
   default:
     return;
@@ -169,7 +160,6 @@ static bool add_constraint(ConstraintCover *cov, const SectionDesc *d,
   c->invariant_wrapped = d->invariant;
   c->formula = formula;
   c->match_formula = formula; // identity until match normalization runs
-  c->route_formula = nullptr;
   c->nnf =
       to_nnf(a, formula, true, semantics_is_finite(cov->spec->info.semantics));
   if (!c->nnf)
@@ -235,13 +225,9 @@ ConstraintCover *cover_build(TlsfSpec *spec, bool split) {
     uint32_t n = cov->aps.count;
     apset_init(&c->inputs, a, n);
     apset_init(&c->outputs, a, n);
-    apset_init(&c->pos_outputs, a, n);
-    apset_init(&c->neg_outputs, a, n);
-    apset_init(&c->cur_outputs, a, n);
-    apset_init(&c->next_outputs, a, n);
     if (arena_failed(a))
       return nullptr;
-    collect(c, &cov->aps, c->nnf, false, false);
+    collect(c, &cov->aps, c->nnf);
   }
 
   cov->blocks = nullptr;
@@ -277,7 +263,6 @@ bool cover_match_normalize(ConstraintCover *cov, const char *schedule,
   tlsf_norm_options_default(&o, TLSF_NORM_PHASE_MATCH);
   o.schedule = sch;
   o.finite_word = finite;
-  o.record_stats = stats != nullptr;
   TlsfNormRejectReason reason;
   if (!tlsf_norm_schedule_check(&sch, &o, tool, &reason))
     return false;

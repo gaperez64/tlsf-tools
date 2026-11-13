@@ -181,7 +181,7 @@ tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized T
 tlsfnorm  --pre-passes pre-safe --passes match-safe:1 spec.tlsf  # exact-recognition normalization
 tlsfnorm  --passes route-safe:1 spec.tlsf                 # routing normalization
 tlsfnorm  --passes sickert-stage2:1 --norm-max-growth 300 spec.tlsf  # experimental, infinite-word-only
-tlsfnorm  --norm-stats --passes match-safe:1 spec.tlsf    # per-rule normalization stats
+tlsfnorm  --norm-stats --passes match-safe:1 spec.tlsf    # per-pass normalization stats
 tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl per cluster
 tlsfresidual --split --lowercase spec.tlsf                # lowercase formulas + interfaces
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers.aag + clusters + exact OxiDD solves
@@ -192,6 +192,23 @@ scripts/solve.sh --backend acacia --solver acacia-bonsai \
         --output ctrl.aag spec.tlsf                            # acacia backend
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
+
+`tlsfnorm --norm-soundness verify` is an alias for the default `assert`:
+both check schedule metadata for phase legality and finite-word safety. They
+do not run a semantic equivalence checker; `off` skips that metadata gate.
+
+Normalization diagnostics count pass invocations, including no-ops, rejected
+candidates and list-level splits. Each accepted invocation that changes a tree
+counts once, even for compound passes or splits producing several conjuncts.
+Formula totals count visits (the CLI visits each formula once per scheduled
+pass); split output node counts sum the resulting conjuncts. Pass node sums
+include attempted candidates, while aggregate output nodes count retained
+results. `time_ns` sums measured rewrite time, including rejected attempts,
+excluding statistics collection. Passing a null stats pointer disables these
+measurements. TSV diagnostics now use pass names and `passes_changed_total`,
+and separate `rejected_growth` from `rejected_nodes`; these are intentional
+diagnostic schema/count changes. Formula, interface and artifact output is
+unchanged.
 
 `tlsfbenchgraph --source-features` emits a versioned TSV (`--schema-version`).
 Only declared interface sizes and source-derived `guard_*` operator/depth

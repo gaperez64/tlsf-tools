@@ -100,12 +100,8 @@ typedef struct {
   Node *formula;       ///< original (expanded) AST; semantic source
   Node *nnf;           ///< NNF copy (original is left intact)
   Node *match_formula; ///< equivalent formula for recognizers/certifiers
-  Node
-      *route_formula; ///< equivalent formula for residual/routing (may be NULL)
 
   ApSet inputs, outputs;
-  ApSet pos_outputs, neg_outputs;  ///< output occurrence polarity (in NNF)
-  ApSet cur_outputs, next_outputs; ///< output timing (under X or not)
 
   const char **candidates; ///< template-candidate names (recognize.h)
   uint16_t candidate_count;
@@ -138,12 +134,6 @@ typedef struct {
 /// candidate found here is valid for the original constraint.
 static inline Node *constraint_match_formula(const Constraint *c) {
   return c->match_formula ? c->match_formula : c->formula;
-}
-
-/// The formula residual/routing should use: the normalized `route_formula` when
-/// set, else the original.
-static inline Node *constraint_route_formula(const Constraint *c) {
-  return c->route_formula ? c->route_formula : c->formula;
 }
 
 /// Build the constraint cover from an already-expanded spec.  When `split` is

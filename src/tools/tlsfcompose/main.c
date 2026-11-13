@@ -1037,7 +1037,7 @@ int main(int argc, char *argv[]) {
       .format = decompose_format_from_ltl(fmt),
   };
   TlsfDecomposeResult *dres =
-      tlsf_decompose_result_from_plan(spec, cov, csnf, comp, rplan, &dopts);
+      tlsf_decompose_result_from_plan(spec, cov, rplan, &dopts);
   if (!dres)
     rc = 1;
 

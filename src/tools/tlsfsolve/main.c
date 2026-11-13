@@ -431,7 +431,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: bad --oxidd-build-plan '%s'\n", argv[0], val);
         return 2;
       }
-      opts.build_plan = OXIDD_BUILD_GATES;
       continue;
     }
 #ifndef NDEBUG

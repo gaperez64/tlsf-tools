@@ -9,7 +9,6 @@
 
 [[nodiscard]] TlsfDecomposeResult *
 tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
-                                const Csnf *csnf, const CsnfComposition *comp,
                                 const ResidualPlan *rplan,
                                 const TlsfDecomposeOptions *opts);
 

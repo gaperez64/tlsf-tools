@@ -1,48 +1,46 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
-if python3.found()
-  test('precedence_110', python3,
-    args: [files('check_precedence_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
-    timeout: 60)
-  test('case_boundaries_110', python3,
-    args: [files('check_case_boundaries_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
-    timeout: 60)
-  test('scoping_110', python3,
-    args: [files('check_scoping_110.py'), exe['tlsf2ltl']], timeout: 60)
-  test('target_adaptation', python3,
-    args: [files('check_target_adaptation.py'), exe['tlsf2ltl']])
-  test('reference_semantics_and_oracle_guard', python3,
-    args: [files('../../tools/golden/test_gates.py')], timeout: 60)
-  test('proof_source_references', python3,
-    args: [files('check_proof_references.py'), meson.project_source_root()])
-  test('checked_arithmetic_cli_115', python3,
-    args: [files('check_checked_arithmetic.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
-           exe['tlsfnorm']], timeout: 120)
-  test('integer_literal_cli_116', python3,
-    args: [files('check_integer_literal.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
-           exe['tlsfnorm']], timeout: 120)
-  test('next_strength_cli_117', python3,
-    args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm']],
-    timeout: 120)
-  foreach pre_pass : ['pre-weak', 'pre-spine-split', 'pre-safe']
-    test('next_strength_122_' + pre_pass.underscorify(), python3,
-      args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm'],
-             '--pre-passes', pre_pass], timeout: 120)
-  endforeach
-  test('bench_matrix_setup_failure', python3,
-    args: [files('check_bench_matrix.py'),
-           meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
-  test('bench_basename_last_wins', python3,
-    args: [files('check_bench_baseline.py'),
-           meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
-  test('frontend_provenance', python3,
-    args: [files('test_frontend_provenance.py'),
-           '--tlsf2tlsf', exe['tlsf2tlsf'],
-           '--tlsfinfo', exe['tlsfinfo'],
-           '--tlsf2ltl', exe['tlsf2ltl']],
-    timeout: 60,
-  )
-endif
+test('precedence_110', python3,
+  args: [files('check_precedence_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
+  timeout: 60)
+test('case_boundaries_110', python3,
+  args: [files('check_case_boundaries_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
+  timeout: 60)
+test('scoping_110', python3,
+  args: [files('check_scoping_110.py'), exe['tlsf2ltl']], timeout: 60)
+test('target_adaptation', python3,
+  args: [files('check_target_adaptation.py'), exe['tlsf2ltl']])
+test('reference_semantics_and_oracle_guard', python3,
+  args: [files('../../tools/golden/test_gates.py')], timeout: 60)
+test('proof_source_references', python3,
+  args: [files('check_proof_references.py'), meson.project_source_root()])
+test('checked_arithmetic_cli_115', python3,
+  args: [files('check_checked_arithmetic.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
+         exe['tlsfnorm']], timeout: 120)
+test('integer_literal_cli_116', python3,
+  args: [files('check_integer_literal.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
+         exe['tlsfnorm']], timeout: 120)
+test('next_strength_cli_117', python3,
+  args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm']],
+  timeout: 120)
+foreach pre_pass : ['pre-weak', 'pre-spine-split', 'pre-safe']
+  test('next_strength_122_' + pre_pass.underscorify(), python3,
+    args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm'],
+           '--pre-passes', pre_pass], timeout: 120)
+endforeach
+test('bench_matrix_setup_failure', python3,
+  args: [files('check_bench_matrix.py'),
+         meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
+test('bench_basename_last_wins', python3,
+  args: [files('check_bench_baseline.py'),
+         meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])
+test('frontend_provenance', python3,
+  args: [files('test_frontend_provenance.py'),
+         '--tlsf2tlsf', exe['tlsf2tlsf'],
+         '--tlsfinfo', exe['tlsfinfo'],
+         '--tlsf2ltl', exe['tlsf2ltl']],
+  timeout: 60,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -66,40 +64,36 @@ foreach name, tool : exe
   test('version_' + name, check_version, args: [name, tool])
 endforeach
 if research_tools
-  if python3.found()
-    test('compose_solver_command', python3,
-      args: [files('check_compose_solver.py'), exe['tlsfcompose']])
-    test('review_definition_and_finite_next', python3,
-      args: [files('check_review_regressions.py'), exe['tlsf2ltl'],
-             exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsfnorm'],
-             files(cases / 'definition-assumption.tlsf'),
-             files(cases / 'finite-next.tlsf')])
-    foreach name : ['definition-future', 'definition-preset',
-                    'definition-strict-assert', 'definition-guarantee-use',
-                    'definition-preset-use', 'delayed-definition-future',
-                    'finite-cluster-end', 'sections', 'definition-register-use',
-                    'invariant-assumption', 'nondefinition-sections',
-                    'finite-registers', 'target-moore-mealy', 'phase-b-support',
-                    'finite-adaptation', 'temporal-guards', 'scheduler-guards',
-                    'implicit-input-invariant', 'implicit-input-adaptation',
-                    'finite-adaptation-doc']
-      test('exactness_' + name, python3,
-        args: [files('check_exactness_guards.py'), exe['tlsf2ltl'],
-               exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsftemplates'],
-               exe['tlsfbenchgraph'], phase_b_probe,
-               cases, name])
-    endforeach
-  endif
+  test('compose_solver_command', python3,
+    args: [files('check_compose_solver.py'), exe['tlsfcompose']])
+  test('review_definition_and_finite_next', python3,
+    args: [files('check_review_regressions.py'), exe['tlsf2ltl'],
+           exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsfnorm'],
+           files(cases / 'definition-assumption.tlsf'),
+           files(cases / 'finite-next.tlsf')])
+  foreach name : ['definition-future', 'definition-preset',
+                  'definition-strict-assert', 'definition-guarantee-use',
+                  'definition-preset-use', 'delayed-definition-future',
+                  'finite-cluster-end', 'sections', 'definition-register-use',
+                  'invariant-assumption', 'nondefinition-sections',
+                  'finite-registers', 'target-moore-mealy', 'phase-b-support',
+                  'finite-adaptation', 'temporal-guards', 'scheduler-guards',
+                  'implicit-input-invariant', 'implicit-input-adaptation',
+                  'finite-adaptation-doc']
+    test('exactness_' + name, python3,
+      args: [files('check_exactness_guards.py'), exe['tlsf2ltl'],
+             exe['tlsfresidual'], exe['tlsfcompose'], exe['tlsftemplates'],
+             exe['tlsfbenchgraph'], phase_b_probe,
+             cases, name])
+  endforeach
   test('tlsfbenchgraph_schema', files('check_benchgraph_schema.sh'),
     args: [exe['tlsfbenchgraph'],
            files(cases / 'normalization_match.tlsf')])
-  if python3.found()
-    test('automata_study_bundle', files('check_automata_study.sh'),
-      args: [files(scripts / 'automata_study.py'), exe['tlsfnorm'],
-             exe['tlsf2ltl'], exe['tlsfinfo'], exe['tlsfbenchgraph'],
-             fake_automata_generator,
-             files(cases / 'normalization_match.tlsf')])
-  endif
+  test('automata_study_bundle', files('check_automata_study.sh'),
+    args: [files(scripts / 'automata_study.py'), exe['tlsfnorm'],
+           exe['tlsf2ltl'], exe['tlsfinfo'], exe['tlsfbenchgraph'],
+           fake_automata_generator,
+           files(cases / 'normalization_match.tlsf')])
 endif
 
 # Cases converted with `tlsf2ltl` (default, minimal parentheses).
@@ -364,31 +358,29 @@ foreach name : ['reaction_ok', 'compose_conflict', 'compose_cycle',
 endforeach
 endif
 if research_tools
-if python3.found()
-  research_failures = files('check_research_failures.py')
-  foreach name : ['composition_alloc', 'compose_cycle']
-    test('composition_alloc_failure_' + name, python3,
-      args: [research_failures, 'composition', exe['tlsfcompose'],
-             files(cases / name + '.tlsf'), composition_fault])
-  endforeach
-  foreach name, fault : composition_callers
-    test('composition_arena_failure_' + name, python3,
-      args: [files('check_composition_arena_failures.py'), name, exe[name], fault])
-  endforeach
-  test('residual_cluster_alloc_failure', python3,
-    args: [research_failures, 'cluster', exe['tlsfresidual'],
-           files(cases / 'residual_false.tlsf'), residual_fault])
-  foreach format : ['csnf', 'text']
-    test('template_formula_alloc_failure_' + format, python3,
-      args: [research_failures, 'template', exe['tlsftemplates'],
-             files(cases / 'template_failure.tlsf'), template_fault, format])
-  endforeach
-  foreach tool : ['tlsfresidual', 'tlsfcompose']
-    test(tool + '_output_full', python3,
-      args: [research_failures, 'io', exe[tool],
-             files(cases / 'disjoint_assumptions.tlsf')])
-  endforeach
-endif
+research_failures = files('check_research_failures.py')
+foreach name : ['composition_alloc', 'compose_cycle']
+  test('composition_alloc_failure_' + name, python3,
+    args: [research_failures, 'composition', exe['tlsfcompose'],
+           files(cases / name + '.tlsf'), composition_fault])
+endforeach
+foreach name, fault : composition_callers
+  test('composition_arena_failure_' + name, python3,
+    args: [files('check_composition_arena_failures.py'), name, exe[name], fault])
+endforeach
+test('residual_cluster_alloc_failure', python3,
+  args: [research_failures, 'cluster', exe['tlsfresidual'],
+         files(cases / 'residual_false.tlsf'), residual_fault])
+foreach format : ['csnf', 'text']
+  test('template_formula_alloc_failure_' + format, python3,
+    args: [research_failures, 'template', exe['tlsftemplates'],
+           files(cases / 'template_failure.tlsf'), template_fault, format])
+endforeach
+foreach tool : ['tlsfresidual', 'tlsfcompose']
+  test(tool + '_output_full', python3,
+    args: [research_failures, 'io', exe[tool],
+           files(cases / 'disjoint_assumptions.tlsf')])
+endforeach
 foreach name : ['response_free', 'reach_blocked', 'compose_conflict',
                 'compose_cycle', 'compose_partial', 'subst_reduce',
                 'server_merge', 'arbiter_nomutex', 'cluster_split',
@@ -533,22 +525,20 @@ test('benchgraph_tsv', check,
          files(cases / 'cluster_split.tlsf'),
          files(cases / 'def_demo.tlsf'),
          files(cases / 'roundrobin2.tlsf')])
-if python3.found()
-  test('bounded_corpus_harness', check,
-    args: [files(cases / 'bounded_corpus.tsv'),
-           files(scripts / 'bounded_corpus.py'), '--benchgraph', exe['tlsfbenchgraph'],
-           '--mem-mb', '512', '--timeout', '5', '--quiet',
-           files(cases / 'def_demo.tlsf'),
-           files(cases / 'reaction_ok.tlsf')])
-  # match-safe:1 exposes next/mutex candidates and certifies the mutex. The
-  # next block stays a candidate because that mutex also constrains its output.
-  test('norm_sweep_match_safe', check_contains,
-    args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+0',
-           files(scripts / 'norm_sweep.py'),
-           '--tlsfbenchgraph', exe['tlsfbenchgraph'],
-           files(cases / 'normalization_patterns.tlsf'),
-           '--schedules', 'off', 'match-safe:1'])
-endif
+test('bounded_corpus_harness', check,
+  args: [files(cases / 'bounded_corpus.tsv'),
+         files(scripts / 'bounded_corpus.py'), '--benchgraph', exe['tlsfbenchgraph'],
+         '--mem-mb', '512', '--timeout', '5', '--quiet',
+         files(cases / 'def_demo.tlsf'),
+         files(cases / 'reaction_ok.tlsf')])
+# match-safe:1 exposes next/mutex candidates and certifies the mutex. The
+# next block stays a candidate because that mutex also constrains its output.
+test('norm_sweep_match_safe', check_contains,
+  args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+0',
+         files(scripts / 'norm_sweep.py'),
+         '--tlsfbenchgraph', exe['tlsfbenchgraph'],
+         files(cases / 'normalization_patterns.tlsf'),
+         '--schedules', 'off', 'match-safe:1'])
 endif
 if research_tools
   test('gr1_fairness_alternating_unreal', check_status,
@@ -558,26 +548,24 @@ if research_tools
            files(cases / 'gr1_fairness_alternating.aag')])
   test('tlsfsolve_help_defaults', files('check_tlsfsolve_help.sh'),
     args: [exe['tlsfsolve']])
-  if python3.found()
-    test('tlsfsolve_measurement_runner', python3,
-      args: [files('check_measure_tlsfsolve_memory.py')])
-    test('oxidd_cone_analysis', python3,
-      args: [files('check_oxidd_cone.py')])
-    test('oxidd_diagnostic_runner', python3,
-      args: [files('check_diagnose.py')])
-    corpus = get_option('issue24_corpus')
-    if corpus != ''
-      foreach i : range(5)
-        test('issue24_correctness_' + i.to_string(), python3,
-          args: [files('check_issue24.py'), exe['tlsfsolve'], corpus, i.to_string()],
-          suite: 'issue24-correctness', is_parallel: false, timeout: 130)
-        test('issue24_memory_' + i.to_string(), python3,
-          args: [files('check_issue24.py'), exe['tlsfsolve'], corpus, i.to_string(),
-                 '--memory-out', join_paths(meson.project_build_root(),
-                                           'issue24-memory-' + i.to_string() + '.json')],
-          suite: 'issue24-memory', is_parallel: false, timeout: 130)
-      endforeach
-    endif
+  test('tlsfsolve_measurement_runner', python3,
+    args: [files('check_measure_tlsfsolve_memory.py')])
+  test('oxidd_cone_analysis', python3,
+    args: [files('check_oxidd_cone.py')])
+  test('oxidd_diagnostic_runner', python3,
+    args: [files('check_diagnose.py')])
+  corpus = get_option('issue24_corpus')
+  if corpus != ''
+    foreach i : range(5)
+      test('issue24_correctness_' + i.to_string(), python3,
+        args: [files('check_issue24.py'), exe['tlsfsolve'], corpus, i.to_string()],
+        suite: 'issue24-correctness', is_parallel: false, timeout: 130)
+      test('issue24_memory_' + i.to_string(), python3,
+        args: [files('check_issue24.py'), exe['tlsfsolve'], corpus, i.to_string(),
+               '--memory-out', join_paths(meson.project_build_root(),
+                                         'issue24-memory-' + i.to_string() + '.json')],
+        suite: 'issue24-memory', is_parallel: false, timeout: 130)
+    endforeach
   endif
   # tlsfsolve: exact status, stdout and stderr for win, loss and solver failure.
   test('tlsfsolve_real', check_status,
@@ -680,15 +668,15 @@ test('norm_finite_rejects_sickert', xfail,
 # performs these simplifications); the value is the recorded pre-pass firing,
 # so these assert the stats line rather than a byte-identical re-emission.
 test('norm_pre_indexed_x', check_contains,
-  args: ['pre-xn-flatten: fired=[1-9]', exe['tlsfnorm'], '--pre-passes',
+  args: ['pre-indexed-x: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
          'pre-indexed-x', '--norm-stats',
          files(cases / 'normalization_xn.tlsf')])
 test('norm_pre_bounded_bool', check_contains,
-  args: ['pre-bounded-empty: fired=[1-9]', exe['tlsfnorm'], '--pre-passes',
+  args: ['pre-bounded-bool: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
          'pre-bounded-bool', '--norm-stats',
          files(cases / 'normalization_bounded_bool.tlsf')])
 test('norm_pre_spine_split', check_contains,
-  args: ['pre-spine-split: fired=[1-9]', exe['tlsfnorm'], '--pre-passes',
+  args: ['pre-spine-split: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
          'pre-spine-split', '--norm-stats',
          files(cases / 'normalization_pre_split.tlsf')])
 # Cross-check: a pre-normalized spec expands to the same TLSF as the original
@@ -968,7 +956,7 @@ test('semantics_mealy_to_moore', check,
          exe['tlsf2ltl'], files(cases / 'conv_mealy_moore.tlsf')])
 
 # The installed checker must not pull in a GR(1) solve.
-if research_tools and python3.found()
+if research_tools
   test('checker_link_independence', python3,
     args: [files('checker_link_independence.py'), meson.project_build_root(),
            exe['tlsfcertcheck']],
@@ -979,7 +967,5 @@ endif
 test('no_external_oracles', python3,
   args: [files('check_no_external_oracles.py'), meson.project_source_root()])
 
-if python3.found()
-  test('golden_provenance', python3,
-    args: [files('check_golden_provenance.py'), meson.project_source_root()])
-endif
+test('golden_provenance', python3,
+  args: [files('check_golden_provenance.py'), meson.project_source_root()])

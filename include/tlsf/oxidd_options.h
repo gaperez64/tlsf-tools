@@ -19,10 +19,6 @@ typedef enum {
 } OxiddVarOrder;
 
 typedef enum {
-  OXIDD_BUILD_GATES = 0,
-} OxiddBuildPlan;
-
-typedef enum {
   OXIDD_SAFETY_OBJECTIVE_OUTPUT = 0,
   OXIDD_SAFETY_OBJECTIVE_TYPED_BAD_OR = 1,
 } OxiddSafetyObjective;
@@ -57,7 +53,6 @@ typedef struct {
   uint32_t safety_output_index;
   OxiddFailure *failure; // optional caller-owned output; never a losing verdict
   OxiddVarOrder var_order;
-  OxiddBuildPlan build_plan;
   // Strict tlsfsolve-order-v1 local-variable permutation.
   const char *order_file;
   bool demand_transitions, realizability_only;

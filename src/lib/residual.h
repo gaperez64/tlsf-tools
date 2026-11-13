@@ -11,7 +11,6 @@
 #include "tlsf/templates.h"
 
 #include <stdint.h>
-#include <stdio.h>
 
 /// Apply every eliminated-output substitution (`comp->elim`, combinational
 /// `o := value`) to `n`, to a fixpoint; returns a node over the remaining APs.
@@ -21,10 +20,6 @@
 
 /// Mark every AP occurring in `n` in `seen` (length `cov->aps.count`).
 void residual_collect_aps(const Node *n, ConstraintCover *cov, bool *seen);
-
-/// Print the signals in `seen` carrying `flag` (AP_FLAG_INPUT/OUTPUT), CSV.
-void residual_print_signals(FILE *out, ConstraintCover *cov, const bool *seen,
-                            uint8_t flag);
 
 /// True when AP `idx` belongs in a residual interface list for `flag`.
 /// Unflagged APs are treated as environment inputs: they can survive expansion

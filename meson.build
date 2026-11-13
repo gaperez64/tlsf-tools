@@ -117,9 +117,7 @@ flex  = find_program('flex',  required: true)
 bison = find_program('bison', required: true)
 yyjson_dep = dependency('yyjson', version: '>=0.12.0',
                         fallback: ['yyjson', 'yyjson_dep'])
-git = find_program('git', required: false)
 git_version = find_program('scripts/git-version.py')
-bash = find_program('bash', required: false)
 python3 = find_program('python3')
 # OxiDD is a required part of libtlsf. All generated artifacts live in the
 # build tree and are dependencies of every consumer, including source exports.

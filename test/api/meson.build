@@ -59,8 +59,6 @@ endif
 
 # The layout rules: one target per source, installed headers == include/tlsf,
 # and no include from the library into a tool or from the API into internals.
-if python3.found()
-  test('source_layout', python3,
-    args: [files('check_layout.py'), meson.project_source_root(),
-           meson.global_build_root()])
-endif
+test('source_layout', python3,
+  args: [files('check_layout.py'), meson.project_source_root(),
+         meson.global_build_root()])

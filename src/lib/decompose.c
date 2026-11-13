@@ -49,11 +49,8 @@ static void fill_verdict(TlsfDecomposeResult *r, ConstraintCover *cov) {
 
 TlsfDecomposeResult *
 tlsf_decompose_result_from_plan(TlsfSpec *spec, ConstraintCover *cov,
-                                const Csnf *csnf, const CsnfComposition *comp,
                                 const ResidualPlan *rplan,
                                 const TlsfDecomposeOptions *opts) {
-  (void)csnf;
-  (void)comp;
   if (!spec || !cov || !rplan)
     return nullptr;
 
@@ -148,8 +145,7 @@ TlsfDecomposeResult *tlsf_decompose_file(FILE *fp,
   ResidualPlan *rplan =
       residual_plan_build(p->spec, p->cover, p->csnf, p->composition, ropts);
   TlsfDecomposeResult *r =
-      rplan ? tlsf_decompose_result_from_plan(p->spec, p->cover, p->csnf,
-                                              p->composition, rplan, opts)
+      rplan ? tlsf_decompose_result_from_plan(p->spec, p->cover, rplan, opts)
             : nullptr;
   residual_plan_free(rplan);
   tlsf_pipeline_free(p);
