@@ -27,6 +27,12 @@ pkg = import('pkgconfig')
 cc = meson.get_compiler('c')
 research_tools = get_option('research_tools')
 fuzz = get_option('fuzz')
+if get_option('tests') and not get_option('tools')
+  error('tests=true requires tools=true; use -Dtests=false for a library-only build')
+endif
+if fuzz and not get_option('tests')
+  error('fuzz=true requires tests=true')
+endif
 if fuzz
   if cc.get_id() != 'clang' or meson.get_compiler('cpp').get_id() != 'clang'
     error('-Dfuzz=true requires Clang for both C and C++ (CC=clang CXX=clang++)')
@@ -139,14 +145,20 @@ meson.add_dist_script(python3, files('scripts/dist_oxidd.py'))
 public_inc = include_directories('include')
 subdir('include/tlsf')
 subdir('src/lib')
-subdir('src/tools')
+if get_option('tools')
+  subdir('src/tools')
 
-# Declared here rather than in src/tools so every binary stays at build/<tool>.
-exe = {}
-foreach name, tool : tools
-  exe += {name: executable(name, tool['sources'],
-                           dependencies: tool['dependencies'], install: true)}
-endforeach
+  # Declared here rather than in src/tools so every binary stays at build/<tool>.
+  exe = {}
+  foreach name, tool : tools
+    exe += {name: executable(name, tool['sources'],
+                             dependencies: tool['dependencies'], install: true)}
+  endforeach
+endif
 
-subdir('examples')
-subdir('test')
+if get_option('examples')
+  subdir('examples')
+endif
+if get_option('tests')
+  subdir('test')
+endif

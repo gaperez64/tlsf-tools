@@ -1,5 +1,12 @@
 # tlsf-tools meson options
 
+option('tests', type: 'boolean', value: true,
+       description: 'Build and register tests (requires tools=true)')
+option('tools', type: 'boolean', value: true,
+       description: 'Build command-line tools, including enabled research tools')
+option('examples', type: 'boolean', value: true,
+       description: 'Build examples')
+
 option('fuzz', type: 'boolean', value: false,
        description: 'Build libFuzzer targets with Clang, ASan and UBSan')
 

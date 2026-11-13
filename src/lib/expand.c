@@ -377,7 +377,7 @@ typedef struct EvalValue {
 
 struct EvalSet {
   EvalValue *items;
-  uint32_t count;
+  uint32_t count, capacity;
 };
 
 static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
@@ -911,13 +911,25 @@ static bool set_add(Arena *arena, EvalSet *set, EvalValue value) {
   for (uint32_t i = 0; i < set->count; i++)
     if (value_equal(&set->items[i], &value))
       return true;
-  EvalValue *items = ARENA_ALLOC_N(arena, EvalValue, set->count + 1);
-  if (!items)
-    return false;
-  for (uint32_t i = 0; i < set->count; i++)
-    items[i] = set->items[i];
-  items[set->count++] = value;
-  set->items = items;
+  if (set->count == set->capacity) {
+    if (set->count == UINT32_MAX) {
+      arena_mark_failed(arena);
+      return false;
+    }
+    // Old buffers live until arena teardown: doubling bounds retained storage
+    // as well as copying. arena_alloc_array checks the byte-size product.
+    uint32_t capacity = set->capacity == 0               ? 4
+                        : set->capacity > UINT32_MAX / 2 ? UINT32_MAX
+                                                         : set->capacity * 2;
+    EvalValue *items = ARENA_ALLOC_N(arena, EvalValue, capacity);
+    if (!items)
+      return false;
+    if (set->count)
+      memcpy(items, set->items, (size_t)set->count * sizeof *items);
+    set->items = items;
+    set->capacity = capacity;
+  }
+  set->items[set->count++] = value;
   return true;
 }
 

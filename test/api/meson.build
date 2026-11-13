@@ -1,5 +1,9 @@
 # Public-API clients. They see only include/ (through tlsf_dep), so a private
 # header here fails to compile, as it would for an installed consumer.
+test('oxidd_options_layout', python3,
+  args: [files('check_oxidd_options_layout.py'), meson.project_source_root(),
+         meson.project_build_root()])
+
 dpa_dag = executable('dpa_dag', 'dpa_dag.c', c_args: ['-UNDEBUG'], dependencies: tlsf_dep)
 test('dpa_dag', dpa_dag)
 

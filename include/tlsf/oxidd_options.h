@@ -56,11 +56,10 @@ typedef struct {
   // Strict tlsfsolve-order-v1 local-variable permutation.
   const char *order_file;
   bool demand_transitions, realizability_only;
-#ifndef NDEBUG
+  // Layout is independent of NDEBUG; tracing is used by debug builds only.
   bool trace_roots;
   uint32_t trace_gate;
   size_t trace_node_limit, trace_scratch_bytes;
-#endif
   uint64_t deadline_mono_ns;
   int (*cancelled)(void *);
   void *cancel_ctx;
