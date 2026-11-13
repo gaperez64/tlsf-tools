@@ -256,4 +256,40 @@ theorem issue117_terminal (w : Word α) :
       ¬Sat (some 2) w (.next (.strongNext .tt)) 0 := by
   simp [Sat, InRange]
 
+/-- A rewritten body may be semantically equivalent without identical syntax.
+Keeping the indexed strength preserves that equivalence at every position. -/
+theorem indexedNext_congr (s : Bool) (n : Nat) (a b : Formula α)
+    (h : ∀ j, Sat len w a j ↔ Sat len w b j) :
+    ∀ j, Sat len w (indexedNext s n a) j ↔ Sat len w (indexedNext s n b) j := by
+  induction n with
+  | zero => simpa only [indexedNext_zero] using h
+  | succ n ih =>
+    intro j
+    rw [indexedNext_succ, indexedNext_succ]
+    cases s <;> simp [nextCtor, Sat, ih]
+
+theorem preWeak_indexed_rebuild (env : LowerEnv α)
+    (h : ∀ j, Sat len w (lower env body') j ↔ Sat len w (lower env body) j) :
+    ∀ j, Sat len w (lower env (.nextN s count body')) j ↔
+      Sat len w (lower env (.nextN s count body)) j :=
+  indexedNext_congr s (env.integer count) _ _ h
+
+/-- The high-level indexed spine branch distributes every count, with either
+strength. No infinite-word coincidence or positive-count premise is used. -/
+theorem indexedNext_conj (s : Bool) (n : Nat) (a b : Formula α) :
+    ∀ j, Sat len w (indexedNext s n (.conj a b)) j ↔
+      Sat len w (.conj (indexedNext s n a) (indexedNext s n b)) j := by
+  induction n with
+  | zero => simp only [indexedNext_zero, implies_true]
+  | succ n ih =>
+    intro j
+    rw [indexedNext_succ, indexedNext_succ, indexedNext_succ]
+    cases s <;> by_cases hj : InRange len j <;>
+      by_cases hk : InRange len (j + 1) <;> simp [nextCtor, Sat, ih, hj, hk]
+
+theorem preSpine_indexed_split (env : LowerEnv α) :
+    ∀ j, Sat len w (lower env (.nextN s count (.binary .conj a b))) j ↔
+      Sat len w (lower env (.binary .conj (.nextN s count a) (.nextN s count b))) j :=
+  indexedNext_conj s (env.integer count) _ _
+
 end Tlsf.NextStrength

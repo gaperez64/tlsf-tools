@@ -24,6 +24,11 @@ if python3.found()
   test('next_strength_cli_117', python3,
     args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm']],
     timeout: 120)
+  foreach pre_pass : ['pre-weak', 'pre-spine-split', 'pre-safe']
+    test('next_strength_122_' + pre_pass.underscorify(), python3,
+      args: [files('check_next_strength.py'), exe['tlsf2ltl'], exe['tlsfnorm'],
+             '--pre-passes', pre_pass], timeout: 120)
+  endforeach
   test('bench_matrix_setup_failure', python3,
     args: [files('check_bench_matrix.py'),
            meson.project_source_root() / 'bench/bench.sh', meson.project_build_root()])

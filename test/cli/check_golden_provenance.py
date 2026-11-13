@@ -584,12 +584,33 @@ assert set(next_strength_update["preserved_artifacts_sha256"]) == set(
 for name, digest in next_strength_update["preserved_artifacts_sha256"].items():
     assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
 
+next_prepasses_update = json.loads((root.parents[2] / "tools/analysis/next-strength-prepasses-122.json").read_text())
+assert next_prepasses_update["date"] and next_prepasses_update["reason"]
+assert next_prepasses_update["changed_golden_hashes"] == 0
+assert next_prepasses_update["checks"] == [
+    "next_strength_cli_117", "next_strength_122_pre_weak",
+    "next_strength_122_pre_spine_split", "next_strength_122_pre_safe",
+    "stable_meson_tests", "research_meson_tests", "infinite_prepass_outputs",
+    "proof_source_references", "golden_provenance", "no_external_oracles",
+    "lake_build", "lean_axiom_audit", "clang_format",
+]
+assert set(next_prepasses_update["source_rebindings"]) == {
+    "src/lib/normalize.c", "test/cli/check_next_strength.py", "test/cli/meson.build",
+    "test/cli/check_golden_provenance.py", "proofs/README.md",
+    "proofs/TlsfProofs/NextStrength.lean",
+}
+assert set(next_prepasses_update["preserved_artifacts_sha256"]) == set(
+    next_strength_update["preserved_artifacts_sha256"]) | {"tools/analysis/next-strength-117.json"}
+for name, digest in next_prepasses_update["preserved_artifacts_sha256"].items():
+    assert hashlib.sha256((root.parents[2] / name).read_bytes()).hexdigest() == digest, name
+
 UPDATES = (retirement, runtime_update, limits_update, row_update, tv1_update,
            fuzz_update, f3_update, expansion_update, provenance_rollback,
            substitution_update, success_update, shared_update, vptr_update,
            dedup_update, scoping_update, precedence_update, boundary_update,
            partition_update, perf_update, grammar_update, strict_bounds_update,
-           integer_next_update, literal_update, arithmetic_update, next_strength_update)
+           integer_next_update, literal_update, arithmetic_update, next_strength_update,
+           next_prepasses_update)
 
 
 def rebound_digest(name, historical, updates=UPDATES):
