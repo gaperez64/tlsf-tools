@@ -38,6 +38,7 @@ class Golden:
         assert expected == [label, value], (self.name, self.position - 1, label)
 
     def verdict(self, formula, inputs, outputs, finite=False, moore=False):
+        """Return the stored historical verdict; this call executes no solver."""
         record = self.records[self.position]
         self.position += 1
         assert record[:2] == ["verdict", [formula, inputs, outputs, finite, moore]], record

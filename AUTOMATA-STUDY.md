@@ -13,9 +13,9 @@ Build tlsf-tools with `-Dresearch_tools=true` and Acacia with
 
 ```sh
 scripts/automata_study.py --file-list panel.list --output RUN \
-  --tlsfnorm build/tlsfnorm --tlsf2ltl build/tlsf2ltl \
-  --tlsfinfo build/tlsfinfo --tlsfbenchgraph build/tlsfbenchgraph \
-  --automata-generator ../acacia-bonsai/build/src/acacia-automata-study
+  --tlsfnorm build-research/tlsfnorm --tlsf2ltl build-research/tlsf2ltl \
+  --tlsfinfo build-research/tlsfinfo --tlsfbenchgraph build-research/tlsfbenchgraph \
+  --automata-generator /path/to/acacia-research-build/src/acacia-automata-study
 ```
 
 The default ladder is `off`; `split`; `split,nnf,weak,bool-canon`; `pre-safe`

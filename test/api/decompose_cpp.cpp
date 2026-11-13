@@ -1,7 +1,7 @@
 #include "tlsf/decompose.hpp"
 #include "tlsf/ast_api.hpp"
 
-#include <cassert>
+#include "../check.h"
 #include <stdexcept>
 #include <string>
 
@@ -19,18 +19,18 @@ MAIN { INPUTS { i; } OUTPUTS { o; } GUARANTEE { G o; } }
 )TLSF";
   // Conversion is independent of the availability of the optional verdict.
   auto conversion = tlsf::decompose(trivial);
-  assert(conversion.verdict == tlsf::Verdict::Unknown);
-  assert(conversion.verdict_trust == tlsf::Trust::None);
+  CHECK(conversion.verdict == tlsf::Verdict::Unknown);
+  CHECK(conversion.verdict_trust == tlsf::Trust::None);
   tlsf::Options checked;
   checked.precheck = true;
   auto prechecked = tlsf::decompose(trivial, checked);
-  assert(prechecked.verdict == tlsf::Verdict::Realizable);
-  assert(prechecked.verdict_trust == tlsf::Trust::Under);
-  assert(conversion.preprocessed_ltl == prechecked.preprocessed_ltl);
+  CHECK(prechecked.verdict == tlsf::Verdict::Realizable);
+  CHECK(prechecked.verdict_trust == tlsf::Trust::Under);
+  CHECK(conversion.preprocessed_ltl == prechecked.preprocessed_ltl);
   tlsf::ast::Ast converted_ast(trivial);
-  assert(converted_ast.result().verdict == tlsf::Verdict::Unknown);
+  CHECK(converted_ast.result().verdict == tlsf::Verdict::Unknown);
   tlsf::ast::Ast checked_ast(trivial, checked);
-  assert(checked_ast.result().verdict == tlsf::Verdict::Realizable);
+  CHECK(checked_ast.result().verdict == tlsf::Verdict::Realizable);
 
   const std::string spec = R"TLSF(
 INFO {
@@ -52,21 +52,21 @@ MAIN {
   options.split = true;
   tlsf::Result result = tlsf::decompose(spec, options);
 
-  assert(result.clusters.size() == 2);
-  assert(result.inputs.size() == 2);
-  assert(result.outputs.size() == 2);
-  assert(contains(result.inputs, "a"));
-  assert(contains(result.inputs, "b"));
-  assert(contains(result.outputs, "x"));
-  assert(contains(result.outputs, "y"));
-  assert(result.verdict == tlsf::Verdict::Unknown);
-  assert(result.residual_trust == tlsf::Trust::Exact);
-  assert(result.semantics == "Mealy");
-  assert(result.target == "Mealy");
+  CHECK(result.clusters.size() == 2);
+  CHECK(result.inputs.size() == 2);
+  CHECK(result.outputs.size() == 2);
+  CHECK(contains(result.inputs, "a"));
+  CHECK(contains(result.inputs, "b"));
+  CHECK(contains(result.outputs, "x"));
+  CHECK(contains(result.outputs, "y"));
+  CHECK(result.verdict == tlsf::Verdict::Unknown);
+  CHECK(result.residual_trust == tlsf::Trust::Exact);
+  CHECK(result.semantics == "Mealy");
+  CHECK(result.target == "Mealy");
 
   for (const tlsf::Cluster &cluster : result.clusters) {
-    assert(cluster.outputs.size() == 1);
-    assert(!cluster.ltl.empty());
+    CHECK(cluster.outputs.size() == 1);
+    CHECK(!cluster.ltl.empty());
   }
 
   const std::string converted = R"TLSF(
@@ -84,9 +84,9 @@ MAIN {
   options.split = false;
   options.format = tlsf::Format::Ltl;
   result = tlsf::decompose(converted, options);
-  assert(result.semantics == "Mealy");
-  assert(result.target == "Moore");
-  assert(result.preprocessed_ltl == "G (req -> X grant)");
+  CHECK(result.semantics == "Mealy");
+  CHECK(result.target == "Moore");
+  CHECK(result.preprocessed_ltl == "G (req -> X grant)");
 
   for (const char *semantics : {"Moore", "Moore,Strict"}) {
     const std::string implicit =
@@ -98,16 +98,16 @@ MAIN {
     } catch (const std::runtime_error &) {
       rejected_free = true;
     }
-    assert(rejected_free); // TLSF v1.1 §§4.1–4.3: u needs a declaration.
+    CHECK(rejected_free); // TLSF v1.1 §§4.1–4.3: u needs a declaration.
     std::string declared = implicit;
     declared.insert(declared.find("OUTPUTS"), "INPUTS { u; } ");
     auto adapted = tlsf::decompose(declared);
-    assert(adapted.preprocessed_ltl == "G (p <-> X u)");
-    assert(adapted.residual_trust == tlsf::Trust::Exact);
-    assert(adapted.clusters.size() == 1);
-    assert(adapted.clusters[0].ltl == "G (p <-> X u)");
-    assert(adapted.clusters[0].inputs == std::vector<std::string>({"u"}));
-    assert(adapted.clusters[0].outputs == std::vector<std::string>({"p"}));
+    CHECK(adapted.preprocessed_ltl == "G (p <-> X u)");
+    CHECK(adapted.residual_trust == tlsf::Trust::Exact);
+    CHECK(adapted.clusters.size() == 1);
+    CHECK(adapted.clusters[0].ltl == "G (p <-> X u)");
+    CHECK(adapted.clusters[0].inputs == std::vector<std::string>({"u"}));
+    CHECK(adapted.clusters[0].outputs == std::vector<std::string>({"p"}));
   }
 
   const std::string case_sensitive = R"TLSF(
@@ -120,9 +120,9 @@ MAIN {
 )TLSF";
   options.lowercase = false;
   result = tlsf::decompose(case_sensitive, options);
-  assert(contains(result.inputs, "Foo"));
-  assert(contains(result.inputs, "foo"));
-  assert(contains(result.inputs, "GATE"));
+  CHECK(contains(result.inputs, "Foo"));
+  CHECK(contains(result.inputs, "foo"));
+  CHECK(contains(result.inputs, "GATE"));
 
   options.lowercase = true;
   bool rejected_collision = false;
@@ -131,7 +131,7 @@ MAIN {
   } catch (const std::runtime_error &) {
     rejected_collision = true;
   }
-  assert(rejected_collision);
+  CHECK(rejected_collision);
 
   for (const char *semantics :
        {"Mealy", "Moore", "Mealy,Strict", "Moore,Strict", "Mealy,Finite",
@@ -145,11 +145,11 @@ MAIN {
                  "ASSUMPTIONS { G(q <-> !Q); } GUARANTEES { false; } }";
     options.lowercase = false;
     result = tlsf::decompose(implicit, options);
-    assert(result.preprocessed_ltl == "G (q <-> !Q) -> false");
-    assert(result.residual_trust == tlsf::Trust::Exact);
-    assert(contains(result.inputs, "q") && contains(result.inputs, "Q"));
-    assert(result.clusters.size() == 1);
-    assert(result.clusters[0].ltl == "G (q <-> !Q) -> false");
+    CHECK(result.preprocessed_ltl == "G (q <-> !Q) -> false");
+    CHECK(result.residual_trust == tlsf::Trust::Exact);
+    CHECK(contains(result.inputs, "q") && contains(result.inputs, "Q"));
+    CHECK(result.clusters.size() == 1);
+    CHECK(result.clusters[0].ltl == "G (q <-> !Q) -> false");
     options.lowercase = true;
     TlsfDecomposeOptions c_options = {};
     c_options.lowercase = true;
@@ -160,15 +160,15 @@ MAIN {
                                "ASSUMPTIONS", "GUARANTEES"}) {
         const std::string source =
             header + declaration + " " + role + " { q <-> Q; } }";
-        assert(!tlsf_decompose_string(source.c_str(), &c_options));
-        assert(!tlsf_ast_from_string(source.c_str(), &c_options));
+        CHECK(!tlsf_decompose_string(source.c_str(), &c_options));
+        CHECK(!tlsf_ast_from_string(source.c_str(), &c_options));
         rejected_collision = false;
         try {
           (void)tlsf::decompose(source, options);
         } catch (const std::runtime_error &) {
           rejected_collision = true;
         }
-        assert(rejected_collision);
+        CHECK(rejected_collision);
       }
   }
 
@@ -189,10 +189,10 @@ MAIN {
   } catch (const std::runtime_error &) {
     rejected_ltlxba = true;
   }
-  assert(rejected_ltlxba);
+  CHECK(rejected_ltlxba);
   options.format = tlsf::Format::Ltl;
   result = tlsf::decompose(primed, options);
-  assert(result.preprocessed_ltl == "G (req' -> grant@1)");
+  CHECK(result.preprocessed_ltl == "G (req' -> grant@1)");
 
   const std::string indexed = R"TLSF(
 INFO { TITLE: "indexed" SEMANTICS: Mealy TARGET: Mealy }
@@ -205,19 +205,19 @@ MAIN {
 )TLSF";
   options.lowercase = false;
   result = tlsf::decompose(indexed, options);
-  assert(result.indexed_families.size() == 2);
-  assert(result.indexed_families[0].origin_name == "Req");
-  assert(result.indexed_families[0].members ==
-         std::vector<std::string>({"Req_0", "Req_1", "Req_2"}));
-  assert(result.indexed_families[0].lo == 0);
-  assert(result.indexed_families[0].hi == 2);
-  assert(!result.indexed_families[0].is_output);
-  assert(!result.indexed_families[0].is_enum);
-  assert(result.indexed_families[1].origin_name == "Grant");
-  assert(result.indexed_families[1].members ==
-         std::vector<std::string>({"Grant_0", "Grant_1", "Grant_2"}));
-  assert(result.indexed_families[1].is_output);
-  assert(!result.indexed_families[1].is_enum);
+  CHECK(result.indexed_families.size() == 2);
+  CHECK(result.indexed_families[0].origin_name == "Req");
+  CHECK(result.indexed_families[0].members ==
+        std::vector<std::string>({"Req_0", "Req_1", "Req_2"}));
+  CHECK(result.indexed_families[0].lo == 0);
+  CHECK(result.indexed_families[0].hi == 2);
+  CHECK(!result.indexed_families[0].is_output);
+  CHECK(!result.indexed_families[0].is_enum);
+  CHECK(result.indexed_families[1].origin_name == "Grant");
+  CHECK(result.indexed_families[1].members ==
+        std::vector<std::string>({"Grant_0", "Grant_1", "Grant_2"}));
+  CHECK(result.indexed_families[1].is_output);
+  CHECK(!result.indexed_families[1].is_enum);
 
   const std::string enum_typed = R"TLSF(
 INFO { TITLE: "enum" SEMANTICS: Mealy TARGET: Mealy }
@@ -232,12 +232,12 @@ MAIN {
 )TLSF";
   options.lowercase = true;
   result = tlsf::decompose(enum_typed, options);
-  assert(result.indexed_families.size() == 1);
-  assert(result.indexed_families[0].origin_name == "state");
-  assert(result.indexed_families[0].is_enum);
-  assert(result.preprocessed_ltl.find(
-             "G (!state_0 && !state_1 || !state_0 && state_1 || state_0 && "
-             "!state_1)") != std::string::npos);
+  CHECK(result.indexed_families.size() == 1);
+  CHECK(result.indexed_families[0].origin_name == "state");
+  CHECK(result.indexed_families[0].is_enum);
+  CHECK(result.preprocessed_ltl.find(
+            "G (!state_0 && !state_1 || !state_0 && state_1 || state_0 && "
+            "!state_1)") != std::string::npos);
 
   const std::string enum_wildcards = R"TLSF(
 INFO { TITLE: "enum wildcards" SEMANTICS: Strict,Mealy TARGET: Mealy }
@@ -253,9 +253,9 @@ MAIN {
 }
 )TLSF";
   result = tlsf::decompose(enum_wildcards, options);
-  assert(result.semantics == "Strict,Mealy");
-  assert(result.preprocessed_ltl.find("request_0") != std::string::npos);
-  assert(result.preprocessed_ltl.find("response_0") != std::string::npos);
-  assert(result.preprocessed_ltl.find(" W ") != std::string::npos);
+  CHECK(result.semantics == "Strict,Mealy");
+  CHECK(result.preprocessed_ltl.find("request_0") != std::string::npos);
+  CHECK(result.preprocessed_ltl.find("response_0") != std::string::npos);
+  CHECK(result.preprocessed_ltl.find(" W ") != std::string::npos);
   return 0;
 }

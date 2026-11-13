@@ -1,6 +1,6 @@
 // Include the implementation to exercise internal contract validators directly.
 #include "../../src/lib/gr1_env_lift.cc"
-#include <cassert>
+#include "../check.h"
 using namespace gr1_lift_internal;
 int main() {
   for (bool system : {false, true}) {
@@ -10,17 +10,17 @@ int main() {
                                system ? std::set<int>{} : std::set<int>{7});
     } catch (const Failure &e) {
       failed = true;
-      assert(e.status == TLSF_GR1_LIFT_DECLINED &&
-             e.failure_status == TLSF_GR1_LIFT_ERROR);
-      assert(e.cause == FailureCause::error && e.stage == "policy_reconstruct");
+      CHECK(e.status == TLSF_GR1_LIFT_DECLINED &&
+            e.failure_status == TLSF_GR1_LIFT_ERROR);
+      CHECK(e.cause == FailureCause::error && e.stage == "policy_reconstruct");
     }
-    assert(failed);
+    CHECK(failed);
   }
   env_check_skolem_support({8}, {7}, {6});
   for (int fault = 0; fault != 3; ++fault) {
     Instance instance;
     instance.r.game = aig_new();
-    assert(instance.r.game);
+    CHECK(instance.r.game);
     if (fault == 0)
       aig_latch(instance.r.game, 0, 0);
     if (fault == 2) {
@@ -43,16 +43,16 @@ int main() {
         env_candidate(bdd, target, seed, {}, cfg, candidate);
     } catch (const Failure &e) {
       failed = true;
-      assert(e.status == TLSF_GR1_LIFT_DECLINED &&
-             e.failure_status == TLSF_GR1_LIFT_ERROR);
-      assert(e.cause == FailureCause::error);
-      assert(std::string(e.what()) ==
-             (fault == 0   ? "target latch is unnamed"
-              : fault == 1 ? "target has no unique bad predicate"
-                           : "justice is not a single predicate"));
+      CHECK(e.status == TLSF_GR1_LIFT_DECLINED &&
+            e.failure_status == TLSF_GR1_LIFT_ERROR);
+      CHECK(e.cause == FailureCause::error);
+      CHECK(std::string(e.what()) ==
+            (fault == 0   ? "target latch is unnamed"
+             : fault == 1 ? "target has no unique bad predicate"
+                          : "justice is not a single predicate"));
     }
     tlsf_gr1_env_rank_result_clear(&rank);
     tlsf_gr1_env_lift_result_clear(&candidate);
-    assert(failed);
+    CHECK(failed);
   }
 }

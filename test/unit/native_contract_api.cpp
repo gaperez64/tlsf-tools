@@ -1,6 +1,6 @@
 #include "gr1_shared.hh"
 #include <tlsf/gr1_oxidd.h>
-#include <cassert>
+#include "../check.h"
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -27,7 +27,7 @@ static void validators() {
         auto stream = fmemopen(const_cast<char *>(aag), std::strlen(aag), "r");
         seed.r.game = aig_read_aag(stream);
         fclose(stream);
-        assert(seed.r.game);
+        CHECK(seed.r.game);
       }
       Config cfg{};
       TlsfGr1EnvRankResult env{};
@@ -42,11 +42,11 @@ static void validators() {
           solve_shared_seed(seed, cfg, both);
       } catch (const Failure &e) {
         failed = true;
-        assert(e.status == TLSF_GR1_LIFT_DECLINED);
-        assert(e.failure_status == TLSF_GR1_LIFT_ERROR);
-        assert(e.cause == FailureCause::error && e.stage == "seed_solve");
+        CHECK(e.status == TLSF_GR1_LIFT_DECLINED);
+        CHECK(e.failure_status == TLSF_GR1_LIFT_ERROR);
+        CHECK(e.cause == FailureCause::error && e.stage == "seed_solve");
       }
-      assert(failed);
+      CHECK(failed);
     }
   }
   // Assert every checker status/verdict pair, including invalid/inconclusive
@@ -63,9 +63,9 @@ static void validators() {
                    verdict == TLSF_GR1_CHECK_REFUTED)
               ? FailureCause::applicability
               : FailureCause::error;
-      assert(check_failure_cause(static_cast<TlsfGr1CheckStatus>(status),
-                                 static_cast<TlsfGr1CheckVerdict>(verdict)) ==
-             expected);
+      CHECK(check_failure_cause(static_cast<TlsfGr1CheckStatus>(status),
+                                static_cast<TlsfGr1CheckVerdict>(verdict)) ==
+            expected);
     }
   for (int kind = OXIDD_FAILURE_NONE; kind <= OXIDD_FAILURE_ARTIFACT_LIMIT;
        ++kind) {
@@ -76,7 +76,7 @@ static void validators() {
                     : k == OXIDD_FAILURE_DEADLINE  ? FailureCause::deadline
                     : k == OXIDD_FAILURE_CANCELLED ? FailureCause::cancelled
                                                    : FailureCause::error;
-    assert(solver_failure_cause(k) == expected);
+    CHECK(solver_failure_cause(k) == expected);
   }
 }
 int main(int argc, char **argv) {
@@ -84,11 +84,11 @@ int main(int argc, char **argv) {
     validators();
     return 0;
   }
-  assert(argc == 3);
+  CHECK(argc == 3);
   setenv("ACACIA_NATIVE_TEST_CONTRACT", argv[1], 1);
   std::ifstream file(argv[2]);
   std::string source(std::istreambuf_iterator<char>{file}, {});
-  assert(!source.empty());
+  CHECK(!source.empty());
   bool recovered = !std::strcmp(argv[1], "provenance-recover");
   bool unsupported = !std::strcmp(argv[1], "unsupported-class");
   for (bool exact : {true, false}) {
@@ -103,13 +103,13 @@ int main(int argc, char **argv) {
                         : tlsf_gr1_lift_target_prepare_v1(
                               (const uint8_t *)source.data(), source.size(),
                               nullptr, 0, &options, &target, &error, &cause);
-    assert(error.status == status);
-    assert(status ==
-           (!exact && recovered ? TLSF_GR1_LIFT_OK : TLSF_GR1_LIFT_DECLINED));
-    assert(cause == (!exact && recovered ? TLSF_GR1_LIFT_OK
-                     : unsupported       ? TLSF_GR1_LIFT_DECLINED
-                                         : TLSF_GR1_LIFT_ERROR));
-    assert(bool(target) == (!exact && recovered));
+    CHECK(error.status == status);
+    CHECK(status ==
+          (!exact && recovered ? TLSF_GR1_LIFT_OK : TLSF_GR1_LIFT_DECLINED));
+    CHECK(cause == (!exact && recovered ? TLSF_GR1_LIFT_OK
+                    : unsupported       ? TLSF_GR1_LIFT_DECLINED
+                                        : TLSF_GR1_LIFT_ERROR));
+    CHECK(bool(target) == (!exact && recovered));
     tlsf_gr1_lift_target_free(target);
     target = nullptr;
     auto legacy =
@@ -120,19 +120,19 @@ int main(int argc, char **argv) {
             : tlsf_gr1_lift_target_prepare((const uint8_t *)source.data(),
                                            source.size(), nullptr, 0, &options,
                                            &target, nullptr);
-    assert(legacy == status);
+    CHECK(legacy == status);
     tlsf_gr1_lift_target_free(target);
   }
   TlsfGr1LiftTarget *invalid = nullptr;
   TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_CANCELLED;
-  assert(tlsf_gr1_lift_target_prepare_exact_v1(nullptr, 0, nullptr, &invalid,
-                                               nullptr, &cause) ==
-         TLSF_GR1_LIFT_INVALID);
-  assert(cause == TLSF_GR1_LIFT_INVALID);
-  assert(tlsf_gr1_lift_target_prepare_v1(nullptr, 0, nullptr, 0, nullptr,
-                                         &invalid, nullptr,
-                                         &cause) == TLSF_GR1_LIFT_INVALID);
-  assert(cause == TLSF_GR1_LIFT_INVALID);
+  CHECK(tlsf_gr1_lift_target_prepare_exact_v1(nullptr, 0, nullptr, &invalid,
+                                              nullptr,
+                                              &cause) == TLSF_GR1_LIFT_INVALID);
+  CHECK(cause == TLSF_GR1_LIFT_INVALID);
+  CHECK(tlsf_gr1_lift_target_prepare_v1(nullptr, 0, nullptr, 0, nullptr,
+                                        &invalid, nullptr,
+                                        &cause) == TLSF_GR1_LIFT_INVALID);
+  CHECK(cause == TLSF_GR1_LIFT_INVALID);
   // Exercise the reduction boundary independently of preparation.
   if (!std::strcmp(argv[1], "provenance-duplicate") ||
       !std::strcmp(argv[1], "provenance-retry") ||
@@ -143,18 +143,18 @@ int main(int argc, char **argv) {
   po.template_mask = TPL_ALL;
   auto pipeline = tlsf_pipeline_load_bytes((const uint8_t *)source.data(),
                                            source.size(), &po);
-  assert(pipeline);
+  CHECK(pipeline);
   TlsfGr1ReductionOptions ro{};
   ro.max_artifact_bytes = 64u << 20;
   ro.max_monitor_states = 10000;
   TlsfGr1Reduction result{};
   TlsfGr1ReductionStatus diagnostic = TLSF_GR1_REDUCE_OK;
-  assert(tlsf_gr1_reduce_v1(pipeline, &ro, &result, nullptr, &diagnostic) ==
-         TLSF_GR1_REDUCE_UNSUPPORTED);
-  assert(diagnostic ==
-         (unsupported ? TLSF_GR1_REDUCE_UNSUPPORTED : TLSF_GR1_REDUCE_ERROR));
-  assert(!result.game && !result.aag);
-  assert(tlsf_gr1_reduce(pipeline, &ro, &result, nullptr) ==
-         TLSF_GR1_REDUCE_UNSUPPORTED);
+  CHECK(tlsf_gr1_reduce_v1(pipeline, &ro, &result, nullptr, &diagnostic) ==
+        TLSF_GR1_REDUCE_UNSUPPORTED);
+  CHECK(diagnostic ==
+        (unsupported ? TLSF_GR1_REDUCE_UNSUPPORTED : TLSF_GR1_REDUCE_ERROR));
+  CHECK(!result.game && !result.aag);
+  CHECK(tlsf_gr1_reduce(pipeline, &ro, &result, nullptr) ==
+        TLSF_GR1_REDUCE_UNSUPPORTED);
   tlsf_pipeline_free(pipeline);
 }

@@ -3,7 +3,8 @@
 Census declared index permutations verified on the whole objective.
 This optional research tool is built with `-Dresearch_tools=true`.
 
-From the repository root:
+From the repository root, after the [source-build prerequisites](../../../README.md#build)
+including initialized OxiDD:
 
 ```sh
 meson setup build-research -Dresearch_tools=true --buildtype=release

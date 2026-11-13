@@ -1,5 +1,5 @@
 #include "tlsf/gr1_lift.h"
-#include <assert.h>
+#include "../check.h"
 #include <string.h>
 static int cancelled(void *ctx) {
   (void)ctx;
@@ -16,9 +16,9 @@ int main(void) {
   options.cancelled = cancelled;
   TlsfGr1LiftResult result = {0};
   TlsfGr1LiftError error = {0};
-  assert(tlsf_gr1_lift((const uint8_t *)source, strlen(source), NULL, 0,
-                       &options, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
-  assert(result.game_aag == NULL && result.certificate_aag == NULL);
+  CHECK(tlsf_gr1_lift((const uint8_t *)source, strlen(source), NULL, 0,
+                      &options, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
+  CHECK(result.game_aag == NULL && result.certificate_aag == NULL);
   tlsf_gr1_lift_result_clear(&result);
   return 0;
 }

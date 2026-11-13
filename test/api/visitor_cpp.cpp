@@ -1,6 +1,6 @@
 #include "tlsf/ast_api.hpp"
 
-#include <cassert>
+#include "../check.h"
 #include <string>
 
 class StringVisitor : public tlsf::ast::Visitor<std::string> {
@@ -53,17 +53,17 @@ MAIN {
   tlsf::Options options;
   options.split = true;
   tlsf::ast::Ast ast(text, options);
-  assert(ast.root());
-  assert(ast.inputs().size() == 2);
-  assert(ast.outputs().size() == 2);
-  assert(ast.clusters().size() == ast.result().clusters.size());
+  CHECK(ast.root());
+  CHECK(ast.inputs().size() == 2);
+  CHECK(ast.outputs().size() == 2);
+  CHECK(ast.clusters().size() == ast.result().clusters.size());
 
   StringVisitor visitor;
   std::string built = visitor.visit(ast.root());
-  assert(!built.empty());
-  assert(built.find("x") != std::string::npos);
-  assert(built.find("y") != std::string::npos);
+  CHECK(!built.empty());
+  CHECK(built.find("x") != std::string::npos);
+  CHECK(built.find("y") != std::string::npos);
   for (tlsf::ast::Tree cluster : ast.clusters())
-    assert(!visitor.visit(cluster).empty());
+    CHECK(!visitor.visit(cluster).empty());
   return 0;
 }
