@@ -237,9 +237,8 @@ The single parser in `src/lib/tlsf.y` implements Table 1 operator binding and
 through its per-parse, one-token reduction-head lookahead. The frozen compatibility parser and token-replay files have
 been removed. Parsing, boundary selection and ambiguity rejection are trusted C
 obligations, outside the Lean set-identity theorems. The additive `grammar112g`
-entry in [the scoping ledger](../tools/analysis/tlsf-scoping-110.json) records
-source rebindings and the hashes of the three removed compatibility files;
-all earlier receipts remain unchanged.
+entry in [the scoping receipt](../tools/analysis/tlsf-scoping-110.json) records
+the parser migration and the hashes of the three removed compatibility files.
 
 **Trusted boundary.** The lexical/type checker at
 `src/lib/expand_check.c:242–801` implements TLSF v1.1
@@ -405,10 +404,9 @@ substitution, C loop/list/set execution,
 allocation/resource-failure rejection, formula folding, and printer correspondence
 remain trusted. The list model describes successful materialization; no claim
 that huge intervals can be allocated is made. Existing #114 and #115–117 tests
-remain unchanged. The additive
-[`integer-literal-116.json`](../tools/analysis/integer-literal-116.json) ledger
-binds this proof, the tests and the unchanged C sources, and preserves all earlier
-receipts and golden payloads.
+remain unchanged. The historical
+[`integer-literal-116.json`](../tools/analysis/integer-literal-116.json) receipt
+records the proof's theorem inventory, trust boundary and validation.
 
 ## Checked arithmetic and reductions (issue #115)
 
@@ -489,10 +487,9 @@ boolean. The no-publication claim concerns successful results/domain/formula/CLI
 output, not preservation of every internal scratch slot on failure. Set folds
 use extensional predicates; their C equality/storage implementation is not proved.
 Body lowering, section-objective assembly and printers remain trusted; arbitrary
-body resolvers do not prove those obligations. Prior provenance and golden
-payloads are preserved by the additive
+body resolvers do not prove those obligations. The historical
 [`checked-arithmetic-115.json`](../tools/analysis/checked-arithmetic-115.json)
-ledger and its provenance checker registration.
+receipt records the theorem inventory, trust boundary and validation.
 
 ## Indexed-next strength (issue #117)
 
@@ -546,9 +543,9 @@ execution/compiler, allocation/pointer handling, evaluation of symbolic counts,
 body resolution, section assembly and printing remain trusted. Negative counts
 are not merged and remain expansion errors. Huge counts are proved with the
 guards and tested structurally without allocating their expansion. This does
-not verify other indexed passes or the expansion loop. The additive
-[`next-strength-117.json`](../tools/analysis/next-strength-117.json) ledger
-preserves prior proof/provenance receipts and all golden payloads.
+not verify other indexed passes or the expansion loop. The historical
+[`next-strength-117.json`](../tools/analysis/next-strength-117.json) receipt
+records the theorem inventory, trust boundary and validation.
 
 ### Pre-weak and indexed spine reconstruction (issue #122)
 
@@ -585,10 +582,10 @@ orders, disjunction deduplication, changed-child reconstruction, counts 0/1/2,
 both strengths and nested spines. They also cover G/F range bodies, bounds and
 range strength, ranges inside indexed next, nested and unary wrappers,
 range/set reductions and definition calls, in both operand orders with both
-conjunction and disjunction. The additive
+conjunction and disjunction. The historical
 [`next-strength-prepasses-122.json`](../tools/analysis/next-strength-prepasses-122.json)
-records the failing main regressions, constructor audit and validation, while
-preserving earlier ledgers and all golden bytes. C execution, allocation,
+records the failing main regressions, constructor audit and validation.
+C execution, allocation,
 AST correspondence, symbolic count evaluation and the frontend assembly remain
 trusted as above.
 
@@ -596,6 +593,11 @@ trusted as above.
 
 Locations are relative to this repository. They identify guarded mathematical
 ports, not verification of C or other CSNF template families.
+
+Keep C/Lean correspondence references current; `proof_source_references` checks
+their targets independently of historical source hashes. New source-hash
+ledgers are not required. Golden changes follow the
+[manifest update policy](../test/fixtures/golden/README.md#updating-goldens).
 
 | C source in this working tree | Lean port / correspondence obligation |
 | --- | --- |
@@ -955,9 +957,8 @@ do **not** establish universal C implementation refinement, memory safety, BDD
 refinement, compiler correctness, or correctness of unvalidated runtime inputs.
 
 The row-layout optimization retains both the TV1 and DAG validation receipts,
-reports, and dump hashes. Its dated [source ledger](../tools/analysis/dpa-row-layout.json)
-extends the existing rebinding chain after the runtime and native-limit updates;
-it also binds the moved proof references and the 112 in-house row snapshots.
+reports, and dump hashes. Its historical [receipt](../tools/analysis/dpa-row-layout.json)
+records the 112 in-house row snapshots and two manifest additions.
 The oracle guard reverses only the two recorded manifest additions and checks
 the original full-file hash, preserving every historical provenance byte.
 

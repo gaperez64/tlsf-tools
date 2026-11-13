@@ -29,7 +29,7 @@
   },
   "test/fixtures/golden/README.md": {
     "reason": "Documentation of frozen historical evidence and current verify-only paths.",
-    "sha256": "eb4ec20a564049d2723095153ba4214eecbdd977f353102e977de6ef422a4337"
+    "sha256": "f790e2fd66bc16c8256728d1378007d61b88704cda7d322959e3fed259536bc9"
   },
   "test/fixtures/golden/compose-finite.json": {
     "reason": "Frozen historical evidence; never executed or renewed.",

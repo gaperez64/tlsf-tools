@@ -73,15 +73,46 @@ correctness, caller extraction of the whole objective, and caller normalization
 remain separate obligations. TVD1 explicitly records its caller-trusted
 normalization premise. See [proofs/README.md](../../../proofs/README.md).
 
-The retirement source-binding ledger at
-[tools/analysis/oracle-retirement.json](../../../tools/analysis/oracle-retirement.json)
-records comment/helper-name changes in receipt-bound source files. It preserves
-the old receipt bytes and requires current source hashes plus unchanged dump
-hashes. No proof, DPA construction algorithm, or golden claim is changed.
+The [retirement report](../../../tools/analysis/oracle-retirement-report.txt)
+records the replacement checks and their scope. Its source-binding ledger is
+[historical data](../../../tools/analysis/history/oracle-retirement.json);
+current source changes do not require rebinding ledgers. Historical source
+hashes in receipts describe the original run, not today's source tree.
 
 `check_no_external_oracles.py` scans tools, scripts, bench, tests, production
 sources, examples and build declarations. Only explicit frozen provenance/data
 paths may contain historical names. Their bytes are hash-bound; executable
 imports/includes/discovery/commands are forbidden throughout executable source.
-`check_golden_provenance.py` binds the original payloads and limits the whole
-golden directory to 4,400,000 bytes (the owner's 4.4 MB cap).
+`check_golden_provenance.py` checks that every file in this directory except
+`MANIFEST.sha256` is listed exactly once in that manifest, verifies every
+SHA-256, and limits the whole directory, including the manifest, to 4,400,000
+bytes (the owner's 4.4 MB cap). The proof-source and external-oracle guards
+remain separate checks.
+
+## Updating goldens
+
+When a golden changes, regenerate `MANIFEST.sha256` in the same PR and include
+a note explaining why the output changed. Review the output difference and
+run the affected behaviour checks before accepting the new hashes. Preserve
+historical receipts and their original claims; new evidence must describe its
+own origin and scope. Do not add a per-PR source-hash ledger.
+
+From the repository root, after the intended golden edits:
+
+```sh
+python3 - <<'PY'
+import hashlib
+from pathlib import Path
+
+root = Path("test/fixtures/golden")
+manifest = root / "MANIFEST.sha256"
+files = sorted(p for p in root.rglob("*") if p.is_file() and p != manifest)
+manifest.write_text("".join(
+    f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root)}\n"
+    for p in files))
+PY
+python3 test/cli/check_golden_provenance.py .
+```
+
+The external-oracle guard also binds frozen historical data and this guide in
+`tools/golden/historical-files.json`; update its entry when editing this guide.
