@@ -18,17 +18,6 @@
 // ---------------------------------------------------------------------------
 
 OxiddSolveOptions oxidd_solve_options_default(void) {
-#ifdef NDEBUG
-  return (OxiddSolveOptions){.node_cap = 0,
-                             .cache_cap = 0,
-                             .gc_mode = OXIDD_GC_AUTO,
-                             .gc_threshold_percent = 80,
-                             .verbosity = 0,
-                             .trace = stderr,
-                             .safety_objective = OXIDD_SAFETY_OBJECTIVE_OUTPUT,
-                             .safety_output_index = 0,
-                             .var_order = OXIDD_VAR_ORDER_INPUT_FIRST};
-#else
   OxiddSolveOptions options = {
       .node_cap = 0,
       .cache_cap = 0,
@@ -44,7 +33,6 @@ OxiddSolveOptions oxidd_solve_options_default(void) {
   options.trace_node_limit = 100000;
   options.trace_scratch_bytes = (size_t)16 << 20;
   return options;
-#endif
 }
 
 size_t oxidd_default_capacity(uint32_t local_vars, uint32_t extra_exp) {

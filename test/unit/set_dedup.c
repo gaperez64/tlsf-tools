@@ -38,6 +38,33 @@ _Static_assert(sizeof(BoundedTemporalMeta) ==
 
 static unsigned checks;
 
+static void set_growth(void) {
+  Arena *arena = arena_new(4096);
+  assert(arena);
+  EvalSet *set = set_new(arena);
+  assert(set);
+  size_t retained = 0;
+  unsigned allocations = 0;
+  for (uint32_t i = 0; i < 1025; i++) {
+    EvalValue *previous = set->items;
+    EvalValue value = {.kind = EVAL_VALUE_INT, .integer = i};
+    assert(set_add(arena, set, value));
+    if (set->items != previous) {
+      allocations++;
+      retained += set->capacity;
+    }
+    assert(set->count == i + 1);
+    previous = set->items;
+    assert(set_add(arena, set, value));
+    assert(set->count == i + 1 && set->items == previous);
+  }
+  // Bound allocation churn and retained arena storage across many growths.
+  assert(allocations < 16 && retained < 4 * set->count);
+  for (uint32_t i = 0; i < set->count; i++)
+    assert(set->items[i].kind == EVAL_VALUE_INT && set->items[i].integer == i);
+  arena_free(arena);
+}
+
 static void equal(const Node *a, const Node *b, bool expected) {
   assert(node_structural_equal(a, b) == expected);
   assert(node_structural_equal(b, a) == expected);
@@ -182,6 +209,7 @@ static void lexical_provenance(void) {
 }
 
 int main(void) {
+  set_growth();
   identity_keys();
   resolved_atoms();
   lexical_provenance();

@@ -95,6 +95,20 @@ Requires C23 and C++20 compilers, [Meson](https://mesonbuild.com/),
 `cbindgen` 0.29.4. Every build includes OxiDD and native GR(1); `research_tools`
 controls only optional executables. The library, tests, CI and offline tools use only in-house checks.
 
+The `tests`, `tools`, and `examples` Meson options all default to `true`.
+For a library-only build, pass `-Dtests=false -Dtools=false -Dexamples=false`.
+Tests require tools because the suite exercises their command-line behavior;
+`fuzz=true` also requires tests. Disabling tools skips research executables even
+when `research_tools=true`. The exported `tlsf_dep` dependency and the complete
+library remain available. A parent such as Acacia-Bonsai can use:
+
+```meson
+tlsf_native = subproject('tlsf-tools', default_options: [
+  'tests=false', 'tools=false', 'examples=false', 'research_tools=false',
+])
+tlsf_deps = [tlsf_native.get_variable('tlsf_dep')]
+```
+
 Initialize OxiDD before configuring either source build:
 
 ```sh
