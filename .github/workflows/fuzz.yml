@@ -42,8 +42,7 @@ jobs:
       - name: Check seed witnesses
         run: |
           meson test -C build-fuzz --no-rebuild --num-processes 1 --print-errorlogs \
-            fuzz-roundtrip fuzz-alloc fuzz-dpa \
-            fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
+            source_layout fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
       - name: Fuzz each target for ten minutes
         run: |
           status=0

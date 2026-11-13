@@ -29,11 +29,12 @@ def formulas(text):
 
 if name == "finite-adaptation-doc":
     readme = (Path(cases).parents[2] / "README.md").read_text()
-    paragraph = " ".join(readme.split("- **Mealy/Moore**", 1)[1].split("\n\n", 1)[0].split())
-    assert "for infinite words" in paragraph, paragraph
-    assert "Under finite-word semantics, target adaptation is unsupported" in paragraph, paragraph
-    assert "`SEMANTICS` and `TARGET` must agree" in paragraph, paragraph
-    assert "`tlsf_convert` refuses all finite semantics" in paragraph, paragraph
+    # Keep the documented contract without prescribing headings or paragraphs.
+    text = " ".join(readme.split())
+    assert "for infinite words" in text
+    assert "Under finite-word semantics, target adaptation is unsupported" in text
+    assert "`SEMANTICS` and `TARGET` must agree" in text
+    assert "`tlsf_convert` refuses all finite semantics" in text
 elif name == "implicit-input-adaptation":
     # All six section roles, both adaptation directions, strict semantics and
     # overrides retain declared-input timing. TLSF v1.1 §§4.1–4.3 rejects

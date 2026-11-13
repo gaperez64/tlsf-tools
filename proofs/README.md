@@ -18,9 +18,10 @@ construction/validator. They do not verify the C binary or other CSNF controller
 From `proofs/`, run one Lean compiler at a time. Dependencies make the default
 build serial. As in acacia, library arguments are `-j1`, `-s2048`,
 `-DElab.async=false`, with `warningAsError = true`. Do not impose a virtual-memory cap.
+The diagnostic commands below require GNU coreutils `timeout`.
 
 ```sh
-export PATH=$HOME/.elan/bin:$PATH
+export PATH="$HOME/.elan/bin:$PATH"
 export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
@@ -801,10 +802,12 @@ modes, AP orders, and acceptance kinds, bound by canonical CI hashes. Other
 runtime formulas rely on the reference plus sample evidence, not a C correctness
 proof. Bounded lasso goldens alone do not prove unbounded language equality.
 
-### Regeneration and recorded results
+### Replay and recorded results
 
-`tools/golden/translation_validate.py` requires Lean 4.35.0 and runs offline.
-Its inventory includes every monitor constructor reached by 217 corpus specs
+The historical receipt creator `tools/golden/translation_validate.py` requires
+Lean 4.35.0 and runs offline. It writes replacement receipts and provenance;
+use it only when deliberately creating new evidence. Its inventory includes
+every monitor constructor reached by 217 corpus specs
 under both policies (also failed reductions), DPA equivalence/language-golden
 formulas, pinned infinite-word verdicts, stored historical monitor formulas,
 and review-k/l/i cases. Each formula/AP order/admission/acceptance request shares
@@ -815,6 +818,11 @@ recorded without minimization or failing the run. Only passing checks get hashes
 all real failures are retained/minimized and prevent general admission. Enablement
 requires zero failures among completed cases.
 
+For routine replay, run from the repository root after the
+[source-build prerequisites](../README.md#build), including initialized OxiDD.
+The optional memory scopes below require Linux and a systemd user session.
+They run fresh checks against frozen receipts without publishing replacements.
+
 ```sh
 mkdir -p build-sprint/tmp
 export TMPDIR="$PWD/build-sprint/tmp" LEAN_NUM_THREADS=1
@@ -823,17 +831,18 @@ export LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0 CARGO_BUILD_JOBS=1
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
   meson setup build-sprint/release -Dbuildtype=release -Dresearch_tools=true
 systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson compile -C build-sprint/release -j1 dpa_dump tv_inventory
+  meson compile -C build-sprint/release -j 2
 systemd-run --user --scope -q -p MemoryHigh=4G -p MemoryMax=5G -p MemorySwapMax=0 \
-  python3 tools/golden/translation_validate.py --build build-sprint/release
+  python3 tools/golden/regenerate.py --build build-sprint/release --translation
 ```
 
-Transient validator files/TMPDIR/dumps stay in `build-sprint/`; only hashes, verdicts,
-counts, failures, and provenance go to `test/fixtures/golden/translation/`.
-The C-only CI gate recomputes identical dumps. Total golden budget is 4,400,000
-bytes (4.4 MB). Runs always execute fresh C/Lean checks, retaining scratch
-progress if interrupted. `--set` never publishes fixtures; full audits use the
-unfiltered command without inventory reuse.
+Replay writes transient validator files, TMPDIR, dumps and verification reports
+under `build-sprint/`, and checks that historical golden files remain unchanged.
+It rechecks the passing TV1 and TVD1 rows; timed-out or unsupported historical
+requests gain no new claim. The C-only CI gate recomputes identical dumps.
+Total golden budget is 4,400,000 bytes (4.4 MB). The receipt creator’s `--set`
+mode is a partial exploration that does not publish fixtures; the unfiltered
+creator and its `--dag` mode publish receipts and are not routine replay commands.
 
 The [recorded report](../test/fixtures/golden/translation/report.json) covers
 1,212 formula/AP orders and 4,848 requests: 4,134 pass, zero failures, 36 timeouts,
@@ -937,11 +946,11 @@ produce no validated hash. C regressions cover sticky declines and ownership;
 protocol checks cover binding, malformed records, incomplete tables and wrong
 languages. Historical TV1 successful dumps are unchanged.
 
-Run a fresh serial check from the repository root after committing the input
-and validator sources:
+Replay the committed TV1 and DAG passing receipts serially from the repository
+root, using the research build and Lean prerequisites above:
 
 ```sh
-python3 tools/golden/translation_validate.py --build build-sprint/release --dag
+python3 tools/golden/regenerate.py --build build-sprint/release --translation
 ```
 
 The dedicated [DAG receipt](../test/fixtures/golden/translation/dag/provenance.json)
@@ -952,8 +961,9 @@ case-sensitive AP declarations, both whole-objective polarities, both admission
 policies, and parity/Büchi (including unsupported Büchi outcomes). The ordinary
 whole objective in these fixtures keeps all section defaults and varies its
 guarantee. The normalization premise is recorded separately from the checked
-language claim. These are fresh per-instance, unbounded-language checks; they
-do **not** establish universal C implementation refinement, memory safety, BDD
+language claim. Replay performs fresh per-instance, unbounded-language checks
+against these historical receipts; they do **not** establish universal C
+implementation refinement, memory safety, BDD
 refinement, compiler correctness, or correctness of unvalidated runtime inputs.
 
 The row-layout optimization retains both the TV1 and DAG validation receipts,

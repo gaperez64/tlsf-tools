@@ -2,7 +2,8 @@
 """Check the source layout rules (issue #40) against a configured build.
 
 1. Each source file is compiled into exactly one target; the exceptions are
-   the test-only fault-injection and platform-adapter builds and shared probes.
+   the test-only fault-injection, platform-adapter and per-mode fuzz builds,
+   and shared probes.
 2. The installed tlsf headers are exactly include/tlsf/, plus the generated version.h.
 3. (Enforced by compilation: test/api sees include/ only.)
 4. Nothing in src/lib includes a tool header, and nothing in include/tlsf
@@ -34,6 +35,19 @@ for target in targets:
             if root in path.parents and "subprojects" not in path.relative_to(root).parts:
                 compiled[path.relative_to(root)].append(target["name"])
 for source, owners in sorted(compiled.items()):
+    # Replay and libFuzzer require different FUZZ_REPLAY instrumentation. Each
+    # harness has one owner per configured mode; unrelated duplicates still fail.
+    fuzz_variants = {
+        pathlib.Path('test/fuzz/dpa_checks.c'): 'fuzz-dpa-checks',
+        **{pathlib.Path(f'test/fuzz/{name}.c'): f'fuzz-{name}-harness'
+           for name in ('roundtrip', 'alloc', 'dpa')},
+    }
+    if source in fuzz_variants:
+        base = fuzz_variants[source]
+        permitted = [{base + '-replay'}, {base + '-replay', base + '-fuzzer'}]
+        if set(owners) not in permitted or len(owners) != len(set(owners)):
+            errors.append(f"rule 1: {source} compiled into {sorted(owners)}")
+        continue
     fault_owners = {
         pathlib.Path("src/lib/arena.c"): {"objective_alloc", "composition-fault",
                                         "tlsfbenchgraph-composition-fault",

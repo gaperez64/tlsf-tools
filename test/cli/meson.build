@@ -1,5 +1,9 @@
 # The command-line tools against golden outputs, exit statuses and schemas.
 
+test('harness_controls', python3, args: [files('check_harness_controls.py')])
+test('norm_bounded_profile_stages', python3,
+  args: [files('check_normalization_profiles.py'), exe['tlsfnorm'], exe['tlsf2ltl']])
+
 test('precedence_110', python3,
   args: [files('check_precedence_110.py'), exe['tlsf2ltl'], exe['tlsf2tlsf']],
   timeout: 60)
@@ -489,29 +493,31 @@ endforeach
 # TRUST_OVER boolean-fragment UNREAL pre-check: an input-only G guarantee is
 # caught before plan emission.
 test('precheck_input_only_unreal', check_contains,
-  args: ['UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
+  args: ['1', 'UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
          files(cases / 'precheck_input_only.tlsf')])
+# Requesting stats retains the early UNREAL status.
 test('precheck_route_stats', check_contains,
-  args: ['unreal_precheck=1', exe['tlsfcompose'], '--split', '--route-stats',
+  args: ['1', 'unreal_precheck=1', exe['tlsfcompose'], '--split', '--route-stats',
          files(cases / 'precheck_input_only.tlsf')])
 # Control: the boolean-G guarantee mentions an output that can satisfy it, so
 # the pre-check stays silent and normal plan emission succeeds.
-test('precheck_outputs_rescue_real', exe['tlsfcompose'],
-  args: [files(cases / 'precheck_outputs_rescue.tlsf')])
+test('precheck_outputs_rescue_plan', check_contains,
+  args: ['0', '^ctl ', exe['tlsfcompose'],
+         files(cases / 'precheck_outputs_rescue.tlsf')])
 # Dual TRUST_UNDER early-REAL via the --realizability oracle (self-contained,
 # no solver): outputs satisfy the boolean guarantees -> REALIZABLE; an
 # input-only contradiction -> UNREALIZABLE (always-on UNREAL check); a
 # temporal guarantee -> UNKNOWN (oracle inconclusive).
 test('precheck_real_oracle_real', check_contains,
-  args: ['REALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
+  args: ['0', 'spec is REALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
          '--split', '--realizability',
          files(cases / 'precheck_outputs_rescue.tlsf')])
 test('precheck_real_oracle_unreal', check_contains,
-  args: ['UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
+  args: ['1', 'UNREALIZABLE \\(boolean-fragment pre-check', exe['tlsfcompose'],
          '--split', '--realizability',
          files(cases / 'precheck_input_only.tlsf')])
 test('precheck_real_oracle_unknown', check_contains,
-  args: ['realizability UNKNOWN', exe['tlsfcompose'],
+  args: ['2', 'realizability UNKNOWN', exe['tlsfcompose'],
          '--split', '--realizability',
          files(cases / 'precheck_real_unknown.tlsf')])
 endif
@@ -534,7 +540,7 @@ test('bounded_corpus_harness', check,
 # match-safe:1 exposes next/mutex candidates and certifies the mutex. The
 # next block stays a candidate because that mutex also constrains its output.
 test('norm_sweep_match_safe', check_contains,
-  args: ['match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+0',
+  args: ['0', 'match-safe:1[[:space:]]+1[[:space:]]+0[[:space:]]+2[[:space:]]+1[[:space:]]+0',
          files(scripts / 'norm_sweep.py'),
          '--tlsfbenchgraph', exe['tlsfbenchgraph'],
          files(cases / 'normalization_patterns.tlsf'),
@@ -591,7 +597,7 @@ if research_tools
            '--game-profile=multi-safety',
            files(cases / 'solve_multi_bad_unreal.aag')])
   test('tlsfsolve_multi_bad_auto_refuses', check_contains,
-    args: ['cannot infer synthesis game profile.*multi-safety', exe['tlsfsolve'],
+    args: ['2', 'cannot infer synthesis game profile.*multi-safety', exe['tlsfsolve'],
            files(cases / 'solve_multi_bad_unreal.aag')])
   test('tlsfsolve_failure', check_status,
     args: ['2', files(cases / 'empty'),
@@ -645,7 +651,7 @@ test('norm_sickert3', check,
   args: [files(cases / 'normalization_sickert3.s3.tlsf'),
          exe['tlsfnorm'], '--passes', 'sickert-stage3:1', '--norm-max-growth',
          '800', files(cases / 'normalization_sickert3.tlsf')])
-# Normalization objectives confirmed once and pinned as committed goldens.
+# Frozen normalized TLSF and objective strings; this gate does not prove equivalence.
 check_norm_golden = files('../oracle/test_normalization.py')
 # (check_contains is defined near the top of the test section)
 foreach case : [
@@ -655,7 +661,7 @@ foreach case : [
     ['sickert-stage3:1', 'normalization_sickert3.tlsf'],
     ['sickert-bounded', 'normalization_sickert3.tlsf'],
   ]
-  test('norm_equiv_' + case[0].underscorify() + '_' + case[1].underscorify(),
+  test('norm_objective_golden_' + case[0].underscorify() + '_' + case[1].underscorify(),
     python3,
     args: [check_norm_golden, exe['tlsfnorm'], exe['tlsf2ltl'], cases,
            case[0], case[1]])
@@ -668,15 +674,15 @@ test('norm_finite_rejects_sickert', xfail,
 # performs these simplifications); the value is the recorded pre-pass firing,
 # so these assert the stats line rather than a byte-identical re-emission.
 test('norm_pre_indexed_x', check_contains,
-  args: ['pre-indexed-x: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
+  args: ['0', 'pre-indexed-x: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
          'pre-indexed-x', '--norm-stats',
          files(cases / 'normalization_xn.tlsf')])
 test('norm_pre_bounded_bool', check_contains,
-  args: ['pre-bounded-bool: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
+  args: ['0', 'pre-bounded-bool: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
          'pre-bounded-bool', '--norm-stats',
          files(cases / 'normalization_bounded_bool.tlsf')])
 test('norm_pre_spine_split', check_contains,
-  args: ['pre-spine-split: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
+  args: ['0', 'pre-spine-split: attempts=[1-9][0-9]* changed=[1-9]', exe['tlsfnorm'], '--pre-passes',
          'pre-spine-split', '--norm-stats',
          files(cases / 'normalization_pre_split.tlsf')])
 # Cross-check: a pre-normalized spec expands to the same TLSF as the original

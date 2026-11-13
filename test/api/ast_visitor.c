@@ -2,7 +2,7 @@
 #include "tlsf/expand.h"
 #include "tlsf/spec.h"
 
-#include <assert.h>
+#include "../check.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -15,12 +15,12 @@ static void *visit_leaf(void *ctx) {
 }
 
 static void *visit_default(void *ctx, const TlsfAstNode *node) {
-  assert(node);
+  CHECK(node);
   return visit_leaf(ctx);
 }
 
 static void *visit_ap(void *ctx, const char *name) {
-  assert(name && *name);
+  CHECK(name && *name);
   return visit_leaf(ctx);
 }
 
@@ -63,25 +63,25 @@ static bool ast_contains_kind(const TlsfAst *ast, TlsfAstKind kind) {
 
 static void test_signal_provenance(void) {
   TlsfSpec *spec = spec_new();
-  assert(spec);
-  assert(spec_add_signal(spec, false, "Ready", false, nullptr, nullptr));
-  assert(spec_add_signal(spec, false, "Bus", true, node_int(spec->arena, 2),
-                         node_int(spec->arena, 4)));
-  assert(expand(spec, nullptr, 0) == 0);
-  assert(spec->input_count == 4);
+  CHECK(spec);
+  CHECK(spec_add_signal(spec, false, "Ready", false, nullptr, nullptr));
+  CHECK(spec_add_signal(spec, false, "Bus", true, node_int(spec->arena, 2),
+                        node_int(spec->arena, 4)));
+  CHECK(expand(spec, nullptr, 0) == 0);
+  CHECK(spec->input_count == 4);
 
   const SignalDecl *scalar = &spec->inputs[0];
-  assert(strcmp(scalar->name, "Ready") == 0);
-  assert(strcmp(scalar->origin_name, "Ready") == 0);
-  assert(!scalar->origin_is_bus);
+  CHECK(strcmp(scalar->name, "Ready") == 0);
+  CHECK(strcmp(scalar->origin_name, "Ready") == 0);
+  CHECK(!scalar->origin_is_bus);
 
   for (uint32_t i = 1; i < spec->input_count; i++) {
     const SignalDecl *signal = &spec->inputs[i];
-    assert(strcmp(signal->origin_name, "Bus") == 0);
-    assert(signal->origin_is_bus);
-    assert(signal->origin_index == i + 1);
-    assert(signal->origin_bus_lo == 2);
-    assert(signal->origin_bus_hi == 4);
+    CHECK(strcmp(signal->origin_name, "Bus") == 0);
+    CHECK(signal->origin_is_bus);
+    CHECK(signal->origin_index == i + 1);
+    CHECK(signal->origin_bus_lo == 2);
+    CHECK(signal->origin_bus_hi == 4);
   }
   spec_free(spec);
 }
@@ -90,19 +90,19 @@ int main(void) {
   test_signal_provenance();
   TlsfAstVisitor empty_visitor = {0};
   tlsf_ast_free(nullptr);
-  assert(tlsf_ast_from_file(nullptr, nullptr) == nullptr);
-  assert(tlsf_ast_from_file_ex(nullptr, nullptr, nullptr) == nullptr);
-  assert(tlsf_ast_from_string(nullptr, nullptr) == nullptr);
-  assert(tlsf_ast_from_string_ex(nullptr, nullptr, nullptr) == nullptr);
-  assert(tlsf_ast_root(nullptr) == nullptr);
-  assert(tlsf_ast_cluster_count(nullptr) == 0);
-  assert(tlsf_ast_cluster_root(nullptr, 0) == nullptr);
-  assert(tlsf_ast_result(nullptr) == nullptr);
-  assert(tlsf_ast_node_kind(nullptr) == TLSF_AST_KIND_COUNT);
-  assert(tlsf_ast_node_ap_name(nullptr) == nullptr);
-  assert(tlsf_ast_node_child_count(nullptr) == 0);
-  assert(tlsf_ast_node_child(nullptr, 0) == nullptr);
-  assert(tlsf_ast_accept(nullptr, &empty_visitor, nullptr) == nullptr);
+  CHECK(tlsf_ast_from_file(nullptr, nullptr) == nullptr);
+  CHECK(tlsf_ast_from_file_ex(nullptr, nullptr, nullptr) == nullptr);
+  CHECK(tlsf_ast_from_string(nullptr, nullptr) == nullptr);
+  CHECK(tlsf_ast_from_string_ex(nullptr, nullptr, nullptr) == nullptr);
+  CHECK(tlsf_ast_root(nullptr) == nullptr);
+  CHECK(tlsf_ast_cluster_count(nullptr) == 0);
+  CHECK(tlsf_ast_cluster_root(nullptr, 0) == nullptr);
+  CHECK(tlsf_ast_result(nullptr) == nullptr);
+  CHECK(tlsf_ast_node_kind(nullptr) == TLSF_AST_KIND_COUNT);
+  CHECK(tlsf_ast_node_ap_name(nullptr) == nullptr);
+  CHECK(tlsf_ast_node_child_count(nullptr) == 0);
+  CHECK(tlsf_ast_node_child(nullptr, 0) == nullptr);
+  CHECK(tlsf_ast_accept(nullptr, &empty_visitor, nullptr) == nullptr);
 
   const char *text =
       "INFO { TITLE: \"ast\" SEMANTICS: Finite,Mealy TARGET: Mealy }\n"
@@ -111,20 +111,20 @@ int main(void) {
       "X[!] x; a R b; !x; } }\n";
   TlsfDecomposeOptions options = {.split = true};
   TlsfAst *ast = tlsf_ast_from_string(text, &options);
-  assert(ast);
+  CHECK(ast);
 
   const TlsfDecomposeResult *result = tlsf_ast_result(ast);
-  assert(result);
-  assert(result->n_inputs == 2);
-  assert(result->n_outputs == 2);
-  assert(result->n_clusters == tlsf_ast_cluster_count(ast));
-  assert(tlsf_ast_root(ast));
-  assert(ast_contains_kind(ast, TLSF_AST_NOT));
-  assert(ast_contains_kind(ast, TLSF_AST_X_STRONG));
-  assert(ast_contains_kind(ast, TLSF_AST_R));
+  CHECK(result);
+  CHECK(result->n_inputs == 2);
+  CHECK(result->n_outputs == 2);
+  CHECK(result->n_clusters == tlsf_ast_cluster_count(ast));
+  CHECK(tlsf_ast_root(ast));
+  CHECK(ast_contains_kind(ast, TLSF_AST_NOT));
+  CHECK(ast_contains_kind(ast, TLSF_AST_X_STRONG));
+  CHECK(ast_contains_kind(ast, TLSF_AST_R));
   for (uint32_t i = 0; i < tlsf_ast_cluster_count(ast); i++)
-    assert(tlsf_ast_cluster_root(ast, i));
-  assert(tlsf_ast_cluster_root(ast, tlsf_ast_cluster_count(ast)) == nullptr);
+    CHECK(tlsf_ast_cluster_root(ast, i));
+  CHECK(tlsf_ast_cluster_root(ast, tlsf_ast_cluster_count(ast)) == nullptr);
 
   TlsfAstVisitor visitor = {
       .visit_true = visit_leaf,
@@ -146,24 +146,24 @@ int main(void) {
   };
   uint32_t callbacks = 0;
   void *visited = tlsf_ast_accept(tlsf_ast_root(ast), &visitor, &callbacks);
-  assert(visited);
-  assert(decoded(visited) == manual_count(tlsf_ast_root(ast)));
-  assert(callbacks == decoded(visited));
+  CHECK(visited);
+  CHECK(decoded(visited) == manual_count(tlsf_ast_root(ast)));
+  CHECK(callbacks == decoded(visited));
 
   const TlsfAstNode *root = tlsf_ast_root(ast);
-  assert(tlsf_ast_accept(root, nullptr, nullptr) == nullptr);
-  assert(tlsf_ast_node_kind(root) < TLSF_AST_KIND_COUNT);
-  assert(tlsf_ast_node_child(root, tlsf_ast_node_child_count(root)) == nullptr);
-  assert(tlsf_ast_node_ap_name(root) == nullptr ||
-         strlen(tlsf_ast_node_ap_name(root)) > 0);
+  CHECK(tlsf_ast_accept(root, nullptr, nullptr) == nullptr);
+  CHECK(tlsf_ast_node_kind(root) < TLSF_AST_KIND_COUNT);
+  CHECK(tlsf_ast_node_child(root, tlsf_ast_node_child_count(root)) == nullptr);
+  CHECK(tlsf_ast_node_ap_name(root) == nullptr ||
+        strlen(tlsf_ast_node_ap_name(root)) > 0);
 
   TlsfAstVisitor default_visitor = {.visit_default = visit_default};
   callbacks = 0;
   visited = tlsf_ast_accept(root, &default_visitor, &callbacks);
-  assert(visited);
-  assert(callbacks == manual_count(root));
+  CHECK(visited);
+  CHECK(callbacks == manual_count(root));
   TlsfAstVisitor aborting_visitor = {0};
-  assert(tlsf_ast_accept(root, &aborting_visitor, nullptr) == nullptr);
+  CHECK(tlsf_ast_accept(root, &aborting_visitor, nullptr) == nullptr);
 
   tlsf_ast_free(ast);
 
@@ -172,14 +172,14 @@ int main(void) {
       "MAIN { INPUTS { a; b; } OUTPUTS { x; }\n"
       "GUARANTEE { !(a W b); } }\n";
   ast = tlsf_ast_from_string(strong_release_text, &options);
-  assert(ast);
-  assert(ast_contains_kind(ast, TLSF_AST_W));
+  CHECK(ast);
+  CHECK(ast_contains_kind(ast, TLSF_AST_W));
   tlsf_ast_free(ast);
 
   TlsfAstOptions ast_options = {.lower_strong_release = true};
   ast = tlsf_ast_from_string_ex(strong_release_text, &options, &ast_options);
-  assert(ast);
-  assert(!ast_contains_kind(ast, TLSF_AST_M));
+  CHECK(ast);
+  CHECK(!ast_contains_kind(ast, TLSF_AST_M));
   tlsf_ast_free(ast);
   return 0;
 }

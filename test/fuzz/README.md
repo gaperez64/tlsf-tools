@@ -14,12 +14,13 @@ Both allocation and DPA tests use at most eight APs, 64 states, 4 MiB C host sto
 
 Run commands from the tlsf-tools root. Seeds under `test/fuzz/corpus/` are named by their SHA-1.
 
-Build GCC replays, replay the seeds, then run the witnesses, which fail if any check remains unreached:
+After the [source-build prerequisites](../../README.md#build), build GCC replays
+and run the witnesses. Each witness replays its corpus once and fails if any
+check remains unreached:
 
 ```sh
-meson setup build-fz-gcc
+CC=gcc CXX=g++ meson setup build-fz-gcc
 ninja -C build-fz-gcc -j 1 test/fuzz/fuzz-roundtrip-replay test/fuzz/fuzz-alloc-replay test/fuzz/fuzz-dpa-replay
-meson test -C build-fz-gcc --num-processes 1 fuzz-roundtrip fuzz-alloc fuzz-dpa
 meson test -C build-fz-gcc --num-processes 1 fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
 ```
 
@@ -30,7 +31,12 @@ CC=clang CXX=clang++ meson setup build-fz-clang -Dfuzz=true
 ninja -C build-fz-clang -j 1
 ```
 
-With `-Dfuzz=true`, only the fuzz tests are supported: run `meson test -C build-fz-clang --num-processes 1 fuzz-roundtrip fuzz-alloc fuzz-dpa fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa`; sanitizer builds of the full suite exceed timeouts, and `source_layout` counts the per-mode harness targets as duplicates.
+With `-Dfuzz=true`, run `meson test -C build-fz-clang --num-processes 1 source_layout fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa`.
+The layout check permits exactly the replay/libFuzzer harness owners. Sanitizer
+builds of the full suite can exceed timeouts. The allocation target and witness
+are Linux-only. Replay binaries also accept individual findings or directories
+without `--witness`, as shown below; ordinary replay is not registered as a
+second execution of the same seed corpus.
 
 Run `python3 test/fuzz/mutants.py build-fz-gcc` to rebuild each `mutants.json` library mutation in a temporary copy and require its seed to abort at the recorded check. Diagnostics go to `build-fz-gcc/fuzz-mutants.log`; this slow check is outside the default Meson suite.
 

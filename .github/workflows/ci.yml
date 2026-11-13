@@ -180,8 +180,7 @@ jobs:
           meson setup build-fuzz-replay -Dfuzz=true
           ninja -C build-fuzz-replay -j 1
           meson test -C build-fuzz-replay --no-rebuild --num-processes 1 --print-errorlogs \
-            fuzz-roundtrip fuzz-alloc fuzz-dpa \
-            fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
+            source_layout fuzz-witness-roundtrip fuzz-witness-alloc fuzz-witness-dpa
 
   compiler-order:
     runs-on: ubuntu-24.04

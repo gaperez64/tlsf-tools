@@ -4,10 +4,16 @@ dpa_dag = executable('dpa_dag', 'dpa_dag.c', c_args: ['-UNDEBUG'], dependencies:
 test('dpa_dag', dpa_dag)
 
 foreach name : ['ast_visitor', 'aiger_roundtrip']
-  test(name, executable(name, name + '.c', dependencies: tlsf_dep))
+  client = executable(name, name + '.c', dependencies: tlsf_dep)
+  test(name, client)
+  if name == 'ast_visitor'
+    assertion_check_targets += [client]
+  endif
 endforeach
 foreach name : ['decompose_cpp', 'visitor_cpp', 'convert']
-  test(name, executable(name, name + '.cpp', dependencies: tlsf_dep))
+  client = executable(name, name + '.cpp', dependencies: tlsf_dep)
+  test(name, client)
+  assertion_check_targets += [client]
 endforeach
 
 ast_golden_exe = executable('ast_golden', 'ast_golden.cpp', dependencies: tlsf_dep)
@@ -25,6 +31,7 @@ native_reduction_exe = executable('native_reduction', 'native_reduction.cpp',
 native_reduction_c_exe = executable('native_reduction_c',
   'native_reduction_c.c', dependencies: tlsf_dep, link_language: 'c')
 test('native_reduction_c', native_reduction_c_exe)
+assertion_check_targets += [native_lift_c_exe, native_reduction_c_exe]
 # native_reduction with frontend provenance (see the source's header).
 gr1_environment_reduce_exe = executable('gr1_environment_reduce',
   'gr1_environment_reduce.cpp', dependencies: tlsf_dep)

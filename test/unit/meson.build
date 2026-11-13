@@ -125,6 +125,7 @@ if research_tools
     link_args: ['-Wl,--wrap=env_witness_search'],
     dependencies: tlsf_internal_dep)
   test('pruning_cache', pruning_cache)
+  assertion_check_targets += [pruning_cache]
   phase_b_probe = executable('phase_b_probe', 'phase_b_probe.c',
     c_args: ['-UNDEBUG'],
     dependencies: tlsf_internal_dep)
@@ -168,6 +169,7 @@ test('native_contract_validators', native_contract_api_exe)
 native_env_contract_api_exe = executable('native_env_contract_api',
   'native_env_contract_api.cpp', dependencies: tlsf_internal_dep)
 test('native_env_contract_validators', native_env_contract_api_exe)
+assertion_check_targets += [native_contract_api_exe, native_env_contract_api_exe]
 # gr1_lift.cc again, with its fault hooks compiled in; its own object takes
 # precedence over the library's copy.
 native_lift_api_exe = executable('native_lift_api',
@@ -226,6 +228,7 @@ endif
 if host_machine.system() == 'linux'
   oxidd_runtime_exe = executable('oxidd_runtime', 'oxidd_runtime.c',
                                  dependencies: tlsf_internal_dep)
+  assertion_check_targets += [oxidd_runtime_exe]
   foreach mib : ['0', '64', '512', '1024', '2048', '32768']
     test('oxidd_runtime_' + mib, oxidd_runtime_exe, args: [mib],
          is_parallel: false)

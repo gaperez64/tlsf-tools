@@ -1,6 +1,6 @@
 # tlsf-tools
 
-Command-line tools and a shared C library for [TLSF](https://github.com/reactive-systems/syfco)
+Command-line tools and a C library (installed as `libtlsf.a`) for [TLSF](https://github.com/reactive-systems/syfco)
 (Temporal Logic Synthesis Format) specifications. They expand parameters,
 definitions (including recursive cases), sets, reductions, structural pattern
 guards, buses, bounded temporal operators, `enum` types, and `SIZEOF` into ground
@@ -84,6 +84,8 @@ archives and the stable preprocessing API.
 | `tlsfbenchgraph` | Report corpus benchmarks and structural shapes. |
 | `tlsfresidual` | Emit residual clusters after sound decomposition. |
 | `tlsfcompose` | Plan decomposed synthesis and merge AIGER strategies. |
+| [`tlsfsym`](src/tools/tlsfsym/README.md) | Census of declared-index symmetries. |
+| `tlsfcertcheck` | Independent native GR(1) certificate and policy checking. |
 | `tlsfsolve` | Solve [AbsSynthe](https://github.com/gaperez64/AbsSynthe)-style AIGER safety/GR(1) games with OxiDD. |
 
 ## Build
@@ -93,14 +95,16 @@ Requires C23 and C++20 compilers, [Meson](https://mesonbuild.com/),
 `cbindgen` 0.29.4. Every build includes OxiDD and native GR(1); `research_tools`
 controls only optional executables. The library, tests, CI and offline tools use only in-house checks.
 
+Initialize OxiDD before configuring either source build:
+
 ```sh
+git submodule update --init --recursive
 meson setup build --buildtype=release
-ninja -C build
+ninja -C build -j 2
 
 # Research tools
-git submodule update --init --recursive
 meson setup build-research -Dresearch_tools=true --buildtype=release
-ninja -C build-research
+ninja -C build-research -j 2
 ```
 
 Use `-Dsanitize=address,undefined` for development sanitizers. JSON support uses
@@ -146,15 +150,31 @@ proved reference and validation sample, not a proof of the C implementation.
 
 ## Usage
 
-Tools read `FILE` or stdin, write stdout or `--output FILE`, and accept
-`--version` and `--help`. Options use long (`--`) names only.
+The preprocessing tools (`tlsf2ltl`, `tlsf2tlsf`, `tlsfinfo`, `tlsfnorm`)
+read `FILE` or stdin, write stdout or `--output FILE`, and accept `--version`
+and `--help` with long option names. `mealy2moore` and the research solver
+`tlsfsolve` write strategies to stdout; redirect it as shown below. Both accept
+`-h` for help and `--version`. `tlsfsolve` also accepts `-v` for diagnostic
+verbosity in debug builds.
+
+Install the tools or add the selected build directories to `PATH`:
+
+```sh
+export PATH="$PWD/build:$PWD/build-research:$PATH"
+```
+
+Research examples require `-Dresearch_tools=true`. Supply your own `spec.tlsf`,
+strategies, corpus directories and `panel.list`. The automata generator requires
+an Acacia build configured with `-Dbuild_research_tools=true`.
 
 ```sh
 # convert
 tlsf2ltl  spec.tlsf                       # spec's LTL (ltlxba, minimal parens)
-tlsf2ltl  --format ltl|latex spec.tlsf    # plain LTL / LaTeX math
+tlsf2ltl  --format ltl spec.tlsf          # plain LTL
+tlsf2ltl  --format latex spec.tlsf        # LaTeX math
 tlsf2ltl  --strong-simplify spec.tlsf     # NNF + push/pull simplification, etc.
-tlsf2ltl  --safety | --liveness spec.tlsf # syntactic split of the formula
+tlsf2ltl  --safety spec.tlsf              # syntactic safety fragment
+tlsf2ltl  --liveness spec.tlsf            # syntactic liveness fragment
 tlsf2ltl  --fair-environment spec.tlsf     # assume every input toggles forever
 tlsf2tlsf --fair-environment spec.tlsf     # add scalar/quantified fairness
 tlsf2tlsf --basic spec.tlsf               # fully expanded basic TLSF
@@ -163,8 +183,10 @@ mealy2moore strategy.aag > strategy.moore.aag  # delay Mealy outputs one step
 
 # inspect
 tlsfinfo  spec.tlsf                        # all metadata (--semantics, --title, …)
-tlsfinfo  --input-signals|--output-signals spec.tlsf    # declared (bus notation)
-tlsfinfo  --expanded-ins|--expanded-outs   spec.tlsf    # scalar input/output CSV
+tlsfinfo  --input-signals spec.tlsf        # declared inputs (bus notation)
+tlsfinfo  --output-signals spec.tlsf       # declared outputs (bus notation)
+tlsfinfo  --expanded-ins spec.tlsf         # scalar input CSV
+tlsfinfo  --expanded-outs spec.tlsf        # scalar output CSV
 tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 
 # research / diagnostics
@@ -172,9 +194,9 @@ tlsftemplates --certify --solve --format csnf spec.tlsf   # certified controller
 tlsfbenchgraph --input-dir specs/ --split --summary       # corpus shape census
 tlsfbenchgraph --source-features spec.tlsf                # leakage-free selector row
 scripts/automata_study.py --file-list panel.list --output run/ \
-  --tlsfnorm build/tlsfnorm --tlsf2ltl build/tlsf2ltl \
-  --tlsfinfo build/tlsfinfo --tlsfbenchgraph build/tlsfbenchgraph \
-  --automata-generator ../acacia-bonsai/build/src/acacia-automata-study
+  --tlsfnorm build-research/tlsfnorm --tlsf2ltl build-research/tlsf2ltl \
+  --tlsfinfo build-research/tlsfinfo --tlsfbenchgraph build-research/tlsfbenchgraph \
+  --automata-generator /path/to/acacia-research-build/src/acacia-automata-study
 
 # normalize / decompose / synthesize
 tlsfnorm  --passes split,nnf,boolean spec.tlsf            # re-emit normalized TLSF
@@ -186,7 +208,8 @@ tlsfresidual --split --output-dir out/ spec.tlsf          # one residual.k.ltl p
 tlsfresidual --split --lowercase spec.tlsf                # lowercase formulas + interfaces
 tlsfcompose --split --output-dir out/ spec.tlsf           # controllers.aag + clusters + exact OxiDD solves
 tlsfcompose --split --realizability spec.tlsf             # fast REAL/UNREAL/UNKNOWN oracle
-tlsfcompose --merge out/controllers.aag out/cluster.*.aag # recombine external strategies
+# After supplying every residual controller:
+tlsfcompose --merge out/controllers.aag out/cluster.*.aag # recombine strategies
 scripts/solve.sh --output ctrl.aag spec.tlsf  # native controllers; UNKNOWN if unresolved
 scripts/solve.sh --backend acacia --solver acacia-bonsai \
         --output ctrl.aag spec.tlsf                            # acacia backend
@@ -231,7 +254,8 @@ or internal AST layouts:
 - opaque AST: `#include <tlsf/ast_api.h>`
 - typed C++ visitor: `#include <tlsf/ast_api.hpp>`
 - Meson: `dependency('tlsf')`
-- pkg-config: `pkg-config --cflags --libs tlsf`
+- pkg-config: `pkg-config --cflags --static --libs tlsf` (includes the static
+  library's private link dependencies)
 
 `tlsf_decompose_string()` / `tlsf_decompose_file()` return duplicated strings:
 preprocessed LTL, global inputs/outputs, residual clusters
@@ -246,6 +270,9 @@ walk the opaque 16-kind post-expansion tree manually or use
 `tlsf_ast_accept()`'s children-first callback table. The header-only C++ API
 provides `tlsf::ast::Ast`, non-owning `Tree` values, and an ANTLR-style
 `Visitor<T>` whose methods build any consumer-defined result type.
+
+Embedding fragment: supply `spec_text`, `MyFormula` and `MyFormulaBuilder`
+in your application.
 
 ```cpp
 #include <tlsf/decompose.hpp>
@@ -273,7 +300,7 @@ No `Aig`, OxiDD, internal `Node`, cover, CSNF, or arena type crosses this API.
 and writes remaining clusters. For file-based controller export:
 
 ```sh
-mkdir out && tlsfcompose --split --output-dir out/ spec.tlsf
+mkdir -p out && tlsfcompose --split --output-dir out/ spec.tlsf
 sh out/compose.sh
 scripts/solve.sh --output ctrl.aag spec.tlsf
 ```
@@ -308,14 +335,15 @@ tlsfbenchgraph --input-dir benchmarks/tlsf --split --summary > shapes.tsv
 tlsftemplates --certify --solve --format csnf spec.tlsf
 scripts/benchgraph.py --corpus benchmarks/tlsf \
   --tlsfcompose build-research/tlsfcompose \
-  --solver ../acacia-bonsai/build_best_decomp_mona/src/acacia-bonsai
+  --solver /path/to/acacia-build/src/acacia-bonsai
 scripts/collect_route_stats.py --compose build-research/tlsfcompose \
   --timeout 5 --out route_stats.tsv benchmarks/tlsf
 ```
 
 The first command reports per-spec metrics and aggregate template distributions.
-`collect_route_stats.py` runs no solver, writes rows incrementally, and skips
-slow specs. [BENCHGRAPH.md](BENCHGRAPH.md) holds wrapper results; `--from-data`
+`collect_route_stats.py` does not invoke an external residual synthesizer;
+route collection can run native Boolean prechecks. It writes rows incrementally
+and skips slow specs. [BENCHGRAPH.md](BENCHGRAPH.md) holds wrapper results; `--from-data`
 re-renders them.
 
 ## Synthesis guarantees
@@ -378,9 +406,9 @@ shape then follows the (possibly overwritten) `SEMANTICS`/`TARGET`:
   and `W` plus any internally derived strong release are rewritten with
   LTLf-valid identities.
 - **Mealy/Moore**: from `SEMANTICS`; for infinite words, a `TARGET` mismatch
-  is converted (Moore→Mealy delays all environment inputs `i↦X i`, including
-  undeclared atoms; Mealy→Moore delays outputs `o↦X o`). Under finite-word
-  semantics, target adaptation is unsupported: `SEMANTICS` and `TARGET` must
+  is converted (Moore→Mealy delays all environment inputs `i↦X i`;
+  Mealy→Moore delays outputs `o↦X o`). Under finite-word semantics, target
+  adaptation is unsupported: `SEMANTICS` and `TARGET` must
   agree. The adapting CLIs and decomposition API refuse finite mismatches;
   `tlsf_convert` refuses all finite semantics.
 
@@ -391,9 +419,11 @@ Output is minimally parenthesised by the classic ASCII LTL precedence
 (`! X F G` > `U R W` > `&&` > `||` > `-> <->`). `--parenthesize` fully
 parenthesises; `--format` picks the spelling (`ltlxba`/`ltl`/`latex`).
 Equivalence-preserving rewrites are exposed as flags
-(`--weak-simplify`=`-s0`, `--strong-simplify`=`-s1`, `--nnf`,
-`--no-{weak-until,release,strong-release,finally,globally}`,
-`--{push,pull}-{globally,finally,next}-{in,out}`);
+(`--weak-simplify` and `--strong-simplify` correspond to SyFCo's `-s0` and `-s1`).
+Other flags are `--nnf`, `--no-weak-until`, `--no-release`,
+`--no-strong-release`, `--no-finally`, `--no-globally`, `--push-globally-in`,
+`--push-finally-in`, `--push-next-in`, `--pull-globally-out`,
+`--pull-finally-out`, and `--pull-next-out`.
 The rewrites have native regression checks and a Lean reference; independent
 direct-semantics sampling checks the committed normalized objectives.
 
@@ -425,12 +455,17 @@ safety/liveness output modes.
 Each area has a `meson.build`; top-level executable declarations put binaries
 at `build/<tool>`.
 
+Development tests may build dependencies. Use clang-format 22.1.8 (as in CI);
+the clang-tidy command below checks C sources.
+
 ```sh
 meson test -C build
 meson setup build-cov -Dresearch_tools=true -Db_coverage=true && meson test -C build-cov
-git ls-files '*.[ch]' '*.cc' '*.cpp' '*.hh' '*.hpp' | xargs clang-format -i
+git ls-files -z -- '*.[ch]' '*.cc' '*.cpp' '*.hh' '*.hpp' | xargs -0 clang-format -i
 clang-tidy -p build src/lib/*.c src/tools/*/*.c
-bench/bench.sh [--baseline|--check]
+bench/bench.sh             # report timings for the current build
+bench/bench.sh --baseline  # write replacement baseline data
+bench/bench.sh --check     # fail on wall-time/RSS regressions
 ```
 
 CI (`.github/workflows/ci.yml`) checks formatting, GCC/Clang builds, tests,

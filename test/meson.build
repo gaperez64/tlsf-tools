@@ -13,6 +13,7 @@ test_env = environment()
 test_env.unset('TLSFCOMPOSE_SOLVER')
 add_test_setup('default', env: test_env, is_default: true)
 
+assertion_check_targets = []
 subdir('fixtures')
 subdir('unit')
 if research_tools
@@ -25,6 +26,13 @@ if research_tools
   gr1_one_step = executable('gr1_one_step', 'gr1_one_step.c', dependencies: oxidd_dep)
 endif
 subdir('oracle')
+
+negative_check_args = [files('check_negative_controls.py'), meson.project_build_root()]
+if research_tools
+  negative_check_args += ['--research']
+endif
+test('assertion_negative_controls', python3, args: negative_check_args,
+  depends: assertion_check_targets, timeout: 300, is_parallel: false)
 
 test('oxidd_build_stamp', python3,
   args: [files('api/test_oxidd_stamp.py'), oxidd_stamp_py, oxidd_dir,

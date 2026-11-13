@@ -26,8 +26,6 @@ foreach mode : fuzz ? ['replay', 'fuzzer'] : ['replay']
       replay = executable('fuzz-' + target + '-replay',
                           link_whole: [harness, replayer], link_args: extra_links,
                           dependencies: tlsf_dep)
-      test('fuzz-' + target, replay, suite: 'unit',
-           args: [meson.current_source_dir() / 'corpus' / target])
       test('fuzz-witness-' + target, replay, suite: 'unit',
            args: ['--witness', target.substring(0, 1).to_upper(),
                   meson.current_source_dir() / 'corpus' / target])
