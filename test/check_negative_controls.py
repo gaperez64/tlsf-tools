@@ -49,8 +49,9 @@ def main():
     if args.research:
         cases.append(('unit/pruning_cache.c', 'CHECK(calls == 1);',
                       'CHECK(calls != 1);', []))
+    runtime_source = root / 'test' / 'unit' / 'oxidd_runtime.c'
     runtime_commands = [row for row in commands
-                        if Path(row['file']).name == 'oxidd_runtime.c']
+                        if (build / row['file']).resolve() == runtime_source]
     address_sanitized = any(
         arg.startswith('-fsanitize=') and 'address' in arg.split('=', 1)[1].split(',')
         for row in runtime_commands for arg in shlex.split(row['command']))
