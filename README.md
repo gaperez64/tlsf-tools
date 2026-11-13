@@ -442,3 +442,8 @@ direct-semantics evaluator, seeded in-house formulas, native OxiDD/certificates,
 and kernel-checked Lean translation validation. Historical verdicts that cannot
 be independently renewed remain frozen, with their original provenance. See
 [the golden guide](test/fixtures/golden/README.md) for serial commands and scope.
+
+Source changes require behaviour checks and current proof correspondence
+references. Per-PR source-hash ledgers are no longer required. When golden
+output changes, regenerate `test/fixtures/golden/MANIFEST.sha256` in the same PR
+and explain why the output changed, following the golden guide.
