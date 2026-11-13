@@ -110,7 +110,7 @@
     },
     "test/cli/check_tlsfnorm_help.py": {
       "previous_sha256": "558ec81a7287f48b34c4179d22d29811decd78d2c7cbbc53f8d4930fde3af56c",
-      "current_sha256": "07b4dad185c7e1a75f3fb1175fcc9f301d434b7c08f9dd971dee370c75b24a4b"
+      "current_sha256": "14520b8e0780d7df2121210064a682f40094159b99f8ccf473d5242380cb795b"
     },
     "test/cli/meson.build": {
       "previous_sha256": "4a9fee2cb44f849c3fca614305b99b26cf38b32bbb5417e06ae01f2dadaf9eb0",
@@ -135,7 +135,7 @@
   },
   "added_sources_sha256": {
     "src/lib/normalize_internal.h": "734376fcc50bc9be75fdea4e2c7676ba464fa9723aab8a6ba041ec006cb6c684",
-    "test/unit/normalize_stats.c": "bc6031306ec9f463dd3d76d64972cef6d295ea8987eabfc8144a97a5b9335216"
+    "test/unit/normalize_stats.c": "fb98d3706ee8530bb7227c492699c83101bbf3fe6a30fdf6fab6f4f07f292063"
   },
   "preserved_artifacts_sha256": {
     "test/fixtures/golden/README.md": "eb4ec20a564049d2723095153ba4214eecbdd977f353102e977de6ef422a4337",
