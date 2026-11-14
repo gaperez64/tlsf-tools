@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 
 from golden import Golden
 
@@ -151,3 +152,77 @@ for tool in (residual, compose):
     assert "q" in inputs.split(","), emitted
 print("EnvSat inconsistent / syntax budget: retained D")
 gold.finish()
+
+# Frozen before the ResidualPlan migration: true occupies a cluster, definitions
+# and accepted reaction controllers disappear, and --single retains assumptions.
+core = "G (p <-> X r) && G (u <-> X s)"
+reaction = " && G (q -> X w)"
+definition = " && G (v <-> t)"
+for semantics, target, counts, clusters, outs, ins, formula in (
+        ("Mealy", "Mealy", (4, 33, 2),
+         [("", "", "true"), ("p", "r", "G (p <-> X r)"),
+          ("u", "s", "G (u <-> X s)")],
+         "p,u", "q,r,s", "G F q -> true && " + core),
+        ("Mealy,Strict", "Mealy", (4, 33, 2),
+         [("", "", "true"), ("p", "r", "G (p <-> X r)"),
+          ("u", "s", "G (u <-> X s)")],
+         "p,u", "q,r,s", "G F q -> true && " + core),
+        ("Mealy,Finite", "Mealy", (5, 17, 1),
+         [("p,u,w", "q,r,s", "G F q -> true && " + core + reaction)],
+         "p,u,w", "q,r,s", "G F q -> true && " + core + reaction),
+        ("Moore", "Moore", (5, 17, 1),
+         [("", "q", "G F q -> true"),
+          ("p", "q,r", "G F q -> G (p <-> X r)"),
+          ("u", "q,s", "G F q -> G (u <-> X s)"),
+          ("v", "q,t", "G F q -> G (v <-> t)")],
+         "p,u,v", "q,r,s,t", "G F q -> true && " + core + definition),
+        ("Moore,Finite", "Moore", (6, 0, 0),
+         [("p,u,v,w", "q,r,s,t",
+           "G F q -> true && " + core + definition + reaction)],
+         "p,u,v,w", "q,r,s,t", "G F q -> true && " + core + definition + reaction)):
+    text = (f"INFO {{ SEMANTICS: {semantics} TARGET: {target} }} MAIN {{ "
+            "INPUTS { q; r; s; t; } OUTPUTS { p; u; v; w; } "
+            "ASSUMPTIONS { G F q; } GUARANTEES { true; G(p <-> X r); "
+            "G(u <-> X s); G(v <-> t); G(q -> X w); } }")
+    remaining, eliminated, owned = counts
+    banner = (f"c composition: residual={remaining}/6 constraints "
+              f"({eliminated}% eliminated), outputs owned={owned}, conflicts=0\n")
+
+    def run_residual(*options):
+        result = subprocess.run([residual, *options], input=text, text=True,
+                                capture_output=True, timeout=10)
+        assert result.returncode == 0 and not result.stderr, result
+        return result.stdout
+
+    expected = banner + f"c clusters {len(clusters)}\n"
+    for k, (outputs, inputs, ltl) in enumerate(clusters):
+        expected += f"c cluster {k} outs={outputs} ins={inputs}\n{ltl}\n"
+    assert run_residual() == expected, semantics
+    assert run_residual("--single") == (
+        banner + f"c outs={outs}\nc ins={ins}\n{formula}\n"), semantics
+    with TemporaryDirectory() as directory:
+        expected = banner + f"c clusters {len(clusters)}\n"
+        artifacts = {}
+        for k, (outputs, inputs, ltl) in enumerate(clusters):
+            name = f"residual.{k}.ltl"
+            artifacts[name] = f"c outs={outputs}\nc ins={inputs}\n{ltl}\n"
+            expected += f"c cluster {k} file={name} outs={outputs} ins={inputs}\n"
+        assert run_residual("--output-dir", directory) == expected, semantics
+        assert {p.name: p.read_text() for p in Path(directory).iterdir()} == artifacts
+    print(f"ResidualPlan {semantics}: exact residuals, interfaces and filenames")
+
+# This spelling must survive: tlsfresidual has never requested weak rewrites.
+text = source("GUARANTEES { p R false; }")
+assert run_residual() == (
+    "c composition: residual=1/1 constraints (0% eliminated), "
+    "outputs owned=0, conflicts=0\nc clusters 1\nc cluster 0 outs=p ins=\np R false\n")
+
+# Empty and fully discharged plans still export no files and a single true.
+for sections in ("", "GUARANTEES { G(q -> X p); }"):
+    text = source(sections)
+    assert run_residual() == "c composition: fully-solved\nc clusters 0\n"
+    assert run_residual("--single") == (
+        "c composition: fully-solved\nc outs=\nc ins=\ntrue\n")
+    with TemporaryDirectory() as directory:
+        assert run_residual("--output-dir", directory) == run_residual()
+        assert not list(Path(directory).iterdir())
