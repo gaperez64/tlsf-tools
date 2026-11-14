@@ -67,6 +67,30 @@ if host_machine.system() == 'linux'
       '-Wl,--wrap=oxidd_bdd_cofactor_true'],
     dependencies: tlsf_internal_dep)
   test('dpa_contract', dpa_contract, timeout: 120)
+  rank_wraps = ['ref', 'unref', 'not', 'true', 'false', 'var', 'and', 'or',
+                'xor', 'equiv', 'forall', 'exists', 'restrict', 'substitute',
+                'cofactor_true', 'cofactor_false', 'cofactors', 'apply_exists']
+  rank_link_args = []
+  foreach name : rank_wraps
+    rank_link_args += ['-Wl,--wrap=oxidd_bdd_' + name]
+  endforeach
+  gr1_check_rank = executable('gr1_check_rank', 'gr1_check_rank.c',
+    override_options: ['b_lto=false'], link_args: rank_link_args,
+    dependencies: tlsf_internal_dep)
+  test('gr1_check_rank', gr1_check_rank, timeout: 120, is_parallel: false)
+  if research_tools
+    foreach suite : ['certcheck', 'unreal_certificate', 'region']
+      test('gr1_rank_' + suite, python3,
+        args: [files('../oracle/test_gr1_' + suite + '.py'),
+               '--solver', exe['tlsfsolve'], '--checker', gr1_check_rank,
+               '--games', '16'],
+        timeout: 180, is_parallel: false)
+    endforeach
+    test('gr1_rank_check_order', python3,
+      args: [files('../oracle/test_gr1_check_order.py'),
+             '--solver', exe['tlsfsolve'], '--checker', gr1_check_rank],
+      timeout: 120, is_parallel: false)
+  endif
   # Use the existing production library. Non-LTO test allocation/manager seams
   # keep the observers visible even when that library was built with LTO.
   dpa_deadline = executable('dpa_deadline', 'dpa_deadline.c',

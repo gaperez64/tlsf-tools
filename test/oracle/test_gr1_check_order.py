@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import random
@@ -24,30 +25,44 @@ def stable_json_bytes(text: str) -> str:
 
 
 def run(checker, arguments):
-    return subprocess.run([str(checker), *map(str, arguments)], text=True,
-                          capture_output=True, check=False, timeout=20)
+    result = subprocess.run([str(checker), *map(str, arguments)],
+                            capture_output=True, check=False, timeout=20)
+    result.stdout = result.stdout.decode()
+    result.stderr = result.stderr.decode()
+    return result
 
 
-def check_orders(checker, baseline, root, game, policy, cert, method):
+def check_orders(checker, baseline, root, game, policy, cert, method,
+                 artifacts, emit=False):
     arguments = ["--method", method, "--certificate", cert,
                  "--node-cap", "65536", "--cache-cap", "65536",
                  "--json-out", root / "result.json", game]
     if method != "region":
         arguments.append(policy)
+    controller = root / "controller.aag"
+    if emit:
+        controller.unlink(missing_ok=True)
+        arguments.extend(["--emit-controller", controller])
     automatic = run(checker, arguments)
-    json_text = (root / "result.json").read_text()
+    json_text = (root / "result.json").read_bytes().decode()
+    artifacts.extend([str(automatic.returncode).encode(),
+                      stable_output(automatic.stdout).encode(),
+                      automatic.stderr.encode(),
+                      stable_json_bytes(json_text).encode()])
+    if emit:
+        artifacts.append(controller.read_bytes())
     payload = json.loads(json_text)
     explicit = run(checker, ["--var-order", "auto", *arguments])
     assert explicit.returncode == automatic.returncode
     assert stable_output(explicit.stdout) == stable_output(automatic.stdout), (automatic, explicit)
     assert explicit.stderr == automatic.stderr
-    assert stable_json_bytes((root / "result.json").read_text()) == stable_json_bytes(json_text)
+    assert stable_json_bytes((root / "result.json").read_bytes().decode()) == stable_json_bytes(json_text)
     if baseline:
         previous = run(baseline, arguments)
         assert previous.returncode == automatic.returncode
         assert stable_output(previous.stdout) == stable_output(automatic.stdout)
         assert previous.stderr == automatic.stderr
-        assert stable_json_bytes((root / "result.json").read_text()) == stable_json_bytes(json_text)
+        assert stable_json_bytes((root / "result.json").read_bytes().decode()) == stable_json_bytes(json_text)
     for order in ("input-first", "state-first"):
         forced = run(checker, ["--var-order", order, *arguments])
         assert certcheck.checker_status(forced) == certcheck.checker_status(automatic), (
@@ -84,6 +99,7 @@ def main():
     fixtures.extend(certcheck.differential.make_random_game(rng, index)
                     for index in range(8))
     checked = 0
+    artifacts = []
     with tempfile.TemporaryDirectory(prefix="tlsf-check-order-") as directory:
         root = pathlib.Path(directory)
         for index, game_text in enumerate(fixtures):
@@ -97,14 +113,15 @@ def main():
             # Both polarities export a certificate and policy.
             assert cert.exists() and policy.exists(), solved
             for method in ("auto", "certificate", "closed-loop", "both"):
-                assert check_orders(checker, baseline, root, game, policy, cert, method) == 0
+                assert check_orders(checker, baseline, root, game, policy, cert, method,
+                                    artifacts, emit=solved.returncode == 0) == 0
                 checked += 1
             if solved.returncode == 0:
-                assert check_orders(checker, baseline, root, game, policy, cert, "region") == 0
+                assert check_orders(checker, baseline, root, game, policy, cert, "region", artifacts) == 0
                 checked += 1
             genuine_cert = cert.read_text()
             cert.write_text(certcheck.replace_output(genuine_cert, "inv", replacement=0))
-            assert check_orders(checker, baseline, root, game, policy, cert, "certificate") == 6
+            assert check_orders(checker, baseline, root, game, policy, cert, "certificate", artifacts) == 6
             checked += 1
             cert.write_text(genuine_cert)
             policy_text = policy.read_text()
@@ -112,20 +129,20 @@ def main():
                            if not name.startswith("curr_next_"))
             policy.write_text(certcheck.replace_output(policy_text, control, invert=True))
             for method in ("auto", "certificate", "closed-loop", "both"):
-                check_orders(checker, baseline, root, game, policy, cert, method)
+                check_orders(checker, baseline, root, game, policy, cert, method, artifacts)
                 checked += 1
             policy.write_text(policy_text)
             sidecar = pathlib.Path(str(cert) + ".json")
             genuine_json = sidecar.read_text()
             sidecar.write_text("invalid JSON")
-            assert check_orders(checker, baseline, root, game, policy, cert, "certificate") == 4
+            assert check_orders(checker, baseline, root, game, policy, cert, "certificate", artifacts) == 4
             checked += 1
             sidecar.write_text(genuine_json)
 
             if index == 1:
                 padded = certcheck.wrap_output_in_selectors(policy_text, control, 1400)
                 policy.write_text(certcheck.replace_output(padded, control, invert=True))
-                assert check_orders(checker, baseline, root, game, policy, cert, "certificate") == 6
+                assert check_orders(checker, baseline, root, game, policy, cert, "certificate", artifacts) == 6
                 arguments = ["--method", "certificate", "--certificate", cert,
                              "--node-cap", "65536", "--cache-cap", "65536",
                              "--stats", game, policy]
@@ -137,7 +154,12 @@ def main():
                     assert " legacy_order=0 " in forced.stderr
                     assert "COUNTEREXAMPLE reason=" in forced.stdout
                 checked += 1
-    print(f"{checked} checker fixtures agree across automatic and forced orders")
+    # Fixed HEAD 6103fe3 bytes: statuses, stdout, stderr, JSON, system controllers.
+    # Only elapsed-time fields are normalized; no executable baseline is needed.
+    digest = hashlib.sha256(b"\0".join(artifacts)).hexdigest()
+    assert digest == "9e7f747cf2b8ee0545888d69548cf153b19a6450087284e7e83f9f10c294d6b2", digest
+    print(f"{checked} checker fixtures agree across automatic and forced orders; "
+          f"stable results and {len(artifacts) - 4 * checked} controllers match HEAD 6103fe3")
     return 0
 
 
