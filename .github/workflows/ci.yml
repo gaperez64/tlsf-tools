@@ -94,6 +94,7 @@ jobs:
     runs-on: macos-15
     env:
       CARGO_BUILD_JOBS: '1'
+      CCACHE_COMPILERCHECK: '%compiler% -v'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -116,7 +117,7 @@ jobs:
         with: {key: ci-build-macos, max-size: 100M}
       - name: Build stable tools and library, then run regressions
         run: |
-          CC="ccache $(xcrun -f clang)" CXX="ccache $(xcrun -f clang++)" \
+          CC="ccache ${CC:-cc}" CXX="ccache ${CXX:-c++}" \
             meson setup build-macos --buildtype=release -Dresearch_tools=false -Dcpu=neon
           meson compile -C build-macos -j1
           meson test -C build-macos --no-rebuild --num-processes 1 --print-errorlogs
