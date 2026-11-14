@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "normalize_internal.h"
 
+#include "formula_equal.h"
 #include "nnf.h"
 #include "rewrite.h"
 #include "tlsf/spec.h"
@@ -611,8 +612,6 @@ void tlsf_norm_count_obstacles(const Node *n, TlsfObstacles *out) {
     obst_walk(n, false, false, false, false, out);
 }
 
-static bool node_eq(const Node *x, const Node *y);
-
 static bool is_int_lit(const Node *n, int64_t *v) {
   if (n->kind == NODE_INT) {
     *v = n->ival;
@@ -779,7 +778,7 @@ static Node *pre_weak(Arena *a, Node *n, bool finite) {
       return r;
     if (r->kind == NODE_TRUE)
       return l;
-    if (node_eq(l, r))
+    if (formula_equal(l, r, true))
       return l;
     return (l == n->lhs && r == n->rhs) ? n : node_and(a, l, r);
   }
@@ -791,7 +790,7 @@ static Node *pre_weak(Arena *a, Node *n, bool finite) {
       return r;
     if (r->kind == NODE_FALSE)
       return l;
-    if (node_eq(l, r))
+    if (formula_equal(l, r, true))
       return l;
     return (l == n->lhs && r == n->rhs) ? n : node_or(a, l, r);
   }
@@ -1410,87 +1409,6 @@ static Node *apply_pass_once(Arena *a, TlsfNormPass p, Node *n, bool finite) {
   }
 }
 
-// Conservative equality for pre-expansion as well as expanded formulas.
-// Only descend through kinds whose complete semantic payload is handled here.
-// Source IDs, origin bindings and expanded bounded caches are provenance;
-// resolved_signal affects name lookup, and indexed-next strength is semantic.
-static bool node_eq(const Node *x, const Node *y) {
-  if (x == y)
-    return true;
-  if (!x || !y || x->kind != y->kind)
-    return false;
-  switch (x->kind) {
-  case NODE_TRUE:
-  case NODE_FALSE:
-    return true;
-  case NODE_AP:
-    return x->name == y->name && x->resolved_signal == y->resolved_signal;
-  case NODE_INT:
-    return x->ival == y->ival;
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return node_eq(x->arg, y->arg);
-  case NODE_NEXT_N:
-    return x->bounded.strong == y->bounded.strong && node_eq(x->lhs, y->lhs) &&
-           node_eq(x->rhs, y->rhs);
-  case NODE_AND:
-  case NODE_OR:
-  case NODE_IMPL:
-  case NODE_EQUIV:
-  case NODE_R:
-  case NODE_W:
-  case NODE_U:
-  case NODE_M:
-    return node_eq(x->lhs, y->lhs) && node_eq(x->rhs, y->rhs);
-  // Unhandled high-level payloads are unequal unless pointer-identical. In
-  // particular, ranges/reductions are not binary: their bodies and remaining
-  // bounds live beyond lhs/rhs in the union. Never read an inactive union arm.
-  case NODE_DEF_CALL:
-  case NODE_BUS_INDEX:
-  case NODE_PATTERN:
-  case NODE_INT_ADD:
-  case NODE_INT_SUB:
-  case NODE_INT_MUL:
-  case NODE_INT_DIV:
-  case NODE_INT_MOD:
-  case NODE_INT_NEG:
-  case NODE_INT_VAR:
-  case NODE_SIZEOF:
-  case NODE_CMP_EQ:
-  case NODE_CMP_NE:
-  case NODE_CMP_LT:
-  case NODE_CMP_LE:
-  case NODE_CMP_GT:
-  case NODE_CMP_GE:
-  case NODE_ITE:
-  case NODE_G_RANGE:
-  case NODE_F_RANGE:
-  case NODE_SET:
-  case NODE_SET_ENUM:
-  case NODE_SET_UNION:
-  case NODE_SET_INTER:
-  case NODE_SET_DIFF:
-  case NODE_SET_SIZE:
-  case NODE_SET_MIN:
-  case NODE_SET_MAX:
-  case NODE_IN:
-  case NODE_MATCH:
-  case NODE_FORALL:
-  case NODE_EXISTS:
-  case NODE_SUM:
-  case NODE_PRODUCT:
-  case NODE_SET_BIG_UNION:
-  case NODE_SET_BIG_INTER:
-  case NODE_KIND_COUNT:
-    return false;
-  }
-  // Keep the switch exhaustive so a new kind produces a compiler warning.
-  return false;
-}
-
 static uint64_t now_ns(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -1588,7 +1506,8 @@ uint32_t tlsf_normalize_split(Arena *a, Node *root, Node ***out, bool pre,
     uint64_t na = 0;
     for (uint32_t i = 0; i < count; i++)
       na += ast_node_count((*out)[i]);
-    bool changed = count && (count != 1 || !node_eq(root, (*out)[0]));
+    bool changed =
+        count && (count != 1 || !formula_equal(root, (*out)[0], true));
     stats_step(stats,
                pre ? TLSF_NORM_PASS_PRE_SPINE_SPLIT : TLSF_NORM_PASS_SPLIT,
                ast_node_count(root), na, dt, changed, TLSF_NORM_REJECT_NONE);
@@ -1637,7 +1556,8 @@ Node *tlsf_normalize_formula(Arena *a, Node *root, const TlsfNormOptions *opts,
                    (uint64_t)n0 + (uint64_t)n0 * opts->max_growth_percent / 100)
         rej = TLSF_NORM_REJECT_GROWTH;
 
-      bool changed = rej == TLSF_NORM_REJECT_NONE && !node_eq(cand, cur);
+      bool changed =
+          rej == TLSF_NORM_REJECT_NONE && !formula_equal(cand, cur, true);
       if (stats)
         stats_step(stats, pass, nb, na, dt, changed, rej);
       if (rej != TLSF_NORM_REJECT_NONE) {

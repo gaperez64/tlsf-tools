@@ -146,24 +146,24 @@ FF/GG are retained, and `pre_walk` leaves strong-next subtrees untouched like C.
 | C source in this worktree | Lean correspondence |
 | --- | --- |
 | `src/lib/nnf.c:9–126` | `to_nnf`, `nnf_sat`, `nnf_exact`; weak-next polarity/finite test at lines 83–89 |
-| `src/lib/rewrite.c:15–38,46–181` | Structural `DecidableEq (Formula α)`, `simplify_weak_local`, `simplify_exact`; finite weak-X-false guard at lines 101–106 |
-| `src/lib/rewrite.h:36–62`; `src/lib/rewrite.c:189–245` | `Flags`, ordered `apply_local`, `apply_local_exact` |
-| `src/lib/rewrite.c:248–330` | `bottom_up`, `rw_pass`, `rw_pass_exact`; atom cases bypass local rewriting |
-| `src/lib/rewrite.c:10,332–359` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
-| `src/lib/rewrite.c:380–415` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
-| `src/lib/normalize.c:762–855` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors; local indexed reconstruction is covered separately below |
-| `src/lib/normalize.c:629–702` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and the branch equivalences below |
-| `src/lib/normalize.c:861–893` | `pre_spine_split`, `pre_spine_split_exact` on the core; local indexed distribution is covered separately below |
-| `src/lib/normalize.c:83–137,389–405` | Temporal RULES identities; `SickertRule.equivalence_finite` and `finite_rule_allowed` model the finite-admission projection |
-| `src/lib/normalize.c:1009–1018` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
-| `src/lib/normalize.c:1377–1403` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
+| `src/lib/formula_equal.h:12–50`; `src/lib/rewrite.c:22–157` | Structural `DecidableEq (Formula α)`, `simplify_weak_local`, `simplify_exact`; finite weak-X-false guard at lines 77–82 |
+| `src/lib/rewrite.h:36–62`; `src/lib/rewrite.c:165–221` | `Flags`, ordered `apply_local`, `apply_local_exact` |
+| `src/lib/rewrite.c:224–306` | `bottom_up`, `rw_pass`, `rw_pass_exact`; atom cases bypass local rewriting |
+| `src/lib/rewrite.c:11,308–335` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
+| `src/lib/rewrite.c:356–391` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
+| `src/lib/normalize.c:761–854` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors; local indexed reconstruction is covered separately below |
+| `src/lib/normalize.c:628–701` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and the branch equivalences below |
+| `src/lib/normalize.c:860–892` | `pre_spine_split`, `pre_spine_split_exact` on the core; local indexed distribution is covered separately below |
+| `src/lib/normalize.c:84–138,390–406` | Temporal RULES identities; `SickertRule.equivalence_finite` and `finite_rule_allowed` model the finite-admission projection |
+| `src/lib/normalize.c:1008–1017` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
+| `src/lib/normalize.c:1376–1402` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
 | `src/lib/print_ltlxba.c:214–216,242–249` | Trusted printer correspondence: NODE_X is weak X and NODE_X_STRONG uses X[!] for finite rendering |
 
 These ports require matching C/Lean ASTs, interned AP identifiers, and structural
 equality. They cover successful expanded unbounded core transformations, not
 malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
 or machine-size behavior. `NODE_NEXT_N` only recurses into its body
-(`src/lib/normalize.c:832–840`) and is outside `Formula`; indexed spine splitting,
+(`src/lib/normalize.c:831–839`) and is outside `Formula`; indexed spine splitting,
 bounded-quantifier body lowering and expansion to nexts remain unverified by
 these rewrite ports. Signed-decimal decoding, checked arithmetic and reduction
 domains/folds are proved separately below.
@@ -607,7 +607,7 @@ ledgers are not required. Golden changes follow the
 | `src/lib/expand.c:867–908,998–1012` | Formula identity keys / duplicate removal: equal core implies `coreEq_denotation`, `dedup_core_conj`, `dedup_core_disj`; C lowering correspondence remains trusted |
 | `src/lib/expand.c:1155–1183,1282–1342,1376–1392` | Stored-element substitution and repeated pattern captures: `structEq_eq`, `structEq_substitution`; no change to pattern equality |
 | `src/lib/expand.c:1530–1578,1703–1818` | Core/indexed-next/range/ITE port: `lower`, `indexedNext`, `boundedRange`, `literalRange`; `issue108_terminal`, `issue108_denotations_differ`, `issue110_next_sugar` |
-| `src/lib/normalize.c:629–702`; `src/lib/expand.c:1729–1754` | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`: guarded pre-indexed-X reduction preserves exact expanded weak/strong sequences; expansion execution remains trusted |
+| `src/lib/normalize.c:628–701`; `src/lib/expand.c:1729–1754` | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`: guarded pre-indexed-X reduction preserves exact expanded weak/strong sequences; expansion execution remains trusted |
 | `src/lib/templates.c:72–136` | `subst`, `setLetter`, `setWord`, `sat_subst`, `subst_absent` |
 | `src/lib/recognize.c` (`match_definition`); `src/lib/templates_certify.c` (`certify_definition`) | `Definition.entry`, `flip`, `Admissible.outputs`, `Admissible.boolean`; the certifier rejects every temporal theta using `ast_has_temporal` |
 | `src/lib/templates.c:316–377,518–533` | `Ranked`, `Admissible.ranked`; accepted decoder dependency graph has a bounded topological rank |
@@ -624,7 +624,7 @@ ledgers are not required. Golden changes follow the
 | `src/lib/env_witness.c:190–229`; `src/lib/env_witness.h:6–7` | Only a completed positive witness check returns SATISFIABLE; `envSat_of_word` in `proofs/TlsfProofs/Pruning.lean:29–31` supplies `EnvSat` for `prune_realizable`; incomplete search keeps D |
 | `src/lib/residual.c:243–348` | `Clustered`, `owner`, `clusters_realizable`; union-find gives disjoint output classes; the finite/output-dependent fallback keeps a single game |
 | `src/lib/print_ltlxba.c:214–249`; `src/lib/nnf.c:78–89` | `Sat` for `next` and `strongNext`, `next_neg_dual`, `strong_next_neg_dual` |
-| `src/lib/rewrite.c:101–116`; `src/lib/normalize.c:826–831` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
+| `src/lib/rewrite.c:77–92`; `src/lib/normalize.c:825–830` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:66–72` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
 The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1063`.

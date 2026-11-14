@@ -1,5 +1,6 @@
 #include "rewrite.h"
 
+#include "formula_equal.h"
 #include "nnf.h"
 
 #include <assert.h>
@@ -11,31 +12,6 @@
 
 static bool is_true(const Node *n) { return n->kind == NODE_TRUE; }
 static bool is_false(const Node *n) { return n->kind == NODE_FALSE; }
-
-// Structural equality (atoms are interned, so names compare by pointer).
-static bool node_equal(const Node *x, const Node *y) {
-  if (x == y)
-    return true;
-  if (x->kind != y->kind)
-    return false;
-  switch (x->kind) {
-  case NODE_TRUE:
-  case NODE_FALSE:
-    return true;
-  case NODE_AP:
-    return x->name == y->name;
-  case NODE_INT:
-    return x->ival == y->ival;
-  case NODE_NOT:
-  case NODE_X:
-  case NODE_X_STRONG:
-  case NODE_F:
-  case NODE_G:
-    return node_equal(x->arg, y->arg);
-  default: // binary connectives / temporal
-    return node_equal(x->lhs, y->lhs) && node_equal(x->rhs, y->rhs);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Weak simplification (syfco -s0): constant folding and redundancy removal.
@@ -61,7 +37,7 @@ static Node *simplify_weak_local(Arena *a, Node *n, bool finite) {
       return n->rhs;
     if (is_true(n->rhs))
       return n->lhs;
-    if (node_equal(n->lhs, n->rhs))
+    if (formula_equal(n->lhs, n->rhs, false))
       return n->lhs;
     return n;
 
@@ -72,7 +48,7 @@ static Node *simplify_weak_local(Arena *a, Node *n, bool finite) {
       return n->rhs;
     if (is_false(n->rhs))
       return n->lhs;
-    if (node_equal(n->lhs, n->rhs))
+    if (formula_equal(n->lhs, n->rhs, false))
       return n->lhs;
     return n;
 
@@ -94,7 +70,7 @@ static Node *simplify_weak_local(Arena *a, Node *n, bool finite) {
       return node_not(a, n->rhs);
     if (is_false(n->rhs))
       return node_not(a, n->lhs);
-    if (node_equal(n->lhs, n->rhs))
+    if (formula_equal(n->lhs, n->rhs, false))
       return node_true(a);
     return n;
 
@@ -350,7 +326,7 @@ Node *apply_rewrites(Arena *a, Node *root, unsigned flags) {
     Node *next = rw_pass(a, root, local | (flags & RW_FINITE));
     if (!next || arena_failed(a))
       return nullptr;
-    bool stable = node_equal(next, root);
+    bool stable = formula_equal(next, root, false);
     root = next;
     if (stable)
       break;
