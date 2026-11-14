@@ -57,7 +57,10 @@ typedef enum {
 typedef struct {
   uint32_t levels;
   Bdd *y;
-  Bdd **x;
+  // Invariant after setup: levels >= 1, nfair_disj = max(nfair, 1); X is a
+  // goal-owned rectangle in level/fairness order, one reference per slot.
+  // Partial setup leaves absent arrays null and unpublished slots zeroed.
+  Bdd *x;
 } RankGoal;
 
 typedef struct {
@@ -185,6 +188,11 @@ typedef struct {
   Bdd *roots;
   size_t nroots;
 } Compiled;
+
+static Bdd rank_x(const Checker *ck, uint32_t goal, uint32_t level,
+                  uint32_t fairness) {
+  return ck->rank[goal].x[(size_t)level * ck->nfair_disj + fairness];
+}
 
 static Bdd initial_cube(Checker *ck);
 static Bdd assignment_cube(Checker *ck, int counter);
@@ -2054,7 +2062,12 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
       for (uint32_t j = 0; j < ck->ngoals; j++) {
         ck->rank[j].levels = levels[j];
         ck->rank[j].y = calloc(levels[j], sizeof(Bdd));
-        ck->rank[j].x = calloc(levels[j], sizeof(Bdd *));
+        if ((size_t)levels[j] > SIZE_MAX / ck->nfair_disj) {
+          compiled_free(&cert_compiled);
+          snprintf(message, cap, "out of memory");
+          return false;
+        }
+        ck->rank[j].x = calloc((size_t)levels[j] * ck->nfair_disj, sizeof(Bdd));
         if (!ck->rank[j].y || !ck->rank[j].x) {
           compiled_free(&cert_compiled);
           snprintf(message, cap, "out of memory");
@@ -2064,15 +2077,9 @@ static bool setup_bdds(Checker *ck, const uint32_t *levels, char *message,
           snprintf(generated, sizeof generated, "y_%u_%u", j, k);
           ck->rank[j].y[k] =
               output_bdd(ck, ck->certificate, &cert_compiled, generated);
-          ck->rank[j].x[k] = calloc(ck->nfair_disj, sizeof(Bdd));
-          if (!ck->rank[j].x[k]) {
-            compiled_free(&cert_compiled);
-            snprintf(message, cap, "out of memory");
-            return false;
-          }
           for (uint32_t i = 0; i < ck->nfair_disj; i++) {
             snprintf(generated, sizeof generated, "x_%u_%u_%u", j, k, i);
-            ck->rank[j].x[k][i] =
+            ck->rank[j].x[(size_t)k * ck->nfair_disj + i] =
                 output_bdd(ck, ck->certificate, &cert_compiled, generated);
           }
         }
@@ -2329,7 +2336,7 @@ static CheckResult validate_certificate_predicates(Checker *ck) {
     for (uint32_t k = 0; k < ck->rank[j].levels; k++) {
       Bdd union_x = oxidd_bdd_false(ck->manager);
       for (uint32_t i = 0; i < ck->nfair_disj; i++) {
-        Bdd x = ck->rank[j].x[k][i];
+        Bdd x = rank_x(ck, j, k, i);
         char reason[128];
         snprintf(reason, sizeof reason,
                  "certificate x_%u_%u_%u is not state-only", j, k, i);
@@ -2814,7 +2821,7 @@ static CheckResult check_certificate_mode(Checker *ck) {
     Bdd covered = oxidd_bdd_false(ck->manager);
     for (uint32_t k = 0; k < ck->rank[j].levels; k++)
       for (uint32_t i = 0; i < ck->nfair_disj; i++)
-        if (!bdd_or_into(ck, &covered, ck->rank[j].x[k][i])) {
+        if (!bdd_or_into(ck, &covered, rank_x(ck, j, k, i))) {
           oxidd_bdd_unref(covered);
           return CHECK_UNKNOWN;
         }
@@ -2948,12 +2955,12 @@ static CheckResult check_certificate_mode(Checker *ck) {
     for (uint32_t k = 0; k < ck->rank[goal].levels; k++) {
       for (uint32_t i = 0; i < ck->nfair_disj; i++) {
         Bdd not_ranked = oxidd_bdd_not(ranked);
-        Bdd layer0 = oxidd_bdd_and(ck->rank[goal].x[k][i], not_ranked);
+        Bdd layer0 = oxidd_bdd_and(rank_x(ck, goal, k, i), not_ranked);
         Bdd layer = oxidd_bdd_and(ck->cert_inv, layer0);
         oxidd_bdd_unref(not_ranked);
         oxidd_bdd_unref(layer0);
 
-        Bdd allowed = successor(ck, ck->rank[goal].x[k][i], next_state,
+        Bdd allowed = successor(ck, rank_x(ck, goal, k, i), next_state,
                                 successors.substitution);
         if (ck->nfair) {
           Bdd fair_next;
@@ -3005,7 +3012,7 @@ static CheckResult check_certificate_mode(Checker *ck) {
         oxidd_bdd_unref(progress_bad);
         oxidd_bdd_unref(allowed);
         oxidd_bdd_unref(layer);
-        bdd_or_into(ck, &ranked, ck->rank[goal].x[k][i]);
+        bdd_or_into(ck, &ranked, rank_x(ck, goal, k, i));
       }
     }
     oxidd_bdd_unref(ranked);
@@ -3230,14 +3237,14 @@ static CheckResult check_region_totality_mode(Checker *ck, int mode) {
   for (uint32_t k = 0; k < ck->rank[goal].levels; k++) {
     for (uint32_t i = 0; i < ck->nfair_disj; i++) {
       Bdd not_ranked = region_not(ck, ranked);
-      Bdd unranked_x = region_and(ck, ck->rank[goal].x[k][i], not_ranked);
+      Bdd unranked_x = region_and(ck, rank_x(ck, goal, k, i), not_ranked);
       Bdd layer = region_and(ck, ck->cert_inv, unranked_x);
       oxidd_bdd_unref(not_ranked);
       oxidd_bdd_unref(unranked_x);
 
       Bdd progress;
       if (ck->nfair) {
-        Bdd next_x = region_successor(ck, ck->rank[goal].x[k][i], substitution);
+        Bdd next_x = region_successor(ck, rank_x(ck, goal, k, i), substitution);
         Bdd not_fair = region_not(ck, fair_next[i]);
         progress = region_and(ck, next_x, not_fair);
         oxidd_bdd_unref(next_x);
@@ -3262,7 +3269,7 @@ static CheckResult check_region_totality_mode(Checker *ck, int mode) {
       oxidd_bdd_unref(good);
       if (result != CHECK_VERIFIED)
         goto done;
-      if (!region_or_into(ck, &ranked, ck->rank[goal].x[k][i])) {
+      if (!region_or_into(ck, &ranked, rank_x(ck, goal, k, i))) {
         result = CHECK_UNKNOWN;
         goto done;
       }
@@ -3338,7 +3345,7 @@ static CheckResult check_region_mode(Checker *ck) {
     Bdd covered = oxidd_bdd_false(ck->manager);
     for (uint32_t k = 0; k < ck->rank[j].levels; k++)
       for (uint32_t i = 0; i < ck->nfair_disj; i++)
-        if (!bdd_or_into(ck, &covered, ck->rank[j].x[k][i])) {
+        if (!bdd_or_into(ck, &covered, rank_x(ck, j, k, i))) {
           oxidd_bdd_unref(covered);
           return CHECK_UNKNOWN;
         }
@@ -4335,10 +4342,11 @@ static void cleanup(Checker *ck) {
   if (ck->rank)
     for (uint32_t j = 0; j < ck->ngoals; j++) {
       for (uint32_t k = 0; k < ck->rank[j].levels; k++) {
-        for (uint32_t i = 0; i < ck->nfair_disj; i++)
-          oxidd_bdd_unref(ck->rank[j].x[k][i]);
-        free(ck->rank[j].x[k]);
-        oxidd_bdd_unref(ck->rank[j].y[k]);
+        if (ck->rank[j].x)
+          for (uint32_t i = 0; i < ck->nfair_disj; i++)
+            oxidd_bdd_unref(rank_x(ck, j, k, i));
+        if (ck->rank[j].y)
+          oxidd_bdd_unref(ck->rank[j].y[k]);
       }
       free(ck->rank[j].x);
       free(ck->rank[j].y);
