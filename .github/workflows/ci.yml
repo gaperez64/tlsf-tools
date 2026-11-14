@@ -7,6 +7,15 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  # 12 ccache namespaces at 100M leave room for Rust caches and older snapshots.
+  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+
+# Keep every default-branch run, including pending runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.run_id || 'latest' }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
 jobs:
   format:
     runs-on: ubuntu-24.04
@@ -49,10 +58,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-build-test, max-size: 100M}
       - name: Configure
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: ccache gcc-14
+          CXX: ccache g++-14
         run: meson setup build
       - name: Build
         run: ninja -C build
@@ -101,9 +112,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-build-macos, max-size: 100M}
       - name: Build stable tools and library, then run regressions
         run: |
-          meson setup build-macos --buildtype=release -Dresearch_tools=false -Dcpu=neon
+          CC="ccache $(xcrun -f clang)" CXX="ccache $(xcrun -f clang++)" \
+            meson setup build-macos --buildtype=release -Dresearch_tools=false -Dcpu=neon
           meson compile -C build-macos -j1
           meson test -C build-macos --no-rebuild --num-processes 1 --print-errorlogs
       - name: Explain platform exclusions
@@ -130,10 +144,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-build-clang, max-size: 100M}
       - name: Configure, build and test
         env:
-          CC: clang
-          CXX: clang++
+          CC: ccache clang
+          CXX: ccache clang++
         run: |
           meson setup build-clang
           python3 - <<'PY'
@@ -172,10 +188,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-fuzz-replay-clang, max-size: 100M}
       - name: Configure, build and replay
         env:
-          CC: clang
-          CXX: clang++
+          CC: ccache clang
+          CXX: ccache clang++
         run: |
           meson setup build-fuzz-replay -Dfuzz=true
           ninja -C build-fuzz-replay -j 1
@@ -219,10 +237,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: 'ci-simd-${{ matrix.cpu }}', max-size: 100M}
       - name: Configure, build, and test SIMD kernels
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: ccache gcc-14
+          CXX: ccache g++-14
         run: |
           meson setup build-simd-${{ matrix.cpu }} -Dcpu=${{ matrix.cpu }}
           meson compile -C build-simd-${{ matrix.cpu }} simd_check
@@ -247,10 +267,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-build-oxidd, max-size: 100M}
       - name: Configure, build and test (OxiDD enabled, AVX2 SIMD)
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: ccache gcc-14
+          CXX: ccache g++-14
         run: |
           # GitHub x86 runners are Haswell+ (AVX2-safe); exercises the
           # compile-time SIMD path in src/lib/simd.h.
@@ -276,18 +298,28 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache-native-ci
+        with: {key: ci-native-cpp20, max-size: 100M}
+      - uses: hendrikmuhs/ccache-action@v1
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache-native-lib
+        with: {key: ci-native-release-cpp23, max-size: 100M}
       - name: Build and test native C ABI
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: ccache gcc-14
+          CXX: ccache g++-14
         run: |
           git rev-parse HEAD
           git -C external/oxidd rev-parse HEAD
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.cache/ccache-native-ci"
           meson setup build-native-ci \
             -Dresearch_tools=true -Dcpp_std=c++20
           meson compile -C build-native-ci -j1
           meson test -C build-native-ci --num-processes 1 --print-errorlogs
           # The configuration Acacia-Bonsai builds as a subproject.
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.cache/ccache-native-lib"
           meson setup build-native-lib \
             --buildtype=release -Dresearch_tools=false -Dcpp_std=c++23
           meson compile -C build-native-lib -j1
@@ -311,10 +343,13 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-coverage, max-size: 100M}
       - name: Build with coverage and report
         run: |
           # Cover the complete library and research executables.
-          meson setup build-cov -Db_coverage=true -Dresearch_tools=true
+          CC="ccache ${CC:-cc}" CXX="ccache ${CXX:-c++}" \
+            meson setup build-cov -Db_coverage=true -Dresearch_tools=true
           meson test -C build-cov --print-errorlogs
           summary=$(gcovr --root . \
             --filter 'src/' --exclude '.*tlsf_(lex|parse).*' \
@@ -343,10 +378,12 @@ jobs:
       - uses: ./.github/actions/setup-native
       - name: Install Meson
         run: pip install 'meson==1.12.1'
+      - uses: hendrikmuhs/ccache-action@v1
+        with: {key: ci-perf-regression, max-size: 100M}
       - name: Build
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: ccache gcc-14
+          CXX: ccache g++-14
         run: |
           meson setup build
           ninja -C build
