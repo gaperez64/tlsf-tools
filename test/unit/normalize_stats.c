@@ -1,6 +1,14 @@
 #include "normalize_internal.h"
+#include "formula_equal.h"
 
 #include <assert.h>
+
+static void check(const Node *x, const Node *y, bool expected) {
+  for (unsigned mode = 0; mode < 2; mode++) {
+    assert(formula_equal(x, y, mode) == expected);
+    assert(formula_equal(y, x, mode) == expected);
+  }
+}
 
 static void totals(const TlsfNormStats *s) {
   uint64_t attempts = 0, time = 0;
@@ -14,9 +22,59 @@ static void totals(const TlsfNormStats *s) {
   assert(s->iterations_total == attempts && s->time_ns == time);
 }
 
+static void equality(Arena *a) {
+  Node *p = node_ap(a, "p"), *q = node_ap(a, "q");
+  OriginBinding binding = {.binder_id = 7, .name = "i", .value = 3};
+  Node copy = *p;
+  copy.source_id = 42;
+  copy.origin_bindings = &binding;
+  copy.bounded = (BoundedTemporalMeta){.origin = BOUNDED_NEXT, .body = q};
+  check(p, &copy, true);
+  check(p, q, false);
+  check(node_true(a), node_true(a), true);
+  check(node_false(a), node_false(a), true);
+  check(node_true(a), node_false(a), false);
+  check(node_int(a, INT64_MIN), node_int(a, INT64_MIN), true);
+  check(node_int(a, INT64_MIN), node_int(a, INT64_MAX), false);
+  Node *(*unary[])(Arena *, Node *) = {node_not, node_x, node_x_strong, node_f,
+                                       node_g};
+  Node *(*binary[])(Arena *, Node *, Node *) = {
+      node_and, node_or, node_impl, node_equiv, node_r, node_w, node_u, node_m};
+  // The expanded fragment is the enum prefix, including integer literals.
+  static_assert(4 + sizeof unary / sizeof *unary +
+                    sizeof binary / sizeof *binary ==
+                NODE_DEF_CALL);
+  for (unsigned i = 0; i < sizeof unary / sizeof *unary; i++) {
+    check(unary[i](a, p), unary[i](a, &copy), true);
+    check(unary[i](a, p), unary[i](a, q), false);
+  }
+  for (unsigned i = 0; i < sizeof binary / sizeof *binary; i++) {
+    check(binary[i](a, p, q), binary[i](a, &copy, q), true);
+    check(binary[i](a, p, q), binary[i](a, q, q), false);
+    check(binary[i](a, p, q), binary[i](a, p, p), false);
+  }
+  check(node_x(a, p), node_x_strong(a, p), false);
+  copy.resolved_signal = true;
+  Node *x = node_g(a, node_and(a, p, q));
+  Node *y = node_g(a, node_and(a, &copy, q));
+  assert(formula_equal(x, y, false) && !formula_equal(x, y, true));
+  TlsfNormOptions opts;
+  tlsf_norm_options_default(&opts, TLSF_NORM_PHASE_VISIBLE);
+  TlsfNormPassSpec pass = {.pass = TLSF_NORM_PASS_NNF, .max_iter = 3};
+  opts.schedule = (TlsfNormSchedule){.items = &pass, .count = 1};
+  TlsfNormStats stats;
+  tlsf_norm_stats_init(&stats, opts.phase, "nnf:3");
+  assert(tlsf_normalize_formula(a, y, &opts, &stats));
+  assert(stats.formulas_changed == 1 && stats.passes[pass.pass].attempts == 2 &&
+         stats.passes[pass.pass].fired == 1 &&
+         stats.passes[pass.pass].noops == 1);
+  assert(copy.source_id == 42 && copy.origin_bindings == &binding);
+}
+
 int main(void) {
   Arena *a = arena_new(ARENA_DEFAULT_SLAB_SIZE);
   assert(a);
+  equality(a);
   Node *p = node_ap(a, "p"), *q = node_ap(a, "q"), *r = node_ap(a, "r");
   Node *root = node_g(a, node_and(a, p, q));
   TlsfNormPassSpec pass = {.pass = TLSF_NORM_PASS_ROUTE_SAFE, .max_iter = 3};
