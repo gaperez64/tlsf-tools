@@ -1,4 +1,5 @@
 """Tiny, hand-written specs: census schema, generators and conservative failures."""
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -59,6 +60,10 @@ if name != "edges":
     expected = json.loads((fixtures / "expected.json").read_text())[name]
     result = run(fixtures / (name + ".tlsf"))
     check(result, expected)
+    # Full pre-overlay JSON is stable except for elapsed time.
+    stable = {k: v for k, v in result.items() if k != "wall_seconds"}
+    digest = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
+    assert digest == json.loads((fixtures / "hashes.json").read_text())[name]
     print(f'{name}: {expected["groups"]}, wall_seconds={result["wall_seconds"]:.9f}')
     sys.exit(0)
 

@@ -27,6 +27,11 @@ struct Node {
   Id ap = 0;
   std::vector<Id> children;
   bool operator==(const Node &) const = default;
+
+  void canonicalize() {
+    if (kind == TLSF_AST_AND || kind == TLSF_AST_OR || kind == TLSF_AST_EQUIV)
+      std::sort(children.begin(), children.end());
+  }
 };
 
 struct Hash {
@@ -47,9 +52,7 @@ struct Dag {
   std::unordered_map<Node, Id, Hash> ids;
 
   Id intern(Node n) {
-    if (n.kind == TLSF_AST_AND || n.kind == TLSF_AST_OR ||
-        n.kind == TLSF_AST_EQUIV)
-      std::sort(n.children.begin(), n.children.end());
+    n.canonicalize();
     auto [it, inserted] = ids.emplace(n, nodes.size());
     if (inserted)
       nodes.push_back(std::move(n));
@@ -98,9 +101,12 @@ struct Dag {
   }
 
   bool invariant(Id root, const std::vector<Id> &permutation) const {
-    // Each candidate gets the same original IDs, without retaining scratch
-    // nodes from earlier candidates. Renaming preserves flattened spines.
-    Dag renamed = *this;
+    // Invariant: original IDs are dense and children precede parents; renaming
+    // preserves flattened spines. Both tables use the same canonical keys and
+    // full equality. Original IDs stay fixed; new IDs start at nodes.size().
+    // The original DAG outlives this candidate-local overlay and is never
+    // mutated, including when allocation fails. No scratch survives a call.
+    std::unordered_map<Node, Id, Hash> overlay;
     std::vector<Id> image(nodes.size());
     for (Id i = 0; i < nodes.size(); ++i) {
       Node n = nodes[i];
@@ -108,7 +114,12 @@ struct Dag {
         n.ap = permutation.at(n.ap);
       for (Id &child : n.children)
         child = image.at(child);
-      image[i] = renamed.intern(std::move(n));
+      n.canonicalize();
+      if (auto it = ids.find(n); it != ids.end())
+        image[i] = it->second;
+      else
+        image[i] = overlay.emplace(std::move(n), nodes.size() + overlay.size())
+                       .first->second;
     }
     return image.at(root) == root;
   }
