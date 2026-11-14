@@ -79,7 +79,7 @@ if research_tools
                   'definition-strict-assert', 'definition-guarantee-use',
                   'definition-preset-use', 'delayed-definition-future',
                   'finite-cluster-end', 'sections', 'definition-register-use',
-                  'invariant-assumption', 'nondefinition-sections',
+                  'invariant-assumption', 'nondefinition-sections', 'substitution-schedule',
                   'finite-registers', 'target-moore-mealy', 'phase-b-support',
                   'finite-adaptation', 'temporal-guards', 'scheduler-guards',
                   'implicit-input-invariant', 'implicit-input-adaptation',

@@ -202,4 +202,44 @@ theorem normalize_definitions (hr : Ranked ds rank)
     (bound : ∀ e ∈ ds, rank e.name < passes) (hn : (ds.map Definition.name).Nodup) :
     ∀ e ∈ ds, normalize ds passes v e.name = evalBool (normalize ds passes v) e.value :=
   pass_fixed_equations hn (normalize_fixed hr bound)
+
+-- Invariant: dependencies have smaller rank, and the schedule visits larger
+-- ranks first. Thus no later value can reintroduce an earlier defined name.
+theorem ordered_pass_definitions (hr : Ranked ds rank)
+    (ho : ds.Pairwise (fun e d => rank d.name < rank e.name))
+    (hn : (ds.map Definition.name).Nodup) :
+    ∀ e ∈ ds, letterPass ds v e.name = evalBool (letterPass ds v) e.value := by
+  induction ds with
+  | nil => simp
+  | cons e es ih =>
+    have ho' := List.pairwise_cons.mp ho
+    have hn' := List.nodup_cons.mp hn
+    have ht := ih (fun d hd x hx => hr d (by simp [hd]) x (by simp [hx])) ho'.2 hn'.2
+    have absent : ∀ d ∈ e :: es, e.name ∉ d.value.atoms := by
+      intro d hd ha
+      have hlt := hr d hd e (by simp) ha
+      rcases List.mem_cons.mp hd with rfl | hd
+      · exact (Nat.lt_irrefl _ hlt)
+      · have := ho'.1 d hd; omega
+    intro d hd
+    have heval : evalBool (letterPass (e :: es) v) d.value =
+        evalBool (letterPass es v) d.value := by
+      apply evalBool_congr
+      intro a ha
+      have hne : a ≠ e.name := fun h => absent d hd (h ▸ ha)
+      simp only [letterPass, setLetter, hne, ↓reduceIte]
+    rw [heval]
+    rcases List.mem_cons.mp hd with rfl | hd
+    · simp only [letterPass, setLetter, ↓reduceIte]
+    · have hne : d.name ≠ e.name := fun h =>
+        hn'.1 (List.mem_map.mpr ⟨d, hd, h⟩)
+      simpa only [letterPass, setLetter, hne, ↓reduceIte] using ht d hd
+
+theorem ordered_pass_fixed (hr : Ranked ds rank)
+    (ho : ds.Pairwise (fun e d => rank d.name < rank e.name))
+    (hn : (ds.map Definition.name).Nodup) :
+    letterPass ds (letterPass ds v) = letterPass ds v := by
+  funext a
+  exact pass_preserves_on (fun _ => True) (fun _ _ _ _ _ => trivial)
+    (fun e he _ => ordered_pass_definitions hr ho hn e he) (fun _ _ => rfl) a trivial
 end Tlsf

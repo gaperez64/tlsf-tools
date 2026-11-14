@@ -19,11 +19,14 @@ static uint32_t uf_find(uint32_t *p, uint32_t x) {
 const Node *residual_apply_elims(Arena *a, const Node *n,
                                  const CsnfComposition *comp,
                                  ConstraintCover *cov) {
-  for (uint32_t pass = 0; pass <= comp->nelim; pass++)
-    for (uint32_t k = 0; k < comp->nelim; k++)
-      n = node_subst(a, n,
-                     ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output),
-                     comp->elim[k].value);
+  // Invariant (csnf_compose): every eliminated RHS dependency has lower rank
+  // and is visited later. One pass removes all eliminated names; none returns.
+  for (uint32_t pos = 0; pos < comp->nelim; pos++) {
+    uint32_t k = comp->elim_order[pos];
+    n = node_subst(a, n,
+                   ap_table_name(&cov->aps, (uint32_t)comp->elim[k].output),
+                   comp->elim[k].value);
+  }
   return n;
 }
 

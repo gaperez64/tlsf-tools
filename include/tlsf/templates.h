@@ -89,8 +89,11 @@ typedef struct {
   Conflict *conflicts;
   uint32_t nconflicts;
   // Residual reduction (composable certification):
-  Elim *elim;            ///< combinational outputs eliminated by substitution
-  uint32_t nelim;        ///< == eliminated combinational outputs
+  Elim *elim;     ///< combinational outputs eliminated by substitution
+  uint32_t nelim; ///< == eliminated combinational outputs
+  // Permutation of elim indices, dependents before dependencies. Rank is
+  // nelim - 1 - position: every eliminated RHS dependency has smaller rank.
+  uint32_t *elim_order;
   bool *elim_constraint; ///< per constraint: discharged by a combinational ctrl
   uint32_t neliminated;  ///< constraints discharged (not in the residual)
   uint32_t nowned_outputs; ///< outputs determined by a sound controller

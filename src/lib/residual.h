@@ -13,7 +13,8 @@
 #include <stdint.h>
 
 /// Apply every eliminated-output substitution (`comp->elim`, combinational
-/// `o := value`) to `n`, to a fixpoint; returns a node over the remaining APs.
+/// `o := value`) to `n` in the producer's ranked order, in one pass; returns a
+/// node over the remaining APs. `comp` must come from csnf_compose().
 [[nodiscard]] const Node *residual_apply_elims(Arena *a, const Node *n,
                                                const CsnfComposition *comp,
                                                ConstraintCover *cov);
