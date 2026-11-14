@@ -21,7 +21,10 @@ ResidualPlan *residual_plan_build(TlsfSpec *spec, ConstraintCover *cov,
     goto fail;
 
   for (uint32_t i = 0; i < n; i++) {
-    if (comp->elim_constraint[i])
+    // Invariant: final residual entries (even true) determine CLI cluster
+    // numbering; accepted controllers must not reappear in exported residuals.
+    if (opts.composition_residual ? !comp->residual_constraint[i]
+                                  : comp->elim_constraint[i])
       continue;
     if (opts.skip_local_aiger && csnf_constraint_has_local_aiger(csnf, comp, i))
       continue;
@@ -34,7 +37,7 @@ ResidualPlan *residual_plan_build(TlsfSpec *spec, ConstraintCover *cov,
               (semantics_is_finite(spec->info.semantics) ? RW_FINITE : 0));
     if (!f || arena_failed(spec->arena))
       goto fail;
-    if (f->kind != NODE_TRUE)
+    if (opts.composition_residual || f->kind != NODE_TRUE)
       p->rf[i] = f;
   }
 

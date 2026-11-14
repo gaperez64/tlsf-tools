@@ -11,6 +11,7 @@
 #include "tlsf/pipeline.h"
 #include "print_ltlxba.h"
 #include "residual.h"
+#include "residual_plan.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -167,7 +168,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  uint32_t A = cov->aps.count, N = cov->count, tot = N;
+  uint32_t A = cov->aps.count, tot = cov->count;
   int rc = 0;
 
   if (comp->fully_solved)
@@ -180,23 +181,20 @@ int main(int argc, char *argv[]) {
             tot ? 100.0 * (double)comp->neliminated / (double)tot : 0.0,
             comp->nowned_outputs, comp->nconflicts);
 
-  // Substitute solved combinational outputs out of every residual constraint.
-  const Node **rf = calloc(N ? N : 1, sizeof(Node *));
+  ResidualPlan *plan =
+      residual_plan_build(spec, cov, p->csnf, comp,
+                          (ResidualPlanOptions){.composition_residual = true});
   bool *seen = calloc(A ? A : 1, sizeof(bool));
-  if (!rf || !seen) {
+  if (!plan || !seen) {
     rc = 1;
     goto done;
   }
-  for (uint32_t i = 0; i < N; i++)
-    if (comp->residual_constraint[i])
-      rf[i] =
-          residual_apply_elims(spec->arena, cov->items[i].formula, comp, cov);
 
   bool finite = semantics_is_finite(spec->info.semantics);
 
   if (single) {
-    Node *root = residual_build_cluster(spec, cov, rf, nullptr, 0, /*all=*/true,
-                                        /*prune=*/true, N, seen);
+    Node *root = residual_plan_build_cluster(spec, cov, plan, 0, /*all=*/true,
+                                             /*prune=*/true, seen);
     if (!root) {
       rc = 1;
     } else {
@@ -209,26 +207,12 @@ int main(int argc, char *argv[]) {
         rc = 1;
     }
   } else {
-    // Cluster residual constraints by shared output (output-disjoint
-    // decomposition: E -> AND Gi == AND (E -> Gi)).
-    uint32_t *key = malloc((N ? N : 1) * sizeof(uint32_t));
-    if (!key) {
-      rc = 1;
-      goto done;
-    }
-    uint32_t *keys = nullptr;
-    uint32_t K = residual_cluster_keys(cov, rf, N, key, &keys);
-
-    if (!keys) {
-      free(key);
-      rc = 1;
-      goto done;
-    }
+    uint32_t K = plan->nclusters;
     fprintf(out, "c clusters %u\n", K);
     for (uint32_t k = 0; k < K && rc == 0; k++) {
       Node *root =
-          residual_build_cluster(spec, cov, rf, key, keys[k],
-                                 /*all=*/false, /*prune=*/true, N, seen);
+          residual_plan_build_cluster(spec, cov, plan, plan->keys[k],
+                                      /*all=*/false, /*prune=*/true, seen);
       if (!root) {
         rc = 1;
         break;
@@ -265,13 +249,11 @@ int main(int argc, char *argv[]) {
           rc = 1;
       }
     }
-    free(key);
-    free(keys);
   }
 
 done:
   free(seen);
-  free(rf);
+  residual_plan_free(plan);
   bool write_failed = ferror(out);
   if ((output_file ? fclose(out) : fflush(out)) != 0 || write_failed)
     rc = 1;

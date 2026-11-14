@@ -23,6 +23,9 @@ typedef struct {
 typedef struct {
   bool skip_local_aiger;
   bool simplify_weak;
+  // Preserve the final composition residual, including true entries, for
+  // export.
+  bool composition_residual;
 } ResidualPlanOptions;
 
 [[nodiscard]] ResidualPlan *
