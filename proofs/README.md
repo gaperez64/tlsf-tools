@@ -40,7 +40,7 @@ timeout 1500 lake build
 | `LTL.lean` | Expanded constants/atoms, five Boolean connectives, weak/strong next, F/G/U/R/W/M. `Sat len w f j` uses `none` for infinite words and `some n` below n; out-of-word queries are false. Final weak next is true, strong next false. Locality reads only formula atoms at in-range positions from j; Boolean substitution is exact. |
 | `Game.lean` | Input-first Mealy strategies use history and current masked inputs. `play` supplies infinite environment choices. `Realizable` wins at zero on every play; `FinRealizable` wins some nonempty prefix per play (`FinWin` order). Replay reconstructs each strategy's own history; decoration maps current letters; products play owned outputs. |
 | `Objective.lean` | `objective_sat` connects ordinary `I -> (P && ((G Req && A) -> (G As && Gu)))` and strict `I -> (P && (As W !Req) && ((G Req && A) -> Gu))` to enabled section obligations, including safety before REQUIRE fails. |
-| `Passes.lean` | One list-ordered substitution pass repeated exactly `passes` times. Substituting d then e means `setLetter d (setLetter e v)`. Ranked dependencies converge in any list order; enough passes establish every definition, including flipped equivalences. |
+| `Passes.lean` | List-ordered substitution and letter composition. Ranked dependencies converge in any list order; `ordered_pass_definitions` / `ordered_pass_fixed` show that descending dependency rank establishes every definition in one pass, including flipped equivalences. |
 | `Definition.lean` | Realizability equivalence for both word kinds and ordinary/strict semantics, using the actual pass structure on retained entries. Decoration reconstructs a winning original strategy; the reverse uses section coverage and dependency-closed support, without requiring inactive conditional definitions. |
 | `Cluster.lean` | Infinite-word realizability iff every cluster wins, for ordinary/strict semantics. All environment entries stay and use inputs only; each system entry's outputs share its key class. Unused keys win trivially, even with inconsistent environments. |
 | `Pruning.lean` | `prune_realizable` for infinite ordinary/strict Mealy games. `Prunable isIn K D` requires input-only environment entries in D, disjoint from every K entry. `EnvSat D` witnesses `Initial D && G Require D && Assume D`; `envSat_of_word` bridges any satisfying infinite word, including lassos. Pinning D inputs and replay/locality transfer K obligations; adding D is pointwise weakening, also for strict safety. No finite theorem. |
@@ -57,7 +57,12 @@ Boolean right-hand sides, distinct names, decreasing dependency ranks below
 `covers` allows equal roles, PRESET definitions, GUARANTEE uses of ASSERT, and
 ordinary ASSERT uses of GUARANTEES. `covers_trans` checks every Boolean/role case
 by kernel reduction; `Admissible.not_self` excludes self-dependence. The C loop's
-`nelim + 1` passes instantiate `ds.length + 1`; any explicit valid rank bound works.
+historical `nelim + 1` passes instantiate `ds.length + 1`. The producer now
+publishes reverse DFS postorder of the committed values, retaining the original
+elimination array for controller output. Each RHS dependency has smaller rank
+and is visited later. `ordered_pass_eq_normalize` equates one scheduled pass
+with enough historical passes in any permutation of the same definitions;
+the C graph traversal and its correspondence to this model remain trusted.
 
 `Clustered isIn owner es` records input-only environments and system-output
 ownership. `whole es` keeps every entry; `cluster es k` keeps all environments

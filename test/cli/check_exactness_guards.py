@@ -1,6 +1,7 @@
 """Check conservative elimination, section, finite-next, and target guards."""
 import csv
 import io
+from itertools import permutations
 from pathlib import Path
 import re
 import subprocess
@@ -235,9 +236,36 @@ elif name == "implicit-input-invariant":
             assert "ctl " not in text, text
             assert "ins=u" in text, text
             assert formulas(text) == [output(convert, source=source)], text
+elif name == "substitution-schedule":
+    # Both AP orders and branching matter: one AP-ordered pass leaks outputs,
+    # while reversing the rank reintroduces definitions already visited.
+    for declarations in permutations(("p", "s", "t")):
+        for semantics in ("Mealy", "Mealy,Strict", "Mealy,Finite"):
+            for definitions, values, expected in (
+                    ("G(p <-> (s && t)); G(s <-> (q || r)); G(t <-> !r);",
+                     {"p": "s && t", "s": "q || r", "t": "!r"},
+                     "F ((q || r) && !r && X r)"),
+                    ("G(p <-> !s); G(s <-> !t); G(t <-> (q || r));",
+                     {"p": "!s", "s": "!t", "t": "q || r"},
+                     "F (!!(q || r) && X r)")):
+                outputs = "; ".join((*declarations, "r", "z")) + ";"
+                source = (f"INFO {{ SEMANTICS: {semantics} TARGET: Mealy }} "
+                          f"MAIN {{ INPUTS {{ q; }} OUTPUTS {{ {outputs} }} "
+                          f"GUARANTEES {{ {definitions} F(p && X r); F z; }} }}")
+                for tool in (residual, compose):
+                    text = output(tool, source=source)
+                    assert "c cluster 0 outs=r ins=q" in text, text
+                    formula = expected
+                    if tool == compose:
+                        formula = formula.replace("!!(q || r)", "(q || r)")
+                        controllers = [f"ctl {p} := {values[p]}" for p in declarations]
+                        controllers.append("ctl z := true")
+                        assert [line for line in text.splitlines()
+                                if line.startswith("ctl ")] == controllers, text
+                    assert formulas(text) == [formula], text
 elif name == "definition-register-use":
     # Phase B must see r through p's committed decoder, including a chain of
-    # decoders whose AP order requires more than one substitution pass.
+    # decoders whose AP order opposes their dependency order.
     for definitions, outputs, use in (
             ("G(p <-> r);", "p; r;", "p"),
             ("G(p <-> r); G(s <-> p);", "p; s; r;", "s")):

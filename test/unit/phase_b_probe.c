@@ -13,8 +13,8 @@
 int main(int argc, char **argv) {
   assert(argc == 2);
   bool chain = strcmp(argv[1], "chain") == 0;
-  // In the chain, s precedes p in the AP table: p := s is substituted after
-  // s := r, so closing G p's support to r requires another pass.
+  // In the chain, AP order opposes dependency order: closing G p's support to
+  // r requires the producer's schedule (or the historical repeated passes).
   const char *source =
       chain
           ? "INFO { SEMANTICS: Mealy TARGET: Mealy } MAIN { INPUTS { q; } "
@@ -50,6 +50,18 @@ int main(int argc, char **argv) {
   CsnfComposition *comp = csnf_compose(csnf);
   assert(comp);
   assert(comp->nelim == (chain ? 2u : 1u));
+  // The producer publishes a permutation with every dependency later.
+  for (uint32_t pos = 0; pos < comp->nelim; pos++) {
+    uint32_t k = comp->elim_order[pos];
+    assert(k < comp->nelim);
+    for (uint32_t before = 0; before <= pos; before++) {
+      uint32_t d = comp->elim_order[before];
+      assert(before == pos || d != k);
+      assert(
+          !occurs_in(comp->elim[k].value,
+                     ap_table_name(&cov->aps, (uint32_t)comp->elim[d].output)));
+    }
+  }
   printf("register after Phase B: %s\n",
          comp->accepted_block[reg] ? "accepted" : "rejected");
   for (uint32_t k = 0; k < comp->nconflicts; k++) {

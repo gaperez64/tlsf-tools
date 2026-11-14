@@ -82,6 +82,28 @@ theorem normalize_preserves_on (p : α → Prop)
   | zero => exact fun _ _ => rfl
   | succ n ih => exact pass_preserves_on p hc heq ih
 
+-- Reordering by rank gives the same letter as the historical repeated pass,
+-- including at every position of finite words; sat_substPass transfers this
+-- equality to arbitrary retained formulas and section objectives.
+theorem ordered_pass_eq_normalize (hp : ds.Perm es) (hr : Ranked es rank)
+    (ho : ds.Pairwise (fun e d => rank d.name < rank e.name))
+    (hn : (ds.map Definition.name).Nodup) (bound : ∀ e ∈ es, rank e.name < passes) :
+    letterPass ds v = normalize es passes v := by
+  have eqs := ordered_pass_definitions
+    (fun e he d hd => hr e (hp.mem_iff.mp he) d (hp.mem_iff.mp hd)) ho hn (v := v)
+  have fixed : normalize es passes (letterPass ds v) = letterPass ds v := by
+    funext a
+    exact normalize_preserves_on (fun _ => True) (fun _ _ _ _ _ => trivial)
+      (fun e he _ => eqs e (hp.mem_iff.mpr he)) a trivial
+  have same := normalize_contraction (v := letterPass ds v) (w := v) (n := passes) hr
+    (fun a ha => pass_untouched (fun ⟨e, he, h⟩ => ha ⟨e, hp.mem_iff.mp he, h⟩))
+  rw [← fixed]
+  funext a
+  apply same a
+  by_cases hd : Defined es a
+  · obtain ⟨e, he, rfl⟩ := hd; exact Or.inr (bound e he)
+  · exact Or.inl hd
+
 omit [DecidableEq α] in
 theorem same_environment_trans {v : Word α} (h : SameEnvironment es fs len w v)
     (h' : SameEnvironment fs gs len v u) : SameEnvironment es gs len w u :=

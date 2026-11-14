@@ -439,9 +439,39 @@ static bool block_drives(const Block *b, int32_t o) {
   return false;
 }
 
-// Phase B must inspect the residual after Phase A's definitions are applied.
-// Keep the original support conservatively and close it under every committed
-// theta. In particular p := s, s := r makes a surviving G p constrain r.
+// Establish the rank on the actual committed values, including non-definition
+// Skolems. Reverse DFS postorder puts each dependent before its dependencies;
+// a gray edge rejects a cycle rather than publishing an invalid schedule.
+static bool elim_rank_dfs(const ConstraintCover *cov, CsnfComposition *r,
+                          uint32_t k, uint8_t *color, uint32_t *next) {
+  if (color[k])
+    return color[k] == 2;
+  color[k] = 1;
+  for (uint32_t d = 0; d < r->nelim; d++)
+    if (occurs_in(r->elim[k].value,
+                  ap_table_name(&cov->aps, (uint32_t)r->elim[d].output)) &&
+        !elim_rank_dfs(cov, r, d, color, next))
+      return false;
+  color[k] = 2;
+  r->elim_order[--*next] = k;
+  return true;
+}
+
+static bool schedule_elims(const ConstraintCover *cov, CsnfComposition *r) {
+  uint8_t *color = calloc(r->nelim ? r->nelim : 1, 1);
+  if (!color)
+    return false;
+  uint32_t next = r->nelim;
+  bool ok = true;
+  for (uint32_t k = 0; k < r->nelim && ok; k++)
+    ok = elim_rank_dfs(cov, r, k, color, &next);
+  free(color);
+  return ok;
+}
+
+// Invariant: elim_order visits dependents before dependencies, so a single
+// sweep closes support. Keep original support as well as committed RHS atoms.
+// Phase B must see r through p := s, s := r in a surviving G p.
 static ApSet *definition_closed_outputs(const Csnf *c,
                                         const CsnfComposition *r) {
   ConstraintCover *cov = c->cov;
@@ -464,12 +494,11 @@ static ApSet *definition_closed_outputs(const Csnf *c,
     if (arena_failed(cov->arena))
       return nullptr;
     apset_union(&support[i], &cov->items[i].outputs);
-    // There are at most nelim definition edges along any admitted dependency
-    // chain, regardless of their order in the AP table.
-    for (uint32_t pass = 0; pass < r->nelim; pass++)
-      for (uint32_t k = 0; k < r->nelim; k++)
-        if (apset_test(&support[i], (uint32_t)r->elim[k].output))
-          apset_union(&support[i], &theta[k]);
+    for (uint32_t pos = 0; pos < r->nelim; pos++) {
+      uint32_t k = r->elim_order[pos];
+      if (apset_test(&support[i], (uint32_t)r->elim[k].output))
+        apset_union(&support[i], &theta[k]);
+    }
   }
   return support;
 }
@@ -487,6 +516,7 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   r->residual_constraint = calloc(N ? N : 1, sizeof(bool));
   r->conflicts = calloc(B + 1, sizeof(Conflict));
   r->elim = calloc(A ? A : 1, sizeof(Elim));
+  r->elim_order = calloc(A ? A : 1, sizeof(uint32_t));
   r->elim_constraint = calloc(N ? N : 1, sizeof(bool));
   int32_t *provider = malloc((A ? A : 1) * sizeof(int32_t));
   bool *elim_excluded = calloc(B ? B : 1, sizeof(bool));
@@ -496,7 +526,8 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   bool *def_committed = calloc(B ? B : 1, sizeof(bool));
   bool *eliminated = r->elim_constraint;
   if (!r->accepted_block || !r->residual_constraint || !r->conflicts ||
-      !r->elim || !eliminated || !provider || !elim_excluded || !def_committed)
+      !r->elim || !r->elim_order || !eliminated || !provider ||
+      !elim_excluded || !def_committed)
     goto fail;
   for (uint32_t b = 0; b < B; b++) {
     const Block *blk = &c->blocks[b];
@@ -593,6 +624,8 @@ CsnfComposition *csnf_compose(const Csnf *c) {
   // twice or constrained by a surviving residual.  Definition providers
   // (committed in Phase A) are exempt -- `o := theta` is
   // equivalence-preserving.
+  if (!schedule_elims(cov, r))
+    goto fail;
   ApSet *phase_b_outputs = definition_closed_outputs(c, r);
   if (!phase_b_outputs || arena_failed(cov->arena))
     goto fail;
@@ -656,6 +689,8 @@ CsnfComposition *csnf_compose(const Csnf *c) {
     for (uint32_t k = 0; k < pb->ncids; k++)
       eliminated[pb->cids[k]] = true;
   }
+  if (!schedule_elims(cov, r))
+    goto fail;
   // Recompute the residual after the deferred eliminations are committed.
   for (uint32_t i = 0; i < N; i++)
     r->residual_constraint[i] = !eliminated[i];
@@ -749,6 +784,7 @@ void csnf_composition_free(CsnfComposition *r) {
   free(r->residual_constraint);
   free(r->conflicts);
   free(r->elim);
+  free(r->elim_order);
   free(r->elim_constraint);
   free(r);
 }
