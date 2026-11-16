@@ -20,9 +20,9 @@
   {
     "check": "R3",
     "file": "src/lib/print_tlsf.c",
-    "line": 262,
-    "old": "    print_nonfinal(out, n->lhs);",
-    "new": "    print_formula(out, n->lhs);",
+    "line": 126,
+    "old": "    fprintf(out, \"%lld\", (long long)n->ival);",
+    "new": "    fprintf(out, \"%lld\", (long long)n->ival + 1);",
     "target": "roundtrip",
     "seed": "7f5851fb06f5fb378f99aafaa25bb45b65112792"
   },
