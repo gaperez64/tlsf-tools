@@ -43,6 +43,10 @@ extern "C" {
 
 using namespace gr1_lift_internal;
 
+#include <cstdio>
+#include <cstdlib>
+#define LIFT_TRACE(...) do { if (const char *lift_trace_path = std::getenv("TLSF_LIFT_TRACE")) { if (FILE *lift_trace = std::fopen(lift_trace_path, "a")) { std::fprintf(lift_trace, "[lift-trace] " __VA_ARGS__); std::fputc('\n', lift_trace); std::fclose(lift_trace); } } } while (0)
+
 namespace gr1_lift_internal {
 const char env_stage_seed_window[] = "seed_window";
 const char env_side_system[] = "system";
@@ -767,8 +771,10 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
   if (axes.empty())
     return {};
   for (const auto &[axis, value] : axes) {
-    if (value <= 1)
+    if (value <= 1) {
+      LIFT_TRACE("axis=%s value=%d reason=value_le_1", axis.c_str(), value);
       continue;
+    }
     SharedSeeds found;
     found.axis = axis;
     found.modes = target_modes(target);
@@ -808,6 +814,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
         found.entries.emplace(
             k, SharedSeeds::Entry{std::move(probe), join(parts)});
       } catch (const Failure &e) {
+        LIFT_TRACE("axis=%s k=%d reason=probe_failed stage=%s why=%s", axis.c_str(), k, e.stage.c_str(), e.what());
         cfg.note_failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
@@ -815,27 +822,41 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
           throw;
       }
     }
+    LIFT_TRACE("axis=%s value=%d probes_ok=%zu last=%d", axis.c_str(), value, found.entries.size(), last);
     if (!disable_real_lift) {
       try {
         const auto shape = structural_shape(target, found.modes, cfg);
         for (int k = 1; k + 1 <= last; k++) {
           auto left = found.entries.find(k), right = found.entries.find(k + 1);
-          if (left == found.entries.end() || right == found.entries.end())
+          if (left == found.entries.end() || right == found.entries.end()) {
+            LIFT_TRACE("axis=%s k=%d reason=missing_probe", axis.c_str(), k);
             continue;
+          }
           auto &a = *left->second.instance, &b = *right->second.instance;
           if (structural_shape(a, found.modes, cfg) != shape ||
-              structural_shape(b, found.modes, cfg) != shape ||
-              a.members.size() >= b.members.size())
+              structural_shape(b, found.modes, cfg) != shape) {
+            LIFT_TRACE("axis=%s k=%d reason=shape_mismatch left=%d right=%d", axis.c_str(), k,
+                       int(structural_shape(a, found.modes, cfg) != shape),
+                       int(structural_shape(b, found.modes, cfg) != shape));
             continue;
+          }
+          if (a.members.size() >= b.members.size()) {
+            LIFT_TRACE("axis=%s k=%d reason=members_not_growing left=%zu right=%zu", axis.c_str(), k, a.members.size(), b.members.size());
+            continue;
+          }
           auto coords = axis_members(target, a);
-          if (b.members.size() >= coords.first.size())
+          if (b.members.size() >= coords.first.size()) {
+            LIFT_TRACE("axis=%s k=%d reason=target_not_larger right=%zu target=%zu", axis.c_str(), k, b.members.size(), coords.first.size());
             continue;
+          }
           std::vector<int> sizes{k, k + 1};
           if (cfg.o.seed_confirmation != 2 && k + 2 <= last &&
               found.entries.count(k + 2)) {
             if (structural_shape(*found.entries.at(k + 2).instance, found.modes,
-                                 cfg) != shape)
+                                 cfg) != shape) {
+              LIFT_TRACE("axis=%s k=%d reason=confirm_shape_mismatch", axis.c_str(), k);
               continue;
+            }
             sizes.push_back(k + 2);
           }
           std::set<std::string> expected;
@@ -851,14 +872,18 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
             else if (expected != signatures)
               stable = false;
           }
-          if (!stable)
+          if (!stable) {
+            LIFT_TRACE("axis=%s k=%d reason=unstable_roles", axis.c_str(), k);
             continue;
+          }
           (void)role_signatures(target, found.modes, cfg, &coords.first);
           found.real_sizes = std::move(sizes);
           found.target_members = std::move(coords.first);
+          LIFT_TRACE("axis=%s k=%d real_window_found", axis.c_str(), k);
           break;
         }
       } catch (const Failure &e) {
+        LIFT_TRACE("axis=%s reason=real_window_failed stage=%s why=%s", axis.c_str(), e.stage.c_str(), e.what());
         cfg.note_failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
@@ -866,6 +891,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
           throw;
       }
     }
+    LIFT_TRACE("axis=%s env_considered=%d", axis.c_str(), int(!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) && found.entries.count(4) && found.entries.count(5)));
     if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
         found.entries.count(4) && found.entries.count(5)) {
       try {
@@ -888,6 +914,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
         }
         if (env_typed_classes(target) != classes)
           stable = false;
+        LIFT_TRACE("axis=%s env_stable=%d", axis.c_str(), int(stable));
         if (stable) {
           found.env_sizes = {3, 4, 5};
           if (found.target_members.empty())
