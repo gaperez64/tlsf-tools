@@ -455,6 +455,36 @@ safety/liveness output modes.
 > tree has no `F`, `U`, or internally derived strong-release node. A safety
 > property written with liveness operators is classified as liveness.
 
+## Native lift diagnostics
+
+`include/tlsf/gr1_lift.h` exposes seed discovery diagnostics in
+`TlsfGr1LiftResult.decline_detail` and `TlsfGr1BothResult.decline_detail`,
+including calls through `tlsf_gr1_both_from_target_v2`. These NUL-terminated
+4096-byte buffers retain rejected axes, probe sizes and window ranges across
+failure and direct fallback; the corresponding `result_clear` resets them.
+They are empty when discovery rejected nothing. Overflow ends with
+`[truncated]`. These fields change the public struct layouts; rebuild C/C++
+callers against the updated header and library together.
+
+Entries use `axis[size]=reason` or `axis[first..last]=reason`, separated by
+`; `. Reasons include `encoding_width`, `inconsistent_coordinates`,
+`structural_shape_mismatch`, `members_not_growing`, `target_not_larger`,
+`member_counts` (environment size mismatch), `unstable_role_classes`, and
+`large_template(arity 6>4)`. Unavailable probes/windows and parameters that do
+not index elements are also recorded. Failures retain the reason code, failure
+stage and cause; probe failures also include the message. Budget stops identify
+`probe_budget_exhausted`, `time_budget` or `memory_budget` as applicable.
+Only axes considered by discovery are attributed; it still stops at the same
+successful window or budget.
+
+When no seed window qualifies, the combined observer's existing decline
+event carries `no stable index axis: ...` with these reasons. All terminal
+observer events, including R/U failures and direct fallback, include the
+accumulated log. Stops retain their existing typed failure.
+`TlsfGr1LiftError.message` remains a shorter, potentially truncated summary;
+use the result buffer for the full bounded log. Diagnostics do not change
+applicability, fallback decisions, proof acceptance or verdicts.
+
 ## Development
 
 | Path | Contents |

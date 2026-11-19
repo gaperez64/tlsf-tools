@@ -104,6 +104,63 @@ static TlsfGr1LiftStatus lift(const char *bytes, const TlsfGr1LiftOptions &o,
   return tlsf_gr1_lift(reinterpret_cast<const uint8_t *>(bytes), strlen(bytes),
                        nullptr, 0, &o, r, e);
 }
+static void bounded_seed_declines() {
+  std::string parameters = "GLOBAL { PARAMETERS { ";
+  for (int i = 0; i < 12; ++i)
+    parameters += "axis" + std::to_string(i) + std::string(200, 'x') + " = 2; ";
+  parameters += "} }\n";
+  std::string bytes(nonparam);
+  bytes.insert(bytes.find("MAIN"), parameters);
+  auto o = options();
+  struct {
+    uint64_t before = 0x123456789abcdef0ull;
+    TlsfGr1LiftResult result{};
+    uint64_t after = 0xfedcba9876543210ull;
+  } guarded;
+  struct {
+    uint64_t before = 0x123456789abcdef0ull;
+    TlsfGr1LiftError error{};
+    uint64_t after = 0xfedcba9876543210ull;
+  } guarded_error;
+  auto &result = guarded.result;
+  auto &error = guarded_error.error;
+  CHECK(lift(bytes.c_str(), o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(guarded.before == 0x123456789abcdef0ull &&
+        guarded.after == 0xfedcba9876543210ull);
+  CHECK(guarded_error.before == 0x123456789abcdef0ull &&
+        guarded_error.after == 0xfedcba9876543210ull);
+  CHECK(memchr(result.decline_detail, '\0', sizeof result.decline_detail));
+  CHECK(error.message[sizeof error.message - 1] == '\0');
+  const std::string detail = result.decline_detail;
+  CHECK(detail.size() < sizeof result.decline_detail);
+  CHECK(detail.find("[1]=parameter_not_indexed") != std::string::npos);
+  CHECK(detail.compare(detail.size() - strlen("; [truncated]"),
+                       strlen("; [truncated]"), "; [truncated]") == 0);
+  tlsf_gr1_lift_result_clear(&result);
+}
+static void discovery_budget_declines() {
+  auto o = options();
+  TlsfGr1LiftTarget *target = nullptr;
+  TlsfGr1LiftError error{};
+  CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)source, strlen(source),
+                                     nullptr, 0, &o, &target,
+                                     &error) == TLSF_GR1_LIFT_OK);
+  TlsfGr1LiftResult result{};
+  o.deadline_mono_ns = 1;
+  CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
+        TLSF_GR1_LIFT_DEADLINE);
+  CHECK(strstr(result.decline_detail, "extent[1]=time_budget"));
+  CHECK(strstr(result.decline_detail, "stage=seed_window,cause=deadline"));
+  o = options();
+  o.budget.max_rss_bytes = 1;
+  CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
+        TLSF_GR1_LIFT_LIMIT);
+  CHECK(strstr(result.decline_detail, "extent[1]=memory_budget"));
+  CHECK(strstr(result.decline_detail, "stage=budget-memory,cause=resource"));
+  CHECK(!result.game_aag && result.verdict == TLSF_GR1_CHECK_UNKNOWN);
+  tlsf_gr1_lift_result_clear(&result);
+  tlsf_gr1_lift_target_free(target);
+}
 static void corruption_guards() {
   for (auto order : {TLSF_GR1_LIFT_POLICY_FIRST, TLSF_GR1_LIFT_REGION_FIRST}) {
     for (int fault : {6, 7}) {
@@ -130,8 +187,11 @@ static void corruption_guards() {
       CHECK(cause == TLSF_GR1_LIFT_ERROR);
       CHECK(error.status == TLSF_GR1_LIFT_DECLINED);
       CHECK(!strcmp(error.stage, fault == 6 ? "schema_abi" : "target_check"));
-      CHECK(!strcmp(error.message, fault == 6 ? "multi-member justice"
-                                              : "unverified candidate"));
+      std::string message =
+          fault == 6 ? "multi-member justice" : "unverified candidate";
+      if (result.decline_detail[0])
+        message += std::string(": ") + result.decline_detail;
+      CHECK(error.message == message);
       CHECK(stats.internal_checks == (fault == 6 ? 0u : 1u));
       CHECK(stats.stages[TLSF_GR1_LIFT_STATS_PUBLISH].calls == 0);
       CHECK(!result.game_aag && !result.certificate_aag && !result.policy_aag &&
@@ -152,6 +212,8 @@ static void corruption_guards() {
   }
 }
 int main() {
+  bounded_seed_declines();
+  discovery_budget_declines();
   corruption_guards();
   TlsfGr1LiftResult result{};
   TlsfGr1LiftError error{};
@@ -162,8 +224,27 @@ int main() {
   CHECK(!strcmp(error.stage, "parameters") && !result.game_aag);
   CHECK(lift(encoded_width, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "seed_window") && !result.game_aag);
+  CHECK(strstr(error.message, "no stable index axis: span[1]=encoding_width"));
+  CHECK(strstr(result.decline_detail,
+               "span[1]=encoding_width(stage=axis,cause=applicability)"));
+  o.max_predicate_arity = 2;
   CHECK(lift(large_arity, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "bus_schema") && !result.game_aag);
+  CHECK(strstr(error.message, "large_template(arity 5>2)"));
+  CHECK(strstr(
+      result.decline_detail,
+      "span=large_template(arity 5>2)(stage=bus_schema,cause=applicability)"));
+  o = options();
+  o.phase_budget.max_seed_probes = 1;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(!strcmp(error.stage, "seed_window") && !result.game_aag);
+  CHECK(strstr(error.message, "probe_budget_exhausted"));
+  CHECK(strstr(result.decline_detail,
+               "extent[2]=probe_failure(stage=seed_window,"
+               "cause=resource):probe_budget_exhausted"));
+  tlsf_gr1_lift_result_clear(&result);
+  CHECK(!result.decline_detail[0]);
+  o = options();
   CHECK(lift(rank_chain, o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
   CHECK(!strcmp(error.stage, "schema") &&
         strstr(error.message, "rank depth changed from") && !result.game_aag);
@@ -171,6 +252,7 @@ int main() {
   o.cancelled = cancelled;
   CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
   CHECK(!result.certificate_aag);
+  CHECK(!result.decline_detail[0]);
   o = options();
   o.deadline_mono_ns = 1;
   CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_DEADLINE);

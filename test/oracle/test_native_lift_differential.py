@@ -27,6 +27,17 @@ def main():
     parser.add_argument("--builddir", type=Path, required=True)
     build = parser.parse_args().builddir.resolve()
     gold = Golden("native-lift")
+    # Historical differential recordings stay frozen (see the golden guide).
+    # Check today's diagnostic suffix separately; keep the original disposition
+    # and complete status/stage/message prefix comparisons against the recording.
+    decline_details = {
+        "arbiter_on_inpchange_pb_2_pe_": "n=insufficient_sizes",
+        "arbiter_pb_2_pe_": "n=insufficient_sizes",
+        "arbiter_pb_3_pe_": "n[1..2]=structural_shape_mismatch",
+        "arbiter_pb_4_pe_": "n[1..2]=structural_shape_mismatch",
+        "round_robin_arbiter_unreal2_pb_2_pe_": "n=insufficient_sizes",
+        "round_robin_arbiter_unreal2_pb_3_pe_": "n[1..2]=structural_shape_mismatch",
+    }
     rng = random.Random(0x42ACAC1A)
     formulas = ("G F {g}[i]", "G ({r}[i] -> F {g}[i])",
                 "G ({r}[i] -> {g}[i])", "G F ({g}[i] || {r}[i])")
@@ -95,7 +106,9 @@ def main():
                                              capture_output=True, text=True, timeout=60)
                     assert checked.returncode == 0 and checked.stdout.strip().endswith("VERIFIED"), (label, checked.stdout, checked.stderr)
             else:
-                gold.check("decline", result.stdout.strip())
+                message, separator, detail = result.stdout.strip().partition(": ")
+                assert separator and detail == decline_details[label], (label, detail)
+                gold.check("decline", message)
         for index in (0, 1, 3):
             for field in ("game_sha256", "certificate_sha256", "seed_values", "roles",
                           "predicate_arities", "method", "verdict"):
