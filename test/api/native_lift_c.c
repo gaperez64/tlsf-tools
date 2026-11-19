@@ -20,5 +20,19 @@ int main(void) {
                       &options, &result, &error) == TLSF_GR1_LIFT_CANCELLED);
   CHECK(result.game_aag == NULL && result.certificate_aag == NULL);
   tlsf_gr1_lift_result_clear(&result);
+  options.cancelled = NULL;
+  options.phase_budget.max_seed_probes = 1;
+  CHECK(tlsf_gr1_lift((const uint8_t *)source, strlen(source), NULL, 0,
+                      &options, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(strstr(result.decline_detail, "n[2]=probe_failure"));
+  CHECK(strstr(result.decline_detail, "probe_budget_exhausted"));
+  CHECK(sizeof result.decline_detail == TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE);
+  tlsf_gr1_lift_result_clear(&result);
+  CHECK(result.decline_detail[0] == '\0');
+  TlsfGr1BothResult both = {0};
+  CHECK(sizeof both.decline_detail == sizeof result.decline_detail);
+  strcpy(both.decline_detail, "n[2]=probe_budget_exhausted");
+  tlsf_gr1_both_result_clear(&both);
+  CHECK(both.decline_detail[0] == '\0');
   return 0;
 }

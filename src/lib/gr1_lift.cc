@@ -377,13 +377,13 @@ std::pair<std::vector<int>, std::vector<int>>
 axis_members(const Instance &target, const Instance &probe) {
   auto tg = declarations(target), pg = declarations(probe);
   if (tg.size() != pg.size())
-    decline(FailureCause::applicability, "axis", "declaration ABI changed");
+    decline(FailureCause::applicability, "axis", "declaration_abi_changed");
   std::vector<int> target_members, probe_members;
   bool changed = false;
   for (const auto &[id, trows] : tg) {
     auto iter = pg.find(id);
     if (iter == pg.end())
-      decline(FailureCause::applicability, "axis", "declaration ABI changed");
+      decline(FailureCause::applicability, "axis", "declaration_abi_changed");
     const auto &prows = iter->second;
     if (trows.size() == prows.size())
       continue;
@@ -391,26 +391,25 @@ axis_members(const Instance &target, const Instance &probe) {
     std::vector<int> ti, pi;
     for (const auto *r : trows) {
       if (s(*r, "index_role") != "element" || n(*r, "dimensions") != 1)
-        decline(FailureCause::applicability, "axis", "unproved encoding width");
+        decline(FailureCause::applicability, "axis", "encoding_width");
       ti.push_back(ints(r->at("index_tuple").as_array()).at(0));
     }
     for (const auto *r : prows) {
       if (s(*r, "index_role") != "element" || n(*r, "dimensions") != 1)
-        decline(FailureCause::applicability, "axis", "unproved encoding width");
+        decline(FailureCause::applicability, "axis", "encoding_width");
       pi.push_back(ints(r->at("index_tuple").as_array()).at(0));
     }
     std::sort(ti.begin(), ti.end());
     std::sort(pi.begin(), pi.end());
     if (!target_members.empty() && target_members != ti)
-      decline(FailureCause::applicability, "axis", "inconsistent coordinates");
+      decline(FailureCause::applicability, "axis", "inconsistent_coordinates");
     if (!probe_members.empty() && probe_members != pi)
-      decline(FailureCause::applicability, "axis", "inconsistent coordinates");
+      decline(FailureCause::applicability, "axis", "inconsistent_coordinates");
     target_members = std::move(ti);
     probe_members = std::move(pi);
   }
   if (!changed)
-    decline(FailureCause::applicability, "axis",
-            "parameter does not index elements");
+    decline(FailureCause::applicability, "axis", "parameter_not_indexed");
   return {target_members, probe_members};
 }
 std::vector<int> monitor_indices(const O &record) {
@@ -496,9 +495,13 @@ std::string monitor_key(const O &r, const Instance &i, const Modes &m,
     }
   }
   if (kind == "bounded_support") {
-    if (monitor_indices(r).size() > cfg.o.max_predicate_arity)
-      decline(FailureCause::applicability, "bus_schema",
-              "unproved large template");
+    const auto arity = monitor_indices(r).size();
+    if (arity > cfg.o.max_predicate_arity) {
+      char reason[96];
+      snprintf(reason, sizeof reason, "large_template(arity %zu>%u)", arity,
+               cfg.o.max_predicate_arity);
+      decline(FailureCause::applicability, "bus_schema", reason);
+    }
     semantic = s(r, "template");
   }
   return key({s(o, "source_formula_id"), field(n(o, "source_node_id")),
@@ -656,61 +659,166 @@ void validate_window(const Window &window, const Instance &target) {
               "selected seeds are not consecutive");
   }
 }
+// Keep failure diagnostics allocation-free, including the current axis/window.
+struct SeedDeclines {
+  char *detail;
+  char candidate[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE] = "parameters";
+  void at(const std::string &axis, int first = 0, int last = 0,
+          const char *side = "") noexcept {
+    if (!first)
+      snprintf(candidate, sizeof candidate, "%s%s", axis.c_str(), side);
+    else if (first == last)
+      snprintf(candidate, sizeof candidate, "%s[%d]%s", axis.c_str(), first,
+               side);
+    else
+      snprintf(candidate, sizeof candidate, "%s[%d..%d]%s", axis.c_str(), first,
+               last, side);
+  }
+  void note(const char *reason) const noexcept {
+    constexpr size_t cap = TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE;
+    constexpr char marker[] = "; [truncated]";
+    const size_t used = strlen(detail);
+    if (used >= sizeof marker - 1 &&
+        !strcmp(detail + used - (sizeof marker - 1), marker))
+      return;
+    char entry[cap];
+    const int length = snprintf(entry, sizeof entry, "%s%s=%s",
+                                used ? "; " : "", candidate, reason);
+    if (length < 0 || size_t(length) + used + sizeof marker > cap) {
+      snprintf(detail + used, cap - used, "%s", marker);
+      return;
+    }
+    memcpy(detail + used, entry, size_t(length) + 1);
+  }
+  void failure(const Failure &e) const noexcept {
+    const char *cause = "error";
+    switch (e.cause) {
+    case FailureCause::applicability:
+      cause = "applicability";
+      break;
+    case FailureCause::unsupported:
+      cause = "unsupported";
+      break;
+    case FailureCause::resource:
+      cause = "resource";
+      break;
+    case FailureCause::deadline:
+      cause = "deadline";
+      break;
+    case FailureCause::cancelled:
+      cause = "cancelled";
+      break;
+    case FailureCause::invalid:
+      cause = "invalid";
+      break;
+    case FailureCause::error:
+      break;
+    }
+    const bool reason_code = e.stage == "axis" || e.stage == "bus_schema";
+    const char *kind = reason_code                  ? e.what()
+                       : e.stage == "budget-memory" ? "memory_budget"
+                       : e.cause == FailureCause::deadline ||
+                               !strcmp(e.what(), "fixed phase budget exhausted")
+                           ? "time_budget"
+                           : "probe_failure";
+    char reason[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE];
+    snprintf(reason, sizeof reason, "%s(stage=%s,cause=%s)%s%s", kind,
+             e.stage.c_str(), cause, reason_code ? "" : ":",
+             reason_code ? "" : e.what());
+    note(reason);
+  }
+  void exception(const char *stage, const char *cause,
+                 const char *message) const noexcept {
+    char reason[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE];
+    snprintf(reason, sizeof reason, "probe_failure(stage=%s,cause=%s):%s",
+             stage, cause, message);
+    note(reason);
+  }
+};
+
 Window discover(const uint8_t *source, size_t size, const Instance &target,
-                TlsfGr1ReductionSemantics semantics, const Config &cfg) {
+                TlsfGr1ReductionSemantics semantics, const Config &cfg,
+                SeedDeclines log) try {
   auto axes = parameters(target);
   if (axes.empty())
     decline(FailureCause::applicability, "parameters", "absent");
   uint64_t probes_tried = 0;
   for (const auto &[axis, value] : axes) {
+    log.at(axis);
     struct Probe {
       int size;
       std::unique_ptr<Instance> inst;
     };
     std::vector<Probe> probes;
     for (int k = 1; k < value && k <= int(cfg.o.max_sizes_per_axis); k++) {
-      cfg.check("seed_window");
-      if (probes_tried >= cfg.max_seed_probes)
-        throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
-                      "seed_window", "fixed seed probe budget exhausted");
-      ++probes_tried;
-      if (cfg.stats)
-        cfg.stats->seed_probes++;
-      auto values = axes;
-      values[axis] = k;
+      log.at(axis, k, k);
       try {
+        cfg.check("seed_window");
+        if (probes_tried >= cfg.max_seed_probes)
+          throw Failure(
+              TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_window",
+              "probe_budget_exhausted: fixed seed probe budget exhausted");
+        ++probes_tried;
+        if (cfg.stats)
+          cfg.stats->seed_probes++;
+        auto values = axes;
+        values[axis] = k;
         auto probe = lower(source, size, values, semantics, cfg);
         auto coords = axis_members(target, *probe);
         probe->members = std::move(coords.second);
         probes.push_back({k, std::move(probe)});
       } catch (const Failure &e) {
-        cfg.note_failure(e);
+        log.failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
           throw;
+        cfg.note_failure(e);
       }
     }
+    log.at(axis);
     Modes modes = target_modes(target);
-    std::string target_shape = structural_shape(target, modes, cfg);
+    std::string target_shape;
+    try {
+      target_shape = structural_shape(target, modes, cfg);
+    } catch (const Failure &e) {
+      log.failure(e);
+      throw;
+    }
+    if (probes.size() < 2)
+      log.note("insufficient_sizes");
     for (size_t p = 1; p < probes.size(); p++) {
-      if (probes[p].size != probes[p - 1].size + 1)
+      log.at(axis, probes[p - 1].size, probes[p].size);
+      if (probes[p].size != probes[p - 1].size + 1) {
+        log.note("nonconsecutive_sizes");
         continue;
+      }
       try {
         Instance &left = *probes[p - 1].inst, &right = *probes[p].inst;
         if (structural_shape(left, modes, cfg) != target_shape ||
-            structural_shape(right, modes, cfg) != target_shape)
+            structural_shape(right, modes, cfg) != target_shape) {
+          log.note("structural_shape_mismatch");
           continue;
+        }
         auto coords = axis_members(target, left);
         auto target_members = std::move(coords.first);
-        if (left.members.size() >= right.members.size() ||
-            right.members.size() >= target_members.size())
+        if (left.members.size() >= right.members.size()) {
+          log.note("members_not_growing");
           continue;
+        }
+        if (right.members.size() >= target_members.size()) {
+          log.note("target_not_larger");
+          continue;
+        }
         std::vector<size_t> selected{p - 1, p};
         if (cfg.o.seed_confirmation != 2 && p + 1 < probes.size() &&
             probes[p + 1].size == probes[p].size + 1) {
-          if (structural_shape(*probes[p + 1].inst, modes, cfg) != target_shape)
+          log.at(axis, probes[p - 1].size, probes[p + 1].size);
+          if (structural_shape(*probes[p + 1].inst, modes, cfg) !=
+              target_shape) {
+            log.note("structural_shape_mismatch");
             continue;
+          }
           selected.push_back(p + 1);
         }
         auto classes = [&](Instance &i) {
@@ -724,8 +832,10 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
         bool stable = true;
         for (size_t pos : selected)
           stable &= classes(*probes[pos].inst) == expected;
-        if (!stable)
+        if (!stable) {
+          log.note("unstable_role_classes");
           continue;
+        }
         (void)role_signatures(target, modes, cfg, &target_members);
         Window result;
         result.axis = axis;
@@ -737,15 +847,27 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
         }
         return result;
       } catch (const Failure &e) {
-        cfg.note_failure(e);
+        log.failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
           throw;
+        cfg.note_failure(e);
       }
     }
   }
   cfg.decline_search("seed_window", "no stable index axis");
+} catch (const std::bad_alloc &) {
+  log.exception("allocation", "resource", "host allocation failed");
+  throw;
+} catch (const Failure &) {
+  throw;
+} catch (const std::exception &e) {
+  log.exception("internal", "error", e.what());
+  throw;
+} catch (...) {
+  log.exception("internal", "error", "unknown exception");
+  throw;
 }
 
 struct SharedSeeds {
@@ -760,28 +882,36 @@ struct SharedSeeds {
 };
 
 SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
-                            TlsfGr1BothResult &out, bool disable_real_lift) {
+                            TlsfGr1BothResult &out, bool disable_real_lift,
+                            SeedDeclines log) try {
   BothPhase phase("native_r_discovery");
   const Instance &target = *trusted.instance;
   auto axes = parameters(target);
-  if (axes.empty())
+  if (axes.empty()) {
+    log.note("absent");
     return {};
+  }
   for (const auto &[axis, value] : axes) {
-    if (value <= 1)
+    log.at(axis);
+    if (value <= 1) {
+      log.note("insufficient_sizes");
       continue;
+    }
     SharedSeeds found;
     found.axis = axis;
     found.modes = target_modes(target);
     const int last = std::min<int>(value - 1, cfg.o.max_sizes_per_axis);
     for (int k = 1; k <= last; k++) {
-      cfg.check("seed_window");
-      if (out.seed_probes >= cfg.max_seed_probes)
-        throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
-                      "seed_window", "fixed seed probe budget exhausted");
-      out.seed_probes++;
-      auto values = axes;
-      values[axis] = k;
+      log.at(axis, k, k);
       try {
+        cfg.check("seed_window");
+        if (out.seed_probes >= cfg.max_seed_probes)
+          throw Failure(
+              TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_window",
+              "probe_budget_exhausted: fixed seed probe budget exhausted");
+        out.seed_probes++;
+        auto values = axes;
+        values[axis] = k;
         auto probe =
             lower((const uint8_t *)trusted.snapshot.data(),
                   trusted.snapshot.size(), values, TLSF_GR1_EXACT, cfg);
@@ -808,34 +938,51 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
         found.entries.emplace(
             k, SharedSeeds::Entry{std::move(probe), join(parts)});
       } catch (const Failure &e) {
-        cfg.note_failure(e);
+        log.failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
           throw;
+        cfg.note_failure(e);
       }
     }
     if (!disable_real_lift) {
+      log.at(axis);
       try {
         const auto shape = structural_shape(target, found.modes, cfg);
+        if (last < 2)
+          log.note("insufficient_sizes");
         for (int k = 1; k + 1 <= last; k++) {
+          log.at(axis, k, k + 1);
           auto left = found.entries.find(k), right = found.entries.find(k + 1);
-          if (left == found.entries.end() || right == found.entries.end())
+          if (left == found.entries.end() || right == found.entries.end()) {
+            log.note("probe_unavailable");
             continue;
+          }
           auto &a = *left->second.instance, &b = *right->second.instance;
           if (structural_shape(a, found.modes, cfg) != shape ||
-              structural_shape(b, found.modes, cfg) != shape ||
-              a.members.size() >= b.members.size())
+              structural_shape(b, found.modes, cfg) != shape) {
+            log.note("structural_shape_mismatch");
             continue;
+          }
+          if (a.members.size() >= b.members.size()) {
+            log.note("members_not_growing");
+            continue;
+          }
           auto coords = axis_members(target, a);
-          if (b.members.size() >= coords.first.size())
+          if (b.members.size() >= coords.first.size()) {
+            log.note("target_not_larger");
             continue;
+          }
           std::vector<int> sizes{k, k + 1};
           if (cfg.o.seed_confirmation != 2 && k + 2 <= last &&
               found.entries.count(k + 2)) {
+            log.at(axis, k, k + 2);
             if (structural_shape(*found.entries.at(k + 2).instance, found.modes,
-                                 cfg) != shape)
+                                 cfg) != shape) {
+              log.note("structural_shape_mismatch");
               continue;
+            }
             sizes.push_back(k + 2);
           }
           std::set<std::string> expected;
@@ -851,23 +998,27 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
             else if (expected != signatures)
               stable = false;
           }
-          if (!stable)
+          if (!stable) {
+            log.note("unstable_role_classes");
             continue;
+          }
           (void)role_signatures(target, found.modes, cfg, &coords.first);
           found.real_sizes = std::move(sizes);
           found.target_members = std::move(coords.first);
           break;
         }
       } catch (const Failure &e) {
-        cfg.note_failure(e);
+        log.failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
           throw;
+        cfg.note_failure(e);
       }
     }
     if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
         found.entries.count(4) && found.entries.count(5)) {
+      log.at(axis, 3, 5, ":U");
       try {
         env_typed_axis(target, axis);
         const auto classes = env_typed_classes(*found.entries.at(3).instance);
@@ -877,29 +1028,43 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
           auto &seed = *found.entries.at(size).instance;
           env_typed_axis(seed, axis);
           auto coords = axis_members(target, seed);
-          if (seed.members.size() != size_t(size) ||
-              coords.first.size() <= seed.members.size() ||
-              env_typed_classes(seed) != classes)
+          if (seed.members.size() != size_t(size)) {
+            log.note("member_counts");
             stable = false;
+          } else if (coords.first.size() <= seed.members.size()) {
+            log.note("target_not_larger");
+            stable = false;
+          } else if (env_typed_classes(seed) != classes) {
+            log.note("unstable_role_classes");
+            stable = false;
+          }
           if (target_members.empty())
             target_members = coords.first;
-          else if (target_members != coords.first)
+          else if (target_members != coords.first) {
+            log.note("inconsistent_coordinates");
             stable = false;
+          }
         }
-        if (env_typed_classes(target) != classes)
+        if (env_typed_classes(target) != classes) {
+          log.note("unstable_role_classes");
           stable = false;
+        }
         if (stable) {
           found.env_sizes = {3, 4, 5};
           if (found.target_members.empty())
             found.target_members = std::move(target_members);
         }
       } catch (const Failure &e) {
-        cfg.note_failure(e);
+        log.failure(e);
         if (e.status == TLSF_GR1_LIFT_DEADLINE ||
             e.status == TLSF_GR1_LIFT_CANCELLED ||
             e.status == TLSF_GR1_LIFT_LIMIT)
           throw;
+        cfg.note_failure(e);
       }
+    } else if (!cfg.o.disable_env_lift) {
+      log.at(axis, 3, 5, ":U");
+      log.note(value <= 5 ? "insufficient_sizes" : "probe_unavailable");
     }
     if (!found.real_sizes.empty() || !found.env_sizes.empty())
       return found;
@@ -907,6 +1072,17 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
   if (cfg.search_cause)
     cfg.decline_search("seed_window", "no stable index axis");
   return {};
+} catch (const std::bad_alloc &) {
+  log.exception("allocation", "resource", "host allocation failed");
+  throw;
+} catch (const Failure &) {
+  throw;
+} catch (const std::exception &e) {
+  log.exception("internal", "error", e.what());
+  throw;
+} catch (...) {
+  log.exception("internal", "error", "unknown exception");
+  throw;
 }
 void solve_seed(Instance &i, const Config &cfg) {
   cfg.check("seed_solve");
@@ -2492,7 +2668,8 @@ void run(const TrustedTarget &trusted, const Config &cfg,
   StatsScope window_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_WINDOW);
   auto window = shared_window
                     ? std::move(*shared_window)
-                    : discover(source, size, *target, semantics, discovery_cfg);
+                    : discover(source, size, *target, semantics, discovery_cfg,
+                               SeedDeclines{result.decline_detail});
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   if (lift_test_fault == 1 && !window.sizes.empty())
     window.sizes[0]++;
@@ -2742,13 +2919,13 @@ std::array<std::string, 7> result_hashes(const TlsfGr1LiftResult &result) {
   return hashes;
 }
 
-void both_decline(TlsfGr1BothResult &out, const std::string &stage) {
+void both_decline(TlsfGr1BothResult &out, const char *stage) noexcept {
   if (!out.decline_stage[0])
-    snprintf(out.decline_stage, sizeof out.decline_stage, "%s", stage.c_str());
+    snprintf(out.decline_stage, sizeof out.decline_stage, "%s", stage);
   size_t used = strlen(out.decline_stages);
   if (used < sizeof out.decline_stages - 1)
     snprintf(out.decline_stages + used, sizeof out.decline_stages - used,
-             "%s%s", used ? "," : "", stage.c_str());
+             "%s%s", used ? "," : "", stage);
 }
 
 Candidate direct_candidate(const TrustedTarget &trusted, const Config &cfg) {
@@ -3027,6 +3204,7 @@ tlsf_gr1_lift(const uint8_t *source, size_t source_size,
     return TLSF_GR1_LIFT_INVALID;
   }
   result->verdict = TLSF_GR1_CHECK_UNKNOWN;
+  result->decline_detail[0] = '\0';
   TlsfGr1LiftTarget *target = nullptr;
   auto status = tlsf_gr1_lift_target_prepare(
       source, source_size, target_overrides, target_override_count, options,
@@ -3162,7 +3340,15 @@ tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
   if (status != TLSF_GR1_LIFT_OK) {
     if (failure_status && *failure_status == TLSF_GR1_LIFT_OK)
       *failure_status = status;
+    char detail[sizeof result->decline_detail];
+    memcpy(detail, result->decline_detail, sizeof detail);
     tlsf_gr1_lift_result_clear(result);
+    memcpy(result->decline_detail, detail, sizeof detail);
+    if (error && *detail) {
+      const size_t used = strlen(error->message);
+      snprintf(error->message + used, sizeof error->message - used, ": %s",
+               detail);
+    }
   }
   return status;
 }
@@ -3219,12 +3405,27 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
     return is_applicability(cause) ? TLSF_GR1_BOTH_EVENT_DECLINE
                                    : TLSF_GR1_BOTH_EVENT_STOPPED;
   };
+  bool initialized = false;
   const auto emit = [&](TlsfGr1BothEventKind kind, const char *stage,
                         const char *reason = "none",
-                        TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_OK) {
-    if (observer && observer->event)
-      observer->event(observer->context, kind, live_route, proof_unreal, stage,
-                      reason, cause);
+                        TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_OK) noexcept {
+    if (observer && observer->event) {
+      char message[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE + 512];
+      if (initialized && result->decline_detail[0] &&
+          (kind == TLSF_GR1_BOTH_EVENT_DECLINE ||
+           kind == TLSF_GR1_BOTH_EVENT_STOPPED ||
+           kind == TLSF_GR1_BOTH_EVENT_VERIFIED)) {
+        snprintf(message, sizeof message, "%.509s: %s", reason,
+                 result->decline_detail);
+        reason = message;
+      }
+      try {
+        observer->event(observer->context, kind, live_route, proof_unreal,
+                        stage, reason, cause);
+      } catch (...) {
+        // Observer failures cannot change solving or escape the C API.
+      }
+    }
   };
   const auto select = [&](TlsfGr1BothEventRoute route, int side,
                           const char *stage) {
@@ -3247,6 +3448,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
   memset(result, 0, sizeof *result);
   result->proof.verdict = TLSF_GR1_CHECK_UNKNOWN;
   result->target_reductions = 1;
+  initialized = true;
   auto status = invoke_lift(
       [&] {
         Config cfg = lift_config(options);
@@ -3270,11 +3472,12 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
           try {
             select(TLSF_GR1_BOTH_EVENT_SEEDS, -1, "seed_discovery");
             SharedSeeds cache =
-                discover_shared(trusted, cfg, *result, disable_real_lift);
+                discover_shared(trusted, cfg, *result, disable_real_lift,
+                                SeedDeclines{result->decline_detail});
             if (cache.axis.empty()) {
               both_decline(*result, "seed_window");
-              emit(TLSF_GR1_BOTH_EVENT_DECLINE, "seed_window", "seed_window",
-                   TLSF_GR1_LIFT_DECLINED);
+              emit(TLSF_GR1_BOTH_EVENT_DECLINE, "seed_window",
+                   "no stable index axis", TLSF_GR1_LIFT_DECLINED);
             } else {
               std::set<int> selected(cache.real_sizes.begin(),
                                      cache.real_sizes.end());
@@ -3428,9 +3631,10 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                 both_decline(*result, common == TLSF_GR1_SEEDS_MIXED
                                           ? "seed_mixed"
                                           : "seed_polarity");
-                emit(TLSF_GR1_BOTH_EVENT_DECLINE, result->decline_stage,
-                     common == TLSF_GR1_SEEDS_MIXED ? "mixed seed polarity"
-                                                    : "seed route unavailable",
+                const char *reason = common == TLSF_GR1_SEEDS_MIXED
+                                         ? "mixed seed polarity"
+                                         : "seed route unavailable";
+                emit(TLSF_GR1_BOTH_EVENT_DECLINE, result->decline_stage, reason,
                      TLSF_GR1_LIFT_DECLINED);
               }
             }
@@ -3442,7 +3646,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
             if (cfg.o.deadline_mono_ns && now_ns() >= cfg.o.deadline_mono_ns)
               throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
                             e.stage, "worker deadline exceeded");
-            both_decline(*result, e.stage);
+            both_decline(*result, e.stage.c_str());
             emit(failure_kind(e.cause), e.stage.c_str(), e.what(),
                  e.failure_status);
             result->seed_polarity =

@@ -48,6 +48,8 @@ typedef enum {
 #define TLSF_GR1_LIFT_DEFAULT_MAX_ARTIFACT_BYTES (16u << 20)
 #define TLSF_GR1_LIFT_DEFAULT_MAX_MONITOR_STATES 10000u
 #define TLSF_GR1_ENV_DEFAULT_CANDIDATE_NS 180000000000ull
+/* NUL-terminated seed discovery diagnostics, including a truncation marker. */
+#define TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE 4096u
 
 /* Optional profiling output. The call zeroes it first and keeps the partial
  * work of a failed call and its final decline stage. Timings use process CPU
@@ -144,8 +146,9 @@ typedef struct {
  * Duplicates and unknown declarations are rejected. A successful result owns
  * in-memory target artifacts. Only a result with
  * TLSF_GR1_CHECK_VERIFIED or TLSF_GR1_CHECK_REGION_VERIFIED counts as REAL.
- * The proof is always system-side. Resource failures leave an empty result
- * with verdict UNKNOWN. Free with tlsf_gr1_lift_result_clear(). */
+ * The proof is always system-side. Resource failures leave no artifacts and
+ * verdict UNKNOWN, retaining seed diagnostics. Free with
+ * tlsf_gr1_lift_result_clear(). */
 typedef struct {
   char *game_aag, *certificate_aag, *certificate_json;
   char *policy_aag, *policy_json, *check_json, *evidence_json;
@@ -154,6 +157,10 @@ typedef struct {
   TlsfGr1ReductionSemantics semantics;
   TlsfGr1CheckMethod method;
   TlsfGr1CheckVerdict verdict;
+  /* Rejected seed axes/probes/windows: axis[first..last]=reason; ... .
+   * Empty if none were rejected; bounded with [truncated] on overflow.
+   * Diagnostic only, retained on failure and reset by result_clear. */
+  char decline_detail[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE];
 } TlsfGr1LiftResult;
 
 /* The target owns one immutable source snapshot and a copy of its prepared
@@ -194,8 +201,7 @@ TlsfGr1LiftStatus tlsf_gr1_lift_from_target(const TlsfGr1LiftTarget *target,
                                             const TlsfGr1LiftOptions *options,
                                             TlsfGr1LiftResult *result,
                                             TlsfGr1LiftError *error);
-/* Diagnostic cause is separate from the incumbent return/fallback status.
- * No existing public struct layout or entry point changes. */
+/* Diagnostic cause is separate from the incumbent return/fallback status. */
 TlsfGr1LiftStatus
 tlsf_gr1_lift_from_target_v1(const TlsfGr1LiftTarget *target,
                              const TlsfGr1LiftOptions *options,
@@ -269,6 +275,8 @@ typedef struct {
   uint64_t seed_solves, seed_checks, seed_cache_hits;
   char decline_stage[48];
   char decline_stages[256];
+  /* Same seed log as LiftResult, retained across direct fallback or failure. */
+  char decline_detail[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE];
 } TlsfGr1BothResult;
 /* The candidate routes perform no target solve. A decline falls back to one
  * exact solve of the prepared game while the worker deadline permits. The
@@ -280,8 +288,7 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target(const TlsfGr1LiftTarget *target,
 /* Versioned, optional live attribution. Callbacks run synchronously at the
  * boundary, before the selected work/check begins. They must not block, throw,
  * mutate the target/options, or treat candidates/seed polarity as verdicts.
- * The original entry point and all existing public struct layouts are
- * unchanged. proof_unreal is -1 until the target proof side is known, otherwise
+ * proof_unreal is -1 until the target proof side is known, otherwise
  * 0/1. Strings are borrowed for the duration of the callback only. STOPPED
  * denotes limits/deadline/cancellation/errors, never an algorithmic decline.
  * failure_status is OK for nonterminal events, DECLINED/UNSUPPORTED for a
@@ -322,8 +329,7 @@ TlsfGr1LiftStatus tlsf_gr1_both_from_target_v1(
 /* Versioned runtime routing options. Null preserves v1 defaults. Disabling R
  * skips its window fitting/candidates; with disable_env_lift it bypasses all
  * seed discovery/solving. The same prepared target, direct solver, budgets and
- * checker limits are used. Existing public structs and entry points retain
- * their layouts and behavior. Options and observer are borrowed for the call.
+ * checker limits are used. Options and observer are borrowed for the call.
  */
 typedef struct {
   const TlsfGr1LiftOptions *lift;
