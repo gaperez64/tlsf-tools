@@ -11,6 +11,8 @@ import TlsfProofs.SetDedup
 import TlsfProofs.IntegerLiteral
 import TlsfProofs.CheckedArithmetic
 import TlsfProofs.NextStrength
+import TlsfProofs.Gr1.Region
+import TlsfProofs.Gr1.Examples
 import TlsfProofs.Dpa.Refinements
 import TlsfProofs.Dpa.GeneralConverse
 import TlsfProofs.Dpa.Impl.Admission
