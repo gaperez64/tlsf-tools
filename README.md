@@ -457,6 +457,11 @@ safety/liveness output modes.
 
 ## Native lift diagnostics
 
+The native system lift also generates source-bound monitor-fold candidates for
+proved binary encoding widths after ordinary discovery declines. Every such
+REAL result requires `REGION_VERIFIED` on the unchanged concrete target. See
+[route A's grammar, seed policy and trust boundary](docs/gr1-region-method.md#encoded-monitor-fold-candidates-route-a).
+
 `include/tlsf/gr1_lift.h` exposes seed discovery diagnostics in
 `TlsfGr1LiftResult.decline_detail` and `TlsfGr1BothResult.decline_detail`,
 including calls through `tlsf_gr1_both_from_target_v2`. These NUL-terminated

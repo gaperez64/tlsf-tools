@@ -1,5 +1,6 @@
 #include "tlsf/print_tlsf.h"
 #include "spec_internal.h"
+#include "arena_budget.h"
 
 #include <assert.h>
 
@@ -8,23 +9,25 @@
 // (identical operators to ltlxba except TLSF uses ! not !, same symbols)
 // ---------------------------------------------------------------------------
 
-static void print_formula(FILE *out, const Node *n);
+static void print_formula(FILE *out, const Node *n, Arena *budget);
 
 // A big operator's body extends rightwards: close it before printing more of
 // the surrounding expression. Delimited or final operands need no extra pair.
-static void print_nonfinal(FILE *out, const Node *n) {
+static void print_nonfinal(FILE *out, const Node *n, Arena *budget) {
   bool paren = n->kind == NODE_FORALL || n->kind == NODE_EXISTS ||
                n->kind == NODE_SUM || n->kind == NODE_PRODUCT ||
                n->kind == NODE_SET_BIG_UNION || n->kind == NODE_SET_BIG_INTER;
   if (paren)
     fprintf(out, "(");
-  print_formula(out, n);
+  print_formula(out, n, budget);
   if (paren)
     fprintf(out, ")");
 }
 
-static void print_formula(FILE *out, const Node *n) {
+static void print_formula(FILE *out, const Node *n, Arena *budget) {
   assert(n);
+  if (budget && (!arena_check_budget(budget, 0) || ferror(out)))
+    return;
   switch (n->kind) {
   case NODE_TRUE:
     fprintf(out, "true");
@@ -38,85 +41,85 @@ static void print_formula(FILE *out, const Node *n) {
 
   case NODE_NOT:
     fprintf(out, "!(");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
   case NODE_AND:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " && ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_OR:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " || ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_IMPL:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " -> ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_EQUIV:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " <-> ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
 
   case NODE_X:
     fprintf(out, "X (");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
   case NODE_X_STRONG:
     fprintf(out, "X[!] (");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
   case NODE_F:
     fprintf(out, "F (");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
   case NODE_G:
     fprintf(out, "G (");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
 
   case NODE_U:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " U ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_R:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " R ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_W:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " W ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_M:
     fprintf(out, "!((!(");
-    print_formula(out, n->lhs);
+    print_formula(out, n->lhs, budget);
     fprintf(out, ")) W (!(");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")))");
     return;
 
@@ -130,42 +133,42 @@ static void print_formula(FILE *out, const Node *n) {
     return;
   case NODE_INT_ADD:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " + ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_INT_SUB:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " - ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_INT_MUL:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " * ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_INT_DIV:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " / ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_INT_MOD:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " %% ");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   case NODE_INT_NEG:
     fprintf(out, "(- ");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
 
@@ -180,7 +183,7 @@ static void print_formula(FILE *out, const Node *n) {
             n->kind == NODE_SET_SIZE  ? "SIZE"
             : n->kind == NODE_SET_MIN ? "MIN"
                                       : "MAX");
-    print_formula(out, n->arg);
+    print_formula(out, n->arg, budget);
     fprintf(out, ")");
     return;
 
@@ -190,7 +193,7 @@ static void print_formula(FILE *out, const Node *n) {
     for (uint16_t i = 0; i < n->set_size; i++) {
       if (i > 0)
         fprintf(out, i == 2 && n->kind == NODE_SET_ENUM ? " .. " : ", ");
-      print_formula(out, n->set_elems[i]);
+      print_formula(out, n->set_elems[i], budget);
     }
     fprintf(out, "}");
     return;
@@ -199,18 +202,18 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_SET_INTER:
   case NODE_SET_DIFF:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " %s ",
             n->kind == NODE_SET_UNION   ? "(+)"
             : n->kind == NODE_SET_INTER ? "(*)"
                                         : "(-)");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
 
   case NODE_BUS_INDEX:
     fprintf(out, "%s[", n->bus_name);
-    print_formula(out, n->bus_index);
+    print_formula(out, n->bus_index, budget);
     fprintf(out, "]");
     return;
 
@@ -229,15 +232,15 @@ static void print_formula(FILE *out, const Node *n) {
     fprintf(out, "%s[", op);
     if (n->qset) {
       fprintf(out, "%s IN ", n->qvar);
-      print_formula(out, n->qset);
+      print_formula(out, n->qset, budget);
     } else {
-      print_nonfinal(out, n->qlo);
+      print_nonfinal(out, n->qlo, budget);
       fprintf(out, " %s %s %s ", n->qlo_strict ? "<" : "<=", n->qvar,
               n->qhi_strict ? "<" : "<=");
-      print_formula(out, n->qhi);
+      print_formula(out, n->qhi, budget);
     }
     fprintf(out, "] ");
-    print_formula(out, n->qbody);
+    print_formula(out, n->qbody, budget);
     return;
   }
 
@@ -246,7 +249,7 @@ static void print_formula(FILE *out, const Node *n) {
     for (uint16_t i = 0; i < n->call_argc; i++) {
       if (i > 0)
         fprintf(out, ", ");
-      print_formula(out, n->call_args[i]);
+      print_formula(out, n->call_args[i], budget);
     }
     fprintf(out, ")");
     return;
@@ -259,9 +262,9 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_CMP_GE: {
     static const char *ops[] = {"==", "!=", "<", "<=", ">", ">="};
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " %s ", ops[n->kind - NODE_CMP_EQ]);
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
   }
@@ -269,25 +272,25 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_IN:
   case NODE_MATCH:
     fprintf(out, "(");
-    print_nonfinal(out, n->lhs);
+    print_nonfinal(out, n->lhs, budget);
     fprintf(out, " %s ", n->kind == NODE_IN ? "IN" : "~");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
 
   case NODE_ITE:
-    print_formula(out, n->if_cond);
+    print_formula(out, n->if_cond, budget);
     fprintf(out, " : ");
-    print_nonfinal(out, n->if_then);
+    print_nonfinal(out, n->if_then, budget);
     fprintf(out, "  ");
-    print_formula(out, n->if_else);
+    print_formula(out, n->if_else, budget);
     return;
 
   case NODE_NEXT_N:
     fprintf(out, n->bounded.strong ? "X[!" : "X[");
-    print_formula(out, n->lhs);
+    print_formula(out, n->lhs, budget);
     fprintf(out, "] (");
-    print_formula(out, n->rhs);
+    print_formula(out, n->rhs, budget);
     fprintf(out, ")");
     return;
 
@@ -295,11 +298,11 @@ static void print_formula(FILE *out, const Node *n) {
   case NODE_F_RANGE:
     fprintf(out, n->bounded.strong ? "%c[!" : "%c[",
             n->kind == NODE_G_RANGE ? 'G' : 'F');
-    print_formula(out, n->qlo);
+    print_formula(out, n->qlo, budget);
     fprintf(out, ":");
-    print_formula(out, n->qhi);
+    print_formula(out, n->qhi, budget);
     fprintf(out, "] (");
-    print_formula(out, n->qbody);
+    print_formula(out, n->qbody, budget);
     fprintf(out, ")");
     return;
 
@@ -309,7 +312,11 @@ static void print_formula(FILE *out, const Node *n) {
 }
 
 void print_tlsf_formula(FILE *out, const Node *formula) {
-  print_formula(out, formula);
+  print_formula(out, formula, nullptr);
+}
+
+void print_tlsf_formula_checked(FILE *out, const Node *formula, Arena *arena) {
+  print_formula(out, formula, arena);
 }
 
 // Print one INPUTS/OUTPUTS subsection.  A bus prints its declared range; when
@@ -326,12 +333,12 @@ static void print_signal_list(FILE *out, const char *subsection,
     }
     fprintf(out, "    %s[", sd->name);
     if (sd->bus_lo_expr)
-      print_formula(out, sd->bus_lo_expr);
+      print_formula(out, sd->bus_lo_expr, nullptr);
     else
       fprintf(out, "%u", sd->bus_lo);
     fprintf(out, "..");
     if (sd->bus_hi_expr)
-      print_formula(out, sd->bus_hi_expr);
+      print_formula(out, sd->bus_hi_expr, nullptr);
     else
       fprintf(out, "%u", sd->bus_hi);
     fprintf(out, "];\n");
@@ -346,7 +353,7 @@ static void print_formula_list(FILE *out, const FormulaList *list,
   fprintf(out, "    %s {\n", subsection);
   for (uint32_t i = 0; i < list->count; i++) {
     fprintf(out, "      ");
-    print_formula(out, list->formulas[i]);
+    print_formula(out, list->formulas[i], nullptr);
     fprintf(out, ";\n");
   }
   fprintf(out, "    }\n\n");
@@ -400,7 +407,7 @@ static void print_global(FILE *out, const TlsfSpec *spec) {
         fprintf(out, ")");
       }
       fprintf(out, " = ");
-      print_formula(out, d->body);
+      print_formula(out, d->body, nullptr);
       fprintf(out, ";\n");
     }
     fprintf(out, "  }\n\n");

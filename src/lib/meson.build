@@ -37,6 +37,7 @@ lib_sources = files(
   'diagnostic.c',
   'expand.c',
   'expand_check.c',
+  'frontend_stream.c',
   'env_witness.c',
   'gr.c',
   'intern.c',

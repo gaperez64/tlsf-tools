@@ -8,6 +8,9 @@ run_command(python3, files('set_dedup_field_inventory.py'),
 set_dedup = executable('set_dedup', 'set_dedup.c',
   c_args: ['-UNDEBUG', '-Werror=switch'], dependencies: tlsf_internal_dep)
 test('set_dedup', set_dedup)
+frontend_budget = executable('frontend_budget', 'frontend_budget.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('frontend_budget', frontend_budget, is_parallel: false)
 integer_literal = executable('integer_literal', 'integer_literal.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep,
   sources: [bison_out[1], flex_out[1]])
@@ -201,6 +204,18 @@ native_lift_api_exe = executable('native_lift_api',
   cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
   dependencies: tlsf_internal_dep)
 test('native_lift_api', native_lift_api_exe, timeout: 60, is_parallel: false)
+test('native_fold_api', native_lift_api_exe,
+  args: ['--fold', files('../fixtures/encoded_fold.tlsf')],
+  timeout: 60, is_parallel: false)
+test('native_fold_budgets', native_lift_api_exe,
+  args: ['--fold-review', files('../fixtures/encoded_fold.tlsf')],
+  timeout: 60, is_parallel: false)
+test('native_fold_frontend_budgets', native_lift_api_exe,
+  args: ['--fold-frontend', files('../fixtures/encoded_fold.tlsf')],
+  timeout: 60, is_parallel: false)
+test('native_fold_depth', native_lift_api_exe,
+  args: ['--fold-depth', files('../fixtures/encoded_fold.tlsf')],
+  timeout: 120, is_parallel: false)
 native_both_api_exe = executable('native_both_api',
   'native_both_api.cpp', gr1_lift_source, gr1_env_lift_source,
   cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],

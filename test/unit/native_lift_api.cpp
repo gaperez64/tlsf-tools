@@ -2,11 +2,16 @@
 #include "tlsf/pipeline.h"
 #include "yyjson_cpp.hh"
 #include "resource_usage.h"
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <memory>
+#include <regex>
 #include <string>
 #define CHECK(condition)                                                       \
   do {                                                                         \
@@ -17,6 +22,7 @@
     }                                                                          \
   } while (false)
 extern "C" void tlsf_gr1_lift_test_set_fault(int);
+extern "C" unsigned tlsf_gr1_lift_test_check_json_clears();
 extern "C" const char *tlsf_gr1_lift_test_generated_certificate_json();
 extern "C" int tlsf_gr1_lift_test_fallback_started_before_deadline();
 extern "C" int tlsf_gr1_lift_test_checked_game_equals(const char *, size_t);
@@ -66,6 +72,7 @@ static uint64_t deadline(unsigned seconds) {
          uint64_t(seconds) * 1000000000ull;
 }
 static int cancelled(void *) { return 1; }
+static int never_cancelled(void *) { return 0; }
 struct Mutate {
   char *bytes;
   int calls;
@@ -211,7 +218,501 @@ static void corruption_guards() {
     }
   }
 }
-int main() {
+static std::string read_source(const char *path) {
+  std::ifstream file(path);
+  CHECK(file.good());
+  return {std::istreambuf_iterator<char>(file), {}};
+}
+static TlsfGr1LiftStatus fold_lift(const std::string &bytes, int size,
+                                   TlsfGr1LiftOptions &o, TlsfGr1LiftResult &r,
+                                   TlsfGr1LiftError &e,
+                                   const char *axis = "n") {
+  ParamOverride param{axis, size};
+  return tlsf_gr1_lift((const uint8_t *)bytes.data(), bytes.size(), &param, 1,
+                       &o, &r, &e);
+}
+static int fold_measure(const char *path, int size, bool both) {
+  auto bytes = read_source(path);
+  auto o = options();
+  o.deadline_mono_ns = deadline(290);
+  o.solver_nodes = o.schema_nodes = 1u << 20;
+  o.solver_cache = o.schema_cache = 1u << 18;
+  o.checker_nodes = 1u << 22;
+  o.checker_cache = 1u << 18;
+  o.budget.max_rss_bytes = uint64_t(4) << 30;
+  o.disable_env_lift = 1;
+  TlsfGr1LiftError e{};
+  TlsfGr1LiftResult r{};
+  TlsfGr1BothResult combined{};
+  auto start = std::chrono::steady_clock::now();
+  TlsfGr1LiftStatus status;
+  if (both) {
+    ParamOverride param{"n", size};
+    TlsfGr1LiftTarget *target = nullptr;
+    status =
+        tlsf_gr1_lift_target_prepare((const uint8_t *)bytes.data(),
+                                     bytes.size(), &param, 1, &o, &target, &e);
+    if (status == TLSF_GR1_LIFT_OK)
+      status = tlsf_gr1_both_from_target(target, &o, &combined, &e);
+    tlsf_gr1_lift_target_free(target);
+  } else
+    status = fold_lift(bytes, size, o, r, e);
+  auto &proof = both ? combined.proof : r;
+  double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+          .count();
+  std::cout << "n=" << size << " both=" << both << " status=" << status
+            << " verdict=" << proof.verdict << " elapsed=" << elapsed
+            << " stage=" << e.stage << " message=" << e.message << '\n';
+  if (status == TLSF_GR1_LIFT_OK) {
+    auto evidence = tlsf_json::parse(std::string_view(proof.evidence_json,
+                                                      proof.evidence_size))
+                        .as_object();
+    std::cout << "fold=" << evidence.contains("fold") << " order="
+              << (evidence.contains("checker_order")
+                      ? std::string(evidence.at("checker_order").as_string())
+                      : "none")
+              << " route=" << (both ? int(combined.route) : -1) << '\n';
+    if (evidence.contains("fold"))
+      for (const auto &seed :
+           evidence.at("fold").as_object().at("seeds").as_array()) {
+        const auto &row = seed.as_object();
+        std::cout << "seed=" << tlsf_json::serialize(row.at("parameters"))
+                  << " widths=" << tlsf_json::serialize(row.at("widths"))
+                  << " exact=" << row.at("exact_predicates").as_bool() << '\n';
+      }
+    std::cout.write(proof.check_json, proof.check_json_size);
+    std::cout << '\n';
+    CHECK(evidence.contains("fold"));
+    CHECK(proof.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+    if (both)
+      CHECK(combined.route == TLSF_GR1_BOTH_REAL_LIFT);
+  } else
+    std::cout << "decline_detail="
+              << (both ? combined.decline_detail : r.decline_detail) << '\n';
+  tlsf_gr1_lift_result_clear(&r);
+  tlsf_gr1_both_result_clear(&combined);
+  return status == TLSF_GR1_LIFT_OK ? 0 : 3;
+}
+static TlsfGr1LiftStatus
+fold_both(const std::string &bytes, int size, TlsfGr1LiftOptions &o,
+          TlsfGr1BothResult &r, TlsfGr1LiftError &e,
+          const TlsfGr1BothObserverV1 *observer = nullptr) {
+  ParamOverride param{"n", size};
+  TlsfGr1LiftTarget *target = nullptr;
+  CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)bytes.data(),
+                                     bytes.size(), &param, 1, &o, &target,
+                                     &e) == TLSF_GR1_LIFT_OK);
+  auto status = tlsf_gr1_both_from_target_v1(target, &o, observer, &r, &e);
+  tlsf_gr1_lift_target_free(target);
+  return status;
+}
+struct FoldStop {
+  TlsfGr1LiftOptions *options;
+  const char *phase;
+  int at_call;
+  bool rss;
+  bool active = false;
+  int calls = 0;
+};
+static void fold_stop_phase(void *raw, const char *name, int entering,
+                            const char *) {
+  auto &stop = *static_cast<FoldStop *>(raw);
+  if (!strcmp(name, stop.phase))
+    stop.active = entering;
+}
+static int fold_stop(void *raw) {
+  auto &stop = *static_cast<FoldStop *>(raw);
+  if (!stop.active || ++stop.calls < stop.at_call)
+    return 0;
+  if (!stop.rss)
+    return 1;
+  uint64_t current = 0;
+  CHECK(tlsf_current_rss_bytes(&current));
+  stop.options->budget.max_rss_bytes = current / 2;
+  return 0;
+}
+static void check_no_artifacts(const TlsfGr1LiftResult &r) {
+  CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN);
+  CHECK(!r.game_aag && !r.certificate_aag && !r.certificate_json &&
+        !r.policy_aag && !r.policy_json && !r.check_json && !r.evidence_json);
+}
+struct FoldFrontendStop {
+  const TlsfGr1LiftStats &stats;
+  unsigned calls = 0;
+};
+static int cancel_fold_frontend(void *raw) {
+  auto &stop = *static_cast<FoldFrontendStop *>(raw);
+  // Six legacy probes, then fold sizes 3..7. Allow parsing to finish before
+  // cancelling the pathological seed's frontend work at a fixed poll count.
+  return stop.stats.seed_probes ==
+             TLSF_GR1_LIFT_DEFAULT_MAX_SIZES_PER_AXIS + 5 &&
+         ++stop.calls >= 128;
+}
+static void fold_review_regressions(const char *path) {
+  auto bytes = read_source(path);
+  auto o = options();
+  o.deadline_mono_ns = deadline(300);
+  o.cancelled = never_cancelled;
+  o.solver_nodes = o.schema_nodes = 1u << 20;
+  o.disable_env_lift = 1;
+  TlsfGr1LiftResult r{};
+  TlsfGr1LiftError e{};
+  TlsfGr1BothResult combined{};
+
+  // Unequal target widths select two distinct strata, n=4 and n=8.
+  CHECK(fold_lift(bytes, 16, o, r, e) == TLSF_GR1_LIFT_OK);
+  auto evidence =
+      tlsf_json::parse(std::string_view(r.evidence_json, r.evidence_size))
+          .as_object();
+  CHECK(tlsf_json::serialize(evidence.at("seed_values")) == "[4,8]");
+  const auto &seeds = evidence.at("fold").as_object().at("seeds").as_array();
+  CHECK(tlsf_json::serialize(seeds[0].as_object().at("widths")) == "[2,3]");
+  CHECK(tlsf_json::serialize(seeds[1].as_object().at("widths")) == "[3,4]");
+  CHECK(r.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  tlsf_gr1_lift_result_clear(&r);
+
+  // Only the target's repeat obligation observes the environment. The
+  // environment can alternate forever; all selected seeds still win.
+  auto unreal = bytes;
+  const std::string repeat_width = "i < nbits(n)]";
+  CHECK(unreal.find(repeat_width) != std::string::npos);
+  unreal.replace(unreal.find(repeat_width), repeat_width.size(), "i < 1]");
+  unreal.insert(unreal.find("DEFINITIONS {") + strlen("DEFINITIONS {"),
+                " observed(bus,i) = n < 9 : bus[i] otherwise : request[i];\n");
+  const std::string repeat = "grant[i] <-> X grant[i]";
+  CHECK(unreal.find(repeat) != std::string::npos);
+  unreal.replace(unreal.find(repeat), repeat.size(),
+                 "observed(grant,i) <-> X observed(grant,i)");
+  CHECK(fold_lift(unreal, 9, o, r, e) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN && !r.certificate_aag);
+  CHECK(strstr(r.decline_detail, "fold_region_failed"));
+  tlsf_gr1_lift_result_clear(&r);
+  CHECK(fold_both(unreal, 9, o, combined, e) == TLSF_GR1_LIFT_OK);
+  CHECK(combined.seed_polarity == TLSF_GR1_SEEDS_REAL);
+  CHECK(combined.seed_solves == 3 && combined.seed_checks == 6);
+  CHECK(combined.route == TLSF_GR1_BOTH_DIRECT);
+  CHECK(combined.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
+  CHECK(tlsf_json::parse(std::string_view(combined.proof.certificate_json,
+                                          combined.proof.certificate_json_size))
+            .as_object()
+            .at("side")
+            .as_string() == "environment");
+  CHECK(strstr(combined.decline_detail, "fold_region_failed"));
+  CHECK(combined.target_checks == 2);
+  tlsf_gr1_both_result_clear(&combined);
+
+  // A rejected second folded seed retains the first and interrupted checks,
+  // including after the combined API's independently checked direct fallback.
+  tlsf_gr1_lift_test_set_fault(9);
+  CHECK(fold_both(unreal, 9, o, combined, e) == TLSF_GR1_LIFT_OK);
+  CHECK(combined.route == TLSF_GR1_BOTH_DIRECT);
+  CHECK(combined.seed_checks == 5 && combined.target_checks == 1);
+  CHECK(strstr(combined.decline_detail, "fold_seed_mismatch"));
+  tlsf_gr1_both_result_clear(&combined);
+  tlsf_gr1_lift_test_set_fault(0);
+
+  for (int fault : {10, 11, 12, 13}) {
+    tlsf_gr1_lift_test_set_fault(fault);
+    CHECK(fold_lift(bytes, 9, o, r, e) == TLSF_GR1_LIFT_LIMIT);
+    CHECK(strstr(r.decline_detail, "cause=resource"));
+    CHECK(!strstr(r.decline_detail, "cause=error"));
+    CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN && !r.certificate_aag);
+    if (fault == 13)
+      CHECK(tlsf_gr1_lift_test_check_json_clears() == 1);
+    tlsf_gr1_lift_result_clear(&r);
+    tlsf_gr1_lift_test_set_fault(0);
+  }
+
+  // Tighten the live RSS budget inside a check callback. finish() rethrows
+  // after the C checker returns; both counters must already include the call.
+  for (const char *phase : {"native_fold_seed_check", "native_target_check"}) {
+    FoldStop stop{&o, phase, !strcmp(phase, "native_target_check") ? 4 : 2,
+                  true};
+    TlsfGr1BothObserverV1 observer{};
+    observer.context = &stop;
+    observer.phase = fold_stop_phase;
+    o.cancelled = fold_stop;
+    o.cancel_ctx = &stop;
+    CHECK(fold_both(bytes, 9, o, combined, e, &observer) != TLSF_GR1_LIFT_OK);
+    CHECK(stop.calls >= stop.at_call);
+    CHECK(combined.seed_checks ==
+          (!strcmp(phase, "native_target_check") ? 6 : 4));
+    CHECK(combined.target_checks ==
+          (!strcmp(phase, "native_target_check") ? 1 : 0));
+    CHECK(strstr(combined.decline_detail, "cause=resource"));
+    CHECK(combined.proof.verdict == TLSF_GR1_CHECK_UNKNOWN);
+    tlsf_gr1_both_result_clear(&combined);
+    o.cancelled = nullptr;
+    o.cancel_ctx = nullptr;
+    o.budget.max_rss_bytes = 0;
+  }
+
+  // Old probes and the target are cheap. Only the newly reached n=7 asks
+  // for a billion generated next nodes; storage growth must stop at the cap.
+  auto explosion = bytes;
+  explosion.insert(explosion.find("DEFINITIONS {") + strlen("DEFINITIONS {"),
+                   " burst(x) = x == 7 : 1000000000 otherwise : 0;\n");
+  explosion.insert(explosion.find("INVARIANTS {") + strlen("INVARIANTS {"),
+                   " X[burst(n)] true;\n");
+  uint64_t current = 0;
+  CHECK(tlsf_current_rss_bytes(&current));
+  // Reduction's existing budget also reads the process's historical peak.
+  uint64_t peak = 0;
+  CHECK(tlsf_peak_rss_bytes(&peak));
+  o.budget.max_rss_bytes = std::max(current, peak) + (64u << 20);
+  CHECK(fold_lift(explosion, 9, o, r, e) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(tlsf_current_rss_bytes(&current) && current < o.budget.max_rss_bytes);
+  CHECK(tlsf_peak_rss_bytes(&peak) && peak <= o.budget.max_rss_bytes);
+  if (!strstr(r.decline_detail, "n[7]:fold=memory_budget"))
+    std::cerr << e.stage << ": " << e.message << '\n'
+              << r.decline_detail << '\n';
+  CHECK(strstr(r.decline_detail, "n[7]:fold=memory_budget"));
+  CHECK(strstr(r.decline_detail, "cause=resource"));
+  check_no_artifacts(r);
+  tlsf_gr1_lift_result_clear(&r);
+
+  // A generator that keeps allocating small terms must also stop promptly
+  // during expansion, rather than waiting for the frontend call to return.
+  explosion = bytes;
+  explosion.insert(explosion.find("DEFINITIONS {") + strlen("DEFINITIONS {"),
+                   " burst(x) = x == 7 : 1000000000 otherwise : 0;\n");
+  explosion.insert(explosion.find("INVARIANTS {") + strlen("INVARIANTS {"),
+                   " &&[0 <= j < burst(n)] request[0];\n");
+  TlsfGr1LiftStats stats{};
+  FoldFrontendStop stop{stats};
+  o.stats = &stats;
+  o.cancelled = cancel_fold_frontend;
+  o.cancel_ctx = &stop;
+  CHECK(tlsf_peak_rss_bytes(&peak));
+  o.budget.max_rss_bytes = std::max(current, peak) + (64u << 20);
+  CHECK(fold_lift(explosion, 9, o, r, e) == TLSF_GR1_LIFT_CANCELLED);
+  CHECK(stop.calls >= 128);
+  CHECK(tlsf_current_rss_bytes(&current) && current < o.budget.max_rss_bytes);
+  CHECK(tlsf_peak_rss_bytes(&peak) && peak <= o.budget.max_rss_bytes);
+  if (!strstr(r.decline_detail, "n[7]:fold=probe_failure"))
+    std::cerr << e.stage << ": " << e.message << '\n'
+              << r.decline_detail << '\n';
+  CHECK(strstr(r.decline_detail, "n[7]:fold=probe_failure"));
+  CHECK(strstr(r.decline_detail, "stage=expand,cause=cancelled"));
+  check_no_artifacts(r);
+  tlsf_gr1_lift_result_clear(&r);
+}
+static void legacy_depth_regressions() {
+  const char *deep =
+      "INFO { SEMANTICS: Mealy TARGET: Mealy } "
+      "GLOBAL { PARAMETERS { extent = 5; } } "
+      "MAIN { INPUTS { demand[extent]; } OUTPUTS { response[extent]; } "
+      "GUARANTEES { &&[0 <= i < extent] "
+      "G F (response[i] && (&&[0 <= k < 3000] true)); } }";
+  auto o = options();
+  o.disable_env_lift = 1;
+  o.deadline_mono_ns = 0;
+  TlsfGr1LiftResult r{};
+  TlsfGr1LiftError e{};
+  // Every target/probe contains the same deep tautology, preserving its shape.
+  CHECK(lift(deep, o, &r, &e) == TLSF_GR1_LIFT_OK);
+  const auto verdict = r.verdict;
+  const std::string game(r.game_aag, r.game_size);
+  tlsf_gr1_lift_result_clear(&r);
+  o.cancelled = never_cancelled;
+  TlsfGr1LiftStats stats{};
+  o.stats = &stats;
+  CHECK(lift(deep, o, &r, &e) == TLSF_GR1_LIFT_OK);
+  CHECK(r.verdict == verdict && stats.seeds_selected >= 2);
+  CHECK(std::string(r.game_aag, r.game_size) == game);
+  CHECK(!strstr(r.decline_detail, "generated AST depth"));
+  tlsf_gr1_lift_result_clear(&r);
+}
+static void fold_depth_regressions(const char *path) {
+  legacy_depth_regressions();
+  auto deep = read_source(path);
+  deep.insert(deep.find("DEFINITIONS {") + strlen("DEFINITIONS {"),
+              " burst(x) = x == 7 : 200000 otherwise : 0;\n");
+  deep.insert(deep.find("INVARIANTS {") + strlen("INVARIANTS {"),
+              " X[burst(n)] true;\n");
+  auto o = options();
+  o.disable_env_lift = 1;
+  TlsfGr1LiftResult r{};
+  TlsfGr1BothResult combined{};
+  TlsfGr1LiftError e{};
+  // The target and old probes are cheap; seed 7 reaches the depth guard
+  // with budgeting activated by a callback that never cancels.
+  o.deadline_mono_ns = deadline(300);
+  o.cancelled = never_cancelled;
+  CHECK(fold_lift(deep, 9, o, r, e) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(strstr(r.decline_detail, "n[7]:fold="));
+  CHECK(strstr(r.decline_detail, "cause=resource"));
+  CHECK(strstr(r.decline_detail, "generated AST depth exceeds limit 2000"));
+  check_no_artifacts(r);
+  tlsf_gr1_lift_result_clear(&r);
+  // Stop the independent direct solve after observing the seed decline.
+  FoldStop stop{&o, "native_direct_solve", 1, true};
+  TlsfGr1BothObserverV1 observer{};
+  observer.context = &stop;
+  observer.phase = fold_stop_phase;
+  o.cancelled = fold_stop;
+  o.cancel_ctx = &stop;
+  CHECK(fold_both(deep, 9, o, combined, e, &observer) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(strstr(combined.decline_detail, "n[7]:fold="));
+  CHECK(strstr(combined.decline_detail, "cause=resource"));
+  CHECK(strstr(combined.decline_detail,
+               "generated AST depth exceeds limit 2000"));
+  check_no_artifacts(combined.proof);
+  tlsf_gr1_both_result_clear(&combined);
+}
+static void fold_frontend_regressions(const char *path) {
+  auto bytes = read_source(path);
+  auto o = options();
+  o.disable_env_lift = 1;
+  o.deadline_mono_ns = deadline(300);
+  TlsfGr1LiftStats stats{};
+  o.stats = &stats;
+  uint64_t current = 0, peak = 0;
+  CHECK(tlsf_current_rss_bytes(&current) && tlsf_peak_rss_bytes(&peak));
+  o.budget.max_rss_bytes = std::max(current, peak) + (64u << 20);
+  TlsfGr1LiftResult r{};
+  TlsfGr1LiftError e{};
+  for (bool wide_bus : {false, true}) {
+    auto stalled = bytes;
+    stalled.insert(stalled.find("DEFINITIONS {") + strlen("DEFINITIONS {"),
+                   " width(x) = x == 7 : 50000 otherwise : 1;\n");
+    if (wide_bus)
+      stalled.insert(stalled.find("INPUTS {") + strlen("INPUTS {"),
+                     " aux[width(n)];\n");
+    else
+      stalled.insert(stalled.find("INVARIANTS {") + strlen("INVARIANTS {"),
+                     " &&[j IN ({0,1 .. width(n)} CAP "
+                     "{width(n)+1,width(n)+2 .. 2*width(n)})] request[0];\n");
+    // Both sources stay cheap at the target and old probes. The disjoint
+    // intersection returns no generated terms; the auxiliary bus reaches
+    // provenance. frontend_budget exercises these exact allocation-free scans.
+    FoldFrontendStop stop{stats};
+    o.cancelled = cancel_fold_frontend;
+    o.cancel_ctx = &stop;
+    CHECK(fold_lift(stalled, 9, o, r, e) == TLSF_GR1_LIFT_CANCELLED);
+    CHECK(stop.calls >= 128);
+    if (!strstr(r.decline_detail, "n[7]:fold=probe_failure"))
+      std::cerr << "wide_bus=" << wide_bus << " " << e.stage << ": "
+                << e.message << '\n'
+                << r.decline_detail << '\n';
+    CHECK(strstr(r.decline_detail, "n[7]:fold=probe_failure"));
+    CHECK(strstr(r.decline_detail, "stage=expand,cause=cancelled"));
+    check_no_artifacts(r);
+    CHECK(tlsf_current_rss_bytes(&current) && current < o.budget.max_rss_bytes);
+    tlsf_gr1_lift_result_clear(&r);
+  }
+}
+static void fold_regressions(const char *path) {
+  auto bytes = read_source(path);
+  auto o = options();
+  o.deadline_mono_ns = deadline(50);
+  o.solver_nodes = o.schema_nodes = 1u << 20;
+  o.solver_cache = o.schema_cache = 1u << 16;
+  // The same width crossing as n=14; this cap also exercises the order retry.
+  o.checker_nodes = 1u << 18;
+  TlsfGr1LiftResult r{};
+  TlsfGr1LiftError e{};
+  auto status = fold_lift(bytes, 9, o, r, e);
+  if (status != TLSF_GR1_LIFT_OK)
+    std::cerr << e.stage << ": " << e.message << '\n'
+              << r.decline_detail << '\n';
+  CHECK(status == TLSF_GR1_LIFT_OK);
+  CHECK(r.method == TLSF_GR1_CHECK_REGION &&
+        r.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  auto evidence =
+      tlsf_json::parse(std::string_view(r.evidence_json, r.evidence_size))
+          .as_object();
+  CHECK(evidence.at("seed_values").as_array().size() == 3);
+  CHECK(evidence.at("seed_values").as_array()[0].as_int64() == 5);
+  CHECK(evidence.at("checker_order").as_string() == "input-first");
+  CHECK(strstr(r.decline_detail, "fold_region_failed(default)"));
+  CHECK(evidence.at("fold").as_object().at("seeds").as_array().size() == 3);
+  auto game = std::string(r.game_aag, r.game_size);
+  tlsf_gr1_lift_result_clear(&r);
+
+  ParamOverride param{"n", 9};
+  TlsfGr1LiftTarget *target = nullptr;
+  CHECK(tlsf_gr1_lift_target_prepare((const uint8_t *)bytes.data(),
+                                     bytes.size(), &param, 1, &o, &target,
+                                     &e) == TLSF_GR1_LIFT_OK);
+  TlsfGr1BothResult combined{};
+  o.disable_env_lift = 1;
+  CHECK(tlsf_gr1_both_from_target(target, &o, &combined, &e) ==
+        TLSF_GR1_LIFT_OK);
+  CHECK(combined.route == TLSF_GR1_BOTH_REAL_LIFT);
+  CHECK(combined.proof.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  CHECK(combined.target_checks == 2 && combined.seed_solves == 3 &&
+        combined.seed_checks == 6);
+  CHECK(tlsf_gr1_lift_target_matches(target, &combined.proof));
+  tlsf_gr1_both_result_clear(&combined);
+  tlsf_gr1_lift_target_free(target);
+
+  // Mutate the actual candidate invariant after seed checks; the real checker
+  // must reject it, leaving UNKNOWN and no published certificate.
+  tlsf_gr1_lift_test_set_fault(8);
+  CHECK(fold_lift(bytes, 9, o, r, e) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN && !r.certificate_aag);
+  CHECK(strstr(r.decline_detail, "fold_region_failed"));
+  tlsf_gr1_lift_test_set_fault(0);
+  tlsf_gr1_lift_result_clear(&r);
+
+  // Rename every family-facing identifier, including the recursive helpers.
+  for (auto names : {std::pair{"request", "zeta"},
+                     {"grant", "omega"},
+                     {"nbits", "length_code"},
+                     {"log2_dn", "halving"},
+                     {"value", "decode"},
+                     {"bit", "digit"}}) {
+    size_t pos = 0;
+    while ((pos = bytes.find(names.first, pos)) != std::string::npos) {
+      bytes.replace(pos, strlen(names.first), names.second);
+      pos += strlen(names.second);
+    }
+  }
+  bytes = std::regex_replace(bytes, std::regex("\\bn\\b"), "extent");
+  bytes = std::regex_replace(bytes, std::regex("\\bi\\b"), "lane");
+  CHECK(fold_lift(bytes, 9, o, r, e, "extent") == TLSF_GR1_LIFT_OK);
+  CHECK(r.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  CHECK(std::string(r.game_aag, r.game_size) == game);
+  tlsf_gr1_lift_result_clear(&r);
+
+  auto begin = bytes.find("G F (");
+  CHECK(begin != std::string::npos);
+  auto end = bytes.find(';', begin);
+  bytes.replace(begin, end - begin, "G F zeta[0]");
+  CHECK(fold_lift(bytes, 9, o, r, e, "extent") != TLSF_GR1_LIFT_OK);
+  CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN && !r.certificate_aag);
+  CHECK(strstr(r.decline_detail, "fold_seed_failed") ||
+        strstr(r.decline_detail, "fold_failed"));
+  tlsf_gr1_lift_result_clear(&r);
+
+  bytes = read_source(path);
+  o.phase_budget.max_seed_probes = 7;
+  CHECK(fold_lift(bytes, 9, o, r, e) == TLSF_GR1_LIFT_LIMIT);
+  CHECK(strstr(r.decline_detail, "fold_probe_budget"));
+  CHECK(!r.certificate_aag && r.verdict == TLSF_GR1_CHECK_UNKNOWN);
+  tlsf_gr1_lift_result_clear(&r);
+}
+int main(int argc, char **argv) {
+  if (argc == 3 && !strcmp(argv[1], "--fold-depth")) {
+    fold_depth_regressions(argv[2]);
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--fold-review")) {
+    fold_review_regressions(argv[2]);
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--fold")) {
+    fold_regressions(argv[2]);
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--fold-frontend")) {
+    fold_frontend_regressions(argv[2]);
+    return 0;
+  }
+  if (argc >= 4 && !strcmp(argv[1], "--fold-measure"))
+    return fold_measure(argv[2], std::stoi(argv[3]), argc == 5);
   bounded_seed_declines();
   discovery_budget_declines();
   corruption_guards();

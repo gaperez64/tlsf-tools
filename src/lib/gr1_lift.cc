@@ -17,7 +17,9 @@ extern "C" {
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <functional>
+#include <iterator>
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
@@ -48,6 +50,7 @@ const char env_stage_seed_window[] = "seed_window";
 const char env_side_system[] = "system";
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local uint64_t lift_test_reduction_calls = 0;
+thread_local unsigned lift_test_check_json_clears = 0;
 thread_local int both_test_seed_fault = 0;
 thread_local uint64_t both_test_candidate_ns = 0;
 thread_local int both_test_check_fault = 0;
@@ -216,10 +219,42 @@ std::string render_aig(const Aig *game, const Config &cfg) {
   return out;
 }
 
+// The C frontend cannot unwind callbacks. Preserve the arm's exact failure
+// until its arena has stopped expansion and the pipeline has cleaned up.
+struct FrontendBudget {
+  const Config &cfg;
+  std::exception_ptr failure;
+  static int cancelled(void *raw, size_t bytes) noexcept {
+    auto &self = *static_cast<FrontendBudget *>(raw);
+    if (self.failure)
+      return 1;
+    try {
+      self.cfg.check("expand", bytes != 0);
+      uint64_t limit = self.cfg.budget ? self.cfg.budget->max_rss_bytes : 0;
+      if (self.cfg.env_budget && self.cfg.env_budget->max_rss_bytes &&
+          (!limit || self.cfg.env_budget->max_rss_bytes < limit))
+        limit = self.cfg.env_budget->max_rss_bytes;
+      if (bytes && limit) {
+        uint64_t current = 0;
+        if (!tlsf_current_rss_bytes(&current))
+          throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error,
+                        "budget-memory", "cannot measure frontend RSS");
+        if (current > limit || bytes > limit - current)
+          throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                        "budget-memory", "frontend allocation exceeds arm RSS");
+      }
+      return 0;
+    } catch (...) {
+      self.failure = std::current_exception();
+      return 1;
+    }
+  }
+};
+
 std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
                                 const std::map<std::string, int64_t> &overrides,
                                 TlsfGr1ReductionSemantics semantics,
-                                const Config &cfg) {
+                                const Config &cfg, bool fold_seed) {
   BothPhase phase("native_candidate_reduction");
   cfg.check("expand");
   auto instance = std::make_unique<Instance>();
@@ -236,8 +271,19 @@ std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
   popts.n_overrides = params.size();
   popts.require_unambiguous_origin = true;
   popts.error = &perr;
+  FrontendBudget frontend_budget{cfg, {}};
+  if (cfg.effective_deadline() || cfg.o.cancelled ||
+      (cfg.budget && cfg.budget->max_rss_bytes) ||
+      (cfg.env_budget && cfg.env_budget->max_rss_bytes)) {
+    popts.frontend_cancelled = FrontendBudget::cancelled;
+    popts.frontend_cancel_ctx = &frontend_budget;
+  }
+  popts.limit_generated_depth = fold_seed;
   auto pipeline = std::unique_ptr<TlsfPipeline, decltype(&tlsf_pipeline_free)>(
-      tlsf_pipeline_load_bytes(source, size, &popts), &tlsf_pipeline_free);
+      tlsf_pipeline_load_frontend_bytes(source, size, &popts),
+      &tlsf_pipeline_free);
+  if (frontend_budget.failure)
+    std::rethrow_exception(frontend_budget.failure);
   if (!pipeline) {
     if (perr.status == TLSF_PIPELINE_LIMIT)
       throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "expand",
@@ -637,6 +683,7 @@ struct Window {
   std::vector<int> target_members;
   std::vector<std::unique_ptr<Instance>> seeds;
   Modes modes;
+  bool fold = false;
 };
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local int lift_test_fault = 0;
@@ -714,7 +761,8 @@ struct SeedDeclines {
     case FailureCause::error:
       break;
     }
-    const bool reason_code = e.stage == "axis" || e.stage == "bus_schema";
+    const bool reason_code = e.stage == "axis" || e.stage == "bus_schema" ||
+                             e.stage.compare(0, 4, "fold") == 0;
     const char *kind = reason_code                  ? e.what()
                        : e.stage == "budget-memory" ? "memory_budget"
                        : e.cause == FailureCause::deadline ||
@@ -736,6 +784,192 @@ struct SeedDeclines {
   }
 };
 
+// Representation bits are never client coordinates. These profiles use only
+// the frontend's structural width proof and parameter IDs, never source names.
+std::vector<int> fold_widths(const Instance &i, const std::string &axis) {
+  int64_t parameter = -1;
+  for (const auto &v : i.data.at("source_parameters").as_array())
+    if (s(v.as_object(), "name") == axis)
+      parameter = n(v.as_object(), "id");
+  std::vector<int> widths;
+  for (const auto &[id, rows] : declarations(i)) {
+    const O &r = *rows.front();
+    if (s(r, "index_role") != "representation-bit")
+      continue;
+    for (const O *row : rows)
+      if (s(*row, "width_kind") != "proved-logarithmic-encoding" ||
+          n(*row, "dimensions") != 1 ||
+          ints(row->at("width_parameter_ids").as_array()) !=
+              std::vector<int>{int(parameter)})
+        decline(FailureCause::applicability, "fold_detection",
+                "fold_unproved_width");
+    widths.push_back(int(rows.size()));
+  }
+  if (widths.empty())
+    decline(FailureCause::applicability, "fold_detection",
+            "fold_unproved_width");
+  return widths;
+}
+std::vector<int> fold_profile(std::vector<int> widths) {
+  const int smallest = *std::min_element(widths.begin(), widths.end());
+  for (int &w : widths)
+    w -= smallest;
+  return widths;
+}
+bool fold_encoding_change(const Instance &target, const Instance &probe,
+                          const std::string &axis) {
+  try {
+    return fold_widths(target, axis) != fold_widths(probe, axis);
+  } catch (const Failure &) {
+    return false;
+  }
+}
+std::string fold_key(const O &r) {
+  std::vector<std::string> parts{monitor_identity(r), s(r, "side"),
+                                 s(r, "role"), s(r, "mp_class")};
+  const O &origin = r.at("source_origin").as_object();
+  std::vector<int> bound;
+  for (const J &v : origin.at("bindings").as_array()) {
+    const O &binding = v.as_object();
+    parts.push_back(field(n(binding, "binder_id")));
+    bound.push_back(int(n(binding, "value")));
+  }
+  if (bound != ints(origin.at("index_tuple").as_array()) || bound.size() > 1)
+    decline(FailureCause::applicability, "fold_detection",
+            "fold_generator_binding");
+  return join(parts);
+}
+using FoldInventory = std::map<std::string, std::vector<const O *>>;
+FoldInventory fold_inventory(const Instance &i) {
+  FoldInventory out;
+  std::set<int> latches;
+  std::set<std::string> occurrences;
+  for (const J &v : i.data.at("monitors").as_array()) {
+    const O &r = v.as_object();
+    const auto schema = fold_key(r);
+    const auto &o = r.at("source_origin").as_object();
+    if (!occurrences
+             .insert(key({schema, dump(o.at("index_tuple")),
+                          field(n(o, "generated_position"))}))
+             .second)
+      decline(FailureCause::applicability, "fold_detection",
+              "fold_generator_binding");
+    auto lits = ints(r.at("latch_literals").as_array());
+    if (lits.empty() || lits.size() != size_t(n(r, "state_count")))
+      decline(FailureCause::applicability, "fold_detection",
+              "fold_monitor_inventory");
+    for (int lit : lits)
+      if (!latches.insert(lit).second)
+        decline(FailureCause::error, "fold_detection",
+                "fold_monitor_inventory");
+    out[schema].push_back(&r);
+  }
+  for (uint32_t p = 0; p < aig_num_latches(i.r.game); p++) {
+    uint32_t lit;
+    aig_latch_at(i.r.game, p, &lit, nullptr, nullptr);
+    if (!latches.erase(int(lit)))
+      decline(FailureCause::applicability, "fold_detection",
+              "fold_monitor_inventory");
+  }
+  if (!latches.empty() || out.empty())
+    decline(FailureCause::applicability, "fold_detection",
+            "fold_monitor_inventory");
+  return out;
+}
+
+// A budgeted heuristic, not a cutoff: plateau witnesses (e.g. 5/6/7) or
+// different-width witnesses with the same relative profile (e.g. 4/8).
+// shortcut: probe only 3..9; extend when other strata justify their solve cost.
+Window discover_fold(const uint8_t *source, size_t size, const Instance &target,
+                     const std::string &axis, const Config &cfg,
+                     uint64_t &probes_tried, SeedDeclines log,
+                     uint64_t *reductions = nullptr) {
+  log.at(axis, 0, 0, ":fold");
+  try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (lift_test_fault == 10)
+      throw std::bad_alloc();
+#endif
+    if (s(target.data, "semantics") != "exact")
+      decline(FailureCause::applicability, "fold_discovery", "fold_semantics");
+    auto widths = fold_widths(target, axis);
+    auto profile = fold_profile(widths);
+    auto inventory = fold_inventory(target);
+    auto axes = parameters(target);
+    std::map<std::vector<int>, Window> plateaus;
+    Window crossing;
+    const size_t wanted = cfg.o.seed_confirmation == 2 ? 2 : 3;
+    uint32_t tried = 0;
+    for (int k = 3; k <= 9 && k < axes.at(axis); k++) {
+      log.at(axis, k, k, ":fold");
+      cfg.check("fold_discovery");
+      if (tried++ >= cfg.o.max_sizes_per_axis)
+        break;
+      if (probes_tried >= cfg.max_seed_probes)
+        throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                      "fold_discovery", "fold_probe_budget");
+      ++probes_tried;
+      if (cfg.stats)
+        cfg.stats->seed_probes++;
+      auto values = axes;
+      values[axis] = k;
+      auto seed = lower(source, size, values, TLSF_GR1_EXACT, cfg, true);
+      if (reductions)
+        ++*reductions;
+      char hash[65]{};
+      sha256_hex(seed->r.aag, seed->r.aag_size, hash);
+      auto metadata = j::parse(std::string_view(seed->r.metadata_json,
+                                                seed->r.metadata_size))
+                          .as_object();
+      if (s(metadata, "semantics") != "exact" ||
+          s(metadata, "game_sha256") != hash ||
+          s(metadata, "source_sha256") !=
+              s(target.data.at("source_origin_metadata").as_object(),
+                "source_sha256"))
+        decline(FailureCause::error, "fold_binding", "fold_seed_binding");
+      auto sw = fold_widths(*seed, axis);
+      if (fold_profile(sw) != profile)
+        continue;
+      auto si = fold_inventory(*seed);
+      if (si.size() != inventory.size() ||
+          !std::equal(
+              si.begin(), si.end(), inventory.begin(),
+              [](const auto &a, const auto &b) { return a.first == b.first; }))
+        decline(FailureCause::applicability, "fold_discovery",
+                "fold_schema_mismatch");
+      // Distinct widths need not have consecutive parameter values.
+      bool unequal = std::any_of(profile.begin(), profile.end(),
+                                 [](int w) { return w != 0; });
+      Window &w = unequal ? crossing : plateaus[sw];
+      if (unequal && !w.seeds.empty() &&
+          fold_widths(*w.seeds.back(), axis) == sw)
+        continue;
+      w.axis = axis;
+      w.fold = true;
+      w.sizes.push_back(k);
+      w.seeds.push_back(std::move(seed));
+      if (w.seeds.size() >= (unequal ? 2 : wanted))
+        return std::move(w);
+    }
+    for (auto &[_, w] : plateaus)
+      if (w.seeds.size() >= 2)
+        return std::move(w);
+    decline(FailureCause::applicability, "fold_discovery",
+            "fold_insufficient_strata");
+  } catch (const Failure &e) {
+    log.failure(e);
+    throw;
+  } catch (const std::bad_alloc &) {
+    log.note("fold_discovery_failed");
+    log.exception("fold_discovery", "resource", "host allocation failed");
+    throw;
+  } catch (const std::exception &e) {
+    log.note("fold_discovery_failed");
+    log.exception("fold_discovery", "error", e.what());
+    throw;
+  }
+}
+
 Window discover(const uint8_t *source, size_t size, const Instance &target,
                 TlsfGr1ReductionSemantics semantics, const Config &cfg,
                 SeedDeclines log) try {
@@ -743,6 +977,7 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
   if (axes.empty())
     decline(FailureCause::applicability, "parameters", "absent");
   uint64_t probes_tried = 0;
+  std::set<std::string> encoded_axes;
   for (const auto &[axis, value] : axes) {
     log.at(axis);
     struct Probe {
@@ -764,7 +999,15 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
         auto values = axes;
         values[axis] = k;
         auto probe = lower(source, size, values, semantics, cfg);
-        auto coords = axis_members(target, *probe);
+        std::pair<std::vector<int>, std::vector<int>> coords;
+        try {
+          coords = axis_members(target, *probe);
+        } catch (const Failure &e) {
+          if (e.stage == "axis" && !strcmp(e.what(), "encoding_width") &&
+              fold_encoding_change(target, *probe, axis))
+            encoded_axes.insert(axis);
+          throw;
+        }
         probe->members = std::move(coords.second);
         probes.push_back({k, std::move(probe)});
       } catch (const Failure &e) {
@@ -856,6 +1099,14 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
       }
     }
   }
+  for (const auto &axis : encoded_axes) {
+    try {
+      return discover_fold(source, size, target, axis, cfg, probes_tried, log);
+    } catch (const Failure &e) {
+      if (!is_applicability(e.cause))
+        throw;
+    }
+  }
   cfg.decline_search("seed_window", "no stable index axis");
 } catch (const std::bad_alloc &) {
   log.exception("allocation", "resource", "host allocation failed");
@@ -879,6 +1130,7 @@ struct SharedSeeds {
   std::map<int, Entry> entries;
   std::vector<int> real_sizes, env_sizes, target_members;
   Modes modes;
+  bool fold = false;
 };
 
 SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
@@ -891,6 +1143,7 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     log.note("absent");
     return {};
   }
+  std::set<std::string> encoded_axes;
   for (const auto &[axis, value] : axes) {
     log.at(axis);
     if (value <= 1) {
@@ -926,7 +1179,15 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
             s(metadata, "game_sha256") != hash)
           decline(FailureCause::error, "seed_binding",
                   "seed reduction hash differs");
-        auto members = axis_members(target, *probe);
+        std::pair<std::vector<int>, std::vector<int>> members;
+        try {
+          members = axis_members(target, *probe);
+        } catch (const Failure &e) {
+          if (e.stage == "axis" && !strcmp(e.what(), "encoding_width") &&
+              fold_encoding_change(target, *probe, axis))
+            encoded_axes.insert(axis);
+          throw;
+        }
         probe->members = std::move(members.second);
         std::vector<std::string> parts{trusted.source_hash, axis, field(k),
                                        "exact", hash};
@@ -1069,6 +1330,33 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     if (!found.real_sizes.empty() || !found.env_sizes.empty())
       return found;
   }
+  if (!disable_real_lift)
+    for (const auto &axis : encoded_axes) {
+      Window window;
+      try {
+        window = discover_fold((const uint8_t *)trusted.snapshot.data(),
+                               trusted.snapshot.size(), target, axis, cfg,
+                               out.seed_probes, log, &out.seed_reductions);
+      } catch (const Failure &e) {
+        if (!is_applicability(e.cause))
+          throw;
+        continue;
+      }
+      SharedSeeds found;
+      found.axis = axis;
+      found.fold = true;
+      found.real_sizes = window.sizes;
+      for (size_t p = 0; p < window.sizes.size(); p++) {
+        auto &seed = window.seeds[p];
+        char hash[65]{};
+        sha256_hex(seed->r.aag, seed->r.aag_size, hash);
+        found.entries.emplace(
+            window.sizes[p],
+            SharedSeeds::Entry{std::move(seed),
+                               key({trusted.source_hash, axis, hash})});
+      }
+      return found;
+    }
   if (cfg.search_cause)
     cfg.decline_search("seed_window", "no stable index axis");
   return {};
@@ -1084,7 +1372,28 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
   log.exception("internal", "error", "unknown exception");
   throw;
 }
-void solve_seed(Instance &i, const Config &cfg) {
+// Cooperate with the arm's live RSS/deadline budget inside C solver/checker
+// loops; exceptions must not unwind through their cancellation callbacks.
+struct FoldBudget {
+  const Config &cfg;
+  std::exception_ptr failure;
+  static int cancelled(void *raw) noexcept {
+    auto &self = *static_cast<FoldBudget *>(raw);
+    try {
+      self.cfg.check("fold_budget");
+      return 0;
+    } catch (...) {
+      self.failure = std::current_exception();
+      return 1;
+    }
+  }
+  void finish() const {
+    if (failure)
+      std::rethrow_exception(failure);
+    cfg.check("fold_budget");
+  }
+};
+void solve_seed(Instance &i, const Config &cfg, bool fold) {
   cfg.check("seed_solve");
   char reason[256]{};
   if (!tlsf_gr1_validate_game(i.r.game, reason, sizeof reason))
@@ -1110,11 +1419,19 @@ void solve_seed(Instance &i, const Config &cfg) {
   options.oxidd.max_artifact_bytes = cfg.o.max_artifact_bytes;
   options.oxidd.failure = &failure;
   options.certificate = &export_options;
+  FoldBudget budget{cfg, {}};
+  if (fold) {
+    options.oxidd.deadline_mono_ns = cfg.effective_deadline();
+    options.oxidd.cancelled = FoldBudget::cancelled;
+    options.oxidd.cancel_ctx = &budget;
+  }
   int unreal = 0;
   Aig *strategy = solve_gr1_oxidd(copy.release(), &unreal, &options);
   aig_free(strategy);
   std::unique_ptr<char, decltype(&free)> cert_guard(cert, &free),
       meta_guard(meta, &free);
+  if (fold)
+    budget.finish();
   if (!strategy || unreal || export_options.failed || !cert || !meta) {
     if (failure.kind == OXIDD_FAILURE_DEADLINE)
       throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
@@ -1142,6 +1459,7 @@ void solve_seed(Instance &i, const Config &cfg) {
             "certificate metadata mismatch");
   i.cert = parse_aig(i.cert_aag.data(), i.cert_aag.size());
 }
+void solve_seed(Instance &i, const Config &cfg) { solve_seed(i, cfg, false); }
 
 FailureCause solver_failure_cause(OxiddFailureKind kind) {
   switch (kind) {
@@ -1178,7 +1496,7 @@ FailureCause check_failure_cause(TlsfGr1CheckStatus status,
   }
 }
 TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
-                                      TlsfGr1BothResult &out) {
+                                      TlsfGr1BothResult &out, bool fold) {
   char artifact[65]{};
   if (phase_observer && phase_observer->phase)
     sha256_hex(seed.r.aag, seed.r.aag_size, artifact);
@@ -1213,6 +1531,12 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   options.oxidd.max_artifact_bytes = cfg.o.max_artifact_bytes;
   options.oxidd.failure = &failure;
   options.certificate = &export_options;
+  FoldBudget budget{cfg, {}};
+  if (fold) {
+    options.oxidd.deadline_mono_ns = cfg.effective_deadline();
+    options.oxidd.cancelled = FoldBudget::cancelled;
+    options.oxidd.cancel_ctx = &budget;
+  }
   int unreal = 0;
   Aig *strategy = solve_gr1_oxidd(game.release(), &unreal, &options);
   const bool real = strategy && !unreal;
@@ -1221,6 +1545,8 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   std::unique_ptr<char, decltype(&free)> cert_owner(cert, &free),
       meta_owner(meta, &free), policy_owner(policy, &free),
       policy_meta_owner(policy_meta, &free);
+  if (fold)
+    budget.finish();
   if (failure.kind == OXIDD_FAILURE_DEADLINE)
     throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, "seed_solve",
                   "deadline exceeded");
@@ -1263,14 +1589,21 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
   check_options.deadline_mono_ns = cfg.o.deadline_mono_ns;
   check_options.cancelled = cfg.o.cancelled;
   check_options.cancel_ctx = cfg.o.cancel_ctx;
+  if (fold) {
+    check_options.deadline_mono_ns = cfg.effective_deadline();
+    check_options.cancelled = FoldBudget::cancelled;
+    check_options.cancel_ctx = &budget;
+  }
   TlsfGr1CheckResult checked{};
-  auto status = tlsf_gr1_check(&input, &check_options, &checked);
   out.seed_checks++;
+  auto status = tlsf_gr1_check(&input, &check_options, &checked);
   const auto verdict = checked.verdict;
   bool verified = status == TLSF_GR1_CHECK_OK &&
                   checked.verdict == (real ? TLSF_GR1_CHECK_REGION_VERIFIED
                                            : TLSF_GR1_CHECK_VERIFIED);
   tlsf_gr1_check_result_clear(&checked);
+  if (fold)
+    budget.finish();
   if (status == TLSF_GR1_CHECK_DEADLINE)
     throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline, "seed_check",
                   "deadline exceeded");
@@ -1280,6 +1613,10 @@ TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
                   "seed_check", "independent seed proof rejected");
   seed.cert = parse_aig(seed.cert_aag.data(), seed.cert_aag.size());
   return real ? TLSF_GR1_SEEDS_REAL : TLSF_GR1_SEEDS_UNREAL;
+}
+TlsfGr1SeedPolarity solve_shared_seed(Instance &seed, const Config &cfg,
+                                      TlsfGr1BothResult &out) {
+  return solve_shared_seed(seed, cfg, out, false);
 }
 struct Variable {
   int index;
@@ -1301,12 +1638,68 @@ struct GameView {
   std::vector<bool> controls;
   std::map<std::string, int> output_by_name;
   uint32_t states, inputs, fairness;
+  bool fold;
   GameView(const Instance &i, const Modes &m, const Config &cfg,
-           const std::vector<int> *target_members = nullptr)
-      : inst(&i), modes(m), roles(role_signatures(i, m, cfg, target_members)),
+           const std::vector<int> *target_members = nullptr,
+           bool monitor_fold = false)
+      : inst(&i), modes(m),
+        roles(monitor_fold ? Roles{}
+                           : role_signatures(i, m, cfg, target_members)),
         members(target_members ? *target_members : i.members),
         states(aig_num_latches(i.r.game)), inputs(aig_num_inputs(i.r.game)),
-        fairness(aig_num_fairness(i.r.game)) {
+        fairness(aig_num_fairness(i.r.game)), fold(monitor_fold) {
+    if (fold) {
+      (void)fold_inventory(i);
+      for (uint32_t p = 0; p < states + inputs; p++)
+        variables.push_back(
+            {int(p), p < states ? "state" : "letter", "", {}, {}});
+      std::map<uint32_t, bool> signals;
+      for (const char *kind : {"inputs", "outputs"})
+        for (const J &v : i.data.at(kind).as_array())
+          signals[uint32_t(n(v.as_object(), "game_literal"))] =
+              s(v.as_object(), "direction") == "output";
+      for (uint32_t p = 0; p < inputs; p++) {
+        uint32_t lit;
+        aig_input_name(i.r.game, p, &lit);
+        controls.push_back(signals.at(lit));
+      }
+      std::map<int, std::string> justice;
+      for (const J &v : i.data.at("monitors").as_array()) {
+        const O &r = v.as_object();
+        if (s(r, "role") == "justice")
+          justice.emplace(int(n(r, "justice_index")), fold_key(r));
+      }
+      if (justice.size() != aig_num_justice(i.r.game))
+        decline(FailureCause::applicability, "fold_detection",
+                "fold_goal_inventory");
+      for (size_t p = 0; p < justice.size(); p++) {
+        uint32_t count;
+        aig_justice_at(i.r.game, p, nullptr, &count);
+        if (count != 1 || !justice.count(int(p)))
+          decline(FailureCause::applicability, "fold_detection",
+                  "fold_goal_inventory");
+        goals.push_back({int(p), -1, justice.at(int(p))});
+      }
+      if (i.cert) {
+        if (aig_num_inputs(i.cert.get()) != variables.size() ||
+            n(i.cert_meta.at("counts").as_object(), "sampling_latches") != 0)
+          decline(FailureCause::applicability, "fold_detection",
+                  "fold_seed_interface");
+        for (uint32_t p = 0; p < variables.size(); p++) {
+          const char *actual = aig_input_name(i.cert.get(), p, nullptr);
+          const char *expected =
+              p < states ? aig_latch_name(i.r.game, p)
+                         : aig_input_name(i.r.game, p - states, nullptr);
+          if (!actual || !expected || strcmp(actual, expected))
+            decline(FailureCause::error, "fold_detection",
+                    "fold_seed_interface");
+        }
+        for (uint32_t p = 0; p < aig_num_outputs(i.cert.get()); p++)
+          if (const char *name = aig_output_at(i.cert.get(), p, nullptr))
+            output_by_name[name] = int(p);
+      }
+      return;
+    }
     auto &data = i.data;
     std::map<uint32_t, std::pair<const O *, size_t>> latch_records;
     for (const J &v : data.at("monitors").as_array()) {
@@ -1886,6 +2279,146 @@ struct LearnedCertificate {
   std::map<std::string, int> arities;
   std::vector<int> depths;
 };
+
+std::map<std::string, B> fold_atoms(Schema &bdd, const GameView &view) {
+  const Aig *game = view.inst->r.game;
+  std::map<int, std::tuple<int, uint32_t, uint32_t>> states;
+  for (uint32_t p = 0; p < view.states; p++) {
+    uint32_t lit, next, reset;
+    aig_latch_at(game, p, &lit, &next, &reset);
+    states[int(lit)] = {int(p), next, reset};
+  }
+  std::map<std::string, B> atoms;
+  for (const auto &[schema, monitors] : fold_inventory(*view.inst)) {
+    B live = bdd.t(), except = bdd.t();
+    bool tagged = true;
+    for (const O *monitor : monitors) {
+      B any = bdd.f(), rest = bdd.f();
+      unsigned transients = 0;
+      for (int lit : ints(monitor->at("latch_literals").as_array())) {
+        const auto &[pos, next, reset] = states.at(lit);
+        B state = bdd.var(pos);
+        any = bdd.lor(any, state);
+        // A semantic tag, never a monitor-state ordinal or a one-hot premise.
+        if (reset == 1 && next == 0)
+          ++transients;
+        else
+          rest = bdd.lor(rest, state);
+      }
+      tagged &= transients == 1;
+      live = bdd.land(live, any);
+      except = bdd.land(except, rest);
+    }
+    atoms.emplace(key({schema, "Live"}), std::move(live));
+    if (tagged)
+      atoms.emplace(key({schema, "LiveExcept(transient)"}), std::move(except));
+  }
+  return atoms;
+}
+struct FoldRule {
+  struct Term {
+    bool zero = true;
+    std::set<std::string> atoms;
+  };
+  std::map<std::string, Term> terms;
+  std::map<std::string, int> depths;
+};
+std::string fold_rank(const Goal &g, int level, int fair) {
+  return key({g.key, field(level), field(fair)});
+}
+FoldRule learn_fold(Schema &bdd, const std::vector<GameView> &seeds,
+                    const GameView &target, const Config &cfg) {
+  FoldRule rule;
+  const auto target_atoms = fold_atoms(bdd, target);
+  auto observe = [&](const std::string &name, const B &predicate,
+                     const std::map<std::string, B> &atoms) {
+    auto [it, inserted] = rule.terms.try_emplace(name);
+    auto &term = it->second;
+    term.zero &= same(predicate, bdd.f());
+    std::set<std::string> implied;
+    for (const auto &[atom, value] : atoms) {
+      cfg.check("fold_learning");
+      if (target_atoms.count(atom) &&
+          same(bdd.land(predicate, value), predicate))
+        implied.insert(atom);
+    }
+    if (inserted)
+      term.atoms = std::move(implied);
+    else {
+      std::set<std::string> common;
+      std::set_intersection(term.atoms.begin(), term.atoms.end(),
+                            implied.begin(), implied.end(),
+                            std::inserter(common, common.end()));
+      term.atoms = std::move(common);
+    }
+  };
+  for (const auto &seed : seeds) {
+    if (seed.fairness != target.fairness)
+      decline(FailureCause::applicability, "fold_learning",
+              "fold_fairness_changed");
+    const auto atoms = fold_atoms(bdd, seed);
+    observe("inv", bdd.from_aig(seed.inst->cert.get(), seed.output("inv")),
+            atoms);
+    for (const auto &g : seed.goals) {
+      int depth = seed.levels(g);
+      auto [it, inserted] = rule.depths.emplace(g.key, depth);
+      if (depth < 1 || (!inserted && it->second != depth))
+        decline(FailureCause::applicability, "fold_learning",
+                "fold_rank_depth_changed");
+      for (int k = 0; k < depth; k++)
+        for (uint32_t f = 0; f < std::max(1u, seed.fairness); f++) {
+          auto name = "x_" + field(g.number) + "_" + field(k) + "_" + field(f);
+          observe(fold_rank(g, k, f),
+                  bdd.from_aig(seed.inst->cert.get(), seed.output(name)),
+                  atoms);
+        }
+    }
+  }
+  for (const auto &g : target.goals)
+    if (!rule.depths.count(g.key))
+      decline(FailureCause::applicability, "fold_learning",
+              "fold_no_candidate");
+  return rule;
+}
+LearnedCertificate instantiate_fold(Schema &bdd, const GameView &view,
+                                    const FoldRule &rule) {
+  const auto atoms = fold_atoms(bdd, view);
+  auto predicate = [&](const std::string &name) {
+    const auto &term = rule.terms.at(name);
+    B out = term.zero ? bdd.f() : bdd.t();
+    for (const auto &atom : term.atoms) {
+      if (!atoms.count(atom))
+        decline(FailureCause::applicability, "fold_instantiation",
+                "fold_missing_tag");
+      out = bdd.land(out, atoms.at(atom));
+    }
+    return out;
+  };
+  LearnedCertificate out;
+  out.predicates.emplace("inv", predicate("inv"));
+  for (const auto &g : view.goals) {
+    int depth = rule.depths.at(g.key);
+    out.depths.push_back(depth);
+    const uint32_t *members;
+    uint32_t count;
+    aig_justice_at(view.inst->r.game, g.number, &members, &count);
+    out.predicates.emplace("goal_" + field(g.number),
+                           bdd.from_aig(view.inst->r.game, members[0], true));
+    for (int k = 0; k < depth; k++) {
+      B y = bdd.f();
+      for (uint32_t f = 0; f < std::max(1u, view.fairness); f++) {
+        B x = predicate(fold_rank(g, k, f));
+        y = bdd.lor(y, x);
+        out.predicates.emplace("x_" + field(g.number) + "_" + field(k) + "_" +
+                                   field(f),
+                               std::move(x));
+      }
+      out.predicates.emplace("y_" + field(g.number) + "_" + field(k),
+                             std::move(y));
+    }
+  }
+  return out;
+}
 LearnedCertificate learn_certificate(Schema &bdd,
                                      const std::vector<GameView> &seeds,
                                      const GameView &target,
@@ -1986,6 +2519,9 @@ struct Candidate {
       check_json, evidence;
   TlsfGr1CheckMethod method = TLSF_GR1_CHECK_CERTIFICATE;
   TlsfGr1CheckVerdict verdict = TLSF_GR1_CHECK_UNKNOWN;
+  bool fold = false;
+  std::string checker_order;
+  O fold_evidence;
 };
 J certificate_sidecar(const GameView &target, const LearnedCertificate &learned,
                       const Aig *certificate,
@@ -2066,7 +2602,8 @@ J certificate_sidecar(const GameView &target, const LearnedCertificate &learned,
       {"side", "system"},
       {"reduction_semantics", semantics == TLSF_GR1_EXACT ? "exact" : "strict"},
       {"circuit", O{{"path", "memory"}, {"kind", "ASCII AIGER combinational"}}},
-      {"fixpoint", "generalized fixed-arity monitor certificate"},
+      {"fixpoint", target.fold ? "monitor-fold candidate"
+                               : "generalized fixed-arity monitor certificate"},
       {"counts", O{{"goals", ngoals},
                    {"justice_records", aig_num_justice(game)},
                    {"fairness_assumptions", target.fairness},
@@ -2091,7 +2628,8 @@ J certificate_sidecar(const GameView &target, const LearnedCertificate &learned,
        "All-zero denotes goal 0; goals advance cyclically."},
       {"rank_semantics", "y_j_k is definitionally the union of x_j_k_i."},
       {"move_semantics",
-       "Target transition relation and lifted invariant/ranks."},
+       target.fold ? "Placeholders unused by the region method."
+                   : "Target transition relation and lifted invariant/ranks."},
       {"move_source", "target_game"}};
 }
 std::unique_ptr<Aig, decltype(&aig_free)>
@@ -2108,6 +2646,14 @@ emit_certificate(Schema &bdd, const GameView &target,
   for (uint32_t p = 0; p < target.inputs; p++)
     current[int(target.states + p)] =
         aig_input(out.get(), aig_input_name(game, p, nullptr));
+  if (target.fold) {
+    for (const auto &[name, predicate] : learned.predicates)
+      aig_set_output(out.get(), name.c_str(),
+                     bdd.to_aig(out.get(), predicate, current));
+    for (const auto &g : target.goals)
+      aig_set_output(out.get(), ("move_" + field(g.number)).c_str(), 0);
+    return out;
+  }
   std::map<uint32_t, uint32_t> translated;
   for (uint32_t p = 0; p < target.states; p++) {
     uint32_t cur;
@@ -2358,9 +2904,11 @@ std::unique_ptr<Aig, decltype(&aig_free)> emit_policy(Schema &bdd,
   }
   return policy;
 }
-TlsfGr1CheckResult check(const TrustedTarget &trusted,
-                         const Candidate &candidate, const Config &cfg,
-                         TlsfGr1CheckMethod method, uint64_t deadline) {
+TlsfGr1CheckResult
+check(const TrustedTarget &trusted, const Candidate &candidate,
+      const Config &cfg, TlsfGr1CheckMethod method, uint64_t deadline,
+      TlsfGr1CheckVarOrder order = TLSF_GR1_CHECK_VAR_ORDER_AUTO,
+      uint64_t *checks = nullptr) {
   char game_hash[65]{};
   sha256_hex(trusted.game_aag.data(), trusted.game_aag.size(), game_hash);
   if (trusted.game_hash != game_hash ||
@@ -2374,6 +2922,8 @@ TlsfGr1CheckResult check(const TrustedTarget &trusted,
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
   if (method == TLSF_GR1_CHECK_REGION &&
       (lift_test_fault == 2 || lift_test_fault == 3 || lift_test_fault == 4)) {
+    if (checks)
+      ++*checks;
     TlsfGr1CheckResult injected{};
     const bool capacity = lift_test_fault == 2 || lift_test_fault == 4;
     injected.status = capacity ? TLSF_GR1_CHECK_LIMIT : TLSF_GR1_CHECK_OK;
@@ -2409,22 +2959,203 @@ TlsfGr1CheckResult check(const TrustedTarget &trusted,
   options.deadline_mono_ns = deadline;
   options.cancelled = cfg.o.cancelled;
   options.cancel_ctx = cfg.o.cancel_ctx;
+  FoldBudget budget{cfg, {}};
+  if (candidate.fold) {
+    options.cancelled = FoldBudget::cancelled;
+    options.cancel_ctx = &budget;
+    options.deadline_mono_ns = cfg.effective_deadline();
+    options.var_order = order;
+  }
   TlsfGr1CheckResult result{};
+  if (checks)
+    ++*checks;
   tlsf_gr1_check(&input, &options, &result);
+  if (candidate.fold) {
+    try {
+      budget.finish();
+    } catch (...) {
+      tlsf_gr1_check_result_clear(&result);
+      throw;
+    }
+  }
   if (cfg.stats)
     cfg.stats->internal_check_peak_nodes = std::max<uint64_t>(
         cfg.stats->internal_check_peak_nodes, result.peak_nodes);
   return result;
 }
+
+// Candidate generation has no soundness claim. Only REGION_VERIFIED against
+// the unchanged, source-bound target may publish REALIZABLE; the method's
+// sufficiency is proved by Tlsf.Gr1.region_conditions_sound (PR #142).
+void verify_fold(const TrustedTarget &trusted, Candidate &candidate,
+                 const Config &cfg, SeedDeclines log,
+                 uint64_t *checks = nullptr) try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (lift_test_fault == 12)
+    throw std::bad_alloc();
+#endif
+  for (auto order :
+       {TLSF_GR1_CHECK_VAR_ORDER_AUTO, TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST}) {
+    const char *name =
+        order == TLSF_GR1_CHECK_VAR_ORDER_AUTO ? "default" : "input-first";
+    cfg.check("fold_region_check");
+    auto result = check(trusted, candidate, cfg, TLSF_GR1_CHECK_REGION,
+                        cfg.effective_deadline(), order, checks);
+    auto clear = [](TlsfGr1CheckResult *r) {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+      if (lift_test_fault == 13 && r->json &&
+          r->verdict == TLSF_GR1_CHECK_REGION_VERIFIED)
+        ++lift_test_check_json_clears;
+#endif
+      tlsf_gr1_check_result_clear(r);
+    };
+    std::unique_ptr<TlsfGr1CheckResult, decltype(clear)> owned(&result, clear);
+    const auto status = result.status;
+    const auto verdict = result.verdict;
+    const bool capacity =
+        status == TLSF_GR1_CHECK_LIMIT &&
+        !strcmp(result.message, "checker allocation or node cap exhausted");
+    if (status == TLSF_GR1_CHECK_OK &&
+        verdict == TLSF_GR1_CHECK_REGION_VERIFIED) {
+      candidate.method = TLSF_GR1_CHECK_REGION;
+      candidate.verdict = verdict;
+      candidate.checker_order = name;
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+      if (lift_test_fault == 13 && result.json)
+        throw std::bad_alloc();
+#endif
+      if (result.json)
+        candidate.check_json.assign(result.json, result.json_size);
+      return;
+    }
+    owned.reset();
+    log.note((std::string("fold_region_failed(") + name + ")").c_str());
+    if (capacity && order == TLSF_GR1_CHECK_VAR_ORDER_AUTO)
+      continue;
+    if (status == TLSF_GR1_CHECK_DEADLINE)
+      throw cfg.deadline_failure("fold_region_check");
+    if (status == TLSF_GR1_CHECK_CANCELLED)
+      throw Failure(TLSF_GR1_LIFT_CANCELLED, FailureCause::cancelled,
+                    "fold_region_check", "fold_cancelled");
+    throw Failure(status == TLSF_GR1_CHECK_LIMIT ? TLSF_GR1_LIFT_LIMIT
+                                                 : TLSF_GR1_LIFT_DECLINED,
+                  check_failure_cause(status, verdict), "fold_region_check",
+                  "fold_region_failed");
+  }
+} catch (const Failure &e) {
+  log.note("fold_region_stopped");
+  log.failure(e);
+  throw;
+} catch (const std::bad_alloc &) {
+  log.note("fold_region_stopped");
+  log.exception("fold_region_check", "resource", "host allocation failed");
+  throw;
+} catch (const std::exception &e) {
+  log.note("fold_region_stopped");
+  log.exception("fold_region_check", "error", e.what());
+  throw;
+}
+
+O validate_fold_seeds(Schema &bdd, const std::vector<GameView> &seeds,
+                      const FoldRule &rule, const std::string &axis,
+                      const Config &cfg, uint64_t *checks) {
+  A evidence;
+  for (const auto &seed : seeds) {
+    auto learned = instantiate_fold(bdd, seed, rule);
+    bool exact = true;
+    for (const auto &[name, predicate] : learned.predicates)
+      exact &= same(predicate,
+                    bdd.from_aig(seed.inst->cert.get(), seed.output(name)));
+    auto cert = emit_certificate(bdd, seed, learned, cfg);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (lift_test_fault == 9 && &seed == &seeds[1])
+      aig_set_output(cert.get(), "inv", 0);
+#endif
+    auto aag = render_aig(cert.get(), cfg);
+    auto json =
+        dump(certificate_sidecar(seed, learned, cert.get(), TLSF_GR1_EXACT));
+    TlsfGr1CheckInput input{};
+    input.game_aag = {(const uint8_t *)seed.inst->r.aag, seed.inst->r.aag_size};
+    input.certificate_aag = {(const uint8_t *)aag.data(), aag.size()};
+    input.certificate_json = {(const uint8_t *)json.data(), json.size()};
+    TlsfGr1CheckOptions options{};
+    options.method = TLSF_GR1_CHECK_REGION;
+    options.node_cap = cfg.o.checker_nodes;
+    options.cache_cap = cfg.o.checker_cache;
+    options.max_artifact_bytes = cfg.o.max_artifact_bytes;
+    options.deadline_mono_ns = cfg.effective_deadline();
+    FoldBudget budget{cfg, {}};
+    options.cancelled = FoldBudget::cancelled;
+    options.cancel_ctx = &budget;
+    TlsfGr1CheckResult checked{};
+    BothPhase phase("native_fold_seed_check");
+    if (checks)
+      ++*checks;
+    auto status = tlsf_gr1_check(&input, &options, &checked);
+    const auto verdict = checked.verdict;
+    tlsf_gr1_check_result_clear(&checked);
+    budget.finish();
+    if (status != TLSF_GR1_CHECK_OK ||
+        verdict != TLSF_GR1_CHECK_REGION_VERIFIED)
+      throw Failure(status == TLSF_GR1_CHECK_DEADLINE ? TLSF_GR1_LIFT_DEADLINE
+                    : status == TLSF_GR1_CHECK_LIMIT  ? TLSF_GR1_LIFT_LIMIT
+                                                      : TLSF_GR1_LIFT_DECLINED,
+                    check_failure_cause(status, verdict), "fold_seed_check",
+                    "fold_seed_mismatch");
+    char hash[65]{};
+    sha256_hex(seed.inst->r.aag, seed.inst->r.aag_size, hash);
+    A mappings;
+    for (const auto &[schema, monitors] : fold_inventory(*seed.inst)) {
+      A instances;
+      for (const O *m : monitors)
+        instances.emplace_back(O{{"monitor", m->at("monitor")},
+                                 {"origin", m->at("source_origin")},
+                                 {"latch_literals", m->at("latch_literals")}});
+      mappings.emplace_back(O{{"schema", schema}, {"instances", instances}});
+    }
+    O values;
+    for (const auto &[name, value] : seed.inst->overrides)
+      values[name] = value;
+    A widths, profile;
+    for (int width : fold_widths(*seed.inst, axis))
+      widths.emplace_back(width);
+    for (int width : fold_profile(fold_widths(*seed.inst, axis)))
+      profile.emplace_back(width);
+    evidence.emplace_back(O{{"parameters", values},
+                            {"game_sha256", hash},
+                            {"widths", widths},
+                            {"relative_width_profile", profile},
+                            {"exact_predicates", exact},
+                            {"verdict", "REGION_VERIFIED"},
+                            {"schemas", mappings}});
+  }
+  O terms;
+  for (const auto &[name, term] : rule.terms) {
+    A atoms;
+    for (const auto &atom : term.atoms)
+      atoms.emplace_back(atom);
+    terms[name] = O{{"false", term.zero}, {"conjunction", atoms}};
+  }
+  return O{{"generator", "monitor-fold-v1"},
+           {"seed_validation", "region"},
+           {"seeds", evidence},
+           {"predicates", terms}};
+}
 Candidate prove(Schema &bdd, const GameView &target,
                 const LearnedCertificate &learned, const TrustedTarget &trusted,
-                const Config &cfg, bool candidate_only = false) {
+                const Config &cfg, bool candidate_only = false,
+                char *fold_detail = nullptr) {
   Candidate candidate;
+  candidate.fold = target.fold;
   candidate.game = trusted.game_aag;
   const auto semantics = trusted.semantics;
   StatsScope candidate_stats(cfg, TLSF_GR1_LIFT_STATS_CANDIDATE_INSTANTIATION);
   candidate_stats.count_bdd_ops(bdd.operation_counter());
   auto cert = emit_certificate(bdd, target, learned, cfg);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (target.fold && lift_test_fault == 8)
+    aig_set_output(cert.get(), "inv", 0);
+#endif
   candidate.certificate = render_aig(cert.get(), cfg);
   candidate.certificate_json =
       dump(certificate_sidecar(target, learned, cert.get(), semantics));
@@ -2442,6 +3173,12 @@ Candidate prove(Schema &bdd, const GameView &target,
   candidate_stats.finish();
   if (candidate_only) {
     candidate.method = TLSF_GR1_CHECK_REGION;
+    return candidate;
+  }
+  if (target.fold) {
+    char unused[TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE]{};
+    verify_fold(trusted, candidate, cfg,
+                SeedDeclines{fold_detail ? fold_detail : unused});
     return candidate;
   }
   TlsfGr1CheckStatus region_capacity_status = TLSF_GR1_CHECK_OK;
@@ -2653,162 +3390,209 @@ TrustedTarget prepare(const uint8_t *source, size_t size,
 }
 void run(const TrustedTarget &trusted, const Config &cfg,
          TlsfGr1LiftResult &result, Window *shared_window = nullptr,
-         bool candidate_only = false) {
-  BothPhase phase("native_r_candidate", trusted.game_hash.c_str());
-  const auto *source =
-      reinterpret_cast<const uint8_t *>(trusted.snapshot.data());
-  const size_t size = trusted.snapshot.size();
-  const auto &source_hash = trusted.source_hash;
-  const auto semantics = trusted.semantics;
-  const auto &target = trusted.instance;
-  auto axes = parameters(*target);
-  if (axes.empty())
-    decline(FailureCause::applicability, "parameters", "absent");
-  Config discovery_cfg = cfg;
-  StatsScope window_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_WINDOW);
-  auto window = shared_window
-                    ? std::move(*shared_window)
-                    : discover(source, size, *target, semantics, discovery_cfg,
-                               SeedDeclines{result.decline_detail});
+         bool candidate_only = false, uint64_t *seed_checks = nullptr) {
+  bool folding = false;
+  try {
+    BothPhase phase("native_r_candidate", trusted.game_hash.c_str());
+    const auto *source =
+        reinterpret_cast<const uint8_t *>(trusted.snapshot.data());
+    const size_t size = trusted.snapshot.size();
+    const auto &source_hash = trusted.source_hash;
+    const auto semantics = trusted.semantics;
+    const auto &target = trusted.instance;
+    auto axes = parameters(*target);
+    if (axes.empty())
+      decline(FailureCause::applicability, "parameters", "absent");
+    Config discovery_cfg = cfg;
+    StatsScope window_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_WINDOW);
+    auto window = shared_window ? std::move(*shared_window)
+                                : discover(source, size, *target, semantics,
+                                           discovery_cfg,
+                                           SeedDeclines{result.decline_detail});
+    folding = window.fold;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-  if (lift_test_fault == 1 && !window.sizes.empty())
-    window.sizes[0]++;
+    if (folding && lift_test_fault == 11)
+      throw std::bad_alloc();
+    if (lift_test_fault == 1 && !window.sizes.empty())
+      window.sizes[0]++;
 #endif
-  validate_window(window, *target);
-  window_stats.finish();
-  if (cfg.stats) {
-    cfg.stats->seeds_selected = window.seeds.size();
-    for (const auto &seed : window.seeds) {
-      cfg.stats->seed_latches += aig_num_latches(seed->r.game);
-      cfg.stats->seed_ands += aig_num_ands(seed->r.game);
+    if (!window.fold)
+      validate_window(window, *target);
+    else if (window.seeds.size() < 2 || trusted.semantics != TLSF_GR1_EXACT)
+      decline(FailureCause::applicability, "fold_discovery",
+              "fold_no_candidate");
+    window_stats.finish();
+    if (cfg.stats) {
+      cfg.stats->seeds_selected = window.seeds.size();
+      for (const auto &seed : window.seeds) {
+        cfg.stats->seed_latches += aig_num_latches(seed->r.game);
+        cfg.stats->seed_ands += aig_num_ands(seed->r.game);
+      }
     }
-  }
-  if (!shared_window)
-    for (auto &seed : window.seeds) {
-      StatsScope solve_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_SOLVE);
-      if (cfg.stats)
-        cfg.stats->seed_solves++;
-      solve_seed(*seed, discovery_cfg);
+    if (!shared_window)
+      for (auto &seed : window.seeds) {
+        StatsScope solve_stats(cfg, TLSF_GR1_LIFT_STATS_SEED_SOLVE);
+        if (cfg.stats)
+          cfg.stats->seed_solves++;
+        solve_seed(*seed, discovery_cfg, window.fold);
+      }
+    std::vector<GameView> seeds;
+    seeds.reserve(window.seeds.size());
+    for (auto &seed : window.seeds)
+      seeds.emplace_back(*seed, window.modes, discovery_cfg, nullptr,
+                         window.fold);
+    GameView target_view(*target, window.modes, discovery_cfg,
+                         &window.target_members, window.fold);
+    uint32_t width = uint32_t(target_view.variables.size());
+    for (const auto &seed : seeds)
+      width = std::max(width, uint32_t(seed.variables.size()));
+    Schema bdd(discovery_cfg, width);
+    StatsScope schema_stats(cfg, TLSF_GR1_LIFT_STATS_SCHEMA_LEARNING);
+    schema_stats.count_bdd_ops(bdd.operation_counter());
+    LearnedCertificate learned;
+    O fold_evidence;
+    if (window.fold) {
+      auto rule = learn_fold(bdd, seeds, target_view, discovery_cfg);
+      fold_evidence = validate_fold_seeds(bdd, seeds, rule, window.axis,
+                                          discovery_cfg, seed_checks);
+      learned = instantiate_fold(bdd, target_view, rule);
+    } else
+      learned = learn_certificate(bdd, seeds, target_view, discovery_cfg);
+    if (cfg.stats)
+      cfg.stats->schema_nodes_after_learning = bdd.node_count();
+    schema_stats.finish();
+    bdd.set_config(cfg);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (lift_test_fault == 5 && aig_num_latches(target->r.game)) {
+      uint32_t current, next;
+      aig_latch_at(target->r.game, 0, &current, &next, nullptr);
+      if (!aig_set_latch_next(target->r.game, current, aig_not(next)))
+        throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "candidate",
+                      "fault hook could not mutate the game");
     }
-  std::vector<GameView> seeds;
-  seeds.reserve(window.seeds.size());
-  for (auto &seed : window.seeds)
-    seeds.emplace_back(*seed, window.modes, discovery_cfg);
-  GameView target_view(*target, window.modes, discovery_cfg,
-                       &window.target_members);
-  uint32_t width = uint32_t(target_view.variables.size());
-  for (const auto &seed : seeds)
-    width = std::max(width, uint32_t(seed.variables.size()));
-  Schema bdd(discovery_cfg, width);
-  StatsScope schema_stats(cfg, TLSF_GR1_LIFT_STATS_SCHEMA_LEARNING);
-  schema_stats.count_bdd_ops(bdd.operation_counter());
-  auto learned = learn_certificate(bdd, seeds, target_view, discovery_cfg);
-  if (cfg.stats)
-    cfg.stats->schema_nodes_after_learning = bdd.node_count();
-  schema_stats.finish();
-  bdd.set_config(cfg);
+#endif
+    Candidate candidate = prove(bdd, target_view, learned, trusted, cfg,
+                                candidate_only, result.decline_detail);
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-  if (lift_test_fault == 5 && aig_num_latches(target->r.game)) {
-    uint32_t current, next;
-    aig_latch_at(target->r.game, 0, &current, &next, nullptr);
-    if (!aig_set_latch_next(target->r.game, current, aig_not(next)))
-      throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "candidate",
-                    "fault hook could not mutate the game");
+    if (lift_test_fault == 7 && !candidate_only)
+      candidate.verdict = TLSF_GR1_CHECK_UNKNOWN;
+#endif
+    if (!candidate_only && candidate.verdict != TLSF_GR1_CHECK_VERIFIED &&
+        candidate.verdict != TLSF_GR1_CHECK_REGION_VERIFIED)
+      decline(FailureCause::error, "target_check", "unverified candidate");
+    StatsScope publish_stats(cfg, TLSF_GR1_LIFT_STATS_PUBLISH);
+    cfg.check("publish");
+    cfg.bytes(candidate.game.size(), "publish");
+    cfg.bytes(candidate.certificate.size(), "publish");
+    cfg.bytes(candidate.certificate_json.size(), "publish");
+    cfg.bytes(candidate.policy.size(), "publish");
+    cfg.bytes(candidate.policy_json.size(), "publish");
+    cfg.bytes(candidate.check_json.size(), "publish");
+    char game_hash[65]{}, cert_hash[65]{}, policy_hash[65]{};
+    if (!tlsf_pipeline_source_sha256(candidate.game.data(),
+                                     candidate.game.size(), game_hash) ||
+        !tlsf_pipeline_source_sha256(candidate.certificate.data(),
+                                     candidate.certificate.size(), cert_hash))
+      throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
+                    "artifact hash failed");
+    if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE &&
+        (candidate.policy.empty() ||
+         !tlsf_pipeline_source_sha256(candidate.policy.data(),
+                                      candidate.policy.size(), policy_hash)))
+      throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
+                    "policy artifact hash failed");
+    A values, roles;
+    for (int v : window.sizes)
+      values.emplace_back(v);
+    for (const auto &[index, role] : target_view.roles)
+      roles.emplace_back(O{{"index", index}, {"signature", role}});
+    O arities;
+    for (const auto &[name, arity] : learned.arities)
+      arities[name] = arity;
+    J evidence =
+        O{{"format", TLSF_GR1_LIFT_EVIDENCE_FORMAT},
+          {"source_sha256", source_hash},
+          {"game_sha256", game_hash},
+          {"certificate_sha256", cert_hash},
+          {"axis", window.axis},
+          {"seed_values", values},
+          {"roles", roles},
+          {"predicate_arities", arities},
+          {"move_source", "target_transition"},
+          {"reduction_semantics",
+           semantics == TLSF_GR1_EXACT ? "exact" : "strict"},
+          {"method", candidate.method == TLSF_GR1_CHECK_REGION ? "gr1-region-v1"
+                                                               : "certificate"},
+          {"verdict", candidate_only ? "UNKNOWN"
+                      : candidate.method == TLSF_GR1_CHECK_REGION
+                          ? "REGION_VERIFIED"
+                          : "VERIFIED"},
+          {"global_knobs",
+           O{{"max_sizes_per_axis", cfg.o.max_sizes_per_axis},
+             {"max_predicate_arity", cfg.o.max_predicate_arity},
+             {"max_subsets_per_predicate", cfg.o.max_subsets_per_predicate},
+             {"seed_confirmation", cfg.o.seed_confirmation != 2},
+             {"max_seed_probes", cfg.max_seed_probes},
+             {"max_discovery_bdd_ops", cfg.max_bdd_ops},
+             {"max_policy_bdd_ops", cfg.max_policy_bdd_ops},
+             {"policy_proof_ns", cfg.policy_proof_ns},
+             {"solver_nodes", cfg.o.solver_nodes},
+             {"solver_cache", cfg.o.solver_cache},
+             {"checker_nodes", cfg.o.checker_nodes},
+             {"checker_cache", cfg.o.checker_cache},
+             {"schema_nodes", cfg.o.schema_nodes},
+             {"schema_cache", cfg.o.schema_cache}}}};
+    if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE)
+      evidence.as_object()["policy_sha256"] = policy_hash;
+    if (window.fold) {
+      evidence.as_object()["fold"] = fold_evidence;
+      if (!candidate_only)
+        evidence.as_object()["checker_order"] = candidate.checker_order;
+    }
+    candidate.evidence = dump(evidence);
+    cfg.bytes(candidate.evidence.size(), "publish");
+    result.game_size = candidate.game.size();
+    result.game_aag = copy_bytes(candidate.game);
+    result.certificate_size = candidate.certificate.size();
+    result.certificate_aag = copy_bytes(candidate.certificate);
+    result.certificate_json_size = candidate.certificate_json.size();
+    result.certificate_json = copy_bytes(candidate.certificate_json);
+    result.policy_size = candidate.policy.size();
+    if (!candidate.policy.empty())
+      result.policy_aag = copy_bytes(candidate.policy);
+    result.policy_json_size = candidate.policy_json.size();
+    if (!candidate.policy_json.empty())
+      result.policy_json = copy_bytes(candidate.policy_json);
+    result.check_json_size = candidate.check_json.size();
+    result.check_json = copy_bytes(candidate.check_json);
+    result.evidence_size = candidate.evidence.size();
+    result.evidence_json = copy_bytes(candidate.evidence);
+    result.semantics = semantics;
+    result.method = candidate.method;
+    result.verdict = candidate.verdict;
+  } catch (const Failure &e) {
+    if (folding) {
+      SeedDeclines log{result.decline_detail};
+      log.at("fold");
+      log.note("fold_failed");
+      log.failure(e);
+    }
+    throw;
+  } catch (const std::bad_alloc &) {
+    if (folding) {
+      SeedDeclines log{result.decline_detail};
+      log.note("fold_failed");
+      log.exception("fold", "resource", "host allocation failed");
+    }
+    throw;
+  } catch (const std::exception &e) {
+    if (folding) {
+      SeedDeclines log{result.decline_detail};
+      log.note("fold_failed");
+      log.exception("fold", "error", e.what());
+    }
+    throw;
   }
-#endif
-  Candidate candidate =
-      prove(bdd, target_view, learned, trusted, cfg, candidate_only);
-#ifdef TLSF_GR1_LIFT_TEST_FAULT
-  if (lift_test_fault == 7 && !candidate_only)
-    candidate.verdict = TLSF_GR1_CHECK_UNKNOWN;
-#endif
-  if (!candidate_only && candidate.verdict != TLSF_GR1_CHECK_VERIFIED &&
-      candidate.verdict != TLSF_GR1_CHECK_REGION_VERIFIED)
-    decline(FailureCause::error, "target_check", "unverified candidate");
-  StatsScope publish_stats(cfg, TLSF_GR1_LIFT_STATS_PUBLISH);
-  cfg.check("publish");
-  cfg.bytes(candidate.game.size(), "publish");
-  cfg.bytes(candidate.certificate.size(), "publish");
-  cfg.bytes(candidate.certificate_json.size(), "publish");
-  cfg.bytes(candidate.policy.size(), "publish");
-  cfg.bytes(candidate.policy_json.size(), "publish");
-  cfg.bytes(candidate.check_json.size(), "publish");
-  char game_hash[65]{}, cert_hash[65]{}, policy_hash[65]{};
-  if (!tlsf_pipeline_source_sha256(candidate.game.data(), candidate.game.size(),
-                                   game_hash) ||
-      !tlsf_pipeline_source_sha256(candidate.certificate.data(),
-                                   candidate.certificate.size(), cert_hash))
-    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
-                  "artifact hash failed");
-  if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE &&
-      (candidate.policy.empty() ||
-       !tlsf_pipeline_source_sha256(candidate.policy.data(),
-                                    candidate.policy.size(), policy_hash)))
-    throw Failure(TLSF_GR1_LIFT_ERROR, FailureCause::error, "publish",
-                  "policy artifact hash failed");
-  A values, roles;
-  for (int v : window.sizes)
-    values.emplace_back(v);
-  for (const auto &[index, role] : target_view.roles)
-    roles.emplace_back(O{{"index", index}, {"signature", role}});
-  O arities;
-  for (const auto &[name, arity] : learned.arities)
-    arities[name] = arity;
-  J evidence = O{
-      {"format", TLSF_GR1_LIFT_EVIDENCE_FORMAT},
-      {"source_sha256", source_hash},
-      {"game_sha256", game_hash},
-      {"certificate_sha256", cert_hash},
-      {"axis", window.axis},
-      {"seed_values", values},
-      {"roles", roles},
-      {"predicate_arities", arities},
-      {"move_source", "target_transition"},
-      {"reduction_semantics", semantics == TLSF_GR1_EXACT ? "exact" : "strict"},
-      {"method", candidate.method == TLSF_GR1_CHECK_REGION ? "gr1-region-v1"
-                                                           : "certificate"},
-      {"verdict", candidate_only ? "UNKNOWN"
-                  : candidate.method == TLSF_GR1_CHECK_REGION
-                      ? "REGION_VERIFIED"
-                      : "VERIFIED"},
-      {"global_knobs",
-       O{{"max_sizes_per_axis", cfg.o.max_sizes_per_axis},
-         {"max_predicate_arity", cfg.o.max_predicate_arity},
-         {"max_subsets_per_predicate", cfg.o.max_subsets_per_predicate},
-         {"seed_confirmation", cfg.o.seed_confirmation != 2},
-         {"max_seed_probes", cfg.max_seed_probes},
-         {"max_discovery_bdd_ops", cfg.max_bdd_ops},
-         {"max_policy_bdd_ops", cfg.max_policy_bdd_ops},
-         {"policy_proof_ns", cfg.policy_proof_ns},
-         {"solver_nodes", cfg.o.solver_nodes},
-         {"solver_cache", cfg.o.solver_cache},
-         {"checker_nodes", cfg.o.checker_nodes},
-         {"checker_cache", cfg.o.checker_cache},
-         {"schema_nodes", cfg.o.schema_nodes},
-         {"schema_cache", cfg.o.schema_cache}}}};
-  if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE)
-    evidence.as_object()["policy_sha256"] = policy_hash;
-  candidate.evidence = dump(evidence);
-  cfg.bytes(candidate.evidence.size(), "publish");
-  result.game_size = candidate.game.size();
-  result.game_aag = copy_bytes(candidate.game);
-  result.certificate_size = candidate.certificate.size();
-  result.certificate_aag = copy_bytes(candidate.certificate);
-  result.certificate_json_size = candidate.certificate_json.size();
-  result.certificate_json = copy_bytes(candidate.certificate_json);
-  result.policy_size = candidate.policy.size();
-  if (!candidate.policy.empty())
-    result.policy_aag = copy_bytes(candidate.policy);
-  result.policy_json_size = candidate.policy_json.size();
-  if (!candidate.policy_json.empty())
-    result.policy_json = copy_bytes(candidate.policy_json);
-  result.check_json_size = candidate.check_json.size();
-  result.check_json = copy_bytes(candidate.check_json);
-  result.evidence_size = candidate.evidence.size();
-  result.evidence_json = copy_bytes(candidate.evidence);
-  result.semantics = semantics;
-  result.method = candidate.method;
-  result.verdict = candidate.verdict;
 }
 } // namespace gr1_lift_internal
 
@@ -3001,30 +3785,36 @@ void both_check(const TrustedTarget &trusted, const Config &cfg,
           std::string(trusted.instance->r.aag, trusted.instance->r.aag_size))
     decline(FailureCause::error, "target_binding",
             "prepared game changed before verification");
-  auto checked =
-      check(trusted, candidate, cfg, candidate.method, cfg.o.deadline_mono_ns);
-  out.target_checks++;
-  const auto status = checked.status;
-  const auto verdict = checked.verdict;
-  const auto expected = candidate.method == TLSF_GR1_CHECK_REGION
-                            ? TLSF_GR1_CHECK_REGION_VERIFIED
-                            : TLSF_GR1_CHECK_VERIFIED;
-  const bool verified =
-      status == TLSF_GR1_CHECK_OK && checked.verdict == expected;
-  if (verified) {
-    candidate.verdict = checked.verdict;
-    if (checked.json)
-      candidate.check_json.assign(checked.json, checked.json_size);
-  }
-  tlsf_gr1_check_result_clear(&checked);
-  if (status == TLSF_GR1_CHECK_DEADLINE && cfg.o.deadline_mono_ns &&
-      now_ns() >= cfg.o.deadline_mono_ns)
-    throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
-                  "target_check", "deadline exceeded");
-  if (!verified) {
-    const auto cause = check_failure_cause(status, verdict);
-    throw Failure(TLSF_GR1_LIFT_DECLINED, cause, "target_check",
-                  "candidate proof did not verify");
+  if (candidate.fold) {
+    SeedDeclines log{out.decline_detail};
+    log.at("fold");
+    verify_fold(trusted, candidate, cfg, log, &out.target_checks);
+  } else {
+    auto checked =
+        check(trusted, candidate, cfg, candidate.method, cfg.o.deadline_mono_ns,
+              TLSF_GR1_CHECK_VAR_ORDER_AUTO, &out.target_checks);
+    const auto status = checked.status;
+    const auto verdict = checked.verdict;
+    const auto expected = candidate.method == TLSF_GR1_CHECK_REGION
+                              ? TLSF_GR1_CHECK_REGION_VERIFIED
+                              : TLSF_GR1_CHECK_VERIFIED;
+    const bool verified =
+        status == TLSF_GR1_CHECK_OK && checked.verdict == expected;
+    if (verified) {
+      candidate.verdict = checked.verdict;
+      if (checked.json)
+        candidate.check_json.assign(checked.json, checked.json_size);
+    }
+    tlsf_gr1_check_result_clear(&checked);
+    if (status == TLSF_GR1_CHECK_DEADLINE && cfg.o.deadline_mono_ns &&
+        now_ns() >= cfg.o.deadline_mono_ns)
+      throw Failure(TLSF_GR1_LIFT_DEADLINE, FailureCause::deadline,
+                    "target_check", "deadline exceeded");
+    if (!verified) {
+      const auto cause = check_failure_cause(status, verdict);
+      throw Failure(TLSF_GR1_LIFT_DECLINED, cause, "target_check",
+                    "candidate proof did not verify");
+    }
   }
   const O metadata = j::parse(candidate.certificate_json).as_object();
   if (s(metadata, "side") != (unreal ? "environment" : "system"))
@@ -3072,6 +3862,10 @@ void publish_both(const TrustedTarget &trusted, const Candidate &candidate,
         {"seed_cache_hits", out.seed_cache_hits}};
   if (!candidate.policy.empty())
     evidence.as_object()["policy_sha256"] = policy_hash;
+  if (candidate.fold) {
+    evidence.as_object()["fold"] = candidate.fold_evidence;
+    evidence.as_object()["checker_order"] = candidate.checker_order;
+  }
   auto &proof = out.proof;
   proof.game_size = candidate.game.size();
   proof.game_aag = copy_bytes(candidate.game);
@@ -3103,9 +3897,13 @@ void publish_both(const TrustedTarget &trusted, const Candidate &candidate,
 extern "C" void tlsf_gr1_lift_test_set_fault(int fault) {
   lift_test_fault = fault;
   lift_test_reduction_calls = 0;
+  lift_test_check_json_clears = 0;
   lift_test_generated_certificate_json.clear();
   lift_test_checked_game_aag.clear();
   lift_test_fallback_started_before_deadline = false;
+}
+extern "C" unsigned tlsf_gr1_lift_test_check_json_clears() {
+  return lift_test_check_json_clears;
 }
 extern "C" uint64_t tlsf_gr1_lift_test_reduction_calls() {
   return lift_test_reduction_calls;
@@ -3469,11 +4267,13 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
         Candidate winner;
         bool have_winner = false;
         if (!disable_real_lift || !cfg.o.disable_env_lift) {
+          bool fold_active = false;
           try {
             select(TLSF_GR1_BOTH_EVENT_SEEDS, -1, "seed_discovery");
             SharedSeeds cache =
                 discover_shared(trusted, cfg, *result, disable_real_lift,
                                 SeedDeclines{result->decline_detail});
+            fold_active = cache.fold;
             if (cache.axis.empty()) {
               both_decline(*result, "seed_window");
               emit(TLSF_GR1_BOTH_EVENT_DECLINE, "seed_window",
@@ -3493,7 +4293,19 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                 if (entry.key.find(hash) == std::string::npos)
                   decline(FailureCause::error, "seed_binding",
                           "seed cache key differs from game");
-                auto side = solve_shared_seed(*entry.instance, cfg, *result);
+                TlsfGr1SeedPolarity side;
+                try {
+                  side = solve_shared_seed(*entry.instance, cfg, *result,
+                                           cache.fold);
+                } catch (const Failure &e) {
+                  if (cache.fold) {
+                    SeedDeclines log{result->decline_detail};
+                    log.at(cache.axis, size, size, ":fold");
+                    log.note("fold_seed_failed");
+                    log.failure(e);
+                  }
+                  throw;
+                }
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
                 if (both_test_seed_fault == 4 && size == *selected.begin() &&
                     cfg.o.deadline_mono_ns) {
@@ -3514,6 +4326,11 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                   common = TLSF_GR1_SEEDS_MIXED;
               }
               result->seed_polarity = common;
+              if (cache.fold && common != TLSF_GR1_SEEDS_REAL) {
+                SeedDeclines log{result->decline_detail};
+                log.at(cache.axis, 0, 0, ":fold");
+                log.note("fold_seed_polarity");
+              }
               if (common == TLSF_GR1_SEEDS_REAL && !cache.real_sizes.empty()) {
                 select(TLSF_GR1_BOTH_EVENT_R, 0, "R");
                 Window window;
@@ -3521,6 +4338,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                 window.sizes = cache.real_sizes;
                 window.target_members = cache.target_members;
                 window.modes = cache.modes;
+                window.fold = cache.fold;
                 for (int size : cache.real_sizes)
                   window.seeds.push_back(
                       std::move(cache.entries.at(size).instance));
@@ -3530,11 +4348,30 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                   ~ProofGuard() { tlsf_gr1_lift_result_clear(&value); }
                 } proof_guard{candidate_proof};
                 const bool candidate_only = true;
-                run(trusted, cfg, candidate_proof, &window, candidate_only);
+                try {
+                  run(trusted, cfg, candidate_proof, &window, candidate_only,
+                      &result->seed_checks);
+                } catch (...) {
+                  if (cache.fold) {
+                    SeedDeclines log{result->decline_detail};
+                    log.at("fold");
+                    log.note(candidate_proof.decline_detail);
+                  }
+                  throw;
+                }
                 if (cfg.stats && cfg.stats->internal_checks)
                   decline(FailureCause::error, "candidate_integrity",
                           "R candidate checked target");
                 Candidate candidate;
+                candidate.fold = cache.fold;
+                if (cache.fold) {
+                  candidate.fold_evidence =
+                      j::parse(std::string_view(candidate_proof.evidence_json,
+                                                candidate_proof.evidence_size))
+                          .as_object()
+                          .at("fold")
+                          .as_object();
+                }
                 candidate.game.assign(candidate_proof.game_aag,
                                       candidate_proof.game_size);
                 candidate.certificate.assign(candidate_proof.certificate_aag,
@@ -3639,6 +4476,12 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
               }
             }
           } catch (const Failure &e) {
+            if (fold_active) {
+              SeedDeclines log{result->decline_detail};
+              log.at("fold");
+              log.note("fold_failed");
+              log.failure(e);
+            }
             if (e.status == TLSF_GR1_LIFT_DEADLINE ||
                 e.status == TLSF_GR1_LIFT_CANCELLED ||
                 e.stage == "target_binding")
@@ -3654,6 +4497,20 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                         result->seed_polarity == TLSF_GR1_SEEDS_NONE
                     ? TLSF_GR1_SEEDS_UNKNOWN
                     : result->seed_polarity;
+          } catch (const std::bad_alloc &) {
+            if (fold_active) {
+              SeedDeclines log{result->decline_detail};
+              log.note("fold_failed");
+              log.exception("fold", "resource", "host allocation failed");
+            }
+            throw;
+          } catch (const std::exception &e) {
+            if (fold_active) {
+              SeedDeclines log{result->decline_detail};
+              log.note("fold_failed");
+              log.exception("fold", "error", e.what());
+            }
+            throw;
           }
         }
         if (!have_winner) {

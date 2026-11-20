@@ -112,7 +112,9 @@ typedef struct {
   TlsfGr1LiftPhaseBudget phase_budget;
   /* Zero keeps policy-first for callers that need a policy artifact.
    * Region-first retries policy only after region capacity or deadline;
-   * REGION_FAILED declines without claiming UNREAL or exporting a policy. */
+   * REGION_FAILED declines without claiming UNREAL or exporting a policy.
+   * Encoded monitor-fold candidates always require REGION_VERIFIED and export
+   * no policy; BDD capacity permits one input-first region retry. */
   TlsfGr1LiftProofOrder proof_order;
   /* Fixed U candidate allowance, including its seeds. Zero selects 180 s.
    * N3 may provide a shorter allowance after factoring out shared seeds. */

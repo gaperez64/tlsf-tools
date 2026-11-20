@@ -39,6 +39,12 @@ typedef struct {
   const char *source_sha256;
   bool require_unambiguous_origin;
   TlsfPipelineError *error;
+  /* Cooperative frontend budget: bytes is an upcoming allocation (or zero
+   * at an evaluation checkpoint). Nonzero cancels; callback must not unwind. */
+  int (*frontend_cancelled)(void *, size_t bytes);
+  void *frontend_cancel_ctx;
+  /* Opt in to the generated-tree depth cap for budgeted fold seeds only. */
+  bool limit_generated_depth;
 } TlsfPipelineOptions;
 
 typedef struct {

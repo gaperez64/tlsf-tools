@@ -1,4 +1,5 @@
 #include "tlsf/intern.h"
+#include "arena_budget.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -37,10 +38,13 @@ struct InternTable {
   size_t used; ///< occupied slots
 };
 
-static bool intern_insert(InternSlot *slots, size_t cap, const char *key) {
+static bool intern_insert(Arena *arena, InternSlot *slots, size_t cap,
+                          const char *key) {
   uint64_t h = fnv1a(key, strlen(key));
   size_t idx = (size_t)(h & (cap - 1u));
   for (size_t i = 0; i < cap; i++) {
+    if (!arena_check_budget(arena, 0))
+      return false;
     size_t probe = (idx + i) & (cap - 1u);
     if (!slots[probe].key) {
       slots[probe].key = key;
@@ -53,12 +57,19 @@ static bool intern_insert(InternSlot *slots, size_t cap, const char *key) {
 
 static int intern_grow(InternTable *t) {
   size_t new_cap = t->cap * 2u;
+  if (new_cap < t->cap || new_cap > SIZE_MAX / sizeof(InternSlot) ||
+      !arena_check_budget(t->arena, new_cap * sizeof(InternSlot)))
+    return -1;
   InternSlot *new_slots = calloc(new_cap, sizeof(InternSlot));
   if (!new_slots)
     return -1;
   for (size_t i = 0; i < t->cap; i++) {
-    if (t->slots[i].key)
-      intern_insert(new_slots, new_cap, t->slots[i].key);
+    if (!arena_check_budget(t->arena, 0) ||
+        (t->slots[i].key &&
+         !intern_insert(t->arena, new_slots, new_cap, t->slots[i].key))) {
+      free(new_slots);
+      return -1;
+    }
   }
   free(t->slots);
   t->slots = new_slots;
@@ -94,11 +105,15 @@ void intern_table_free(InternTable *t) {
 
 const char *intern_n(InternTable *t, const char *s, size_t len) {
   assert(t && s);
+  if (!arena_check_budget(t->arena, 0))
+    return nullptr;
 
   // Probe for existing entry.
   uint64_t h = fnv1a(s, len);
   size_t idx = (size_t)(h & (t->cap - 1u));
   for (size_t i = 0; i < t->cap; i++) {
+    if (!arena_check_budget(t->arena, 0))
+      return nullptr;
     size_t probe = (idx + i) & (t->cap - 1u);
     const char *k = t->slots[probe].key;
     if (!k)
@@ -119,7 +134,8 @@ const char *intern_n(InternTable *t, const char *s, size_t len) {
   memcpy(copy, s, len);
   copy[len] = '\0';
 
-  intern_insert(t->slots, t->cap, copy);
+  if (!intern_insert(t->arena, t->slots, t->cap, copy))
+    return nullptr;
   t->used++;
   return copy;
 }

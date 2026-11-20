@@ -1,4 +1,5 @@
 #include "expand_check.h"
+#include "arena_budget.h"
 #include "diagnostic.h"
 #include <string.h>
 
@@ -64,7 +65,7 @@ typedef struct Check {
 } Check;
 
 static Type *type_new(Check *c, unsigned mask) {
-  if (!c->ok || arena_failed(c->arena))
+  if (!c->ok || c->arena->failed)
     return nullptr;
   Type *t = ARENA_ALLOC(c->arena, Type);
   if (t)
@@ -800,21 +801,21 @@ static bool check_spec_in_arena(const TlsfSpec *spec, bool resolved_widths,
         need(&c, infer(&c, signals[k][i].bus_hi_expr, nullptr, 0), T_NUM,
              "bus bound must be numeric");
     }
-  return c.ok && solve_applications(&c) && !arena_failed(arena);
+  return c.ok && solve_applications(&c) && !arena->failed;
 }
 
 // Type graphs and scope entries never escape a check. Release them before
 // expansion rather than retaining both inference passes in the AST arena.
 static bool check_spec(const TlsfSpec *spec, bool resolved_widths) {
-  Arena *arena = arena_new(ARENA_DEFAULT_SLAB_SIZE);
+  Arena *arena = arena_new_child(spec->arena, ARENA_DEFAULT_SLAB_SIZE);
   if (!arena) {
     arena_mark_failed(spec->arena);
     return false;
   }
   bool ok = check_spec_in_arena(spec, resolved_widths, arena);
-  if (arena_failed(arena))
+  if (arena->failed)
     arena_mark_failed(spec->arena);
-  ok = ok && !arena_failed(spec->arena);
+  ok = ok && !spec->arena->failed;
   arena_free(arena);
   return ok;
 }

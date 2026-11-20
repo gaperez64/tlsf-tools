@@ -33,6 +33,10 @@ typedef struct ArenaSlabArena Arena;
 /// Sticky for the lifetime of the arena, even if later allocations succeed.
 [[nodiscard]] bool arena_failed(const Arena *a);
 
+/// Optional cooperative budget. Called at checkpoints (bytes=0) and before
+/// reserving slabs or auxiliary storage. Nonzero stops work; never unwind.
+void arena_set_budget(Arena *a, int (*cancelled)(void *, size_t), void *ctx);
+
 /// Propagate an allocation failure from temporary work owned by this arena.
 void arena_mark_failed(Arena *a);
 
