@@ -18,20 +18,27 @@ construction/validator. They do not verify the C binary or other CSNF controller
 From `proofs/`, run one Lean compiler at a time. Dependencies make the default
 build serial. As in acacia, library arguments are `-j1`, `-s2048`,
 `-DElab.async=false`, with `warningAsError = true`. Do not impose a virtual-memory cap.
-The diagnostic commands below require GNU coreutils `timeout`.
+The diagnostic commands below require Bash and GNU coreutils `timeout`.
 
-```sh
+```bash
 export PATH="$HOME/.elan/bin:$PATH"
 export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
 # Sequential per-module diagnostics
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic NextStrength; do
+for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic NextStrength Gr1/Region Gr1/Examples; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
-  timeout 300 lake build "TlsfProofs.$module" || exit $?
+  timeout 300 lake build "TlsfProofs.${module//\//.}" || exit $?
 done
-timeout 1500 lake build
+timeout 1500 lake build || exit $?
+
+# GR(1) region axiom audit
+timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean
 ```
+
+The GR(1) audit fails if any checked declaration depends on an axiom outside
+{`propext`, `Classical.choice`, `Quot.sound`}; no manual output comparison is
+needed. CI does not build the proofs, so run these commands before changing them.
 
 ## Decomposition model and guarantees
 
@@ -594,6 +601,58 @@ records the failing main regressions, constructor audit and validation.
 C execution, allocation,
 AST correspondence, symbolic count evaluation and the frontend assembly remain
 trusted as above.
+
+## GR(1) region certificates (acacia-bonsai #437)
+
+[`Gr1/Region.lean`](TlsfProofs/Gr1/Region.lean), in namespace `Tlsf.Gr1`,
+proves `region_conditions_sound`: a certificate satisfying `RegionConditions`
+on a finite, deterministic, acceptance-sampled arena supplies a causal,
+input-first `Strategy` from `Game.lean`. Every environment word produces a safe play;
+if every environment fairness predicate holds infinitely often, every actual
+system goal holds infinitely often. `strategy_invariant` also preserves W.
+The strategy replays `history` from `Game.lean` and chooses one joint control after the
+current input. It starts in the all-zero scheduler mode, then uses a finite
+cyclic goal counter that advances on current-state goal satisfaction.
+
+| Model / condition | C source |
+| --- | --- |
+| State-only W/X/Y, enforced by `RegionCertificate` argument types | `src/lib/gr1_check.c:2330–2331,2339–2357` |
+| `goal_eq`: certificate goal equals actual goal on every state | `src/lib/gr1_check.c:3322–3334` |
+| `y_union`: Y equals the union of its X lanes on every state | `src/lib/gr1_check.c:2349–2351,2363–2378` |
+| `y_mono`: adjacent Y levels are monotone | `src/lib/gr1_check.c:2335,2379–2401` |
+| `reset_mem`: concrete reset belongs to W | `src/lib/gr1_check.c:2408–2424,3336–3343` |
+| `coverage`: X levels cover W for every goal | `src/lib/gr1_check.c:3344–3368` |
+| `goal_total`: one safe, W-preserving control for each input at a goal | `src/lib/gr1_check.c:3135–3148,3194–3196,3228–3234` |
+| `rank_total`: one joint safe/progress control in the least lexicographic layer | `src/lib/gr1_check.c:3135–3148,3236–3274` |
+
+Both totality fields quantify over the separate all-zero and one-hot modes
+(`src/lib/gr1_check.c:3370–3377`). `Progress` tests successor justice, lower Y,
+or the selected X with **successor** fairness false
+(`src/lib/gr1_check.c:3197–3216,3245–3258`). Zero fairness uses one synthetic
+true lane (`src/lib/gr1_check.c:4489`), which disables stuttering. Positive goal
+counts and rank depths mirror admission at `src/lib/gr1_check.c:4490–4497,1051–1054`.
+The checker agrees with [the region-method document](../docs/gr1-region-method.md):
+its additional W conjunct on successor justice is redundant under `SafeInv`.
+The liveness proof uses least visited layers and `Dpa.Inf`, then finite cyclic
+counter progress; no winning-strategy or liveness premise is assumed.
+
+[`Gr1/Examples.lean`](TlsfProofs/Gr1/Examples.lean) checks three tiny certificates.
+The first uses two alternating goals with zero fairness; the second samples an
+input goal whose stuttering is discharged by fairness. Both require control to echo the current
+input for safety. The third certificate, `rankedCertificate`, has two levels
+and two fairness lanes with predicates distinct from the goal. Its 3→2 step
+changes the least lane, 2→1 requires lower-Y descent, and overlapping lanes at
+state 1 require selecting lane 0 for stuttering. `alternating_wins`,
+`sampled_wins`, and `ranked_wins` apply `region_conditions_sound`.
+The build commands above run the per-module diagnostics, full build, then
+[the enforced axiom audit](../tools/golden/gr1_region_audit.lean) for the main
+result, invariant, and all three example certificates and winning theorems.
+
+**Trust boundary.** This proves the mathematical region method only. It does
+not verify the C checker/parser, certificate loading, BDD operations, AIG
+evaluation or acceptance sampling. The TLSF-to-game reduction and its strategy
+transport remain an explicit, unproved bridge; the theorem alone does not
+establish realizability of a TLSF source file. No GR(1) lift extension is added.
 
 ## C and Lean correspondence
 
