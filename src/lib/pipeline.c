@@ -27,21 +27,29 @@ static void pipeline_status(const TlsfPipelineOptions *opts,
   }
 }
 
-ConstraintCover *tlsf_pipeline_build_cover(TlsfSpec *spec,
-                                           const TlsfPipelineOptions *opts) {
+static bool pipeline_adapt_target(TlsfSpec *spec,
+                                  const TlsfPipelineOptions *opts) {
   const char *tool = pipeline_tool_name(opts);
   if (!spec_validate_target_adaptation(spec, tool)) {
     pipeline_status(opts, TLSF_PIPELINE_DECLINED, "adapt",
                     "finite semantics/target adaptation is unsupported; "
                     "SEMANTICS and TARGET must agree");
-    return nullptr;
+    return false;
   }
   if (!spec_adapt_target(spec)) {
     pipeline_status(opts, TLSF_PIPELINE_LIMIT, "adapt", "adaptation failed");
     fprintf(tlsf_diagnostic_stream(),
             "%s: semantics/target adaptation failed (OOM)\n", tool);
-    return nullptr;
+    return false;
   }
+  return true;
+}
+
+ConstraintCover *tlsf_pipeline_build_cover(TlsfSpec *spec,
+                                           const TlsfPipelineOptions *opts) {
+  if (!pipeline_adapt_target(spec, opts))
+    return nullptr;
+  const char *tool = pipeline_tool_name(opts);
   ConstraintCover *cover = cover_build(spec, opts && opts->split);
   if (!cover) {
     pipeline_status(opts, TLSF_PIPELINE_LIMIT, "cover", "out of memory");
@@ -131,12 +139,8 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
     }
   }
   if (frontend_only) {
-    if (!spec_validate_target_adaptation(p->spec, tool) ||
-        !spec_adapt_target(p->spec)) {
-      pipeline_status(opts, TLSF_PIPELINE_DECLINED, "adapt",
-                      "target adaptation failed");
+    if (!pipeline_adapt_target(p->spec, opts))
       goto fail;
-    }
     goto done;
   }
   p->cover = tlsf_pipeline_build_cover(p->spec, opts);

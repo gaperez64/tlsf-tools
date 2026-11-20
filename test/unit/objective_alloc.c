@@ -1,11 +1,14 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include "conversion_internal.h"
+#include "arena_budget.h"
+#include "pipeline_source_internal.h"
 #include "section_pattern.h"
 #include "rewrite.h"
 #include "templates_internal.h"
 #include "tlsf/ast_api.h"
 #include "tlsf/convert.h"
+#include "tlsf/gr1_lift.h"
 #include "tlsf/pipeline.h"
 #include "tlsf/print_tlsf.h"
 #include <yyjson.h>
@@ -27,7 +30,7 @@
 
 static size_t fail_at, allocations, match_size;
 static bool armed, fired, fail_slab, assembly_only;
-static bool rewrite_only, cover_only, composition_only;
+static bool rewrite_only, cover_only, composition_only, adaptation_only;
 static bool composition_arena_only;
 static bool slab_at_assembly;
 static bool heap_after_assembly, heap_armed;
@@ -205,6 +208,21 @@ Node *__wrap_build_spec_formula(const TlsfSpec *spec, const ClassifiedSpec *cs,
   return root;
 }
 
+bool __real_spec_adapt_target(TlsfSpec *);
+bool __wrap_spec_adapt_target(TlsfSpec *);
+bool __wrap_spec_adapt_target(TlsfSpec *spec) {
+  if (adaptation_only) {
+    armed = true;
+    allocations = 0;
+    // Poll the real frontend budget on the first adaptation allocation.
+    spec->arena->budget_steps = 0;
+  }
+  bool ok = __real_spec_adapt_target(spec);
+  if (adaptation_only)
+    armed = false;
+  return ok;
+}
+
 ConstraintCover *__real_cover_build(TlsfSpec *, bool);
 ConstraintCover *__wrap_cover_build(TlsfSpec *, bool);
 ConstraintCover *__wrap_cover_build(TlsfSpec *spec, bool split) {
@@ -243,7 +261,7 @@ static void reset(size_t nth) {
   allocations = match_size = 0;
   armed = true;
   fired = fail_slab = assembly_only = slab_at_assembly = false;
-  rewrite_only = cover_only = composition_only = false;
+  rewrite_only = cover_only = composition_only = adaptation_only = false;
   composition_arena_only = false;
   heap_after_assembly = heap_armed = false;
   heap_at = heap_count = 0;
@@ -438,6 +456,91 @@ static void adaptation_checks(void) {
       CHECK(atom->kind == NODE_AP && atom->name == name);
       spec_free(s);
     }
+  }
+  reset(0);
+}
+
+static int cancel_adaptation(void *ctx) {
+  (void)ctx;
+  return adaptation_only && armed;
+}
+
+static void pipeline_adaptation_checks(void) {
+  for (unsigned moore = 0; moore < 2; ++moore) {
+    char source[256];
+    snprintf(source, sizeof source,
+             "INFO { SEMANTICS: %s TARGET: %s } "
+             "GLOBAL { PARAMETERS { n = 1; } } "
+             "MAIN { INPUTS { a; } OUTPUTS { p; } "
+             "GUARANTEES { G(a <-> p); } }",
+             moore ? "Moore" : "Mealy", moore ? "Mealy" : "Moore");
+    // Refuse node_x and SignalWrap separately, using the cover fault seam.
+    for (size_t nth = 0; nth <= 2; ++nth) {
+      for (unsigned frontend = 0; frontend < 2; ++frontend) {
+        reset(nth);
+        armed = false;
+        adaptation_only = true;
+        TlsfPipelineError error = {0};
+        TlsfPipelineOptions opts = {
+            .certify = true, .template_mask = TPL_ALL, .error = &error};
+        TlsfPipeline *p =
+            frontend ? tlsf_pipeline_load_frontend_bytes(
+                           (const uint8_t *)source, strlen(source), &opts)
+                     : tlsf_pipeline_load_bytes((const uint8_t *)source,
+                                                strlen(source), &opts);
+        if (!nth) {
+          CHECK(p && !fired && allocations == 2);
+          CHECK(error.status == TLSF_PIPELINE_OK);
+        } else {
+          CHECK(!p && fired && allocations == nth);
+          CHECK(error.status == TLSF_PIPELINE_LIMIT);
+          CHECK(!strcmp(error.stage, "adapt"));
+          CHECK(strstr(error.message,
+                       "semantics/target adaptation failed (OOM)"));
+        }
+        tlsf_pipeline_free(p);
+      }
+      if (!nth)
+        continue;
+      reset(nth);
+      armed = false;
+      adaptation_only = true;
+      TlsfGr1LiftResult result = {0};
+      TlsfGr1LiftError error = {0};
+      CHECK(tlsf_gr1_lift((const uint8_t *)source, strlen(source), nullptr, 0,
+                          nullptr, &result, &error) == TLSF_GR1_LIFT_LIMIT);
+      CHECK(fired && allocations == nth && error.status == TLSF_GR1_LIFT_LIMIT);
+      CHECK(!strcmp(error.stage, "expand"));
+      CHECK(strstr(error.message, "semantics/target adaptation failed (OOM)"));
+      CHECK(result.verdict == TLSF_GR1_CHECK_UNKNOWN && !result.game_aag &&
+            !result.evidence_json);
+      tlsf_gr1_lift_result_clear(&result);
+    }
+    reset(0);
+    armed = false;
+    adaptation_only = true;
+    TlsfGr1LiftOptions opts = {.cancelled = cancel_adaptation};
+    TlsfGr1LiftTarget *target = nullptr;
+    TlsfGr1LiftError error = {0};
+    TlsfGr1LiftStatus cause = TLSF_GR1_LIFT_OK;
+    CHECK(tlsf_gr1_lift_target_prepare_v1(
+              (const uint8_t *)source, strlen(source), nullptr, 0, &opts,
+              &target, &error, &cause) == TLSF_GR1_LIFT_CANCELLED);
+    CHECK(!target && !fired && cause == TLSF_GR1_LIFT_CANCELLED);
+    CHECK(!strcmp(error.stage, "expand") &&
+          !strcmp(error.message, "cancelled"));
+
+    reset(0);
+    TlsfPipelineError perr = {0};
+    TlsfPipelineOptions popts = {.overwrite_semantics =
+                                     moore ? "Finite,Moore" : "Finite,Mealy",
+                                 .error = &perr};
+    CHECK(!tlsf_pipeline_load_frontend_bytes((const uint8_t *)source,
+                                             strlen(source), &popts));
+    CHECK(perr.status == TLSF_PIPELINE_DECLINED &&
+          !strcmp(perr.stage, "adapt"));
+    CHECK(strstr(perr.message,
+                 "finite semantics/target adaptation is unsupported"));
   }
   reset(0);
 }
@@ -1284,5 +1387,6 @@ int main(void) {
     conversion_sweep(source, expected_rich);
     free(expected_rich);
   }
+  pipeline_adaptation_checks();
   puts("objective allocation failures rejected; healthy objectives unchanged");
 }

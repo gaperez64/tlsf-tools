@@ -140,7 +140,8 @@ if host_machine.system() == 'linux'
                 '-Wl,--wrap=open_memstream', '-Wl,--wrap=fmemopen',
                 '-Wl,--wrap=fputc', '-Wl,--wrap=fputs', '-Wl,--wrap=fprintf',
                 '-Wl,--wrap=__fprintf_chk',
-                '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose'],
+                '-Wl,--wrap=cover_build', '-Wl,--wrap=csnf_compose',
+                '-Wl,--wrap=spec_adapt_target'],
     dependencies: tool_dep)
   test('objective_alloc', objective_alloc_exe, timeout: 120)
 else
