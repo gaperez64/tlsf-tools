@@ -408,7 +408,10 @@ static void fold_review_regressions(const char *path) {
   CHECK(fold_both(unreal, 9, o, combined, e) == TLSF_GR1_LIFT_OK);
   CHECK(combined.route == TLSF_GR1_BOTH_DIRECT);
   CHECK(combined.seed_checks == 5 && combined.target_checks == 1);
-  CHECK(strstr(combined.decline_detail, "fold_seed_mismatch"));
+  CHECK(
+      strstr(combined.decline_detail,
+             "fold_seed_mismatch(stage=fold_seed_check,cause=applicability)"));
+  CHECK(combined.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
   tlsf_gr1_both_result_clear(&combined);
   tlsf_gr1_lift_test_set_fault(0);
 

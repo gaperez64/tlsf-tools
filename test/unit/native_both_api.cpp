@@ -40,6 +40,7 @@ void *operator new(size_t size) {
 }
 
 extern "C" void tlsf_gr1_lift_test_set_fault(int);
+extern "C" unsigned tlsf_gr1_lift_test_check_json_clears();
 extern "C" uint64_t tlsf_gr1_lift_test_reduction_calls();
 extern "C" void tlsf_gr1_both_test_set_seed_fault(int);
 extern "C" void tlsf_gr1_both_test_set_candidate_ns(uint64_t);
@@ -150,6 +151,11 @@ static const FaultCase lift_fault_cases[] = {
     {6, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "schema_abi"},
     {7, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "target_check"},
     {8, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "target_check"},
+    {9, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "fold_seed_check"},
+    {10, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
+    {11, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
+    {12, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
+    {13, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
 };
 static const FaultCase seed_fault_cases[] = {
     {1, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "seed_mixed"},
@@ -168,10 +174,10 @@ static const char *plain_source =
     "INFO { TITLE: \"plain\" SEMANTICS: Mealy TARGET: Mealy }\n"
     "MAIN { INPUTS { a; } OUTPUTS { b; } GUARANTEES { G F b; } }\n";
 
-static uint64_t deadline() {
+static uint64_t deadline(unsigned seconds = 30) {
   auto now = std::chrono::steady_clock::now().time_since_epoch();
   return std::chrono::duration_cast<std::chrono::nanoseconds>(now).count() +
-         30000000000ull;
+         uint64_t(seconds) * 1000000000ull;
 }
 
 static uint64_t resident_bytes() {
@@ -322,7 +328,40 @@ static void corruption_fallbacks(const std::string &unreal_source) {
     tlsf_gr1_both_result_clear(&direct);
   }
 }
-static void fault_census(const std::string &unreal_source) {
+static void fault_census(const std::string &unreal_source,
+                         const char *fold_path) {
+  std::ifstream file(fold_path, std::ios::binary);
+  CHECK(file);
+  const std::string fold_source(std::istreambuf_iterator<char>{file}, {});
+  TlsfGr1LiftOptions fold_options{};
+  fold_options.deadline_mono_ns = deadline(300);
+  fold_options.cancelled = [](void *) { return 0; };
+  fold_options.solver_nodes = fold_options.schema_nodes = 1u << 20;
+  fold_options.checker_nodes = 1u << 18;
+  fold_options.solver_cache = fold_options.schema_cache =
+      fold_options.checker_cache = 1u << 16;
+  fold_options.max_monitor_states = 1000;
+  fold_options.max_artifact_bytes = 4u << 20;
+  fold_options.disable_env_lift = 1;
+  const ParamOverride param{"n", 9};
+  TlsfGr1LiftTarget *fold_target = nullptr;
+  TlsfGr1LiftError fold_error{};
+  TlsfGr1BothResult baseline{};
+  Observation baseline_state;
+  const TlsfGr1BothObserverV1 baseline_observer{observe, &baseline_state};
+  tlsf_gr1_lift_test_set_fault(0);
+  CHECK(tlsf_gr1_lift_target_prepare(
+            (const uint8_t *)fold_source.data(), fold_source.size(), &param, 1,
+            &fold_options, &fold_target, &fold_error) == TLSF_GR1_LIFT_OK);
+  CHECK(tlsf_gr1_both_from_target_v1(fold_target, &fold_options,
+                                     &baseline_observer, &baseline,
+                                     &fold_error) == TLSF_GR1_LIFT_OK);
+  CHECK(baseline.route == TLSF_GR1_BOTH_REAL_LIFT);
+  CHECK(baseline.proof.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+  CHECK(tlsf_gr1_lift_target_matches(fold_target, &baseline.proof));
+  tlsf_gr1_both_result_clear(&baseline);
+  tlsf_gr1_lift_target_free(fold_target);
+
   TlsfGr1LiftOptions options{};
   for (const auto &fault : env_fault_cases) {
     if (fault.fault == 12) {
@@ -341,6 +380,84 @@ static void fault_census(const std::string &unreal_source) {
     tlsf_gr1_env_rank_test_set_fault(0);
   }
   for (const auto &fault : lift_fault_cases) {
+    if (fault.fault >= 9) {
+      auto source = fold_source;
+      if (fault.fault == 9) {
+        const std::string width = "i < nbits(n)]";
+        CHECK(source.find(width) != std::string::npos);
+        source.replace(source.find(width), width.size(), "i < 1]");
+        CHECK(source.find("DEFINITIONS {") != std::string::npos);
+        source.insert(
+            source.find("DEFINITIONS {") + strlen("DEFINITIONS {"),
+            " observed(bus,i) = n < 9 : bus[i] otherwise : request[i];\n");
+        const std::string repeat = "grant[i] <-> X grant[i]";
+        CHECK(source.find(repeat) != std::string::npos);
+        source.replace(source.find(repeat), repeat.size(),
+                       "observed(grant,i) <-> X observed(grant,i)");
+      }
+      fold_options.deadline_mono_ns = deadline(300);
+      fold_target = nullptr;
+      CHECK(tlsf_gr1_lift_target_prepare(
+                (const uint8_t *)source.data(), source.size(), &param, 1,
+                &fold_options, &fold_target, &fold_error) == TLSF_GR1_LIFT_OK);
+      tlsf_gr1_lift_test_set_fault(fault.fault);
+      TlsfGr1BothResult result{};
+      Observation state;
+      const TlsfGr1BothObserverV1 observer{observe, &state};
+      const auto status = tlsf_gr1_both_from_target_v1(
+          fold_target, &fold_options, &observer, &result, &fold_error);
+      if (fault.fault == 9) {
+        CHECK(status == TLSF_GR1_LIFT_OK);
+        failed_fallback(state, TLSF_GR1_BOTH_EVENT_R, fault.stage, fault.cause,
+                        fault.kind, fault.fault);
+        for (const auto &event : state.events)
+          if (event.route == TLSF_GR1_BOTH_EVENT_R)
+            CHECK(event.kind != TLSF_GR1_BOTH_EVENT_VERIFIED);
+        CHECK(result.route == TLSF_GR1_BOTH_DIRECT);
+        CHECK(result.seed_checks == 5 && result.target_checks == 1);
+        CHECK(strstr(
+            result.decline_detail,
+            "fold_seed_mismatch(stage=fold_seed_check,cause=applicability)"));
+        CHECK(result.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
+        CHECK(tlsf_gr1_lift_target_matches(fold_target, &result.proof));
+      } else {
+        CHECK(status == TLSF_GR1_LIFT_LIMIT && fold_error.status == status);
+        CHECK(!strcmp(fold_error.stage, fault.stage));
+        const auto route = fault.fault == 10 ? TLSF_GR1_BOTH_EVENT_SEEDS
+                                             : TLSF_GR1_BOTH_EVENT_R;
+        unsigned stops = 0;
+        for (const auto &event : state.events) {
+          CHECK(event.kind != TLSF_GR1_BOTH_EVENT_DECLINE &&
+                event.kind != TLSF_GR1_BOTH_EVENT_VERIFIED);
+          CHECK(event.route != TLSF_GR1_BOTH_EVENT_DIRECT);
+          if (event.kind == TLSF_GR1_BOTH_EVENT_STOPPED) {
+            CHECK(event.route == route && event.kind == fault.kind);
+            CHECK(event.stage == fault.stage && event.failure == fault.cause);
+            CHECK(event.reason.find(result.decline_detail) !=
+                  std::string::npos);
+            ++stops;
+          }
+        }
+        CHECK(stops == 1);
+        CHECK(strstr(result.decline_detail, fault.fault == 10 ? "fold_discovery"
+                                            : fault.fault == 11
+                                                ? "fold_failed"
+                                                : "fold_region_stopped"));
+        CHECK(strstr(result.decline_detail, "cause=resource"));
+        CHECK(!strstr(result.decline_detail, "cause=error"));
+        CHECK(result.proof.verdict == TLSF_GR1_CHECK_UNKNOWN);
+        CHECK(!result.proof.game_aag && !result.proof.certificate_aag &&
+              !result.proof.certificate_json && !result.proof.policy_aag &&
+              !result.proof.policy_json && !result.proof.check_json &&
+              !result.proof.evidence_json);
+        if (fault.fault == 13)
+          CHECK(tlsf_gr1_lift_test_check_json_clears() == 1);
+      }
+      tlsf_gr1_both_result_clear(&result);
+      tlsf_gr1_lift_test_set_fault(0);
+      tlsf_gr1_lift_target_free(fold_target);
+      continue;
+    }
     if (fault.fault == 7) {
       auto solo_options = options;
       solo_options.deadline_mono_ns = deadline();
@@ -897,14 +1014,16 @@ static void allocation_diagnostics(const std::string &unreal_source) {
 }
 
 int main(int argc, char **argv) {
-  CHECK(argc == 2 || argc == 3);
+  CHECK(argc >= 2 && argc <= 4);
   std::ifstream file(argv[1], std::ios::binary);
   CHECK(file);
   std::string unreal_source(std::istreambuf_iterator<char>{file}, {});
-  if (argc == 3) {
-    if (!strcmp(argv[2], "--fault-census"))
-      fault_census(unreal_source);
-    else {
+  if (argc >= 3) {
+    if (!strcmp(argv[2], "--fault-census")) {
+      CHECK(argc == 4);
+      fault_census(unreal_source, argv[3]);
+    } else {
+      CHECK(argc == 3);
       CHECK(!strcmp(argv[2], "--corruption-guards"));
       corruption_fallbacks(unreal_source);
     }

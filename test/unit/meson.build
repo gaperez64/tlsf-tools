@@ -227,7 +227,8 @@ test('native_both_api', native_both_api_exe,
   is_parallel: false)
 # Three added corruption cases each retain the worker's 30-second deadline.
 test('native_failure_census', native_both_api_exe,
-  args: [files('../oracle/env_lift_one.tlsf'), '--fault-census'],
+  args: [files('../oracle/env_lift_one.tlsf'), '--fault-census',
+         files('../fixtures/encoded_fold.tlsf')],
   timeout: get_option('buildtype') == 'debug' ? 270 : 180,
   is_parallel: false)
 test('native_corruption_guards', native_both_api_exe,
