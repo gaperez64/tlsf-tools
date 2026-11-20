@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "tlsf/pipeline.h"
 #include "pipeline_source_internal.h"
+#include "arena_budget.h"
 
 #include "provenance.h"
 #include "sha256.h"
@@ -88,8 +89,11 @@ static int expand_spec_impl(TlsfSpec *spec, const ParamOverride *overrides,
   uint16_t source_def_count = spec->def_count;
   spec->capture_provenance = provenance_out || require_unambiguous_origin;
   if (expand(spec, overrides, count) != 0)
-    return pipeline_error(error, -1, TLSF_PIPELINE_DECLINED, "expand",
-                          "TLSF expansion failed");
+    return pipeline_error(error, -1,
+                          spec->arena->cancelled && spec->arena->failed
+                              ? TLSF_PIPELINE_LIMIT
+                              : TLSF_PIPELINE_DECLINED,
+                          "expand", "TLSF expansion failed");
   if (require_unambiguous_origin && spec->provenance_ambiguous)
     return pipeline_error(error, -2, TLSF_PIPELINE_DECLINED, "provenance",
                           "ambiguous source origin");
@@ -127,8 +131,12 @@ int tlsf_pipeline_expand_spec(TlsfSpec *spec, const ParamOverride *overrides,
   return result;
 }
 
-TlsfPipeline *tlsf_pipeline_load_bytes(const uint8_t *source, size_t size,
-                                       const TlsfPipelineOptions *options) {
+static TlsfPipeline *pipeline_load_bytes(const uint8_t *source, size_t size,
+                                         const TlsfPipelineOptions *options,
+                                         bool frontend_only) {
+  if (options && options->frontend_cancelled &&
+      options->frontend_cancelled(options->frontend_cancel_ctx, size))
+    return nullptr;
   char hash[65];
   if (!tlsf_pipeline_source_sha256(source, size, hash)) {
     pipeline_error(options ? options->error : nullptr, -1,
@@ -156,7 +164,9 @@ TlsfPipeline *tlsf_pipeline_load_bytes(const uint8_t *source, size_t size,
     resolved.template_mask = TPL_ALL;
   }
   resolved.source_sha256 = hash;
-  TlsfPipeline *pipeline = tlsf_pipeline_load(in, &resolved);
+  TlsfPipeline *pipeline = frontend_only
+                               ? tlsf_pipeline_load_frontend(in, &resolved)
+                               : tlsf_pipeline_load(in, &resolved);
   fclose(in);
   if (pipeline) {
     pipeline->source_bytes = snapshot;
@@ -166,4 +176,15 @@ TlsfPipeline *tlsf_pipeline_load_bytes(const uint8_t *source, size_t size,
     free(snapshot);
   }
   return pipeline;
+}
+
+TlsfPipeline *tlsf_pipeline_load_bytes(const uint8_t *source, size_t size,
+                                       const TlsfPipelineOptions *options) {
+  return pipeline_load_bytes(source, size, options, false);
+}
+
+TlsfPipeline *
+tlsf_pipeline_load_frontend_bytes(const uint8_t *source, size_t size,
+                                  const TlsfPipelineOptions *options) {
+  return pipeline_load_bytes(source, size, options, true);
 }

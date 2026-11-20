@@ -192,10 +192,11 @@ typedef struct TlsfSpec {
   uint16_t enum_label_cap;
   uint16_t enum_type_cap;
   uint16_t tag_cap;
-  FormulaList *cur_list;     ///< formula subsection currently being parsed
-  bool cur_is_output;        ///< true while inside an OUTPUTS subsection
-  bool capture_provenance;   ///< retain source AST coordinates on expansion
-  bool provenance_ambiguous; ///< non-integer generator binding was substituted
+  FormulaList *cur_list;      ///< formula subsection currently being parsed
+  bool cur_is_output;         ///< true while inside an OUTPUTS subsection
+  bool capture_provenance;    ///< retain source AST coordinates on expansion
+  bool limit_generated_depth; ///< opt-in cap for budgeted fold-seed expansion
+  bool provenance_ambiguous;  ///< non-integer generator binding was substituted
 } TlsfSpec;
 
 // ---------------------------------------------------------------------------

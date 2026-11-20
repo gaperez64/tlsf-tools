@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "provenance.h"
+#include "arena_budget.h"
+#include "frontend_stream.h"
+#include "spec_internal.h"
 
 #include "tlsf/print_tlsf.h"
 #include "yyjson_builder.h"
@@ -8,13 +11,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char *formula_text(const Node *node) {
+static char *formula_text(Arena *arena, const Node *node) {
   char *buf = nullptr;
   size_t size = 0;
-  FILE *stream = open_memstream(&buf, &size);
+  FILE *stream = frontend_memstream(arena, &buf, &size);
   if (!stream)
     return nullptr;
-  print_tlsf_formula(stream, node);
+  if (arena->cancelled)
+    print_tlsf_formula_checked(stream, node, arena);
+  else
+    print_tlsf_formula(stream, node);
   if (fclose(stream) != 0) {
     free(buf);
     return nullptr;
@@ -70,24 +76,30 @@ static bool contains_definition_call(const Node *node) {
   }
 }
 
-static void mark_aps(const Node *node, const SignalDecl *inputs,
+static void mark_aps(Arena *arena, const Node *node, const SignalDecl *inputs,
                      uint32_t ninputs, const SignalDecl *outputs,
                      uint32_t noutputs, bool *used, bool *unresolved) {
-  if (!node)
+  if (!node || !arena_check_budget(arena, 0))
     return;
   switch (node->kind) {
   case NODE_AP: {
     uint32_t matches = 0;
-    for (uint32_t i = 0; i < ninputs; i++)
+    for (uint32_t i = 0; i < ninputs; i++) {
+      if (!arena_check_budget(arena, 0))
+        return;
       if (strcmp(inputs[i].name, node->name) == 0) {
         used[i] = true;
         matches++;
       }
-    for (uint32_t i = 0; i < noutputs; i++)
+    }
+    for (uint32_t i = 0; i < noutputs; i++) {
+      if (!arena_check_budget(arena, 0))
+        return;
       if (strcmp(outputs[i].name, node->name) == 0) {
         used[ninputs + i] = true;
         matches++;
       }
+    }
     if (matches != 1)
       *unresolved = true;
     return;
@@ -100,11 +112,14 @@ static void mark_aps(const Node *node, const SignalDecl *inputs,
   case NODE_X_STRONG:
   case NODE_F:
   case NODE_G:
-    mark_aps(node->arg, inputs, ninputs, outputs, noutputs, used, unresolved);
+    mark_aps(arena, node->arg, inputs, ninputs, outputs, noutputs, used,
+             unresolved);
     return;
   default:
-    mark_aps(node->lhs, inputs, ninputs, outputs, noutputs, used, unresolved);
-    mark_aps(node->rhs, inputs, ninputs, outputs, noutputs, used, unresolved);
+    mark_aps(arena, node->lhs, inputs, ninputs, outputs, noutputs, used,
+             unresolved);
+    mark_aps(arena, node->rhs, inputs, ninputs, outputs, noutputs, used,
+             unresolved);
     return;
   }
 }
@@ -119,6 +134,7 @@ typedef struct WidthEnv {
 } WidthEnv;
 
 typedef struct {
+  Arena *arena;
   const ParamDecl *params;
   uint16_t param_count;
   const DefDecl *defs;
@@ -130,7 +146,7 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
                                unsigned depth) {
   if (!node)
     return true;
-  if (depth > 64)
+  if (!arena_check_budget(spec->arena, 0) || depth > 64)
     return false;
   switch (node->kind) {
   case NODE_INT:
@@ -209,6 +225,10 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
 static void emit_signal(JsonBuilder *builder, yyjson_mut_val *signals,
                         const SignalDecl *signal, bool is_output,
                         const WidthSource *source) {
+  if (!arena_check_budget(source->arena, 0)) {
+    builder->failed = true;
+    return;
+  }
   yyjson_mut_val *row = jb_obj(builder);
   jb_push(builder, signals, row);
   JB_STR(builder, row, "name", signal->name);
@@ -238,14 +258,19 @@ static void emit_signal(JsonBuilder *builder, yyjson_mut_val *signals,
       : contains_definition_call(signal->origin_width_expr) ? "derived-width"
                                                             : "range";
   JB_STR(builder, row, "width_kind", width_kind);
-  char *expression = signal->origin_width_expr
-                         ? formula_text(signal->origin_width_expr)
-                         : nullptr;
+  char *expression =
+      signal->origin_width_expr
+          ? formula_text(source->arena, signal->origin_width_expr)
+          : nullptr;
   if (signal->origin_width_expr && !expression)
     builder->failed = true;
   jb_put(builder, row, "width_expression",
          expression ? jb_str(builder, expression) : jb_null(builder));
   free(expression);
+  if (!arena_check_budget(source->arena, source->param_count + 1u)) {
+    builder->failed = true;
+    return;
+  }
   bool *used =
       calloc(source->param_count ? source->param_count : 1, sizeof *used);
   if (!used) {
@@ -284,7 +309,11 @@ typedef struct {
 
 static void emit_conjunct(ConjunctWriter *writer, const Node *node,
                           bool under_globally) {
-  if (writer->failed)
+  if (writer->failed || !arena_check_budget(writer->spec->arena, 0)) {
+    writer->failed = true;
+    return;
+  }
+  if (writer->builder->failed)
     return;
   if (node->kind == NODE_AND) {
     emit_conjunct(writer, node->lhs, under_globally);
@@ -297,7 +326,7 @@ static void emit_conjunct(ConjunctWriter *writer, const Node *node,
   }
   Node wrapper = {.kind = NODE_G, .arg = (Node *)node};
   const Node *formula = under_globally ? &wrapper : node;
-  char *text = formula_text(formula);
+  char *text = formula_text(writer->spec->arena, formula);
   if (!text) {
     writer->failed = true;
     return;
@@ -324,19 +353,27 @@ static void emit_conjunct(ConjunctWriter *writer, const Node *node,
   }
   jb_put(builder, row, "bindings", bindings);
   uint32_t count = writer->spec->input_count + writer->spec->output_count;
+  if (!arena_check_budget(writer->spec->arena, (size_t)count + 1)) {
+    writer->failed = true;
+    return;
+  }
   bool *used = calloc(count ? count : 1, sizeof *used);
   if (!used) {
     writer->failed = true;
     return;
   }
   bool unresolved = false;
-  mark_aps(formula, writer->spec->inputs, writer->spec->input_count,
-           writer->spec->outputs, writer->spec->output_count, used,
-           &unresolved);
+  mark_aps(writer->spec->arena, formula, writer->spec->inputs,
+           writer->spec->input_count, writer->spec->outputs,
+           writer->spec->output_count, used, &unresolved);
   if (unresolved)
     writer->unresolved = true;
   yyjson_mut_val *signals = jb_arr(builder);
   for (uint32_t i = 0; i < count; i++) {
+    if (!arena_check_budget(writer->spec->arena, 0)) {
+      writer->failed = true;
+      break;
+    }
     if (!used[i])
       continue;
     const SignalDecl *signal =
@@ -350,16 +387,105 @@ static void emit_conjunct(ConjunctWriter *writer, const Node *node,
   JB_BOOL(builder, row, "unresolved_signal_reference", unresolved);
 }
 
+static void *provenance_malloc(void *raw, size_t size) {
+  Arena *arena = raw;
+  return arena_check_budget(arena, size) ? malloc(size) : nullptr;
+}
+
+static void *provenance_realloc(void *raw, void *ptr, size_t old, size_t size) {
+  (void)old;
+  Arena *arena = raw;
+  return arena_check_budget(arena, size) ? realloc(ptr, size) : nullptr;
+}
+
+static void provenance_free(void *raw, void *ptr) {
+  (void)raw;
+  free(ptr);
+}
+
+// yyjson's whole-document writer has no traversal callback. Stream containers
+// ourselves so even serialization with no allocator growth remains
+// interruptible.
+static bool provenance_json(FILE *out, yyjson_mut_val *value,
+                            const yyjson_alc *allocator) {
+  if (!arena_check_budget(allocator->ctx, 0))
+    return false;
+  if (yyjson_mut_is_arr(value)) {
+    if (fputc('[', out) == EOF)
+      return false;
+    size_t i, count;
+    yyjson_mut_val *item;
+    yyjson_mut_arr_foreach(value, i, count, item) {
+      if ((i && fputc(',', out) == EOF) ||
+          !provenance_json(out, item, allocator))
+        return false;
+    }
+    return fputc(']', out) != EOF;
+  }
+  if (yyjson_mut_is_obj(value)) {
+    if (fputc('{', out) == EOF)
+      return false;
+    size_t i, count;
+    yyjson_mut_val *key, *item;
+    yyjson_mut_obj_foreach(value, i, count, key, item) {
+      if ((i && fputc(',', out) == EOF) ||
+          !provenance_json(out, key, allocator) || fputc(':', out) == EOF ||
+          !provenance_json(out, item, allocator))
+        return false;
+    }
+    return fputc('}', out) != EOF;
+  }
+  if (yyjson_mut_is_str(value)) {
+    const char *data = yyjson_mut_get_str(value);
+    size_t remaining = yyjson_mut_get_len(value);
+    if (fputc('"', out) == EOF)
+      return false;
+    while (remaining) {
+      size_t count = remaining < 4096 ? remaining : 4096;
+      // Keep a UTF-8 code point together across serialization chunks.
+      while (count < remaining && count &&
+             ((unsigned char)data[count] & 0xc0) == 0x80)
+        --count;
+      if (!count)
+        return false;
+      yyjson_mut_val part = {0};
+      yyjson_mut_set_strn(&part, data, count);
+      size_t size = 0;
+      char *bytes =
+          yyjson_mut_val_write_opts(&part, 0, allocator, &size, nullptr);
+      if (!bytes)
+        return false;
+      bool ok = fwrite(bytes + 1, 1, size - 2, out) == size - 2;
+      free(bytes);
+      if (!ok)
+        return false;
+      data += count;
+      remaining -= count;
+    }
+    return fputc('"', out) != EOF;
+  }
+  size_t size = 0;
+  char *bytes = yyjson_mut_val_write_opts(value, 0, allocator, &size, nullptr);
+  if (!bytes)
+    return false;
+  bool ok = fwrite(bytes, 1, size, out) == size;
+  free(bytes);
+  return ok;
+}
+
 int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
                      uint16_t param_count, const DefDecl *defs,
                      uint16_t def_count, const char source_sha256[65]) {
-  const WidthSource width_source = {params, param_count, defs, def_count};
+  const WidthSource width_source = {spec->arena, params, param_count, defs,
+                                    def_count};
   bool duplicate_signals = false;
   for (uint32_t i = 0; i < spec->input_count + spec->output_count; i++) {
     const SignalDecl *left = i < spec->input_count
                                  ? &spec->inputs[i]
                                  : &spec->outputs[i - spec->input_count];
     for (uint32_t j = 0; j < i; j++) {
+      if (!arena_check_budget(spec->arena, 0))
+        return -1;
       const SignalDecl *right = j < spec->input_count
                                     ? &spec->inputs[j]
                                     : &spec->outputs[j - spec->input_count];
@@ -367,7 +493,15 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
         duplicate_signals = true;
     }
   }
-  JsonBuilder builder = jb_new();
+  yyjson_alc allocator = {.malloc = provenance_malloc,
+                          .realloc = provenance_realloc,
+                          .free = provenance_free,
+                          .ctx = spec->arena};
+  JsonBuilder builder =
+      spec->arena->cancelled
+          ? (JsonBuilder){.doc = yyjson_mut_doc_new(&allocator)}
+          : jb_new();
+  builder.failed |= !builder.doc;
   yyjson_mut_val *root = jb_obj(&builder);
   JB_STR(&builder, root, "schema", "tlsf-tools.frontend-provenance.v1");
   JB_UINT(&builder, root, "format_version", 1);
@@ -382,9 +516,9 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
   }
   jb_put(&builder, root, "parameters", parameters);
   yyjson_mut_val *signals = jb_arr(&builder);
-  for (uint32_t i = 0; i < spec->input_count; i++)
+  for (uint32_t i = 0; i < spec->input_count && !builder.failed; i++)
     emit_signal(&builder, signals, &spec->inputs[i], false, &width_source);
-  for (uint32_t i = 0; i < spec->output_count; i++)
+  for (uint32_t i = 0; i < spec->output_count && !builder.failed; i++)
     emit_signal(&builder, signals, &spec->outputs[i], true, &width_source);
   jb_put(&builder, root, "signals", signals);
   yyjson_mut_val *conjuncts = jb_arr(&builder);
@@ -399,7 +533,8 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
       {"ASSUME", &spec->assume},       {"GUARANTEE", &spec->guarantee}};
   for (size_t k = 0; k < sizeof blocks / sizeof *blocks; k++) {
     writer.block = blocks[k].name;
-    for (uint32_t i = 0; i < blocks[k].list->count; i++) {
+    for (uint32_t i = 0;
+         i < blocks[k].list->count && !writer.failed && !builder.failed; i++) {
       writer.ordinal = i + 1;
       writer.generated_position = 0;
       emit_conjunct(&writer, blocks[k].list->formulas[i], false);
@@ -408,6 +543,11 @@ int provenance_write(FILE *out, const TlsfSpec *spec, const ParamDecl *params,
   jb_put(&builder, root, "conjuncts", conjuncts);
   JB_BOOL(&builder, root, "ambiguous",
           spec->provenance_ambiguous || writer.unresolved || duplicate_signals);
-  builder.failed |= writer.failed;
-  return jb_write(&builder, root, out) ? 0 : -1;
+  builder.failed |= writer.failed || arena_failed(spec->arena);
+  if (!spec->arena->cancelled)
+    return jb_write(&builder, root, out) ? 0 : -1;
+  bool ok = !builder.failed && provenance_json(out, root, &allocator) &&
+            fputc('\n', out) != EOF;
+  yyjson_mut_doc_free(builder.doc);
+  return ok ? 0 : -1;
 }

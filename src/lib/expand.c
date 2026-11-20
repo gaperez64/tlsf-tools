@@ -1,4 +1,5 @@
 #include "tlsf/expand.h"
+#include "arena_budget.h"
 #include "expand_check.h"
 
 #include <assert.h>
@@ -52,11 +53,27 @@ typedef struct Env {
   bool identity;
 } Env;
 
-static const Node *subst_source(const Node *n, const Env *env) {
-  if (n && !n->source_id)
-    for (SubstCopy *copy = *env->copies; copy; copy = copy->next)
+static const Node *subst_source_budgeted(Arena *arena, const Node *n,
+                                         SubstCopy *copy) {
+  for (; copy; copy = copy->next) {
+    if (!arena_check_budget(arena, 0))
+      return n;
+    if (copy->source == n)
+      return &copy->node;
+  }
+  return n;
+}
+
+static inline const Node *subst_source(Arena *arena, const Node *n,
+                                       const Env *env) {
+  if (n && !n->source_id) {
+    SubstCopy *copy = *env->copies;
+    if (copy && arena->cancelled)
+      return subst_source_budgeted(arena, n, copy);
+    for (; copy; copy = copy->next)
       if (copy->source == n)
         return &copy->node;
+  }
   return n;
 }
 
@@ -110,8 +127,8 @@ static const char *subst_name(const char *name, const char *const *formals,
 
 static Node *subst(Arena *a, const Node *n, const char *const *formals,
                    Node *const *actuals, uint16_t nf, const Env *env) {
-  n = subst_source(n, env);
-  if (!n || arena_failed(a))
+  n = subst_source(a, n, env);
+  if (!n || a->failed || !arena_check_budget(a, 0))
     return nullptr;
   switch (n->kind) {
   case NODE_TRUE:
@@ -125,7 +142,7 @@ static Node *subst(Arena *a, const Node *n, const char *const *formals,
       return (Node *)n;
     for (uint16_t k = 0; k < nf; k++)
       if (formals[k] == n->name) {
-        Node *actual = (Node *)subst_source(actuals[k], env);
+        Node *actual = (Node *)subst_source(a, actuals[k], env);
         if (actual == n || actual->source_id || !n->source_id)
           return actual;
         // Keep the old first-use fallback, but annotate a private copy.
@@ -272,7 +289,7 @@ static Node *subst(Arena *a, const Node *n, const char *const *formals,
 #undef SUBST
   // Recursion may introduce a fallback for a shared source node.
   // Only annotate the fresh copy after resolving that fallback.
-  m->source_id = subst_source(n, env)->source_id;
+  m->source_id = subst_source(a, n, env)->source_id;
   return m;
 }
 
@@ -388,7 +405,28 @@ static bool eval_int_reduction(const TlsfSpec *spec, const Node *n,
                                const Env *env, int64_t *out, int depth);
 static bool eval_set_reduction(const TlsfSpec *spec, const Node *n,
                                const Env *env, EvalSet **out, int depth);
-static bool value_equal(const EvalValue *lhs, const EvalValue *rhs);
+static int value_equal(Arena *arena, const EvalValue *lhs,
+                       const EvalValue *rhs);
+
+// -1 means interrupted; it must never become inequality or failed membership.
+static int set_contains(Arena *arena, const EvalSet *set,
+                        const EvalValue *value) {
+  if (!arena->cancelled && value->kind == EVAL_VALUE_INT) {
+    for (uint32_t i = 0; i < set->count; i++)
+      if (set->items[i].kind == EVAL_VALUE_INT &&
+          set->items[i].integer == value->integer)
+        return 1;
+    return 0;
+  }
+  if (!arena_check_budget(arena, 0))
+    return -1;
+  for (uint32_t i = 0; i < set->count; i++) {
+    int equal = value_equal(arena, &set->items[i], value);
+    if (equal != 0)
+      return equal;
+  }
+  return 0;
+}
 
 // §§4.1, 4.5–4.6: indexing and SIZEOF use the bus value, including through
 // lexical aliases and instantiated actuals, rather than the source spelling.
@@ -419,14 +457,14 @@ static const char *resolve_bus_name(const TlsfSpec *spec, const char *name,
 // masks inner binders, including in later bound sets (§4.7), so this closing
 // substitution cannot capture a variable. Keep the high-level syntax intact.
 static Node *close_numeric(Arena *arena, const Node *n, const Env *env) {
-  if (arena_failed(arena))
+  if (arena->failed)
     return nullptr;
   uint16_t count = 0;
   for (const Env *e = env; e; e = e->parent)
     if (e->b.name)
       count++;
   if (!count)
-    return (Node *)subst_source(n, env);
+    return (Node *)subst_source(arena, n, env);
   const char **names = ARENA_ALLOC_N(arena, const char *, count);
   if (!names)
     return nullptr;
@@ -458,7 +496,7 @@ static Node *instantiate(const TlsfSpec *spec, const DefDecl *d,
     closed[i] = (Node *)value.source;
     // Evaluating d in use(d) may inline d's body. Preserve the argument's
     // source coordinate, just as ordinary call expansion did before closing.
-    const Node *source = subst_source(actuals[i], env);
+    const Node *source = subst_source(spec->arena, actuals[i], env);
     if (spec->capture_provenance && source->source_id &&
         closed[i]->source_id != source->source_id) {
       Node *copy = ARENA_ALLOC(spec->arena, Node);
@@ -479,6 +517,8 @@ static bool integer_overflow(const char *operation) {
 
 static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
                      int64_t *out, int depth) {
+  if (!arena_check_budget(spec->arena, 0))
+    return false;
   Env lexical = declaration_env(env);
   if (depth > MAX_DEPTH) {
     fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
@@ -533,6 +573,8 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
     }
     value = set->items[0].integer;
     for (uint32_t i = 1; i < set->count; i++) {
+      if (!arena_check_budget(spec->arena, 0))
+        return false;
       if (set->items[i].kind != EVAL_VALUE_INT) {
         fprintf(tlsf_diagnostic_stream(),
                 "expand: %s requires a set of integers\n",
@@ -623,6 +665,8 @@ static bool eval_int(const TlsfSpec *spec, const Node *n, const Env *env,
 
 static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
                       bool *out, int depth) {
+  if (!arena_check_budget(spec->arena, 0))
+    return false;
   Env lexical = declaration_env(env);
   if (depth > MAX_DEPTH) {
     fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
@@ -648,7 +692,9 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
     if (!eval_value(spec, n->lhs, env, &a, depth + 1) ||
         !eval_value(spec, n->rhs, env, &b, depth + 1))
       return false;
-    bool equal = value_equal(&a, &b);
+    int equal = value_equal(spec->arena, &a, &b);
+    if (equal < 0)
+      return false;
     *out = n->kind == NODE_CMP_EQ ? equal : !equal;
     return true;
   }
@@ -682,12 +728,10 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
     if (!eval_value(spec, n->lhs, env, &value, depth + 1) ||
         !eval_set(spec, n->rhs, env, &set, depth + 1))
       return false;
-    *out = false;
-    for (uint32_t i = 0; i < set->count; i++)
-      if (value_equal(&value, &set->items[i])) {
-        *out = true;
-        break;
-      }
+    int found = set_contains(spec->arena, set, &value);
+    if (found < 0)
+      return false;
+    *out = found;
     return true;
   }
   case NODE_NOT: {
@@ -771,7 +815,10 @@ static bool eval_bool(const TlsfSpec *spec, const Node *n, const Env *env,
 // test/unit/set_dedup.c checks the layout at compile time and mutates each
 // field; set_dedup_field_inventory.py catches additions even inside
 // padding/unions.
-static bool node_structural_equal(const Node *lhs, const Node *rhs) {
+static bool node_structural_equal(Arena *arena, const Node *lhs,
+                                  const Node *rhs) {
+  if (arena && !arena_check_budget(arena, 0))
+    return false;
   if (lhs == rhs)
     return true;
   if (!lhs || !rhs || lhs->kind != rhs->kind)
@@ -799,22 +846,22 @@ static bool node_structural_equal(const Node *lhs, const Node *rhs) {
   case NODE_SET_SIZE:
   case NODE_SET_MIN:
   case NODE_SET_MAX:
-    return node_structural_equal(lhs->arg, rhs->arg);
+    return node_structural_equal(arena, lhs->arg, rhs->arg);
   case NODE_BUS_INDEX:
     return lhs->bus_name == rhs->bus_name &&
-           node_structural_equal(lhs->bus_index, rhs->bus_index);
+           node_structural_equal(arena, lhs->bus_index, rhs->bus_index);
   case NODE_DEF_CALL:
   case NODE_PATTERN:
     if (lhs->callee != rhs->callee || lhs->call_argc != rhs->call_argc)
       return false;
     for (uint16_t i = 0; i < lhs->call_argc; i++)
-      if (!node_structural_equal(lhs->call_args[i], rhs->call_args[i]))
+      if (!node_structural_equal(arena, lhs->call_args[i], rhs->call_args[i]))
         return false;
     return true;
   case NODE_ITE:
-    return node_structural_equal(lhs->if_cond, rhs->if_cond) &&
-           node_structural_equal(lhs->if_then, rhs->if_then) &&
-           node_structural_equal(lhs->if_else, rhs->if_else);
+    return node_structural_equal(arena, lhs->if_cond, rhs->if_cond) &&
+           node_structural_equal(arena, lhs->if_then, rhs->if_then) &&
+           node_structural_equal(arena, lhs->if_else, rhs->if_else);
   case NODE_FORALL:
   case NODE_EXISTS:
   case NODE_SUM:
@@ -822,30 +869,30 @@ static bool node_structural_equal(const Node *lhs, const Node *rhs) {
   case NODE_SET_BIG_UNION:
   case NODE_SET_BIG_INTER:
     return lhs->qvar == rhs->qvar &&
-           node_structural_equal(lhs->qlo, rhs->qlo) &&
-           node_structural_equal(lhs->qhi, rhs->qhi) &&
-           node_structural_equal(lhs->qset, rhs->qset) &&
-           node_structural_equal(lhs->qbody, rhs->qbody) &&
+           node_structural_equal(arena, lhs->qlo, rhs->qlo) &&
+           node_structural_equal(arena, lhs->qhi, rhs->qhi) &&
+           node_structural_equal(arena, lhs->qset, rhs->qset) &&
+           node_structural_equal(arena, lhs->qbody, rhs->qbody) &&
            lhs->qlo_strict == rhs->qlo_strict &&
            lhs->qhi_strict == rhs->qhi_strict;
   case NODE_G_RANGE:
   case NODE_F_RANGE:
-    return node_structural_equal(lhs->qlo, rhs->qlo) &&
-           node_structural_equal(lhs->qhi, rhs->qhi) &&
-           node_structural_equal(lhs->qbody, rhs->qbody) &&
+    return node_structural_equal(arena, lhs->qlo, rhs->qlo) &&
+           node_structural_equal(arena, lhs->qhi, rhs->qhi) &&
+           node_structural_equal(arena, lhs->qbody, rhs->qbody) &&
            lhs->bounded.strong == rhs->bounded.strong;
   case NODE_SET:
   case NODE_SET_ENUM:
     if (lhs->set_size != rhs->set_size)
       return false;
     for (uint16_t i = 0; i < lhs->set_size; i++)
-      if (!node_structural_equal(lhs->set_elems[i], rhs->set_elems[i]))
+      if (!node_structural_equal(arena, lhs->set_elems[i], rhs->set_elems[i]))
         return false;
     return true;
   case NODE_NEXT_N:
     return lhs->bounded.strong == rhs->bounded.strong &&
-           node_structural_equal(lhs->lhs, rhs->lhs) &&
-           node_structural_equal(lhs->rhs, rhs->rhs);
+           node_structural_equal(arena, lhs->lhs, rhs->lhs) &&
+           node_structural_equal(arena, lhs->rhs, rhs->rhs);
   case NODE_AND:
   case NODE_OR:
   case NODE_IMPL:
@@ -870,35 +917,35 @@ static bool node_structural_equal(const Node *lhs, const Node *rhs) {
   case NODE_SET_DIFF:
   case NODE_IN:
   case NODE_MATCH:
-    return node_structural_equal(lhs->lhs, rhs->lhs) &&
-           node_structural_equal(lhs->rhs, rhs->rhs);
+    return node_structural_equal(arena, lhs->lhs, rhs->lhs) &&
+           node_structural_equal(arena, lhs->rhs, rhs->rhs);
   case NODE_KIND_COUNT:
     return false;
   }
   return false;
 }
 
-static bool value_equal(const EvalValue *lhs, const EvalValue *rhs) {
+static int value_equal(Arena *arena, const EvalValue *lhs,
+                       const EvalValue *rhs) {
+  if (!arena_check_budget(arena, 0))
+    return -1;
   if (lhs->kind != rhs->kind)
     return false;
   switch (lhs->kind) {
   case EVAL_VALUE_INT:
     return lhs->integer == rhs->integer;
-  case EVAL_VALUE_NODE:
-    return node_structural_equal(lhs->key ? lhs->key : lhs->node,
-                                 rhs->key ? rhs->key : rhs->node);
+  case EVAL_VALUE_NODE: {
+    bool equal = node_structural_equal(arena, lhs->key ? lhs->key : lhs->node,
+                                       rhs->key ? rhs->key : rhs->node);
+    return arena->cancelled && arena->failed ? -1 : equal;
+  }
   case EVAL_VALUE_SET:
     if (lhs->set->count != rhs->set->count)
       return false;
     for (uint32_t i = 0; i < lhs->set->count; i++) {
-      bool found = false;
-      for (uint32_t j = 0; j < rhs->set->count; j++)
-        if (value_equal(&lhs->set->items[i], &rhs->set->items[j])) {
-          found = true;
-          break;
-        }
-      if (!found)
-        return false;
+      int found = set_contains(arena, rhs->set, &lhs->set->items[i]);
+      if (found <= 0)
+        return found;
     }
     return true;
   }
@@ -908,9 +955,9 @@ static bool value_equal(const EvalValue *lhs, const EvalValue *rhs) {
 static EvalSet *set_new(Arena *arena) { return ARENA_ALLOC(arena, EvalSet); }
 
 static bool set_add(Arena *arena, EvalSet *set, EvalValue value) {
-  for (uint32_t i = 0; i < set->count; i++)
-    if (value_equal(&set->items[i], &value))
-      return true;
+  int found = set_contains(arena, set, &value);
+  if (found != 0)
+    return found > 0;
   if (set->count == set->capacity) {
     if (set->count == UINT32_MAX) {
       arena_mark_failed(arena);
@@ -935,6 +982,8 @@ static bool set_add(Arena *arena, EvalSet *set, EvalValue value) {
 
 static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
                        EvalValue *out, int depth) {
+  if (!arena_check_budget(spec->arena, 0))
+    return false;
   Env lexical = declaration_env(env);
   if (depth > MAX_DEPTH) {
     fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
@@ -981,8 +1030,11 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
         ARENA_ALLOC_N(spec->arena, Node *, set_node->set_size);
     if (!set_node->set_elems)
       return false;
-    for (uint16_t i = 0; i < set_node->set_size; i++)
+    for (uint16_t i = 0; i < set_node->set_size; i++) {
+      if (!arena_check_budget(spec->arena, 0))
+        return false;
       set_node->set_elems[i] = (Node *)out->set->items[i].source;
+    }
     out->source = set_node;
     return true;
   case NODE_AP:
@@ -1041,6 +1093,8 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
 
 static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
                      EvalSet **out, int depth) {
+  if (!arena_check_budget(spec->arena, 0))
+    return false;
   Env lexical = declaration_env(env);
   if (depth > MAX_DEPTH) {
     fprintf(tlsf_diagnostic_stream(), "expand: recursion too deep\n");
@@ -1106,12 +1160,9 @@ static bool eval_set(const TlsfSpec *spec, const Node *n, const Env *env,
     if (!set)
       return false;
     for (uint32_t i = 0; i < lhs->count; i++) {
-      bool in_rhs = false;
-      for (uint32_t j = 0; j < rhs->count; j++)
-        if (value_equal(&lhs->items[i], &rhs->items[j])) {
-          in_rhs = true;
-          break;
-        }
+      int in_rhs = set_contains(arena, rhs, &lhs->items[i]);
+      if (in_rhs < 0)
+        return false;
       if ((n->kind == NODE_SET_INTER && in_rhs) ||
           (n->kind == NODE_SET_DIFF && !in_rhs) || n->kind == NODE_SET_UNION)
         if (!set_add(arena, set, lhs->items[i]))
@@ -1191,7 +1242,7 @@ static bool eval_domain(const TlsfSpec *spec, const Node *n, const Env *env,
 static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
                                 const Env *env, const EvalValue *value,
                                 Env *child, const Env **body_env, Node **body) {
-  n = subst_source(n, env);
+  n = subst_source(spec->arena, n, env);
   *body = n->qbody;
   *body_env = env;
   if (value->kind == EVAL_VALUE_INT) {
@@ -1276,13 +1327,11 @@ static bool eval_set_reduction(const TlsfSpec *spec, const Node *n,
       EvalSet *next = set_new(spec->arena);
       if (!next)
         return false;
-      for (uint32_t j = 0; j < acc->count; j++)
-        for (uint32_t k = 0; k < term->count; k++)
-          if (value_equal(&acc->items[j], &term->items[k])) {
-            if (!set_add(spec->arena, next, acc->items[j]))
-              return false;
-            break;
-          }
+      for (uint32_t j = 0; j < acc->count; j++) {
+        int found = set_contains(spec->arena, term, &acc->items[j]);
+        if (found < 0 || (found && !set_add(spec->arena, next, acc->items[j])))
+          return false;
+      }
       acc = next;
     }
     first = false;
@@ -1320,6 +1369,10 @@ static bool name_is_declared(const TlsfSpec *spec, const char *name) {
 static bool match_pattern(const TlsfSpec *spec, Node *subject,
                           const Node *pattern, PatternBinding **bindings,
                           bool *ok) {
+  if (!arena_check_budget(spec->arena, 0)) {
+    *ok = false;
+    return false;
+  }
   if (pattern->kind == NODE_AP) {
     if (strcmp(pattern->name, "_") == 0)
       return true;
@@ -1332,8 +1385,11 @@ static bool match_pattern(const TlsfSpec *spec, Node *subject,
       return false;
     }
     for (PatternBinding *b = *bindings; b; b = b->next)
-      if (b->name == pattern->name)
-        return node_structural_equal(b->value, subject);
+      if (b->name == pattern->name) {
+        bool equal = node_structural_equal(spec->arena, b->value, subject);
+        *ok = !spec->arena->failed;
+        return equal;
+      }
     PatternBinding *binding = ARENA_ALLOC(spec->arena, PatternBinding);
     if (!binding) {
       *ok = false;
@@ -1494,20 +1550,55 @@ static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
   return acc;
 }
 
+// shortcut: cap budgeted fold-seed trees before recursive consumers; use
+// iterative walks if deeper trees are needed.
+[[gnu::cold]] static bool generated_depth(Arena *arena, const Node *node,
+                                          unsigned depth) {
+  if (!arena_check_budget(arena, 0))
+    return false;
+  if (depth > MAX_DEPTH) {
+    fprintf(tlsf_diagnostic_stream(),
+            "expand: generated AST depth exceeds limit %u\n", MAX_DEPTH);
+    arena_mark_failed(arena);
+    return false;
+  }
+  switch (node->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AP:
+    return true;
+  case NODE_NOT:
+  case NODE_X:
+  case NODE_X_STRONG:
+  case NODE_F:
+  case NODE_G:
+    return generated_depth(arena, node->arg, depth + 1);
+  default:
+    return generated_depth(arena, node->lhs, depth + 1) &&
+           generated_depth(arena, node->rhs, depth + 1);
+  }
+}
+
 static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
                          bool *ok, int depth) {
-  n = subst_source(n, env);
-  if (!*ok || !n || arena_failed(spec->arena)) {
+  n = subst_source(spec->arena, n, env);
+  if (!*ok || !n || spec->arena->failed ||
+      !arena_check_budget(spec->arena, 0)) {
     *ok = false;
     return nullptr;
   }
   Node *result = expand_node_impl(spec, n, env, ok, depth);
-  if (!result || arena_failed(spec->arena)) {
+  if (!result || spec->arena->failed) {
     *ok = false;
     return nullptr;
   }
   if (!spec->capture_provenance)
     return result;
+  if (spec->limit_generated_depth && spec->arena->cancelled &&
+      !generated_depth(spec->arena, result, 0)) {
+    *ok = false;
+    return nullptr;
+  }
   Node *copy = ARENA_ALLOC(spec->arena, Node);
   if (!copy) {
     *ok = false;
@@ -1976,7 +2067,7 @@ typedef struct {
 } SourceIds;
 
 static void assign_node_ids(Node *n, SourceIds *ids) {
-  if (!n || n->source_id || arena_failed(ids->arena))
+  if (!n || n->source_id || ids->arena->failed)
     return;
   SourceIdChange *change = ARENA_ALLOC(ids->arena, SourceIdChange);
   if (!change)
@@ -2142,7 +2233,7 @@ static int expand_impl(TlsfSpec *spec, const ParamOverride *overrides,
     return -1;
   Env base = {.copies = &copies, .bounds = &bounds};
   Env *env = build_param_env(spec, &base);
-  if (arena_failed(spec->arena))
+  if (spec->arena->failed)
     return -1;
 
   for (Env *e = env; e; e = (Env *)e->parent)
@@ -2203,12 +2294,12 @@ static int expand_impl(TlsfSpec *spec, const ParamOverride *overrides,
   spec->param_count = 0;
   spec->defs = nullptr;
   spec->def_count = 0;
-  return arena_failed(spec->arena) ? -1 : 0;
+  return spec->arena->failed ? -1 : 0;
 }
 
 int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
   assert(spec);
-  if (arena_failed(spec->arena))
+  if (spec->arena->failed)
     return -1;
 
   // Stage mutable arrays and publish once. Nodes are rebuilt by expand_node;
@@ -2240,8 +2331,7 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
   SourceIds ids = {.arena = spec->arena, .next = 1};
   if (spec->capture_provenance)
     assign_source_ids(&next, &ids);
-  if (arena_failed(spec->arena) ||
-      expand_impl(&next, overrides, n_overrides) != 0) {
+  if (spec->arena->failed || expand_impl(&next, overrides, n_overrides) != 0) {
     for (SourceIdChange *change = ids.changes; change; change = change->next)
       change->node->source_id = 0;
     return -1;

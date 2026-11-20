@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "tlsf/pipeline.h"
 #include "diagnostic.h"
+#include "pipeline_source_internal.h"
+#include "frontend_stream.h"
+#include "spec_internal.h"
 
 #include "tlsf/expand.h"
 #include "recognize.h"
@@ -48,7 +51,8 @@ ConstraintCover *tlsf_pipeline_build_cover(TlsfSpec *spec,
 }
 
 static TlsfPipeline *pipeline_load_impl(FILE *fp,
-                                        const TlsfPipelineOptions *opts) {
+                                        const TlsfPipelineOptions *opts,
+                                        bool frontend_only) {
   const char *tool = pipeline_tool_name(opts);
   TlsfPipeline *p = calloc(1, sizeof(*p));
   if (!p) {
@@ -57,12 +61,14 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
     return nullptr;
   }
 
-  p->spec = spec_parse(fp, tool);
+  p->spec =
+      spec_parse_budgeted(fp, tool, opts ? opts->frontend_cancelled : nullptr,
+                          opts ? opts->frontend_cancel_ctx : nullptr);
   if (!p->spec) {
     pipeline_status(opts, TLSF_PIPELINE_INVALID, "parse", "TLSF parse failed");
     goto fail;
   }
-
+  p->spec->limit_generated_depth = opts && opts->limit_generated_depth;
   if (opts && opts->overwrite_semantics &&
       !parse_semantics(opts->overwrite_semantics, &p->spec->info.semantics)) {
     fprintf(tlsf_diagnostic_stream(), "%s: invalid semantics '%s'\n", tool,
@@ -89,7 +95,8 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
   size_t provenance_size = 0;
   FILE *provenance_stream =
       opts && opts->source_sha256
-          ? open_memstream(&provenance_buffer, &provenance_size)
+          ? frontend_memstream(p->spec->arena, &provenance_buffer,
+                               &provenance_size)
           : nullptr;
   if (opts && opts->source_sha256 && !provenance_stream) {
     pipeline_status(opts, TLSF_PIPELINE_LIMIT, "provenance", "out of memory");
@@ -123,6 +130,15 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
       goto fail;
     }
   }
+  if (frontend_only) {
+    if (!spec_validate_target_adaptation(p->spec, tool) ||
+        !spec_adapt_target(p->spec)) {
+      pipeline_status(opts, TLSF_PIPELINE_DECLINED, "adapt",
+                      "target adaptation failed");
+      goto fail;
+    }
+    goto done;
+  }
   p->cover = tlsf_pipeline_build_cover(p->spec, opts);
   if (!p->cover)
     goto fail;
@@ -137,7 +153,9 @@ static TlsfPipeline *pipeline_load_impl(FILE *fp,
     goto fail;
   }
 
+done:
   pipeline_status(opts, TLSF_PIPELINE_OK, "pipeline", "");
+  arena_set_budget(p->spec->arena, nullptr, nullptr);
   return p;
 
 fail:
@@ -145,7 +163,8 @@ fail:
   return nullptr;
 }
 
-TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
+static TlsfPipeline *pipeline_load(FILE *fp, const TlsfPipelineOptions *opts,
+                                   bool frontend_only) {
   char *diagnostic = nullptr;
   size_t size = 0;
   FILE *capture = open_memstream(&diagnostic, &size);
@@ -154,7 +173,7 @@ TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
     return nullptr;
   }
   FILE *previous = tlsf_diagnostic_swap(capture);
-  TlsfPipeline *result = pipeline_load_impl(fp, opts);
+  TlsfPipeline *result = pipeline_load_impl(fp, opts, frontend_only);
   tlsf_diagnostic_swap(previous);
   fclose(capture);
   if (!result && opts && opts->error && diagnostic && size) {
@@ -165,6 +184,15 @@ TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
   }
   free(diagnostic);
   return result;
+}
+
+TlsfPipeline *tlsf_pipeline_load(FILE *fp, const TlsfPipelineOptions *opts) {
+  return pipeline_load(fp, opts, false);
+}
+
+TlsfPipeline *tlsf_pipeline_load_frontend(FILE *fp,
+                                          const TlsfPipelineOptions *opts) {
+  return pipeline_load(fp, opts, true);
 }
 
 void tlsf_pipeline_free(TlsfPipeline *p) {

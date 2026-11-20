@@ -3,6 +3,12 @@
 
 #include "tlsf/spec.h"
 
+TlsfSpec *spec_parse_budgeted(FILE *in, const char *prog,
+                              int (*cancelled)(void *, size_t), void *ctx);
+
+// Stop a provenance formula traversal when its budgeted stream fails.
+void print_tlsf_formula_checked(FILE *out, const Node *formula, Arena *arena);
+
 /// Append environment-fairness assumptions for every declared input.
 ///
 /// Scalar inputs receive `G F i` and `G F !i`.  Bus inputs receive equivalent

@@ -268,7 +268,7 @@ std::string render_aig(const Aig *game, const Config &cfg);
 std::unique_ptr<Instance> lower(const uint8_t *source, size_t size,
                                 const std::map<std::string, int64_t> &overrides,
                                 TlsfGr1ReductionSemantics semantics,
-                                const Config &cfg);
+                                const Config &cfg, bool fold_seed = false);
 std::map<std::string, int64_t> parameters(const Instance &instance);
 std::pair<std::vector<int>, std::vector<int>>
 axis_members(const Instance &target, const Instance &seed);

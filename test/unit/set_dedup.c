@@ -66,8 +66,8 @@ static void set_growth(void) {
 }
 
 static void equal(const Node *a, const Node *b, bool expected) {
-  assert(node_structural_equal(a, b) == expected);
-  assert(node_structural_equal(b, a) == expected);
+  assert(node_structural_equal(nullptr, a, b) == expected);
+  assert(node_structural_equal(nullptr, b, a) == expected);
   checks += 2;
 }
 

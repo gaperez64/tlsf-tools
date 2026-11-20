@@ -1,4 +1,4 @@
-#include "tlsf/arena.h"
+#include "arena_budget.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -8,23 +8,6 @@
 #ifdef TLSF_ARENA_FAULT
 bool tlsf_arena_fault(size_t size, bool slab);
 #endif
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-typedef struct ArenaSlab {
-  struct ArenaSlab *next; ///< linked list of slabs
-  size_t capacity;        ///< total usable bytes in this slab
-  size_t used;            ///< bytes consumed so far
-  // Data follows immediately after this header in memory.
-} ArenaSlab;
-
-struct ArenaSlabArena {
-  ArenaSlab *head;     ///< current (most-recently allocated) slab
-  size_t default_slab; ///< size used when a new slab is needed
-  bool failed;
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,6 +46,9 @@ Arena *arena_new(size_t slab_size) {
     return nullptr;
   a->default_slab = slab_size;
   a->failed = false;
+  a->cancelled = nullptr;
+  a->cancel_ctx = nullptr;
+  a->budget_steps = 0;
   a->head = slab_new(slab_size);
   if (!a->head) {
     free(a);
@@ -73,6 +59,8 @@ Arena *arena_new(size_t slab_size) {
 
 void *arena_alloc_aligned(Arena *a, size_t size, size_t align) {
   assert(a && "null arena");
+  if (!arena_check_budget(a, 0))
+    return nullptr;
 #ifdef TLSF_ARENA_FAULT
   if (tlsf_arena_fault(size, false))
     goto fail;
@@ -94,6 +82,9 @@ void *arena_alloc_aligned(Arena *a, size_t size, size_t align) {
         goto fail;
       new_cap = align_up(size, 4096u); // oversized single allocation
     }
+    if (new_cap > SIZE_MAX - sizeof(ArenaSlab) ||
+        !arena_check_budget(a, new_cap + sizeof(ArenaSlab)))
+      goto fail;
     ArenaSlab *ns = slab_new(new_cap);
     if (!ns)
       goto fail;
@@ -121,6 +112,19 @@ void *arena_alloc_array(Arena *a, size_t size, size_t count, size_t align) {
 }
 
 bool arena_failed(const Arena *a) { return a->failed; }
+
+void arena_set_budget(Arena *a, int (*cancelled)(void *, size_t), void *ctx) {
+  a->cancelled = cancelled;
+  a->cancel_ctx = ctx;
+  a->budget_steps = 0;
+}
+
+bool arena_poll_budget(Arena *a, size_t bytes) {
+  a->budget_steps = 4095;
+  if (a->cancelled(a->cancel_ctx, bytes))
+    a->failed = true;
+  return !a->failed;
+}
 
 void arena_mark_failed(Arena *a) { a->failed = true; }
 
