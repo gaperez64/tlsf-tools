@@ -3068,8 +3068,10 @@ O validate_fold_seeds(Schema &bdd, const std::vector<GameView> &seeds,
                     bdd.from_aig(seed.inst->cert.get(), seed.output(name)));
     auto cert = emit_certificate(bdd, seed, learned, cfg);
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-    if (lift_test_fault == 9 && &seed == &seeds[1])
+    if (lift_test_fault == 9 && &seed == &seeds[1]) {
+      aig_remove_output(cert.get(), "inv");
       aig_set_output(cert.get(), "inv", 0);
+    }
 #endif
     auto aag = render_aig(cert.get(), cfg);
     auto json =
