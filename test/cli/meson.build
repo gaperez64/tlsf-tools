@@ -25,7 +25,8 @@ test('obfuscate_roundtrip_145', python3,
                cases / 'ranges.tlsf', cases / 'strong_bounds_v12.tlsf',
                cases / 'finite-next.tlsf', cases / 'fdelay_demo.tlsf',
                cases / 'mutual_exclusion.tlsf', cases / 'gr1_strict_multi.tlsf',
-               cases / 'definition-strict-assert.tlsf')],
+               cases / 'definition-strict-assert.tlsf',
+               '../fixtures/printer/guarded.tlsf')],
   timeout: 300)
 test('obfuscate_roundtrip_distinct_145', python3,
   args: [files('check_obfuscation.py'), exe['tlsfobf'], exe['tlsf2tlsf'],
@@ -878,7 +879,7 @@ foreach name : ['finite_set_next', 'finite_set_next_reversed']
     args: [files(printer / name + '.ltl'), exe['tlsf2ltl'], '--format', 'ltl',
            files(printer / name + '.tlsf')])
 endforeach
-foreach name : ['bigop_parens', 'bigop_contexts']
+foreach name : ['bigop_parens', 'bigop_contexts', 'guarded']
   foreach suffix : ['', '.reemit']
     test('tlsf_' + name + suffix, check,
       args: [files(printer / name + '.reemit.tlsf'), exe['tlsf2tlsf'],

@@ -37,6 +37,15 @@ def main() -> None:
     fails(tool, "--param", "height=2", str(spec),
           message="unknown parameter 'height'")
     fails(tool, stdin="INFO {", message="input does not parse")
+    fails(tool, "--param", "width", str(spec), message="bad --param argument")
+    fails(tool, *["--param", "width=2"] * 65, str(spec),
+          message="too many --param overrides")
+    fails(tool, "--output", "/nonexistent/out.tlsf", str(spec),
+          message="/nonexistent/out.tlsf")
+    fails(tool, "--map", "/nonexistent/map.tsv", str(spec),
+          message="cannot write map '/nonexistent/map.tsv'")
+    done = run(tool, "--version")
+    assert done.returncode == 0 and done.stdout.startswith("tlsfobf "), done
 
     with tempfile.TemporaryDirectory() as directory:
         out = pathlib.Path(directory) / "out.tlsf"

@@ -633,8 +633,17 @@ static bool reorder_spec(TlsfSpec *s, uint64_t seed) {
 }
 
 // Test faults the self-check must reject: 1 exchanges the first input and
-// output declarations, 2 negates the first formula of the first section.
+// output declarations, 2 negates the first formula of the first section, 3
+// flips TARGET, 5 renames the first definition but not its calls. Fault 4
+// truncates the printed text (see obfuscate()).
 static bool inject_fault(TlsfSpec *s, unsigned fault) {
+  if (fault == 3)
+    s->info.target =
+        s->info.target == TARGET_MEALY ? TARGET_MOORE : TARGET_MEALY;
+  if (fault == 5 && s->def_count > 0) {
+    s->defs[0].name = intern(s->intern, "fault");
+    return s->defs[0].name != nullptr;
+  }
   if (fault == 1 && s->input_count > 0 && s->output_count > 0) {
     SignalDecl input = s->inputs[0];
     s->inputs[0] = s->outputs[0];
@@ -1322,6 +1331,8 @@ static TlsfObfuscateStatus obfuscate(Job *job, const char *source, size_t size,
     free(text);
     return fail(result, TLSF_OBFUSCATE_NO_MEMORY, "out of memory");
   }
+  if (o->test_fault == 4)
+    text[text_size /= 2] = '\0';
   result->text = text;
   result->size = text_size;
 

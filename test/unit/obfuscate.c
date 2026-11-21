@@ -173,15 +173,33 @@ static void overrides_become_values(void) {
   CHECK(tlsf_obfuscate_lookup(&r, "grant_3", TLSF_OBFUSCATE_OUTPUT_SIGNAL));
   tlsf_obfuscate_result_clear(&r);
 
+  // Repeated overrides: the last one wins, as in tlsf2tlsf.
+  ParamOverride twice[] = {{"width", 5}, {"width", 2}};
+  o.overrides = twice;
+  o.n_overrides = 2;
+  CHECK(tlsf_obfuscate(every, strlen(every), &o, &r) == TLSF_OBFUSCATE_OK);
+  CHECK(tlsf_obfuscate_lookup(&r, "grant_1", TLSF_OBFUSCATE_OUTPUT_SIGNAL) &&
+        !tlsf_obfuscate_lookup(&r, "grant_2", TLSF_OBFUSCATE_OUTPUT_SIGNAL));
+  tlsf_obfuscate_result_clear(&r);
+
   ParamOverride unknown = {"height", 2};
+  o.n_overrides = 1;
   o.overrides = &unknown;
   CHECK(tlsf_obfuscate(every, strlen(every), &o, &r) == TLSF_OBFUSCATE_INVALID);
   CHECK(!r.text && strstr(r.message, "height"));
   tlsf_obfuscate_result_clear(&r);
 }
 
+// Each fault reaches a different rejection of the self-check.
 static void self_check_rejects_faults(void) {
-  for (unsigned fault = 1; fault <= 2; fault++)
+  static const char *reasons[] = {
+      [1] = "is not an input of the output",
+      [2] = "formulas differ after expansion",
+      [3] = "SEMANTICS or TARGET changed",
+      [4] = "output does not parse",
+      [5] = "output does not expand",
+  };
+  for (unsigned fault = 1; fault <= 5; fault++)
     for (unsigned mode = TLSF_OBFUSCATE_RENAME; mode <= TLSF_OBFUSCATE_ALL;
          mode++) {
       TlsfObfuscateOptions o = {.mode = mode, .seed = 2, .test_fault = fault};
@@ -189,13 +207,70 @@ static void self_check_rejects_faults(void) {
       CHECK(tlsf_obfuscate(every, strlen(every), &o, &r) ==
             TLSF_OBFUSCATE_CHECK_FAILED);
       CHECK(!r.text && r.entry_count == 0);
-      CHECK(strstr(r.message, "self-check"));
+      CHECK(strstr(r.message, "self-check: "));
+      if (!strstr(r.message, reasons[fault]))
+        fprintf(stderr, "fault %u: %s\n", fault, r.message);
+      CHECK(strstr(r.message, reasons[fault]));
       tlsf_obfuscate_result_clear(&r);
     }
 }
 
+// Large enough to grow the canonical-form table and the && / || flattening
+// stack past their initial sizes.
+static void large_instance(void) {
+  ParamOverride width = {"width", 48};
+  for (unsigned mode = TLSF_OBFUSCATE_RENAME; mode <= TLSF_OBFUSCATE_ALL;
+       mode++) {
+    TlsfObfuscateOptions o = {
+        .mode = mode, .seed = 6, .overrides = &width, .n_overrides = 1};
+    TlsfObfuscateResult r;
+    CHECK(tlsf_obfuscate(every, strlen(every), &o, &r) == TLSF_OBFUSCATE_OK);
+    CHECK(!(mode & TLSF_OBFUSCATE_RENAME) ||
+          tlsf_obfuscate_lookup(&r, "grant_47", TLSF_OBFUSCATE_OUTPUT_SIGNAL));
+    tlsf_obfuscate_result_clear(&r);
+  }
+}
+
+static const char swappable[] =
+    "INFO { TITLE: \"t\" DESCRIPTION: \"d\" SEMANTICS: Mealy TARGET: Mealy }"
+    "MAIN { INPUTS { a; b; } OUTPUTS { c; }"
+    "  GUARANTEE { G ((a && b) -> c); } }";
+// The same formula beside a structural pattern guard, which matches on shape.
+static const char matching[] =
+    "INFO { TITLE: \"t\" DESCRIPTION: \"d\" SEMANTICS: Mealy TARGET: Mealy }"
+    "GLOBAL { DEFINITIONS { strip(f) = f ~ G x : x otherwise : false; } }"
+    "MAIN { INPUTS { a; b; } OUTPUTS { c; }"
+    "  GUARANTEE { G ((a && b) -> c); strip(G c); } }";
+
+static void reorder_swaps_operands(void) {
+  unsigned kept = 0, swapped = 0;
+  for (uint64_t seed = 0; seed < 16; seed++) {
+    TlsfObfuscateResult r;
+    CHECK(run(swappable, TLSF_OBFUSCATE_REORDER, seed, &r) ==
+          TLSF_OBFUSCATE_OK);
+    kept += strstr(r.text, "(a && b)") != nullptr;
+    swapped += strstr(r.text, "(b && a)") != nullptr;
+    tlsf_obfuscate_result_clear(&r);
+    CHECK(run(matching, TLSF_OBFUSCATE_REORDER, seed, &r) == TLSF_OBFUSCATE_OK);
+    CHECK(strstr(r.text, "(a && b)"));
+    tlsf_obfuscate_result_clear(&r);
+  }
+  CHECK(kept > 0 && swapped > 0 && kept + swapped == 16);
+}
+
 static void errors(void) {
   TlsfObfuscateResult r;
+  CHECK(run("", TLSF_OBFUSCATE_ALL, 0, &r) == TLSF_OBFUSCATE_INVALID);
+  CHECK(strstr(r.message, "empty or binary"));
+  tlsf_obfuscate_result_clear(&r);
+  TlsfObfuscateOptions all = {.mode = TLSF_OBFUSCATE_ALL};
+  CHECK(tlsf_obfuscate("INFO\0{", 6, &all, &r) == TLSF_OBFUSCATE_INVALID);
+  tlsf_obfuscate_result_clear(&r);
+  CHECK(run("INFO { TITLE: \"t\" DESCRIPTION: \"d\" SEMANTICS: Mealy "
+            "TARGET: Mealy } MAIN { OUTPUTS { o; } GUARANTEE { f(o); } }",
+            TLSF_OBFUSCATE_ALL, 0, &r) == TLSF_OBFUSCATE_UNEXPANDABLE);
+  CHECK(!r.text && strstr(r.message, "input does not expand"));
+  tlsf_obfuscate_result_clear(&r);
   CHECK(run(every, 0, 0, &r) == TLSF_OBFUSCATE_INVALID);
   tlsf_obfuscate_result_clear(&r);
   CHECK(run(every, 4, 0, &r) == TLSF_OBFUSCATE_INVALID);
@@ -241,6 +316,8 @@ int main(int argc, char **argv) {
   reorder_keeps_names();
   overrides_become_values();
   self_check_rejects_faults();
+  large_instance();
+  reorder_swaps_operands();
   errors();
   return 0;
 }

@@ -94,9 +94,11 @@ typedef struct TlsfObfuscateOptions {
   uint64_t seed;
   const ParamOverride *overrides; ///< applied as tlsf2tlsf --param does
   size_t n_overrides;
-  /// Test hook, zero otherwise: after the transform, 1 exchanges the first
-  /// input and output declarations and 2 negates the first formula of the
-  /// first non-empty section. The self-check must reject both.
+  /// Test hook, zero otherwise. After the transform: 1 exchanges the first
+  /// input and output declarations, 2 negates the first formula of the first
+  /// non-empty section, 3 flips TARGET, 4 truncates the printed text, and 5
+  /// renames the first definition but not its calls. The self-check must
+  /// reject each.
   unsigned test_fault;
 } TlsfObfuscateOptions;
 
