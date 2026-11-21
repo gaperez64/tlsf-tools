@@ -1,4 +1,5 @@
 #include "tlsf/gr1_lift.h"
+#include "tlsf/obfuscate.h"
 #include "tlsf/pipeline.h"
 #include "yyjson_cpp.hh"
 #include "resource_usage.h"
@@ -11,8 +12,9 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
-#include <regex>
 #include <string>
+#include <utility>
+#include <vector>
 #define CHECK(condition)                                                       \
   do {                                                                         \
     if (!(condition)) {                                                        \
@@ -222,6 +224,26 @@ static std::string read_source(const char *path) {
   std::ifstream file(path);
   CHECK(file.good());
   return {std::istreambuf_iterator<char>(file), {}};
+}
+// The library obfuscator's RENAME mode: neutral names for every identifier,
+// verified against the input. `axis` receives the new name of `parameter`.
+static std::string obfuscated(const std::string &bytes, uint64_t seed,
+                              std::string &axis, const char *parameter = "n") {
+  TlsfObfuscateOptions o{};
+  o.mode = TLSF_OBFUSCATE_RENAME;
+  o.seed = seed;
+  TlsfObfuscateResult r{};
+  auto status = tlsf_obfuscate(bytes.data(), bytes.size(), &o, &r);
+  if (status != TLSF_OBFUSCATE_OK)
+    std::cerr << "tlsf_obfuscate: " << r.message << '\n';
+  CHECK(status == TLSF_OBFUSCATE_OK);
+  const char *renamed =
+      tlsf_obfuscate_lookup(&r, parameter, TLSF_OBFUSCATE_PARAMETER);
+  CHECK(renamed);
+  axis = renamed;
+  std::string text(r.text, r.size);
+  tlsf_obfuscate_result_clear(&r);
+  return text;
 }
 static TlsfGr1LiftStatus fold_lift(const std::string &bytes, int size,
                                    TlsfGr1LiftOptions &o, TlsfGr1LiftResult &r,
@@ -660,37 +682,46 @@ static void fold_regressions(const char *path) {
   tlsf_gr1_lift_test_set_fault(0);
   tlsf_gr1_lift_result_clear(&r);
 
-  // Rename every family-facing identifier, including the recursive helpers.
-  for (auto names : {std::pair{"request", "zeta"},
-                     {"grant", "omega"},
-                     {"nbits", "length_code"},
-                     {"log2_dn", "halving"},
-                     {"value", "decode"},
-                     {"bit", "digit"}}) {
-    size_t pos = 0;
-    while ((pos = bytes.find(names.first, pos)) != std::string::npos) {
-      bytes.replace(pos, strlen(names.first), names.second);
-      pos += strlen(names.second);
+  // Every identifier renamed, including the recursive helpers, their
+  // arguments and the binders. With unused parameters around the axis, the
+  // seeds give the axis each relative position among the neutral names, so
+  // neither spelling nor its order may decide which parameter is folded.
+  std::string padded = bytes;
+  padded.insert(padded.find("n = 14;"), "alpha = 3; omega = 1;\n");
+  padded.insert(padded.find("n = 14;") + strlen("n = 14;"),
+                "\nbeta = 2; gamma = 4;");
+  std::vector<std::pair<const std::string *, uint64_t>> renamings{{&bytes, 11}};
+  std::vector<std::string> axes;
+  for (uint64_t seed = 0; seed < 64 && axes.size() < 5; seed++) {
+    std::string axis;
+    obfuscated(padded, seed, axis);
+    if (std::find(axes.begin(), axes.end(), axis) == axes.end()) {
+      axes.push_back(axis);
+      renamings.push_back({&padded, seed});
     }
   }
-  bytes = std::regex_replace(bytes, std::regex("\\bn\\b"), "extent");
-  bytes = std::regex_replace(bytes, std::regex("\\bi\\b"), "lane");
-  CHECK(fold_lift(bytes, 9, o, r, e, "extent") == TLSF_GR1_LIFT_OK);
-  CHECK(r.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
-  CHECK(std::string(r.game_aag, r.game_size) == game);
-  tlsf_gr1_lift_result_clear(&r);
+  CHECK(axes.size() == 5);
+  for (auto [source, seed] : renamings) {
+    std::string axis;
+    auto renamed = obfuscated(*source, seed, axis);
+    CHECK(fold_lift(renamed, 9, o, r, e, axis.c_str()) == TLSF_GR1_LIFT_OK);
+    CHECK(r.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+    CHECK(std::string(r.game_aag, r.game_size) == game);
+    tlsf_gr1_lift_result_clear(&r);
+  }
 
-  auto begin = bytes.find("G F (");
+  auto broken = bytes;
+  auto begin = broken.find("G F (");
   CHECK(begin != std::string::npos);
-  auto end = bytes.find(';', begin);
-  bytes.replace(begin, end - begin, "G F zeta[0]");
-  CHECK(fold_lift(bytes, 9, o, r, e, "extent") != TLSF_GR1_LIFT_OK);
+  broken.replace(begin, broken.find(';', begin) - begin, "G F request[0]");
+  std::string axis;
+  auto renamed = obfuscated(broken, 11, axis);
+  CHECK(fold_lift(renamed, 9, o, r, e, axis.c_str()) != TLSF_GR1_LIFT_OK);
   CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN && !r.certificate_aag);
   CHECK(strstr(r.decline_detail, "fold_seed_failed") ||
         strstr(r.decline_detail, "fold_failed"));
   tlsf_gr1_lift_result_clear(&r);
 
-  bytes = read_source(path);
   o.phase_budget.max_seed_probes = 7;
   CHECK(fold_lift(bytes, 9, o, r, e) == TLSF_GR1_LIFT_LIMIT);
   CHECK(strstr(r.decline_detail, "fold_probe_budget"));

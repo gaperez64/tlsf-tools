@@ -656,8 +656,10 @@ signal_decl
       uint32_t count =
           spec->cur_is_output ? spec->output_count : spec->input_count;
       signals[count - 1u].origin_is_enum = true;
+      signals[count - 1u].enum_type = $1;
       Node *valid = mk_enum_validity(spec, et, $2);
       if (!valid) YYNOMEM;
+      signals[count - 1u].enum_validity = valid;
       FormulaList *list =
           spec->cur_is_output ? &spec->assert_ : &spec->require;
       if (!formula_list_push(spec, list, valid))

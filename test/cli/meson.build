@@ -12,6 +12,28 @@ test('case_boundaries_110', python3,
   timeout: 60)
 test('scoping_110', python3,
   args: [files('check_scoping_110.py'), exe['tlsf2ltl']], timeout: 60)
+# tlsfobf (#145): every mode and two seeds per input, against tlsf2tlsf and
+# tlsfinfo; then the command line's help and error handling.
+test('obfuscate_roundtrip_145', python3,
+  args: [files('check_obfuscation.py'), exe['tlsfobf'], exe['tlsf2tlsf'],
+         exe['tlsfinfo'],
+         files('../fixtures/arbiter_simple.tlsf', '../fixtures/encoded_fold.tlsf',
+               cases / 'defs.tlsf', cases / 'expand_demo.tlsf',
+               cases / 'enum_demo.tlsf', cases / 'enum_wildcards_strict.tlsf',
+               cases / 'pattern_v12.tlsf', cases / 'sets_v12.tlsf',
+               cases / 'aliases_v12.tlsf', cases / 'recursion.tlsf',
+               cases / 'ranges.tlsf', cases / 'strong_bounds_v12.tlsf',
+               cases / 'finite-next.tlsf', cases / 'fdelay_demo.tlsf',
+               cases / 'mutual_exclusion.tlsf', cases / 'gr1_strict_multi.tlsf',
+               cases / 'definition-strict-assert.tlsf')],
+  timeout: 300)
+test('obfuscate_roundtrip_distinct_145', python3,
+  args: [files('check_obfuscation.py'), exe['tlsfobf'], exe['tlsf2tlsf'],
+         exe['tlsfinfo'], '--distinct', files('../fixtures/obfuscate_every.tlsf')],
+  timeout: 120)
+test('obfuscate_cli_145', python3,
+  args: [files('check_obfuscation_cli.py'), exe['tlsfobf'],
+         files('../fixtures/obfuscate_every.tlsf')])
 test('target_adaptation', python3,
   args: [files('check_target_adaptation.py'), exe['tlsf2ltl']])
 test('reference_semantics_and_oracle_guard', python3,
@@ -278,9 +300,17 @@ test('err_enum_width', xfail,
 check_wl = files('check_wl.sh')   # normalizes embedded paths to basenames
 check_contains = files('check_contains.sh')  # asserts output matches a regex
 
-test('tlsf_enum_basic', check,
-  args: [files(cases / 'enum_demo.basic.tlsf'),
-         exe['tlsf2tlsf'], files(cases / 'enum_demo.tlsf')])
+# Re-emission keeps the enum declaration and the typed signal, whose implicit
+# validity formula the parser adds again; then the fixed point.
+# cases/enum_demo.basic.tlsf is the earlier printing, which dropped the
+# declaration and no longer expands; it stays as a frozen native-reduction
+# input.
+foreach source : [files(cases / 'enum_demo.tlsf'),
+                  files('../fixtures/printer/enum_demo.reemit.tlsf')]
+  test('tlsf_enum_reemit', check,
+    args: [files('../fixtures/printer/enum_demo.reemit.tlsf'),
+           exe['tlsf2tlsf'], source])
+endforeach
 
 if research_tools
 # The obligation census: a stable schema, and the counts a two-client arbiter
@@ -901,10 +931,16 @@ test('expand_recursion', check,
 test('next_n', check,
   args: [files(cases / 'next_n.ltl'), exe['tlsf2ltl'],
          files(cases / 'next_n.tlsf')])
-# Default re-emission of a case-definition (exercises ITE/comparison printing).
-test('reemit_cases', check,
-  args: [files(cases / 'recursion.reemit.tlsf'), exe['tlsf2tlsf'],
-         files(cases / 'recursion.tlsf')])
+# Default re-emission of a case-definition (exercises ITE/comparison printing),
+# then the fixed point. cases/recursion.reemit.tlsf is the earlier printing,
+# which ended the cases with a stray `false` and no longer parses; it stays as
+# a frozen native-reduction input.
+foreach source : [files(cases / 'recursion.tlsf'),
+                  files('../fixtures/printer/recursion.reemit.tlsf')]
+  test('reemit_cases', check,
+    args: [files('../fixtures/printer/recursion.reemit.tlsf'),
+           exe['tlsf2tlsf'], source])
+endforeach
 # A call to an undefined definition must error.
 test('err_undef_def', xfail,
   args: [exe['tlsf2ltl'], files(cases / 'undef_def.tlsf')])

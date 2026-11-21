@@ -19,6 +19,8 @@ tools = {
                'dependencies': tool_dep},
   'tlsfnorm': {'sources': files('tlsfnorm/main.c'),
                'dependencies': tool_dep},
+  'tlsfobf': {'sources': files('tlsfobf/main.c'),
+              'dependencies': tool_dep},
   'mealy2moore': {'sources': files('mealy2moore/main.c'),
                   'dependencies': tlsf_internal_dep},
 }

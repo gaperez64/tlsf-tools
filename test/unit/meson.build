@@ -30,6 +30,10 @@ test('normalize_stats', normalize_stats)
 next_strength = executable('next_strength', 'next_strength.c',
   c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
 test('next_strength_117', next_strength)
+obfuscate = executable('obfuscate', 'obfuscate.c',
+  c_args: ['-UNDEBUG'], dependencies: tlsf_internal_dep)
+test('obfuscate_145', obfuscate,
+  args: [files('../fixtures/obfuscate_every.tlsf')])
 test('set_dedup_field_inventory', python3,
   args: [files('set_dedup_field_inventory.py'), meson.project_source_root()])
 

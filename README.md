@@ -71,6 +71,7 @@ below; use `--parenthesize` when inspecting the exact temporal tree.
 | `tlsf2tlsf` | Emit expanded/basic TLSF. |
 | `tlsfinfo` | Inspect metadata, signals, and GR level. |
 | `tlsfnorm` | Normalize, split, and simplify TLSF. |
+| `tlsfobf` | Rename identifiers and permute order, with a self-check. |
 | `mealy2moore` | Delay AIGER strategy outputs for Moore-target specs. |
 
 The optional research layer adds decomposition, certified local controllers,
@@ -164,7 +165,8 @@ proved reference and validation sample, not a proof of the C implementation.
 
 ## Usage
 
-The preprocessing tools (`tlsf2ltl`, `tlsf2tlsf`, `tlsfinfo`, `tlsfnorm`)
+The preprocessing tools (`tlsf2ltl`, `tlsf2tlsf`, `tlsfinfo`, `tlsfnorm`,
+`tlsfobf`)
 read `FILE` or stdin, write stdout or `--output FILE`, and accept `--version`
 and `--help` with long option names. `mealy2moore` and the research solver
 `tlsfsolve` write strategies to stdout; redirect it as shown below. Both accept
@@ -203,6 +205,11 @@ tlsfinfo  --expanded-ins spec.tlsf         # scalar input CSV
 tlsfinfo  --expanded-outs spec.tlsf        # scalar output CSV
 tlsfinfo  --generalized-reactivity spec.tlsf   # GR(k) level, or "NOT in GR"
 
+# obfuscate (benchmark independence of names and order)
+tlsfobf --mode rename --seed 7 --map map.tsv spec.tlsf  # neutral names + TSV map
+tlsfobf --mode reorder --seed 7 spec.tlsf               # permuted order only
+tlsfobf --param n=4 spec.tlsf                           # both, n fixed to 4
+
 # research / diagnostics
 tlsftemplates --certify --solve --format csnf spec.tlsf   # certified controllers
 tlsfbenchgraph --input-dir specs/ --split --summary       # corpus shape census
@@ -229,6 +236,22 @@ scripts/solve.sh --backend acacia --solver acacia-bonsai \
         --output ctrl.aag spec.tlsf                            # acacia backend
 tlsfsolve game.aag > strategy.aag                         # solve an AIGER safety/GR(1) game
 ```
+
+`tlsfobf` writes a semantically equivalent spec, keeping the GLOBAL section.
+`rename` gives every identifier a neutral name (a kind letter and a number from
+a seeded permutation of first-occurrence order, never derived from the
+original spelling). It also neutralizes TITLE and DESCRIPTION and drops TAGS.
+`reorder` permutes declarations, section formulas, parameters, definitions and
+enum types. It swaps `&&`/`||` operands in section formulas, except under
+calls, sets, guards and in specs with pattern guards, whose matching depends
+on shape. `all` (the default) does both; no mode prints comments. The same
+input, seed and mode give the same bytes. Before writing anything, the tool
+expands its output and the input (so every parameter needs a value). It
+requires the same interface and equal multisets of formulas per section, up to
+the renaming and to associativity and commutativity of `&&`/`||`; otherwise it
+exits 1 and writes nothing. `--map` lists each original name, its new name and its kind, including
+the expanded signals (`input-signal`, `output-signal`) under the names AIGER
+controllers use, so a downstream tool can rename a controller back.
 
 `tlsfnorm --norm-soundness verify` is an alias for the default `assert`:
 both check schedule metadata for phase legality and finite-word safety. They

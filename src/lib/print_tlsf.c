@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 static void print_formula(FILE *out, const Node *n, Arena *budget);
+static void print_cases(FILE *out, const Node *n, Arena *budget);
 
 // A big operator's body extends rightwards: close it before printing more of
 // the surrounding expression. Delimited or final operands need no extra pair.
@@ -22,6 +23,73 @@ static void print_nonfinal(FILE *out, const Node *n, Arena *budget) {
   print_formula(out, n, budget);
   if (paren)
     fprintf(out, ")");
+}
+
+// True when `n` prints inside its own parentheses or braces, or as a keyword.
+static bool prints_enclosed(const Node *n) {
+  switch (n->kind) {
+  case NODE_TRUE:
+  case NODE_FALSE:
+  case NODE_AND:
+  case NODE_OR:
+  case NODE_IMPL:
+  case NODE_EQUIV:
+  case NODE_U:
+  case NODE_R:
+  case NODE_W:
+  case NODE_INT_ADD:
+  case NODE_INT_SUB:
+  case NODE_INT_MUL:
+  case NODE_INT_DIV:
+  case NODE_INT_MOD:
+  case NODE_INT_NEG:
+  case NODE_CMP_EQ:
+  case NODE_CMP_NE:
+  case NODE_CMP_LT:
+  case NODE_CMP_LE:
+  case NODE_CMP_GT:
+  case NODE_CMP_GE:
+  case NODE_IN:
+  case NODE_MATCH:
+  case NODE_SET:
+  case NODE_SET_ENUM:
+  case NODE_SET_UNION:
+  case NODE_SET_INTER:
+  case NODE_SET_DIFF:
+  case NODE_ITE:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// One guard or value of a case chain. TLSF §4.6 has no case separator and the
+// parser takes the longest match (see README), so anything else is enclosed:
+// a trailing identifier would call the next guard (`x (g)`), a leading minus
+// would subtract (`0 -n < 0`), and a big operator would absorb it.
+static void print_case_part(FILE *out, const Node *n, Arena *budget) {
+  bool paren = !prints_enclosed(n);
+  if (paren)
+    fprintf(out, "(");
+  print_formula(out, n, budget);
+  if (paren)
+    fprintf(out, ")");
+}
+
+// Print a definition's case chain. The parser ends every chain in a `false`
+// default, which re-parsing restores, so it is not printed.
+static void print_cases(FILE *out, const Node *n, Arena *budget) {
+  for (bool first = true; n->kind == NODE_ITE; n = n->if_else, first = false) {
+    if (!first)
+      fprintf(out, "  ");
+    print_case_part(out, n->if_cond, budget);
+    fprintf(out, " : ");
+    print_case_part(out, n->if_then, budget);
+  }
+  if (n->kind != NODE_FALSE) {
+    fprintf(out, "  otherwise : ");
+    print_case_part(out, n, budget);
+  }
 }
 
 static void print_formula(FILE *out, const Node *n, Arena *budget) {
@@ -279,11 +347,11 @@ static void print_formula(FILE *out, const Node *n, Arena *budget) {
     return;
 
   case NODE_ITE:
-    print_formula(out, n->if_cond, budget);
-    fprintf(out, " : ");
-    print_nonfinal(out, n->if_then, budget);
-    fprintf(out, "  ");
-    print_formula(out, n->if_else, budget);
+    // Only a definition body may hold several cases; elsewhere this is one
+    // guarded expression, which parentheses keep from extending.
+    fprintf(out, "(");
+    print_cases(out, n, budget);
+    fprintf(out, ")");
     return;
 
   case NODE_NEXT_N:
@@ -319,14 +387,27 @@ void print_tlsf_formula_checked(FILE *out, const Node *formula, Arena *arena) {
   print_formula(out, formula, arena);
 }
 
+// True when `sd` is re-emitted as `TYPE name;`: its enum type is still
+// declared, which holds only before expand() empties the GLOBAL tables.
+static bool prints_enum_type(const TlsfSpec *spec, const SignalDecl *sd,
+                             bool include_global) {
+  return include_global && sd->is_bus && sd->enum_type &&
+         spec_find_enum_type(spec, sd->enum_type);
+}
+
 // Print one INPUTS/OUTPUTS subsection.  A bus prints its declared range; when
 // the bounds are parametric expressions (non-expanded re-emission) those are
 // printed faithfully, otherwise the resolved integer bounds are used.
 static void print_signal_list(FILE *out, const char *subsection,
-                              const SignalDecl *sigs, uint32_t count) {
+                              const TlsfSpec *spec, const SignalDecl *sigs,
+                              uint32_t count, bool include_global) {
   fprintf(out, "  %s {\n", subsection);
   for (uint32_t i = 0; i < count; i++) {
     const SignalDecl *sd = &sigs[i];
+    if (prints_enum_type(spec, sd, include_global)) {
+      fprintf(out, "    %s %s;\n", sd->enum_type, sd->name);
+      continue;
+    }
     if (!sd->is_bus) {
       fprintf(out, "    %s;\n", sd->name);
       continue;
@@ -346,12 +427,34 @@ static void print_signal_list(FILE *out, const char *subsection,
   fprintf(out, "  }\n\n");
 }
 
-static void print_formula_list(FILE *out, const FormulaList *list,
-                               const char *subsection) {
-  if (list->count == 0)
+// The validity formula of a signal printed as `TYPE name;`: re-parsing the
+// declaration adds it again.
+static bool is_implicit_formula(const TlsfSpec *spec, const Node *formula,
+                                bool include_global) {
+  if (!include_global || spec->enum_type_count == 0)
+    return false;
+  const SignalDecl *lists[] = {spec->inputs, spec->outputs};
+  uint32_t counts[] = {spec->input_count, spec->output_count};
+  for (unsigned k = 0; k < 2; k++)
+    for (uint32_t i = 0; i < counts[k]; i++)
+      if (lists[k][i].enum_validity == formula &&
+          prints_enum_type(spec, &lists[k][i], include_global))
+        return true;
+  return false;
+}
+
+static void print_formula_list(FILE *out, const TlsfSpec *spec,
+                               const FormulaList *list, const char *subsection,
+                               bool include_global) {
+  uint32_t shown = 0;
+  for (uint32_t i = 0; i < list->count; i++)
+    shown += !is_implicit_formula(spec, list->formulas[i], include_global);
+  if (shown == 0)
     return;
   fprintf(out, "    %s {\n", subsection);
   for (uint32_t i = 0; i < list->count; i++) {
+    if (is_implicit_formula(spec, list->formulas[i], include_global))
+      continue;
     fprintf(out, "      ");
     print_formula(out, list->formulas[i], nullptr);
     fprintf(out, ";\n");
@@ -373,7 +476,8 @@ static void print_formula_list(FILE *out, const FormulaList *list,
 // ---------------------------------------------------------------------------
 
 static void print_global(FILE *out, const TlsfSpec *spec) {
-  if (spec->param_count == 0 && spec->def_count == 0)
+  if (spec->param_count == 0 && spec->def_count == 0 &&
+      spec->enum_type_count == 0)
     return;
 
   fprintf(out, "GLOBAL {\n\n");
@@ -392,8 +496,17 @@ static void print_global(FILE *out, const TlsfSpec *spec) {
     fprintf(out, "  }\n\n");
   }
 
-  if (spec->def_count > 0) {
+  if (spec->def_count > 0 || spec->enum_type_count > 0) {
     fprintf(out, "  DEFINITIONS {\n");
+    for (uint16_t i = 0; i < spec->enum_type_count; i++) {
+      const EnumType *t = &spec->enum_types[i];
+      fprintf(out, "    enum %s =", t->name);
+      for (uint16_t j = 0; j < t->label_count; j++) {
+        const EnumLabel *l = &spec->enum_labels[t->label_start + j];
+        fprintf(out, "\n      %s: %s", l->name, l->bits);
+      }
+      fprintf(out, ";\n");
+    }
     for (uint16_t i = 0; i < spec->def_count; i++) {
       const DefDecl *d = &spec->defs[i];
       fprintf(out, "    %s", d->name);
@@ -407,7 +520,10 @@ static void print_global(FILE *out, const TlsfSpec *spec) {
         fprintf(out, ")");
       }
       fprintf(out, " = ");
-      print_formula(out, d->body, nullptr);
+      if (d->body->kind == NODE_ITE)
+        print_cases(out, d->body, nullptr);
+      else
+        print_formula(out, d->body, nullptr);
       fprintf(out, ";\n");
     }
     fprintf(out, "  }\n\n");
@@ -448,16 +564,18 @@ void print_tlsf(FILE *out, const TlsfSpec *spec, bool include_global) {
   // ---- MAIN block ----
   fprintf(out, "MAIN {\n\n");
 
-  print_signal_list(out, "INPUTS", spec->inputs, spec->input_count);
-  print_signal_list(out, "OUTPUTS", spec->outputs, spec->output_count);
+  print_signal_list(out, "INPUTS", spec, spec->inputs, spec->input_count,
+                    include_global);
+  print_signal_list(out, "OUTPUTS", spec, spec->outputs, spec->output_count,
+                    include_global);
 
   // Formula subsections
-  print_formula_list(out, &spec->initially, "INITIALLY");
-  print_formula_list(out, &spec->preset, "PRESET");
-  print_formula_list(out, &spec->require, "REQUIRE");
-  print_formula_list(out, &spec->assert_, "ASSERT");
-  print_formula_list(out, &spec->assume, "ASSUME");
-  print_formula_list(out, &spec->guarantee, "GUARANTEE");
+  print_formula_list(out, spec, &spec->initially, "INITIALLY", include_global);
+  print_formula_list(out, spec, &spec->preset, "PRESET", include_global);
+  print_formula_list(out, spec, &spec->require, "REQUIRE", include_global);
+  print_formula_list(out, spec, &spec->assert_, "ASSERT", include_global);
+  print_formula_list(out, spec, &spec->assume, "ASSUME", include_global);
+  print_formula_list(out, spec, &spec->guarantee, "GUARANTEE", include_global);
 
   fprintf(out, "}\n");
 }
