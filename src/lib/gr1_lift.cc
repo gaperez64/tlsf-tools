@@ -28,7 +28,6 @@ extern "C" {
 #include <new>
 #include <numeric>
 #include <optional>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -410,23 +409,28 @@ std::map<std::string, int64_t> parameters(const Instance &i) {
   }
   return out;
 }
-std::map<std::string, std::vector<const O *>> declarations(const Instance &i) {
+std::map<std::string, std::vector<const O *>>
+declarations(const Instance &i, const Config *cfg = nullptr) {
   std::map<std::string, std::vector<const O *>> groups;
   for (const char *kind : {"inputs", "outputs"})
     for (const auto &v : i.data.at(kind).as_array()) {
+      if (cfg)
+        cfg->check("param_inventory");
       const O &r = v.as_object();
       groups[s(r, "declaration_id")].push_back(&r);
     }
   return groups;
 }
 std::pair<std::vector<int>, std::vector<int>>
-axis_members(const Instance &target, const Instance &probe) {
-  auto tg = declarations(target), pg = declarations(probe);
+axis_members(const Instance &target, const Instance &probe, const Config *cfg) {
+  auto tg = declarations(target, cfg), pg = declarations(probe, cfg);
   if (tg.size() != pg.size())
     decline(FailureCause::applicability, "axis", "declaration_abi_changed");
   std::vector<int> target_members, probe_members;
   bool changed = false;
   for (const auto &[id, trows] : tg) {
+    if (cfg)
+      cfg->check("param_domain");
     auto iter = pg.find(id);
     if (iter == pg.end())
       decline(FailureCause::applicability, "axis", "declaration_abi_changed");
@@ -436,11 +440,15 @@ axis_members(const Instance &target, const Instance &probe) {
     changed = true;
     std::vector<int> ti, pi;
     for (const auto *r : trows) {
+      if (cfg)
+        cfg->check("param_domain");
       if (s(*r, "index_role") != "element" || n(*r, "dimensions") != 1)
         decline(FailureCause::applicability, "axis", "encoding_width");
       ti.push_back(ints(r->at("index_tuple").as_array()).at(0));
     }
     for (const auto *r : prows) {
+      if (cfg)
+        cfg->check("param_domain");
       if (s(*r, "index_role") != "element" || n(*r, "dimensions") != 1)
         decline(FailureCause::applicability, "axis", "encoding_width");
       pi.push_back(ints(r->at("index_tuple").as_array()).at(0));
@@ -458,13 +466,19 @@ axis_members(const Instance &target, const Instance &probe) {
     decline(FailureCause::applicability, "axis", "parameter_not_indexed");
   return {target_members, probe_members};
 }
-std::vector<int> monitor_indices(const O &record) {
+std::pair<std::vector<int>, std::vector<int>>
+axis_members(const Instance &target, const Instance &probe) {
+  return axis_members(target, probe, nullptr);
+}
+std::vector<int> monitor_indices(const O &record, const Config *cfg = nullptr) {
   const O &origin = record.at("source_origin").as_object();
   auto bound = ints(origin.at("index_tuple").as_array());
   if (!bound.empty())
     return bound;
   std::set<int> result;
   for (const J &v : origin.at("signal_refs").as_array()) {
+    if (cfg)
+      cfg->check("param_inventory");
     const O &ref = v.as_object();
     if (s(ref, "index_role") == "element")
       for (int coord : ints(ref.at("index_tuple").as_array()))
@@ -476,13 +490,16 @@ std::string monitor_identity(const O &r) {
   const O &o = r.at("source_origin").as_object();
   return key({s(o, "source_formula_id"), field(n(o, "source_node_id"))});
 }
-std::optional<std::string> symmetric_key(const O &r, const Instance &instance) {
+std::optional<std::string> symmetric_key(const O &r, const Instance &instance,
+                                         const Config *cfg = nullptr) {
   auto sig = r.if_contains("symmetric_signature");
   if (!sig || !sig->is_object())
     return std::nullopt;
-  auto groups = declarations(instance);
+  auto groups = declarations(instance, cfg);
   std::vector<std::string> entries;
   for (const auto &[id, value] : sig->as_object()) {
+    if (cfg)
+      cfg->check("param_inventory");
     auto iter = groups.find(std::string(id));
     if (iter == groups.end() || !value.is_array())
       return std::nullopt;
@@ -684,12 +701,16 @@ struct Window {
   std::vector<std::unique_ptr<Instance>> seeds;
   Modes modes;
   bool fold = false;
+  bool param = false;
+  uint64_t fold_probes = 0, fold_reductions = 0;
 };
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
 thread_local int lift_test_fault = 0;
 thread_local std::string lift_test_generated_certificate_json;
 thread_local std::string lift_test_checked_game_aag;
 thread_local bool lift_test_fallback_started_before_deadline = false;
+thread_local void (*lift_test_param_activation)(TlsfGr1LiftOptions *) = nullptr;
+thread_local void (*lift_test_axis_scan)(TlsfGr1LiftOptions *, bool) = nullptr;
 #endif
 void validate_window(const Window &window, const Instance &target) {
   if (window.sizes.size() != window.seeds.size() || window.sizes.size() < 2)
@@ -762,7 +783,8 @@ struct SeedDeclines {
       break;
     }
     const bool reason_code = e.stage == "axis" || e.stage == "bus_schema" ||
-                             e.stage.compare(0, 4, "fold") == 0;
+                             e.stage.compare(0, 4, "fold") == 0 ||
+                             e.stage.compare(0, 5, "param") == 0;
     const char *kind = reason_code                  ? e.what()
                        : e.stage == "budget-memory" ? "memory_budget"
                        : e.cause == FailureCause::deadline ||
@@ -783,6 +805,92 @@ struct SeedDeclines {
     note(reason);
   }
 };
+
+// IDs locate provenance rows, but cannot order axes: declaration/source IDs
+// change under reordering. Compare multisets of structural incidence instead.
+std::vector<std::string> fold_axes(const Instance &target, const Config &config,
+                                   SeedDeclines log, bool encoded) {
+  log.at(encoded ? "fold" : "param");
+  try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    Config cfg = config;
+#else
+    const Config &cfg = config;
+#endif
+    std::map<int64_t, std::string> names;
+    for (const J &v : target.data.at("source_parameters").as_array())
+      names.emplace(n(v.as_object(), "id"), s(v.as_object(), "name"));
+    std::map<std::string, std::vector<std::string>> occurrences;
+    for (const J &v : target.data.at("monitors").as_array()) {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+      if (lift_test_axis_scan)
+        lift_test_axis_scan(&cfg.o, encoded);
+#endif
+      cfg.check("fold_discovery");
+      const O &m = v.as_object();
+      const O &o = m.at("source_origin").as_object();
+      std::map<std::string, size_t> refs;
+      for (const J &ref : o.at("signal_refs").as_array()) {
+        cfg.check("fold_discovery");
+        ++refs[s(ref.as_object(), "declaration_id")];
+      }
+      for (const auto &[id, count] : refs)
+        occurrences[id].push_back(
+            key({s(m, "side"), s(m, "role"), s(m, "mp_class"),
+                 field(n(m, "state_count")),
+                 field(o.at("bindings").as_array().size()), field(count)}));
+    }
+    std::map<int64_t, std::vector<std::string>> incidence;
+    for (const auto &[id, rows] : declarations(target, &cfg)) {
+      cfg.check("fold_discovery");
+      const O &r = *rows.front();
+      const auto role = s(r, "index_role");
+      if (role != (encoded ? "representation-bit" : "element") ||
+          (encoded && s(r, "width_kind") != "proved-logarithmic-encoding") ||
+          (!encoded && !r.at("width_binding_complete").as_bool()))
+        continue;
+      auto &uses = occurrences[id];
+      std::sort(uses.begin(), uses.end());
+      const auto signature = key({s(r, "direction"), role, s(r, "width_kind"),
+                                  dump(r.at("bounds")), join(uses)});
+      for (const J &p : r.at("width_parameter_ids").as_array())
+        incidence[num(p)].push_back(signature);
+    }
+    std::map<std::string, std::vector<std::string>> ordered;
+    for (auto &[id, uses] : incidence) {
+      std::sort(uses.begin(), uses.end());
+      ordered[join(uses)].push_back(names.at(id));
+    }
+    std::vector<std::string> axes;
+    for (const auto &[signature, tied] : ordered) {
+      if (tied.size() == 1)
+        axes.push_back(tied.front());
+      else {
+        // Decline indistinguishable axes rather than breaking ties by spelling.
+        log.note(encoded ? "fold_axis_ambiguous" : "param_axis_ambiguous");
+      }
+    }
+    return axes;
+  } catch (const Failure &e) {
+    log.failure(e);
+    throw;
+  } catch (const std::bad_alloc &) {
+    log.exception("fold_discovery", "resource", "host allocation failed");
+    throw;
+  } catch (const std::exception &e) {
+    log.exception("fold_discovery", "error", e.what());
+    throw;
+  }
+}
+
+struct FoldProbes {
+  uint64_t tried = 0, reductions = 0;
+};
+bool legacy_probe_limit(const Failure &e) {
+  return e.stage == "seed_window" &&
+         !strcmp(e.what(),
+                 "probe_budget_exhausted: fixed seed probe budget exhausted");
+}
 
 // Representation bits are never client coordinates. These profiles use only
 // the frontend's structural width proof and parameter IDs, never source names.
@@ -815,14 +923,6 @@ std::vector<int> fold_profile(std::vector<int> widths) {
   for (int &w : widths)
     w -= smallest;
   return widths;
-}
-bool fold_encoding_change(const Instance &target, const Instance &probe,
-                          const std::string &axis) {
-  try {
-    return fold_widths(target, axis) != fold_widths(probe, axis);
-  } catch (const Failure &) {
-    return false;
-  }
 }
 std::string fold_key(const O &r) {
   std::vector<std::string> parts{monitor_identity(r), s(r, "side"),
@@ -877,13 +977,288 @@ FoldInventory fold_inventory(const Instance &i) {
   return out;
 }
 
+// Route B uses only frontend occurrence/binder identities and concrete
+// inventories. It generates candidates; only the unchanged target region check
+// proves a verdict.
+std::string param_key(const O &r, const Config *cfg = nullptr) {
+  const O &o = r.at("source_origin").as_object();
+  std::vector<std::string> parts{monitor_identity(r), s(r, "side"),
+                                 s(r, "role"), s(r, "mp_class")};
+  for (const J &b : o.at("bindings").as_array()) {
+    if (cfg)
+      cfg->check("param_inventory");
+    parts.push_back(field(n(b.as_object(), "binder_id")));
+  }
+  return join(parts);
+}
+FoldInventory param_inventory(const Instance &i, const Config &cfg) {
+  FoldInventory out;
+  for (const J &v : i.data.at("monitors").as_array()) {
+    cfg.check("param_inventory");
+    out[param_key(v.as_object(), &cfg)].push_back(&v.as_object());
+  }
+  return out;
+}
+std::string param_sources(const Instance &i, const Config &cfg) {
+  std::set<std::string> out;
+  for (const J &v : i.data.at("source_conjuncts").as_array()) {
+    cfg.check("param_inventory");
+    const O &r = v.as_object();
+    std::vector<std::string> parts{s(r, "source_formula_id"),
+                                   field(n(r, "source_node_id"))};
+    for (const J &b : r.at("bindings").as_array()) {
+      cfg.check("param_inventory");
+      parts.push_back(field(n(b.as_object(), "binder_id")));
+    }
+    out.insert(join(parts));
+  }
+  return join({out.begin(), out.end()});
+}
+[[noreturn]] void param_decline(const char *reason) {
+  decline(FailureCause::applicability, "param_schema", reason);
+}
+struct ParamDomain {
+  std::set<int> constants;
+  std::map<std::string, std::set<std::string>> features;
+};
+template <class T> bool param_equal(const T &a, const T &b, const Config &cfg) {
+  if (a.size() != b.size())
+    return false;
+  auto right = b.begin();
+  for (const auto &left : a) {
+    cfg.check("param_domain");
+    if (left != *right++)
+      return false;
+  }
+  return true;
+}
+ParamDomain param_domain(const Instance &i, const FoldInventory &inventory,
+                         const std::vector<int> &members, const Config &cfg) {
+  ParamDomain out;
+  std::map<std::string, std::set<int>> domains;
+  for (const char *kind : {"inputs", "outputs"})
+    for (const J &v : i.data.at(kind).as_array()) {
+      cfg.check("param_domain");
+      const O &r = v.as_object();
+      if (s(r, "index_role") == "representation-bit")
+        param_decline("param_encoding");
+      if (s(r, "index_role") == "element")
+        domains[s(r, "declaration_id")].insert(
+            ints(r.at("index_tuple").as_array()).at(0));
+    }
+  for (const auto &[family, monitors] : inventory) {
+    cfg.check("param_domain");
+    std::set<int> domain;
+    std::optional<std::set<std::string>> expected;
+    for (const O *m : monitors) {
+      cfg.check("param_domain");
+      const O &o = m->at("source_origin").as_object();
+      auto bound = ints(o.at("index_tuple").as_array());
+      if (bound.size() > 1)
+        param_decline("param_ordered_domain");
+      if (!bound.empty() && !domain.insert(bound[0]).second)
+        param_decline("param_monitor_inventory");
+      std::map<std::string, std::set<int>> refs;
+      std::set<std::string> features;
+      for (const J &v : o.at("signal_refs").as_array()) {
+        cfg.check("param_domain");
+        const O &r = v.as_object();
+        auto coords = ints(r.at("index_tuple").as_array());
+        if (s(r, "index_role") == "scalar")
+          features.insert(key({s(r, "declaration_id"), "scalar"}));
+        else if (s(r, "index_role") != "element" || coords.size() != 1)
+          param_decline("param_encoding");
+        else
+          refs[s(r, "declaration_id")].insert(coords[0]);
+      }
+      for (const auto &[id, coords] : refs) {
+        cfg.check("param_domain");
+        bool whole = bound.empty() && coords.size() > 1 &&
+                     param_equal(coords, domains.at(id), cfg);
+        if (whole) {
+          features.insert(key({id, "count0"}));
+          features.insert(key({id, "count01"}));
+        } else
+          for (int c : coords) {
+            cfg.check("param_domain");
+            if (!bound.empty() && c == bound[0])
+              features.insert(key({id, "owner"}));
+            else {
+              features.insert(key({id, "constant", field(c)}));
+              out.constants.insert(c);
+            }
+          }
+      }
+      if (expected) {
+        if (!param_equal(*expected, features, cfg))
+          param_decline("param_ordered_domain");
+      } else
+        expected = std::move(features);
+    }
+    if (!domain.empty()) {
+      std::set<int> omitted;
+      for (int c : members) {
+        cfg.check("param_domain");
+        omitted.insert(c);
+      }
+      for (int c : domain) {
+        cfg.check("param_domain");
+        if (!omitted.erase(c))
+          param_decline("param_ordered_domain");
+      }
+      // Only whole element domains with fixed exclusions; no ordered pairs,
+      // prefixes, suffixes, or moving endpoints in this first slice.
+      for (int c : omitted) {
+        cfg.check("param_domain");
+        out.constants.insert(c);
+        expected->insert(key({"excluded", field(c)}));
+      }
+    }
+    out.features[family] = std::move(*expected);
+  }
+  return out;
+}
+// Ineligible declines retain their historical trace, without entering route B.
+bool param_support(const Instance &target, const Config &config,
+                   SeedDeclines log) {
+  log.at("param");
+  try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    Config cfg = config;
+    if (lift_test_param_activation)
+      lift_test_param_activation(&cfg.o);
+#else
+    const Config &cfg = config;
+#endif
+    for (const J &v : target.data.at("monitors").as_array()) {
+      cfg.check("param_discovery");
+      const O &m = v.as_object();
+      if (m.at("source_origin").as_object().at("bindings").as_array().empty() &&
+          s(m, "arity_kind") == "bus_wide" &&
+          monitor_indices(m, &cfg).size() > 1 &&
+          !symmetric_key(m, target, &cfg))
+        return true;
+    }
+    return false;
+  } catch (const Failure &e) {
+    log.failure(e);
+    throw;
+  } catch (const std::bad_alloc &) {
+    log.exception("param_discovery", "resource", "host allocation failed");
+    throw;
+  }
+}
+std::map<std::string, std::set<int64_t>>
+param_state_counts(const FoldInventory &inventory, const Config &cfg) {
+  std::map<std::string, std::set<int64_t>> counts;
+  for (const auto &[family, monitors] : inventory)
+    for (const O *m : monitors) {
+      cfg.check("param_inventory");
+      counts[family].insert(n(*m, "state_count"));
+    }
+  return counts;
+}
+Window select_param(const Instance &target, const std::string &axis,
+                    const std::vector<std::pair<int, Instance *>> &probes,
+                    const Config &cfg, SeedDeclines log) {
+  log.at(axis, 0, 0, ":param");
+  try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (lift_test_fault == 22)
+      throw std::bad_alloc();
+    if (lift_test_fault == 14)
+      param_decline("param_state_growth");
+    if (lift_test_fault == 15)
+      param_decline("param_ordered_domain");
+#endif
+    if (s(target.data, "semantics") != "exact")
+      param_decline("param_semantics");
+    const auto ti = param_inventory(target, cfg);
+    const auto target_counts = param_state_counts(ti, cfg);
+    const auto sources = param_sources(target, cfg);
+    std::optional<ParamDomain> td;
+    Window w;
+    w.axis = axis;
+    w.fold = w.param = true;
+    for (const auto &[size, seed] : probes) {
+      cfg.check("param_discovery");
+      if (param_sources(*seed, cfg) != sources)
+        continue; // Singleton expansion can change the source occurrence set.
+      auto si = param_inventory(*seed, cfg);
+      if (si.size() != ti.size())
+        continue;
+      bool same_keys = true;
+      const auto seed_counts = param_state_counts(si, cfg);
+      for (const auto &[family, monitors] : ti) {
+        cfg.check("param_inventory");
+        if (!si.count(family)) {
+          same_keys = false;
+          break;
+        }
+        const auto &counts = target_counts.at(family);
+        if (counts.size() != 1 || seed_counts.at(family) != counts)
+          param_decline("param_state_growth");
+      }
+      if (!same_keys)
+        continue;
+      bool growing_support = false;
+      for (const auto &[family, monitors] : ti)
+        for (const O *m : monitors) {
+          cfg.check("param_inventory");
+          if (m->at("source_origin")
+                  .as_object()
+                  .at("bindings")
+                  .as_array()
+                  .empty())
+            growing_support |=
+                monitor_indices(*m, &cfg).size() >
+                monitor_indices(*si.at(family).front(), &cfg).size();
+        }
+      if (!growing_support)
+        continue;
+      auto coords = axis_members(target, *seed, &cfg);
+      if (!td)
+        td = param_domain(target, ti, coords.first, cfg);
+      const auto sd = param_domain(*seed, si, coords.second, cfg);
+      bool same_domain = param_equal(td->constants, sd.constants, cfg) &&
+                         td->features.size() == sd.features.size();
+      for (const auto &[family, features] : td->features) {
+        cfg.check("param_domain");
+        auto actual = sd.features.find(family);
+        if (!same_domain || actual == sd.features.end() ||
+            !param_equal(features, actual->second, cfg)) {
+          same_domain = false;
+          break;
+        }
+      }
+      if (!same_domain)
+        continue;
+      if (coords.second.size() <= td->constants.size() + 1)
+        continue; // Leave a fold witness even when a nonconstant goal owns one.
+      w.target_members = coords.first;
+      w.sizes.push_back(size);
+      if (w.sizes.size() == 3)
+        return w;
+    }
+    param_decline("param_insufficient_seeds");
+  } catch (const Failure &e) {
+    log.failure(e);
+    throw;
+  } catch (const std::bad_alloc &) {
+    log.note("param_discovery_failed");
+    log.exception("param_discovery", "resource", "host allocation failed");
+    throw;
+  }
+}
+
 // A budgeted heuristic, not a cutoff: plateau witnesses (e.g. 5/6/7) or
 // different-width witnesses with the same relative profile (e.g. 4/8).
 // shortcut: probe only 3..9; extend when other strata justify their solve cost.
 Window discover_fold(const uint8_t *source, size_t size, const Instance &target,
                      const std::string &axis, const Config &cfg,
-                     uint64_t &probes_tried, SeedDeclines log,
-                     uint64_t *reductions = nullptr) {
+                     FoldProbes &budget, SeedDeclines log,
+                     uint64_t *reductions = nullptr,
+                     uint64_t *total_probes = nullptr) {
   log.at(axis, 0, 0, ":fold");
   try {
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
@@ -905,15 +1280,18 @@ Window discover_fold(const uint8_t *source, size_t size, const Instance &target,
       cfg.check("fold_discovery");
       if (tried++ >= cfg.o.max_sizes_per_axis)
         break;
-      if (probes_tried >= cfg.max_seed_probes)
+      if (budget.tried >= cfg.max_seed_probes)
         throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
                       "fold_discovery", "fold_probe_budget");
-      ++probes_tried;
+      ++budget.tried;
+      if (total_probes)
+        ++*total_probes;
       if (cfg.stats)
         cfg.stats->seed_probes++;
       auto values = axes;
       values[axis] = k;
       auto seed = lower(source, size, values, TLSF_GR1_EXACT, cfg, true);
+      ++budget.reductions;
       if (reductions)
         ++*reductions;
       char hash[65]{};
@@ -948,12 +1326,18 @@ Window discover_fold(const uint8_t *source, size_t size, const Instance &target,
       w.fold = true;
       w.sizes.push_back(k);
       w.seeds.push_back(std::move(seed));
-      if (w.seeds.size() >= (unequal ? 2 : wanted))
+      if (w.seeds.size() >= (unequal ? 2 : wanted)) {
+        w.fold_probes = budget.tried;
+        w.fold_reductions = budget.reductions;
         return std::move(w);
+      }
     }
     for (auto &[_, w] : plateaus)
-      if (w.seeds.size() >= 2)
+      if (w.seeds.size() >= 2) {
+        w.fold_probes = budget.tried;
+        w.fold_reductions = budget.reductions;
         return std::move(w);
+      }
     decline(FailureCause::applicability, "fold_discovery",
             "fold_insufficient_strata");
   } catch (const Failure &e) {
@@ -970,6 +1354,86 @@ Window discover_fold(const uint8_t *source, size_t size, const Instance &target,
   }
 }
 
+// Recreate probes only after legacy/encoded discovery has released its state.
+using ParamProbes = std::vector<std::pair<int, std::unique_ptr<Instance>>>;
+Window discover_param(const uint8_t *source, size_t size,
+                      const Instance &target,
+                      TlsfGr1ReductionSemantics semantics, const Config &cfg,
+                      FoldProbes &budget, SeedDeclines log,
+                      uint64_t *reductions = nullptr,
+                      uint64_t *total_probes = nullptr,
+                      const std::string &cached_axis = {},
+                      ParamProbes *cached = nullptr) {
+  log.at("param");
+  try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+    if (lift_test_fault == 26)
+      throw std::bad_alloc();
+#endif
+    const auto values = parameters(target);
+    for (const auto &axis : fold_axes(target, cfg, log, false)) {
+      ParamProbes probes;
+      const bool reuse = cached && axis == cached_axis;
+      for (int k = 1; k < values.at(axis) && k <= int(cfg.o.max_sizes_per_axis);
+           k++) {
+        log.at(axis, k, k, ":param");
+        try {
+          cfg.check("param_discovery");
+          if (budget.tried >= cfg.max_seed_probes)
+            throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource,
+                          "param_discovery", "probe_budget_exhausted");
+          ++budget.tried;
+          if (reuse) {
+            for (auto &[size, seed] : *cached)
+              if (size == k) {
+                probes.emplace_back(k, std::move(seed));
+                ++budget.reductions;
+                break;
+              }
+            continue; // Missing cached sizes already failed legacy lowering.
+          }
+          if (total_probes)
+            ++*total_probes;
+          if (cfg.stats)
+            cfg.stats->seed_probes++;
+          auto overrides = values;
+          overrides[axis] = k;
+          auto seed = lower(source, size, overrides, semantics, cfg);
+          if (reductions)
+            ++*reductions;
+          seed->members = axis_members(target, *seed, &cfg).second;
+          ++budget.reductions;
+          probes.emplace_back(k, std::move(seed));
+        } catch (const Failure &e) {
+          log.failure(e);
+          if (!is_applicability(e.cause))
+            throw;
+        }
+      }
+      try {
+        std::vector<std::pair<int, Instance *>> views;
+        for (auto &[k, seed] : probes)
+          views.emplace_back(k, seed.get());
+        auto window = select_param(target, axis, views, cfg, log);
+        for (int k : window.sizes)
+          for (auto &[size, seed] : probes)
+            if (size == k)
+              window.seeds.push_back(std::move(seed));
+        window.fold_probes = budget.tried;
+        window.fold_reductions = budget.reductions;
+        return window;
+      } catch (const Failure &e) {
+        if (!is_applicability(e.cause))
+          throw;
+      }
+    }
+    cfg.decline_search("seed_window", "no stable index axis");
+  } catch (const std::bad_alloc &) {
+    log.exception("param_discovery", "resource", "host allocation failed");
+    throw;
+  }
+}
+
 Window discover(const uint8_t *source, size_t size, const Instance &target,
                 TlsfGr1ReductionSemantics semantics, const Config &cfg,
                 SeedDeclines log) try {
@@ -977,136 +1441,165 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
   if (axes.empty())
     decline(FailureCause::applicability, "parameters", "absent");
   uint64_t probes_tried = 0;
-  std::set<std::string> encoded_axes;
-  for (const auto &[axis, value] : axes) {
-    log.at(axis);
-    struct Probe {
-      int size;
-      std::unique_ptr<Instance> inst;
-    };
-    std::vector<Probe> probes;
-    for (int k = 1; k < value && k <= int(cfg.o.max_sizes_per_axis); k++) {
-      log.at(axis, k, k);
-      try {
-        cfg.check("seed_window");
-        if (probes_tried >= cfg.max_seed_probes)
-          throw Failure(
-              TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_window",
-              "probe_budget_exhausted: fixed seed probe budget exhausted");
-        ++probes_tried;
-        if (cfg.stats)
-          cfg.stats->seed_probes++;
-        auto values = axes;
-        values[axis] = k;
-        auto probe = lower(source, size, values, semantics, cfg);
-        std::pair<std::vector<int>, std::vector<int>> coords;
+  bool param_activation = false;
+  std::exception_ptr legacy_shape_failure;
+  try {
+    for (const auto &[axis, value] : axes) {
+      log.at(axis);
+      struct Probe {
+        int size;
+        std::unique_ptr<Instance> inst;
+      };
+      std::vector<Probe> probes;
+      for (int k = 1; k < value && k <= int(cfg.o.max_sizes_per_axis); k++) {
+        log.at(axis, k, k);
         try {
-          coords = axis_members(target, *probe);
+          cfg.check("seed_window");
+          if (probes_tried >= cfg.max_seed_probes)
+            throw Failure(
+                TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_window",
+                "probe_budget_exhausted: fixed seed probe budget exhausted");
+          ++probes_tried;
+          if (cfg.stats)
+            cfg.stats->seed_probes++;
+          auto values = axes;
+          values[axis] = k;
+          auto probe = lower(source, size, values, semantics, cfg);
+          auto coords = axis_members(target, *probe);
+          probe->members = std::move(coords.second);
+          probes.push_back({k, std::move(probe)});
         } catch (const Failure &e) {
-          if (e.stage == "axis" && !strcmp(e.what(), "encoding_width") &&
-              fold_encoding_change(target, *probe, axis))
-            encoded_axes.insert(axis);
-          throw;
+          log.failure(e);
+          if (e.status == TLSF_GR1_LIFT_DEADLINE ||
+              e.status == TLSF_GR1_LIFT_CANCELLED ||
+              e.status == TLSF_GR1_LIFT_LIMIT)
+            throw;
+          cfg.note_failure(e);
         }
-        probe->members = std::move(coords.second);
-        probes.push_back({k, std::move(probe)});
+      }
+      log.at(axis);
+      Modes modes = target_modes(target);
+      std::string target_shape;
+      std::exception_ptr shape_failure;
+      try {
+        target_shape = structural_shape(target, modes, cfg);
       } catch (const Failure &e) {
         log.failure(e);
-        if (e.status == TLSF_GR1_LIFT_DEADLINE ||
-            e.status == TLSF_GR1_LIFT_CANCELLED ||
-            e.status == TLSF_GR1_LIFT_LIMIT)
+        if (e.stage != "bus_schema")
           throw;
-        cfg.note_failure(e);
+        shape_failure = std::current_exception();
+        param_activation = true;
       }
-    }
-    log.at(axis);
-    Modes modes = target_modes(target);
-    std::string target_shape;
-    try {
-      target_shape = structural_shape(target, modes, cfg);
-    } catch (const Failure &e) {
-      log.failure(e);
-      throw;
-    }
-    if (probes.size() < 2)
-      log.note("insufficient_sizes");
-    for (size_t p = 1; p < probes.size(); p++) {
-      log.at(axis, probes[p - 1].size, probes[p].size);
-      if (probes[p].size != probes[p - 1].size + 1) {
-        log.note("nonconsecutive_sizes");
-        continue;
-      }
-      try {
-        Instance &left = *probes[p - 1].inst, &right = *probes[p].inst;
-        if (structural_shape(left, modes, cfg) != target_shape ||
-            structural_shape(right, modes, cfg) != target_shape) {
-          log.note("structural_shape_mismatch");
+      if (probes.size() < 2)
+        log.note("insufficient_sizes");
+      for (size_t p = 1; !shape_failure && p < probes.size(); p++) {
+        log.at(axis, probes[p - 1].size, probes[p].size);
+        if (probes[p].size != probes[p - 1].size + 1) {
+          log.note("nonconsecutive_sizes");
           continue;
         }
-        auto coords = axis_members(target, left);
-        auto target_members = std::move(coords.first);
-        if (left.members.size() >= right.members.size()) {
-          log.note("members_not_growing");
-          continue;
-        }
-        if (right.members.size() >= target_members.size()) {
-          log.note("target_not_larger");
-          continue;
-        }
-        std::vector<size_t> selected{p - 1, p};
-        if (cfg.o.seed_confirmation != 2 && p + 1 < probes.size() &&
-            probes[p + 1].size == probes[p].size + 1) {
-          log.at(axis, probes[p - 1].size, probes[p + 1].size);
-          if (structural_shape(*probes[p + 1].inst, modes, cfg) !=
-              target_shape) {
+        try {
+          Instance &left = *probes[p - 1].inst, &right = *probes[p].inst;
+          if (structural_shape(left, modes, cfg) != target_shape ||
+              structural_shape(right, modes, cfg) != target_shape) {
             log.note("structural_shape_mismatch");
+            param_activation = true;
             continue;
           }
-          selected.push_back(p + 1);
+          auto coords = axis_members(target, left);
+          auto target_members = std::move(coords.first);
+          if (left.members.size() >= right.members.size()) {
+            log.note("members_not_growing");
+            continue;
+          }
+          if (right.members.size() >= target_members.size()) {
+            log.note("target_not_larger");
+            continue;
+          }
+          std::vector<size_t> selected{p - 1, p};
+          if (cfg.o.seed_confirmation != 2 && p + 1 < probes.size() &&
+              probes[p + 1].size == probes[p].size + 1) {
+            log.at(axis, probes[p - 1].size, probes[p + 1].size);
+            if (structural_shape(*probes[p + 1].inst, modes, cfg) !=
+                target_shape) {
+              log.note("structural_shape_mismatch");
+              continue;
+            }
+            selected.push_back(p + 1);
+          }
+          auto classes = [&](Instance &i) {
+            Roles roles = role_signatures(i, modes, cfg);
+            std::set<std::string> x;
+            for (const auto &[index, signature] : roles)
+              x.insert(signature);
+            return x;
+          };
+          auto expected = classes(left);
+          bool stable = true;
+          for (size_t pos : selected)
+            stable &= classes(*probes[pos].inst) == expected;
+          if (!stable) {
+            log.note("unstable_role_classes");
+            continue;
+          }
+          (void)role_signatures(target, modes, cfg, &target_members);
+          Window result;
+          result.axis = axis;
+          result.modes = modes;
+          result.target_members = std::move(target_members);
+          for (size_t pos : selected) {
+            result.sizes.push_back(probes[pos].size);
+            result.seeds.push_back(std::move(probes[pos].inst));
+          }
+          return result;
+        } catch (const Failure &e) {
+          log.failure(e);
+          if (e.status == TLSF_GR1_LIFT_DEADLINE ||
+              e.status == TLSF_GR1_LIFT_CANCELLED ||
+              e.status == TLSF_GR1_LIFT_LIMIT)
+            throw;
+          cfg.note_failure(e);
         }
-        auto classes = [&](Instance &i) {
-          Roles roles = role_signatures(i, modes, cfg);
-          std::set<std::string> x;
-          for (const auto &[index, signature] : roles)
-            x.insert(signature);
-          return x;
-        };
-        auto expected = classes(left);
-        bool stable = true;
-        for (size_t pos : selected)
-          stable &= classes(*probes[pos].inst) == expected;
-        if (!stable) {
-          log.note("unstable_role_classes");
-          continue;
-        }
-        (void)role_signatures(target, modes, cfg, &target_members);
-        Window result;
-        result.axis = axis;
-        result.modes = modes;
-        result.target_members = std::move(target_members);
-        for (size_t pos : selected) {
-          result.sizes.push_back(probes[pos].size);
-          result.seeds.push_back(std::move(probes[pos].inst));
-        }
-        return result;
-      } catch (const Failure &e) {
-        log.failure(e);
-        if (e.status == TLSF_GR1_LIFT_DEADLINE ||
-            e.status == TLSF_GR1_LIFT_CANCELLED ||
-            e.status == TLSF_GR1_LIFT_LIMIT)
-          throw;
-        cfg.note_failure(e);
+      }
+      if (shape_failure) {
+        legacy_shape_failure = shape_failure;
+        break;
       }
     }
-  }
-  for (const auto &axis : encoded_axes) {
+  } catch (const Failure &e) {
+    if (!legacy_probe_limit(e))
+      throw;
+    legacy_shape_failure = std::current_exception();
     try {
-      return discover_fold(source, size, target, axis, cfg, probes_tried, log);
+      (void)structural_shape(target, target_modes(target), cfg);
+    } catch (const Failure &shape) {
+      if (shape.stage != "bus_schema")
+        throw;
+      param_activation = true;
+    }
+  }
+  // Legacy keeps main's ordering and counters. Its spelling-dependent spending
+  // cannot starve folds: A/B share a fresh max_seed_probes allowance, while the
+  // arm's deadline/RSS and the public totals still cover all actual work.
+  FoldProbes budget;
+  for (const auto &axis : fold_axes(target, cfg, log, true)) {
+    try {
+      return discover_fold(source, size, target, axis, cfg, budget, log);
     } catch (const Failure &e) {
       if (!is_applicability(e.cause))
         throw;
     }
   }
+  if (param_activation && param_support(target, cfg, log)) {
+    try {
+      return discover_param(source, size, target, semantics, cfg, budget, log);
+    } catch (const Failure &e) {
+      if (!is_applicability(e.cause))
+        throw;
+    }
+  }
+  if (legacy_shape_failure)
+    std::rethrow_exception(legacy_shape_failure);
   cfg.decline_search("seed_window", "no stable index axis");
 } catch (const std::bad_alloc &) {
   log.exception("allocation", "resource", "host allocation failed");
@@ -1131,7 +1624,31 @@ struct SharedSeeds {
   std::vector<int> real_sizes, env_sizes, target_members;
   Modes modes;
   bool fold = false;
+  bool param = false;
+  bool param_pending = false;
+  uint64_t fold_probes = 0, fold_reductions = 0;
 };
+
+SharedSeeds shared_window(Window window, const TrustedTarget &trusted) {
+  SharedSeeds found;
+  found.axis = window.axis;
+  found.fold_probes = window.fold_probes;
+  found.fold_reductions = window.fold_reductions;
+  found.fold = window.fold;
+  found.param = window.param;
+  found.real_sizes = window.sizes;
+  found.target_members = window.target_members;
+  for (size_t p = 0; p < window.sizes.size(); p++) {
+    auto &seed = window.seeds[p];
+    char hash[65]{};
+    sha256_hex(seed->r.aag, seed->r.aag_size, hash);
+    found.entries.emplace(
+        window.sizes[p],
+        SharedSeeds::Entry{std::move(seed),
+                           key({trusted.source_hash, found.axis, hash})});
+  }
+  return found;
+}
 
 SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
                             TlsfGr1BothResult &out, bool disable_real_lift,
@@ -1143,220 +1660,236 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
     log.note("absent");
     return {};
   }
-  std::set<std::string> encoded_axes;
-  for (const auto &[axis, value] : axes) {
-    log.at(axis);
-    if (value <= 1) {
-      log.note("insufficient_sizes");
-      continue;
-    }
-    SharedSeeds found;
-    found.axis = axis;
-    found.modes = target_modes(target);
-    const int last = std::min<int>(value - 1, cfg.o.max_sizes_per_axis);
-    for (int k = 1; k <= last; k++) {
-      log.at(axis, k, k);
-      try {
-        cfg.check("seed_window");
-        if (out.seed_probes >= cfg.max_seed_probes)
-          throw Failure(
-              TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_window",
-              "probe_budget_exhausted: fixed seed probe budget exhausted");
-        out.seed_probes++;
-        auto values = axes;
-        values[axis] = k;
-        auto probe =
-            lower((const uint8_t *)trusted.snapshot.data(),
-                  trusted.snapshot.size(), values, TLSF_GR1_EXACT, cfg);
-        out.seed_reductions++;
-        char hash[65]{};
-        sha256_hex(probe->r.aag, probe->r.aag_size, hash);
-        auto metadata = j::parse(std::string_view(probe->r.metadata_json,
-                                                  probe->r.metadata_size))
-                            .as_object();
-        if (s(metadata, "semantics") != "exact" ||
-            s(metadata, "source_sha256") != trusted.source_hash ||
-            s(metadata, "game_sha256") != hash)
-          decline(FailureCause::error, "seed_binding",
-                  "seed reduction hash differs");
-        std::pair<std::vector<int>, std::vector<int>> members;
-        try {
-          members = axis_members(target, *probe);
-        } catch (const Failure &e) {
-          if (e.stage == "axis" && !strcmp(e.what(), "encoding_width") &&
-              fold_encoding_change(target, *probe, axis))
-            encoded_axes.insert(axis);
-          throw;
-        }
-        probe->members = std::move(members.second);
-        std::vector<std::string> parts{trusted.source_hash, axis, field(k),
-                                       "exact", hash};
-        for (const auto &[name, number] : axes)
-          if (name != axis) {
-            parts.push_back(name);
-            parts.push_back(field(number));
-          }
-        found.entries.emplace(
-            k, SharedSeeds::Entry{std::move(probe), join(parts)});
-      } catch (const Failure &e) {
-        log.failure(e);
-        if (e.status == TLSF_GR1_LIFT_DEADLINE ||
-            e.status == TLSF_GR1_LIFT_CANCELLED ||
-            e.status == TLSF_GR1_LIFT_LIMIT)
-          throw;
-        cfg.note_failure(e);
-      }
-    }
-    if (!disable_real_lift) {
+  bool param_activation = false;
+  std::exception_ptr legacy_probe_failure;
+  try {
+    for (const auto &[axis, value] : axes) {
       log.at(axis);
-      try {
-        const auto shape = structural_shape(target, found.modes, cfg);
-        if (last < 2)
-          log.note("insufficient_sizes");
-        for (int k = 1; k + 1 <= last; k++) {
-          log.at(axis, k, k + 1);
-          auto left = found.entries.find(k), right = found.entries.find(k + 1);
-          if (left == found.entries.end() || right == found.entries.end()) {
-            log.note("probe_unavailable");
-            continue;
-          }
-          auto &a = *left->second.instance, &b = *right->second.instance;
-          if (structural_shape(a, found.modes, cfg) != shape ||
-              structural_shape(b, found.modes, cfg) != shape) {
-            log.note("structural_shape_mismatch");
-            continue;
-          }
-          if (a.members.size() >= b.members.size()) {
-            log.note("members_not_growing");
-            continue;
-          }
-          auto coords = axis_members(target, a);
-          if (b.members.size() >= coords.first.size()) {
-            log.note("target_not_larger");
-            continue;
-          }
-          std::vector<int> sizes{k, k + 1};
-          if (cfg.o.seed_confirmation != 2 && k + 2 <= last &&
-              found.entries.count(k + 2)) {
-            log.at(axis, k, k + 2);
-            if (structural_shape(*found.entries.at(k + 2).instance, found.modes,
-                                 cfg) != shape) {
+      if (value <= 1) {
+        log.note("insufficient_sizes");
+        continue;
+      }
+      SharedSeeds found;
+      found.axis = axis;
+      found.modes = target_modes(target);
+      const int last = std::min<int>(value - 1, cfg.o.max_sizes_per_axis);
+      for (int k = 1; k <= last; k++) {
+        log.at(axis, k, k);
+        try {
+          cfg.check("seed_window");
+          if (out.seed_probes >= cfg.max_seed_probes)
+            throw Failure(
+                TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "seed_window",
+                "probe_budget_exhausted: fixed seed probe budget exhausted");
+          out.seed_probes++;
+          auto values = axes;
+          values[axis] = k;
+          auto probe =
+              lower((const uint8_t *)trusted.snapshot.data(),
+                    trusted.snapshot.size(), values, TLSF_GR1_EXACT, cfg);
+          out.seed_reductions++;
+          char hash[65]{};
+          sha256_hex(probe->r.aag, probe->r.aag_size, hash);
+          auto metadata = j::parse(std::string_view(probe->r.metadata_json,
+                                                    probe->r.metadata_size))
+                              .as_object();
+          if (s(metadata, "semantics") != "exact" ||
+              s(metadata, "source_sha256") != trusted.source_hash ||
+              s(metadata, "game_sha256") != hash)
+            decline(FailureCause::error, "seed_binding",
+                    "seed reduction hash differs");
+          auto members = axis_members(target, *probe);
+          probe->members = std::move(members.second);
+          std::vector<std::string> parts{trusted.source_hash, axis, field(k),
+                                         "exact", hash};
+          for (const auto &[name, number] : axes)
+            if (name != axis) {
+              parts.push_back(name);
+              parts.push_back(field(number));
+            }
+          found.entries.emplace(
+              k, SharedSeeds::Entry{std::move(probe), join(parts)});
+        } catch (const Failure &e) {
+          log.failure(e);
+          if (e.status == TLSF_GR1_LIFT_DEADLINE ||
+              e.status == TLSF_GR1_LIFT_CANCELLED ||
+              e.status == TLSF_GR1_LIFT_LIMIT)
+            throw;
+          cfg.note_failure(e);
+        }
+      }
+      if (!disable_real_lift) {
+        log.at(axis);
+        try {
+          const auto shape = structural_shape(target, found.modes, cfg);
+          if (last < 2)
+            log.note("insufficient_sizes");
+          for (int k = 1; k + 1 <= last; k++) {
+            log.at(axis, k, k + 1);
+            auto left = found.entries.find(k),
+                 right = found.entries.find(k + 1);
+            if (left == found.entries.end() || right == found.entries.end()) {
+              log.note("probe_unavailable");
+              continue;
+            }
+            auto &a = *left->second.instance, &b = *right->second.instance;
+            if (structural_shape(a, found.modes, cfg) != shape ||
+                structural_shape(b, found.modes, cfg) != shape) {
+              param_activation = true;
               log.note("structural_shape_mismatch");
               continue;
             }
-            sizes.push_back(k + 2);
+            if (a.members.size() >= b.members.size()) {
+              log.note("members_not_growing");
+              continue;
+            }
+            auto coords = axis_members(target, a);
+            if (b.members.size() >= coords.first.size()) {
+              log.note("target_not_larger");
+              continue;
+            }
+            std::vector<int> sizes{k, k + 1};
+            if (cfg.o.seed_confirmation != 2 && k + 2 <= last &&
+                found.entries.count(k + 2)) {
+              log.at(axis, k, k + 2);
+              if (structural_shape(*found.entries.at(k + 2).instance,
+                                   found.modes, cfg) != shape) {
+                log.note("structural_shape_mismatch");
+                continue;
+              }
+              sizes.push_back(k + 2);
+            }
+            std::set<std::string> expected;
+            bool stable = true;
+            for (int size : sizes) {
+              auto roles = role_signatures(*found.entries.at(size).instance,
+                                           found.modes, cfg);
+              std::set<std::string> signatures;
+              for (const auto &[_, signature] : roles)
+                signatures.insert(signature);
+              if (expected.empty())
+                expected = signatures;
+              else if (expected != signatures)
+                stable = false;
+            }
+            if (!stable) {
+              log.note("unstable_role_classes");
+              continue;
+            }
+            (void)role_signatures(target, found.modes, cfg, &coords.first);
+            found.real_sizes = std::move(sizes);
+            found.target_members = std::move(coords.first);
+            break;
           }
-          std::set<std::string> expected;
+        } catch (const Failure &e) {
+          param_activation |= e.stage == "bus_schema";
+          log.failure(e);
+          if (e.status == TLSF_GR1_LIFT_DEADLINE ||
+              e.status == TLSF_GR1_LIFT_CANCELLED ||
+              e.status == TLSF_GR1_LIFT_LIMIT)
+            throw;
+          cfg.note_failure(e);
+        }
+      }
+      if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
+          found.entries.count(4) && found.entries.count(5)) {
+        log.at(axis, 3, 5, ":U");
+        try {
+          env_typed_axis(target, axis);
+          const auto classes = env_typed_classes(*found.entries.at(3).instance);
+          std::vector<int> target_members;
           bool stable = true;
-          for (int size : sizes) {
-            auto roles = role_signatures(*found.entries.at(size).instance,
-                                         found.modes, cfg);
-            std::set<std::string> signatures;
-            for (const auto &[_, signature] : roles)
-              signatures.insert(signature);
-            if (expected.empty())
-              expected = signatures;
-            else if (expected != signatures)
+          for (int size : {3, 4, 5}) {
+            auto &seed = *found.entries.at(size).instance;
+            env_typed_axis(seed, axis);
+            auto coords = axis_members(target, seed);
+            if (seed.members.size() != size_t(size)) {
+              log.note("member_counts");
               stable = false;
+            } else if (coords.first.size() <= seed.members.size()) {
+              log.note("target_not_larger");
+              stable = false;
+            } else if (env_typed_classes(seed) != classes) {
+              log.note("unstable_role_classes");
+              stable = false;
+            }
+            if (target_members.empty())
+              target_members = coords.first;
+            else if (target_members != coords.first) {
+              log.note("inconsistent_coordinates");
+              stable = false;
+            }
           }
-          if (!stable) {
-            log.note("unstable_role_classes");
-            continue;
-          }
-          (void)role_signatures(target, found.modes, cfg, &coords.first);
-          found.real_sizes = std::move(sizes);
-          found.target_members = std::move(coords.first);
-          break;
-        }
-      } catch (const Failure &e) {
-        log.failure(e);
-        if (e.status == TLSF_GR1_LIFT_DEADLINE ||
-            e.status == TLSF_GR1_LIFT_CANCELLED ||
-            e.status == TLSF_GR1_LIFT_LIMIT)
-          throw;
-        cfg.note_failure(e);
-      }
-    }
-    if (!cfg.o.disable_env_lift && value > 5 && found.entries.count(3) &&
-        found.entries.count(4) && found.entries.count(5)) {
-      log.at(axis, 3, 5, ":U");
-      try {
-        env_typed_axis(target, axis);
-        const auto classes = env_typed_classes(*found.entries.at(3).instance);
-        std::vector<int> target_members;
-        bool stable = true;
-        for (int size : {3, 4, 5}) {
-          auto &seed = *found.entries.at(size).instance;
-          env_typed_axis(seed, axis);
-          auto coords = axis_members(target, seed);
-          if (seed.members.size() != size_t(size)) {
-            log.note("member_counts");
-            stable = false;
-          } else if (coords.first.size() <= seed.members.size()) {
-            log.note("target_not_larger");
-            stable = false;
-          } else if (env_typed_classes(seed) != classes) {
+          if (env_typed_classes(target) != classes) {
             log.note("unstable_role_classes");
             stable = false;
           }
-          if (target_members.empty())
-            target_members = coords.first;
-          else if (target_members != coords.first) {
-            log.note("inconsistent_coordinates");
-            stable = false;
+          if (stable) {
+            found.env_sizes = {3, 4, 5};
+            if (found.target_members.empty())
+              found.target_members = std::move(target_members);
           }
+        } catch (const Failure &e) {
+          log.failure(e);
+          if (e.status == TLSF_GR1_LIFT_DEADLINE ||
+              e.status == TLSF_GR1_LIFT_CANCELLED ||
+              e.status == TLSF_GR1_LIFT_LIMIT)
+            throw;
+          cfg.note_failure(e);
         }
-        if (env_typed_classes(target) != classes) {
-          log.note("unstable_role_classes");
-          stable = false;
-        }
-        if (stable) {
-          found.env_sizes = {3, 4, 5};
-          if (found.target_members.empty())
-            found.target_members = std::move(target_members);
-        }
-      } catch (const Failure &e) {
-        log.failure(e);
-        if (e.status == TLSF_GR1_LIFT_DEADLINE ||
-            e.status == TLSF_GR1_LIFT_CANCELLED ||
-            e.status == TLSF_GR1_LIFT_LIMIT)
-          throw;
-        cfg.note_failure(e);
+      } else if (!cfg.o.disable_env_lift) {
+        log.at(axis, 3, 5, ":U");
+        log.note(value <= 5 ? "insufficient_sizes" : "probe_unavailable");
       }
-    } else if (!cfg.o.disable_env_lift) {
-      log.at(axis, 3, 5, ":U");
-      log.note(value <= 5 ? "insufficient_sizes" : "probe_unavailable");
+      if (!found.real_sizes.empty() || !found.env_sizes.empty()) {
+        found.param_pending = !disable_real_lift && param_activation;
+        return found;
+      }
     }
-    if (!found.real_sizes.empty() || !found.env_sizes.empty())
-      return found;
+  } catch (const Failure &e) {
+    if (!legacy_probe_limit(e) || disable_real_lift)
+      throw;
+    legacy_probe_failure = std::current_exception();
+    try {
+      (void)structural_shape(target, target_modes(target), cfg);
+    } catch (const Failure &shape) {
+      if (shape.stage != "bus_schema")
+        throw;
+      param_activation = true;
+    }
   }
+  // Same independent fold allowance as standalone discovery; totals include
+  // legacy work, but only canonical fallback probes spend this allowance.
+  FoldProbes budget;
   if (!disable_real_lift)
-    for (const auto &axis : encoded_axes) {
+    for (const auto &axis : fold_axes(target, cfg, log, true)) {
       Window window;
       try {
-        window = discover_fold((const uint8_t *)trusted.snapshot.data(),
-                               trusted.snapshot.size(), target, axis, cfg,
-                               out.seed_probes, log, &out.seed_reductions);
+        window =
+            discover_fold((const uint8_t *)trusted.snapshot.data(),
+                          trusted.snapshot.size(), target, axis, cfg, budget,
+                          log, &out.seed_reductions, &out.seed_probes);
       } catch (const Failure &e) {
         if (!is_applicability(e.cause))
           throw;
         continue;
       }
-      SharedSeeds found;
-      found.axis = axis;
-      found.fold = true;
-      found.real_sizes = window.sizes;
-      for (size_t p = 0; p < window.sizes.size(); p++) {
-        auto &seed = window.seeds[p];
-        char hash[65]{};
-        sha256_hex(seed->r.aag, seed->r.aag_size, hash);
-        found.entries.emplace(
-            window.sizes[p],
-            SharedSeeds::Entry{std::move(seed),
-                               key({trusted.source_hash, axis, hash})});
-      }
-      return found;
+      return shared_window(std::move(window), trusted);
     }
+  if (param_activation && param_support(target, cfg, log)) {
+    try {
+      return shared_window(
+          discover_param((const uint8_t *)trusted.snapshot.data(),
+                         trusted.snapshot.size(), target, TLSF_GR1_EXACT, cfg,
+                         budget, log, &out.seed_reductions, &out.seed_probes),
+          trusted);
+    } catch (const Failure &e) {
+      if (!is_applicability(e.cause))
+        throw;
+    }
+  }
+  if (legacy_probe_failure)
+    std::rethrow_exception(legacy_probe_failure);
   if (cfg.search_cause)
     cfg.decline_search("seed_window", "no stable index axis");
   return {};
@@ -1639,6 +2172,7 @@ struct GameView {
   std::map<std::string, int> output_by_name;
   uint32_t states, inputs, fairness;
   bool fold;
+  bool param = false;
   GameView(const Instance &i, const Modes &m, const Config &cfg,
            const std::vector<int> *target_members = nullptr,
            bool monitor_fold = false)
@@ -2514,12 +3048,485 @@ LearnedCertificate learn_certificate(Schema &bdd,
   }
   return out;
 }
+struct ParamSignature {
+  std::vector<int> states;
+  std::vector<uint32_t> reset;
+  std::vector<B> next;
+  B acceptance;
+};
+std::map<std::string, int> param_fairness(const Instance &i) {
+  std::map<std::string, int> out;
+  int lane = 0;
+  for (const J &v : i.data.at("monitors").as_array()) {
+    const O &m = v.as_object();
+    if (s(m, "role") == "fairness") {
+      if (!m.at("source_origin")
+               .as_object()
+               .at("bindings")
+               .as_array()
+               .empty() ||
+          !out.emplace(param_key(m), lane++).second)
+        param_decline("param_fairness_changed");
+    }
+  }
+  if (out.size() != aig_num_fairness(i.r.game))
+    param_decline("param_fairness_changed");
+  if (out.empty())
+    out.emplace("implicit_true_fairness", 0);
+  return out;
+}
+std::map<std::string, B> param_features(Schema &bdd, const GameView &view,
+                                        const O &m) {
+  const O &o = m.at("source_origin").as_object();
+  auto bound = ints(o.at("index_tuple").as_array());
+  auto decls = declarations(*view.inst);
+  std::map<uint32_t, int> letters;
+  for (uint32_t p = 0; p < view.inputs; p++) {
+    uint32_t lit;
+    aig_input_name(view.inst->r.game, p, &lit);
+    letters[lit] = int(view.states + p);
+  }
+  auto atom = [&](const O &r) {
+    return bdd.var(letters.at(uint32_t(n(r, "game_literal"))));
+  };
+  std::map<std::string, std::set<int>> refs;
+  std::map<std::string, B> out;
+  for (const J &v : o.at("signal_refs").as_array()) {
+    const O &r = v.as_object();
+    const auto id = s(r, "declaration_id");
+    auto coords = ints(r.at("index_tuple").as_array());
+    if (coords.empty())
+      out.emplace(key({id, "scalar"}), atom(*decls.at(id).front()));
+    else
+      refs[id].insert(coords.at(0));
+  }
+  for (const auto &[id, coords] : refs) {
+    const auto &rows = decls.at(id);
+    if (bound.empty() && coords.size() == rows.size() && rows.size() > 1) {
+      B none = bdd.t(), amo = bdd.t();
+      for (const O *r : rows) {
+        B x = atom(*r);
+        amo = bdd.lor(bdd.land(amo, bdd.neg(x)), bdd.land(none, x));
+        none = bdd.land(none, bdd.neg(x));
+      }
+      out.emplace(key({id, "count0"}), std::move(none));
+      out.emplace(key({id, "count01"}), std::move(amo));
+    } else
+      for (int c : coords)
+        for (const O *r : rows)
+          if (ints(r->at("index_tuple").as_array()).at(0) == c)
+            out.emplace(!bound.empty() && c == bound[0]
+                            ? key({id, "owner"})
+                            : key({id, "constant", field(c)}),
+                        atom(*r));
+  }
+  return out;
+}
+ParamSignature param_signature(Schema &bdd, const GameView &view, const O &m) {
+  const Aig *game = view.inst->r.game;
+  const auto lits = ints(m.at("latch_literals").as_array());
+  // shortcut: finite transport search up to six state bits; grow only with
+  // evidence.
+  if (lits.empty() || lits.size() > 6 ||
+      lits.size() != size_t(n(m, "state_count")))
+    param_decline("param_tag_transport");
+  auto features = param_features(bdd, view, m);
+  if (features.size() > 8)
+    param_decline("param_feature_alphabet");
+  ParamSignature out;
+  std::map<int, int> mapping;
+  std::vector<uint32_t> next;
+  for (int lit : lits) {
+    bool found = false;
+    for (uint32_t p = 0; p < view.states; p++) {
+      uint32_t cur, nxt, reset;
+      aig_latch_at(game, p, &cur, &nxt, &reset);
+      if (int(cur) == lit) {
+        found = true;
+        out.states.push_back(int(p));
+        out.reset.push_back(reset);
+        next.push_back(nxt);
+        mapping[int(p)] =
+            bdd.normal_var(key({"param-tag-state", field(mapping.size())}));
+      }
+    }
+    if (!found)
+      param_decline("param_monitor_inventory");
+  }
+  std::vector<std::pair<B, B>> alphabet;
+  for (unsigned mask = 0; mask < (1u << features.size()); mask++) {
+    B concrete = bdd.t(), abstract = bdd.t();
+    unsigned bit = 0;
+    for (const auto &[name, f] : features) {
+      bool value = mask & (1u << bit++);
+      concrete = bdd.land(concrete, value ? f : bdd.neg(f));
+      B v = bdd.var(bdd.normal_var(key({"param-tag-letter", name})));
+      abstract = bdd.land(abstract, value ? v : bdd.neg(v));
+    }
+    if (!same(concrete, bdd.f()))
+      alphabet.emplace_back(std::move(concrete), std::move(abstract));
+  }
+  std::set<int> letters;
+  for (uint32_t p = 0; p < view.inputs; p++)
+    letters.insert(int(view.states + p));
+  B cube = bdd.cube(letters);
+  for (uint32_t lit : next) {
+    B actual = bdd.from_aig(game, lit, true), normal = bdd.f();
+    for (const auto &[condition, abstract] : alphabet) {
+      B selected = bdd.land(actual, condition);
+      B coefficient = bdd.exists(selected, cube);
+      if (!same(selected, bdd.land(coefficient, condition)))
+        param_decline("param_tag_transport");
+      for (int v : bdd.support(coefficient))
+        if (!mapping.count(v))
+          param_decline("param_tag_transport");
+      normal = bdd.lor(normal,
+                       bdd.land(bdd.relabel(coefficient, mapping), abstract));
+    }
+    out.next.push_back(std::move(normal));
+  }
+  uint32_t acceptance;
+  if (s(m, "role") == "justice") {
+    const uint32_t *members;
+    uint32_t count;
+    aig_justice_at(game, uint32_t(n(m, "justice_index")), &members, &count);
+    if (count != 1)
+      param_decline("param_goal_inventory");
+    acceptance = members[0];
+  } else
+    acceptance =
+        aig_fairness_at(game, param_fairness(*view.inst).at(param_key(m)));
+  B acc = bdd.from_aig(game, acceptance, true);
+  for (int v : bdd.support(acc))
+    if (!mapping.count(v))
+      param_decline("param_tag_transport");
+  out.acceptance = bdd.relabel(acc, mapping);
+  return out;
+}
+std::vector<int> param_transport(Schema &bdd, const ParamSignature &reference,
+                                 const ParamSignature &actual) {
+  if (reference.states.size() != actual.states.size())
+    param_decline("param_state_growth");
+  std::vector<int> perm(actual.states.size());
+  std::iota(perm.begin(), perm.end(), 0);
+  std::vector<int> result;
+  unsigned matches = 0;
+  do {
+    bdd.tick("param_tag_transport");
+    bool equal = true;
+    std::map<int, int> mapping;
+    for (size_t p = 0; p < perm.size(); p++) {
+      equal &= reference.reset[p] == actual.reset[perm[p]];
+      mapping[bdd.normal_var(key({"param-tag-state", field(p)}))] =
+          bdd.normal_var(key({"param-tag-state", field(perm[p])}));
+    }
+    if (!equal)
+      continue;
+    auto extend = [&](const B &b) {
+      for (int v : bdd.support(b))
+        if (!mapping.count(v))
+          mapping[v] = v;
+    };
+    extend(reference.acceptance);
+    for (const B &b : reference.next)
+      extend(b);
+    if (!same(bdd.relabel(reference.acceptance, mapping), actual.acceptance))
+      continue;
+    for (size_t p = 0; p < perm.size() && equal; p++)
+      equal &=
+          same(bdd.relabel(reference.next[p], mapping), actual.next[perm[p]]);
+    if (equal) {
+      matches++;
+      result = perm;
+    }
+  } while (std::next_permutation(perm.begin(), perm.end()));
+  if (matches != 1)
+    param_decline("param_tag_transport");
+  return result;
+}
+O bind_param(Schema &bdd, std::vector<GameView> &seeds, GameView &target,
+             const Config &cfg) {
+  std::map<std::string, ParamSignature> tags;
+  const auto domain = param_domain(
+      *target.inst, param_inventory(*target.inst, cfg), target.members, cfg);
+  const auto fairness = param_fairness(*target.inst);
+  A evidence;
+  std::vector<GameView *> views;
+  for (auto &v : seeds)
+    views.push_back(&v);
+  views.push_back(&target);
+  for (GameView *view : views) {
+    view->param = true;
+    const auto actual_fairness = param_fairness(*view->inst);
+    if (actual_fairness.size() != fairness.size() ||
+        !std::equal(
+            actual_fairness.begin(), actual_fairness.end(), fairness.begin(),
+            [](const auto &a, const auto &b) { return a.first == b.first; }))
+      param_decline("param_fairness_changed");
+    for (int c : view->members)
+      view->roles[c] =
+          domain.constants.count(c) ? key({"constant", field(c)}) : "element";
+    A bindings;
+    for (const auto &[family, monitors] : param_inventory(*view->inst, cfg))
+      for (const O *m : monitors) {
+        auto sig = param_signature(bdd, *view, *m);
+        if (!tags.count(family))
+          tags.emplace(family, sig);
+        auto transport = param_transport(bdd, tags.at(family), sig);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+        if (lift_test_fault == 16)
+          param_decline("param_tag_transport");
+#endif
+        auto bound = ints(
+            m->at("source_origin").as_object().at("index_tuple").as_array());
+        for (size_t k = 0; k < transport.size(); k++) {
+          auto &v = view->variables.at(sig.states.at(transport[k]));
+          v.prefix = key({family, "tag", field(k)});
+          v.indices.clear();
+          v.owners.clear();
+          if (!bound.empty()) {
+            if (domain.constants.count(bound[0]))
+              v.prefix = key({v.prefix, "constant", field(bound[0])});
+            else {
+              v.indices = bound;
+              v.owners.insert(bound[0]);
+            }
+          }
+        }
+        if (s(*m, "role") == "justice") {
+          auto &g = view->goals.at(size_t(n(*m, "justice_index")));
+          g.owner = bound.empty() ? -1 : bound[0];
+          g.key = key({family, bound.empty() ? "scalar"
+                               : domain.constants.count(bound[0])
+                                   ? key({"constant", field(bound[0])})
+                                   : "element"});
+        }
+        A permutation;
+        for (int p : transport)
+          permutation.emplace_back(p);
+        bindings.emplace_back(O{{"monitor", m->at("monitor")},
+                                {"origin", m->at("source_origin")},
+                                {"tag_transport", permutation}});
+      }
+    O values;
+    for (const auto &[name, value] : view->inst->overrides)
+      values[name] = value;
+    char hash[65]{};
+    sha256_hex(view->inst->r.aag, view->inst->r.aag_size, hash);
+    evidence.emplace_back(O{
+        {"parameters", values}, {"game_sha256", hash}, {"monitors", bindings}});
+  }
+  return O{{"generator", "parametric-support-fold-v1"},
+           {"tag_validation", "unique reset/next/acceptance BDD equality"},
+           {"bindings", evidence}};
+}
+// Existential projections produce a candidate G over fixed states, the goal's
+// owner and one remaining element. Their conjunction must reconstruct P exactly
+// on ALL Boolean states, including zero/multi-hot monitor encodings.
+Learned param_project(Schema &bdd, const GameView &view, const B &predicate,
+                      const Goal *goal, const Config &cfg) {
+  Template templ;
+  B rebuilt = bdd.t();
+  auto support = bdd.support(predicate);
+  std::vector<int> remaining;
+  for (const auto &[c, role] : view.roles)
+    if (role == "element" && (!goal || goal->owner != c))
+      remaining.push_back(c);
+  if (remaining.empty())
+    param_decline("param_no_candidate");
+  if (remaining.size() > cfg.o.max_subsets_per_predicate)
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "param_schema",
+                  "param_subset_budget");
+  for (int element : remaining) {
+    std::set<int> drop;
+    std::map<int, int> mapping, back;
+    for (const auto &v : view.variables) {
+      if (v.kind != "state")
+        continue;
+      bool keep = v.owners.empty() || v.owners.count(element) ||
+                  (goal && v.owners.count(goal->owner));
+      if (!keep)
+        continue;
+      std::string slot = v.owners.empty()                      ? "fixed"
+                         : goal && v.owners.count(goal->owner) ? "owner"
+                                                               : "fold";
+      int normal = bdd.normal_var(key({"param-predicate", v.prefix, slot}));
+      mapping[v.index] = normal;
+      if (!back.emplace(normal, v.index).second)
+        param_decline("param_monitor_inventory");
+    }
+    for (int v : support)
+      if (!mapping.count(v))
+        drop.insert(v);
+    B projected = bdd.exists(predicate, bdd.cube(drop));
+    B normalized = bdd.relabel(projected, mapping);
+    if (!templ.empty() && !same(templ.begin()->second, normalized))
+      param_decline("param_no_candidate");
+    templ.insert_or_assign("fold", normalized);
+    rebuilt = bdd.land(rebuilt, bdd.relabel(normalized, back));
+  }
+  if (!same(rebuilt, predicate))
+    param_decline("param_no_candidate");
+  return {std::move(templ), 1};
+}
+B param_instantiate(Schema &bdd, const GameView &view, const Learned &rule,
+                    const Goal *goal, const Config &cfg) {
+  size_t count = 0;
+  for (const auto &[c, role] : view.roles)
+    count += role == "element" && (!goal || goal->owner != c);
+  if (count > cfg.o.max_subsets_per_predicate)
+    throw Failure(TLSF_GR1_LIFT_LIMIT, FailureCause::resource, "param_schema",
+                  "param_subset_budget");
+  B result = bdd.t();
+  for (const auto &[c, role] : view.roles) {
+    if (role != "element" || (goal && goal->owner == c))
+      continue;
+    std::map<int, int> mapping;
+    for (const auto &v : view.variables) {
+      if (v.kind != "state")
+        continue;
+      if (!v.owners.empty() && !v.owners.count(c) &&
+          (!goal || !v.owners.count(goal->owner)))
+        continue;
+      const auto slot = v.owners.empty()                      ? "fixed"
+                        : goal && v.owners.count(goal->owner) ? "owner"
+                                                              : "fold";
+      mapping[bdd.normal_var(key({"param-predicate", v.prefix, slot}))] =
+          v.index;
+    }
+    for (int v : bdd.support(rule.templ.at("fold")))
+      if (!mapping.count(v))
+        param_decline("param_seed_mismatch");
+    result = bdd.land(result, bdd.relabel(rule.templ.at("fold"), mapping));
+  }
+  return result;
+}
+LearnedCertificate learn_param(Schema &bdd, const std::vector<GameView> &seeds,
+                               const GameView &target, const Config &cfg,
+                               O &evidence) {
+  std::map<std::string, Learned> rules;
+  std::map<std::string, int> depths;
+  const auto fairness = param_fairness(*target.inst);
+  A checks;
+  for (const auto &seed : seeds) {
+    const auto seed_fairness = param_fairness(*seed.inst);
+    unsigned exact = 0;
+    auto observe = [&](const std::string &key, const std::string &name,
+                       const Goal *g) {
+      B actual = bdd.from_aig(seed.inst->cert.get(), seed.output(name));
+      for (int v : bdd.support(actual))
+        if (v >= int(seed.states))
+          param_decline("param_no_candidate");
+      if (!rules.count(key))
+        rules.emplace(key, param_project(bdd, seed, actual, g, cfg));
+      B rebuilt = param_instantiate(bdd, seed, rules.at(key), g, cfg);
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+      if (lift_test_fault == 18)
+        rebuilt = bdd.neg(rebuilt);
+#endif
+      if (!same(actual, rebuilt))
+        param_decline("param_seed_mismatch");
+      exact++;
+      return rebuilt;
+    };
+    observe("inv", "inv", nullptr);
+    for (const auto &g : seed.goals) {
+      const int depth = seed.levels(g);
+      // Depth belongs to the source generator, including every binding class.
+      const O *monitor = nullptr;
+      for (const J &v : seed.inst->data.at("monitors").as_array())
+        if (s(v.as_object(), "role") == "justice" &&
+            n(v.as_object(), "justice_index") == g.number)
+          monitor = &v.as_object();
+      auto family = param_key(*monitor);
+      if (depth < 1 || (depths.count(family) && depths.at(family) != depth))
+        param_decline("param_rank_depth_changed");
+      depths[family] = depth;
+      const uint32_t *members;
+      uint32_t count;
+      aig_justice_at(seed.inst->r.game, g.number, &members, &count);
+      if (count != 1 ||
+          !same(bdd.from_aig(seed.inst->r.game, members[0], true),
+                bdd.from_aig(seed.inst->cert.get(),
+                             seed.output("goal_" + field(g.number)))))
+        param_decline("param_seed_mismatch");
+      exact++;
+      for (int k = 0; k < depth; k++) {
+        B y = bdd.f();
+        for (const auto &[owner, f] : seed_fairness) {
+          auto lane = key({g.key, field(k), owner});
+          B x = observe(
+              lane, "x_" + field(g.number) + "_" + field(k) + "_" + field(f),
+              &g);
+          y = bdd.lor(y, x);
+        }
+        if (!same(y, bdd.from_aig(
+                         seed.inst->cert.get(),
+                         seed.output("y_" + field(g.number) + "_" + field(k)))))
+          param_decline("param_seed_mismatch");
+        exact++;
+      }
+    }
+    O values;
+    for (const auto &[name, value] : seed.inst->overrides)
+      values[name] = value;
+    checks.emplace_back(O{{"parameters", values},
+                          {"widths", A{}},
+                          {"exact_predicates", true},
+                          {"predicate_count", exact}});
+  }
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+  if (lift_test_fault == 17)
+    param_decline("param_no_candidate");
+  if (lift_test_fault == 20)
+    param_decline("param_rank_depth_changed");
+  if (lift_test_fault == 21)
+    param_decline("param_fairness_changed");
+#endif
+  LearnedCertificate out;
+  out.predicates.emplace(
+      "inv", param_instantiate(bdd, target, rules.at("inv"), nullptr, cfg));
+  for (const auto &g : target.goals) {
+    const O *monitor = nullptr;
+    for (const J &v : target.inst->data.at("monitors").as_array())
+      if (s(v.as_object(), "role") == "justice" &&
+          n(v.as_object(), "justice_index") == g.number)
+        monitor = &v.as_object();
+    int depth = depths.at(param_key(*monitor));
+    out.depths.push_back(depth);
+    const uint32_t *members;
+    uint32_t count;
+    aig_justice_at(target.inst->r.game, g.number, &members, &count);
+    out.predicates.emplace("goal_" + field(g.number),
+                           bdd.from_aig(target.inst->r.game, members[0], true));
+    for (int k = 0; k < depth; k++) {
+      B y = bdd.f();
+      for (const auto &[owner, f] : fairness) {
+        const auto lane = key({g.key, field(k), owner});
+        if (!rules.count(lane))
+          param_decline("param_no_candidate");
+        B x = param_instantiate(bdd, target, rules.at(lane), &g, cfg);
+        y = bdd.lor(y, x);
+        out.predicates.emplace("x_" + field(g.number) + "_" + field(k) + "_" +
+                                   field(f),
+                               std::move(x));
+      }
+      out.predicates.emplace("y_" + field(g.number) + "_" + field(k),
+                             std::move(y));
+    }
+  }
+  evidence["seed_validation"] = "full Boolean BDD equality of W/X/Y/goals";
+  evidence["seeds"] = checks;
+  return out;
+}
+
 struct Candidate {
   std::string game, certificate, certificate_json, policy, policy_json,
       check_json, evidence;
   TlsfGr1CheckMethod method = TLSF_GR1_CHECK_CERTIFICATE;
   TlsfGr1CheckVerdict verdict = TLSF_GR1_CHECK_UNKNOWN;
   bool fold = false;
+  bool param = false;
   std::string checker_order;
   O fold_evidence;
 };
@@ -2991,11 +3998,17 @@ void verify_fold(const TrustedTarget &trusted, Candidate &candidate,
                  const Config &cfg, SeedDeclines log,
                  uint64_t *checks = nullptr) try {
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-  if (lift_test_fault == 12)
+  if (lift_test_fault == 12 || (candidate.param && lift_test_fault == 24))
     throw std::bad_alloc();
 #endif
-  for (auto order :
-       {TLSF_GR1_CHECK_VAR_ORDER_AUTO, TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST}) {
+  // Aggregate temporal monitors made state-first construction exhaust the B2
+  // deadline at n=10/11; input-first verifies the same unchanged obligations.
+  const auto first = candidate.param ? TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST
+                                     : TLSF_GR1_CHECK_VAR_ORDER_AUTO;
+  const auto second = candidate.param ? TLSF_GR1_CHECK_VAR_ORDER_AUTO
+                                      : TLSF_GR1_CHECK_VAR_ORDER_INPUT_FIRST;
+  const std::string prefix = candidate.param ? "param" : "fold";
+  for (auto order : {first, second}) {
     const char *name =
         order == TLSF_GR1_CHECK_VAR_ORDER_AUTO ? "default" : "input-first";
     cfg.check("fold_region_check");
@@ -3003,7 +4016,7 @@ void verify_fold(const TrustedTarget &trusted, Candidate &candidate,
                         cfg.effective_deadline(), order, checks);
     auto clear = [](TlsfGr1CheckResult *r) {
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-      if (lift_test_fault == 13 && r->json &&
+      if ((lift_test_fault == 13 || lift_test_fault == 25) && r->json &&
           r->verdict == TLSF_GR1_CHECK_REGION_VERIFIED)
         ++lift_test_check_json_clears;
 #endif
@@ -3021,7 +4034,9 @@ void verify_fold(const TrustedTarget &trusted, Candidate &candidate,
       candidate.verdict = verdict;
       candidate.checker_order = name;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-      if (lift_test_fault == 13 && result.json)
+      if ((lift_test_fault == 13 ||
+           (candidate.param && lift_test_fault == 25)) &&
+          result.json)
         throw std::bad_alloc();
 #endif
       if (result.json)
@@ -3029,8 +4044,8 @@ void verify_fold(const TrustedTarget &trusted, Candidate &candidate,
       return;
     }
     owned.reset();
-    log.note((std::string("fold_region_failed(") + name + ")").c_str());
-    if (capacity && order == TLSF_GR1_CHECK_VAR_ORDER_AUTO)
+    log.note((prefix + "_region_failed(" + name + ")").c_str());
+    if (capacity && order == first)
       continue;
     if (status == TLSF_GR1_CHECK_DEADLINE)
       throw cfg.deadline_failure("fold_region_check");
@@ -3039,8 +4054,10 @@ void verify_fold(const TrustedTarget &trusted, Candidate &candidate,
                     "fold_region_check", "fold_cancelled");
     throw Failure(status == TLSF_GR1_CHECK_LIMIT ? TLSF_GR1_LIFT_LIMIT
                                                  : TLSF_GR1_LIFT_DECLINED,
-                  check_failure_cause(status, verdict), "fold_region_check",
-                  "fold_region_failed");
+                  check_failure_cause(status, verdict),
+                  candidate.param ? "param_region_check" : "fold_region_check",
+                  candidate.param ? "param_region_failed"
+                                  : "fold_region_failed");
   }
 } catch (const Failure &e) {
   log.note("fold_region_stopped");
@@ -3149,14 +4166,18 @@ Candidate prove(Schema &bdd, const GameView &target,
                 char *fold_detail = nullptr) {
   Candidate candidate;
   candidate.fold = target.fold;
+  candidate.param = target.param;
   candidate.game = trusted.game_aag;
   const auto semantics = trusted.semantics;
   StatsScope candidate_stats(cfg, TLSF_GR1_LIFT_STATS_CANDIDATE_INSTANTIATION);
   candidate_stats.count_bdd_ops(bdd.operation_counter());
   auto cert = emit_certificate(bdd, target, learned, cfg);
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-  if (target.fold && lift_test_fault == 8)
+  if ((target.fold && lift_test_fault == 8) ||
+      (target.param && lift_test_fault == 19)) {
+    aig_remove_output(cert.get(), "inv");
     aig_set_output(cert.get(), "inv", 0);
+  }
 #endif
   candidate.certificate = render_aig(cert.get(), cfg);
   candidate.certificate_json =
@@ -3393,7 +4414,7 @@ TrustedTarget prepare(const uint8_t *source, size_t size,
 void run(const TrustedTarget &trusted, const Config &cfg,
          TlsfGr1LiftResult &result, Window *shared_window = nullptr,
          bool candidate_only = false, uint64_t *seed_checks = nullptr) {
-  bool folding = false;
+  bool folding = false, parametric = false;
   try {
     BothPhase phase("native_r_candidate", trusted.game_hash.c_str());
     const auto *source =
@@ -3412,8 +4433,10 @@ void run(const TrustedTarget &trusted, const Config &cfg,
                                            discovery_cfg,
                                            SeedDeclines{result.decline_detail});
     folding = window.fold;
+    parametric = window.param;
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-    if (folding && lift_test_fault == 11)
+    if ((folding && lift_test_fault == 11) ||
+        (parametric && lift_test_fault == 23))
       throw std::bad_alloc();
     if (lift_test_fault == 1 && !window.sizes.empty())
       window.sizes[0]++;
@@ -3453,7 +4476,11 @@ void run(const TrustedTarget &trusted, const Config &cfg,
     schema_stats.count_bdd_ops(bdd.operation_counter());
     LearnedCertificate learned;
     O fold_evidence;
-    if (window.fold) {
+    if (window.param) {
+      fold_evidence = bind_param(bdd, seeds, target_view, cfg);
+      learned =
+          learn_param(bdd, seeds, target_view, discovery_cfg, fold_evidence);
+    } else if (window.fold) {
       auto rule = learn_fold(bdd, seeds, target_view, discovery_cfg);
       fold_evidence = validate_fold_seeds(bdd, seeds, rule, window.axis,
                                           discovery_cfg, seed_checks);
@@ -3547,6 +4574,8 @@ void run(const TrustedTarget &trusted, const Config &cfg,
     if (candidate.method == TLSF_GR1_CHECK_CERTIFICATE)
       evidence.as_object()["policy_sha256"] = policy_hash;
     if (window.fold) {
+      fold_evidence["discovery_probes"] = window.fold_probes;
+      fold_evidence["discovery_reductions"] = window.fold_reductions;
       evidence.as_object()["fold"] = fold_evidence;
       if (!candidate_only)
         evidence.as_object()["checker_order"] = candidate.checker_order;
@@ -3576,21 +4605,21 @@ void run(const TrustedTarget &trusted, const Config &cfg,
     if (folding) {
       SeedDeclines log{result.decline_detail};
       log.at("fold");
-      log.note("fold_failed");
+      log.note(parametric ? "param_failed" : "fold_failed");
       log.failure(e);
     }
     throw;
   } catch (const std::bad_alloc &) {
     if (folding) {
       SeedDeclines log{result.decline_detail};
-      log.note("fold_failed");
+      log.note(parametric ? "param_failed" : "fold_failed");
       log.exception("fold", "resource", "host allocation failed");
     }
     throw;
   } catch (const std::exception &e) {
     if (folding) {
       SeedDeclines log{result.decline_detail};
-      log.note("fold_failed");
+      log.note(parametric ? "param_failed" : "fold_failed");
       log.exception("fold", "error", e.what());
     }
     throw;
@@ -3904,6 +4933,14 @@ extern "C" void tlsf_gr1_lift_test_set_fault(int fault) {
   lift_test_checked_game_aag.clear();
   lift_test_fallback_started_before_deadline = false;
 }
+extern "C" void tlsf_gr1_lift_test_set_param_activation(
+    void (*callback)(TlsfGr1LiftOptions *)) {
+  lift_test_param_activation = callback;
+}
+extern "C" void
+tlsf_gr1_lift_test_set_axis_scan(void (*callback)(TlsfGr1LiftOptions *, bool)) {
+  lift_test_axis_scan = callback;
+}
 extern "C" unsigned tlsf_gr1_lift_test_check_json_clears() {
   return lift_test_check_json_clears;
 }
@@ -3938,6 +4975,22 @@ tlsf_gr1_lift_test_prepared_game_equals(const TlsfGr1LiftTarget *target,
                                         const char *bytes, size_t size) {
   return target && target->trusted.game_aag.size() == size &&
          !memcmp(target->trusted.game_aag.data(), bytes, size);
+}
+extern "C" unsigned
+tlsf_gr1_lift_test_pair_monitors(const TlsfGr1LiftTarget *target) {
+  std::set<std::string> families;
+  const A &monitors = target->trusted.instance->data.at("monitors").as_array();
+  for (const J &v : monitors) {
+    const O &o = v.as_object().at("source_origin").as_object();
+    if (o.at("bindings").as_array().size() == 2)
+      families.insert(s(o, "source_formula_id"));
+  }
+  unsigned count = 0;
+  // Singleton expansion drops the inner binder on the final ordered pair.
+  for (const J &v : monitors)
+    count += families.count(
+        s(v.as_object().at("source_origin").as_object(), "source_formula_id"));
+  return count;
 }
 extern "C" void
 tlsf_gr1_lift_test_corrupt_prepared_game(TlsfGr1LiftTarget *target) {
@@ -4287,7 +5340,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                 if (!selected.insert(size).second)
                   result->seed_cache_hits++;
               TlsfGr1SeedPolarity common = TLSF_GR1_SEEDS_NONE;
-              for (int size : selected) {
+              auto solve = [&](int size) {
                 auto &entry = cache.entries.at(size);
                 char hash[65]{};
                 sha256_hex(entry.instance->r.aag, entry.instance->r.aag_size,
@@ -4308,6 +5361,10 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                   }
                   throw;
                 }
+                return side;
+              };
+              for (int size : selected) {
+                auto side = solve(size);
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
                 if (both_test_seed_fault == 4 && size == *selected.begin() &&
                     cfg.o.deadline_mono_ns) {
@@ -4328,6 +5385,52 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                   common = TLSF_GR1_SEEDS_MIXED;
               }
               result->seed_polarity = common;
+              // U keeps priority for UNREAL seeds. Select the pending fold
+              // across all cached probes, reusing U's checked REAL seeds.
+              if (common == TLSF_GR1_SEEDS_REAL && cache.real_sizes.empty() &&
+                  cache.param_pending &&
+                  param_support(*trusted.instance, cfg,
+                                SeedDeclines{result->decline_detail})) {
+                SeedDeclines log{result->decline_detail};
+                log.at(cache.axis, 0, 0, ":param");
+                try {
+#ifdef TLSF_GR1_LIFT_TEST_FAULT
+                  if (lift_test_fault == 26)
+                    throw std::bad_alloc();
+#endif
+                  ParamProbes probes;
+                  for (auto &[k, entry] : cache.entries)
+                    probes.emplace_back(k, std::move(entry.instance));
+                  FoldProbes budget;
+                  auto window =
+                      discover_param((const uint8_t *)trusted.snapshot.data(),
+                                     trusted.snapshot.size(), *trusted.instance,
+                                     TLSF_GR1_EXACT, cfg, budget, log,
+                                     &result->seed_reductions,
+                                     &result->seed_probes, cache.axis, &probes);
+                  if (window.axis != cache.axis)
+                    selected.clear();
+                  cache = shared_window(std::move(window), trusted);
+                  fold_active = true;
+                  for (int size : cache.real_sizes) {
+                    if (selected.count(size)) {
+                      result->seed_cache_hits++;
+                      continue;
+                    }
+                    if (solve(size) != TLSF_GR1_SEEDS_REAL)
+                      common = TLSF_GR1_SEEDS_MIXED;
+                  }
+                  result->seed_polarity = common;
+                } catch (const std::bad_alloc &) {
+                  log.exception("param_discovery", "resource",
+                                "host allocation failed");
+                  throw;
+                } catch (const Failure &e) {
+                  if (!is_applicability(e.cause))
+                    throw;
+                  cfg.decline_search("seed_window", "no stable index axis");
+                }
+              }
               if (cache.fold && common != TLSF_GR1_SEEDS_REAL) {
                 SeedDeclines log{result->decline_detail};
                 log.at(cache.axis, 0, 0, ":fold");
@@ -4341,6 +5444,9 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                 window.target_members = cache.target_members;
                 window.modes = cache.modes;
                 window.fold = cache.fold;
+                window.param = cache.param;
+                window.fold_probes = cache.fold_probes;
+                window.fold_reductions = cache.fold_reductions;
                 for (int size : cache.real_sizes)
                   window.seeds.push_back(
                       std::move(cache.entries.at(size).instance));
@@ -4366,6 +5472,7 @@ extern "C" TlsfGr1LiftStatus tlsf_gr1_both_from_target_v2(
                           "R candidate checked target");
                 Candidate candidate;
                 candidate.fold = cache.fold;
+                candidate.param = cache.param;
                 if (cache.fold) {
                   candidate.fold_evidence =
                       j::parse(std::string_view(candidate_proof.evidence_json,

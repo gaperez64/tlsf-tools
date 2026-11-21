@@ -126,6 +126,7 @@ struct FaultCase {
   TlsfGr1BothEventKind kind;
   TlsfGr1LiftStatus cause;
   const char *stage;
+  const char *reason = nullptr;
 };
 static const FaultCase env_fault_cases[] = {
     {1, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_ERROR, "typed_alignment"},
@@ -156,6 +157,32 @@ static const FaultCase lift_fault_cases[] = {
     {11, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
     {12, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
     {13, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation"},
+    {14, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "seed_window",
+     "param_state_growth"},
+    {15, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "seed_window",
+     "param_ordered_domain"},
+    {16, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "param_schema",
+     "param_tag_transport"},
+    {17, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "param_schema",
+     "param_no_candidate"},
+    {18, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "param_schema",
+     "param_seed_mismatch"},
+    {19, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED,
+     "param_region_check", "param_region_failed(input-first)"},
+    {20, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "param_schema",
+     "param_rank_depth_changed"},
+    {21, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "param_schema",
+     "param_fairness_changed"},
+    {22, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation",
+     "host allocation failed"},
+    {23, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation",
+     "param_failed"},
+    {24, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation",
+     "fold_region_stopped"},
+    {25, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation",
+     "fold_region_stopped"},
+    {26, TLSF_GR1_BOTH_EVENT_STOPPED, TLSF_GR1_LIFT_LIMIT, "allocation",
+     "host allocation failed"},
 };
 static const FaultCase seed_fault_cases[] = {
     {1, TLSF_GR1_BOTH_EVENT_DECLINE, TLSF_GR1_LIFT_DECLINED, "seed_mixed"},
@@ -380,6 +407,8 @@ static void fault_census(const std::string &unreal_source,
     tlsf_gr1_env_rank_test_set_fault(0);
   }
   for (const auto &fault : lift_fault_cases) {
+    if (fault.fault >= 14)
+      continue; // Exercised with its own parametric fixture below.
     if (fault.fault >= 9) {
       auto source = fold_source;
       if (fault.fault == 9) {
@@ -1013,15 +1042,64 @@ static void allocation_diagnostics(const std::string &unreal_source) {
   }
 }
 
+#include "parametric_fold_test.hh"
+static void parametric_panel(const char *path) {
+  std::vector<std::pair<int, const char *>> faults;
+  for (const auto &f : lift_fault_cases)
+    if (f.fault >= 14)
+      faults.emplace_back(f.fault, f.reason);
+  CHECK(faults.size() == 13);
+  parametric_regressions(
+      path, true, faults, [](int fault, const std::vector<ParamEvent> &events) {
+        const auto expected = std::find_if(
+            std::begin(lift_fault_cases), std::end(lift_fault_cases),
+            [fault](const FaultCase &f) { return f.fault == fault; });
+        CHECK(expected != std::end(lift_fault_cases));
+        const auto route = fault <= 15 || fault == 22 || fault == 26
+                               ? TLSF_GR1_BOTH_EVENT_SEEDS
+                               : TLSF_GR1_BOTH_EVENT_R;
+        unsigned matches = 0;
+        for (const auto &event : events) {
+          CHECK(event.kind != TLSF_GR1_BOTH_EVENT_VERIFIED);
+          if (event.route == route &&
+              (event.kind == TLSF_GR1_BOTH_EVENT_DECLINE ||
+               event.kind == TLSF_GR1_BOTH_EVENT_STOPPED)) {
+            if (event.kind != expected->kind ||
+                event.cause != expected->cause ||
+                event.stage != expected->stage)
+              std::fprintf(stderr, "param fault=%d kind=%d cause=%d stage=%s\n",
+                           fault, event.kind, event.cause, event.stage.c_str());
+            CHECK(event.kind == expected->kind);
+            CHECK(event.cause == expected->cause);
+            CHECK(event.stage == expected->stage);
+            ++matches;
+          }
+        }
+        CHECK(matches == 1);
+      });
+}
 int main(int argc, char **argv) {
-  CHECK(argc >= 2 && argc <= 4);
+  if (argc == 3 && !strcmp(argv[1], "--param-activation")) {
+    parametric_activation_regressions(argv[2], true);
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--param-axes")) {
+    parametric_axis_regressions(argv[2], true);
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--param")) {
+    parametric_panel(argv[2]);
+    return 0;
+  }
+  CHECK(argc >= 2 && argc <= 5);
   std::ifstream file(argv[1], std::ios::binary);
   CHECK(file);
   std::string unreal_source(std::istreambuf_iterator<char>{file}, {});
   if (argc >= 3) {
     if (!strcmp(argv[2], "--fault-census")) {
-      CHECK(argc == 4);
+      CHECK(argc == 5);
       fault_census(unreal_source, argv[3]);
+      parametric_panel(argv[4]);
     } else {
       CHECK(argc == 3);
       CHECK(!strcmp(argv[2], "--corruption-guards"));
