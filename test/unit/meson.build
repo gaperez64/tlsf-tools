@@ -208,6 +208,8 @@ test('native_lift_api', native_lift_api_exe, timeout: 60, is_parallel: false)
 test('native_fold_api', native_lift_api_exe,
   args: ['--fold', files('../fixtures/encoded_fold.tlsf')],
   timeout: 60, is_parallel: false)
+test('fold_source_guard', python3,
+  args: [files('fold_source_guard.py'), meson.project_source_root()])
 test('native_fold_budgets', native_lift_api_exe,
   args: ['--fold-review', files('../fixtures/encoded_fold.tlsf')],
   timeout: 60, is_parallel: false)
@@ -221,6 +223,33 @@ native_both_api_exe = executable('native_both_api',
   'native_both_api.cpp', gr1_lift_source, gr1_env_lift_source,
   cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
   dependencies: tlsf_internal_dep)
+test('native_parametric_fold_api', native_lift_api_exe,
+  args: ['--param', files('../fixtures/parametric_fold.tlsf')],
+  timeout: 60, is_parallel: false)
+test('native_parametric_fold_both', native_both_api_exe,
+  args: ['--param', files('../fixtures/parametric_fold.tlsf')],
+  # Aggregate default-routing regressions and all parametric fault cases.
+  timeout: 90, is_parallel: false)
+# Keep the paired multi-parameter runs separate from the fault panels.
+test('native_fold_axes_api', native_lift_api_exe,
+  args: ['--fold-axes', files('../fixtures/encoded_fold.tlsf')],
+  timeout: 90, is_parallel: false)
+test('native_fold_axes_both', native_lift_api_exe,
+  args: ['--fold-axes', files('../fixtures/encoded_fold.tlsf'), '--both'],
+  timeout: 90, is_parallel: false)
+test('native_parametric_axes_api', native_lift_api_exe,
+  args: ['--param-axes', files('../fixtures/parametric_fold.tlsf')],
+  timeout: 90, is_parallel: false)
+test('native_parametric_axes_both', native_both_api_exe,
+  args: ['--param-axes', files('../fixtures/parametric_fold.tlsf')],
+  # Several complete default-API runs, including preserved legacy probes.
+  timeout: 120, is_parallel: false)
+test('native_parametric_activation_api', native_lift_api_exe,
+  args: ['--param-activation', files('../fixtures/parametric_fold.tlsf')],
+  timeout: 60, is_parallel: false)
+test('native_parametric_activation_both', native_both_api_exe,
+  args: ['--param-activation', files('../fixtures/parametric_fold.tlsf')],
+  timeout: 60, is_parallel: false)
 test('native_both_api', native_both_api_exe,
   args: files('../oracle/env_lift_one.tlsf'),
   # Aggregate of many worker runs, including deliberate deadline injections.
@@ -229,8 +258,10 @@ test('native_both_api', native_both_api_exe,
 # Three added corruption cases each retain the worker's 30-second deadline.
 test('native_failure_census', native_both_api_exe,
   args: [files('../oracle/env_lift_one.tlsf'), '--fault-census',
-         files('../fixtures/encoded_fold.tlsf')],
-  timeout: get_option('buildtype') == 'debug' ? 270 : 180,
+         files('../fixtures/encoded_fold.tlsf'),
+         files('../fixtures/parametric_fold.tlsf')],
+  # Include the additional 60-second parametric fault panel.
+  timeout: get_option('buildtype') == 'debug' ? 330 : 240,
   is_parallel: false)
 test('native_corruption_guards', native_both_api_exe,
   args: [files('../oracle/env_lift_one.tlsf'), '--corruption-guards'],

@@ -128,9 +128,32 @@ not assume reachable or one-hot valuations.
 
 Seed selection uses relative encoding-width profiles, rather than treating bit
 positions as clients. It searches sizes 3..9, bounded by `max_sizes_per_axis`
-new probes and the remaining global `max_seed_probes` budget. Equal-width
-profiles prefer a common concrete plateau (normally 5/6/7); unequal-width
-profiles require two different-width witnesses (normally 4/8). Thus power-of-two
+new probes and a `max_seed_probes` allowance shared by routes A and B.
+Legacy discovery and the U window keep main's name-sorted parameter order and
+trace, including unused-axis probes. This can cost extra seed solves before a
+fold fallback runs: on the n=6 fixture, adding `a=6;` and an unused input bus
+`auxiliary[a];` costs six seed solves, versus three when `a` is renamed to `z`.
+This known legacy-order cost cannot affect soundness: every fold candidate still
+requires target `REGION_VERIFIED`. Legacy spending cannot exhaust the fallback
+allowance; both phases still share the arm's deadline and RSS limits. Public
+probe/reduction totals include all actual work. Fold evidence separately records
+`discovery_probes` and usable `discovery_reductions`, including cached probes
+reused by route B, so these fallback counters are invariant under irrelevant
+parameter renaming.
+
+Fallback axes come only from complete frontend width dependencies of element
+buses (route B) or proved logarithmic representation widths (route A). The
+existing route A width proof also admits recursive width definitions, whose
+general dependency-completeness flag is conservative. Axes are ordered by
+multisets of declaration shapes and monitor/generator incidence, excluding
+names and numeric source/declaration IDs. Route A and route B axis selection is
+therefore name-independent. Structurally indistinguishable axes are declined
+with `fold_axis_ambiguous` or `param_axis_ambiguous`, rather than ordered by
+spelling. These routes require a changing bus extent; support-only
+parameters without an extent dependency cannot supply their coordinate domain.
+
+Equal-width profiles prefer a common concrete plateau (normally 5/6/7);
+unequal-width profiles require two different-width witnesses (normally 4/8). Thus power-of-two
 witnesses need not be consecutive. Sizes 1/2 are excluded from fold learning.
 This bounded search can decline other families with `fold_insufficient_strata`.
 Seed reduction, solving, learning and checking all consume the arm's existing
@@ -201,3 +224,89 @@ All fold declines/stops are retained in `decline_detail`, including
 `fold_seed_mismatch` and `fold_region_failed(default|input-first)`.
 The grammar is intentionally small; richer tagged-state or client-specific
 predicates, such as the load-balancer schema, require a separate extension.
+
+## Parametric-support folds (route B)
+
+After the existing element lift and encoded fold decline, a growing-support
+fallback handles constant-state global monitors over ordinary element buses.
+Activation requires `bus_schema/large_template`, or its subsequent structural
+shape mismatch when the arity bound is raised, and an unbound nonsymmetric
+whole-bus monitor. Existing successful paths keep priority. Failed-axis probes
+are destroyed before later legacy axes or route A run; only an activation flag
+survives. After those paths decline, route B recreates probes under the same
+fold probe allowance and arm deadline/RSS budgets, examining only canonical
+provenance axes even after a legacy bus-schema exit. A U-only window retains its priority for UNREAL seeds;
+REAL seeds instead enable the pending fold, selecting across all cached probes.
+Checked REAL seeds are reused; newly selected sizes are solved and checked
+under the same budgets. With distinguished constants `{0,1}`, the load-balancer
+fixture selects 4/5/6 so that a nonconstant goal owner leaves a fold witness.
+Declaration domains and family state counts are computed once per instance,
+with cooperative budget checks throughout inventory and domain traversal.
+Activation probing also records deadline, cancellation and RSS failures in
+`decline_detail` before propagating them in either API.
+Discovery selects three smaller nondegenerate instances
+whose source occurrence/generator sets and domains match the target. Singleton
+expansion can change a source node, so the load-balancer fixture selects 3/4/5.
+No benchmark names, filenames, formula templates or identifier spellings enter
+the detector.
+
+Families retain source formula/node occurrences, binder IDs, side and role.
+Indexed domains must be whole element domains with constant exclusions.
+References to a distinguished element remain absolute constants, never offsets.
+The first slice excludes ordered pair, prefix/suffix and moving-endpoint
+domains, representation-bit buses, varying monitor state counts, indexed
+fairness, changing rank depths and larger feature alphabets.
+
+For state transport the feature alphabet consists of scalar letters, bound or
+constant element letters, and whole-bus zero/at-most-one count tests. The code
+abstracts each concrete next-state equation over this alphabet and requires
+exact BDD equality when expanding it back. It then checks reset, all next
+state equations, and acceptance under every state permutation (up to six
+state bits). Exactly one transport must match, including at the reference
+instance. Tags name the resulting states; their numeric labels have no
+cross-instance meaning. All comparisons include arbitrary zero/multi-hot
+valuations, without assuming one-hot encodings or reachability.
+
+The candidate grammar is a Boolean predicate over fixed tagged states, the
+goal's owner and one remaining element, conjunctively folded over remaining
+elements. Fixed states include global/scalar monitors and each distinguished
+constant's indexed monitors. Existential projection of a solved seed learns
+the fold body `G`. This includes the form
+
+```text
+F(fixed, owner) AND forall i outside {constants, owner}: G(fixed, owner, i)
+```
+
+because `F` may be absorbed into each nonempty fold body. Discovery retains a
+remaining witness even for indexed goals. Projection reconstruction must be
+exact on every binding and every selected seed. Full-Boolean BDD equality is
+required for W, every X/Y, and every goal, not just region acceptance of a
+seed candidate. Lanes use the goal generator, constant/owner binding class,
+rank level and source-bound fairness owner. Rank depth must be constant for
+each goal generator, including all binding classes. Y is the union of X.
+Actual target goal and fairness predicates remain those in the target AAG.
+
+This code only **generates candidates**. A candidate has no cutoff or soundness
+claim of its own. Every REALIZABLE result still requires `REGION_VERIFIED`
+against the unchanged source-bound concrete target AAG. The existing region
+method is proved sound by `Tlsf.Gr1.region_conditions_sound` (PR #142); this
+extension neither bypasses nor weakens its checks and requires no additional
+Lean theorem for its heuristic generator. A bad candidate can only cost
+coverage. The shared checker-order fallback tries input-first first on route
+B: the B2 experiments at n=10/11 verified quickly in that order while default
+construction exhausted its deadline. Evidence records the verifying order,
+source bindings, unique tag transports and exact seed predicate counts.
+
+Route B diagnostics in `decline_detail` include `param_state_growth`,
+`param_ordered_domain`, `param_tag_transport`, `param_no_candidate`,
+`param_seed_mismatch`, `param_region_failed(default|input-first)`,
+`param_rank_depth_changed`, `param_fairness_changed`, `param_encoding`,
+`param_feature_alphabet`, `param_monitor_inventory`, `param_goal_inventory`,
+`param_insufficient_seeds`, `param_subset_budget`, `param_semantics`,
+and `param_discovery_failed`. Shared resource, deadline
+and cancellation diagnostics still apply; `param_failed` attributes a stopped
+candidate. Fault hooks 14–26 cover
+state growth, domain rejection, tag ambiguity, grammar failure, seed mismatch,
+a corrupted target candidate, rank/fairness changes and discovery/learning/
+checking/result-copy and pending-fallback setup allocation failures. Both native
+API test panels exercise them; every hook is registered in `lift_fault_cases`.

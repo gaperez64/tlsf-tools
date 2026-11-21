@@ -1,0 +1,10 @@
+parametric_fold.tlsf is adapted from the SYNTCOMP community benchmark
+  tlsf/load_balancer/parametric/load_balancer.tlsf
+in https://github.com/SYNTCOMP/benchmarks, as materialized by Acacia Bonsai's
+pinned corpus. The only semantic change is the default n=6 for regression use.
+The upstream repository distributes its benchmarks under CC BY 4.0; see
+SYNTCOMP-LICENSE-CC-BY. Attribution and original benchmark description are retained.
+The surrounding tlsf-tools source code remains under its existing MIT license.
+
+parametric_growing.tlsf retains the n=6 lift_unary_enc specification by
+Ayrat Khalimov from tlsf/lift/parametric/lift_unary_enc.tlsf in the same corpus.
