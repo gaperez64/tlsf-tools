@@ -80,6 +80,11 @@ typedef struct {
   // during expand() to fill bus_lo / bus_hi.  Literal ranges leave them null.
   struct Node *bus_lo_expr;
   struct Node *bus_hi_expr;
+  // An enum-typed declaration (`TYPE name;`) keeps its type and the implicit
+  // validity formula the parser added to REQUIRE or ASSERT, so the spec can
+  // be re-emitted with the declaration instead of that formula.
+  const char *enum_type;
+  struct Node *enum_validity;
 } SignalDecl;
 
 // ---------------------------------------------------------------------------

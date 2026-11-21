@@ -1,0 +1,45 @@
+INFO {
+  TITLE:       "Arbiter with every identifier class"
+  DESCRIPTION: "requests, grants and an enum-typed mode"
+  SEMANTICS:   Mealy
+  TARGET:      Mealy
+  TAGS:        "arbiter", "enum"
+}
+GLOBAL {
+  PARAMETERS {
+    width = 3;   // number of clients
+    unused_alpha = 1;
+    unused_beta = 2;
+    unused_gamma = 4;
+  }
+  DEFINITIONS {
+    enum phase =
+      idle: 00
+      busy: 01,1*;
+    /* `width` shadows the parameter inside this body */
+    mutex(bus, width) = &&[0 <= left < width] &&[left < right < width]
+                          !(bus[left] && bus[right]);
+    exclusive(bus) = mutex(bus, SIZEOF bus);
+    served(formula) = formula ~ F leaf : G F leaf
+                      formula ~ (_ U leaf) : F leaf
+                      otherwise : formula;
+  }
+}
+MAIN {
+  INPUTS { request[width]; reset; }
+  OUTPUTS { grant[width]; phase mode; }
+  ASSUME { G F !reset; }
+  ASSERT {
+    exclusive(grant);
+    reset -> mode == idle;
+  }
+  GUARANTEE {
+    &&[client IN {0, 1 .. width - 1}]
+      served(F (request[client] -> grant[client]));
+    G (reset || request[0] || grant[1]);
+  }
+}
+//#!SYNTCOMP
+//STATUS : realizable
+//REF_SIZE : 7
+//#.

@@ -28,7 +28,6 @@ extern "C" {
 #include <new>
 #include <numeric>
 #include <optional>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>

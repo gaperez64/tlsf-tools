@@ -44,6 +44,7 @@ lib_sources = files(
   'liveness_class.c',
   'nnf.c',
   'normalize.c',
+  'obfuscate.c',
   'obligation_census.c',
   'pipeline.c',
   'pipeline_source.c',

@@ -84,7 +84,8 @@ jobs:
             "tlsf2tlsf test/fixtures/cases/defs.tlsf" \
             "tlsfinfo --generalized-reactivity test/fixtures/cases/gr4_spec.tlsf" \
             "mealy2moore test/fixtures/cases/mealy2moore_simple.in.aag" \
-            "tlsf2tlsf --param n=5 test/fixtures/cases/param_demo.tlsf"; do
+            "tlsf2tlsf --param n=5 test/fixtures/cases/param_demo.tlsf" \
+            "tlsfobf --seed 3 --map /dev/null test/fixtures/obfuscate_every.tlsf"; do
             echo "valgrind: $args"
             valgrind --error-exitcode=1 --leak-check=full \
               --errors-for-leak-kinds=definite,indirect ./build/$args >/dev/null

@@ -1,12 +1,11 @@
 #pragma once
 
 #include "tlsf/gr1_lift.h"
+#include "tlsf/obfuscate.h"
 #include "yyjson_cpp.hh"
-#include <algorithm>
 #include <array>
 #include <cctype>
 #include <map>
-#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -17,125 +16,33 @@ struct Obfuscated {
   std::map<std::string, std::string> names;
 };
 
-static Obfuscated obfuscate(const std::string &source) {
-  // Keep TLSF keywords, operators and numbers; every other word is a user name.
-  const std::set<std::string> keywords = {
-      "INFO",       "GLOBAL",     "MAIN",    "TITLE",      "DESCRIPTION",
-      "SEMANTICS",  "TARGET",     "TAGS",    "PARAMETERS", "DEFINITIONS",
-      "enum",       "INPUTS",     "OUTPUTS", "INITIALLY",  "PRESET",
-      "REQUIRE",    "ASSERT",     "ASSUME",  "GUARANTEE",  "ASSUMPTIONS",
-      "GUARANTEES", "INVARIANTS", "Strict",  "Finite",     "Mealy",
-      "Moore",      "true",       "false",   "SIZEOF",     "SIZE",
-      "MIN",        "MAX",        "SUM",     "PROD",       "CUP",
-      "CAP",        "SETMINUS",   "FORALL",  "EXISTS",     "IN",
-      "ELEM",       "otherwise",  "X",       "F",          "G",
-      "U",          "R",          "W",       "NOT",        "AND",
-      "OR",         "IMPLIES",    "EQUIV",   "PLUS",       "MINUS",
-      "MUL",        "DIV",        "MOD",     "EQ",         "NEQ",
-      "LEQ",        "GEQ",        "GEG",     "LE",         "GE"};
-  const std::set<std::string> reorder = {
-      "PARAMETERS", "INPUTS",     "OUTPUTS",   "ASSUME",    "ASSUMPTIONS",
-      "ASSERT",     "INVARIANTS", "GUARANTEE", "GUARANTEES"};
-  Obfuscated out;
-  std::vector<std::string> tokens;
-  unsigned metadata = 0;
-  std::string word;
-  for (size_t i = 0; i < source.size();) {
-    const size_t begin = i;
-    if (source.compare(i, 2, "//") == 0) {
-      i = source.find('\n', i);
-      if (i == std::string::npos)
-        i = source.size();
-      tokens.emplace_back("\n");
-    } else if (source.compare(i, 2, "/*") == 0) {
-      i += 2;
-      unsigned depth = 1;
-      while (depth) {
-        CHECK(i < source.size());
-        if (source.compare(i, 2, "/*") == 0) {
-          ++depth;
-          i += 2;
-        } else if (source.compare(i, 2, "*/") == 0) {
-          --depth;
-          i += 2;
-        } else
-          ++i;
-      }
-      tokens.emplace_back("\n");
-    } else if (source[i] == '"') {
-      // shortcut: these fixtures only quote INFO text; extend for quoted TAGS.
-      CHECK(word == "TITLE" || word == "DESCRIPTION");
-      ++i;
-      while (i < source.size() && source[i] != '"') {
-        if (source[i] == '\\')
-          ++i;
-        ++i;
-      }
-      CHECK(i < source.size());
-      ++i;
-      ++metadata;
-      tokens.emplace_back("\"neutral\"");
-    } else if (std::isalpha(static_cast<unsigned char>(source[i])) ||
-               source[i] == '_' || source[i] == '@') {
-      while (++i < source.size() &&
-             (std::isalnum(static_cast<unsigned char>(source[i])) ||
-              source[i] == '_' || source[i] == '@' || source[i] == '\'')) {
-      }
-      word = source.substr(begin, i - begin);
-      if (keywords.count(word))
-        tokens.push_back(word);
-      else {
-        const auto entry =
-            out.names.emplace(word, "v" + std::to_string(out.names.size()))
-                .first;
-        CHECK(entry->second != word);
-        tokens.push_back(entry->second);
-      }
-    } else
-      tokens.emplace_back(1, source[i++]);
-  }
-  CHECK(metadata == 2);
-  for (size_t i = 0; i < tokens.size(); ++i) {
-    out.bytes += tokens[i];
-    if (!reorder.count(tokens[i]))
+static Obfuscated obfuscate(const std::string &source, uint64_t seed = 11) {
+  TlsfObfuscateOptions options{};
+  options.mode = TLSF_OBFUSCATE_RENAME | TLSF_OBFUSCATE_REORDER;
+  options.seed = seed;
+  TlsfObfuscateResult result{};
+  const auto status =
+      tlsf_obfuscate(source.data(), source.size(), &options, &result);
+  if (status != TLSF_OBFUSCATE_OK)
+    std::fprintf(stderr, "tlsf_obfuscate: %s\n", result.message);
+  CHECK(status == TLSF_OBFUSCATE_OK);
+  Obfuscated out{std::string(result.text, result.size), {}};
+  for (size_t i = 0; i < result.entry_count; ++i) {
+    const auto &entry = result.entries[i];
+    if (entry.kind == TLSF_OBFUSCATE_INPUT_SIGNAL ||
+        entry.kind == TLSF_OBFUSCATE_OUTPUT_SIGNAL)
       continue;
-    while (++i < tokens.size() && tokens[i] != "{")
-      out.bytes += tokens[i];
-    CHECK(i < tokens.size());
-    out.bytes += "{";
-    std::vector<std::string> clauses;
-    std::string clause;
-    unsigned depth = 0;
-    while (++i < tokens.size()) {
-      const auto &token = tokens[i];
-      if (token == "}" && !depth)
-        break;
-      if (token == "{" || token == "[" || token == "(")
-        ++depth;
-      if (token == "}" || token == "]" || token == ")") {
-        CHECK(depth);
-        --depth;
-      }
-      clause += token;
-      if (token == ";" && !depth) {
-        clauses.push_back(clause);
-        clause.clear();
-      }
-    }
-    CHECK(i < tokens.size());
-    CHECK(std::all_of(clause.begin(), clause.end(),
-                      [](unsigned char c) { return std::isspace(c); }));
-    // Reversal is fixed; leave binder domains, bus bits and helper cases
-    // intact. Parameter fixtures use independent literal values.
-    std::reverse(clauses.begin(), clauses.end());
-    for (const auto &part : clauses)
-      out.bytes += part;
-    out.bytes += clause + "}";
+    const auto *name =
+        tlsf_obfuscate_lookup(&result, entry.original, entry.kind);
+    CHECK(name);
+    out.names.emplace(entry.original, name);
   }
+  tlsf_obfuscate_result_clear(&result);
   return out;
 }
 
 static void obfuscator_check() {
+  // Seed 326 reverses declarations and clauses, including the merged aliases.
   const auto out =
       obfuscate("INFO { TITLE: \"load balancer\" DESCRIPTION: \"arbiter\" }"
                 "/* outer /* idle */ grant */ // elevator\n"
@@ -143,19 +50,23 @@ static void obfuscator_check() {
                 " a(bus,i,j)=a'(bus,i,j); a'(bus,i,j)=bus[i]; } }"
                 "MAIN { INPUTS { a0; a1[n]; } OUTPUTS { b0; b1; }"
                 " ASSUMPTIONS { a0; a1[0]; } ASSERT { b0; b1; }"
-                " GUARANTEES { a0; a1[0]; } INVARIANTS { b0; b1; } }");
+                " GUARANTEES { a0; a1[0]; } INVARIANTS { b0; b1; } }",
+                326);
   CHECK(out.names.size() == 10);
   CHECK(out.names.at("a") != out.names.at("a'"));
   const auto a0 = out.names.at("a0"), a1 = out.names.at("a1");
   const auto b0 = out.names.at("b0"), b1 = out.names.at("b1");
-  CHECK(out.bytes.find("INPUTS { " + a1 + "[" + out.names.at("n") + "]; " + a0 +
-                       "; }") != std::string::npos);
-  for (const char *section : {"OUTPUTS", "ASSERT", "INVARIANTS"})
-    CHECK(out.bytes.find(std::string(section) + " { " + b1 + "; " + b0 +
-                         "; }") != std::string::npos);
-  for (const char *section : {"ASSUMPTIONS", "GUARANTEES"})
-    CHECK(out.bytes.find(std::string(section) + " { " + a1 + "[0]; " + a0 +
-                         "; }") != std::string::npos);
+  auto compact = out.bytes;
+  std::erase_if(compact, [](unsigned char c) { return std::isspace(c); });
+  CHECK(compact.find("INPUTS{" + a1 + "[0..(" + out.names.at("n") + "-1)];" +
+                     a0 + ";}") != std::string::npos);
+  CHECK(compact.find("OUTPUTS{" + b1 + ";" + b0 + ";}") != std::string::npos);
+  // The printer combines ASSERT and its INVARIANTS alias into one section.
+  CHECK(compact.find("ASSERT{" + b1 + ";" + b0 + ";" + b1 + ";" + b0 + ";}") !=
+        std::string::npos);
+  for (const char *section : {"ASSUME", "GUARANTEE"})
+    CHECK(compact.find(std::string(section) + "{" + a1 + "[0];" + a0 + ";}") !=
+          std::string::npos);
   CHECK(out.bytes.find("load") == std::string::npos);
   CHECK(out.bytes.find("arbiter") == std::string::npos);
   CHECK(out.bytes.find("//") == std::string::npos);
@@ -300,6 +211,8 @@ static void obfuscation_regression(const std::string &bytes, bool both,
 }
 static std::string rename_identifier(std::string bytes, const std::string &from,
                                      const std::string &to) {
+  // shortcut: tlsf_obfuscate cannot choose literal a/z names or insert the
+  // ambiguous-axis expression; keep token replacement only for those fixtures.
   auto identifier = [](unsigned char c) {
     return std::isalnum(c) || c == '_' || c == '@' || c == '\'';
   };

@@ -1,0 +1,42 @@
+INFO {
+  TITLE:       "guarded";
+  DESCRIPTION: "guarded expressions outside case lists, and case parts that need delimiters";
+  SEMANTICS:   Mealy;
+  TARGET:      Mealy;
+}
+
+GLOBAL {
+
+  PARAMETERS {
+    n = 2;
+  }
+
+  DEFINITIONS {
+    pick(k) = (k == 0) : (a)  (k == 1) : (b)  true : (c);
+    shift(k) = (k <= 0) : (0 - k)  true : ((- k) + 3);
+    twice(f) = (f && X (f));
+  }
+
+}
+
+MAIN {
+
+  INPUTS {
+    a;
+    b;
+  }
+
+  OUTPUTS {
+    c;
+  }
+
+    GUARANTEE {
+      ((n > 1) : (G (pick(1))));
+      (((n > 1) : (n == 2)) : (F (c)));
+      twice(((n > 0) : (a)));
+      G ((a W b));
+      G ((b R c));
+      X[shift(n)] (c);
+    }
+
+}
