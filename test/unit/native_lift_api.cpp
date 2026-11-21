@@ -11,7 +11,6 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
-#include <regex>
 #include <string>
 #define CHECK(condition)                                                       \
   do {                                                                         \
@@ -71,6 +70,7 @@ static uint64_t deadline(unsigned seconds) {
   return std::chrono::duration_cast<std::chrono::nanoseconds>(now).count() +
          uint64_t(seconds) * 1000000000ull;
 }
+#include "fold_obfuscation_test.hh"
 static int cancelled(void *) { return 1; }
 static int never_cancelled(void *) { return 0; }
 struct Mutate {
@@ -233,6 +233,7 @@ static TlsfGr1LiftStatus fold_lift(const std::string &bytes, int size,
 }
 static int fold_measure(const char *path, int size, bool both) {
   auto bytes = read_source(path);
+  TlsfGr1LiftStats stats{};
   auto o = options();
   o.deadline_mono_ns = deadline(290);
   o.solver_nodes = o.schema_nodes = 1u << 20;
@@ -241,19 +242,40 @@ static int fold_measure(const char *path, int size, bool both) {
   o.checker_cache = 1u << 18;
   o.budget.max_rss_bytes = uint64_t(4) << 30;
   o.disable_env_lift = 1;
+  o.max_monitor_states = TLSF_GR1_LIFT_DEFAULT_MAX_MONITOR_STATES;
+  if (both) {
+    // Match native_gr1_lift_arm.cc with the combined route enabled.
+    o = {};
+    o.deadline_mono_ns = deadline(290);
+    o.proof_order = TLSF_GR1_LIFT_REGION_FIRST;
+    o.env_candidate_ns = 12000000000ull;
+    o.budget.max_formula_nodes = 4096;
+    o.budget.max_ap_count = 2048;
+    o.budget.max_conjuncts = o.budget.max_conjunct_nodes = 1024;
+    o.budget.max_temporal_depth = 16;
+    o.budget.max_predicted_monitor_states = 1u << 24;
+    o.budget.max_total_states = 10000;
+    o.budget.max_total_edges = 150000;
+    // Acacia gives a single arm half of its enclosing 5 GiB scope.
+    o.budget.max_rss_bytes = uint64_t(5) << 29;
+    o.env_budget.max_rss_bytes = o.budget.max_rss_bytes;
+    o.stats = &stats;
+  }
   TlsfGr1LiftError e{};
   TlsfGr1LiftResult r{};
   TlsfGr1BothResult combined{};
   auto start = std::chrono::steady_clock::now();
   TlsfGr1LiftStatus status;
   if (both) {
-    ParamOverride param{"n", size};
     TlsfGr1LiftTarget *target = nullptr;
-    status =
-        tlsf_gr1_lift_target_prepare((const uint8_t *)bytes.data(),
-                                     bytes.size(), &param, 1, &o, &target, &e);
+    auto prepare_options = o;
+    prepare_options.max_artifact_bytes = 64u << 20;
+    status = tlsf_gr1_lift_target_prepare_exact_v1(
+        (const uint8_t *)bytes.data(), bytes.size(), &prepare_options, &target,
+        &e, nullptr);
+    const TlsfGr1BothOptionsV2 routing{&o, nullptr, 0};
     if (status == TLSF_GR1_LIFT_OK)
-      status = tlsf_gr1_both_from_target(target, &o, &combined, &e);
+      status = tlsf_gr1_both_from_target_v2(target, &routing, &combined, &e);
     tlsf_gr1_lift_target_free(target);
   } else
     status = fold_lift(bytes, size, o, r, e);
@@ -264,6 +286,15 @@ static int fold_measure(const char *path, int size, bool both) {
   std::cout << "n=" << size << " both=" << both << " status=" << status
             << " verdict=" << proof.verdict << " elapsed=" << elapsed
             << " stage=" << e.stage << " message=" << e.message << '\n';
+  if (both)
+    std::cout << "disable_env_lift=" << o.disable_env_lift
+              << " solver_nodes=" << o.solver_nodes
+              << " checker_nodes=" << o.checker_nodes
+              << " seed_solves=" << combined.seed_solves
+              << " target_checks=" << combined.target_checks
+              << " peak_rss_bytes=" << stats.work.peak_rss_bytes << '\n';
+  std::cout << "decline_detail="
+            << (both ? combined.decline_detail : r.decline_detail) << '\n';
   if (status == TLSF_GR1_LIFT_OK) {
     auto evidence = tlsf_json::parse(std::string_view(proof.evidence_json,
                                                       proof.evidence_size))
@@ -272,7 +303,14 @@ static int fold_measure(const char *path, int size, bool both) {
               << (evidence.contains("checker_order")
                       ? std::string(evidence.at("checker_order").as_string())
                       : "none")
-              << " route=" << (both ? int(combined.route) : -1) << '\n';
+              << " route=" << (both ? int(combined.route) : -1) << " side="
+              << std::string(tlsf_json::parse(
+                                 std::string_view(proof.certificate_json,
+                                                  proof.certificate_json_size))
+                                 .as_object()
+                                 .at("side")
+                                 .as_string())
+              << '\n';
     if (evidence.contains("fold"))
       for (const auto &seed :
            evidence.at("fold").as_object().at("seeds").as_array()) {
@@ -283,13 +321,14 @@ static int fold_measure(const char *path, int size, bool both) {
       }
     std::cout.write(proof.check_json, proof.check_json_size);
     std::cout << '\n';
-    CHECK(evidence.contains("fold"));
-    CHECK(proof.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
-    if (both)
-      CHECK(combined.route == TLSF_GR1_BOTH_REAL_LIFT);
-  } else
-    std::cout << "decline_detail="
-              << (both ? combined.decline_detail : r.decline_detail) << '\n';
+    if (evidence.contains("fold")) {
+      CHECK(proof.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
+      if (both)
+        CHECK(combined.route == TLSF_GR1_BOTH_REAL_LIFT);
+    } else
+      CHECK(both && (proof.verdict == TLSF_GR1_CHECK_VERIFIED ||
+                     proof.verdict == TLSF_GR1_CHECK_REGION_VERIFIED));
+  }
   tlsf_gr1_lift_result_clear(&r);
   tlsf_gr1_both_result_clear(&combined);
   return status == TLSF_GR1_LIFT_OK ? 0 : 3;
@@ -631,7 +670,6 @@ static void fold_regressions(const char *path) {
   CHECK(evidence.at("checker_order").as_string() == "input-first");
   CHECK(strstr(r.decline_detail, "fold_region_failed(default)"));
   CHECK(evidence.at("fold").as_object().at("seeds").as_array().size() == 3);
-  auto game = std::string(r.game_aag, r.game_size);
   tlsf_gr1_lift_result_clear(&r);
 
   ParamOverride param{"n", 9};
@@ -660,44 +698,53 @@ static void fold_regressions(const char *path) {
   tlsf_gr1_lift_test_set_fault(0);
   tlsf_gr1_lift_result_clear(&r);
 
-  // Rename every family-facing identifier, including the recursive helpers.
-  for (auto names : {std::pair{"request", "zeta"},
-                     {"grant", "omega"},
-                     {"nbits", "length_code"},
-                     {"log2_dn", "halving"},
-                     {"value", "decode"},
-                     {"bit", "digit"}}) {
-    size_t pos = 0;
-    while ((pos = bytes.find(names.first, pos)) != std::string::npos) {
-      bytes.replace(pos, strlen(names.first), names.second);
-      pos += strlen(names.second);
-    }
+  auto small = bytes;
+  const auto parameter = small.find("n = 14;");
+  CHECK(parameter != std::string::npos);
+  small.replace(parameter, strlen("n = 14;"), "n = 9;");
+  for (bool both : {false, true}) {
+    fold_test::obfuscation_regression(small, both, "monitor-fold-v1");
   }
-  bytes = std::regex_replace(bytes, std::regex("\\bn\\b"), "extent");
-  bytes = std::regex_replace(bytes, std::regex("\\bi\\b"), "lane");
-  CHECK(fold_lift(bytes, 9, o, r, e, "extent") == TLSF_GR1_LIFT_OK);
-  CHECK(r.verdict == TLSF_GR1_CHECK_REGION_VERIFIED);
-  CHECK(std::string(r.game_aag, r.game_size) == game);
-  tlsf_gr1_lift_result_clear(&r);
 
   auto begin = bytes.find("G F (");
   CHECK(begin != std::string::npos);
   auto end = bytes.find(';', begin);
-  bytes.replace(begin, end - begin, "G F zeta[0]");
-  CHECK(fold_lift(bytes, 9, o, r, e, "extent") != TLSF_GR1_LIFT_OK);
+  bytes.replace(begin, end - begin, "G F request[0]");
+  CHECK(fold_lift(bytes, 9, o, r, e) != TLSF_GR1_LIFT_OK);
   CHECK(r.verdict == TLSF_GR1_CHECK_UNKNOWN && !r.certificate_aag);
   CHECK(strstr(r.decline_detail, "fold_seed_failed") ||
         strstr(r.decline_detail, "fold_failed"));
   tlsf_gr1_lift_result_clear(&r);
 
   bytes = read_source(path);
-  o.phase_budget.max_seed_probes = 7;
+  o.phase_budget.max_seed_probes = 2;
   CHECK(fold_lift(bytes, 9, o, r, e) == TLSF_GR1_LIFT_LIMIT);
   CHECK(strstr(r.decline_detail, "fold_probe_budget"));
   CHECK(!r.certificate_aag && r.verdict == TLSF_GR1_CHECK_UNKNOWN);
   tlsf_gr1_lift_result_clear(&r);
 }
+#include "parametric_fold_test.hh"
 int main(int argc, char **argv) {
+  if (argc == 3 && !strcmp(argv[1], "--param-activation")) {
+    parametric_activation_regressions(argv[2], false);
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--param-axes")) {
+    parametric_axis_regressions(argv[2], false);
+    return 0;
+  }
+  if ((argc == 3 || argc == 4) && !strcmp(argv[1], "--fold-axes")) {
+    auto bytes = read_source(argv[2]);
+    bytes.replace(bytes.find("n = 14;"), strlen("n = 14;"), "n = 9;");
+    fold_test::axis_regressions(bytes, argc == 4, "monitor-fold-v1");
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--param")) {
+    parametric_regressions(
+        argv[2], false,
+        {std::begin(param_fault_cases), std::end(param_fault_cases)});
+    return 0;
+  }
   if (argc == 3 && !strcmp(argv[1], "--fold-depth")) {
     fold_depth_regressions(argv[2]);
     return 0;

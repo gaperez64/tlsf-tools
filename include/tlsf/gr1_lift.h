@@ -88,7 +88,9 @@ typedef struct {
 } TlsfGr1LiftStats;
 
 /* Lifting phase budgets. A zero member selects the matching
- * TLSF_GR1_LIFT_DEFAULT_* value above. */
+ * TLSF_GR1_LIFT_DEFAULT_* value above. max_seed_probes caps legacy discovery
+ * and, independently, the shared route A/B fallback discovery. Public probe
+ * totals include actual work from both; all work shares deadline/RSS limits. */
 typedef struct {
   uint64_t max_seed_probes, max_discovery_bdd_ops, max_policy_bdd_ops,
       policy_proof_ns;
@@ -113,8 +115,9 @@ typedef struct {
   /* Zero keeps policy-first for callers that need a policy artifact.
    * Region-first retries policy only after region capacity or deadline;
    * REGION_FAILED declines without claiming UNREAL or exporting a policy.
-   * Encoded monitor-fold candidates always require REGION_VERIFIED and export
-   * no policy; BDD capacity permits one input-first region retry. */
+   * Monitor-fold candidates always require REGION_VERIFIED and export no
+   * policy; BDD capacity permits one order retry. Parametric-support folds
+   * try input-first first, encoded folds retain the default-first order. */
   TlsfGr1LiftProofOrder proof_order;
   /* Fixed U candidate allowance, including its seeds. Zero selects 180 s.
    * N3 may provide a shorter allowance after factoring out shared seeds. */
