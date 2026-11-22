@@ -25,7 +25,7 @@ for removed, retained in (locations, locations[::-1]):
             return "\n".join(mutant) + "\n"
         text = read_text(path, *args, **kwargs)
         # Redirect docs to the surviving identical occurrence, reproducing the
-        # set-based check's blind spot without relying on stale line numbers.
+        # set-based check's gap without relying on stale line numbers.
         return text.replace(f"dpa_formula.c:{removed}", f"dpa_formula.c:{retained}")
 
     with patch.object(Path, "read_text", changed_text), \
