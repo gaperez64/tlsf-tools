@@ -35,10 +35,12 @@ jobs:
     # Tighten this from the first measured CI run.
     timeout-minutes: 60
     env:
-      TMPDIR: ${{ runner.temp }}
       # Keep diagnostics serial until the first CI timing/memory measurement.
       LEAN_NUM_THREADS: '1'
     steps:
+      # The runner context is not available in job-level env, so set TMPDIR here.
+      - name: Use the runner's temporary directory
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - name: Cache elan and the pinned toolchain
         uses: actions/cache@v5
