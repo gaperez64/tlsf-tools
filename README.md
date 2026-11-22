@@ -542,6 +542,10 @@ bench/bench.sh --check     # fail on wall-time/RSS regressions
 
 CI (`.github/workflows/ci.yml`) checks formatting, GCC/Clang builds, tests,
 Valgrind leaks, 75% line coverage, and `bench.sh --check` wall/RSS regressions.
+For Lean branch protection, require **Lean proof gate** from
+`.github/workflows/lean.yml`; it enforces successful change detection and any
+required proof run, and checks correspondence on every PR target. See the
+[proof checks](proofs/README.md#build) for the semantic axiom audit and regressions.
 Licensed under [MIT](LICENSE).
 
 Offline golden verification and membership regeneration use the independent
