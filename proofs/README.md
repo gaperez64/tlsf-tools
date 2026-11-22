@@ -54,8 +54,9 @@ Mark **Lean proof gate** as the required branch-protection check. It always
 runs, fails on detector failure or an unsuccessful required Lean run, and accepts
 a skipped Lean run only after successful detection reports no relevant changes.
 The gate also checks proof/source correspondence and its regressions on every PR,
-regardless of target branch. Dispatch and weekly runs
-check everything to catch drift outside that list. The `lean_exe` targets do
+regardless of target branch. A manual dispatch checks everything. There is no
+scheduled run: the proofs use only Lean core with a pinned toolchain, so a run
+on unchanged proof inputs would recheck what the last push already checked. The `lean_exe` targets do
 not read external files during this build or its audits: `dpaImplChecks` uses
 embedded cases, and `dpaValidate` reads request/dump files only when explicitly
 invoked with those arguments. Historical golden replay below is a separate
