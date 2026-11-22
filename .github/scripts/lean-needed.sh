@@ -13,9 +13,12 @@ case "${GITHUB_EVENT_NAME:?}" in
   *) echo true; exit ;;
 esac
 
-# Disable rename detection so moving a proof out of the path set still checks it.
-# NUL delimiters also handle spaces, quotes, and newlines in filenames.
-git diff --name-only --no-renames -z "$BASE_SHA" HEAD | {
+# Name-only reports rename destinations; diff both ways to include old paths too.
+# Keep the pipe open through EOF so either git failure propagates via pipefail.
+{
+  git diff --name-only --find-renames -z "$BASE_SHA" HEAD
+  git diff --name-only --find-renames -z HEAD "$BASE_SHA"
+} | {
   needed=false
   while IFS= read -r -d '' path; do
     case "$path" in
@@ -24,7 +27,7 @@ git diff --name-only --no-renames -z "$BASE_SHA" HEAD | {
       # External Lean axiom audits run by check.sh.
       tools/golden/*.lean) needed=true ;;
       # The workflow and its change detector are themselves CI inputs.
-      .github/workflows/lean.yml|.github/scripts/lean-needed.sh) needed=true ;;
+      .github/workflows/lean.yml|.github/scripts/lean-*.sh|test/cli/check_lean_ci.py|test/cli/check_axiom_audit.py) needed=true ;;
     esac
   done
   echo "$needed"

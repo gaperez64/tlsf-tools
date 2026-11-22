@@ -32,6 +32,9 @@ done
 echo 'Checking the final library build'
 time timeout 1500 lake --rehash build
 
+echo 'Auditing axioms of every library declaration'
+time timeout 300 lake env lean -j1 -s2048 -DElab.async=false -DwarningAsError=true --run audit-axioms.lean TlsfProofs
+
 for audit in ../tools/golden/*_audit.lean; do
   echo "Running $audit"
   time timeout 300 lake env lean -j1 -s2048 -DElab.async=false -DwarningAsError=true "$audit"

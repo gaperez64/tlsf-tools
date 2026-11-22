@@ -4,7 +4,7 @@ This standalone Lean 4.35.0 project uses only core (`import Init`). `TlsfProofs`
 checks every module and `Examples.lean` with warnings as errors. The kernel
 checks all proof steps; there are no external packages or executable decision
 shortcuts. Classical reasoning handles proposition cases, least witnesses,
-and component-strategy choice. Main-result audits permit only `propext`,
+and component-strategy choice. Library-wide audits permit only `propext`,
 `Classical.choice`, and `Quot.sound`.
 
 The proofs establish mathematical ports of definition elimination, clustering,
@@ -32,20 +32,49 @@ the same limits pending its first measurement. Do not impose a virtual-memory ca
 
 Checks reject `sorry`, `admit`, and new `axiom` declarations in proof/audit
 sources (including comments), build the library, run the sequential per-module
-diagnostics and final build, then run every `tools/golden/*_audit.lean` audit.
+diagnostics and final build, then audit every declaration in every library module
+with `Lean.collectAxioms`, including private helpers and modules absent from the
+root import list. This semantic audit rejects generated assumptions from
+`native_decide`, `sorryAx`, and all other dependencies outside
+{`propext`, `Classical.choice`, `Quot.sound`}. It then runs every
+`tools/golden/*_audit.lean` audit, retaining the per-theorem checks.
+The library's `TlsfProofs.*` Lake glob builds all discovered modules first,
+including executable roots and future modules outside the root import list.
 Each command prints its timing and propagates failures. Lake always rehashes
 inputs, so restored `.lake` artifacts cannot bypass changed-source builds.
 The GR(1) and restriction audits fail on dependencies outside
 {`propext`, `Classical.choice`, `Quot.sound`}; the DPA audits print dependencies.
 
 The Lean workflow always starts its change-detection job; its path list lives
-in [lean-needed.sh](../.github/scripts/lean-needed.sh). Dispatch and weekly runs
+in [lean-needed.sh](../.github/scripts/lean-needed.sh). It parses NUL-delimited
+Git paths in both diff directions so renames into or out of the list count.
+Mark **Lean proof gate** as the required branch-protection check. It always
+runs, fails on detector failure or an unsuccessful required Lean run, and accepts
+a skipped Lean run only after successful detection reports no relevant changes.
+The gate also checks proof/source correspondence and its regressions on every PR,
+regardless of target branch. Dispatch and weekly runs
 check everything to catch drift outside that list. The `lean_exe` targets do
 not read external files during this build or its audits: `dpaImplChecks` uses
 embedded cases, and `dpaValidate` reads request/dump files only when explicitly
 invoked with those arguments. Historical golden replay below is a separate
 native-build operation. Keep any future runtime inputs used by this script in
 the path list as well.
+
+Lightweight controls run without building the proof library:
+
+```bash
+python3 test/cli/check_lean_ci.py
+python3 test/cli/check_proof_references.py .
+python3 test/cli/check_proof_reference_controls.py
+PATH="$HOME/.elan/bin:$PATH" python3 test/cli/check_axiom_audit.py
+```
+
+The last command uses the pinned Lean toolchain on tiny scratch modules only,
+including negative `native_decide` and `sorry` cases; CI runs it before the
+library build. Temporary files use `TMPDIR` when set. On a constrained Linux
+machine, run it in a scope such as
+`systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0` with
+`LEAN_NUM_THREADS=1` and a suitable `TMPDIR`.
 
 ## Decomposition model and guarantees
 

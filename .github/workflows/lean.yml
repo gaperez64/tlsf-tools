@@ -20,8 +20,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      # proof_source_references already runs on every main-targeted PR in CI's
-      # build-test job via the unconditional Meson test registration.
       - name: Decide whether to check Lean
         id: filter
         env:
@@ -33,7 +31,6 @@ jobs:
   lean:
     runs-on: ubuntu-24.04
     needs: changes
-    # A job skipped by this condition reports success to branch protection.
     if: needs.changes.outputs.run == 'true'
     # Tighten this from the first measured CI run.
     timeout-minutes: 60
@@ -63,6 +60,8 @@ jobs:
         run: |
           time lean --version
           time lake --version
+      - name: Test semantic axiom audit on tiny fixtures
+        run: python3 test/cli/check_axiom_audit.py
       - name: Cache Lake build artifacts
         uses: actions/cache@v5
         with:
@@ -72,3 +71,23 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-lake-${{ hashFiles('proofs/lean-toolchain') }}-
       - name: Check proofs and audits
         run: time bash proofs/check.sh
+
+  required:
+    name: Lean proof gate
+    runs-on: ubuntu-24.04
+    if: always()
+    needs: [changes, lean]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check correspondence on every PR target and test CI controls
+        run: |
+          python3 test/cli/check_proof_references.py .
+          python3 test/cli/check_proof_reference_controls.py
+          python3 test/cli/check_lean_ci.py
+      - name: Enforce detector and Lean results
+        if: always()
+        env:
+          DETECTOR_RESULT: ${{ needs.changes.result }}
+          LEAN_NEEDED: ${{ needs.changes.outputs.run }}
+          LEAN_RESULT: ${{ needs.lean.result }}
+        run: bash .github/scripts/lean-gate.sh
