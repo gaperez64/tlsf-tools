@@ -8,7 +8,7 @@ and component-strategy choice. Main-result audits permit only `propext`,
 `Classical.choice`, and `Quot.sound`.
 
 The proofs establish mathematical ports of definition elimination, clustering,
-conditional assumption pruning, selected rewrites, set deduplication, signed
+conditional assumption pruning, one-sided restrictions, selected rewrites, set deduplication, signed
 decimal decoding, checked integer evaluation and range reductions, strength-preserving
 indexed-next normalization, and an independent automaton
 construction/validator. They do not verify the C binary or other CSNF controllers.
@@ -26,17 +26,18 @@ export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
 lake build
 
 # Sequential per-module diagnostics
-for module in LTL Game Objective Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic NextStrength Gr1/Region Gr1/Examples; do
+for module in LTL Game Objective Restriction Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic NextStrength Gr1/Region Gr1/Examples; do
   timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
   timeout 300 lake build "TlsfProofs.${module//\//.}" || exit $?
 done
 timeout 1500 lake build || exit $?
 
-# GR(1) region axiom audit
-timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean
+# GR(1) region and restriction axiom audits
+timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean || exit $?
+timeout 300 lake env lean ../tools/golden/restriction_audit.lean || exit $?
 ```
 
-The GR(1) audit fails if any checked declaration depends on an axiom outside
+Each audit fails if any checked declaration depends on an axiom outside
 {`propext`, `Classical.choice`, `Quot.sound`}; no manual output comparison is
 needed. CI does not build the proofs, so run these commands before changing them.
 
@@ -47,6 +48,7 @@ needed. CI does not build the proofs, so run these commands before changing them
 | `LTL.lean` | Expanded constants/atoms, five Boolean connectives, weak/strong next, F/G/U/R/W/M. `Sat len w f j` uses `none` for infinite words and `some n` below n; out-of-word queries are false. Final weak next is true, strong next false. Locality reads only formula atoms at in-range positions from j; Boolean substitution is exact. |
 | `Game.lean` | Input-first Mealy strategies use history and current masked inputs. `play` supplies infinite environment choices. `Realizable` wins at zero on every play; `FinRealizable` wins some nonempty prefix per play (`FinWin` order). Replay reconstructs each strategy's own history; decoration maps current letters; products play owned outputs. |
 | `Objective.lean` | `objective_sat` connects ordinary `I -> (P && ((G Req && A) -> (G As && Gu)))` and strict `I -> (P && (As W !Req) && ((G Req && A) -> Gu))` to enabled section obligations, including safety before REQUIRE fails. |
+| `Restriction.lean` | Simultaneous Boolean substitution is exact on decoded finite/infinite words. Causal input restriction transfers unrealizability; input-preserving output restriction transfers realizability with strategy reconstruction, for the whole ordinary/strict infinite Mealy objective. |
 | `Passes.lean` | List-ordered substitution and letter composition. Ranked dependencies converge in any list order; `ordered_pass_definitions` / `ordered_pass_fixed` show that descending dependency rank establishes every definition in one pass, including flipped equivalences. |
 | `Definition.lean` | Realizability equivalence for both word kinds and ordinary/strict semantics, using the actual pass structure on retained entries. Decoration reconstructs a winning original strategy; the reverse uses section coverage and dependency-closed support, without requiring inactive conditional definitions. |
 | `Cluster.lean` | Infinite-word realizability iff every cluster wins, for ordinary/strict semantics. All environment entries stay and use inputs only; each system entry's outputs share its key class. Unused keys win trivially, even with inconsistent environments. |
@@ -108,6 +110,84 @@ Names below are in `Tlsf`; fixtures/counterexamples are in `Tlsf.Examples`.
 | Literal ordinary/strict section objective | `section_sat`, `weakUntil_guard`, `objective_sat` |
 | Input-preserving causal strategy transfer | `transfer`, `transfer_inf`, `transfer_fin` |
 | Guard is satisfiable for either equivalence orientation | `boolean_fixture` |
+
+## One-sided restrictions (acacia-bonsai #451)
+
+[`Restriction.lean`](TlsfProofs/Restriction.lean) imports the core-only objective
+model; names here are in `Tlsf.Restriction`. `substAll θ f` inserts each Boolean
+replacement once, without visiting the inserted syntax. Thus AP/constant maps
+are simultaneous, even when a replacement mentions another replaced AP; no
+ordering, acyclicity or fixed-representative premise is needed. `decode θ v a`
+evaluates `θ a` on the original current letter. `substAll_sat` holds for every
+`len`, word and position, including terminal/out-of-word queries.
+
+| Obligation | Theorem or definition |
+| --- | --- |
+| Exact simultaneous Boolean substitution | `substAll`, `decode`, `mapWord`, `substAll_sat` |
+| Decoder changes only inputs, using only current inputs | `InputDecoder`, `input_decoder`, `OwnershipPreserving` |
+| Explicit system simulation on decoded input/history | `restrictSystem`, `replay_decode_history`, `play_input_decoder` |
+| Original realizability implies input-restricted realizability; contraposition gives UNREAL only | `realizable_input_restriction`, `unrealizable_input_restriction` |
+| Output-restricted realizability implies original realizability, via `decorate` | `realizable_output_restriction`, `play_decorate` |
+| Every input in S is replaced by r in S, with input ownership | `identify`, `identify_boolean`, `identify_ownership`, `input_identification_decoder` |
+| Every selected output is set to its Boolean constant | `constants`, `constants_boolean`, `constants_ownership`, `constant_output_decoder` |
+| Input constants and output representatives of the same ownership | `constant_input_decoder`, `output_identification_decoder` |
+| Complete ordinary/strict effective objective | `substAll_objective_sat`, `objective_input_restriction`, `objective_output_restriction` |
+| Opposite verdict polarities fail | `input_identification_polarity`, `output_constant_polarity` |
+
+`InputDecoder.input_causal` says equal masked current inputs give equal decoded
+masked inputs. `restrictSystem` replays the original strategy on the decoded
+history and supplies decoded masked current inputs. `play_input_decoder` equates
+the decoded restricted play with the original strategy against the decoded
+environment. Outputs are untouched. Output restriction instead keeps inputs
+and uses the existing `decorate` strategy, which replays its own underlying
+history before decoding the current outputs. Neither implication needs game
+determinacy or a symmetry certificate. The game results concern infinite,
+input-first Mealy games; no finite/Moore verdict theorem is claimed here.
+The build's `restriction_audit.lean` enforces the permitted core axiom set.
+
+**Trusted boundary.** The C++ prepass must extract the complete **positive,
+effective input-first Mealy objective** `f`, including all six sections,
+defaults, the ordinary or strict shape, and any prior timing adaptation. It must
+apply exactly the chosen simultaneous substitution to every occurrence in that
+whole objective, including assumptions and guards. Substitution and all ownership
+checks must use this original positive frame and the original ownership map
+`isIn`, before any unreal-side shift, negation or player/frame exchange.
+Restricting a source parameter, deleting clauses/loop iterations, or replacing
+only guarantees is not this operation.
+Expanded AST/DAG/AP identities and Boolean values must agree with Lean, and
+any simplification/translation must preserve that transformed objective.
+Input restriction must leave outputs unchanged and read only current inputs;
+output restriction must keep inputs and decode current letters causally.
+AP representatives must have the same declared ownership as the APs they replace;
+`identify` requires a representative in the selected set, whose members all
+belong to that player. `constants` requires every selected AP to belong to the
+restricted player. The Lean signal type and ownership map stay fixed: removing
+unused declarations requires a correct projection/extension bridge in C++.
+
+For the restricted positive objectives `fE = substAll θE f` (inputs) and
+`fT = substAll θT f` (outputs), an accepted UNREALIZABLE worker result must imply
+`¬Realizable isIn fE`, and an accepted REALIZABLE worker result must imply
+`Realizable isIn fT`, both in the original input-first Mealy frame under `isIn`.
+The worker's sign and timing transformation, including any player/frame exchange,
+must establish this correspondence; it is trusted and is not established by the
+new restriction theorems.
+
+This order matters: with inputs `p, q` and output `o`, `φ = o ↔ (p ∨ q)` and
+its restriction `q := p` are both realizable. Negating the restricted objective
+and merely swapping ownership still gives a realizable input-first Mealy game:
+the new system chooses `p = ¬o`. That result cannot certify
+`¬Realizable isIn fE`; the correct sign and timing correspondence is necessary.
+
+Only these sound completed UNREAL verdicts on input restrictions or REAL verdicts
+on output restrictions may decide the original. Opposite verdicts,
+unsupported cases, resource failures and inconclusive attempts must fall back
+without a transferred verdict. Synthesis must implement the output decoder
+using the restricted controller's simultaneous current letter and underlying
+history, reinserting every restricted output; otherwise admission is
+decision-only. A restricted environment counterstrategy likewise needs decoded
+inputs to be exported, although the UNREAL theorem itself is contraposition.
+The prepass, solver/certificate correspondence, controller serialization, C++
+execution and the source-to-effective-objective bridge remain unverified.
 
 ## Rewrite exactness
 

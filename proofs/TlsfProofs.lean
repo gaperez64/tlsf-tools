@@ -1,6 +1,7 @@
 import TlsfProofs.LTL
 import TlsfProofs.Game
 import TlsfProofs.Objective
+import TlsfProofs.Restriction
 import TlsfProofs.Passes
 import TlsfProofs.Definition
 import TlsfProofs.Cluster
