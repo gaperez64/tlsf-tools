@@ -15,31 +15,37 @@ construction/validator. They do not verify the C binary or other CSNF controller
 
 ## Build
 
-From `proofs/`, run one Lean compiler at a time. Dependencies make the default
-build serial. As in acacia, library arguments are `-j1`, `-s2048`,
-`-DElab.async=false`, with `warningAsError = true`. Do not impose a virtual-memory cap.
-The diagnostic commands below require Bash and GNU coreutils `timeout`.
+From the repository root, run the same check script as CI. It requires Bash,
+GNU grep, and GNU coreutils `timeout`:
 
 ```bash
-export PATH="$HOME/.elan/bin:$PATH"
-export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
-lake build
-
-# Sequential per-module diagnostics
-for module in LTL Game Objective Restriction Passes Definition Cluster Pruning Examples Rewrites SetDedup IntegerLiteral CheckedArithmetic NextStrength Gr1/Region Gr1/Examples; do
-  timeout 300 lake env lean "TlsfProofs/$module.lean" || exit $?
-  timeout 300 lake build "TlsfProofs.${module//\//.}" || exit $?
-done
-timeout 1500 lake build || exit $?
-
-# GR(1) region and restriction axiom audits
-timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean || exit $?
-timeout 300 lake env lean ../tools/golden/restriction_audit.lean || exit $?
+bash proofs/check.sh
 ```
 
-Each audit fails if any checked declaration depends on an axiom outside
-{`propext`, `Classical.choice`, `Quot.sound`}; no manual output comparison is
-needed. CI does not build the proofs, so run these commands before changing them.
+The script also works as `bash check.sh` from `proofs/`. It defaults to one
+Lean process with `LEAN_NUM_THREADS=1`, `LEAN_STACK_SIZE_KB=2048`, and
+`LEAN_MAIN_USE_THREAD=0`; existing environment values override these defaults.
+On a larger machine, raising `LEAN_NUM_THREADS` permits Lake to schedule more
+work. Per-module diagnostics remain serial everywhere, and individual compilers
+keep `-j1`, `-s2048`, `-DElab.async=false`, and warnings as errors. CI starts with
+the same limits pending its first measurement. Do not impose a virtual-memory cap.
+
+Checks reject `sorry`, `admit`, and new `axiom` declarations in proof/audit
+sources (including comments), build the library, run the sequential per-module
+diagnostics and final build, then run every `tools/golden/*_audit.lean` audit.
+Each command prints its timing and propagates failures. Lake always rehashes
+inputs, so restored `.lake` artifacts cannot bypass changed-source builds.
+The GR(1) and restriction audits fail on dependencies outside
+{`propext`, `Classical.choice`, `Quot.sound`}; the DPA audits print dependencies.
+
+The Lean workflow always starts its change-detection job; its path list lives
+in [lean-needed.sh](../.github/scripts/lean-needed.sh). Dispatch and weekly runs
+check everything to catch drift outside that list. The `lean_exe` targets do
+not read external files during this build or its audits: `dpaImplChecks` uses
+embedded cases, and `dpaValidate` reads request/dump files only when explicitly
+invoked with those arguments. Historical golden replay below is a separate
+native-build operation. Keep any future runtime inputs used by this script in
+the path list as well.
 
 ## Decomposition model and guarantees
 

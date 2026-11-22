@@ -41,6 +41,7 @@ test('reference_semantics_and_oracle_guard', python3,
   args: [files('../../tools/golden/test_gates.py')], timeout: 60)
 test('proof_source_references', python3,
   args: [files('check_proof_references.py'), meson.project_source_root()])
+test('lean_ci_controls', python3, args: [files('check_lean_ci.py')])
 test('checked_arithmetic_cli_115', python3,
   args: [files('check_checked_arithmetic.py'), exe['tlsf2ltl'], exe['tlsf2tlsf'],
          exe['tlsfnorm']], timeout: 120)
