@@ -33,8 +33,11 @@ echo 'Checking the final library build'
 time timeout 1500 lake --rehash build
 
 # Build exactly the modules we audit, including unimported nested sources.
-shopt -s globstar nullglob
-modules=(TlsfProofs.lean TlsfProofs/**/*.lean)
+# find instead of globstar: macOS ships bash 3.2, which has no globstar.
+modules=(TlsfProofs.lean)
+while IFS= read -r source; do
+  modules+=("$source")
+done < <(find TlsfProofs -type f -name '*.lean' | LC_ALL=C sort)
 modules=("${modules[@]%.lean}")
 modules=("${modules[@]//\//.}")
 time timeout 1500 lake --rehash build "${modules[@]}"
