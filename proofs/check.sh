@@ -32,8 +32,18 @@ done
 echo 'Checking the final library build'
 time timeout 1500 lake --rehash build
 
+# Build exactly the modules we audit, including unimported nested sources.
+shopt -s globstar nullglob
+modules=(TlsfProofs.lean TlsfProofs/**/*.lean)
+modules=("${modules[@]%.lean}")
+modules=("${modules[@]//\//.}")
+time timeout 1500 lake --rehash build "${modules[@]}"
+
 echo 'Auditing axioms of every library declaration'
-time timeout 300 lake env lean -j1 -s2048 -DElab.async=false -DwarningAsError=true --run audit-axioms.lean TlsfProofs
+# Separate processes let executable roots declare the same global main.
+for module in "${modules[@]}"; do
+  time timeout 300 lake env lean -j1 -s2048 -DElab.async=false -DwarningAsError=true --run audit-axioms.lean "$module"
+done
 
 for audit in ../tools/golden/*_audit.lean; do
   echo "Running $audit"

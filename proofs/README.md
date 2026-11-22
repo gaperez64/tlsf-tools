@@ -28,17 +28,19 @@ Lean process with `LEAN_NUM_THREADS=1`, `LEAN_STACK_SIZE_KB=2048`, and
 On a larger machine, raising `LEAN_NUM_THREADS` permits Lake to schedule more
 work. Per-module diagnostics remain serial everywhere, and individual compilers
 keep `-j1`, `-s2048`, `-DElab.async=false`, and warnings as errors. CI starts with
-the same limits pending its first measurement. Do not impose a virtual-memory cap.
+the same limits; cold-cache full runs measured 1–1.5 minutes. Do not impose a
+virtual-memory cap.
 
 Checks reject `sorry`, `admit`, and new `axiom` declarations in proof/audit
 sources (including comments), build the library, run the sequential per-module
 diagnostics and final build, then audit every declaration in every library module
 with `Lean.collectAxioms`, including private helpers and modules absent from the
-root import list. This semantic audit rejects generated assumptions from
-`native_decide`, `sorryAx`, and all other dependencies outside
+root import list. Each module is imported in a separate Lean process so executable
+roots can define their own global `main`. This semantic audit rejects generated
+assumptions from `native_decide`, `sorryAx`, and all other dependencies outside
 {`propext`, `Classical.choice`, `Quot.sound`}. It then runs every
 `tools/golden/*_audit.lean` audit, retaining the per-theorem checks.
-The library's `TlsfProofs.*` Lake glob builds all discovered modules first,
+Before auditing, the script explicitly builds every discovered module target,
 including executable roots and future modules outside the root import list.
 Each command prints its timing and propagates failures. Lake always rehashes
 inputs, so restored `.lake` artifacts cannot bypass changed-source builds.
@@ -69,9 +71,10 @@ python3 test/cli/check_proof_reference_controls.py
 PATH="$HOME/.elan/bin:$PATH" python3 test/cli/check_axiom_audit.py
 ```
 
-The last command uses the pinned Lean toolchain on tiny scratch modules only,
-including negative `native_decide` and `sorry` cases; CI runs it before the
-library build. Temporary files use `TMPDIR` when set. On a constrained Linux
+The last command selects the pinned Lean toolchain explicitly on tiny scratch
+modules only. It covers forbidden axioms, duplicate `main` definitions, missing
+imports, and stale unimported sources; CI runs it before the library build.
+Temporary files use `TMPDIR` when set. On a constrained Linux
 machine, run it in a scope such as
 `systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0` with
 `LEAN_NUM_THREADS=1` and a suitable `TMPDIR`.

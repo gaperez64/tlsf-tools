@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.run == 'true'
-    # Tighten this from the first measured CI run.
-    timeout-minutes: 60
+    # Cold-cache full runs measured 1–1.5 minutes; allow room for runner variance.
+    timeout-minutes: 15
     env:
-      # Keep diagnostics serial until the first CI timing/memory measurement.
+      # Keep diagnostics serial to bound memory use.
       LEAN_NUM_THREADS: '1'
     steps:
       # The runner context is not available in job-level env, so set TMPDIR here.

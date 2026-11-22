@@ -1,20 +1,12 @@
 import Lean.CoreM
 import Lean.Util.CollectAxioms
-import Lean.Util.Path
 
 open Lean
 
 unsafe def main (args : List String) : IO Unit := do
-  let [root] := args | throw <| IO.userError "usage: audit-axioms.lean LIBRARY"
-  let directory := System.FilePath.mk root
-  let paths ← if ← directory.isDir then directory.walkDir else pure #[]
-  let mut modules := #[]
-  for path in paths.push (directory.withExtension "lean") do
-    if path.extension == some "lean" && (← path.pathExists) then
-      modules := modules.push <|
-        (path.withExtension "").components.foldl Name.str .anonymous
-  if modules.isEmpty then
-    throw <| IO.userError s!"no library modules found for {root}"
+  if args.isEmpty then
+    throw <| IO.userError "usage: audit-axioms.lean MODULE ..."
+  let modules := args.toArray.map String.toName
   initSearchPath (← findSysroot)
   enableInitializersExecution
   -- Load private declarations too, including generated helpers and unused proofs.
@@ -30,8 +22,7 @@ unsafe def main (args : List String) : IO Unit := do
           unless unexpected.isEmpty do
             throwError "{name}: forbidden axioms {unexpected}"
           checked := checked + 1
-    if checked == 0 then
-      throwError "no library declarations audited"
+    -- An import-only root can have no declarations of its own.
     pure checked)
     { fileName := "audit-axioms.lean", fileMap := default } { env := env }
   IO.println s!"Audited {checked} declarations in {modules.size} library modules"

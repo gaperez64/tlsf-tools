@@ -119,12 +119,26 @@ sys.exit(int(os.environ.get('REVERSE_STATUS' if reverse else 'DIFF_STATUS', '0')
 import json, os, sys
 with open(os.environ['COMMAND_LOG'], 'a') as log:
     log.write(json.dumps([sys.argv[1:], os.environ['LEAN_NUM_THREADS']]) + '\\n')
+if 'build' in sys.argv:
+    from pathlib import Path
+    for target in sys.argv[sys.argv.index('build') + 1:]:
+        source = Path(target.replace('.', '/') + '.lean')
+        if source.exists() and 'INVALID_LEAN' in source.read_text():
+            sys.exit(9)
+if '--run' in sys.argv and sys.argv[-1] == os.environ.get('FAIL_AUDIT_MODULE'):
+    sys.exit(73)
 sys.exit(73 if os.environ.get('FAIL_STEP') in sys.argv[1:] else 0)
 """)
     timeout.chmod(0o755)
     proofs = work / "proofs"
     (proofs / "TlsfProofs").mkdir(parents=True)
     (proofs / "TlsfProofs.lean").write_text("import Init\n")
+    nested = proofs / "TlsfProofs/Nested"
+    nested.mkdir()
+    unimported = nested / "Unused.lean"
+    unimported.write_text("import Init\n")
+    for name in ("First", "Second"):
+        (proofs / f"TlsfProofs/{name}.lean").write_text("def main : IO Unit := pure ()\n")
     goldens = work / "tools/golden"
     goldens.mkdir(parents=True)
     for name in (root / "tools/golden").glob("*_audit.lean"):
@@ -154,6 +168,11 @@ sys.exit(73 if os.environ.get('FAIL_STEP') in sys.argv[1:] else 0)
                    for args, _ in commands) == len(list(goldens.glob("*_audit.lean")))
         audit = next(i for i, (args, _) in enumerate(commands) if "audit-axioms.lean" in args)
         assert audit > max(i for i, (args, _) in enumerate(commands) if "build" in args)
+        modules = {"TlsfProofs", "TlsfProofs.First", "TlsfProofs.Second", "TlsfProofs.Nested.Unused"}
+        assert set(builds[-1][4:]) == modules
+        partitions = [args[args.index("--run") + 2:] for args, _ in commands if "--run" in args]
+        assert len(partitions) == len(modules)
+        assert {tuple(partition) for partition in partitions} == {(module,) for module in modules}
         assert all(not arg.endswith("_audit.lean")
                    for args, _ in commands[:audit] for arg in args)
     status, commands = check(FAIL_STEP="TlsfProofs.Restriction")
@@ -164,6 +183,15 @@ sys.exit(73 if os.environ.get('FAIL_STEP') in sys.argv[1:] else 0)
     assert status == 73
     status, commands = check(FAIL_STEP="audit-axioms.lean")
     assert status == 73 and commands[-1][0][-1] == "TlsfProofs"
+    status, commands = check(FAIL_AUDIT_MODULE="TlsfProofs.Second")
+    assert status == 73 and "--run" in commands[-1][0]
+    assert commands[-1][0][-1] == "TlsfProofs.Second"
+    assert any("--run" in args and args[-1] == "TlsfProofs.First" for args, _ in commands)
+    unimported.write_text("INVALID_LEAN\n")
+    status, commands = check()
+    assert status == 9 and "build" in commands[-1][0]
+    assert not any("--run" in args for args, _ in commands)
+    unimported.write_text("import Init\n")
     for placeholder in ("sorry", "admit", "axiom unchecked : True"):
         (proofs / "Bad.lean").write_text(placeholder + "\n")
         status, commands = check()
