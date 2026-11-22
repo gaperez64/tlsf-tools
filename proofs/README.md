@@ -33,8 +33,8 @@ done
 timeout 1500 lake build || exit $?
 
 # GR(1) region and restriction axiom audits
-timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean
-timeout 300 lake env lean ../tools/golden/restriction_audit.lean
+timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean || exit $?
+timeout 300 lake env lean ../tools/golden/restriction_audit.lean || exit $?
 ```
 
 Each audit fails if any checked declaration depends on an axiom outside
@@ -146,11 +146,14 @@ input-first Mealy games; no finite/Moore verdict theorem is claimed here.
 The build's `restriction_audit.lean` enforces the permitted core axiom set.
 
 **Trusted boundary.** The C++ prepass must extract the complete **positive,
-effective Mealy objective**, including all six sections, defaults, the ordinary
-or strict shape, and any prior timing adaptation. It must apply exactly the
-chosen simultaneous substitution to every occurrence in that whole objective,
-including assumptions and guards. Restricting a source parameter, deleting
-clauses/loop iterations, or replacing only guarantees is not this operation.
+effective input-first Mealy objective** `f`, including all six sections,
+defaults, the ordinary or strict shape, and any prior timing adaptation. It must
+apply exactly the chosen simultaneous substitution to every occurrence in that
+whole objective, including assumptions and guards. Substitution and all ownership
+checks must use this original positive frame and the original ownership map
+`isIn`, before any unreal-side shift, negation or player/frame exchange.
+Restricting a source parameter, deleting clauses/loop iterations, or replacing
+only guarantees is not this operation.
 Expanded AST/DAG/AP identities and Boolean values must agree with Lean, and
 any simplification/translation must preserve that transformed objective.
 Input restriction must leave outputs unchanged and read only current inputs;
@@ -160,8 +163,23 @@ AP representatives must have the same declared ownership as the APs they replace
 belong to that player. `constants` requires every selected AP to belong to the
 restricted player. The Lean signal type and ownership map stay fixed: removing
 unused declarations requires a correct projection/extension bridge in C++.
-Only a sound completed UNREAL verdict on an input restriction or REAL verdict
-on an output restriction may decide the original. Opposite verdicts,
+
+For the restricted positive objectives `fE = substAll θE f` (inputs) and
+`fT = substAll θT f` (outputs), an accepted UNREALIZABLE worker result must imply
+`¬Realizable isIn fE`, and an accepted REALIZABLE worker result must imply
+`Realizable isIn fT`, both in the original input-first Mealy frame under `isIn`.
+The worker's sign and timing transformation, including any player/frame exchange,
+must establish this correspondence; it is trusted and is not established by the
+new restriction theorems.
+
+This order matters: with inputs `p, q` and output `o`, `φ = o ↔ (p ∨ q)` and
+its restriction `q := p` are both realizable. Negating the restricted objective
+and merely swapping ownership still gives a realizable input-first Mealy game:
+the new system chooses `p = ¬o`. That result cannot certify
+`¬Realizable isIn fE`; the correct sign and timing correspondence is necessary.
+
+Only these sound completed UNREAL verdicts on input restrictions or REAL verdicts
+on output restrictions may decide the original. Opposite verdicts,
 unsupported cases, resource failures and inconclusive attempts must fall back
 without a transferred verdict. Synthesis must implement the output decoder
 using the restricted controller's simultaneous current letter and underlying
