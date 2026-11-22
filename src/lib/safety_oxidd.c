@@ -2,8 +2,7 @@
 //
 // Replaces the AbsSynthe subprocess solve step (`run_abssynthe_game`): compile
 // the `Aig` game's cones into BDDs, run the controllable-predecessor (`cpre`)
-// safety fixpoint, and extract a Skolem strategy back into an `Aig`.  See
-// CLAUDE.md (OxiDD section).  Only built when the OxiDD feature is enabled.
+// safety fixpoint, and extract a Skolem strategy back into an `Aig`.
 //
 // Conventions (matching the game encoders in tlsfcompose):
 //   * env moves first / Mealy: cpre(Z)(s) = ∀u ∃c [ ¬bad ∧ Z[s := next] ];

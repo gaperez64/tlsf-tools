@@ -1,7 +1,7 @@
 import TlsfProofs.Rewrites
 
 /-!
-# STAGE1 §§1–3 / STAGE2 §2: semantic propositional classes
+# Semantic propositional classes
 
 APs are `Fin ap`. Modal atoms (including a formula and its NNF dual) are
 independent variables. Only AP negation uses Boolean complementation.
@@ -93,7 +93,7 @@ theorem class_finite_atoms (x : Class ap) : ∃ atoms, x.DependsOn atoms := by
   rw [← x.repr_eval σ, ← x.repr_eval τ]
   exact propEval_local _ _ _ h
 
-/-- Syntactic finite-window, safety and co-safety tests (STAGE1 §1).
+/-- Syntactic finite-window, safety and co-safety tests.
 Negation here is permitted only on an AP. -/
 def finite : Formula α → Prop
   | .tt | .ff | .ap _ | .neg (.ap _) => True
@@ -193,7 +193,7 @@ theorem U_monotone {x y : Class ap} (h : x ⇒ₚ y) : U x ⇒ₚ U y :=
 theorem D_monotone {x y : Class ap} (v : Letter (Fin ap)) (h : x ⇒ₚ y) :
     D v x ⇒ₚ D v y := fun σ hx => h (stepAtom v σ) hx
 
-/-- STAGE1 §2, absorption of the second unfolding, as propositional equality. -/
+/-- Absorption of the second unfolding, as propositional equality. -/
 theorem unfold_idempotent_eval (f : Formula (Fin ap)) (σ : Assignment ap) :
     propEval (unfoldAtom σ) (unfoldSyntax f) = propEval σ (unfoldSyntax f) := by
   induction f with
@@ -371,7 +371,7 @@ theorem unfold_sat (f : Formula (Fin ap)) (w : Word (Fin ap)) (j : Nat) :
     rw [(temporal_step f g w j).2.2.2]
     by_cases hf : Sat none w f j <;> by_cases hg : Sat none w g j <;> simp [hf, hg]
 
-/-- STAGE1 §3: unfolding preserves the LTL interpretation of every class. -/
+/-- Unfolding preserves the LTL interpretation of every class. -/
 theorem U_holds (x : Class ap) : Holds w j (U x) ↔ Holds w j x := by
   change x (unfoldAtom (truthAssignment w j)) = true ↔ x (truthAssignment w j) = true
   rw [← repr_eval, ← repr_eval, ← unfold_substitution]
@@ -401,7 +401,7 @@ theorem derivative_syntax (f : Formula (Fin ap)) (w : Word (Fin ap)) (j : Nat) :
   | strongRelease f g ihf ihg =>
     simpa only [unfoldSyntax, stepSyntax, Sat, InRange, true_and, ihf, ihg] using (temporal_step f g w j).2.2.2.symm
 
-/-- STAGE1 §3 (1): suffix notation is expressed by the position parameter. -/
+/-- Suffix notation is expressed by the position parameter. -/
 theorem derivative (x : Class ap) (w : Word (Fin ap)) (j : Nat) :
     Holds w j x ↔ Holds w (j+1) (delta (w j) x) := by
   rw [delta, U_holds]
@@ -717,7 +717,7 @@ theorem derivatives_holds (w : Word (Fin ap)) (j n : Nat) (x : Class ap) :
     rw [derivatives, he, h]
     exact (derivative x w j).symm
 
-/-- The finite-window locality statement of STAGE1 §3. -/
+/-- Finite-window locality. -/
 theorem finite_window (f : Formula (Fin ap)) (hf : finite f)
     (w v : Word (Fin ap)) (j : Nat)
     (hw : ∀ k, j ≤ k → k ≤ j + horizon f → w k = v k) :
@@ -816,7 +816,7 @@ theorem elideFuel_weakens (n : Nat) (h : Positive x) : x ⇒ₚ elideFuel n x :=
       intro a ha hp
       cases a <;> simp_all [isAP, isX]
 
-/-- STAGE2 §3 (1), the propositional weakening part, including the retry. -/
+/-- The propositional weakening part, including the retry. -/
 theorem rho_weakens {x : Class ap} (hx : NNFClass x) : U x ⇒ₚ rho x := by
   have pass : ∀ y : Class ap, Positive y → U y ⇒ₚ extractPass y := by
     intro y hy
@@ -1193,7 +1193,7 @@ theorem delta_weakUntil (v : Letter (Fin ap)) (f g : Formula (Fin ap)) :
   rw [delta, U_weakUntil, D_join, D_meet, U_join, U_meet, hd, U_weakUntil]
   rfl
 
-/-- STAGE1 §3: every violation of safety has a propositional bad prefix. -/
+/-- Every violation of safety has a propositional bad prefix. -/
 theorem safety_bad_prefix (f : Formula (Fin ap)) (hf : safety f)
     (w : Word (Fin ap)) (j : Nat) (hs : ¬Sat none w f j) :
     EventuallyBot w j (Class.ofFormula f) := by
@@ -1416,7 +1416,7 @@ theorem bounded_constant_eval (f : Formula (Fin ap)) (hf : Bounded f)
         ih hf (j+1) n (by simp only [horizon] at hn; omega)
   | _ => contradiction
 
-/-- STAGE1 §3: at `h+1` letters a finite window is its actual truth constant. -/
+/-- At `h+1` letters a finite window is its actual truth constant. -/
 theorem finite_window_constant (f : Formula (Fin ap)) (hf : finite f)
     (w : Word (Fin ap)) (j : Nat) :
     derivatives w j (horizon f + 1) (Class.ofFormula f) =
@@ -1497,7 +1497,7 @@ theorem rho_cosafety (x : Class ap) : HasTag cosafety (rho x) := by
     fun y => U_cosafety (elideFuel_tag _ (reduce_cosafety y))
   unfold rho; split <;> apply hp
 
-/-- STAGE2 §3 (1), unfoldedness and co-safety of every extracted seed. -/
+/-- Unfoldedness and co-safety of every extracted seed. -/
 theorem rho_unfolded (x : Class ap) : U (rho x) = rho x := by
   unfold rho; split <;> exact U_idempotent _
 
@@ -1588,7 +1588,7 @@ theorem goodBranch_implies (x : Class ap) (hx : Positive x) (σ : Assignment ap)
     intro a ha; simp [υ, ha]
   exact he ▸ hυ
 
-/-- STAGE1 §3 for semantic classes passing the co-safety support test. -/
+/-- For semantic classes passing the co-safety support test. -/
 theorem class_cosafety_witness (x : Class ap) (hx : Positive x) (hc : HasTag cosafety x)
     (hs : Holds w j x) : EventuallyTop w j x := by
   apply (allMeet_witness ((supportList x).map (goodFactor (truthAssignment w j))) ?_).mono
@@ -1686,7 +1686,7 @@ theorem implies_badClause (x : Class ap) (hx : Positive x) (σ : Assignment ap)
     intro a ha; simp [υ, ha]
   exact Bool.noConfusion (hs.symm.trans (he ▸ hυ))
 
-/-- STAGE1 §3 for semantic classes passing the safety support test. -/
+/-- For semantic classes passing the safety support test. -/
 theorem class_safety_bad_prefix (x : Class ap) (hx : Positive x) (hc : HasTag safety x)
     (hs : ¬Holds w j x) : EventuallyBot w j x := by
   have hxfalse : x (truthAssignment w j) = false := Bool.eq_false_iff.mpr hs

@@ -1,6 +1,6 @@
 import TlsfProofs.Dpa.Stage1
 
-/-! # STAGE2 §§2–3: local invariant and all-field exactness.
+/-! # Local invariant and all-field exactness.
 The transition function is shared with Stage1, so its ordered rows and mark 0
 have a single definition. These results impose no Π₂ converse assumption.
 -/
@@ -24,7 +24,7 @@ theorem meet_implied {a r q : Class ap} (hr : a ⇒ₚ r) (hq : a ⇒ₚ q) : a 
   change (r σ && q σ) = true
   simp [hr σ ha, hq σ ha]
 
-/-- STAGE2 §3: an active component cannot resume before the false row. -/
+/-- An active component cannot resume before the false row. -/
 theorem no_active_resume (v : Letter (Fin ap)) (s : Pair ap) (h : s.all ⇒ₚ s.rejecting)
     (hn : U (D v s.all) ≠ Class.bot) : U (D v s.rejecting) ≠ Class.bot := by
   intro he
@@ -32,7 +32,7 @@ theorem no_active_resume (v : Letter (Fin ap)) (s : Pair ap) (h : s.all ⇒ₚ s
   rw [he] at hi
   exact hn (implies_bot hi)
 
-/-- STAGE2 §3: the explicit false-renewal target is unreachable from an
+/-- The explicit false-renewal target is unreachable from an
 active invariant state. This uses the seed extracted from raw `Dᵥ A`. -/
 theorem no_false_renewal (v : Letter (Fin ap)) (s : Pair ap) (h : s.all ⇒ₚ s.rejecting)
     (hx : NNFClass s.all) (hn : U (D v s.all) ≠ Class.bot) :
@@ -96,7 +96,7 @@ theorem active_invariant (a r : Class ap) (hnn : NNFClass a) (hu : U a = a)
     (hr : r ≠ Class.bot) (hi : a ⇒ₚ r) : ComponentInvariant ⟨a, r⟩ :=
   ⟨hnn, hu, fun h => False.elim (hr h), fun _ => hi⟩
 
-/-- STAGE2 §3 (2), including every transition-table row. -/
+/-- The active-field invariant, including every transition-table row. -/
 theorem transition_invariant (v : Letter (Fin ap)) (s : Pair ap) (h : ComponentInvariant s) :
     ComponentInvariant (transition v s).target := by
   have hnn := U_nnfClass (D_nnfClass v h.1)
@@ -142,7 +142,7 @@ theorem run_invariant (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap)) (n : 
   | zero => exact initial_invariant x hx
   | succ n ih => exact transition_invariant (w n) (run x w n) ih
 
-/-- STAGE2 §3: no reachable resumption in the conservative baseline. -/
+/-- No reachable resumption in the conservative baseline. -/
 theorem resume_unreachable (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap)) (n : Nat)
     (ha : ¬Simple (U (D (w n) (run x w n).all)))
     (hne : U (D (w n) (run x w n).all) ≠ Class.bot) :
@@ -161,7 +161,7 @@ theorem all_field_derivative (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap)
     change (transition (w n) (run x w n)).target.all = _
     rw [transition_all_exact _ _ (run_invariant x hx w n), ih, derivatives_snoc, Nat.zero_add]
 
-/-- STAGE2 §3 (3), including the false sink and every breakpoint round. -/
+/-- All-field exactness, including the false sink and all breakpoint rounds. -/
 theorem all_field_exactness (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap)) (n : Nat) :
     Holds w n (run x w n).all ↔ Holds w 0 x := by
   rw [all_field_derivative x hx w n]
@@ -264,7 +264,7 @@ theorem unmarked_active_progress (v : Letter (Fin ap)) (s : Pair ap)
     exact Bool.noConfusion (hm.symm.trans he)
   exact ⟨by simp [transition, hb, ht, hsa, hco, hrnext, hf], hf⟩
 
-/-- STAGE2 §3 (4). A satisfying word accepts; no Π₂ converse or
+/-- A satisfying word accepts; no Π₂ converse or
 cohort correspondence is needed for this direction. -/
 theorem satisfying_accepts (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap))
     (hw : Holds w 0 x) : Inf (marks x w) := by
@@ -312,7 +312,7 @@ theorem accepting_never_bot (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap))
   exact (complete_complement _).mp hfin hi
 
 /-- The all-field entails every earlier active obligation, even after
-suspension. This is the all-field form of STAGE2 §3 (5). -/
+suspension. This is the all-field form of retained-obligation consistency. -/
 theorem all_preserves_obligation (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap))
     (t : Nat) (ha : (run x w t).rejecting ≠ Class.bot) (k : Nat) :
     (run x w (t+k)).all ⇒ₚ derivatives w t k (run x w t).rejecting := by
@@ -392,8 +392,9 @@ theorem marked_active_renewal (v : Letter (Fin ap)) (s : Pair ap) (h : Component
       simp [transition, hb, ht, hsa, hco, hrnext, hf]
     exact False.elim (Bool.noConfusion (he.symm.trans hm))
 
-/-- STAGE2 §3: accepting runs satisfy every active rejecting field. The
-first later renewal finishes a finite derivative; (2) preserves its check. -/
+/-- Accepting runs satisfy every active rejecting field. The
+first later renewal finishes a finite derivative; `all_preserves_obligation`
+preserves its check. -/
 theorem accepting_active_obligation (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap))
     (hi : Inf (marks x w)) (t : Nat) (ha : (run x w t).rejecting ≠ Class.bot) :
     Holds w t (run x w t).rejecting := by
@@ -500,7 +501,7 @@ theorem rejecting_step_preserves (v : Letter (Fin ap)) (s : Pair ap)
               simp [transition, hb, ht, hsa, hco, hrnext, hf]
             rw [he]; exact implies_refl _
 
-/-- STAGE2 §3 (5), the rejecting-field form, until suspension. Retaining
+/-- Rejecting-field retained-obligation consistency until suspension. Keeping
 U(r) at renewal is exactly the premise used in `rejecting_step_preserves`. -/
 theorem rejecting_preserves_obligation (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap))
     (t k : Nat) (hactive : ∀ j, j ≤ k → (run x w (t+j)).rejecting ≠ Class.bot) :

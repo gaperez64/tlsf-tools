@@ -666,8 +666,8 @@ def run_wrong_game_same_shape(solver, checker_path, root, summary):
     """A game of the same declared shape with different safety semantics
     must reject the original witness. This is the checker-level counterpart
     of the plan's wrong-game mutation: the sidecars carry no hash, so only
-    the game's content can bind the witness (docs/gr1-environment-
-    certificate.md, gap 5).
+    the game's content can bind the witness
+    (docs/gr1-environment-certificate.md, Sidecars).
 
     Justice and fairness are unchanged, so the goal and fairness equality
     checks pass. The twin's bad is the conjunction of the lanes instead of

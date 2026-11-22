@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Offline issue-78 inventory. Scratch and logs stay under build-scratch-m/."""
+"""Offline issue-78 inventory. Scratch stays under build-scratch-m/.
+
+Setup recipe (pinned corpus, Owl 21.0, Java 21, checker jars and release build):
+https://github.com/gaperez64/tlsf-tools/blob/6cd49036769168cfcf6d93116cbf68e7c6ab4e6f/docs/lazy-dpa/STATE-COUNTS.md#reproduce
+
+Run from the repository root:
+  python3 tools/dpa_state_counts.py prepare --acacia ACACIA --corpus CORPUS
+  python3 tools/dpa_state_counts.py run
+  python3 tools/dpa_state_counts.py summarize
+"""
 import argparse
 import collections
 import csv

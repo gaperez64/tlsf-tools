@@ -1,6 +1,6 @@
 import TlsfProofs.Dpa.Component
 
-/-! # STAGE2 §4: the fixed complete Boolean product.
+/-! # The fixed complete Boolean product.
 There is one permanent coordinate per component. No coordinate, including a
 sink, is removed, and the acceptance function never changes.
 -/
@@ -39,7 +39,7 @@ def EmersonLei (β : Skeleton m) (colours : Nat → Fin m → Bool) : Prop :=
 def componentTruth (xs : Fin m → Class ap) (w : Word (Fin ap)) : Fin m → Bool :=
   fun i => decide (Holds w 0 (xs i))
 
-/-- STAGE2 §4: complete per-component equalities suffice for every Boolean
+/-- Complete per-component equalities suffice for every Boolean
 skeleton. A one-sided inclusion is deliberately not a hypothesis here. -/
 theorem product_language (xs : Fin m → Class ap) (β : Skeleton m) (w : Word (Fin ap))
     (h : ∀ i, Inf (marks (xs i) w) ↔ Holds w 0 (xs i)) :

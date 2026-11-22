@@ -1,8 +1,8 @@
 import TlsfProofs.Dpa.Zielonka
 
-/-! # STAGE2 §§1,6,8: flat converse and assembled admitted grammar
-The failed-clause proof follows equations (6)–(9), retaining finite candidates
-and inspecting every intermediate extraction pass. §9 is in Refinements.lean.
+/-! # Flat converse and assembled admitted grammar
+The failed-clause proof retains finite candidates and inspects every
+intermediate extraction pass. Refinements.lean covers representations.
 -/
 namespace Tlsf.Dpa
 open Class Formula
@@ -22,7 +22,7 @@ inductive FlatR : Formula α → Prop where
   | conj (h : FlatR q) (h' : FlatR r) : FlatR (.conj q r)
   | disj (h : FlatR q) (h' : FlatR r) : FlatR (.disj q r)
 
-/-- The exact syntactic grammar of STAGE2 §8; `admitted_grammar` assembles
+/-- The admitted syntactic grammar; `admitted_grammar` assembles
 its component/product/parity language theorem below. -/
 inductive Admitted : Formula α → Prop where
   | safety (h : Tlsf.Dpa.safety s) : Admitted s
@@ -41,7 +41,7 @@ inductive Pi2 : Formula α → Prop where
   | release (h : Pi2 f) (h' : Pi2 g) : Pi2 (.release f g)
   | weakUntil (h : Pi2 f) (h' : Pi2 g) : Pi2 (.weakUntil f g)
 
-/-- The general core of issue #80 for the DESIGN §1 variant: the converse
+/-- The general core of issue #80 for this component construction: the converse
 inclusion for every syntactic Π₂ component, with no support resets, external
 suspension or lookahead. `GeneralConverse.lean` proves this proposition as
 `general_pi2_converse`; the conservative results below are independent. -/
@@ -59,7 +59,7 @@ theorem allJoin_append (xs ys : List (Class ap)) : allJoin (xs ++ ys) = join (al
     apply Class.ext; intro σ
     exact (Bool.or_assoc ..).symm
 
-/-- STAGE2 §6.1: a false positive Boolean formula has one false clause
+/-- A false positive Boolean formula has one false clause
 consequence. No CNF rewrite is performed by the automaton. -/
 theorem failed_clause (q : Formula (Fin ap)) (hq : FlatQ q) (w : Word (Fin ap)) (t : Nat)
     (hfalse : ¬Sat none w q t) :
@@ -116,7 +116,7 @@ theorem failed_clause (q : Formula (Fin ap)) (hq : FlatQ q) (w : Word (Fin ap)) 
       · simp [hi' σ h]
     · intro f h; exact (List.mem_append.mp h).elim (hf f) (hf' f)
 
-/-- STAGE2 §9.2: semantic distribution, with infinite-word semantics. -/
+/-- Semantic distribution, with infinite-word semantics. -/
 theorem distribute_G_conj (a b : Formula (Fin ap)) (w : Word (Fin ap)) (n : Nat) :
     Sat none w (.globally (.conj a b)) n ↔ Sat none w (.conj (.globally a) (.globally b)) n :=
   Tlsf.Rewrites.route_push_g_in trivial
@@ -125,7 +125,7 @@ theorem distribute_F_disj (a b : Formula (Fin ap)) (w : Word (Fin ap)) (n : Nat)
     Sat none w (.eventually (.disj a b)) n ↔ Sat none w (.disj (.eventually a) (.eventually b)) n :=
   Tlsf.Rewrites.push_f_in trivial
 
-/-- STAGE2 §9.5: lower/upper membership bounds with exact fallback give
+/-- Lower/upper membership bounds with exact fallback give
 exactly the original Boolean test. -/
 theorem fragment_bounds_exact (lo exact hi : Bool)
     (hlo : lo = true → exact = true) (hhi : exact = true → hi = true) :
@@ -231,7 +231,7 @@ theorem finite_nnf (f : Formula α) (hf : finite f) : NNF f := by
   | next f ih => exact ih hf
   | _ => contradiction
 
-/-- STAGE1 §4 (2): the GF all-field is fixed, propositionally. -/
+/-- The GF all-field is fixed, propositionally. -/
 theorem gf_derivative_fixed (b : Formula (Fin ap)) (v : Letter (Fin ap)) :
     delta v (Class.ofFormula (.globally (.eventually b))) =
       U (Class.ofFormula (.globally (.eventually b))) := by
@@ -268,7 +268,7 @@ theorem gf_not_simple (b : Formula (Fin ap)) (hb : finite b) :
   · exact hs K hsupport
   · exact hs K hsupport
 
-/-- STAGE1 §4: every all-field of GF b is A*. -/
+/-- Every all-field of GF b is A*. -/
 theorem gf_all_fixed (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) (n : Nat) :
     (run (Class.ofFormula (.globally (.eventually b))) w n).all =
       U (Class.ofFormula (.globally (.eventually b))) := by
@@ -347,7 +347,7 @@ theorem gf_seed_bound (b : Formula (Fin ap)) (hb : finite b) (v : Letter (Fin ap
     intro σ hs; change (S σ || U E σ) = true; simp [hs]
   · rw [hpassRaw]; exact implies_refl _
 
-/-- STAGE1 §4, GF finite windows, both directions, using §3's exact
+/-- GF finite windows, both directions, using the exact
 retained-obligation theorem for the converse. -/
 theorem gf_language (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
     Inf (marks (Class.ofFormula (.globally (.eventually b))) w) ↔
@@ -380,7 +380,7 @@ theorem gf_language (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
   · intro hw
     exact satisfying_accepts x hx w ((ofFormula_holds _).mpr hw)
 
-/-- STAGE1 §§4–5: complement on the identical complete GF run. -/
+/-- Complement on the identical complete GF run. -/
 theorem gf_complement (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
     FinMarks (marks (Class.ofFormula (.globally (.eventually b))) w) ↔
       ¬Sat none w (.globally (.eventually b)) 0 := by
@@ -399,7 +399,7 @@ theorem finite_nnf_polarity (b : Formula α) (hb : finite b) (pol : Bool) :
   | next f ih => cases pol <;> exact ih hb _
   | _ => contradiction
 
-/-- STAGE1 §4: FG b is the Fin(0) complement of GF bar(b). -/
+/-- FG b is the Fin(0) complement of GF bar(b). -/
 theorem fg_language (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
     FinMarks (marks (Class.ofFormula (.globally (.eventually (Tlsf.Rewrites.to_nnf b false false)))) w) ↔
       Sat none w (.eventually (.globally b)) 0 := by
@@ -409,13 +409,13 @@ theorem fg_language (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
   have hn := not_congr hd
   simpa only [Tlsf.Rewrites.to_nnf, Bool.false_eq_true, ↓reduceIte, Classical.not_not] using hn
 
-/-- STAGE1 §5 composed with the GF language theorem. -/
+/-- Composed with the GF language theorem. -/
 theorem gf_maxOdd (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
     MaxOdd (oneSetExport false (marks (Class.ofFormula (.globally (.eventually b))) w)) ↔
       Sat none w (.globally (.eventually b)) 0 :=
   (oneSet_max_inf _).trans (gf_language b hb w)
 
-/-- STAGE1 §5 composed with the FG complement theorem. -/
+/-- Composed with the FG complement theorem. -/
 theorem fg_maxOdd (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
     MaxOdd (oneSetExport true
       (marks (Class.ofFormula (.globally (.eventually (Tlsf.Rewrites.to_nnf b false false)))) w)) ↔
@@ -445,7 +445,7 @@ def falseCofactor (x : Class ap) (a : Formula (Fin ap)) : Class ap :=
   ⟨fun σ => x (setAtom σ a false), falseCofactorSyntax a x.repr, by
     funext σ; rw [falseCofactor_eval, repr_eval]⟩
 
-/-- STAGE2 §6.3 (8): loss of a protector permits its removal from the proof
+/-- Loss of a protector permits its removal from the proof
 constraint. This is a false cofactor, not an extractor operation. -/
 theorem losing_protector {x y C : Class ap} (hxy : x ⇒ₚ y) (hyC : y ⇒ₚ C)
     (habsent : ¬Uses y H) : x ⇒ₚ falseCofactor C H := by
@@ -462,7 +462,7 @@ theorem elision_preserves_constraint {y C : Class ap} (hyC : y ⇒ₚ C)
   have hm : replaceTrue p y ⇒ₚ replaceTrue p C := fun σ h => hyC _ h
   rwa [he] at hm
 
-/-- STAGE2 §6.2: abandoned false finite candidates become propositionally
+/-- Abandoned false finite candidates become propositionally
 false after their horizon, rather than merely remaining LTL-false. -/
 theorem flush_false_window (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap))
     (t n : Nat) (hn : horizon b + 1 ≤ n) (hfalse : ¬Sat none w b t) :
@@ -489,8 +489,8 @@ def rawAll (x : Class ap) (w : Word (Fin ap)) : Nat → Class ap
   | 0 => x
   | n+1 => D (w n) (run x w n).all
 
-/-- STAGE2 §6.5: the last step of the targeted converse, with §6.4 (9)
-explicitly supplied as a hypothesis. This theorem does not discharge (9). -/
+/-- The last step of the targeted converse, with eventual false seeds
+supplied as a hypothesis; this theorem does not prove that premise. -/
 theorem converse_of_eventually_false_seeds (x : Class ap) (hx : NNFClass x) (w : Word (Fin ap))
     (hseeds : ¬Holds w 0 x → (∀ n, (run x w n).all ≠ Class.bot) →
       ∃ N, ∀ n, N ≤ n → ¬Holds w n (rho (rawAll x w n))) :
@@ -520,7 +520,7 @@ theorem fg_minEven (b : Formula (Fin ap)) (hb : finite b) (w : Word (Fin ap)) :
   (oneSet_min_fin _).trans (fg_language b hb w)
 
 
-/-! ## STAGE2 §6.1: failed clauses and exact residuals (6)–(7). -/
+/-! ## Failed clauses and exact residuals. -/
 def flatLoops (bs : List (Formula (Fin ap))) : Class ap :=
   allJoin (bs.map (fun b => Class.ofFormula (.eventually b)))
 def flatBodies (bs : List (Formula (Fin ap))) : Class ap := allJoin (bs.map Class.ofFormula)
@@ -602,7 +602,7 @@ theorem D_flatLoops (v : Letter (Fin ap)) (bs : List (Formula (Fin ap))) : D v (
     rw [D_join, ih]
     rfl
 
-/-- Equation (7), with the finite residual kept exactly. -/
+/-- One-step progression keeps the finite residual exactly. -/
 theorem flat_residual_step (hb : ∀ b, b ∈ bs → finite b) (hE : HasTag finite E)
     (v : Letter (Fin ap)) :
     D v (U (join (flatLoops bs) E)) =
@@ -628,7 +628,7 @@ theorem join_false (hx : ¬Holds w n x) (hy : ¬Holds w n y) : ¬Holds w n (join
   change ¬(_ || _) = true
   simp only [Bool.or_eq_true]; exact fun h => h.elim hx hy
 
-/-- The single failed clause of §6.1, separated into its H atoms and its
+/-- The single failed clause, separated into its H atoms and its
 finite remainder, without changing the monitored formula. -/
 theorem failed_flat_clause (hq : FlatQ q) (w : Word (Fin ap)) (t : Nat)
     (hf : ¬Sat none w q t) :
@@ -755,7 +755,7 @@ theorem initial_badFlat (hq : FlatQ q) (w : Word (Fin ap)) (hf : ¬Sat none w (.
     rwa [flat_residual_step hb hfin] at hh
 
 
-/-! ## STAGE2 §6.2: flushing abandoned candidates. -/
+/-! ## Flushing abandoned candidates. -/
 theorem subformula_trans (hab : a ∈ subformulas b) (hbc : b ∈ subformulas c) : a ∈ subformulas c := by
   induction c with
   | tt | ff | ap _ =>
@@ -866,7 +866,7 @@ theorem badFlat_iterate (hx : NNFClass x) (h : BadFlatConstraint x w bs t E) (n 
   | zero => exact h
   | succ n ih => exact badFlat_step hx ih
 
-/-- STAGE2 §6.2: after a finite wait, every X of the false constraint is
+/-- After a finite wait, every X of the false constraint is
 protected by a selected body. False old candidates have become Boolean false. -/
 theorem badFlat_flush (hx : NNFClass x) (h : BadFlatConstraint x w bs t E) :
     ∃ N, t ≤ N ∧ ∀ n, N ≤ n → ∃ F, BadFlatConstraint x w bs n F ∧ TailBound bs F := by
@@ -881,7 +881,7 @@ theorem badFlat_flush (hx : NNFClass x) (h : BadFlatConstraint x w bs t E) :
   exact ⟨_,hi,flatCandidates_bound h.1 (n-t)⟩
 
 
-/-! ## STAGE2 §6.3: losing a protector, equation (8). -/
+/-! ## Losing a protector. -/
 def removeBody (b : Formula (Fin ap)) (bs : List (Formula (Fin ap))) : List (Formula (Fin ap)) :=
   bs.filter (fun c => decide (c ≠ b))
 
@@ -924,7 +924,7 @@ theorem badFlat_remove (h : BadFlatConstraint x w bs n E) (_hb : b ∈ bs)
   exact hh
 
 /-- A finite false obligation forces a later false all-field; this does not
-assume Büchi acceptance. It is the finite-horizon observation of §6.4. -/
+assume Büchi acceptance. It uses the finite-horizon observation. -/
 theorem neverBot_finite_obligation (hx : NNFClass x) (hnever : ∀ n, (run x w n).all ≠ Class.bot)
     (hE : NNFClass E) (hfin : HasTag finite E) (hi : (run x w n).all ⇒ₚ E) : Holds w n E := by
   apply Classical.byContradiction; intro hf
@@ -1002,9 +1002,9 @@ theorem minimal_extractPass_constraint (hx : NNFClass x) (h : BadFlatConstraint 
       · exact ih _ (replaceTrue_nnfClass _ hyn) (implies_trans hxy hw) hd
   exact U_monotone (loop _ _ (replaceTrue_nnfClass _ hrnn) hweak hred)
 
-/-! ## STAGE2 §6.4: eventually every extracted seed is false, equation (9). -/
-/-- Equation (9) for exactly the flat G grammar. A least-size constraint is
-the finite descent of §6.3; no bound on its last loss time is assumed. -/
+/-! ## Eventually every extracted seed is false. -/
+/-- Eventually false seeds for exactly the flat G grammar. A least-size
+constraint gives finite descent; no bound on its last loss time is assumed. -/
 theorem flat_eventually_false_seeds (hq : FlatQ q) (w : Word (Fin ap))
     (hfalse : ¬Sat none w (.globally q) 0)
     (hnever : ∀ n, (run (Class.ofFormula (.globally q)) w n).all ≠ Class.bot) :
@@ -1036,7 +1036,7 @@ theorem flat_eventually_false_seeds (hq : FlatQ q) (w : Word (Fin ap))
   change ¬Holds w n (rho (rawAll x w n))
   simpa only [rho,hnotfinite,false_and,↓reduceIte] using hpass
 
-/-! ## STAGE2 §6.5: the converse and its F(r) dual. -/
+/-! ## The converse and its F(r) dual. -/
 /-- Both inclusions for the actual complete component, including finite
 remainders, suspension, and the retry on raw all-fields. -/
 theorem flat_global_language (hq : FlatQ q) (w : Word (Fin ap)) :
@@ -1067,7 +1067,7 @@ theorem flat_eventual_language (hr : FlatR r) (w : Word (Fin ap)) :
   simpa only [Tlsf.Rewrites.to_nnf,Bool.false_eq_true,↓reduceIte,Classical.not_not] using not_congr hd
 
 
-/-! ## STAGE2 §8: assembling the admitted grammar. -/
+/-! ## Assembling the admitted grammar. -/
 theorem safety_nnf (hs : safety s) : NNF s := by
   induction s with
   | tt | ff | ap _ => trivial
@@ -1132,7 +1132,7 @@ theorem combine_presentation (hl : ProductPresentation f xs β) (hr : ProductPre
     cases op <;> simp only [Bool.false_eq_true,↓reduceIte,hleft,hright,
       Bool.and_eq_true,Bool.or_eq_true,hl.2 w,hr.2 w,Sat,InRange,true_and]
 
-/-- §8's exact component/product assembly, with no premise about the general
+/-- Exact component/product assembly, with no premise about the general
 Π₂ converse and no equivalence oracle in the grammar. -/
 theorem admitted_product (hf : Admitted f) :
     ∃ (m : Nat) (xs : Fin m → Class ap) (β : Skeleton m), ProductPresentation f xs β := by
@@ -1173,7 +1173,7 @@ theorem presentation_parity {m : Nat} {xs : Fin m → Class ap} {β : Skeleton m
   have hp := (product_language xs β w (fun i => h.1 i w)).trans (h.2 w)
   exact ⟨(tree_minEven T _).trans hp,(tree_maxOdd T _).trans hp⟩
 
-/-- STAGE2 §8 admitted-grammar theorem: one fixed complete product and one
+/-- Admitted-grammar theorem: one fixed complete product and one
 covered global tree recognize each admitted formula, in both orientations. -/
 theorem admitted_grammar (hf : Admitted f) :
     ∃ (m : Nat) (xs : Fin m → Class ap) (β : Skeleton m) (T : ZTree β (fullColours m)),

@@ -1,8 +1,4 @@
 {
-  "docs/lazy-dpa/DEFAULT-PROTECTION.md": {
-    "reason": "Frozen historical measurement report, explicitly marked retired.",
-    "sha256": "5da61e6337907ecfa2242e823ca1deb98a439736891a293be604e570b478a6b0"
-  },
   "docs/lazy-dpa/TASK-J-SEARCH.json": {
     "reason": "Frozen bounded-search measurement provenance.",
     "sha256": "59077ad48f5b779a6729b4f429898dd74b4f1d9c6212342b59e4b0a740aeaaf9"
@@ -29,7 +25,7 @@
   },
   "test/fixtures/golden/README.md": {
     "reason": "Documentation of frozen historical evidence and current verify-only paths.",
-    "sha256": "f790e2fd66bc16c8256728d1378007d61b88704cda7d322959e3fed259536bc9"
+    "sha256": "96f39bdbd04f04be3d2665f847ff735ba5bdfec508daf0b792ba32c2459c3646"
   },
   "test/fixtures/golden/compose-finite.json": {
     "reason": "Frozen historical evidence; never executed or renewed.",

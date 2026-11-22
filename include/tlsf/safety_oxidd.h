@@ -7,7 +7,7 @@
 /// writing the `Aig` game to AIGER, spawning AbsSynthe, and reading a strategy
 /// AIGER back, it compiles the game's cones into BDDs, runs the controllable
 /// predecessor (`cpre`) safety fixpoint in process, and extracts a Skolem
-/// strategy as an `Aig`.  See CLAUDE.md (OxiDD section).
+/// strategy as an `Aig`.
 ///
 /// Built into libtlsf.
 
