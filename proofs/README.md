@@ -1,69 +1,41 @@
 # TLSF decomposition and automaton proofs
 
-This standalone Lean 4.35.0 project uses only core (`import Init`). `TlsfProofs`
-checks every module and `Examples.lean` with warnings as errors. The kernel
-checks all proof steps; there are no external packages or executable decision
-shortcuts. Classical reasoning handles proposition cases, least witnesses,
-and component-strategy choice. Library-wide audits permit only `propext`,
-`Classical.choice`, and `Quot.sound`.
-
-The proofs establish mathematical ports of definition elimination, clustering,
-conditional assumption pruning, one-sided restrictions, selected rewrites, set deduplication, signed
-decimal decoding, checked integer evaluation and range reductions, strength-preserving
-indexed-next normalization, and an independent automaton
-construction/validator. They do not verify the C binary or other CSNF controllers.
+Lean 4.35.0, using only core (`import Init`). These are mathematical ports and
+per-instance automaton checks. They do not verify the C binary, memory safety,
+BDD implementation, compiler, TLSF-to-game reduction or unlisted controllers.
+C ASTs, signal ownership, section assembly, guards and printers must match the
+models. Unvalidated runtime formulas have no per-instance language proof.
 
 ## Build
 
-From the repository root, run the same check script as CI. It requires Bash,
-GNU grep, and GNU coreutils `timeout`:
+Run the CI checks from the repository root. The script requires Bash, GNU grep
+and GNU coreutils `timeout`:
 
 ```bash
 bash proofs/check.sh
 ```
 
-The script also works as `bash check.sh` from `proofs/`. It defaults to one
-Lean process with `LEAN_NUM_THREADS=1`, `LEAN_STACK_SIZE_KB=2048`, and
-`LEAN_MAIN_USE_THREAD=0`; existing environment values override these defaults.
-On a larger machine, raising `LEAN_NUM_THREADS` permits Lake to schedule more
-work. Per-module diagnostics remain serial everywhere, and individual compilers
-keep `-j1`, `-s2048`, `-DElab.async=false`, and warnings as errors. CI starts with
-the same limits; cold-cache full runs measured 1–1.5 minutes. Do not impose a
-virtual-memory cap.
+`bash check.sh` also works from `proofs/`. Defaults are `LEAN_NUM_THREADS=1`,
+`LEAN_STACK_SIZE_KB=2048` and `LEAN_MAIN_USE_THREAD=0`; environment values
+override them. Per-module diagnostics stay serial, with warnings as errors.
 
-Checks reject `sorry`, `admit`, and new `axiom` declarations in proof/audit
-sources (including comments), build the library, run the sequential per-module
-diagnostics and final build, then audit every declaration in every library module
-with `Lean.collectAxioms`, including private helpers and modules absent from the
-root import list. Each module is imported in a separate Lean process so executable
-roots can define their own global `main`. This semantic audit rejects generated
-assumptions from `native_decide`, `sorryAx`, and all other dependencies outside
-{`propext`, `Classical.choice`, `Quot.sound`}. It then runs every
-`tools/golden/*_audit.lean` audit, retaining the per-theorem checks.
-Before auditing, the script explicitly builds every discovered module target,
-including executable roots and future modules outside the root import list.
-Each command prints its timing and propagates failures. Lake always rehashes
-inputs, so restored `.lake` artifacts cannot bypass changed-source builds.
-The GR(1) and restriction audits fail on dependencies outside
-{`propext`, `Classical.choice`, `Quot.sound`}; the DPA audits print dependencies.
+The script rejects `sorry`, `admit` and `axiom` in proof/audit sources, including
+comments. It builds and audits every library module, including private helpers,
+executable roots and modules outside the root imports. Semantic audits permit
+only `propext`, `Classical.choice` and `Quot.sound`, rejecting `native_decide`
+assumptions and `sorryAx`. Builds rehash inputs even with restored caches.
+It then runs every `tools/golden/*_audit.lean`; GR(1) and restriction audits
+enforce the same axiom list, while DPA audits print dependencies.
 
-The Lean workflow always starts its change-detection job; its path list lives
-in [lean-needed.sh](../.github/scripts/lean-needed.sh). It parses NUL-delimited
-Git paths in both diff directions so renames into or out of the list count.
-Mark **Lean proof gate** as the required branch-protection check. It always
-runs, fails on detector failure or an unsuccessful required Lean run, and accepts
-a skipped Lean run only after successful detection reports no relevant changes.
-The gate also checks proof/source correspondence and its regressions on every PR,
-regardless of target branch. A manual dispatch checks everything. There is no
-scheduled run: the proofs use only Lean core with a pinned toolchain, so a run
-on unchanged proof inputs would recheck what the last push already checked. The `lean_exe` targets do
-not read external files during this build or its audits: `dpaImplChecks` uses
-embedded cases, and `dpaValidate` reads request/dump files only when explicitly
-invoked with those arguments. Historical golden replay below is a separate
-native-build operation. Keep any future runtime inputs used by this script in
-the path list as well.
+Require `Lean proof gate` for branch protection. It fails if change detection
+fails or a required proof run does not succeed; skipping requires successful
+detection of no relevant changes. The gate checks correspondence and regressions
+on every PR target. Proof runs use the path list in
+[lean-needed.sh](../.github/scripts/lean-needed.sh), including renames in either
+direction. Add future runtime inputs there. Manual dispatch runs all checks;
+there is no scheduled run.
 
-Lightweight controls run without building the proof library:
+Controls without a library build, from the repository root:
 
 ```bash
 python3 test/cli/check_lean_ci.py
@@ -72,57 +44,26 @@ python3 test/cli/check_proof_reference_controls.py
 PATH="$HOME/.elan/bin:$PATH" python3 test/cli/check_axiom_audit.py
 ```
 
-The last command selects the pinned Lean toolchain explicitly on tiny scratch
-modules only. It covers forbidden axioms, duplicate `main` definitions, missing
-imports, and stale unimported sources; CI runs it before the library build.
-Temporary files use `TMPDIR` when set. On a constrained Linux
-machine, run it in a scope such as
-`systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0` with
-`LEAN_NUM_THREADS=1` and a suitable `TMPDIR`.
+The last command uses the pinned Lean toolchain on tiny scratch modules to test
+the axiom audit; CI runs it before building. Temporary files use `TMPDIR`.
 
 ## Decomposition model and guarantees
 
-| Module | Model and guarantee |
+Names are in `Tlsf`; counterexamples are in `Tlsf.Examples`.
+
+| Module | Scope |
 |---|---|
-| `LTL.lean` | Expanded constants/atoms, five Boolean connectives, weak/strong next, F/G/U/R/W/M. `Sat len w f j` uses `none` for infinite words and `some n` below n; out-of-word queries are false. Final weak next is true, strong next false. Locality reads only formula atoms at in-range positions from j; Boolean substitution is exact. |
-| `Game.lean` | Input-first Mealy strategies use history and current masked inputs. `play` supplies infinite environment choices. `Realizable` wins at zero on every play; `FinRealizable` wins some nonempty prefix per play (`FinWin` order). Replay reconstructs each strategy's own history; decoration maps current letters; products play owned outputs. |
-| `Objective.lean` | `objective_sat` connects ordinary `I -> (P && ((G Req && A) -> (G As && Gu)))` and strict `I -> (P && (As W !Req) && ((G Req && A) -> Gu))` to enabled section obligations, including safety before REQUIRE fails. |
-| `Restriction.lean` | Simultaneous Boolean substitution is exact on decoded finite/infinite words. Causal input restriction transfers unrealizability; input-preserving output restriction transfers realizability with strategy reconstruction, for the whole ordinary/strict infinite Mealy objective. |
-| `Passes.lean` | List-ordered substitution and letter composition. Ranked dependencies converge in any list order; `ordered_pass_definitions` / `ordered_pass_fixed` show that descending dependency rank establishes every definition in one pass, including flipped equivalences. |
-| `Definition.lean` | Realizability equivalence for both word kinds and ordinary/strict semantics, using the actual pass structure on retained entries. Decoration reconstructs a winning original strategy; the reverse uses section coverage and dependency-closed support, without requiring inactive conditional definitions. |
-| `Cluster.lean` | Infinite-word realizability iff every cluster wins, for ordinary/strict semantics. All environment entries stay and use inputs only; each system entry's outputs share its key class. Unused keys win trivially, even with inconsistent environments. |
-| `Pruning.lean` | `prune_realizable` for infinite ordinary/strict Mealy games. `Prunable isIn K D` requires input-only environment entries in D, disjoint from every K entry. `EnvSat D` witnesses `Initial D && G Require D && Assume D`; `envSat_of_word` bridges any satisfying infinite word, including lassos. Pinning D inputs and replay/locality transfer K obligations; adding D is pointwise weakening, also for strict safety. No finite theorem. |
-| `Examples.lean` | Game counterexamples, rejected guards, finite-next boundaries/split failure, both Boolean-fixture orientations, and a list order needing multiple passes. |
-| `Rewrites.lean` | NNF, weak/local/bottom-up rewrites, capped driver, pre-weak simplification, and spine decomposition. Exactness covers every valid position and word: both kinds in finite mode, infinite otherwise. |
-| `CheckedArithmetic.lean` | Recursive numeric ASTs and binding environments; exact checked negation, +/−/×, truncating division/remainder and sum/product prefixes. Computed range membership and all six reduction denotations/empty cases, before game construction. |
-| `IntegerLiteral.lean` | Nonempty decimal tokens, the direct unary-minus minimum rule, parsed numeric ASTs and checked negation; exact signed-64 decoding, rejection, guarded endpoint conversion and interval membership. Universal/existential range denotations agree on finite/infinite words before game reduction. |
-| `SetDedup.lean` | All 54 semantic Node payloads, including indexed weak/strong next, bounded F/G, ITE, calls/patterns, and binder syntax. `structEq_eq` proves structural equality implies identical syntax; `structEq_denotation` preserves finite/infinite denotation under every fixed lowering environment, including terminal and out-of-range queries. |
-| `NextStrength.lean` | Actual `pre_indexed_x` branches on `HNode`, including strength and signed-64 count guards. `preIndexedX_lower` preserves the entire expanded constructor sequence; `preIndexedX_sat` gives finite/infinite equivalence, including reconstruction and mixed chains. |
-
-`Admissible isIn strict kept ds passes` requires declared output definitions,
-Boolean right-hand sides, distinct names, decreasing dependency ranks below
-`passes`, and a covering system role for every entry mentioning a defined name.
-`covers` allows equal roles, PRESET definitions, GUARANTEE uses of ASSERT, and
-ordinary ASSERT uses of GUARANTEES. `covers_trans` checks every Boolean/role case
-by kernel reduction; `Admissible.not_self` excludes self-dependence. The C loop's
-historical `nelim + 1` passes instantiate `ds.length + 1`. The producer now
-publishes reverse DFS postorder of the committed values, retaining the original
-elimination array for controller output. Each RHS dependency has smaller rank
-and is visited later. `ordered_pass_eq_normalize` equates one scheduled pass
-with enough historical passes in any permutation of the same definitions;
-the C graph traversal and its correspondence to this model remain trusted.
-
-`Clustered isIn owner es` records input-only environments and system-output
-ownership. `whole es` keeps every entry; `cluster es k` keeps all environments
-and key-k system entries, including unused keys. After splitting,
-`prune_realizable` compares K ++ D with K; all kept roles participate in
-disjointness, and only witness input atoms matter. Without `EnvSat`,
-`pruning_without_envSat_changes_verdict` refutes equivalence in both shapes.
-Finite prefixes may end incompatibly, so no finite split is claimed. Keeping
-one full cluster preserves finite/output-dependent games (`collapsed_cluster`,
-`collapsed_cluster_realizable_fin`).
-
-Names below are in `Tlsf`; fixtures/counterexamples are in `Tlsf.Examples`.
+| `LTL.lean` | Finite/infinite satisfaction, weak/strong next, locality and substitution. |
+| `Game.lean` | Input-first Mealy strategies, replay and products; finite wins use a nonempty prefix per play. |
+| `Objective.lean` | Ordinary and strict six-section objectives. |
+| `Restriction.lean` | One-sided causal Boolean restrictions on infinite Mealy games. |
+| `Passes.lean`, `Definition.lean` | Ranked substitution and definition elimination. |
+| `Cluster.lean`, `Pruning.lean` | Infinite clustering and conditional assumption pruning. |
+| `Examples.lean` | Guard and finite-split counterexamples. |
+| `Rewrites.lean` | NNF, local rewrites and spine decomposition. |
+| `SetDedup.lean` | Structural/core equality and formula-set deduplication. |
+| `IntegerLiteral.lean`, `CheckedArithmetic.lean` | Signed-64 decoding, checked evaluation and range reductions. |
+| `NextStrength.lean` | Indexed-next guards, strength and reconstruction. |
 
 | Obligation | Theorem or definition |
 | --- | --- |
@@ -150,15 +91,12 @@ Names below are in `Tlsf`; fixtures/counterexamples are in `Tlsf.Examples`.
 | Input-preserving causal strategy transfer | `transfer`, `transfer_inf`, `transfer_fin` |
 | Guard is satisfiable for either equivalence orientation | `boolean_fixture` |
 
-## One-sided restrictions (acacia-bonsai #451)
+## One-sided restrictions
 
-[`Restriction.lean`](TlsfProofs/Restriction.lean) imports the core-only objective
-model; names here are in `Tlsf.Restriction`. `substAll θ f` inserts each Boolean
-replacement once, without visiting the inserted syntax. Thus AP/constant maps
-are simultaneous, even when a replacement mentions another replaced AP; no
-ordering, acyclicity or fixed-representative premise is needed. `decode θ v a`
-evaluates `θ a` on the original current letter. `substAll_sat` holds for every
-`len`, word and position, including terminal/out-of-word queries.
+Names are in `Tlsf.Restriction`. Apply substitutions to the whole positive,
+effective Mealy objective under the original ownership map. Solver verdicts
+and any player/timing transformation must establish that same frame. Controller
+export must reconstruct the simultaneous causal decoder.
 
 | Obligation | Theorem or definition |
 | --- | --- |
@@ -173,73 +111,11 @@ evaluates `θ a` on the original current letter. `substAll_sat` holds for every
 | Complete ordinary/strict effective objective | `substAll_objective_sat`, `objective_input_restriction`, `objective_output_restriction` |
 | Opposite verdict polarities fail | `input_identification_polarity`, `output_constant_polarity` |
 
-`InputDecoder.input_causal` says equal masked current inputs give equal decoded
-masked inputs. `restrictSystem` replays the original strategy on the decoded
-history and supplies decoded masked current inputs. `play_input_decoder` equates
-the decoded restricted play with the original strategy against the decoded
-environment. Outputs are untouched. Output restriction instead keeps inputs
-and uses the existing `decorate` strategy, which replays its own underlying
-history before decoding the current outputs. Neither implication needs game
-determinacy or a symmetry certificate. The game results concern infinite,
-input-first Mealy games; no finite/Moore verdict theorem is claimed here.
-The build's `restriction_audit.lean` enforces the permitted core axiom set.
-
-**Trusted boundary.** The C++ prepass must extract the complete **positive,
-effective input-first Mealy objective** `f`, including all six sections,
-defaults, the ordinary or strict shape, and any prior timing adaptation. It must
-apply exactly the chosen simultaneous substitution to every occurrence in that
-whole objective, including assumptions and guards. Substitution and all ownership
-checks must use this original positive frame and the original ownership map
-`isIn`, before any unreal-side shift, negation or player/frame exchange.
-Restricting a source parameter, deleting clauses/loop iterations, or replacing
-only guarantees is not this operation.
-Expanded AST/DAG/AP identities and Boolean values must agree with Lean, and
-any simplification/translation must preserve that transformed objective.
-Input restriction must leave outputs unchanged and read only current inputs;
-output restriction must keep inputs and decode current letters causally.
-AP representatives must have the same declared ownership as the APs they replace;
-`identify` requires a representative in the selected set, whose members all
-belong to that player. `constants` requires every selected AP to belong to the
-restricted player. The Lean signal type and ownership map stay fixed: removing
-unused declarations requires a correct projection/extension bridge in C++.
-
-For the restricted positive objectives `fE = substAll θE f` (inputs) and
-`fT = substAll θT f` (outputs), an accepted UNREALIZABLE worker result must imply
-`¬Realizable isIn fE`, and an accepted REALIZABLE worker result must imply
-`Realizable isIn fT`, both in the original input-first Mealy frame under `isIn`.
-The worker's sign and timing transformation, including any player/frame exchange,
-must establish this correspondence; it is trusted and is not established by the
-new restriction theorems.
-
-This order matters: with inputs `p, q` and output `o`, `φ = o ↔ (p ∨ q)` and
-its restriction `q := p` are both realizable. Negating the restricted objective
-and merely swapping ownership still gives a realizable input-first Mealy game:
-the new system chooses `p = ¬o`. That result cannot certify
-`¬Realizable isIn fE`; the correct sign and timing correspondence is necessary.
-
-Only these sound completed UNREAL verdicts on input restrictions or REAL verdicts
-on output restrictions may decide the original. Opposite verdicts,
-unsupported cases, resource failures and inconclusive attempts must fall back
-without a transferred verdict. Synthesis must implement the output decoder
-using the restricted controller's simultaneous current letter and underlying
-history, reinserting every restricted output; otherwise admission is
-decision-only. A restricted environment counterstrategy likewise needs decoded
-inputs to be exported, although the UNREAL theorem itself is contraposition.
-The prepass, solver/certificate correspondence, controller serialization, C++
-execution and the source-to-effective-objective bridge remain unverified.
-
 ## Rewrite exactness
 
-`TlsfProofs/Rewrites.lean` uses namespace `Tlsf.Rewrites`; `Ltl` abbreviates
-`Formula` rather than introducing syntax.
-
-```text
-Exact fin f g := ∀ len, (fin = true ∨ len = none) → ∀ w j,
-  InRange len j → (Sat len w f j ↔ Sat len w g j)
-```
-
-A valid finite position implies a nonempty word. Infinite mode requires `none`;
-no valuation, core-shape, or flag-combination assumptions are added.
+Names are in `Tlsf.Rewrites`. `Exact fin f g` requires equal satisfaction at
+every in-range position: finite and infinite words when `fin`, infinite otherwise.
+High-level expansion and infinite-word Sickert soundness remain unproved.
 
 | Obligation | Theorem statement (implicit type/equality parameters omitted) |
 | --- | --- |
@@ -254,268 +130,44 @@ no valuation, core-shape, or flag-combination assumptions are added.
 | Conjunction of all decomposed parts | `decompose_exact f : Exact fin (conjoin (rewrite_decompose f)) f`; `decompose_has_part` supplies the nonempty-list premise needed for strong next |
 | Finite-safe temporal RULES rows | `route_push_g_in`, `route_push_x_in`, `route_push_strong_x_in`, `or_to_guarded_next_impl`, `or_to_guarded_strong_next_impl`, `or_to_response_impl`, `pre_spine_split_exact` |
 | Expanded indexed-next identities | `pre_x0`, `pre_xn_flatten`, `pre_xn_bool_distribute` for `next_power`, with both-word exactness |
-| High-level pre-indexed-X reduction | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`; zero, homogeneous merges, mixed-chain refusal, representability and reconstruction are proved separately below |
+| High-level pre-indexed-X reduction | `NextStrength.preIndexedX_lower`, `preIndexedX_sat`; zero, homogeneous merges, mixed-chain refusal, representability and reconstruction are covered by NextStrength |
 | Reject all three finite-disabled metadata rows | `sickert_rules_refused`, `sickert_limit_lift_refused`, `sickert_gf_w_refused`, `sickert_fg_u_refused` show the finite guard returns false |
 | Counterexample to the unrestricted context equation | `sickert_finite_counterexample`: on one letter with p=true, `C[GF p]` is false and `(GF p && C[true]) || C[false]` is true for `C[z] = G(!z)` |
 
-The distribution/guarded-implication biconditionals cover every valid position
-of either word kind: `G(a&&b)=Ga&&Gb`, weak/strong `X(a&&b)=Xa&&Xb`, and
-`!r||T a = r->T a` for either next or eventually. Taking the operand as the
-remaining next chain covers chains too.
-
-The Sickert example uses a nonpositive context. It refutes the unrestricted
-context equation, not C's positive-NNF premise or a finite-only version of the
-monotone identity. The three finite-refusal results independently establish the
-metadata guard. No infinite-word Sickert soundness theorem is claimed.
-
-Ports preserve first-rule order and structural equality. `Flags` has one Bool
-per C flag; local traversals ignore `nnf`, matching removal of RW_NNF/RW_FINITE
-and restoration of RW_FINITE. Pointer reuse/allocation are outside the model.
-`pre_local` shares only NOT/AND/OR simplification: implication folding is smaller,
-FF/GG are retained, and `pre_walk` leaves strong-next subtrees untouched like C.
-
 | C source in this worktree | Lean correspondence |
 | --- | --- |
-| `src/lib/nnf.c:9–126` | `to_nnf`, `nnf_sat`, `nnf_exact`; weak-next polarity/finite test at lines 83–89 |
-| `src/lib/formula_equal.h:12–50`; `src/lib/rewrite.c:22–157` | Structural `DecidableEq (Formula α)`, `simplify_weak_local`, `simplify_exact`; finite weak-X-false guard at lines 77–82 |
+| `src/lib/nnf.c:9–126` | `to_nnf`, `nnf_sat`, `nnf_exact`; weak-next polarity/finite test at lines 83-89 |
+| `src/lib/formula_equal.h:12–50`; `src/lib/rewrite.c:22–157` | Structural `DecidableEq (Formula α)`, `simplify_weak_local`, `simplify_exact`; finite weak-X-false guard at lines 77-82 |
 | `src/lib/rewrite.h:36–62`; `src/lib/rewrite.c:165–221` | `Flags`, ordered `apply_local`, `apply_local_exact` |
 | `src/lib/rewrite.c:224–306` | `bottom_up`, `rw_pass`, `rw_pass_exact`; atom cases bypass local rewriting |
 | `src/lib/rewrite.c:11,308–335` | `RW_FIXPOINT_CAP = 200`, `rewrite_loop`, `apply_rewrites`, `apply_rewrites_exact` |
 | `src/lib/rewrite.c:356–391` | `rewrite_decompose`, `conjoin`, `decompose_sat`, `decompose_exact` |
-| `src/lib/normalize.c:761–854` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors; local indexed reconstruction is covered separately below |
-| `src/lib/normalize.c:628–701` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and the branch equivalences below |
-| `src/lib/normalize.c:860–892` | `pre_spine_split`, `pre_spine_split_exact` on the core; local indexed distribution is covered separately below |
+| `src/lib/normalize.c:761–854` | `pre_local`, `pre_walk`, `pre_weak`, `pre_weak_exact` on expanded constructors; local indexed reconstruction is covered by NextStrength |
+| `src/lib/normalize.c:628–701` | `NextStrength.indexed`, `weakUnary`, `preIndexedX`; `preIndexedX_lower` and branch equivalences |
+| `src/lib/normalize.c:860–892` | `pre_spine_split`, `pre_spine_split_exact` on the core; local indexed distribution is covered by NextStrength |
 | `src/lib/normalize.c:84–138,390–406` | Temporal RULES identities; `SickertRule.equivalence_finite` and `finite_rule_allowed` model the finite-admission projection |
 | `src/lib/normalize.c:1008–1017` | `or_to_impl` and named response/guarded-next identities, valid in both operand orders by disjunction commutativity |
 | `src/lib/normalize.c:1376–1402` | Finite mode propagated to NNF, weak and route-safe rewrites; supported passes compose by `Exact.trans` |
 | `src/lib/print_ltlxba.c:214–216,242–249` | Trusted printer correspondence: NODE_X is weak X and NODE_X_STRONG uses X[!] for finite rendering |
 
-These ports require matching C/Lean ASTs, interned AP identifiers, and structural
-equality. They cover successful expanded unbounded core transformations, not
-malformed/high-level ASTs, integers, bounded metadata, allocation exhaustion,
-or machine-size behavior. `NODE_NEXT_N` only recurses into its body
-(`src/lib/normalize.c:831–839`) and is outside `Formula`; indexed spine splitting,
-bounded-quantifier body lowering and expansion to nexts remain unverified by
-these rewrite ports. Signed-decimal decoding, checked arithmetic and reduction
-domains/folds are proved separately below.
-`next_power` proves identities of the expanded mathematical sequence. The
-separate `NextStrength` port below now covers the actual high-level
-`pre_indexed_x` arithmetic/strength guards and reconstruction; it does not verify
-the C expansion loop or the whole high-level pre-weak/spine passes. Their local
-indexed reconstruction/distribution steps are proved in the issue #122 extension
-below. The separate set-element comparator's high-level structural equality
-and deduplication consequence are proved below; these are not a refinement
-proof for normalization's conservative `node_eq` comparator.
+## Set deduplication
 
-RULES/finite-guard ports do not verify scheduler phases/growth checks, CLI
-plumbing, other passes, or Sickert transformations. Callers must check finite
-admission before infinite-mode passes. Printing/escaping and downstream X/X[!]
-interpretation (`print_ltlxba.c:242–249`) remain trusted; theorems neither execute
-C nor establish emitted trust tags.
+Names are in `Tlsf.SetDedup`. Lowering uses a fixed environment; correctness of
+C evaluators, capture avoidance and expansion remains trusted.
 
-## Set deduplication (issue #108)
+| Claim | Theorem |
+| --- | --- |
+| Structural equality implies identical syntax and denotation | `structEq_eq`, `nodesEq_eq`, `structEq_denotation` |
+| Equal captures permit substitution | `structEq_substitution` |
+| Duplicate formula folds preserve meaning | `dedup_conj`, `dedup_disj` |
+| Desugared core equality permits deduplication | `coreEq_denotation`, `dedup_core_conj`, `dedup_core_disj` |
+| Weak/strong next differ on one-letter words | `issue108_not_structEq`, `issue108_terminal`, `issue108_denotations_differ` |
+| Indexed-next sugar has the same core | `issue110_next_sugar` |
 
-Names here are in `Tlsf.SetDedup`. `HNode` models every active payload compared
-by `node_structural_equal`, with constructor tags distinguishing C node kinds.
-`HNodes` represents ordered child arrays; its length represents `call_argc` or
-`set_size`. `absent` represents null optional children. Identifier strings model
-interned names. Source IDs, origin bindings, inactive union members and expanded
-bounded metadata are omitted; `bounded.strong` is retained on `NODE_NEXT_N`,
-`NODE_G_RANGE`, and `NODE_F_RANGE`.
+## Integer literals and range domains
 
-`structEq` follows the C switch and field order, including count-before-array
-checks. Mutual structural induction proves `structEq_eq` / `nodesEq_eq` by
-constructor injectivity. `structEq_congr` then preserves **any** deterministic
-interpretation of the syntax. In particular `structEq_substitution` covers
-actual-argument and formula-valued binder substitution in a fixed body and
-environment. This argument uses only equality congruence; no nontrivial temporal
-identity or external literature is needed.
-
-`lower env` expands the core constructors, count-fold weak/strong indexed next,
-and the inclusive F/G range into the C loop's left-associated fold. Empty ranges
-give false/true respectively, and count zero is the identity. Ordinary ITEs
-select a branch using the environment's guard evaluator. `LowerEnv` explicitly
-supplies successfully evaluated nonnegative counts/bounds, guards, and expansion
-of names/nullary definitions, bus accesses, calls/patterns, comparisons and
-reductions. Pattern-guard ITEs also use that resolver because their selected
-branch substitutes captured terms. Correctness/termination of those C evaluators,
-overflow/rejection behavior, and the whole expansion pass remain trusted; their
-implementation is not a hypothesis needed for structural congruence: identical
-semantic syntax has identical results under any one such interpretation.
-
-`structEq_lower` and `structEq_denotation` establish equal lowering and `Sat`
-at every `len`, word and position, including `none` and `some n`. `dedup_conj`
-and `dedup_disj` show duplicate formula terms may be removed from conjunctions
-and disjunctions. `issue108_not_structEq`, `issue108_terminal`, and
-`issue108_denotations_differ` prove that `X[1] true` and `X[!1] true` compare
-unequal and have different denotations at position zero of **every** length-one
-word. The committed `finite_set_next{,_reversed}.ltl` CLI goldens retain both
-conjuncts in their input order: `X true && X[!] true` and its reversal.
-
-Issue #110 uses **desugared core identity** for formula set elements (TLSF v1.1
-§4.8), rather than equality of the stored high-level syntax. `coreEq_denotation`,
-`dedup_core_conj` and `dedup_core_disj` allow different source elements and
-different lowering environments under the explicit premise that their cores
-are equal. They prove equal `Sat` and duplicate-fold removal for every length,
-including finite `some n` and infinite `none`, without an in-range premise.
-`issue110_next_sugar` supplies the concrete `X[1] a` / `X a` instance, reusing
-`indexedNext` and `Rewrites.next_power`. Core weak and strong next remain
-different constructors. Cardinality/membership of sets that previously
-distinguished these sugar spellings intentionally change; these theorems make
-no preservation claim for the previous syntax-based cardinality.
-
-The single parser in `src/lib/tlsf.y` implements Table 1 operator binding and
-§4.6 longest match for consecutive cases; `src/lib/spec_parse.c` feeds the lexer
-through its per-parse, one-token reduction-head lookahead. The frozen compatibility parser and token-replay files have
-been removed. Parsing, boundary selection and ambiguity rejection are trusted C
-obligations, outside the Lean set-identity theorems. The additive `grammar112g`
-entry in [the scoping receipt](../tools/analysis/tlsf-scoping-110.json) records
-the parser migration and the hashes of the three removed compatibility files.
-
-**Trusted boundary.** The lexical/type checker at
-`src/lib/expand_check.c:242–801` implements TLSF v1.1
-§§4.1–4.7. Arguments may shadow globals under the deliberate lexical reading
-of §4.6 used by SYNTCOMP; their actuals determine their categories. Loop and
-pattern binders retain declaration freshness checks. Each application, including
-recursive calls, gets an independent copy of its declaration's type constraints
-(`src/lib/expand_check.c:277–357,749–775`). Sharing between arguments and results
-is preserved within each instance; recursive actuals are not unified with their
-caller's formals. Constraint solving and type-graph copying are bounded at 2000,
-matching expansion's recursion guard. Masks retain the §4.3 boolean/signal
-embedding into LTL; boolean-only uses still constrain logical operands
-(`src/lib/expand_check.c:65–169`). These algorithms and their convergence checks
-are trusted, not Lean-verified type inference.
-Declaration bounds resolve on demand in the GLOBAL environment with a shared
-unresolved/visiting/resolved dependency state (`src/lib/expand.c:294–357`).
-SIZEOF, index keys and expanded enum comparisons resolve their referenced bus
-before reading bounds; cyclic width dependencies reject with a diagnostic.
-Static width checks run after all declaration bounds resolve. This dependency
-resolution and cycle detection remain trusted C obligations. Generated
-fair-environment binders retain the usual spelling unless a declaration uses
-it, then suffix until fresh (`src/lib/spec.c:215–245`); the checker still
-requires binder freshness.
-Widths are value properties: static §4.4 checks cover direct declarations and
-exact nullary alias chains in their own lexical GLOBAL environment, including
-unused/dead syntax (`src/lib/expand_check.c:254–270,526–557`). Expansion checks
-every actual bus/valuation pair after lexical substitution and set filtering
-(`src/lib/expand.c:1597–1621`); no width constraints flow through category
-unification, shadowed bindings or removed set members. After all bounds resolve,
-declarations named like another bus's flattened bit are rejected before
-the specification formula lists expand (`src/lib/expand_check.c:670–713`). A shared arena-allocated
-constructor builds the complete interned name for this check, formula/key atoms
-and flattened declarations (`src/lib/expand_check.c:5–16`,
-`src/lib/expand.c:1399–1410,2039–2042`). Evaluated bus indices, including aliases
-and actuals, must lie within the resolved bus bounds (`src/lib/expand.c:1674–1697`).
-This deliberate fail-closed rule keeps §4.5 signal identity injective in keys and
-all output formats. LTL/LaTeX/quoted-LTL and TLSF printers stream full names.
-These C checks, allocation/name construction and printer correspondence are not
-proved.
-Capture-avoiding numeric closing at `src/lib/expand.c:111–277,421–445`, caller-side
-argument evaluation at `src/lib/expand.c:449–473`, and lexical declaration
-environments at `src/lib/expand.c:72–82,1535–1547,1805–1818,2108–2109` remain
-trusted. Caller origin bindings are diagnostic history only
-(`src/lib/expand.c:1480–1495`). Substitution closes free syntactic integer
-occurrences and masks an inner rebinding in its body, while still closing its
-domain (§4.7). Resolved signal atoms carry `resolved_signal`; substitution,
-numeric lookup and argument evaluation respect that phase marker
-(`src/lib/expand.c:122–141,486–506,962–981,1535–1547`). The marker is erased
-from structural comparison because captured/core atoms already denote signals.
-Formula-valued elements retain closed **high-level** syntax. Their separate
-identity keys embed bus-index signals into LTL at `src/lib/expand.c:998–1012`
-and lower ranges using the literal §4.8 nested spelling at
-`src/lib/expand.c:1743–1764`. Ordinary output retains the equivalent distributed
-range spelling. Lean `LowerEnv.range` selects `literalRange` for keys and
-`boundedRange` for ordinary lowering; `section48_eventually` and
-`section48_globally` check the two literal examples. The C correspondence and
-denotational agreement between these two range spellings remain trusted.
-Nested sets materialize stored children at `src/lib/expand.c:947–960`;
-non-numeric binders substitute the stored element at
-`src/lib/expand.c:1155–1183`. Consequently key expansion does not replace a
-later SIZEOF/bus actual or pattern subject with a normalized identifier.
-Lexical bus aliases resolve to their declared bus value before indexing and
-SIZEOF (`src/lib/expand.c:395–415,503–506,1674–1698`), so identity keys also
-refer to the resolved bus. Alias resolution and signal-name injectivity remain
-trusted C obligations.
-Pattern subjects retain ordinary expansion even during key computation
-(`src/lib/expand.c:1355–1363`). The obligations that C expansion agrees with
-Lean `lower`, and that closing preserves source meaning, remain trusted.
-The arbitrary `LowerEnv` resolvers do not discharge either obligation.
-Allocation rollback, interned identifiers, source-to-core correspondence and
-printer metadata also remain trusted. The C units, review regressions,
-allocation sweeps and sequential impact report are executable checks, not
-kernel proofs of these boundaries.
-
-Repeated pattern identifiers intentionally require the same captured syntax:
-in a pattern such as `p && p`, the second `p` must match the first captured
-term, including next strength. Logical equivalence of different syntax is not
-the matching relation. The same `structEq_eq` theorem makes an accepted repeated
-capture safe for substitution; no matching behavior changes here.
-
-The C↔Lean **field classification** is enforced by `set_dedup`: it includes the
-implementation, following existing internal-validator tests, and mutates each
-active field of every kind independently, plus every ignored provenance field.
-It also exercises `value_equal`/`set_add` and repeated pattern captures. Compile-time
-`sizeof`/`offsetof` checks audit Node and bounded-metadata layout. The
-`set_dedup_field_inventory` census checks every declared leaf field and the
-54-kind C↔Lean constructor/tag mapping, including additions hidden in union
-storage or padding; Meson runs it at configuration and as a test. The provenance
-table beside the comparison explains every omission. This is executable
-correspondence enforcement, not a kernel proof of C execution. Interning,
-well-formed acyclic ASTs/valid arrays, memory safety/allocation, and compiler
-correctness remain trusted. Printer correspondence, including interpretation
-of cached bounded metadata and emitted weak/strong next, is unchanged.
-
-## Integer literals and range domains (issue #116)
-
-[`TlsfProofs/IntegerLiteral.lean`](TlsfProofs/IntegerLiteral.lean) imports only
-`Init`; names here are in `Tlsf.IntegerLiteral`. `Digits` is a list of `Fin 10`,
-with nonemptiness checked by `lex`. `decimal` is the mathematical base-ten
-left fold, so arbitrarily long spellings and leading zeros have natural-number
-values without saturation. `I64` is the subtype of mathematical integers between
-`min64 = -2^63` and `max64 = 2^63-1`, not a wrapping cast.
-
-`lex_integer_iff`, `lex_min_iff`, and `lex_rejects_large` characterize the token
-classes. `positive_acceptance` and `negative_acceptance` give necessary and
-sufficient conditions for successful decoding: unsigned magnitudes are below
-`2^63`, and directly negated magnitudes are at most `2^63`. `leading_zero`
-proves prefixing zero preserves the value. `minimum_direct` explicitly yields
-`NODE_INT(INT64_MIN)`; `minimum_positive_rejected` rejects that magnitude alone
-and behind parentheses after minus. `minimum_negation_rejected` rejects a
-second negation of the minimum. `Syntax` includes recursive unary minus and
-parentheses. It models token adjacency after whitespace/comment skipping,
-including the `MINUS` keyword alias; it does not model unary plus (not accepted).
-
-`parse_exact` connects accepted syntax to the mathematical value of the parsed
-`NODE_INT`/`NODE_INT_NEG` AST. `parse_payloads_fit` proves every parsed integer
-payload fits, so the model's leaf check is redundant (C returns that payload
-unconditionally). `eval_exact` proves successful checked AST evaluation has that
-value; `decode_exact` combines them with signed-64 representability.
-Parsing a nested negation can succeed while numeric evaluation rejects overflow.
-An unevaluated expression in unused source is not claimed to have been checked
-by C. General arithmetic is outside `Syntax`; the alternative minimum spelling
-`(-9223372036854775807 - 1)` is an executable correspondence regression, not a
-proof of arbitrary C arithmetic. The checked arithmetic port below extends the
-parsed numeric AST to all arithmetic operators and sum/product reductions.
-
-`endpoints_safe` proves both strict shifts fit after the extreme-empty guard.
-`endpoints_exact` equates normalized membership to the original strict/inclusive
-comparisons for **every mathematical integer**, given correctly decoded int64
-endpoints. `values_exact` proves the inclusive list has exactly those members,
-including inverted intervals; `successor_safe` justifies the C loop's guarded
-increment. `domain_values_exact` composes the guard and list, and
-`decoded_range_exact` / `decoded_values_exact` substitute the original literal
-values. For endpoints computed by other expressions, `domain_values_exact`
-applies once their exact evaluation and representability are established.
-
-`range_all_denotation` and `range_any_denotation` replace domain membership in
-universal/existential formula reductions for every `len`, word and position.
-`none` is infinite, `some n` finite; `inWord` uses the same position guard as
-`LTL.Sat`, including terminal/out-of-word positions. The body denotation is an
-arbitrary fixed function with the source integer bound to the loop variable.
-These are statements about the original formula language, prior to any game
-reduction. No system/environment ownership, player orientation, or realizability
-claim is changed or assumed. They do not prove body substitution or the whole
-TLSF expansion pass.
+Names are in `Tlsf.IntegerLiteral`. The model covers successful materialization;
+resource limits may reject additional inputs.
 
 | C source | Lean correspondence / executable enforcement |
 | --- | --- |
@@ -525,79 +177,11 @@ TLSF expansion pass.
 | `src/lib/expand.c` (`eval_domain`) | `endpoints`, `values`, `domainValues`, membership/safety lemmas; unit compares every enumerated member of tiny extreme, middle, singleton and inverted domains under all four strictness combinations |
 | `test/cli/check_integer_literal.py` | Issue reproducer and adjacent singleton ranges, direct/zero-prefixed/comment-separated/arithmetic minimum spellings, reprinting and pre-bounded normalization, rejection diagnostics and empty stdout, under both word kinds |
 
-**Remaining trust.** This is a mathematical port, not verification of the C
-binary. Flex's digit recognition/token boundaries and comment skipping, libc
-`strtoull` (exact conversion or `ERANGE`, with an unsigned long long wide enough
-for `2^63`), the C guard/cast, Bison precedence/actions, AST payload representation,
-and compiler correctness remain trusted. The C unit and kernel-computed
-`boundary_witnesses` check their correspondence; finite testing is not a proof
-of libc or the generated parser. Checked arithmetic builtins, definition/ITE/bus/set resolution, binder
-substitution, C loop/list/set execution,
-allocation/resource-failure rejection, formula folding, and printer correspondence
-remain trusted. The list model describes successful materialization; no claim
-that huge intervals can be allocated is made. Existing #114 and #115–117 tests
-remain unchanged. The historical
-[`integer-literal-116.json`](../tools/analysis/integer-literal-116.json) receipt
-records the proof's theorem inventory, trust boundary and validation.
+## Checked arithmetic and reductions
 
-## Checked arithmetic and reductions (issue #115)
-
-[`TlsfProofs/CheckedArithmetic.lean`](TlsfProofs/CheckedArithmetic.lean) imports
-`Init` and the core-only #116 module; names here are in `Tlsf.CheckedArithmetic`.
-`Expr` contains integer leaves, variables, recursive negation and all five binary
-operators, range sum/product reductions, and sum/product over a supplied ordered
-materialized set domain. `Environment` gives mathematical integer bindings;
-`bind` masks an outer binding. Definition calls, selected ITE branches, SIZEOF,
-and set size/min/max must first resolve to matching numeric syntax/payloads.
-Their resolver correspondence remains trusted; this is not a theorem about
-the entire C frontend. `literalExpr`, `literal_eval`, `literal_denote` and
-`parsed_literal_exact` reuse the #116 parsed-literal results at this boundary.
-
-`operation` uses mathematical integers. Division is `Int.tdiv` and remainder
-`Int.tmod`, with truncation toward zero, rather than Lean's Euclidean `/`/`%`.
-`Allowed` rejects zero divisors and **both** MIN / −1 and MIN % −1. `apply_iff`
-checks representability before a result is returned. `division_guard_exact` and
-`remainder_guard_exact` prove the result-fit check is redundant after C's explicit
-divisor/MIN/−1 guards. Negation uses `checked (-a)`
-(`negation_as_sub` connects this to C's checked `0-a`). `FoldDefined` requires
-every evaluated body and accumulator prefix to be defined and representable: later cancellation or a
-multiplication by zero cannot rescue an overflowing prefix.
-`prefix_overflow_rejected` checks both examples with the kernel.
-
-`eval_iff` is the complete mathematical contract: `eval e rho = some v` iff
-`Defined e rho` and `v.val = denote e rho`. `Defined` is a separate recursive
-predicate on the mathematical denotation, not a test for evaluator success.
-`eval_exact` exposes exactness, signed-64 fit and operation safety;
-`eval_rejects` says evaluation returns `none` iff this safety predicate fails.
-`evalFold_iff` establishes the same contract for every left-to-right accumulator
-prefix, starting at 0 for sums and 1 for products. Empty domains do not evaluate
-the body. This is a successful-computation model; the C depth/resource limits may
-reject additional evaluations. The iff does not promise allocation or execution
-of enormous domains, or numeric validation of unused source.
-
-`eval_domain_exact` composes `eval_iff` with #116's
-`domain_values_exact`, without duplicating its endpoint proof. For arbitrary
-strictness flags and every integer k, successful domain evaluation gives exactly
-`Fits k ∧ SourceMember (denote lo rho) (denote hi rho) ls us k`. This includes
-reversed bounds, all empty cases, both signed extremes, and endpoints containing
-nested sums/products. `domain_rejects_endpoint` prevents a failed endpoint from
-publishing a domain, even when the other bound would trigger an extreme-empty
-guard. #116's `endpoints_safe` and `successor_safe` justify strict shifts and the
-guarded inclusive-loop increment.
-
-`eval_range_reduction` connects numeric reduction evaluation to this very same
-`evalDomain`. `sum_exact` and `product_exact` identify the integer fold and all
-prefix safety conditions. `forall_exact`/`exists_exact` prove the first-term-seeded
-C Boolean folds implement universal/existential quantification; `union_exact`
-and `intersection_exact` prove extensional set membership (`union_empty_seed`
-justifies C's initial empty union), with empty intersection
-rejected. `range_all_denotation`, `range_any_denotation`, `range_union_exact` and
-`range_intersection_exact` substitute the original computed source endpoints.
-`six_empty_cases` records true, false, 0, 1, empty union and failed intersection.
-Formula results quantify over arbitrary body denotations, words and positions
-with #116's `inWord` guard, including finite and infinite words. They preserve
-the frontend objective before game construction; no player ownership, orientation,
-strategy or realizability conclusion is changed or inferred.
+Names are in `Tlsf.CheckedArithmetic`. Division/remainder truncate toward zero;
+zero divisors and MIN / -1 or MIN % -1 reject. Every reduction prefix must fit
+signed-64, including prefixes later cancelled or multiplied by zero.
 
 | C source / executable check | Lean correspondence |
 | --- | --- |
@@ -608,31 +192,11 @@ strategy or realizability conclusion is changed or inferred.
 | `test/unit/checked_arithmetic.c` (`checked_arithmetic_115`) | Calls the actual private evaluator: wide-integer operator oracle, binding shadowing, reduction prefixes/empty seeds/nesting, computed-domain membership under every strictness flag, and failed-domain/formula publication. `boundary_witnesses` and `issue115_rejected` are kernel-computed matching examples. |
 | `test/cli/check_checked_arithmetic.py` (`checked_arithmetic_cli_115`) | All three original small-final-endpoint reproducers, division/remainder overflow and zero, sum/product prefix overflow, all six reductions over computed/reversed/extreme bounds, all strictness flags, both word kinds and the input-assumption/output-guarantee objective orientation. Failures require diagnostics and empty stdout. |
 
-**Remaining trust.** These are mathematical ports with executable correspondence
-checks, not a kernel proof of C or compiler execution. GCC/Clang checked builtin
-semantics, C quotient/remainder semantics, the mapping of ASTs and interned names
-to `Expr`/`Environment`, numeric definition/ITE/bus/set resolution, parser/type
-checking, binder substitution/closing, C containers/deduplication/loop order,
-resource/depth-failure handling and allocation rollback remain trusted. Builtins
-may overwrite their scratch `out` on overflow; callers must test the returned
-boolean. The no-publication claim concerns successful results/domain/formula/CLI
-output, not preservation of every internal scratch slot on failure. Set folds
-use extensional predicates; their C equality/storage implementation is not proved.
-Body lowering, section-objective assembly and printers remain trusted; arbitrary
-body resolvers do not prove those obligations. The historical
-[`checked-arithmetic-115.json`](../tools/analysis/checked-arithmetic-115.json)
-receipt records the theorem inventory, trust boundary and validation.
+## Indexed-next strength
 
-## Indexed-next strength (issue #117)
-
-[`TlsfProofs/NextStrength.lean`](TlsfProofs/NextStrength.lean) uses only the
-existing core-only `SetDedup` and `IntegerLiteral` modules. Names are in
-`Tlsf.NextStrength`. `preIndexedX` ports the current C branch order and recursion
-frontier on `HNode`, retaining `bounded.strong` on every reconstructed
-`NODE_NEXT_N`. Counts are mathematical `Int` payloads with the exact signed-64
-guards used by C. `LiteralCounts env` requires that successfully evaluated
-nonnegative literal counts lower to their natural value; other expressions
-use the same fixed lowering environment on both sides.
+Names are in `Tlsf.NextStrength`. `preIndexedX_lower` and `preIndexedX_sat`
+cover the pass under `LiteralCounts`; symbolic count evaluation and C expansion
+remain trusted.
 
 | Actual C branch | Guarantee |
 | --- | --- |
@@ -644,94 +208,21 @@ use the same fixed lowering environment on both sides.
 | Changed child without a merge, including strong outer nodes | `indexed_rebuild_sat`, `strongUnary_rebuild_sat`; whole-pass `preIndexedX_lower` supplies the child equality at every recursion depth |
 | Count representability | `increment_fits`, `addition_fits`: each admitted result fits signed-64 and conversion to Nat preserves the exact sum; `increment_guard_exact`, `addition_guard_exact` characterize representability and prove the guard's subtraction safe; failed guards reconstruct without arithmetic |
 
-`indexedNext_add` proves syntactic equality of the homogeneous expanded
-weak/strong constructor sequences for all natural counts, including zero.
-`indexed_lower` / `weakUnary_lower` combine that identity with every local C
-guard and fallback. Structural recursion gives `preIndexedX_lower` for **all**
-high-level nodes, including nested rewrites through NOT, F/G, both next kinds,
-and AND/OR/IMPL/EQUIV; counts and unsupported subtrees are untouched as in C.
-Strong unary X recurses and reconstructs, without merging even with a strong
-indexed child. No finite admission uses infinite-word coincidence.
+### Indexed pre-weak and spine steps
 
-`preIndexedX_sat` therefore preserves `LTL.Sat` at every word and position,
-even outside a word; `preIndexedX_finite` explicitly quantifies over every valid
-finite position (which implies a nonempty word), and `preIndexedX_infinite`
-covers infinite words. These statements concern the original frontend
-objective, before game construction. System/environment orientation is unchanged.
-`issue117_terminal` records the one- and two-letter distinction from the issue.
+| Claim | Theorem |
+| --- | --- |
+| Rebuild indexed next with an equivalent body | `indexedNext_congr`, `preWeak_indexed_rebuild` |
+| Distribute indexed next over conjunction, including count zero and terminal positions | `indexedNext_conj`, `preSpine_indexed_split` |
 
-`branch_witnesses` supplies kernel-computed cases mirrored by the registered
-`next_strength_117` C unit test: both strengths, zeroes, homogeneous merges,
-boundary counts, overflow refusal, and symbolic-count/strong-outer reconstruction.
-Mixed-chain refusal is covered by the general lemmas `indexed_mixed`,
-`indexed_strongUnary`, and `weakUnary_strongIndexed`, and by the C test.
-`next_strength_cli_117` independently constructs expanded reference syntax and
-checks emitted objectives with `tools/golden/reference.py` over all valuations
-and positions of one-, two-, and three-letter words, including the three issue
-reproducers and the empty AP alphabet.
+These are local steps, not whole-pass proofs of high-level C pre-weak/spine
+traversals or normalization's conservative `node_eq` comparator.
 
-No new C correction was needed after #118. The C/Lean AST mapping, exact C
-execution/compiler, allocation/pointer handling, evaluation of symbolic counts,
-body resolution, section assembly and printing remain trusted. Negative counts
-are not merged and remain expansion errors. Huge counts are proved with the
-guards and tested structurally without allocating their expansion. This does
-not verify other indexed passes or the expansion loop. The historical
-[`next-strength-117.json`](../tools/analysis/next-strength-117.json) receipt
-records the theorem inventory, trust boundary and validation.
+## GR(1) region certificates
 
-### Pre-weak and indexed spine reconstruction (issue #122)
-
-The `pre_indexed_x` port above stays unchanged. The `pre_weak` and
-`prenorm_spine` indexed branches are outside that whole-pass theorem:
-`pre_weak_exact` and `pre_spine_split_exact` in `Rewrites.lean` previously cover
-the expanded core, where indexed next has already been lowered.
-
-`NextStrength.indexedNext_congr` and `preWeak_indexed_rebuild` now cover the
-local high-level reconstruction step for every count and either strength,
-assuming the rewritten body has the same finite/infinite denotation at every
-position. `indexedNext_conj` and `preSpine_indexed_split` prove the indexed
-conjunction distribution used by the spine branch, including zero counts and
-terminal positions. These minimally extend the proved fragment; they do not
-claim a whole-pass refinement of the high-level C pre-weak/spine traversals.
-The existing `SetDedup.structEq_eq`, `structEq_denotation`, `dedup_conj` and
-`dedup_disj` concern expansion's complete comparator, not normalization's
-`node_eq`. Normalization now uses a conservative exhaustive switch: apart from
-pointer identity, only booleans, integer literals, atoms, core unary/binary
-constructors and indexed next can compare equal. Those branches compare all
-semantic payloads, including `resolved_signal` on atoms and `bounded.strong`
-on indexed next. Every other high-level kind returns false without reading
-union payloads. In particular, G/F ranges, reductions, calls, sets and ITEs
-cannot be treated as binary nodes with their remaining fields omitted. A new
-node kind triggers the compiler's missing-switch-case warning. Source IDs,
-origin bindings and expanded bounded caches carry provenance rather than
-formula meaning. No new C comparator refinement theorem is claimed; the
-local reconstruction/distribution lemmas and their premises are unchanged.
-
-The registered `next_strength_122_pre_weak`,
-`next_strength_122_pre_spine_split` and `next_strength_122_pre_safe` CLI checks
-use direct finite-word semantics for both issue witnesses in both operand
-orders, disjunction deduplication, changed-child reconstruction, counts 0/1/2,
-both strengths and nested spines. They also cover G/F range bodies, bounds and
-range strength, ranges inside indexed next, nested and unary wrappers,
-range/set reductions and definition calls, in both operand orders with both
-conjunction and disjunction. The historical
-[`next-strength-prepasses-122.json`](../tools/analysis/next-strength-prepasses-122.json)
-records the failing main regressions, constructor audit and validation.
-C execution, allocation,
-AST correspondence, symbolic count evaluation and the frontend assembly remain
-trusted as above.
-
-## GR(1) region certificates (acacia-bonsai #437)
-
-[`Gr1/Region.lean`](TlsfProofs/Gr1/Region.lean), in namespace `Tlsf.Gr1`,
-proves `region_conditions_sound`: a certificate satisfying `RegionConditions`
-on a finite, deterministic, acceptance-sampled arena supplies a causal,
-input-first `Strategy` from `Game.lean`. Every environment word produces a safe play;
-if every environment fairness predicate holds infinitely often, every actual
-system goal holds infinitely often. `strategy_invariant` also preserves W.
-The strategy replays `history` from `Game.lean` and chooses one joint control after the
-current input. It starts in the all-zero scheduler mode, then uses a finite
-cyclic goal counter that advances on current-state goal satisfaction.
+`Tlsf.Gr1.region_conditions_sound` proves a winning causal Mealy strategy
+from `RegionConditions` on a finite deterministic acceptance-sampled arena.
+`strategy_invariant` preserves W. See the [certificate format](../docs/gr1-region-method.md).
 
 | Model / condition | C source |
 | --- | --- |
@@ -744,44 +235,14 @@ cyclic goal counter that advances on current-state goal satisfaction.
 | `goal_total`: one safe, W-preserving control for each input at a goal | `src/lib/gr1_check.c:3135–3148,3194–3196,3228–3234` |
 | `rank_total`: one joint safe/progress control in the least lexicographic layer | `src/lib/gr1_check.c:3135–3148,3236–3274` |
 
-Both totality fields quantify over the separate all-zero and one-hot modes
-(`src/lib/gr1_check.c:3370–3377`). `Progress` tests successor justice, lower Y,
-or the selected X with **successor** fairness false
-(`src/lib/gr1_check.c:3197–3216,3245–3258`). Zero fairness uses one synthetic
-true lane (`src/lib/gr1_check.c:4489`), which disables stuttering. Positive goal
-counts and rank depths mirror admission at `src/lib/gr1_check.c:4490–4497,1051–1054`.
-The checker agrees with [the region-method document](../docs/gr1-region-method.md):
-its additional W conjunct on successor justice is redundant under `SafeInv`.
-The liveness proof uses least visited layers and `Dpa.Inf`, then finite cyclic
-counter progress; no winning-strategy or liveness premise is assumed.
-
-[`Gr1/Examples.lean`](TlsfProofs/Gr1/Examples.lean) checks three tiny certificates.
-The first uses two alternating goals with zero fairness; the second samples an
-input goal whose stuttering is discharged by fairness. Both require control to echo the current
-input for safety. The third certificate, `rankedCertificate`, has two levels
-and two fairness lanes with predicates distinct from the goal. Its 3→2 step
-changes the least lane, 2→1 requires lower-Y descent, and overlapping lanes at
-state 1 require selecting lane 0 for stuttering. `alternating_wins`,
-`sampled_wins`, and `ranked_wins` apply `region_conditions_sound`.
-The build commands above run the per-module diagnostics, full build, then
-[the enforced axiom audit](../tools/golden/gr1_region_audit.lean) for the main
-result, invariant, and all three example certificates and winning theorems.
-
-**Trust boundary.** This proves the mathematical region method only. It does
-not verify the C checker/parser, certificate loading, BDD operations, AIG
-evaluation or acceptance sampling. The TLSF-to-game reduction and its strategy
-transport remain an explicit, unproved bridge; the theorem alone does not
-establish realizability of a TLSF source file. No GR(1) lift extension is added.
+`Progress` uses successor justice, lower Y, or the selected X with successor
+fairness false. No fairness means a synthetic true lane, disabling stuttering.
+`alternating_wins`, `sampled_wins`, and `ranked_wins` check example certificates.
 
 ## C and Lean correspondence
 
-Locations are relative to this repository. They identify guarded mathematical
-ports, not verification of C or other CSNF template families.
-
-Keep C/Lean correspondence references current; `proof_source_references` checks
-their targets independently of historical source hashes. New source-hash
-ledgers are not required. Golden changes follow the
-[manifest update policy](../test/fixtures/golden/README.md#updating-goldens).
+`test/cli/check_proof_references.py` checks these locations. Update them when
+sources move; historical source hashes do not replace this check.
 
 | C source in this working tree | Lean port / correspondence obligation |
 | --- | --- |
@@ -810,118 +271,17 @@ ledgers are not required. Golden changes follow the
 | `src/lib/rewrite.c:77–92`; `src/lib/normalize.c:825–830` | `issue85_weak_next`, `issue85_negation`; finite next must retain its terminal behavior |
 | `src/lib/decompose.c:66–72` | `elim_realizable_inf`, `elim_realizable_fin`, `clusters_realizable` delimit the mathematical basis of exactness |
 
-The textual `ctl o := theta` emission is `src/tools/tlsfcompose/main.c:1063`.
-`normalize_definitions` establishes every reconstructed equation;
-`play_decorate` supplies its Mealy implementation.
-
-## Decomposition trusted boundary
-
-Definition elimination, clustering, and conditional pruning are proved.
-Phase B Skolem values, registers, reactions, and liveness schedulers remain
-guarded C implementations without Lean controller proofs. Rewrite equivalence
-does not prove their controllers. `TRUST_EXACT` means realizability equivalence
-under certifier/composition guards; free reactions/registers may choose a winning
-strategy without forcing a unique value on every trace.
-
-C set/list storage, AP identifiers, AST constructors, and roles must match Lean.
-Set-element structural equality and deduplication are proved above; C container
-invariants, nested-set extensional comparison, and evaluator correctness remain
-C obligations.
-Cover output sets must equal formula output atoms, including normalized/matching
-formulas: recognizing an equality must recover the same constraint/support.
-Expansion, preprocessing, other normalization, memory/allocation behavior, and
-machine bounds beyond the signed-decimal/checked-arithmetic/range ports remain C obligations.
-Cycles must yield ranks below `nelim + 1`,
-providers distinct names, and section guards inspect every occurrence, including
-other definitions, exactly as `covers`. Boolean guards must reject all temporal
-constructors. Definition games are Mealy only; their certifier must decline Moore.
-
-| Unproved controller family | Required runtime guard |
-|---|---|
-| Output-fixing non-definitions | `output_is_free` in `src/lib/templates_certify.c` (directly or through `output_constrained_elsewhere`) requires a declared output, no environment occurrence even inside the block, and no outside use, including PRESET/strict ASSERT. This covers invariant, reaction, reachability, persistence, delayed/fixed-delay, recurrence switch, server/response, arbiter, round-robin, set/reset, toggle, and guarded-next. Standalone mutex fixes/discharges nothing. |
-| Round-robin/arbiter | Every mutex member and every output of every block constraint must be free outside the whole block, even without recurrence/response. Reject self-pairs `!(p && p)` before distinct-member construction. Arbiter grants are outputs, requests plain inputs; free unscheduled members can stay false. |
-| Assigned values and guards | Definition/register values and both polarities of reaction, guarded-next, set/reset, toggle, and fixed-delay guards are temporal-free. Reactions reject self-reference. Combinational definitions/reactions and Skolem invariants reject Moore; registers may read current Boolean inputs for later outputs. Server requests are plain inputs; other/output/temporal requests stay residual. |
-| Invariants and implicit inputs | Decline unflagged atoms. Cover support, residual interfaces, monitor eligibility, and timing adaptation treat them as environment inputs; the bounded Boolean solver must not assign omitted inputs false, even in input-only bodies. |
-| Phase B ownership | Support closes transitively under committed definition theta (`src/lib/templates.c:442–472,576–623`), including newly exposed dependencies; rejected blocks stay residual. `phase_b_probe` injects solved blocks to bypass local free-output guards, checking direct and reversed-order transitive dependencies. This is not a Lean proof. |
-| Finite registers/schedulers | `src/lib/templates_certify.c` rejects weak/strong next for delayed definitions, set/reset, toggle, fixed-delay, and guarded-next. Final weak next is true and strong next false independently of output; transition registers cannot discharge equivalence boundaries. Even vacuous weak-next implications are conservatively declined. Round-robin/arbiter/recurrence-switch also decline: infinite schedules cannot discharge final GF/F requests; two final grants may violate mutex. Free F/FG outputs and plain-input single-grant servers can stay true on all nonempty prefixes; Boolean invariants/reactions have no temporal boundary. |
-
-Before cover construction, `tlsf_pipeline_build_cover` (`src/lib/pipeline.c`)
-calls `spec_adapt_target` once after expansion. The pipeline, decomposition API,
-tlsfresidual, tlsfcompose, tlsftemplates, and tlsfbenchgraph share it;
-`conversion_prepare`/tlsf2ltl share validation. Differing finite SEMANTICS/TARGET,
-including overrides, are refused explicitly; no finite adaptation is proved.
-Infinite adaptation, including implicit inputs, remains trusted. Drivers use
-effective TARGET: Moore bypasses input-first OxiDD; finite and Moore residuals
-return UNKNOWN unless a command is explicitly selected. Moore verdict exports
-use input-delay encoding; finite commands carry explicit Mealy/Moore semantics. Controller export
-refuses finite/Moore contracts it does not implement.
-
-Empty Lean sections are `tt`; absent/dropped C sections must agree, including
-strict empty REQUIRE (`As W false = G As`). Successful views must retain every
-constraint/role. The listed expanded-core simplification/NNF/rewrites and
-high-level set-element deduplication have exactness theorems. The bounded temporal
-lowering model is explicit in `SetDedup.lower`; refinement of C expansion to that
-model, general integer and guard evaluation, definitions and reduction-body
-substitution remain trusted. The integer-literal/range-domain port above discharges
-its stated mathematical sub-obligations; C execution still requires correspondence.
-Lean retains the full signal type; C's unused-output filtering must preserve
-the game/formula under projection and arbitrary extension. Only decoder
-reconstruction may then assign eliminated outputs. Locality/substitution support
-this interface but do not verify declaration filtering.
-
-Union-find/keys must establish `Clustered` before pruning the initially complete
-environment. Pruning needs `Prunable` and `EnvSat` for the actual dropped set.
-The native search uses at most four lasso positions, eight atoms, 128 source
-nodes, and 200,000 shared candidate/node/fixpoint/section updates. The last
-position loops to its chosen entry; F/U/M use least and G/R/W greatest fixpoints
-on reachable positions. REQUIRE holds everywhere, INITIALLY/ASSUMPTIONS at zero.
-Only a completed positive joint check certifies D. Failed candidates are skipped;
-unsupported syntax, exhaustion, or no witness yield UNKNOWN and retain D, so
-incompleteness cannot change realizability.
-
-`envSat_of_word` and `prune_realizable` bridge any satisfying infinite word to
-conditional equivalence. C evaluation, AST/sections, and lasso interpretation
-remain trusted; search completeness is unnecessary. No external automata/SAT
-library is used. Finite and Moore semantics/targets never prune. Finite or
-output-dependent environments must first collapse to one game, retaining
-input-only system constraints. `clusters_realizable` covers infinite input-only
-environments; `finite_split_fails` prevents combining arbitrary finite prefixes.
-
-Printers/escaping/AP names must preserve the AST and weak/strong next. Compiled
-controllers must realize composed letter maps, not order-sensitive simultaneous
-assignments of unexpanded values. Solver/export frontends need the positive
-system objective and identical ownership. In particular, a finite-game command must implement
-`FinWin`: some nonempty winning prefix for every play. External solvers, ending
-conventions, printing, and reported trust labels remain unverified.
+| C source | Lean correspondence |
+| --- | --- |
+| `src/tools/tlsfcompose/main.c:1063` | Controller emission; `normalize_definitions`, `play_decorate`. |
 
 ## Automaton translation validation
 
-`Impl.uncached_construction_language` proves an independent executable symbolic
-reference for admitted formulas: syntax transport, pure factoring/selection,
-a fixed finite basis, product progression, Zielonka construction, and max-odd
-export. It models no C caches, traces, memo phases, allocation/call order, or
-compiler refinement. Positive Buchi rounds require `positiveb`; general parity
-formulas such as `F G a` need not admit deterministic Buchi recognizers.
-
-`Validation/Basis.lean` fixes distinct oriented components before execution.
-`compileBasis_presentation` proves the indexed Boolean/Shannon plan's language;
-repeated occurrences share coordinates to avoid duplicate-colour Zielonka work.
-Selection minimizes colours first; whole admitted Boolean components use proved
-terminal handling. `Impl.normalize` applies `equivalent_exact` below modalities;
-`normalize_language` proves infinite-word preservation, including default-only
-frozen-operand absorption. `normalized_finite_construction_language` composes
-normalization, admission, and export; its Buchi conclusion requires positivity.
-
-`Validation/Finite.lean` explores BFS representatives, merging all/rejecting
-fields by proved Boolean class equality while retaining tree paths and round
-residual/incoming bits. It independently checks initial correspondence and every
-state/letter edge, including terminal loops. Fingerprints use mixed/biased
-assignments only as hints: exact equality checks candidates, failed hints trigger
-full scans, and closure is checked separately. `classFingerprint_congr` and
-`configurationHint_congr` preserve hints under equality; `prepareParity_exact`
-and `prepareBuchi_exact` preserve keys after materialization/constant reduction.
-`exportParity_language`/`exportBuchi_language` prove returned closed tables exact.
-Exhaustion is a validation failure; no fixed exploration limit is proved sufficient.
+The executable reference proves language preservation for admitted formulas;
+positive Buchi rounds require `positiveb`. Successful translation validation
+proves language equality for the supplied formula, mode, AP order and table.
+Exhaustion or incomplete tables yield no proof. Execution additionally trusts
+the Lean compiler/runtime and serialization.
 
 | Obligation | Result / status |
 | --- | --- |
@@ -936,230 +296,56 @@ Exhaustion is a validation failure; no fixed exploration limit is proved suffici
 | Checked alphabet compaction | `checkCompact_sound`, `checkBuchiCompact_sound` |
 | Parsed C table recognizes the requested formula after successful validation | `validate_parity_sound`, `validate_buchi_sound`; `Buchi.toParity_language` covers nonpositive round skeletons |
 
-The equivalence checker seeks reachable closed walks with conflicting recurrent
-maximum parities, without state isomorphism. SCC traversal proposes ranks;
-`rankClosedCheck_sound` proves closure/nondecreasing ranks, giving a reflexive,
-transitive edge-containing order independently of SCC correctness. Marks/search
-are per vertex, avoiding pairs of valuation-labelled edges.
-`VertexIndex.index_exact` certifies the shared index across priority thresholds;
-priorities are collected separately. Alphabet compaction checks identical
-transitions/priorities at every state of both tables, then lifts proved
-`check`/`checkBuchi` equality to the original alphabet.
+### Formula-DAG validation
 
-Class equality flattens Boolean roots, deduplicates, cancels complements, and
-propagates constants (`mergeConj_eval`, `mergeDisj_eval`), leaving frozen operands
-verbatim. Mixed/single-atom/single-complement samples reject early;
-`sampleAgreement_of_eq` preserves equals. `associationAgreement_sound` covers
-root reassociation, commutation, and repeats; Shannon comparison decides the rest.
-Simplified cofactors preserve classes/support (`reduceProp_class`,
-`cofactor_unused`, `uses_exact`). Protection tests distinct modal atoms and
-syntactic containment before support; `protectionSet_exact` builds its finite
-set once per elision. Cheap tree/round keys precede Boolean comparisons; syntax
-equality avoids atom-list construction. `productStep_exact` preserves targets/
-colours when materializing edges once. AP valuations are decoded/materialized
-once with pointwise preservation in both language proofs; `freeze_exact` and
-`freezeBuchi_exact` preserve materialized transition tables.
+| Claim | Theorem |
+| --- | --- |
+| Direct DAG semantics equals decoded formula semantics | `decodeNode_meaning`, `decode_root_meaning`, `decode_indexed_meaning` |
+| Checked automaton recognizes the DAG | `validate_dag_parity_sound`, `validate_dag_buchi_sound` |
+| Checked automaton recognizes the signed whole objective | `validate_signed_parity_sound`, `validate_signed_buchi_sound`, requiring `NormalizationPremise` |
 
-### Protocol and trusted boundary
+The caller must supply the complete effective Mealy objective and prove its
+normalization to the DAG. A receipt for the DAG alone does not prove that bridge.
+TVD1 records this as `normalization caller-trusted`.
 
-`test/unit/dpa_dump.c` accepts `TV1`: acceptance kind, admission mode, AP order,
-and prefix formula. BFS discovery uses increasing valuations (AP i is bit i),
-with sorted complete rows, max-odd priorities, and source-state Buchi acceptance.
-Offline caps are 10,000 states, 256 MiB host storage, 2²² BDD nodes, and 2¹⁸
-cache entries, separate from production budgets. A 5 GiB process scope uses
-`MemoryHigh=4G`, `MemoryMax=5G`, `MemorySwapMax=0`, letting deadlines stop
-allocation-heavy cases before OOM kills the writer.
+From `proofs/`, build with `lake build dpaValidate`, then run
+`.lake/build/bin/dpaValidate REQUEST DUMP`. The C dumper is
+`build/test/unit/dpa_dump REQUEST > DUMP`, run from the repository root.
 
-`dpaValidate REQUEST DUMP` independently parses both, rejects AP/formula/mode
-mismatches, duplicate APs, missing/unordered edges, invalid targets/acceptance,
-and trailing data, then builds the same-formula/AP reference and checks language
-equality. Positive skeletons use Buchi rounds; otherwise `Buchi.toParity_language`
-embeds C Buchi exactly for comparison with the proved parity reference. This
-does not assume nonpositive round soundness. Parse/construction/export/comparison
-errors fail.
-
-The kernel checks construction, export, and checker proofs; offline execution
-also trusts the Lean compiler/runtime. Decoding, serialization, hashes, C memory
-safety, and BDDs remain trusted. Successful checks cover only enumerated formulas,
-modes, AP orders, and acceptance kinds, bound by canonical CI hashes. Other
-runtime formulas rely on the reference plus sample evidence, not a C correctness
-proof. Bounded lasso goldens alone do not prove unbounded language equality.
-
-### Replay and recorded results
-
-The historical receipt creator `tools/golden/translation_validate.py` requires
-Lean 4.35.0 and runs offline. It writes replacement receipts and provenance;
-use it only when deliberately creating new evidence. Its inventory includes
-every monitor constructor reached by 217 corpus specs
-under both policies (also failed reductions), DPA equivalence/language-golden
-formulas, pinned infinite-word verdicts, stored historical monitor formulas,
-and review-k/l/i cases. Each formula/AP order/admission/acceptance request shares
-a hard 17-second C-dump/Lean-check deadline (the default). Admitted outcomes are
-pass/fail/timeout; C declines are separate `not_admitted`. Parse/AP errors,
-reference rejection, export failures, and language mismatches fail. Timeouts are
-recorded without minimization or failing the run. Only passing checks get hashes;
-all real failures are retained/minimized and prevent general admission. Enablement
-requires zero failures among completed cases.
-
-For routine replay, run from the repository root after the
-[source-build prerequisites](../README.md#build), including initialized OxiDD.
-The optional memory scopes below require Linux and a systemd user session.
-They run fresh checks against frozen receipts without publishing replacements.
-
-```sh
-mkdir -p build-sprint/tmp
-export TMPDIR="$PWD/build-sprint/tmp" LEAN_NUM_THREADS=1
-export PATH="$HOME/.elan/bin:$PATH"
-export LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0 CARGO_BUILD_JOBS=1
-systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson setup build-sprint/release -Dbuildtype=release -Dresearch_tools=true
-systemd-run --user --scope -q -p MemoryMax=5G -p MemorySwapMax=0 \
-  meson compile -C build-sprint/release -j 2
-systemd-run --user --scope -q -p MemoryHigh=4G -p MemoryMax=5G -p MemorySwapMax=0 \
-  python3 tools/golden/regenerate.py --build build-sprint/release --translation
-```
-
-Replay writes transient validator files, TMPDIR, dumps and verification reports
-under `build-sprint/`, and checks that historical golden files remain unchanged.
-It rechecks the passing TV1 and TVD1 rows; timed-out or unsupported historical
-requests gain no new claim. The C-only CI gate recomputes identical dumps.
-Total golden budget is 4,400,000 bytes (4.4 MB). The receipt creator’s `--set`
-mode is a partial exploration that does not publish fixtures; the unfiltered
-creator and its `--dag` mode publish receipts and are not routine replay commands.
-
-The [recorded report](../test/fixtures/golden/translation/report.json) covers
-1,212 formula/AP orders and 4,848 requests: 4,134 pass, zero failures, 36 timeouts,
-and 678 C declines outside validation outcomes. Sets overlap; table entries are
-pass / fail / timeout, with declines separate in the report.
-
-| Set | Default parity | Default Buchi | General parity | General Buchi |
-| --- | ---: | ---: | ---: | ---: |
-| Corpus (258) | 248 / 0 / 0 | 242 / 0 / 0 | 256 / 0 / 0 | 249 / 0 / 0 |
-| Equivalence (108) | 90 / 0 / 1 | 51 / 0 / 0 | 104 / 0 / 1 | 59 / 0 / 0 |
-| Golden (945) | 760 / 0 / 5 | 690 / 0 / 0 | 912 / 0 / 28 | 760 / 0 / 3 |
-| Review (14) | 12 / 0 / 0 | 9 / 0 / 0 | 10 / 0 / 0 | 6 / 0 / 0 |
-
-GR(1) tries general admission after default unsupported decline because the
-predicates are not nested; standalone DPA defaults stay unchanged. Corpus
-coverage rose from 148 to 155/217, unsupported fell from 54 to 47, and invalid
-inputs stayed 15. Twelve exact/strict goldens and nine decomposition verdicts
-retain independently confirmed archive hashes; only `normalization_sickert2.tlsf`
-stays declined among fourteen archived native cases. No successful reference
-artifact was regenerated. See [golden provenance](../test/fixtures/golden/README.md)
-for recorded suite results.
-
-The [fixed-rejection inventory](../tools/golden/translation-fixed-rejections.json)
-retains `!(G F (b & X false))` under both admissions and
-`true U (b -> (b xor G a))` under default admission. Original/minimized forms pass
-with the proved Buchi-to-parity comparison. Both minimized formulas and complements
-are permanent cases; protocol tests still reject a wrong acceptance table.
-
-### Formula-DAG decoding and signed objectives (#103)
-
-`TlsfProofs/Dpa/FormulaDag.lean` models the public record decoder independently
-of automaton construction. `Node.valid` uses the public `TlsfAstKind` numbers:
-0/1/2 are true/false/AP, 3/8/10/11 are NOT/X/F/G, and 4–7/12–15 are
-AND/OR/IMPL/EQUIV/U/R/W/M. Kind 9 (strong next), negative/unknown enum values,
-and high-level or quantified syntax are rejected. Exact arity is mandatory:
-each used child is strictly smaller than its record index, each unused child
-is `UINT32_MAX`, AP records have an in-range AP index, and every other record's
-AP field is `UINT32_MAX`. The checks cover all records, including unreachable
-ones. Sharing children, including two equal children, is allowed.
-
-`Accepted` includes bounded uint32 records/counts, an in-range root, and
-distinct usable names in the complete input-then-output array. Names are
-abstract: the C correspondence instantiates them with byte strings up to the
-first NUL, with usable meaning non-null and nonempty. It assumes valid readable
-storage and a non-null output pointer. The corresponding C envelope also
-rejects null nodes, zero nodes, missing nonempty input/output arrays, overflow
-of the summed declaration counts, and acceptance kinds other than parity/Büchi.
-`test/api/dpa_dag.c` regresses these rejections and every relied-on record/name
-check, including unreachable invalid records and unused invalid declarations.
-The mathematical acceptance predicate describes structural admission only;
-it does not predict successful allocation, depth admission, supported monitor
-grammar, cancellation, deadlines, or completion. C may decline structurally
-valid inputs for those reasons. The public API still copies retained data.
-
-`denoteNode` interprets the DAG directly on infinite words. `decodeNode_meaning`
-proves its equality with formula satisfaction by strong induction on node
-indices, at every word position. `decode_root_meaning` selects the supplied
-root without requiring it to be last; `decode_indexed_meaning` connects the
-validator's finite AP indices. `ordered_ap`, `input_order`, and `output_order`
-retain the exact declaration map, including unused declarations. Totalizing
-defaults for malformed indices do not relax `Node.valid`. No unique-parent or
-tree-unfolding-size assumption is used. The main results are included in
-`tools/golden/dag_decode_audit.lean`; validator results are audited in
-`tools/golden/dpa_impl_audit.lean`. They use only the permitted core axioms.
-
-The offline protocol adds this request form (whitespace separates tokens):
+Requests use whitespace-separated tokens:
 
 ```text
+TV1 parity|buchi default|general AP-count names... <prefix formula>
+
 TVD1 parity|buchi default|general input-count output-count names...
-positive|negative objective <prefix whole effective-Mealy phi>
+positive|negative objective <prefix whole effective-Mealy formula>
 normalization caller-trusted
 dag node-count root
 <numeric kind left right ap, repeated node-count times>
 ```
 
-Unlike the C API's arbitrary nonempty byte strings, this protocol supports
-nonempty UTF-8 AP names without whitespace and at most 16 APs/4096 records.
-The dump repeats the entire header, including the AP partition/order, signed
-objective and every DAG record, then uses the existing complete sorted state
-table. A changed root, unused record, acceptance kind, partition, AP order,
-objective or polarity is rejected. `Request.source` computes normalized psi
-from the DAG, so a separately supplied formula cannot override it.
+The alternatives and angle-bracketed fields above are notation. AP names are
+nonempty UTF-8 without whitespace; requests allow at most 16 APs and 4096 DAG
+records. See `include/tlsf/dpa.h` for record constraints. Dumps bind the request
+and contain complete sorted rows; parity is max-odd, Büchi uses recurring 1.
+The caller's whole-objective normalization remains trusted.
 
-`validate_dag_parity_sound` and `validate_dag_buchi_sound` establish that a
-successfully checked decoded automaton recognizes the direct DAG denotation
-for every infinite word. `validate_signed_parity_sound` and
-`validate_signed_buchi_sound` separately require `NormalizationPremise`:
-psi is equivalent to the signed **whole** objective (positive phi or negative
-NOT phi). This premise is explicitly trusted from the caller. Neither the
-validator nor its receipt proves the caller's normalization or extraction of
-the whole effective-Mealy objective. The external normalizer is outside this
-repository. A receipt against psi alone never certifies the original objective.
+GR(1) retries general admission after an unsupported default result;
+the standalone DPA API defaults remain restricted.
 
-Only a successful full C expansion is serialized. Every enumerated letter
-must match exactly one edge, every target must be valid, and rows must remain
-closed and complete. The Lean reader independently rejects missing, duplicate,
-unsorted, partial or out-of-range rows. Parity uses **max-odd**; Büchi uses
-uniform source-state priorities 0/1 with recurring 1 accepting. Unsupported
-inputs, resource declines, cancellations, deadlines and incomplete attempts
-produce no validated hash. C regressions cover sticky declines and ownership;
-protocol checks cover binding, malformed records, incomplete tables and wrong
-languages. Historical TV1 successful dumps are unchanged.
+### Replay
 
-Replay the committed TV1 and DAG passing receipts serially from the repository
-root, using the research build and Lean prerequisites above:
+From the repository root, with a research build and Lean available:
 
 ```sh
 python3 tools/golden/regenerate.py --build build-sprint/release --translation
 ```
 
-The dedicated [DAG receipt](../test/fixtures/golden/translation/dag/provenance.json)
-binds the source revision and SHA-256 inputs, C dumper and Lean validator
-executables, build configuration, exact requests, successful dump hashes and
-all outcomes. Fixtures cover sharing, a nonfinal root, reordered and unused
-case-sensitive AP declarations, both whole-objective polarities, both admission
-policies, and parity/Büchi (including unsupported Büchi outcomes). The ordinary
-whole objective in these fixtures keeps all section defaults and varies its
-guarantee. The normalization premise is recorded separately from the checked
-language claim. Replay performs fresh per-instance, unbounded-language checks
-against these historical receipts; they do **not** establish universal C
-implementation refinement, memory safety, BDD
-refinement, compiler correctness, or correctness of unvalidated runtime inputs.
-
-The row-layout optimization retains both the TV1 and DAG validation receipts,
-reports, and dump hashes. Its historical [receipt](../tools/analysis/dpa-row-layout.json)
-records the 112 in-house row snapshots and two manifest additions.
-The oracle guard reverses only the two recorded manifest additions and checks
-the original full-file hash, preserving every historical provenance byte.
+Replay checks frozen passing TV1/TVD1 receipts without replacing historical
+hashes or claims. See the [golden guide](../test/fixtures/golden/README.md).
+`translation_validate.py` creates new receipts; use it only for new evidence.
 
 ### Source map
-
-These locations identify semantic algorithms and C operations covered by dump
-validation. BDD allocation/failure handling/decoding remain outside language
-theorems; no cache, trace, store-order, or compiler refinement is asserted.
 
 | Source | Relevant definitions / boundary |
 | --- | --- |
@@ -1171,54 +357,28 @@ theorems; no cache, trace, store-order, or compiler refinement is asserted.
 | `TlsfProofs/Dpa/Converse.lean:35` | `inductive Pi2 : Formula α → Prop where` |
 | `TlsfProofs/Dpa/GeneralConverse.lean:862` | `theorem general_pi2_language (x : Class ap) (hx : NNFClass x) (hpi : HasTag Pi2 x)` |
 | `src/lib/dpa.c:294` | `c->max_priority = (c->components.n + 2) \| 1u;` |
-| `src/lib/dpa.c:339` | `uint32_t round = dpa_pair(c, c->acceptance, c->acceptance != 0);` |
 | `src/lib/dpa.c:715` | `if (!c->started) {` |
 | `src/lib/dpa.c:743` | `s->edges[0] = (TlsfDpaEdge){label, id, c->max_priority - !s->leaf};` |
-| `src/lib/dpa_dela.c:5` | `static uint32_t transition(TlsfDpa *c, uint32_t a, uint32_t r) {` |
 | `src/lib/dpa_dela.c:72` | `uint32_t dpa_pair(TlsfDpa *c, uint32_t a, uint32_t r) {` |
-| `src/lib/dpa_dela.c:91` | `static uint32_t component(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_dela.c:100` | `if (!c->buchi) {` |
-| `src/lib/dpa_dela.c:126` | `uint32_t dpa_acceptance(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_dela.c:178` | `static uint32_t terminal_condition(TlsfDpa *c, uint32_t f,` |
-| `src/lib/dpa_dela.c:212` | `static uint32_t seen_colours(TlsfDpa *c, uint32_t f, const uint64_t *colours) {` |
 | `src/lib/dpa_dela.c:231` | `static uint32_t joint(TlsfDpa *c, uint32_t tuple, uint32_t leaf, DpaJointScratch **scratch) {` |
 | `src/lib/dpa_dela.c:277` | `result = dpa_dag(c, 2, 0, target, c->max_priority - !truth);` |
-| `src/lib/dpa_dela.c:290` | `if (c->buchi) {` |
-| `src/lib/dpa_dela.c:296` | `priority = round->rejecting;` |
 | `src/lib/dpa_dela.c:324` | `uint32_t dpa_dela_step(TlsfDpa *c, uint32_t tuple, uint32_t leaf) {` |
-| `src/lib/dpa_dela.c:345` | `uint32_t dpa_dela_initial(TlsfDpa *c) {` |
-| `src/lib/dpa_formula.c:3` | `uint32_t dpa_class(TlsfDpa *c, Bdd owned) {` |
 | `src/lib/dpa_formula.c:46` | `uint32_t dpa_boolean(TlsfDpa *c, bool conjunction, uint32_t a, uint32_t b) {` |
 | `src/lib/dpa_formula.c:53` | `uint32_t dpa_ite(TlsfDpa *c, uint32_t v, uint32_t hi, uint32_t lo) {` |
-| `src/lib/dpa_formula.c:60` | `bool dpa_children(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:77` | `static unsigned tags_impl(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_formula.c:116` | `unsigned dpa_tags(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_formula.c:125` | `static void tag_bounds(TlsfDpa *c, uint32_t f, unsigned *lo, unsigned *hi) {` |
 | `src/lib/dpa_formula.c:155` | `bool dpa_has_tags(TlsfDpa *c, uint32_t f, unsigned mask) {` |
 | `src/lib/dpa_formula.c:187` | `bool dpa_admitted(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:205` | `uint32_t dpa_atom(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
-| `src/lib/dpa_formula.c:251` | `static uint32_t term(TlsfDpa *c, TlsfAstKind op, uint32_t a, uint32_t b) {` |
-| `src/lib/dpa_formula.c:362` | `static uint32_t materialize(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:385` | `static uint32_t wrap_next(TlsfDpa *c, uint32_t f, unsigned next) {` |
-| `src/lib/dpa_formula.c:391` | `static uint32_t formula_impl(TlsfDpa *c, const TlsfAstNode *n, bool neg,` |
-| `src/lib/dpa_formula.c:501` | `static bool check_admission(TlsfDpa *c, uint32_t f, uint64_t epoch) {` |
-| `src/lib/dpa_formula.c:520` | `static uint32_t factor_term(TlsfDpa *c, uint32_t id) {` |
 | `src/lib/dpa_formula.c:549` | `static bool groupable(TlsfDpa *c, uint32_t id, uint64_t epoch) {` |
 | `src/lib/dpa_formula.c:560` | `static void group_operands(TlsfDpa *c, uint32_t id, TlsfAstKind op,` |
 | `src/lib/dpa_formula.c:580` | `static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {` |
-| `src/lib/dpa_formula.c:594` | `if (cosafety != (uint32_t)conjunction)` |
 | `src/lib/dpa_formula.c:608` | `uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_formula.c:615` | `return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);` |
-| `src/lib/dpa_formula.c:620` | `static uint32_t buchi_syntax(TlsfDpa *c, uint32_t id) {` |
-| `src/lib/dpa_formula.c:652` | `static uint32_t map_impl(TlsfDpa *c, uint32_t f, unsigned mode, uint64_t epoch,` |
-| `src/lib/dpa_formula.c:698` | `static uint32_t unfold_atom_care(TlsfDpa *c, DpaAtom *atom, uint32_t cube,` |
+| `src/lib/dpa_formula.c:652` | `map_impl` forward declaration |
 | `src/lib/dpa_formula.c:759` | `static uint32_t unfold_class_care(TlsfDpa *c, uint32_t f, uint32_t cube,` |
 | `src/lib/dpa_formula.c:814` | `uint32_t dpa_unfold(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_formula.c:872` | `uint32_t dpa_step_dag(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:887` | `static void protected_term(TlsfDpa *c, uint32_t id, bool *protect,` |
-| `src/lib/dpa_formula.c:910` | `static void protected_x(TlsfDpa *c, uint32_t f, bool *protect, uint64_t epoch) {` |
-| `src/lib/dpa_formula.c:934` | `uint32_t dpa_remainder(TlsfDpa *c, uint32_t f) {` |
-| `src/lib/dpa_formula.c:967` | `uint32_t dpa_dual(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_zielonka.c:27` | `static void model(TlsfDpa *c, uint32_t f, uint64_t *set) {` |
 | `src/lib/dpa_zielonka.c:39` | `static uint32_t outside(TlsfDpa *c, const uint64_t *set,` |
 | `src/lib/dpa_zielonka.c:48` | `static bool before(TlsfDpa *c, const uint64_t *a, const uint64_t *b) {` |
@@ -1228,10 +388,3 @@ theorems; no cache, trace, store-order, or compiler refinement is asserted.
 | `src/lib/dpa_zielonka.c:187` | `void dpa_tree_init(TlsfDpa *c) {` |
 | `src/lib/dpa_zielonka.c:198` | `uint32_t dpa_tree_step(TlsfDpa *c, uint32_t *leaf, const uint64_t *colours) {` |
 | `src/lib/dpa_zielonka.c:231` | `return c->max_priority - priority;` |
-
-Offline verification now uses `tools/golden/regenerate.py --build
-build-sprint/release --translation` to replay the frozen passing receipts
-without changing dates, hashes or claims. Membership expectations are independently
-rederived by direct word semantics. General realizability and historical exact
-normalization equivalence stay frozen where native checks cannot renew them;
-see [the golden guide](../test/fixtures/golden/README.md).

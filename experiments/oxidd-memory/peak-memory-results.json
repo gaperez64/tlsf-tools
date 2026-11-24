@@ -1,5 +1,5 @@
 {
-  "method": "measurement-method.md",
+  "method": "https://github.com/gaperez64/tlsf-tools/blob/6cd49036769168cfcf6d93116cbf68e7c6ab4e6f/experiments/oxidd-memory/measurement-method.md",
   "build_context": {
     "source_commit": "b9405aec61e1f1bdf918e448cddf0902a5e86268",
     "baseline_patch": "corrected-eager-baseline.patch",

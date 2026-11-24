@@ -1,7 +1,7 @@
 import TlsfProofs.Dpa.Product
 
 /-!
-# STAGE2 §5: covered trees, ordinary updates and parity export
+# Covered trees, ordinary updates and parity export
 
 Reference construction: Casares–Colcombet–Fijalkow, ICALP'21,
 arXiv:2011.13041; Casares et al., TACAS'22, Proposition 1. The latter uses
@@ -93,7 +93,7 @@ theorem exportBound_odd (m : Nat) : exportBound m % 2 = 1 := by unfold exportBou
 
 theorem exportBound_large (m : Nat) : m+1 < exportBound m := by unfold exportBound; omega
 
-/-- STAGE2 §5: for any bounded priority stream and odd P, P−p exchanges
+/-- For any bounded priority stream and odd P, P−p exchanges
 min-even and max-odd. This is independent of tree or component correctness. -/
 theorem parity_export (p : Nat → Nat) (P : Nat) (hP : P % 2 = 1)
     (hp : ∀ n, p n ≤ P) : MinEven p ↔ MaxOdd (fun n => P - p n) := by
@@ -519,7 +519,7 @@ theorem sibling_distance_step (hi : i < l) (hj : j < l) (hne : i ≠ j) :
     split <;> split <;> omega
 
 /-- Infinite ordinary rotations cannot avoid any sibling at rotation time.
-This is the rotation part of STAGE2 §5, including one-child nodes. -/
+This includes rotation through one-child nodes. -/
 theorem rotation_visits (i d : Nat → Nat) (l : Nat) (hi : ∀ n, i n < l)
     (hm : ∀ n, i (n+1) = if d n = 0 then (i n+1)%l else i n)
     (hd : Often (fun n => d n = 0)) (j : Nat) (hj : j < l) :
@@ -584,7 +584,7 @@ theorem node_motion (children : List (ColourSet m))
     exact Or.inr ⟨hchild, he.2.symm, by rw [← he.1]; rfl⟩
 
 /-- Full recurrent-run theorem, generalized to any root label, initial leaf
-and offset. The proof follows the recurrent-anchor argument of STAGE2 §5. -/
+and offset. The proof uses recurrent anchors. -/
 theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
     (r : Nat → List Nat) (d : Nat → Nat) (ε : Nat)
     (hv : ∀ n, ValidPath T (r n)) (hEC : ∀ n, Subset (E n) C)
@@ -695,7 +695,7 @@ theorem recurrent_run (T : ZTree α C) (E : Nat → ColourSet m)
 
 end ZTree
 
-/-- STAGE2 §5: min-even of the ordinary global run is exactly α(S), for
+/-- Min-even of the ordinary global run is exactly α(S), for
 every colour stream, including empty marks, constant α and zero colours. -/
 theorem tree_minEven (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) :
     MinEven (treePriority T colours) ↔ EmersonLei α colours := by
@@ -708,7 +708,7 @@ theorem tree_minEven (T : ZTree α (fullColours m)) (colours : Nat → ColourSet
     simp only [treeRun, ZTree.advance, hr, Option.getD_some]
   · cases α (fullColours m) <;> simp
 
-/-- STAGE2 §5: the exported recurring maximum is odd exactly when α(S). -/
+/-- The exported recurring maximum is odd exactly when α(S). -/
 theorem tree_maxOdd (T : ZTree α (fullColours m)) (colours : Nat → ColourSet m) :
     MaxOdd (fun n => exportBound m - treePriority T colours n) ↔ EmersonLei α colours :=
   (tree_export T colours).symm.trans (tree_minEven T colours)

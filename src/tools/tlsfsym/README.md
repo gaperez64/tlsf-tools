@@ -1,10 +1,9 @@
 # tlsfsym
 
-Census declared index permutations verified on the whole objective.
-This optional research tool is built with `-Dresearch_tools=true`.
-
-From the repository root, after the [source-build prerequisites](../../../README.md#build)
-including initialized OxiDD:
+Find declared-index permutations verified on the whole infinite-word
+objective returned by `tlsf_convert(text, "Mealy")`, including strict
+semantics and target adaptation.
+After the [build prerequisites](../../../README.md#build):
 
 ```sh
 meson setup build-research -Dresearch_tools=true --buildtype=release
@@ -12,35 +11,22 @@ CARGO_BUILD_JOBS=1 meson compile -C build-research -j 1
 build-research/tlsfsym spec.tlsf  # verified index generators (JSON)
 ```
 
-`tlsfsym FILE` emits one JSON object. It uses `tlsf_convert(text, "Mealy")`'s
-expanded whole infinite-word objective and input/output partition, matching
-Acacia's native frontend, including strict semantics and target adaptation.
-`families` retains declaration provenance; each `ranges` entry groups families
-with identical bounds and applies each index permutation simultaneously to all
-of them. A candidate's `image[i]` is the image of index `lo+i`. Scalars and
-families on other ranges remain fixed. AP maps must be bijections preserving
-the input/output partition. Adjacent transpositions precede the rotation; the
-rotation is also emitted for a singleton (identity) or two-element range.
+`tlsfsym FILE` emits one JSON object. `families` records declarations;
+`ranges` groups families with identical bounds and permutes their indices
+together. `image[i]` maps index `lo+i`; other ranges and scalars stay fixed.
+AP maps preserve the input/output partition. Adjacent transpositions precede
+the rotation, including singleton/two-element rotations.
 
-The census is a lower bound: different concrete bounds are not coupled,
-families on the same range are only permuted together, enum families permute
-encoding bits, and canonical inequality is inconclusive.
+Verification compares canonical ASTs using AND/OR associativity/commutativity
+and EQUIV commutativity. Unequal ASTs are inconclusive. `verified_group` is
+`symmetric` if all adjacent transpositions verify, otherwise `cyclic` if the
+rotation verifies, otherwise `none`. This is a lower bound: it does not couple
+different bounds, independently permute same-range families, or find the
+largest subgroup. Enum families permute encoding bits.
 
-The tool hash-conses the converted AST, flattening AND/OR and sorting their
-children by node ID, and sorting the two EQUIV children. The AST has no XOR
-operator; negated EQUIV uses the same sorted children. Other operators retain
-their operand order. Hash collisions are resolved by full structural equality.
-Equality of the original and renamed root IDs therefore proves symmetry using
-only associative/commutative identities. Unequal IDs are inconclusive: the
-tool may miss semantic symmetries. `verified_group` is `symmetric` if every
-adjacent transposition verifies, otherwise `cyclic` if the rotation verifies,
-otherwise `none`; this does not claim to find the largest subgroup.
-
-Unverified candidates include a reason. Conversion failures (including
-unresolved parameters or finite semantics) return nonzero with an `unverified`
-JSON object, the library diagnostic, no candidates, and a null summary because
-families could not be recovered. Unsupported objective nodes or syntax deeper
-than 1024 leave candidates unverified. `summary` gives family/range counts and
-range sizes; `wall_seconds` measures elapsed wall time from CLI entry through
-census construction, excluding final JSON serialization/output. No automaton
-construction or solving runs.
+Conversion failures, including unresolved parameters and finite semantics,
+exit nonzero with an `unverified` object, diagnostic, no candidates and null
+summary. Unsupported nodes or syntax deeper than 1024 leave candidates
+unverified with a reason. `summary` counts families/ranges and their sizes;
+`wall_seconds` excludes final JSON output. The tool constructs no automaton
+and runs no solver.

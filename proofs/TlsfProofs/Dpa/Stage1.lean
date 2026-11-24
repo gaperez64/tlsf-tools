@@ -1,8 +1,7 @@
 import TlsfProofs.Dpa.Classes
 
-/-! # STAGE1 §§2,4–5: the complete component and its restricted languages.
-The operational definitions also serve STAGE2 §2; Component.lean adds the
-invariants. The row numbers below follow both Markdown transition tables.
+/-! # The complete component and its restricted languages.
+Component.lean adds the invariants.
 -/
 namespace Tlsf.Dpa
 open Class
@@ -22,7 +21,7 @@ def initial (x : Class ap) : Pair ap :=
   if HasTag safety (U x) ∨ HasTag cosafety (U x) then ⟨U x, Class.bot⟩
   else ⟨U x, rho x⟩
 
-/-- STAGE1 §2 / STAGE2 §2: the ordered table, with transition mark 0. -/
+/-- The ordered table, with transition mark 0. -/
 def transition (v : Letter (Fin ap)) (s : Pair ap) : Edge ap :=
   let a := D v s.all
   let next := U a
@@ -150,7 +149,7 @@ theorem run_safety (x : Class ap) (w : Word (Fin ap)) (h : HasTag safety x) (n :
     rw [(simple_transition _ _ (Or.inl ih)).1]
     exact U_safety (D_safety _ ih)
 
-/-- STAGE1 §4, safety, both directions. -/
+/-- Safety, both directions. -/
 theorem safety_language (x : Class ap) (hx : Positive x) (hsa : HasTag safety x)
     (w : Word (Fin ap)) : Inf (marks x w) ↔ Holds w 0 x := by
   constructor
@@ -191,7 +190,7 @@ theorem run_cosafety (x : Class ap) (w : Word (Fin ap)) (h : HasTag cosafety x) 
     rw [(simple_transition _ _ (Or.inr ih)).1]
     exact U_cosafety (D_cosafety _ ih)
 
-/-- STAGE1 §4, co-safety, including the precedence of the safety row. -/
+/-- Co-safety, including the precedence of the safety row. -/
 theorem cosafety_language (x : Class ap) (hx : NNFClass x) (hco : HasTag cosafety x)
     (w : Word (Fin ap)) : Inf (marks x w) ↔ Holds w 0 x := by
   constructor
@@ -240,7 +239,7 @@ def oneSetMin (complement : Bool) (m : Nat → Bool) (n : Nat) : Nat :=
 def oneSetExport (complement : Bool) (m : Nat → Bool) (n : Nat) : Nat :=
   3 - oneSetMin complement m n
 
-/-- STAGE1 §5: Inf(0), min-even orientation. -/
+/-- Inf(0), min-even orientation. -/
 theorem oneSet_min_inf (m : Nat → Bool) : MinEven (oneSetMin false m) ↔ Inf m := by
   constructor
   · rintro ⟨k, hk, hi, _⟩ N
@@ -255,7 +254,7 @@ theorem oneSet_min_inf (m : Nat → Bool) : MinEven (oneSetMin false m) ↔ Inf 
     intro N; obtain ⟨n, hn, hm⟩ := hi N
     exact ⟨n, hn, by simp [oneSetMin, hm]⟩
 
-/-- STAGE1 §5: Fin(0), min-even orientation. -/
+/-- Fin(0), min-even orientation. -/
 theorem oneSet_min_fin (m : Nat → Bool) : MinEven (oneSetMin true m) ↔ FinMarks m := by
   constructor
   · rintro ⟨k, hk, hi, N, hN⟩
@@ -271,7 +270,7 @@ theorem oneSet_min_fin (m : Nat → Bool) : MinEven (oneSetMin true m) ↔ FinMa
       exact ⟨max M N, Nat.le_max_left _ _, by simp [oneSetMin, hN _ (Nat.le_max_right _ _)]⟩
     · intro n hn; simp [oneSetMin, hN n hn]
 
-/-- STAGE1 §5: Inf(0), max-odd export (marked 3, unmarked 2). -/
+/-- Inf(0), max-odd export (marked 3, unmarked 2). -/
 theorem oneSet_max_inf (m : Nat → Bool) : MaxOdd (oneSetExport false m) ↔ Inf m := by
   constructor
   · rintro ⟨k, hk, hi, _⟩ N
@@ -287,7 +286,7 @@ theorem oneSet_max_inf (m : Nat → Bool) : MaxOdd (oneSetExport false m) ↔ In
       exact ⟨n, hn, by simp [oneSetExport, oneSetMin, hm]⟩
     · intro n _; cases hm : m n <;> simp [oneSetExport, oneSetMin, hm]
 
-/-- STAGE1 §5: Fin(0), max-odd export (marked 2, unmarked 1). -/
+/-- Fin(0), max-odd export (marked 2, unmarked 1). -/
 theorem oneSet_max_fin (m : Nat → Bool) : MaxOdd (oneSetExport true m) ↔ FinMarks m := by
   constructor
   · rintro ⟨k, hk, hi, N, hN⟩

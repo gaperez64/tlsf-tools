@@ -1,6 +1,6 @@
 import TlsfProofs.Dpa.Converse
 
-/-! # STAGE2 §9: exact representation refinements
+/-! # Exact representation refinements
 These are semantic reference algorithms. Interned C DAGs, memo keys, budgets
 and error statuses still require the representation bridge in the README.
 -/
@@ -10,7 +10,7 @@ variable {ap m : Nat}
 noncomputable section
 local instance (p : Prop) : Decidable p := Classical.propDecidable p
 
-/-! ## §9.1: grouping and the original admission domain. -/
+/-! ## Grouping and the original admission domain. -/
 def booleanFold (op : Bool) : List (Formula α) → Formula α
   | [] => if op then .tt else .ff
   | f::fs => if op then .conj f (booleanFold op fs) else .disj f (booleanFold op fs)
@@ -79,8 +79,8 @@ theorem compatibleGroups_sat (op : Bool) (S C B T : List (Formula (Fin ap))) (w 
   split <;> cases op <;>
     simp [booleanFold,Sat,InRange,booleanFold_append_sat,and_assoc,or_assoc,and_left_comm,or_left_comm]
 
-/-- Grouped components have both language inclusions by Stage 1, and their
-fixed product/global parity construction is exact by §8. -/
+/-- Grouped components have both language inclusions by Stage1.lean; their
+fixed product/global parity construction is exact by Converse.lean. -/
 theorem compatibleGroups_admitted (op : Bool) (S C B T : List (Formula (Fin ap)))
     (hs : ∀ f, f ∈ S → safety f) (hc : ∀ f, f ∈ C → cosafety f)
     (hb : ∀ f, f ∈ B → finite f) (ht : ∀ f, f ∈ T → Admitted f) :
@@ -538,7 +538,7 @@ theorem factoring_grouped_parity (whole : Formula (Fin ap) → Bool) (original f
   exact ⟨g,m,xs,β,tree,hs,hf,hp,fun w =>
     ⟨((presentation_parity hp tree w).1).trans (hl w 0),((presentation_parity hp tree w).2).trans (hl w 0)⟩⟩
 
-/-! ## §9.2: temporal distributions under arbitrary syntax contexts. -/
+/-! ## Temporal distributions under arbitrary syntax contexts. -/
 theorem distribute_G_context (c : Tlsf.Rewrites.Context (Fin ap)) (a b : Formula (Fin ap)) :
     Tlsf.Rewrites.Exact false (c.fill (.globally (.conj a b)))
       (c.fill (.conj (.globally a) (.globally b))) := by
@@ -555,7 +555,7 @@ theorem distribute_F_context (c : Tlsf.Rewrites.Context (Fin ap)) (a b : Formula
   have he : len = none := hl.elim (fun h => Bool.noConfusion h) id
   subst len; exact distribute_F_disj a b w n
 
-/-! ## §9.3: terminally decided products. -/
+/-! ## Terminally decided products. -/
 theorem terminal_all_marks (xs : Fin m → Class ap) (w : Word (Fin ap)) (i : Fin m) (N : Nat) (b : Bool)
     (h : (run (xs i) w N).all = if b then Class.top else Class.bot) :
     ∀ n, N ≤ n → marks (xs i) w n = b := by
@@ -627,7 +627,7 @@ theorem terminal_absorption (xs : Fin m → Class ap) (β : Skeleton m) (T : ZTr
   (tree_maxOdd T _).trans ((terminal_product_decided xs β w N known b hknown hconstant).trans
     (absorbing_maxOdd p (exportBound m) N b (exportBound_odd m) hp).symm)
 
-/-! ## §9.4: unfolding under a current-AP cube, with frozen continuations. -/
+/-! ## Unfolding under a current-AP cube, with frozen continuations. -/
 abbrev APCube (ap : Nat) := Fin ap → Option Bool
 
 def CubeMatches (C : APCube ap) (σ : Assignment ap) : Prop :=
@@ -718,7 +718,7 @@ theorem care_modal_shannon (C : APCube ap) (σ : Assignment ap) (a : Formula (Fi
       (if U (Class.ofFormula a) σ then U high σ else U low σ) := by
   rw [unfolding_care_exact h,unfolding_care_exact h,unfolding_care_exact h]
 
-/-! ## §9.5: support tags, cached bounds and exact fallback. -/
+/-! ## Support tags, cached bounds and exact fallback. -/
 abbrev TagBits (τ : Type) := τ → Bool
 
 def BitsBelow (L H : TagBits τ) : Prop := ∀ t, L t = true → H t = true
@@ -875,7 +875,7 @@ theorem canonicalCheck_shannon {f low high : Formula (Fin ap)} {a : Formula (Fin
   exact tags_shannon_intersection ha hl hh
 
 
-/-- §9.1's grouped construction has the original formula's infinite-word
+/-- The grouped construction has the original formula's infinite-word
 language, with the same fixed product and global parity update. -/
 theorem compatibleGroups_parity (op : Bool) (S C B T : List (Formula (Fin ap)))
     (hs : ∀ f, f ∈ S → safety f) (hc : ∀ f, f ∈ C → cosafety f)
