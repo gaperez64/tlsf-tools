@@ -672,7 +672,7 @@ static void seed_declines() {
     CHECK(result.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
     CHECK(strstr(result.decline_detail, test.reason));
     if (test.source == width)
-      CHECK(strstr(result.decline_detail, "unused=parameter_not_indexed"));
+      CHECK(strstr(result.decline_detail, "unused[1]=parameter_not_indexed"));
     bool observed = false;
     for (const auto &event : state.events)
       if (event.route == TLSF_GR1_BOTH_EVENT_SEEDS &&

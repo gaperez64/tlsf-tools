@@ -1,0 +1,3 @@
+INFO { TITLE: "review" DESCRIPTION: "review" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { PARAMETERS { n=5; } }
+MAIN { INPUTS { auxiliary[n]; } OUTPUTS { response[SIZEOF auxiliary]; } GUARANTEES { &&[0 <= i < SIZEOF response] G F response[i]; } }

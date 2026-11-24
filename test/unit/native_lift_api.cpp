@@ -727,7 +727,12 @@ static void fold_regressions(const char *path) {
   tlsf_gr1_lift_result_clear(&r);
 }
 #include "parametric_fold_test.hh"
+#include "legacy_axis_test.hh"
 int main(int argc, char **argv) {
+  if ((argc == 3 || argc == 4) && !strcmp(argv[1], "--legacy-axes")) {
+    legacy_axis_regressions(argv[2], argc == 4);
+    return 0;
+  }
   if (argc == 3 && !strcmp(argv[1], "--param-activation")) {
     parametric_activation_regressions(argv[2], false);
     return 0;
