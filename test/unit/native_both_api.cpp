@@ -672,7 +672,7 @@ static void seed_declines() {
     CHECK(result.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
     CHECK(strstr(result.decline_detail, test.reason));
     if (test.source == width)
-      CHECK(strstr(result.decline_detail, "unused[1]=parameter_not_indexed"));
+      CHECK(strstr(result.decline_detail, "unused=parameter_not_indexed"));
     bool observed = false;
     for (const auto &event : state.events)
       if (event.route == TLSF_GR1_BOTH_EVENT_SEEDS &&
@@ -692,7 +692,7 @@ static void seed_declines() {
 static void bounded_seed_declines() {
   std::string parameters = "GLOBAL { PARAMETERS { ";
   for (int i = 0; i < 12; ++i)
-    parameters += "axis" + std::to_string(i) + std::string(200, 'x') + " = 3; ";
+    parameters += "axis" + std::to_string(i) + std::string(400, 'x') + " = 3; ";
   parameters += "} }\n";
   std::string source(plain_source);
   source.insert(source.find("MAIN"), parameters);
@@ -718,9 +718,11 @@ static void bounded_seed_declines() {
     CHECK(guarded.before == 0x123456789abcdef0ull &&
           guarded.after == 0xfedcba9876543210ull);
     CHECK(memchr(result.decline_detail, '\0', sizeof result.decline_detail));
+    CHECK(result.seed_probes == 0 && result.seed_reductions == 0 &&
+          result.seed_solves == 0);
     const std::string detail = result.decline_detail;
     CHECK(detail.ends_with("; [truncated]"));
-    CHECK(detail.find("[1]=parameter_not_indexed") != std::string::npos);
+    CHECK(detail.find("=parameter_not_indexed") != std::string::npos);
     CHECK(result.route == TLSF_GR1_BOTH_DIRECT);
     CHECK(result.proof.verdict == TLSF_GR1_CHECK_VERIFIED);
     unsigned terminal = 0;
@@ -732,14 +734,9 @@ static void bounded_seed_declines() {
       CHECK(event.reason.size() < TLSF_GR1_LIFT_DECLINE_DETAIL_SIZE + 512);
       CHECK(event.reason.ends_with(": " + detail));
       if (event.route == TLSF_GR1_BOTH_EVENT_SEEDS) {
-        CHECK(event.kind == (probes ? TLSF_GR1_BOTH_EVENT_STOPPED
-                                    : TLSF_GR1_BOTH_EVENT_DECLINE));
-        CHECK(event.failure ==
-              (probes ? TLSF_GR1_LIFT_LIMIT : TLSF_GR1_LIFT_DECLINED));
-        CHECK(event.reason.starts_with(
-            probes ? "probe_budget_exhausted: fixed seed probe budget "
-                     "exhausted: "
-                   : "no stable index axis: "));
+        CHECK(event.kind == TLSF_GR1_BOTH_EVENT_DECLINE);
+        CHECK(event.failure == TLSF_GR1_LIFT_DECLINED);
+        CHECK(event.reason.starts_with("no stable index axis: "));
       }
       ++terminal;
     }
@@ -840,7 +837,7 @@ static void late_diagnostic_propagation(const std::string &unreal_source) {
     tlsf_gr1_both_test_set_seed_fault(fault < 4 ? fault : 0);
     auto result = run(source, options, fault >= 6 ? fault : 0, &state);
     tlsf_gr1_both_test_set_seed_fault(0);
-    CHECK(strstr(result.decline_detail, "aaa[1]=parameter_not_indexed"));
+    CHECK(strstr(result.decline_detail, "aaa=parameter_not_indexed"));
     unsigned terminal = 0;
     for (const auto &event : state.events)
       if (event.kind == TLSF_GR1_BOTH_EVENT_DECLINE ||
@@ -942,7 +939,7 @@ static void countdown_allocation_diagnostics() {
       options.cancelled = countdown_cancel;
       // main constructs one DEADLINE or RSS LIMIT; both retries the RSS check.
       int terminal_allocations =
-          terminal_allocation_count(options, "seed_window");
+          terminal_allocation_count(options, "fold_discovery");
       if (combined && !expired)
         terminal_allocations +=
             terminal_allocation_count(options, "direct_solve");
@@ -961,7 +958,7 @@ static void countdown_allocation_diagnostics() {
         const auto expected = constructed && expired ? TLSF_GR1_LIFT_DEADLINE
                                                      : TLSF_GR1_LIFT_LIMIT;
         const char *stage = !constructed ? "allocation"
-                            : expired    ? "seed_window"
+                            : expired    ? "fold_discovery"
                                          : "budget-memory";
         if (status != expected || strcmp(error.stage, stage))
           std::fprintf(stderr,
@@ -1002,7 +999,7 @@ static void allocation_diagnostics(const std::string &unreal_source) {
     auto status = tlsf_gr1_lift_from_target(target, &options, &lifted, &error);
     fail_cpp_allocations = false;
     CHECK(status == TLSF_GR1_LIFT_LIMIT);
-    CHECK(strstr(lifted.decline_detail, "aaa[1]=parameter_not_indexed"));
+    CHECK(strstr(lifted.decline_detail, "aaa=parameter_not_indexed"));
     CHECK(!lifted.game_aag && !lifted.certificate_aag && !lifted.evidence_json);
     tlsf_gr1_lift_result_clear(&lifted);
     options.stats = nullptr;
@@ -1013,7 +1010,7 @@ static void allocation_diagnostics(const std::string &unreal_source) {
     fail_cpp_allocations = false;
     CHECK(status == TLSF_GR1_LIFT_LIMIT);
     CHECK(strstr(lifted.decline_detail,
-                 "aaa[1]=probe_failure(stage=allocation,cause=resource)"));
+                 "param=probe_failure(stage=fold_discovery,cause=resource)"));
     tlsf_gr1_lift_result_clear(&lifted);
     options.cancelled = nullptr;
     if (route == TLSF_GR1_BOTH_EVENT_DIRECT)
@@ -1026,7 +1023,7 @@ static void allocation_diagnostics(const std::string &unreal_source) {
                                           &error);
     fail_cpp_allocations = false;
     CHECK(status == TLSF_GR1_LIFT_LIMIT && state.stopped);
-    CHECK(strstr(result.decline_detail, "aaa[1]=parameter_not_indexed"));
+    CHECK(strstr(result.decline_detail, "aaa=parameter_not_indexed"));
     CHECK(strstr(state.reason, result.decline_detail));
     CHECK(!result.proof.game_aag && !result.proof.certificate_aag);
     tlsf_gr1_both_result_clear(&result);

@@ -136,13 +136,11 @@ static Observation observe(const std::string &bytes, bool both,
   const auto &fold = evidence.at("fold").as_object();
   seen.generator = fold.at("generator").as_string();
   seen.order = evidence.at("checker_order").as_string();
-  bool multi = false;
   tlsf_json::object fixed;
   for (const auto &seed : fold.at("seeds").as_array()) {
     const auto &row = seed.as_object();
     CHECK(row.at("exact_predicates").as_bool());
     const auto &parameters = row.at("parameters").as_object();
-    multi = parameters.size() > 1;
     seen.seeds.push_back(parameters.at(axis).as_int64());
     auto remaining = parameters;
     std::erase_if(remaining,
@@ -161,10 +159,8 @@ static Observation observe(const std::string &bytes, bool both,
   seen.route = both ? combined.route : TLSF_GR1_BOTH_REAL_LIFT;
   CHECK(seen.route == TLSF_GR1_BOTH_REAL_LIFT);
   seen.seed_solves = both ? combined.seed_solves : stats.seed_solves;
-  // Legacy discovery intentionally retains main's name-ordered work. On
-  // multi-parameter inputs compare the separately budgeted fallback counters.
-  seen.counts = {multi ? uint64_t(fold.at("discovery_probes").as_int64())
-                       : stats.seed_probes,
+  seen.counts = {uint64_t(fold.at("discovery_probes").as_int64()),
+                 stats.seed_probes,
                  stats.seeds_selected,
                  stats.seed_solves,
                  stats.seed_latches,
@@ -174,15 +170,11 @@ static Observation observe(const std::string &bytes, bool both,
                  stats.internal_checks};
   if (both) {
     CHECK(evidence.at("route").as_string() == "R");
-    seen.counts.insert(
-        seen.counts.end(),
-        {multi ? uint64_t(fold.at("discovery_probes").as_int64())
-               : combined.seed_probes,
-         multi ? uint64_t(fold.at("discovery_reductions").as_int64())
-               : combined.seed_reductions,
-         combined.seed_solves, combined.seed_checks,
-         multi ? 0 : combined.seed_cache_hits, combined.target_reductions,
-         combined.target_checks});
+    seen.counts.insert(seen.counts.end(),
+                       {combined.seed_probes, combined.seed_reductions,
+                        combined.seed_solves, combined.seed_checks,
+                        combined.seed_cache_hits, combined.target_reductions,
+                        combined.target_checks});
   }
   // Declaration/clause permutations change AAG numbering and monitor order;
   // compare I/L/A/O counts plus REGION_VERIFIED, rather than serialized bytes.
@@ -230,6 +222,8 @@ static std::string rename_identifier(std::string bytes, const std::string &from,
 
 static void axis_regressions(const std::string &source, bool both,
                              const char *generator) {
+  const bool parametric =
+      std::string(generator) == "parametric-support-fold-v1";
   auto add = [&](const char *parameters) {
     auto bytes = source;
     bytes.insert(bytes.find("PARAMETERS {") + strlen("PARAMETERS {"),
@@ -237,8 +231,8 @@ static void axis_regressions(const std::string &source, bool both,
     return bytes;
   };
   // Nbjorner's stress case uses the smaller route B fixture: repeating the
-  // larger encoded target in legacy probes would spend its arm deadline.
-  if (std::string(generator) == "parametric-support-fold-v1") {
+  // larger encoded target would spend its arm deadline.
+  if (parametric) {
     const auto four = add(" a0=7; a1=7; a2=7; a3=7;");
     const auto original = observe(four, both);
     CHECK(original.generator == generator);
@@ -253,10 +247,8 @@ static void axis_regressions(const std::string &source, bool both,
   const auto late = rename_identifier(early, "a", "z");
   const auto original = observe(early, both, "n", 8);
   CHECK(original.generator == generator);
-  CHECK(original.seeds ==
-        (std::string(generator) == "parametric-support-fold-v1"
-             ? std::vector<int64_t>{3, 4, 5}
-             : std::vector<int64_t>{5, 6, 7}));
+  CHECK(original.seeds == (parametric ? std::vector<int64_t>{3, 4, 5}
+                                      : std::vector<int64_t>{5, 6, 7}));
   CHECK(original.counts.front() == 5);
   CHECK(original == observe(late, both, "n", 8));
   const auto reordered = obfuscate(early);

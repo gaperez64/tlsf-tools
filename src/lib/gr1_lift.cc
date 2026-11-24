@@ -808,8 +808,11 @@ struct SeedDeclines {
 
 // IDs locate provenance rows, but cannot order axes: declaration/source IDs
 // change under reordering. Compare multisets of structural incidence instead.
+// Legacy/U also admit monitor-support widths; unused parameters have no
+// incidence. All discovery paths decline structural ties.
 std::vector<std::string> fold_axes(const Instance &target, const Config &config,
-                                   SeedDeclines log, bool encoded) {
+                                   SeedDeclines log, bool encoded,
+                                   bool legacy = false) {
   log.at(encoded ? "fold" : "param");
   try {
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
@@ -823,7 +826,7 @@ std::vector<std::string> fold_axes(const Instance &target, const Config &config,
     std::map<std::string, std::vector<std::string>> occurrences;
     for (const J &v : target.data.at("monitors").as_array()) {
 #ifdef TLSF_GR1_LIFT_TEST_FAULT
-      if (lift_test_axis_scan)
+      if (lift_test_axis_scan && !legacy)
         lift_test_axis_scan(&cfg.o, encoded);
 #endif
       cfg.check("fold_discovery");
@@ -845,9 +848,11 @@ std::vector<std::string> fold_axes(const Instance &target, const Config &config,
       cfg.check("fold_discovery");
       const O &r = *rows.front();
       const auto role = s(r, "index_role");
-      if (role != (encoded ? "representation-bit" : "element") ||
-          (encoded && s(r, "width_kind") != "proved-logarithmic-encoding") ||
-          (!encoded && !r.at("width_binding_complete").as_bool()))
+      if (occurrences[id].empty() ||
+          (!legacy &&
+           (role != (encoded ? "representation-bit" : "element") ||
+            (encoded && s(r, "width_kind") != "proved-logarithmic-encoding") ||
+            (!encoded && !r.at("width_binding_complete").as_bool()))))
         continue;
       auto &uses = occurrences[id];
       std::sort(uses.begin(), uses.end());
@@ -856,6 +861,12 @@ std::vector<std::string> fold_axes(const Instance &target, const Config &config,
       for (const J &p : r.at("width_parameter_ids").as_array())
         incidence[num(p)].push_back(signature);
     }
+    if (legacy)
+      for (const auto &[id, name] : names)
+        if (!incidence.contains(id)) {
+          log.at(name);
+          log.note("parameter_not_indexed");
+        }
     std::map<std::string, std::vector<std::string>> ordered;
     for (auto &[id, uses] : incidence) {
       std::sort(uses.begin(), uses.end());
@@ -867,6 +878,7 @@ std::vector<std::string> fold_axes(const Instance &target, const Config &config,
         axes.push_back(tied.front());
       else {
         // Decline indistinguishable axes rather than breaking ties by spelling.
+        log.at(encoded ? "fold" : "param");
         log.note(encoded ? "fold_axis_ambiguous" : "param_axis_ambiguous");
       }
     }
@@ -1444,7 +1456,8 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
   bool param_activation = false;
   std::exception_ptr legacy_shape_failure;
   try {
-    for (const auto &[axis, value] : axes) {
+    for (const auto &axis : fold_axes(target, cfg, log, false, true)) {
+      const auto value = axes.at(axis);
       log.at(axis);
       struct Probe {
         int size;
@@ -1578,9 +1591,8 @@ Window discover(const uint8_t *source, size_t size, const Instance &target,
       param_activation = true;
     }
   }
-  // Legacy keeps main's ordering and counters. Its spelling-dependent spending
-  // cannot starve folds: A/B share a fresh max_seed_probes allowance, while the
-  // arm's deadline/RSS and the public totals still cover all actual work.
+  // A/B share a fresh max_seed_probes allowance, while the arm's deadline/RSS
+  // and the public totals still cover all actual work.
   FoldProbes budget;
   for (const auto &axis : fold_axes(target, cfg, log, true)) {
     try {
@@ -1663,7 +1675,8 @@ SharedSeeds discover_shared(const TrustedTarget &trusted, const Config &cfg,
   bool param_activation = false;
   std::exception_ptr legacy_probe_failure;
   try {
-    for (const auto &[axis, value] : axes) {
+    for (const auto &axis : fold_axes(target, cfg, log, false, true)) {
+      const auto value = axes.at(axis);
       log.at(axis);
       if (value <= 1) {
         log.note("insufficient_sizes");

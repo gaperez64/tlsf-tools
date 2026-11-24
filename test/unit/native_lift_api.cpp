@@ -114,11 +114,13 @@ static TlsfGr1LiftStatus lift(const char *bytes, const TlsfGr1LiftOptions &o,
 static void bounded_seed_declines() {
   std::string parameters = "GLOBAL { PARAMETERS { ";
   for (int i = 0; i < 12; ++i)
-    parameters += "axis" + std::to_string(i) + std::string(200, 'x') + " = 2; ";
+    parameters += "axis" + std::to_string(i) + std::string(400, 'x') + " = 2; ";
   parameters += "} }\n";
   std::string bytes(nonparam);
   bytes.insert(bytes.find("MAIN"), parameters);
   auto o = options();
+  TlsfGr1LiftStats stats{};
+  o.stats = &stats;
   struct {
     uint64_t before = 0x123456789abcdef0ull;
     TlsfGr1LiftResult result{};
@@ -132,6 +134,7 @@ static void bounded_seed_declines() {
   auto &result = guarded.result;
   auto &error = guarded_error.error;
   CHECK(lift(bytes.c_str(), o, &result, &error) == TLSF_GR1_LIFT_DECLINED);
+  CHECK(stats.seed_probes == 0 && stats.seed_solves == 0);
   CHECK(guarded.before == 0x123456789abcdef0ull &&
         guarded.after == 0xfedcba9876543210ull);
   CHECK(guarded_error.before == 0x123456789abcdef0ull &&
@@ -140,7 +143,7 @@ static void bounded_seed_declines() {
   CHECK(error.message[sizeof error.message - 1] == '\0');
   const std::string detail = result.decline_detail;
   CHECK(detail.size() < sizeof result.decline_detail);
-  CHECK(detail.find("[1]=parameter_not_indexed") != std::string::npos);
+  CHECK(detail.find("=parameter_not_indexed") != std::string::npos);
   CHECK(detail.compare(detail.size() - strlen("; [truncated]"),
                        strlen("; [truncated]"), "; [truncated]") == 0);
   tlsf_gr1_lift_result_clear(&result);
@@ -156,13 +159,13 @@ static void discovery_budget_declines() {
   o.deadline_mono_ns = 1;
   CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
         TLSF_GR1_LIFT_DEADLINE);
-  CHECK(strstr(result.decline_detail, "extent[1]=time_budget"));
-  CHECK(strstr(result.decline_detail, "stage=seed_window,cause=deadline"));
+  CHECK(strstr(result.decline_detail, "param=deadline exceeded"));
+  CHECK(strstr(result.decline_detail, "stage=fold_discovery,cause=deadline"));
   o = options();
   o.budget.max_rss_bytes = 1;
   CHECK(tlsf_gr1_lift_from_target(target, &o, &result, &error) ==
         TLSF_GR1_LIFT_LIMIT);
-  CHECK(strstr(result.decline_detail, "extent[1]=memory_budget"));
+  CHECK(strstr(result.decline_detail, "param=memory_budget"));
   CHECK(strstr(result.decline_detail, "stage=budget-memory,cause=resource"));
   CHECK(!result.game_aag && result.verdict == TLSF_GR1_CHECK_UNKNOWN);
   tlsf_gr1_lift_result_clear(&result);
