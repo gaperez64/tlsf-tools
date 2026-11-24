@@ -1,0 +1,7 @@
+INFO { TITLE: "budget" DESCRIPTION: "unknown widths before known axis" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { PARAMETERS { a=7; b=7; c=7; d=7; n=5; } }
+MAIN {
+ INPUTS { auxiliary[n]; demand[SIZEOF auxiliary]; }
+ OUTPUTS { response[n]; }
+ GUARANTEES { &&[0 <= i < n] G F (response[i] || demand[i]); }
+}
