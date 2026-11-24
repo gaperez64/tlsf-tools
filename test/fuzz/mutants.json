@@ -2,7 +2,7 @@
   {
     "check": "R1",
     "file": "src/lib/spec_parse.c",
-    "line": 8,
+    "line": 12,
     "old": "  TlsfSpec *spec = spec_new();",
     "new": "  TlsfSpec *spec = nullptr;",
     "target": "roundtrip",
@@ -11,7 +11,7 @@
   {
     "check": "R2",
     "file": "src/lib/print_tlsf.c",
-    "line": 414,
+    "line": 537,
     "old": "  fprintf(out, \"INFO {\\n\");",
     "new": "  fprintf(out, \"BROKEN {\\n\");",
     "target": "roundtrip",
@@ -20,7 +20,7 @@
   {
     "check": "R3",
     "file": "src/lib/print_tlsf.c",
-    "line": 126,
+    "line": 197,
     "old": "    fprintf(out, \"%lld\", (long long)n->ival);",
     "new": "    fprintf(out, \"%lld\", (long long)n->ival + 1);",
     "target": "roundtrip",
@@ -38,7 +38,7 @@
   {
     "check": "A2",
     "file": "src/lib/spec_parse.c",
-    "line": 8,
+    "line": 12,
     "old": "  TlsfSpec *spec = spec_new();",
     "new": "  TlsfSpec *spec = nullptr;",
     "target": "alloc",
@@ -195,7 +195,7 @@
   {
     "check": "D12",
     "file": "src/lib/spec_parse.c",
-    "line": 8,
+    "line": 12,
     "old": "  TlsfSpec *spec = spec_new();",
     "new": "  TlsfSpec *spec = nullptr;",
     "target": "dpa",
