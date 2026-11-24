@@ -8,16 +8,44 @@ models. Unvalidated runtime formulas have no per-instance language proof.
 
 ## Build
 
-Run from `proofs/`, one compiler at a time. CI does not build the proofs.
-Audits permit only `propext`, `Classical.choice`, and `Quot.sound`.
+Run the CI checks from the repository root. The script requires Bash, GNU grep
+and GNU coreutils `timeout`:
 
 ```bash
-export PATH="$HOME/.elan/bin:$PATH"
-export LEAN_NUM_THREADS=1 LEAN_STACK_SIZE_KB=2048 LEAN_MAIN_USE_THREAD=0
-lake build
-timeout 300 lake env lean ../tools/golden/gr1_region_audit.lean || exit $?
-timeout 300 lake env lean ../tools/golden/restriction_audit.lean || exit $?
+bash proofs/check.sh
 ```
+
+`bash check.sh` also works from `proofs/`. Defaults are `LEAN_NUM_THREADS=1`,
+`LEAN_STACK_SIZE_KB=2048` and `LEAN_MAIN_USE_THREAD=0`; environment values
+override them. Per-module diagnostics stay serial, with warnings as errors.
+
+The script rejects `sorry`, `admit` and `axiom` in proof/audit sources, including
+comments. It builds and audits every library module, including private helpers,
+executable roots and modules outside the root imports. Semantic audits permit
+only `propext`, `Classical.choice` and `Quot.sound`, rejecting `native_decide`
+assumptions and `sorryAx`. Builds rehash inputs even with restored caches.
+It then runs every `tools/golden/*_audit.lean`; GR(1) and restriction audits
+enforce the same axiom list, while DPA audits print dependencies.
+
+Require `Lean proof gate` for branch protection. It fails if change detection
+fails or a required proof run does not succeed; skipping requires successful
+detection of no relevant changes. The gate checks correspondence and regressions
+on every PR target. Proof runs use the path list in
+[lean-needed.sh](../.github/scripts/lean-needed.sh), including renames in either
+direction. Add future runtime inputs there. Manual dispatch runs all checks;
+there is no scheduled run.
+
+Controls without a library build, from the repository root:
+
+```bash
+python3 test/cli/check_lean_ci.py
+python3 test/cli/check_proof_references.py .
+python3 test/cli/check_proof_reference_controls.py
+PATH="$HOME/.elan/bin:$PATH" python3 test/cli/check_axiom_audit.py
+```
+
+The last command uses the pinned Lean toolchain on tiny scratch modules to test
+the axiom audit; CI runs it before building. Temporary files use `TMPDIR`.
 
 ## Decomposition model and guarantees
 
@@ -347,6 +375,7 @@ hashes or claims. See the [golden guide](../test/fixtures/golden/README.md).
 | `src/lib/dpa_formula.c:580` | `static uint32_t syntax_acceptance(TlsfDpa *c, uint32_t id) {` |
 | `src/lib/dpa_formula.c:608` | `uint32_t dpa_grouped_acceptance(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_formula.c:615` | `return grouped ? syntax_acceptance(c, id) : dpa_acceptance(c, f);` |
+| `src/lib/dpa_formula.c:652` | `map_impl` forward declaration |
 | `src/lib/dpa_formula.c:759` | `static uint32_t unfold_class_care(TlsfDpa *c, uint32_t f, uint32_t cube,` |
 | `src/lib/dpa_formula.c:814` | `uint32_t dpa_unfold(TlsfDpa *c, uint32_t f) {` |
 | `src/lib/dpa_formula.c:872` | `uint32_t dpa_step_dag(TlsfDpa *c, uint32_t f) {` |

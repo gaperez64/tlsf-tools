@@ -1,0 +1,93 @@
+name: Lean proofs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Decide whether to check Lean
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          run=$(bash .github/scripts/lean-needed.sh)
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  lean:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    # Cold-cache full runs measured 1–1.5 minutes; allow room for runner variance.
+    timeout-minutes: 15
+    env:
+      # Keep diagnostics serial to bound memory use.
+      LEAN_NUM_THREADS: '1'
+    steps:
+      # The runner context is not available in job-level env, so set TMPDIR here.
+      - name: Use the runner's temporary directory
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+      - name: Cache elan and the pinned toolchain
+        uses: actions/cache@v5
+        with:
+          path: ~/.elan
+          key: ${{ runner.os }}-${{ runner.arch }}-elan-v4.2.4-${{ hashFiles('proofs/lean-toolchain') }}
+      - name: Install verified elan v4.2.4
+        run: |
+          mkdir -p "$TMPDIR/elan-install"
+          cd "$TMPDIR/elan-install"
+          time curl --fail --location --retry 3 --output elan.tar.gz \
+            https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz
+          echo '42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63  elan.tar.gz' | sha256sum --check --strict
+          tar -xzf elan.tar.gz elan-init
+          time ./elan-init -y --default-toolchain none --no-modify-path
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Install the toolchain from proofs/lean-toolchain
+        working-directory: proofs
+        run: |
+          time lean --version
+          time lake --version
+      - name: Test semantic axiom audit on tiny fixtures
+        run: python3 test/cli/check_axiom_audit.py
+      - name: Cache Lake build artifacts
+        uses: actions/cache@v5
+        with:
+          path: proofs/.lake
+          key: ${{ runner.os }}-${{ runner.arch }}-lake-${{ hashFiles('proofs/lean-toolchain') }}-${{ hashFiles('proofs/**/*.lean', 'proofs/lakefile.toml', 'proofs/lake-manifest.json', 'tools/golden/*.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-lake-${{ hashFiles('proofs/lean-toolchain') }}-
+      - name: Check proofs and audits
+        run: time bash proofs/check.sh
+
+  required:
+    name: Lean proof gate
+    runs-on: ubuntu-24.04
+    if: always()
+    needs: [changes, lean]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check correspondence on every PR target and test CI controls
+        run: |
+          python3 test/cli/check_proof_references.py .
+          python3 test/cli/check_proof_reference_controls.py
+          python3 test/cli/check_lean_ci.py
+      - name: Enforce detector and Lean results
+        if: always()
+        env:
+          DETECTOR_RESULT: ${{ needs.changes.result }}
+          LEAN_NEEDED: ${{ needs.changes.outputs.run }}
+          LEAN_RESULT: ${{ needs.lean.result }}
+        run: bash .github/scripts/lean-gate.sh

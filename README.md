@@ -205,4 +205,7 @@ bench/bench.sh --check
 Use clang-format 22.1.8. CI checks GCC/Clang builds, tests, leaks, 75% line
 coverage and wall-time/RSS regressions. See the [fuzz guide](test/fuzz/README.md)
 and [golden-fixture guide](test/fixtures/golden/README.md) for additional checks.
+For branch protection, require `Lean proof gate` from `.github/workflows/lean.yml`.
+It checks change detection, required proof runs and correspondence on every PR
+target. See [proof checks](proofs/README.md#build) for audits and regressions.
 Licensed under [MIT](LICENSE).
