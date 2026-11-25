@@ -370,8 +370,9 @@ static void parametric_axis_regressions(const char *path, bool both) {
     CHECK(z.generator == a.generator);
     CHECK(a.seeds == std::vector<int64_t>({3, 4, 5}));
     CHECK(z.seeds == a.seeds);
-    // Known legacy-order cost: U probes a first, but z follows n.
-    CHECK(a.seed_solves == 6);
+    // Unused buses do not spend seed solves, regardless of parameter spelling.
+    CHECK(a.seed_solves == 3);
     CHECK(z.seed_solves == 3);
+    CHECK(a == z); // Includes total work and target REGION_VERIFIED.
   }
 }

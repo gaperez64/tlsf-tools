@@ -209,6 +209,14 @@ native_lift_api_exe = executable('native_lift_api',
   cpp_args: ['-DTLSF_GR1_LIFT_TEST_FAULT'],
   dependencies: tlsf_internal_dep)
 test('native_lift_api', native_lift_api_exe, timeout: 60, is_parallel: false)
+foreach fixture : ['sizeof', 'tied', 'ordered', 'incomplete_budget']
+  foreach both : [false, true]
+    test('native_legacy_' + fixture + (both ? '_both' : '_api'), native_lift_api_exe,
+      args: ['--legacy-axes', files('../fixtures/legacy_' + fixture + '.tlsf')] +
+        (both ? ['--both'] : []),
+      timeout: 120, is_parallel: false)
+  endforeach
+endforeach
 test('native_fold_api', native_lift_api_exe,
   args: ['--fold', files('../fixtures/encoded_fold.tlsf')],
   timeout: 60, is_parallel: false)

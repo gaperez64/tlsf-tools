@@ -1,0 +1,7 @@
+INFO { TITLE: "ordering" DESCRIPTION: "two live axes" SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL { PARAMETERS { a=2; n=5; } }
+MAIN {
+  INPUTS { demand[n]; }
+  OUTPUTS { response[n+a-2]; }
+  GUARANTEES { &&[0 <= i < SIZEOF response] G F (response[i] || demand[i]); }
+}
