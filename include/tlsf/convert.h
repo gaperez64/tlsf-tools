@@ -30,7 +30,6 @@ typedef enum TlsfValueSection {
 typedef struct TlsfValueDomain {
   const struct TlsfValueDomain *next;
   const struct TlsfValueBinding *outer;
-  const char *binder_name;
   const int64_t *coordinates;
   const uint16_t *parameter_ids;
   uint32_t source_formula_id, binder_id, count;
@@ -38,7 +37,6 @@ typedef struct TlsfValueDomain {
 } TlsfValueDomain;
 
 typedef struct TlsfValueBinding {
-  const struct TlsfValueBinding *outer;
   const TlsfValueDomain *domain;
   int64_t coordinate;
 } TlsfValueBinding;

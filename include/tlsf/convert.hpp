@@ -18,16 +18,37 @@ struct Conversion {
   std::string effective_target;
   int gr_level = -1;
   std::shared_ptr<TlsfAst> ast;
-  std::shared_ptr<const TlsfValueOrigins> value_origins;
 };
 
-inline Conversion convert(const std::string &spec, const char *effective_target,
-                          bool capture_value_origins = false) {
-  std::unique_ptr<TlsfConversionResult, decltype(&tlsf_conversion_result_free)>
-      raw(capture_value_origins
-              ? tlsf_convert_ex(spec.c_str(), effective_target, true)
-              : tlsf_convert(spec.c_str(), effective_target),
-          tlsf_conversion_result_free);
+class CapturedAst {
+public:
+  CapturedAst() = default;
+  explicit CapturedAst(TlsfConversionResult &raw)
+      : ast(std::exchange(raw.ast, nullptr), tlsf_ast_free),
+        origins(raw.value_origins) {}
+
+  // Borrowed views into the owned AST.
+  const TlsfAst *get() const { return ast.get(); }
+  const TlsfValueOrigins *value_origins() const {
+    return ast ? origins : nullptr;
+  }
+
+private:
+  std::unique_ptr<TlsfAst, decltype(&tlsf_ast_free)> ast{nullptr,
+                                                         tlsf_ast_free};
+  const TlsfValueOrigins *origins = nullptr;
+};
+
+struct CapturedConversion {
+  Conversion conversion; // Serialized fields only.
+  CapturedAst ast;
+};
+
+namespace detail {
+using RawConversion = std::unique_ptr<TlsfConversionResult,
+                                      decltype(&tlsf_conversion_result_free)>;
+
+inline Conversion conversion_fields(const RawConversion &raw) {
   if (!raw)
     throw std::runtime_error("tlsf conversion failed");
   Conversion out;
@@ -46,11 +67,27 @@ inline Conversion convert(const std::string &spec, const char *effective_target,
   out.original_target = raw->original_target;
   out.effective_target = raw->effective_target;
   out.gr_level = raw->gr_level;
+  return out;
+}
+} // namespace detail
+
+inline Conversion convert(const std::string &spec,
+                          const char *effective_target) {
+  detail::RawConversion raw(tlsf_convert(spec.c_str(), effective_target),
+                            tlsf_conversion_result_free);
+  auto out = detail::conversion_fields(raw);
   out.ast =
       std::shared_ptr<TlsfAst>(std::exchange(raw->ast, nullptr), tlsf_ast_free);
-  if (raw->value_origins)
-    out.value_origins = {out.ast, raw->value_origins};
   return out;
+}
+
+inline CapturedConversion
+convert_with_value_origins(const std::string &spec,
+                           const char *effective_target) {
+  detail::RawConversion raw(
+      tlsf_convert_ex(spec.c_str(), effective_target, true),
+      tlsf_conversion_result_free);
+  return {detail::conversion_fields(raw), CapturedAst(*raw)};
 }
 } // namespace tlsf
 #endif

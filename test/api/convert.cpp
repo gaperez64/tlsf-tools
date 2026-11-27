@@ -2,6 +2,12 @@
 
 #include "../check.h"
 #include <cstring>
+#include <type_traits>
+
+static_assert(
+    std::is_same_v<decltype(&tlsf::convert),
+                   tlsf::Conversion (*)(const std::string &, const char *)>);
+static_assert(!std::is_copy_constructible_v<tlsf::CapturedConversion>);
 
 static void same_conversion(const tlsf::Conversion &a,
                             const tlsf::Conversion &b) {
@@ -20,7 +26,7 @@ static void same_conversion(const tlsf::Conversion &a,
 }
 
 static void value_origins() {
-  std::shared_ptr<const TlsfValueOrigins> retained;
+  tlsf::CapturedAst owner;
   {
     const std::string source = R"(
 INFO { SEMANTICS: Moore TARGET: Moore }
@@ -36,12 +42,15 @@ MAIN { INPUTS { Flag; A[width(scale)]; } OUTPUTS { B[width(scale+extra)]; }
        GUARANTEES { &&[0 <= k < width(scale)] G(term(A,k) -> F term(B,k)); } }
 )";
     const auto plain = tlsf::convert(source, "Mealy");
-    CHECK(!plain.value_origins);
-    const auto found = tlsf::convert(source, "Mealy", true);
-    same_conversion(plain, found);
-    retained = found.value_origins;
-    CHECK(retained && retained->complete);
+    auto found = tlsf::convert_with_value_origins(source, "Mealy");
+    same_conversion(plain, found.conversion);
+    const auto other = tlsf::convert_with_value_origins(source, "Mealy");
+    CHECK(found.ast.value_origins() != other.ast.value_origins());
+    owner = std::move(found.ast);
+    CHECK(!found.ast.get() && !found.ast.value_origins());
   }
+  const auto *retained = owner.value_origins();
+  CHECK(retained && retained->complete);
   const auto *input = retained->buses;
   CHECK(input && !input->is_output && input->declaration_id == 2 &&
         input->proved_bit_width && input->dependencies_complete &&
@@ -59,7 +68,7 @@ MAIN { INPUTS { Flag; A[width(scale)]; } OUTPUTS { B[width(scale+extra)]; }
   unsigned seen = 0;
   for (auto *row = retained->instances; row; row = row->next)
     if (row->bindings && tlsf_ast_node_kind(row->expanded) == TLSF_AST_IMPL) {
-      CHECK(row->bindings->domain == domain && !row->bindings->outer &&
+      CHECK(row->bindings->domain == domain && !domain->outer &&
             row->source_formula_id == domain->source_formula_id &&
             row->source_node_id && row->section == TLSF_VALUE_GUARANTEE);
       const auto *antecedent = tlsf_ast_node_child(row->expanded, 0);
@@ -84,9 +93,9 @@ static void exhausted_value_origins() {
                              "; } } "
                              "MAIN { OUTPUTS { p; } GUARANTEE { G p; } }";
   const auto plain = tlsf::convert(source, "Mealy");
-  const auto exhausted = tlsf::convert(source, "Mealy", true);
-  CHECK(!exhausted.value_origins);
-  same_conversion(plain, exhausted);
+  const auto exhausted = tlsf::convert_with_value_origins(source, "Mealy");
+  CHECK(!exhausted.ast.value_origins());
+  same_conversion(plain, exhausted.conversion);
 }
 
 static void closed_domain_origins() {
@@ -96,17 +105,47 @@ GLOBAL { PARAMETERS { scale = 3; }
          DEFINITIONS { terms(limit) = &&[0 <= k < limit] G p[k]; } }
 MAIN { OUTPUTS { p[scale]; } GUARANTEE { terms(scale); } }
 )";
-  const auto captured = tlsf::convert(source, "Mealy", true);
-  CHECK(captured.value_origins && !captured.value_origins->complete);
-  CHECK(captured.value_origins->domains &&
-        captured.value_origins->domains->count == 3);
-  same_conversion(tlsf::convert(source, "Mealy"), captured);
+  const auto captured = tlsf::convert_with_value_origins(source, "Mealy");
+  const auto *origins = captured.ast.value_origins();
+  CHECK(origins && !origins->complete);
+  CHECK(origins->domains && origins->domains->count == 3);
+  same_conversion(tlsf::convert(source, "Mealy"), captured.conversion);
+}
+
+static void discarded_argument_origins() {
+  const auto captured = tlsf::convert_with_value_origins(R"(
+INFO { SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL {
+  DEFINITIONS {
+    cube(bus, i) = i == 0 : (!bus[0] && !bus[1])
+                   otherwise : (bus[0] && !bus[1]);
+    drop(f) = G p;
+  }
+}
+MAIN {
+  INPUTS { a[2]; }
+  OUTPUTS { p; }
+  GUARANTEE { &&[0 <= i < 2] drop(cube(a, i)); }
+}
+)",
+                                                         "Mealy");
+  CHECK(captured.conversion.preprocessed_ltl == "G p && G p");
+  const auto *origins = captured.ast.value_origins();
+  CHECK(origins && origins->complete && origins->instances);
+  bool saw_p = false;
+  for (auto *row = origins->instances; row; row = row->next)
+    if (tlsf_ast_node_kind(row->expanded) == TLSF_AST_AP) {
+      CHECK(std::strcmp(tlsf_ast_node_ap_name(row->expanded), "p") == 0);
+      saw_p = true;
+    }
+  CHECK(saw_p);
 }
 
 int main() {
   value_origins();
   exhausted_value_origins();
   closed_domain_origins();
+  discarded_argument_origins();
   TlsfConversionResult *owned;
   std::shared_ptr<TlsfAst> retained;
   {

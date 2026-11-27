@@ -139,7 +139,7 @@ typedef struct {
   uint16_t param_count;
   const DefDecl *defs;
   uint16_t def_count;
-  bool (*bound)(const void *, const char *);
+  bool (*bound)(Arena *, const void *, const char *);
   const void *scope;
   bool value_capture;
 } WidthSource;
@@ -161,12 +161,19 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
     // Definitions are top-level: their bodies see their own formals and
     // global parameters, not formals from the definition that called them.
     if (env)
-      for (uint16_t i = 0; i < env->definition->param_count; i++)
+      for (uint16_t i = 0; i < env->definition->param_count; i++) {
+        if (spec->value_capture && !arena_check_budget(spec->arena, 0))
+          return false;
         if (strcmp(node->name, env->definition->params[i]) == 0)
           return width_dependencies(env->actuals[i], spec, env->parent, used,
                                     depth + 1);
-    if (!env && spec->bound && spec->bound(spec->scope, node->name))
-      return true;
+      }
+    if (!env && spec->bound) {
+      if (spec->bound(spec->arena, spec->scope, node->name))
+        return true;
+      if (arena_failed(spec->arena))
+        return false;
+    }
     for (uint16_t i = 0; i < spec->param_count; i++) {
       if (spec->value_capture && !arena_check_budget(spec->arena, 0))
         return false;
@@ -181,9 +188,12 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
       if (spec->defs[i].param_count == 0 &&
           strcmp(node->name, spec->defs[i].name) == 0) {
         const WidthEnv nested = {env, &spec->defs[i], nullptr};
-        for (const WidthEnv *parent = env; parent; parent = parent->parent)
+        for (const WidthEnv *parent = env; parent; parent = parent->parent) {
+          if (spec->value_capture && !arena_check_budget(spec->arena, 0))
+            return false;
           if (parent->definition == nested.definition)
             return false;
+        }
         return width_dependencies(spec->defs[i].body, spec, &nested, used,
                                   depth + 1);
       }
@@ -203,7 +213,9 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
     }
     if (!definition)
       return false;
-    for (const WidthEnv *parent = env; parent; parent = parent->parent)
+    for (const WidthEnv *parent = env; parent; parent = parent->parent) {
+      if (spec->value_capture && !arena_check_budget(spec->arena, 0))
+        return false;
       if (parent->definition == definition) {
         if (!spec->value_capture)
           return false;
@@ -215,6 +227,7 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
             return false;
         return true;
       }
+    }
     const WidthEnv nested = {env, definition, node->call_args};
     return width_dependencies(definition->body, spec, &nested, used, depth + 1);
   }
@@ -275,11 +288,10 @@ void value_origin_capture_init(ValueOriginCapture *capture) {
     capture->record->complete = true;
 }
 
-bool value_origin_dependencies(const TlsfSpec *spec, const Node *const *nodes,
-                               size_t count,
-                               bool (*bound)(const void *, const char *),
-                               const void *scope, const uint16_t **ids,
-                               uint16_t *id_count) {
+bool value_origin_dependencies(
+    const TlsfSpec *spec, const Node *const *nodes, size_t count,
+    bool (*bound)(Arena *, const void *, const char *), const void *scope,
+    const uint16_t **ids, uint16_t *id_count) {
   Arena *arena = spec->value_capture->arena;
   const WidthSource source = {.arena = arena,
                               .params = spec->params,
@@ -293,19 +305,27 @@ bool value_origin_dependencies(const TlsfSpec *spec, const Node *const *nodes,
   if (!used)
     return false;
   bool complete = true;
-  for (size_t i = 0; i < count; i++)
+  for (size_t i = 0; i < count && !arena_failed(arena); i++)
     complete &= width_dependencies(nodes[i], &source, nullptr, used, 0);
-  for (uint16_t i = 0; i < source.param_count; i++)
+  if (arena_failed(arena))
+    return false;
+  for (uint16_t i = 0; i < source.param_count; i++) {
+    if (!arena_check_budget(arena, 0))
+      return false;
     *id_count += used[i];
+  }
   if (!*id_count)
     return complete;
   uint16_t *parameters = ARENA_ALLOC_N(arena, uint16_t, *id_count);
   if (!parameters)
     return false;
   *ids = parameters;
-  for (uint16_t i = 0; i < source.param_count; i++)
+  for (uint16_t i = 0; i < source.param_count; i++) {
+    if (!arena_check_budget(arena, 0))
+      return false;
     if (used[i])
       *parameters++ = (uint16_t)(i + 1u);
+  }
   return complete;
 }
 
@@ -316,7 +336,9 @@ void value_origin_buses(const TlsfSpec *spec) {
   const SignalDecl *lists[] = {spec->inputs, spec->outputs};
   const uint32_t counts[] = {spec->input_count, spec->output_count};
   for (unsigned side = 0; side < 2; side++)
-    for (uint32_t i = 0; i < counts[side] && !arena_failed(arena); i++) {
+    for (uint32_t i = 0; i < counts[side]; i++) {
+      if (!arena_check_budget(arena, 0))
+        return;
       const SignalDecl *s = &lists[side][i];
       if (!s->origin_is_bus || s->origin_index != s->origin_bus_lo)
         continue;
@@ -325,8 +347,11 @@ void value_origin_buses(const TlsfSpec *spec) {
       const char **bits = ARENA_ALLOC_N(arena, const char *, width);
       if (!bus || !bits)
         return;
-      for (uint32_t j = 0; j < width; j++)
+      for (uint32_t j = 0; j < width; j++) {
+        if (!arena_check_budget(arena, 0))
+          return;
         bits[j] = s[j].name;
+      }
       *bus = (TlsfValueBus){.bits = bits,
                             .declaration_id = s->origin_id,
                             .bit_count = width,
@@ -338,6 +363,8 @@ void value_origin_buses(const TlsfSpec *spec) {
       bus->dependencies_complete =
           value_origin_dependencies(spec, bounds, 2, nullptr, nullptr,
                                     &bus->parameter_ids, &bus->parameter_count);
+      if (arena_failed(arena))
+        return;
       capture->record->complete &= bus->dependencies_complete;
       *tail = bus;
       tail = &bus->next;

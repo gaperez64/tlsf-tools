@@ -53,6 +53,7 @@ typedef struct Env {
   const struct Env *origin;
   const TlsfValueBinding *value_binding;
   bool identity;
+  bool identity_key;
 } Env;
 
 static const Node *subst_source_budgeted(Arena *arena, const Node *n,
@@ -98,7 +99,8 @@ static Env declaration_env(const Env *env) {
                .globals = globals,
                .origin = env,
                .value_binding = env->value_binding,
-               .identity = env->identity};
+               .identity = env->identity,
+               .identity_key = env->identity_key};
 }
 
 // ===========================================================================
@@ -1086,7 +1088,7 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
     // spellings need the same core key. Keep the stored high-level bus node.
     // Range keys use the literal §4.8 spelling, independently of the output
     // expansion's equivalent distributed form.
-    lexical.identity = true;
+    lexical.identity = lexical.identity_key = true;
     bool ok = true;
     out->key =
         expand_node((TlsfSpec *)spec, out->node, &lexical, &ok, depth + 1);
@@ -1256,7 +1258,8 @@ static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
                    .bounds = env->bounds,
                    .globals = env->globals,
                    .value_binding = env->value_binding,
-                   .identity = env->identity};
+                   .identity = env->identity,
+                   .identity_key = env->identity_key};
     *body_env = child;
     return true;
   }
@@ -1452,7 +1455,7 @@ static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
   bool ok = true;
   Env subject_env = *env;
   // Pattern matching keeps its existing subject spelling even while computing
-  // a set identity key. Only the selected result receives identity lowering.
+  // a set identity key. The subject still inherits identity_key for capture.
   subject_env.identity = false;
   Node *subject = expand_node((TlsfSpec *)spec, n->if_cond->lhs, &subject_env,
                               &ok, depth + 1);
@@ -1520,10 +1523,14 @@ static Node *with_bounded(Arena *arena, const Node *node, const Node *source,
   return copy;
 }
 
-static bool has_bound_coordinate(const void *scope, const char *name) {
-  for (const Env *e = scope; e; e = e->parent)
+static bool has_bound_coordinate(Arena *arena, const void *scope,
+                                 const char *name) {
+  for (const Env *e = scope; e; e = e->parent) {
+    if (!arena_check_budget(arena, 0))
+      return false;
     if (e->b.name == name)
       return e->binder_id != 0;
+  }
   return false;
 }
 
@@ -1532,13 +1539,15 @@ static const TlsfValueDomain *record_domain(const TlsfSpec *spec, const Node *n,
                                             const Env *env) {
   ValueOriginCapture *capture = spec->value_capture;
   Arena *arena = capture->arena;
-  if (arena_failed(arena) || !capture->formula_id)
+  if (!capture->formula_id || !arena_check_budget(arena, 0))
     return nullptr;
   TlsfValueDomain *domain = ARENA_ALLOC(arena, TlsfValueDomain);
   int64_t *coordinates = ARENA_ALLOC_N(arena, int64_t, values->count);
   if (!domain || !coordinates)
     return nullptr;
   for (uint32_t i = 0; i < values->count; i++) {
+    if (!arena_check_budget(arena, 0))
+      return nullptr;
     if (values->items[i].kind != EVAL_VALUE_INT) {
       capture->record->complete = false;
       return nullptr;
@@ -1547,7 +1556,6 @@ static const TlsfValueDomain *record_domain(const TlsfSpec *spec, const Node *n,
   }
   *domain = (TlsfValueDomain){.next = capture->record->domains,
                               .outer = env->value_binding,
-                              .binder_name = n->qvar,
                               .coordinates = coordinates,
                               .source_formula_id = capture->formula_id,
                               .binder_id = n->source_id,
@@ -1556,6 +1564,8 @@ static const TlsfValueDomain *record_domain(const TlsfSpec *spec, const Node *n,
   bool complete = value_origin_dependencies(
       spec, bounds, 3, has_bound_coordinate, env, &domain->parameter_ids,
       &domain->parameter_count);
+  if (arena_failed(arena))
+    return nullptr;
   // Closed definition arguments can hide the source of a numeric bound.
   capture->record->complete &= complete && n->source_id != 0 && !env->origin;
   return capture->record->domains = domain;
@@ -1569,8 +1579,9 @@ static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
     return nullptr;
   }
   bool is_all = (n->kind == NODE_FORALL);
-  const TlsfValueDomain *origin =
-      spec->value_capture ? record_domain(spec, n, domain, env) : nullptr;
+  const TlsfValueDomain *origin = spec->value_capture && !env->identity_key
+                                      ? record_domain(spec, n, domain, env)
+                                      : nullptr;
 
   if (domain->count == 0)
     return is_all ? node_true(spec->arena) : node_false(spec->arena);
@@ -1585,11 +1596,11 @@ static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
       *ok = false;
       return nullptr;
     }
-    if (origin) {
+    if (origin && !arena_failed(spec->value_capture->arena)) {
       Arena *arena = spec->value_capture->arena;
       TlsfValueBinding *binding = ARENA_ALLOC(arena, TlsfValueBinding);
       if (binding) {
-        *binding = (TlsfValueBinding){origin->outer, origin, child.b.value};
+        *binding = (TlsfValueBinding){origin, child.b.value};
         child.value_binding = binding;
       }
     }
@@ -1648,8 +1659,8 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     return nullptr;
   }
   ValueOriginCapture *capture = spec->value_capture;
-  if (capture && capture->formula_id && n->source_id &&
-      !arena_failed(capture->arena)) {
+  if (capture && !env->identity_key && capture->formula_id &&
+      arena_check_budget(capture->arena, 0) && n->source_id) {
     TlsfValueInstance *instance =
         ARENA_ALLOC(capture->arena, TlsfValueInstance);
     if (instance) {
@@ -2102,12 +2113,24 @@ static bool proves_floor_log2(const DefDecl *def) {
          is_integer(step->call_args[0]->rhs, 2);
 }
 
-static bool proves_bit_width(const TlsfSpec *spec, const Node *width) {
+static const DefDecl *find_width_def(const TlsfSpec *spec, const char *name,
+                                     Arena *budget) {
+  if (!budget)
+    return find_def(spec, name, 1);
+  for (uint16_t i = 0; i < spec->def_count && arena_check_budget(budget, 0);
+       i++)
+    if (spec->defs[i].name == name && spec->defs[i].param_count == 1)
+      return &spec->defs[i];
+  return nullptr;
+}
+
+static bool proves_bit_width(const TlsfSpec *spec, const Node *width,
+                             Arena *budget) {
   if (!width || width->kind != NODE_INT_SUB || !is_integer(width->rhs, 1) ||
       !width->lhs || width->lhs->kind != NODE_DEF_CALL ||
       width->lhs->call_argc != 1)
     return false;
-  const DefDecl *def = find_def(spec, width->lhs->callee, 1);
+  const DefDecl *def = find_width_def(spec, width->lhs->callee, budget);
   if (!def || !def->body || def->body->kind != NODE_ITE ||
       def->param_count != 1)
     return false;
@@ -2122,7 +2145,7 @@ static bool proves_bit_width(const TlsfSpec *spec, const Node *width) {
       !is_formal(step->call_args[0]->lhs, formal) ||
       !is_integer(step->call_args[0]->rhs, 1))
     return false;
-  return proves_floor_log2(find_def(spec, step->callee, 1));
+  return proves_floor_log2(find_width_def(spec, step->callee, budget));
 }
 
 typedef struct SourceIdChange {
@@ -2134,10 +2157,13 @@ typedef struct {
   Arena *arena;
   uint32_t next;
   SourceIdChange *changes;
+  bool value_capture;
 } SourceIds;
 
 static void assign_node_ids(Node *n, SourceIds *ids) {
-  if (!n || n->source_id || ids->arena->failed)
+  if (ids->arena->failed ||
+      (ids->value_capture && !arena_check_budget(ids->arena, 0)) || !n ||
+      n->source_id)
     return;
   SourceIdChange *change = ARENA_ALLOC(ids->arena, SourceIdChange);
   if (!change)
@@ -2169,7 +2195,7 @@ static void assign_node_ids(Node *n, SourceIds *ids) {
     return;
   case NODE_DEF_CALL:
   case NODE_PATTERN:
-    for (uint16_t i = 0; i < n->call_argc; i++)
+    for (uint16_t i = 0; i < n->call_argc && !ids->arena->failed; i++)
       assign_node_ids(n->call_args[i], ids);
     return;
   case NODE_ITE:
@@ -2193,7 +2219,7 @@ static void assign_node_ids(Node *n, SourceIds *ids) {
     return;
   case NODE_SET:
   case NODE_SET_ENUM:
-    for (uint16_t i = 0; i < n->set_size; i++)
+    for (uint16_t i = 0; i < n->set_size && !ids->arena->failed; i++)
       assign_node_ids(n->set_elems[i], ids);
     return;
   default:
@@ -2204,12 +2230,12 @@ static void assign_node_ids(Node *n, SourceIds *ids) {
 }
 
 static void assign_source_ids(TlsfSpec *spec, SourceIds *ids) {
-  for (uint16_t i = 0; i < spec->def_count; i++)
+  for (uint16_t i = 0; i < spec->def_count && !ids->arena->failed; i++)
     assign_node_ids(spec->defs[i].body, ids);
   FormulaList *lists[] = {&spec->initially, &spec->preset, &spec->require,
                           &spec->assert_,   &spec->assume, &spec->guarantee};
   for (size_t k = 0; k < sizeof lists / sizeof *lists; k++)
-    for (uint32_t i = 0; i < lists[k]->count; i++)
+    for (uint32_t i = 0; i < lists[k]->count && !ids->arena->failed; i++)
       assign_node_ids(lists[k]->formulas[i], ids);
 }
 
@@ -2328,13 +2354,19 @@ static int expand_impl(TlsfSpec *spec, const ParamOverride *overrides,
 
   // Classify only widths whose source definitions have the proved structural
   // shape above. Other computed widths remain undetermined.
-  if (spec->capture_provenance || spec->value_capture)
+  Arena *width_budget = !spec->capture_provenance && spec->value_capture
+                            ? spec->value_capture->arena
+                            : nullptr;
+  if (spec->capture_provenance || width_budget)
     for (int k = 0; k < 2; k++)
-      for (uint32_t i = 0; i < sig_counts[k]; i++) {
+      for (uint32_t i = 0;
+           i < sig_counts[k] &&
+           (!width_budget || arena_check_budget(width_budget, 0));
+           i++) {
         SignalDecl *s = &sig_lists[k][i];
-        s->origin_is_encoded_bit = s->is_bus && s->bus_lo == 0 &&
-                                   s->bus_hi_expr &&
-                                   proves_bit_width(spec, s->bus_hi_expr);
+        s->origin_is_encoded_bit =
+            s->is_bus && s->bus_lo == 0 && s->bus_hi_expr &&
+            proves_bit_width(spec, s->bus_hi_expr, width_budget);
       }
 
   // --- Phase 3: expand every formula. ---
@@ -2342,7 +2374,8 @@ static int expand_impl(TlsfSpec *spec, const ParamOverride *overrides,
 #define EXPAND_LIST(list, block)                                               \
   do {                                                                         \
     for (uint32_t _i = 0; _i < (list).count; _i++) {                           \
-      if (spec->value_capture) {                                               \
+      if (spec->value_capture &&                                               \
+          arena_check_budget(spec->value_capture->arena, 0)) {                 \
         spec->value_capture->formula_id = (list).formulas[_i]->source_id;      \
         spec->value_capture->section = TLSF_VALUE_##block;                     \
       }                                                                        \
@@ -2408,10 +2441,11 @@ int expand(TlsfSpec *spec, const ParamOverride *overrides, size_t n_overrides) {
   ParamDecl *resolved_params = next.params;
   // Source nodes are shared with the caller. Undo only IDs assigned here if
   // expansion fails, including a failure while recording the assignments.
-  SourceIds ids = {.arena = !spec->capture_provenance && spec->value_capture
-                                ? spec->value_capture->arena
-                                : spec->arena,
-                   .next = 1};
+  const bool value_capture = !spec->capture_provenance && spec->value_capture;
+  SourceIds ids = {.arena =
+                       value_capture ? spec->value_capture->arena : spec->arena,
+                   .next = 1,
+                   .value_capture = value_capture};
   if (spec->capture_provenance || spec->value_capture)
     assign_source_ids(&next, &ids);
   bool expanded =

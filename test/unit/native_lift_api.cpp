@@ -114,40 +114,34 @@ static TlsfGr1LiftStatus lift(const char *bytes, const TlsfGr1LiftOptions &o,
 }
 
 static void conversion_keeps_lift_provenance() {
-  auto provenance = [] {
+  const auto captured = tlsf::convert_with_value_origins(source, "Mealy");
+  CHECK(captured.ast.value_origins() && captured.ast.value_origins()->complete);
+  {
     std::unique_ptr<TlsfPipeline, decltype(&tlsf_pipeline_free)> pipeline(
         tlsf_pipeline_load_bytes(reinterpret_cast<const uint8_t *>(source),
                                  strlen(source), nullptr),
         tlsf_pipeline_free);
     CHECK(pipeline && pipeline->frontend_provenance_json);
-    return std::string(pipeline->frontend_provenance_json,
-                       pipeline->frontend_provenance_size);
-  };
-  TlsfGr1LiftResult before{}, after{};
+    char digest[65];
+    CHECK(tlsf_pipeline_source_sha256(pipeline->frontend_provenance_json,
+                                      pipeline->frontend_provenance_size,
+                                      digest));
+    // Baseline from a715666, before conversion capture.
+    CHECK(!strcmp(
+        digest,
+        "4daf1fe698775bf2040c139f81e2c83daff723b4883dd0e4913112cbee3e218d"));
+  }
+  TlsfGr1LiftResult result{};
   TlsfGr1LiftError error{};
-  TlsfGr1LiftStats old_stats{}, new_stats{};
+  TlsfGr1LiftStats stats{};
   auto o = options();
-  o.stats = &old_stats;
-  const auto plain = tlsf::convert(source, "Mealy");
-  CHECK(!plain.value_origins);
-  const auto json = provenance();
-  CHECK(lift(source, o, &before, &error) == TLSF_GR1_LIFT_OK);
-  const auto captured = tlsf::convert(source, "Mealy", true);
-  CHECK(captured.value_origins && captured.value_origins->complete);
-  CHECK(provenance() == json);
-  o = options();
-  o.stats = &new_stats;
-  CHECK(lift(source, o, &after, &error) == TLSF_GR1_LIFT_OK);
-  CHECK(before.method == after.method && before.verdict == after.verdict &&
-        before.evidence_json && after.evidence_json &&
-        !strcmp(before.evidence_json, after.evidence_json) &&
-        !strcmp(before.decline_detail, after.decline_detail));
-  CHECK(old_stats.seed_probes &&
-        old_stats.seed_probes == new_stats.seed_probes &&
-        old_stats.seeds_selected == new_stats.seeds_selected &&
-        old_stats.seed_solves == new_stats.seed_solves);
-  tlsf_gr1_lift_result_clear(&before);
-  tlsf_gr1_lift_result_clear(&after);
+  o.stats = &stats;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(result.method == TLSF_GR1_CHECK_CERTIFICATE &&
+        result.verdict == TLSF_GR1_CHECK_VERIFIED);
+  CHECK(stats.seed_probes == 4 && stats.seeds_selected == 3 &&
+        stats.seed_solves == 3);
+  tlsf_gr1_lift_result_clear(&result);
 }
 static void bounded_seed_declines() {
   std::string parameters = "GLOBAL { PARAMETERS { ";
