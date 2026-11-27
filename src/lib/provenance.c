@@ -359,12 +359,11 @@ void value_origin_buses(const TlsfSpec *spec) {
                             .is_enum = s->origin_is_enum,
                             .proved_bit_width = s->origin_is_encoded_bit};
       const Node *bounds[] = {s->bus_lo_expr, s->origin_width_expr};
-      bus->dependencies_complete =
+      capture->record->complete &=
           value_origin_dependencies(spec, bounds, 2, nullptr, nullptr,
                                     &bus->parameter_ids, &bus->parameter_count);
       if (arena_failed(arena))
         return;
-      capture->record->complete &= bus->dependencies_complete;
       *tail = bus;
       tail = &bus->next;
     }

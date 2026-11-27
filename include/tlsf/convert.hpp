@@ -25,7 +25,7 @@ public:
   CapturedAst() = default;
   explicit CapturedAst(TlsfConversionResult &raw)
       : ast(std::exchange(raw.ast, nullptr), tlsf_ast_free),
-        origins(raw.value_origins) {}
+        origins(std::exchange(raw.value_origins, nullptr)) {}
 
   // Borrowed views into the owned AST.
   const TlsfAst *get() const { return ast.get(); }

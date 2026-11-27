@@ -2160,11 +2160,15 @@ typedef struct {
   bool value_capture;
 } SourceIds;
 
-static void assign_node_ids(Node *n, SourceIds *ids) {
+static void assign_node_ids(Node *n, SourceIds *ids, unsigned depth) {
   if (ids->arena->failed ||
       (ids->value_capture && !arena_check_budget(ids->arena, 0)) || !n ||
       n->source_id)
     return;
+  if (ids->value_capture && depth >= MAX_DEPTH) {
+    arena_mark_failed(ids->arena);
+    return;
+  }
   SourceIdChange *change = ARENA_ALLOC(ids->arena, SourceIdChange);
   if (!change)
     return;
@@ -2188,20 +2192,20 @@ static void assign_node_ids(Node *n, SourceIds *ids) {
   case NODE_SET_SIZE:
   case NODE_SET_MIN:
   case NODE_SET_MAX:
-    assign_node_ids(n->arg, ids);
+    assign_node_ids(n->arg, ids, depth + 1);
     return;
   case NODE_BUS_INDEX:
-    assign_node_ids(n->bus_index, ids);
+    assign_node_ids(n->bus_index, ids, depth + 1);
     return;
   case NODE_DEF_CALL:
   case NODE_PATTERN:
     for (uint16_t i = 0; i < n->call_argc && !ids->arena->failed; i++)
-      assign_node_ids(n->call_args[i], ids);
+      assign_node_ids(n->call_args[i], ids, depth + 1);
     return;
   case NODE_ITE:
-    assign_node_ids(n->if_cond, ids);
-    assign_node_ids(n->if_then, ids);
-    assign_node_ids(n->if_else, ids);
+    assign_node_ids(n->if_cond, ids, depth + 1);
+    assign_node_ids(n->if_then, ids, depth + 1);
+    assign_node_ids(n->if_else, ids, depth + 1);
     return;
   case NODE_FORALL:
   case NODE_EXISTS:
@@ -2211,32 +2215,32 @@ static void assign_node_ids(Node *n, SourceIds *ids) {
   case NODE_SET_BIG_INTER:
   case NODE_G_RANGE:
   case NODE_F_RANGE:
-    assign_node_ids(n->qlo, ids);
-    assign_node_ids(n->qhi, ids);
+    assign_node_ids(n->qlo, ids, depth + 1);
+    assign_node_ids(n->qhi, ids, depth + 1);
     if (n->kind != NODE_G_RANGE && n->kind != NODE_F_RANGE)
-      assign_node_ids(n->qset, ids);
-    assign_node_ids(n->qbody, ids);
+      assign_node_ids(n->qset, ids, depth + 1);
+    assign_node_ids(n->qbody, ids, depth + 1);
     return;
   case NODE_SET:
   case NODE_SET_ENUM:
     for (uint16_t i = 0; i < n->set_size && !ids->arena->failed; i++)
-      assign_node_ids(n->set_elems[i], ids);
+      assign_node_ids(n->set_elems[i], ids, depth + 1);
     return;
   default:
-    assign_node_ids(n->lhs, ids);
-    assign_node_ids(n->rhs, ids);
+    assign_node_ids(n->lhs, ids, depth + 1);
+    assign_node_ids(n->rhs, ids, depth + 1);
     return;
   }
 }
 
 static void assign_source_ids(TlsfSpec *spec, SourceIds *ids) {
   for (uint16_t i = 0; i < spec->def_count && !ids->arena->failed; i++)
-    assign_node_ids(spec->defs[i].body, ids);
+    assign_node_ids(spec->defs[i].body, ids, 0);
   FormulaList *lists[] = {&spec->initially, &spec->preset, &spec->require,
                           &spec->assert_,   &spec->assume, &spec->guarantee};
   for (size_t k = 0; k < sizeof lists / sizeof *lists; k++)
     for (uint32_t i = 0; i < lists[k]->count && !ids->arena->failed; i++)
-      assign_node_ids(lists[k]->formulas[i], ids);
+      assign_node_ids(lists[k]->formulas[i], ids, 0);
 }
 
 static int explode_signals(TlsfSpec *spec, bool is_output) {

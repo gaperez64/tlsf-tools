@@ -44,8 +44,12 @@ MAIN { INPUTS { Flag; A[width(scale)]; } OUTPUTS { B[width(scale+extra)]; }
     const auto plain = tlsf::convert(source, "Mealy");
     auto found = tlsf::convert_with_value_origins(source, "Mealy");
     same_conversion(plain, found.conversion);
-    const auto other = tlsf::convert_with_value_origins(source, "Mealy");
-    CHECK(found.ast.value_origins() != other.ast.value_origins());
+    auto *raw = tlsf_convert_ex(source.c_str(), "Mealy", true);
+    CHECK(raw && raw->ast && raw->value_origins);
+    const tlsf::CapturedAst other(*raw);
+    CHECK(!raw->ast && !raw->value_origins);
+    tlsf_conversion_result_free(raw);
+    CHECK(found.ast.value_origins() != other.value_origins());
     owner = std::move(found.ast);
     CHECK(!found.ast.get() && !found.ast.value_origins());
   }
@@ -53,14 +57,14 @@ MAIN { INPUTS { Flag; A[width(scale)]; } OUTPUTS { B[width(scale+extra)]; }
   CHECK(retained && retained->complete);
   const auto *input = retained->buses;
   CHECK(input && !input->is_output && input->declaration_id == 2 &&
-        input->proved_bit_width && input->dependencies_complete &&
-        input->bit_count == 2 && std::strcmp(input->bits[1], "A_1") == 0 &&
+        input->proved_bit_width && input->bit_count == 2 &&
+        std::strcmp(input->bits[1], "A_1") == 0 &&
         input->parameter_count == 1 && input->parameter_ids[0] == 1);
   const auto *output = input->next;
   CHECK(output && output->is_output && output->declaration_id == 1 &&
-        output->proved_bit_width && output->dependencies_complete &&
-        output->parameter_count == 2 && output->parameter_ids[0] == 1 &&
-        output->parameter_ids[1] == 2 && !output->next);
+        output->proved_bit_width && output->parameter_count == 2 &&
+        output->parameter_ids[0] == 1 && output->parameter_ids[1] == 2 &&
+        !output->next);
   const auto *domain = retained->domains;
   CHECK(domain && !domain->next && domain->binder_id && domain->count == 2 &&
         domain->coordinates[0] == 0 && domain->coordinates[1] == 1 &&
@@ -96,6 +100,33 @@ static void exhausted_value_origins() {
   const auto exhausted = tlsf::convert_with_value_origins(source, "Mealy");
   CHECK(!exhausted.ast.value_origins());
   same_conversion(plain, exhausted.conversion);
+}
+
+static void deep_value_origins() {
+  std::string source = "INFO { SEMANTICS: Mealy TARGET: Mealy } "
+                       "MAIN { OUTPUTS { p; } GUARANTEE { p";
+  // At MAX_DEPTH ordinary conversion still succeeds.
+  for (int i = 0; i < 2000; ++i)
+    source += " && true";
+  const auto captured =
+      tlsf::convert_with_value_origins(source + "; } }", "Mealy");
+  CHECK(!captured.ast.value_origins());
+  same_conversion(tlsf::convert(source + "; } }", "Mealy"),
+                  captured.conversion);
+
+  source += " && true; } }";
+  CHECK(!tlsf_convert(source.c_str(), "Mealy"));
+  CHECK(!tlsf_convert_ex(source.c_str(), "Mealy", true));
+}
+
+static void incomplete_bus_origins() {
+  const auto captured = tlsf::convert_with_value_origins(
+      "INFO { SEMANTICS: Mealy TARGET: Mealy } "
+      "MAIN { INPUTS { a[2]; } OUTPUTS { p[SIZEOF a]; } GUARANTEE { G p[0]; } "
+      "}",
+      "Mealy");
+  const auto *origins = captured.ast.value_origins();
+  CHECK(origins && origins->buses && !origins->complete);
 }
 
 static void closed_domain_origins() {
@@ -173,6 +204,8 @@ MAIN {
 int main() {
   value_origins();
   exhausted_value_origins();
+  deep_value_origins();
+  incomplete_bus_origins();
   closed_domain_origins();
   discarded_argument_origins();
   pattern_guard_origins();

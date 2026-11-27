@@ -15,7 +15,7 @@ typedef struct TlsfValueBus {
   uint32_t declaration_id;       ///< One-based within its owner.
   uint32_t bit_count;
   uint16_t lo, parameter_count;
-  bool is_output, is_enum, proved_bit_width, dependencies_complete;
+  bool is_output, is_enum, proved_bit_width;
 } TlsfValueBus;
 
 typedef enum TlsfValueSection {
