@@ -17,6 +17,7 @@
 
 struct TlsfAst {
   TlsfSpec *conversion_spec;
+  Arena *value_arena;
   TlsfPipeline *pipeline;
   ResidualPlan *residual_plan;
   TlsfDecomposeResult *result;
@@ -40,6 +41,7 @@ void tlsf_ast_free(TlsfAst *ast) {
   free(ast->cluster_roots);
   residual_plan_free(ast->residual_plan);
   tlsf_pipeline_free(ast->pipeline);
+  arena_free(ast->value_arena);
   spec_free(ast->conversion_spec);
   free(ast);
 }
@@ -71,7 +73,8 @@ static Node *lower_clone(Arena *arena, const Node *n) {
   return copy;
 }
 
-TlsfAst *tlsf_ast_take_conversion(TlsfSpec *spec, const Node *root) {
+TlsfAst *tlsf_ast_take_conversion(TlsfSpec *spec, const Node *root,
+                                  Arena *value_arena) {
   TlsfAst *ast = calloc(1, sizeof *ast);
   if (!ast)
     return nullptr;
@@ -81,6 +84,7 @@ TlsfAst *tlsf_ast_take_conversion(TlsfSpec *spec, const Node *root) {
     return nullptr;
   }
   ast->conversion_spec = spec;
+  ast->value_arena = value_arena;
   return ast;
 }
 

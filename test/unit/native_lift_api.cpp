@@ -1,3 +1,4 @@
+#include "tlsf/convert.hpp"
 #include "tlsf/gr1_lift.h"
 #include "tlsf/pipeline.h"
 #include "yyjson_cpp.hh"
@@ -110,6 +111,43 @@ static TlsfGr1LiftStatus lift(const char *bytes, const TlsfGr1LiftOptions &o,
                               TlsfGr1LiftResult *r, TlsfGr1LiftError *e) {
   return tlsf_gr1_lift(reinterpret_cast<const uint8_t *>(bytes), strlen(bytes),
                        nullptr, 0, &o, r, e);
+}
+
+static void conversion_keeps_lift_provenance() {
+  auto provenance = [] {
+    std::unique_ptr<TlsfPipeline, decltype(&tlsf_pipeline_free)> pipeline(
+        tlsf_pipeline_load_bytes(reinterpret_cast<const uint8_t *>(source),
+                                 strlen(source), nullptr),
+        tlsf_pipeline_free);
+    CHECK(pipeline && pipeline->frontend_provenance_json);
+    return std::string(pipeline->frontend_provenance_json,
+                       pipeline->frontend_provenance_size);
+  };
+  TlsfGr1LiftResult before{}, after{};
+  TlsfGr1LiftError error{};
+  TlsfGr1LiftStats old_stats{}, new_stats{};
+  auto o = options();
+  o.stats = &old_stats;
+  const auto plain = tlsf::convert(source, "Mealy");
+  CHECK(!plain.value_origins);
+  const auto json = provenance();
+  CHECK(lift(source, o, &before, &error) == TLSF_GR1_LIFT_OK);
+  const auto captured = tlsf::convert(source, "Mealy", true);
+  CHECK(captured.value_origins && captured.value_origins->complete);
+  CHECK(provenance() == json);
+  o = options();
+  o.stats = &new_stats;
+  CHECK(lift(source, o, &after, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(before.method == after.method && before.verdict == after.verdict &&
+        before.evidence_json && after.evidence_json &&
+        !strcmp(before.evidence_json, after.evidence_json) &&
+        !strcmp(before.decline_detail, after.decline_detail));
+  CHECK(old_stats.seed_probes &&
+        old_stats.seed_probes == new_stats.seed_probes &&
+        old_stats.seeds_selected == new_stats.seeds_selected &&
+        old_stats.seed_solves == new_stats.seed_solves);
+  tlsf_gr1_lift_result_clear(&before);
+  tlsf_gr1_lift_result_clear(&after);
 }
 static void bounded_seed_declines() {
   std::string parameters = "GLOBAL { PARAMETERS { ";
@@ -771,6 +809,7 @@ int main(int argc, char **argv) {
   }
   if (argc >= 4 && !strcmp(argv[1], "--fold-measure"))
     return fold_measure(argv[2], std::stoi(argv[3]), argc == 5);
+  conversion_keeps_lift_provenance();
   bounded_seed_declines();
   discovery_budget_declines();
   corruption_guards();

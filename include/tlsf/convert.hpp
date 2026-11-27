@@ -18,12 +18,15 @@ struct Conversion {
   std::string effective_target;
   int gr_level = -1;
   std::shared_ptr<TlsfAst> ast;
+  std::shared_ptr<const TlsfValueOrigins> value_origins;
 };
 
-inline Conversion convert(const std::string &spec,
-                          const char *effective_target) {
+inline Conversion convert(const std::string &spec, const char *effective_target,
+                          bool capture_value_origins = false) {
   std::unique_ptr<TlsfConversionResult, decltype(&tlsf_conversion_result_free)>
-      raw(tlsf_convert(spec.c_str(), effective_target),
+      raw(capture_value_origins
+              ? tlsf_convert_ex(spec.c_str(), effective_target, true)
+              : tlsf_convert(spec.c_str(), effective_target),
           tlsf_conversion_result_free);
   if (!raw)
     throw std::runtime_error("tlsf conversion failed");
@@ -45,6 +48,8 @@ inline Conversion convert(const std::string &spec,
   out.gr_level = raw->gr_level;
   out.ast =
       std::shared_ptr<TlsfAst>(std::exchange(raw->ast, nullptr), tlsf_ast_free);
+  if (raw->value_origins)
+    out.value_origins = {out.ast, raw->value_origins};
   return out;
 }
 } // namespace tlsf
