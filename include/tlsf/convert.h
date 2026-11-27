@@ -46,6 +46,7 @@ typedef struct TlsfValueInstance {
   /// Source AP spelling. Target adaptation can shift child links.
   const TlsfAstNode *expanded;
   const TlsfValueBinding *bindings;
+  uint64_t bit_operand_bound;  ///< Max extracted operand + 1; 0 if absent, UINT64_MAX if negative.
   uint32_t source_formula_id, source_node_id;
   TlsfValueSection section;
 } TlsfValueInstance;

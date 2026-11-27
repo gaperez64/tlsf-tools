@@ -496,6 +496,8 @@ static Node *close_numeric(Arena *arena, const Node *n, const Env *env) {
 
 // §§4.1, 4.6: arguments belong to the caller; the substituted body belongs to
 // the declaration. Numeric closing also prevents capture by callee binders.
+static bool proves_bit_extractor(const DefDecl *def);
+
 static Node *instantiate(const TlsfSpec *spec, const DefDecl *d,
                          Node *const *actuals, const Env *env, int depth) {
   Node **closed = ARENA_ALLOC_N(spec->arena, Node *, d->param_count);
@@ -518,6 +520,14 @@ static Node *instantiate(const TlsfSpec *spec, const DefDecl *d,
       copy->source_id = source->source_id;
       closed[i] = copy;
     }
+  }
+  ValueOriginCapture *capture = spec->value_capture;
+  if (capture && capture->bit_operand_bound && !env->suppress_value_capture &&
+      d->param_count == 2 && closed[0]->kind == NODE_INT &&
+      closed[1]->kind == NODE_INT && proves_bit_extractor(d)) {
+    uint64_t bound = closed[0]->ival < 0 ? UINT64_MAX : (uint64_t)closed[0]->ival + 1;
+    if (bound > *capture->bit_operand_bound)
+      *capture->bit_operand_bound = bound;
   }
   return subst(spec->arena, d->body, d->params, closed, d->param_count, env);
 }
@@ -1664,12 +1674,22 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     *ok = false;
     return nullptr;
   }
+  ValueOriginCapture *capture = spec->value_capture;
+  uint64_t bound = 0, *outer = nullptr;
+  if (capture && capture->formula_id && !env->suppress_value_capture) {
+    outer = capture->bit_operand_bound;
+    capture->bit_operand_bound = &bound;
+  }
   Node *result = expand_node_impl(spec, n, env, ok, depth);
+  if (capture && capture->bit_operand_bound == &bound) {
+    capture->bit_operand_bound = outer;
+    if (outer && bound > *outer)
+      *outer = bound;
+  }
   if (!result || spec->arena->failed) {
     *ok = false;
     return nullptr;
   }
-  ValueOriginCapture *capture = spec->value_capture;
   if (capture && !env->suppress_value_capture && capture->formula_id &&
       arena_check_budget(capture->arena, 0) && n->source_id) {
     TlsfValueInstance *instance =
@@ -1678,6 +1698,7 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
       *instance = (TlsfValueInstance){.next = capture->record->instances,
                                       .expanded = (const TlsfAstNode *)result,
                                       .bindings = env->value_binding,
+                                      .bit_operand_bound = bound,
                                       .source_formula_id = capture->formula_id,
                                       .source_node_id = n->source_id,
                                       .section = capture->section};
@@ -2097,6 +2118,24 @@ static const Node *otherwise_value(const Node *node) {
                  node->if_cond->kind == NODE_TRUE
              ? node->if_then
              : nullptr;
+}
+
+// Extract bit i by halving v and decrementing i down to v % 2.
+static bool proves_bit_extractor(const DefDecl *def) {
+  const Node *body = def->body;
+  if (!body || body->kind != NODE_ITE ||
+      !is_formal_comparison(body->if_cond, NODE_CMP_LE, def->params[1], 0))
+    return false;
+  const Node *base = body->if_then, *step = otherwise_value(body->if_else);
+  if (!base || base->kind != NODE_INT_MOD ||
+      !is_formal(base->lhs, def->params[0]) || !is_integer(base->rhs, 2) ||
+      !step || step->kind != NODE_DEF_CALL || step->callee != def->name ||
+      step->call_argc != 2)
+    return false;
+  const Node *half = step->call_args[0], *prev = step->call_args[1];
+  return half->kind == NODE_INT_DIV && is_formal(half->lhs, def->params[0]) &&
+         is_integer(half->rhs, 2) && prev->kind == NODE_INT_SUB &&
+         is_formal(prev->lhs, def->params[1]) && is_integer(prev->rhs, 1);
 }
 
 static const Node *one_plus(const Node *node) {

@@ -9,6 +9,7 @@ typedef struct ValueOriginCapture {
   Arena *arena;
   TlsfValueOrigins *record;
   size_t remaining;
+  uint64_t *bit_operand_bound;
   uint32_t formula_id;
   TlsfValueSection section;
 } ValueOriginCapture;
