@@ -141,11 +141,41 @@ MAIN {
   CHECK(saw_p);
 }
 
+static void pattern_guard_origins() {
+  const auto captured = tlsf::convert_with_value_origins(R"(
+INFO { SEMANTICS: Mealy TARGET: Mealy }
+GLOBAL {
+  DEFINITIONS {
+    selector(bus, i) = i == 0 : (!bus[0] && !bus[1])
+                       otherwise : (bus[0] && !bus[1]);
+    choose(f) = f ~ (_ && _) : G p otherwise : false;
+  }
+}
+MAIN {
+  INPUTS { a[2]; }
+  OUTPUTS { p; }
+  GUARANTEE { &&[0 <= i < 2] choose(selector(a, i)); }
+}
+)",
+                                                         "Mealy");
+  CHECK(captured.conversion.preprocessed_ltl == "G p && G p");
+  const auto *origins = captured.ast.value_origins();
+  CHECK(origins && !origins->complete);
+  unsigned ap_count = 0;
+  for (auto *row = origins->instances; row; row = row->next)
+    if (tlsf_ast_node_kind(row->expanded) == TLSF_AST_AP) {
+      CHECK(std::strcmp(tlsf_ast_node_ap_name(row->expanded), "p") == 0);
+      ++ap_count;
+    }
+  CHECK(ap_count == 2);
+}
+
 int main() {
   value_origins();
   exhausted_value_origins();
   closed_domain_origins();
   discarded_argument_origins();
+  pattern_guard_origins();
   TlsfConversionResult *owned;
   std::shared_ptr<TlsfAst> retained;
   {

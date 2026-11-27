@@ -53,7 +53,7 @@ typedef struct Env {
   const struct Env *origin;
   const TlsfValueBinding *value_binding;
   bool identity;
-  bool identity_key;
+  bool suppress_value_capture;
 } Env;
 
 static const Node *subst_source_budgeted(Arena *arena, const Node *n,
@@ -100,19 +100,26 @@ static Env declaration_env(const Env *env) {
                .origin = env,
                .value_binding = env->value_binding,
                .identity = env->identity,
-               .identity_key = env->identity_key};
+               .suppress_value_capture = env->suppress_value_capture};
 }
 
 // ===========================================================================
 // Definition lookup
 // ===========================================================================
 
-static const DefDecl *find_def(const TlsfSpec *spec, const char *name,
-                               uint16_t argc) {
-  for (uint16_t i = 0; i < spec->def_count; i++)
+static inline const DefDecl *find_def_budgeted(const TlsfSpec *spec,
+                                               const char *name, uint16_t argc,
+                                               Arena *budget) {
+  for (uint16_t i = 0;
+       i < spec->def_count && (!budget || arena_check_budget(budget, 0)); i++)
     if (spec->defs[i].name == name && spec->defs[i].param_count == argc)
       return &spec->defs[i];
   return nullptr;
+}
+
+static const DefDecl *find_def(const TlsfSpec *spec, const char *name,
+                               uint16_t argc) {
+  return find_def_budgeted(spec, name, argc, nullptr);
 }
 
 // ===========================================================================
@@ -1088,7 +1095,7 @@ static bool eval_value(const TlsfSpec *spec, const Node *n, const Env *env,
     // spellings need the same core key. Keep the stored high-level bus node.
     // Range keys use the literal §4.8 spelling, independently of the output
     // expansion's equivalent distributed form.
-    lexical.identity = lexical.identity_key = true;
+    lexical.identity = lexical.suppress_value_capture = true;
     bool ok = true;
     out->key =
         expand_node((TlsfSpec *)spec, out->node, &lexical, &ok, depth + 1);
@@ -1259,7 +1266,7 @@ static bool bind_reduction_body(const TlsfSpec *spec, const Node *n,
                    .globals = env->globals,
                    .value_binding = env->value_binding,
                    .identity = env->identity,
-                   .identity_key = env->identity_key};
+                   .suppress_value_capture = env->suppress_value_capture};
     *body_env = child;
     return true;
   }
@@ -1455,8 +1462,11 @@ static bool select_ite_branch(const TlsfSpec *spec, const Node *n,
   bool ok = true;
   Env subject_env = *env;
   // Pattern matching keeps its existing subject spelling even while computing
-  // a set identity key. The subject still inherits identity_key for capture.
+  // a set identity key. Retained pattern bindings lack value attribution.
   subject_env.identity = false;
+  subject_env.suppress_value_capture = true;
+  if (spec->value_capture)
+    spec->value_capture->record->complete = false;
   Node *subject = expand_node((TlsfSpec *)spec, n->if_cond->lhs, &subject_env,
                               &ok, depth + 1);
   if (!ok)
@@ -1579,9 +1589,10 @@ static Node *expand_quantifier(TlsfSpec *spec, const Node *n, const Env *env,
     return nullptr;
   }
   bool is_all = (n->kind == NODE_FORALL);
-  const TlsfValueDomain *origin = spec->value_capture && !env->identity_key
-                                      ? record_domain(spec, n, domain, env)
-                                      : nullptr;
+  const TlsfValueDomain *origin =
+      spec->value_capture && !env->suppress_value_capture
+          ? record_domain(spec, n, domain, env)
+          : nullptr;
 
   if (domain->count == 0)
     return is_all ? node_true(spec->arena) : node_false(spec->arena);
@@ -1659,7 +1670,7 @@ static Node *expand_node(TlsfSpec *spec, const Node *n, const Env *env,
     return nullptr;
   }
   ValueOriginCapture *capture = spec->value_capture;
-  if (capture && !env->identity_key && capture->formula_id &&
+  if (capture && !env->suppress_value_capture && capture->formula_id &&
       arena_check_budget(capture->arena, 0) && n->source_id) {
     TlsfValueInstance *instance =
         ARENA_ALLOC(capture->arena, TlsfValueInstance);
@@ -2113,24 +2124,13 @@ static bool proves_floor_log2(const DefDecl *def) {
          is_integer(step->call_args[0]->rhs, 2);
 }
 
-static const DefDecl *find_width_def(const TlsfSpec *spec, const char *name,
-                                     Arena *budget) {
-  if (!budget)
-    return find_def(spec, name, 1);
-  for (uint16_t i = 0; i < spec->def_count && arena_check_budget(budget, 0);
-       i++)
-    if (spec->defs[i].name == name && spec->defs[i].param_count == 1)
-      return &spec->defs[i];
-  return nullptr;
-}
-
 static bool proves_bit_width(const TlsfSpec *spec, const Node *width,
                              Arena *budget) {
   if (!width || width->kind != NODE_INT_SUB || !is_integer(width->rhs, 1) ||
       !width->lhs || width->lhs->kind != NODE_DEF_CALL ||
       width->lhs->call_argc != 1)
     return false;
-  const DefDecl *def = find_width_def(spec, width->lhs->callee, budget);
+  const DefDecl *def = find_def_budgeted(spec, width->lhs->callee, 1, budget);
   if (!def || !def->body || def->body->kind != NODE_ITE ||
       def->param_count != 1)
     return false;
@@ -2145,7 +2145,7 @@ static bool proves_bit_width(const TlsfSpec *spec, const Node *width,
       !is_formal(step->call_args[0]->lhs, formal) ||
       !is_integer(step->call_args[0]->rhs, 1))
     return false;
-  return proves_floor_log2(find_width_def(spec, step->callee, budget));
+  return proves_floor_log2(find_def_budgeted(spec, step->callee, 1, budget));
 }
 
 typedef struct SourceIdChange {

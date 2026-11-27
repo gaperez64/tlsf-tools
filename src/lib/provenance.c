@@ -164,7 +164,7 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
       for (uint16_t i = 0; i < env->definition->param_count; i++) {
         if (spec->value_capture && !arena_check_budget(spec->arena, 0))
           return false;
-        if (strcmp(node->name, env->definition->params[i]) == 0)
+        if (node->name == env->definition->params[i])
           return width_dependencies(env->actuals[i], spec, env->parent, used,
                                     depth + 1);
       }
@@ -177,7 +177,7 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
     for (uint16_t i = 0; i < spec->param_count; i++) {
       if (spec->value_capture && !arena_check_budget(spec->arena, 0))
         return false;
-      if (strcmp(node->name, spec->params[i].name) == 0) {
+      if (node->name == spec->params[i].name) {
         used[i] = true;
         return true;
       }
@@ -185,8 +185,7 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
     for (uint16_t i = 0; i < spec->def_count; i++) {
       if (spec->value_capture && !arena_check_budget(spec->arena, 0))
         return false;
-      if (spec->defs[i].param_count == 0 &&
-          strcmp(node->name, spec->defs[i].name) == 0) {
+      if (spec->defs[i].param_count == 0 && node->name == spec->defs[i].name) {
         const WidthEnv nested = {env, &spec->defs[i], nullptr};
         for (const WidthEnv *parent = env; parent; parent = parent->parent) {
           if (spec->value_capture && !arena_check_budget(spec->arena, 0))
@@ -206,7 +205,7 @@ static bool width_dependencies(const Node *node, const WidthSource *spec,
       if (spec->value_capture && !arena_check_budget(spec->arena, 0))
         return false;
       if (spec->defs[i].param_count == node->call_argc &&
-          strcmp(node->callee, spec->defs[i].name) == 0) {
+          node->callee == spec->defs[i].name) {
         definition = &spec->defs[i];
         break;
       }
