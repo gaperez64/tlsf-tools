@@ -5,6 +5,7 @@
 #include "diagnostic.h"
 #include "gr.h"
 #include "nnf.h"
+#include "provenance.h"
 #include "spec_internal.h"
 #include <ctype.h>
 #include <stdlib.h>
@@ -339,6 +340,13 @@ static bool collect_spec_signals(TlsfConversionResult *result, TlsfSpec *spec) {
 
 TlsfConversionResult *tlsf_convert(const char *text,
                                    const char *effective_target) {
+  return tlsf_convert_ex(text, effective_target, false);
+}
+
+TlsfConversionResult *tlsf_convert_ex(const char *text,
+                                      const char *effective_target,
+                                      bool capture_value_origins) {
+  ValueOriginCapture capture = {0};
   if (!text)
     return nullptr;
   FILE *input = fmemopen((void *)text, strlen(text), "r");
@@ -360,9 +368,22 @@ TlsfConversionResult *tlsf_convert(const char *text,
             "tlsf-convert: finite TLSF semantics are not supported\n");
     goto fail;
   }
-  if (!conversion_prepare(spec, nullptr, effective_target, nullptr, 0, false,
-                          "tlsf-convert") ||
-      !spec_validate_lowercase_signals(spec, "tlsf-convert") ||
+  if (capture_value_origins) {
+    value_origin_capture_init(&capture);
+    if (capture.record)
+      spec->value_capture = &capture;
+  }
+  const bool prepared = conversion_prepare(spec, nullptr, effective_target,
+                                           nullptr, 0, false, "tlsf-convert");
+  spec->value_capture = nullptr;
+  if (capture.arena && arena_failed(capture.arena)) {
+    arena_free(capture.arena);
+    capture.arena = nullptr;
+    capture.record = nullptr;
+  }
+  if (capture.arena)
+    arena_set_budget(capture.arena, nullptr, nullptr);
+  if (!prepared || !spec_validate_lowercase_signals(spec, "tlsf-convert") ||
       !spec_validate_ltlxba_atoms(spec, "tlsf-convert"))
     goto fail;
   result->effective_target =
@@ -383,11 +404,13 @@ TlsfConversionResult *tlsf_convert(const char *text,
                                    &result->n_indexed_families, spec, true) ||
       !collect_spec_signals(result, spec) || arena_failed(spec->arena))
     goto fail;
-  result->ast = tlsf_ast_take_conversion(spec, root);
+  result->ast = tlsf_ast_take_conversion(spec, root, capture.arena);
   if (!result->ast)
     goto fail;
+  result->value_origins = capture.record;
   return result;
 fail:
+  arena_free(capture.arena);
   spec_free(spec);
   tlsf_conversion_result_free(result);
   return nullptr;

@@ -4,5 +4,6 @@
 #include "tlsf/spec.h"
 
 // Takes ownership of spec only on success; retains a lowercase clone of root.
-TlsfAst *tlsf_ast_take_conversion(TlsfSpec *spec, const Node *root);
+TlsfAst *tlsf_ast_take_conversion(TlsfSpec *spec, const Node *root,
+                                  Arena *value_arena);
 #endif

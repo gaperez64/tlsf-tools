@@ -1,3 +1,4 @@
+#include "tlsf/convert.hpp"
 #include "tlsf/gr1_lift.h"
 #include "tlsf/pipeline.h"
 #include "yyjson_cpp.hh"
@@ -110,6 +111,37 @@ static TlsfGr1LiftStatus lift(const char *bytes, const TlsfGr1LiftOptions &o,
                               TlsfGr1LiftResult *r, TlsfGr1LiftError *e) {
   return tlsf_gr1_lift(reinterpret_cast<const uint8_t *>(bytes), strlen(bytes),
                        nullptr, 0, &o, r, e);
+}
+
+static void conversion_keeps_lift_provenance() {
+  const auto captured = tlsf::convert_with_value_origins(source, "Mealy");
+  CHECK(captured.ast.value_origins() && captured.ast.value_origins()->complete);
+  {
+    std::unique_ptr<TlsfPipeline, decltype(&tlsf_pipeline_free)> pipeline(
+        tlsf_pipeline_load_bytes(reinterpret_cast<const uint8_t *>(source),
+                                 strlen(source), nullptr),
+        tlsf_pipeline_free);
+    CHECK(pipeline && pipeline->frontend_provenance_json);
+    char digest[65];
+    CHECK(tlsf_pipeline_source_sha256(pipeline->frontend_provenance_json,
+                                      pipeline->frontend_provenance_size,
+                                      digest));
+    // Baseline from a715666, before conversion capture.
+    CHECK(!strcmp(
+        digest,
+        "4daf1fe698775bf2040c139f81e2c83daff723b4883dd0e4913112cbee3e218d"));
+  }
+  TlsfGr1LiftResult result{};
+  TlsfGr1LiftError error{};
+  TlsfGr1LiftStats stats{};
+  auto o = options();
+  o.stats = &stats;
+  CHECK(lift(source, o, &result, &error) == TLSF_GR1_LIFT_OK);
+  CHECK(result.method == TLSF_GR1_CHECK_CERTIFICATE &&
+        result.verdict == TLSF_GR1_CHECK_VERIFIED);
+  CHECK(stats.seed_probes == 4 && stats.seeds_selected == 3 &&
+        stats.seed_solves == 3);
+  tlsf_gr1_lift_result_clear(&result);
 }
 static void bounded_seed_declines() {
   std::string parameters = "GLOBAL { PARAMETERS { ";
@@ -771,6 +803,7 @@ int main(int argc, char **argv) {
   }
   if (argc >= 4 && !strcmp(argv[1], "--fold-measure"))
     return fold_measure(argv[2], std::stoi(argv[3]), argc == 5);
+  conversion_keeps_lift_provenance();
   bounded_seed_declines();
   discovery_budget_declines();
   corruption_guards();
